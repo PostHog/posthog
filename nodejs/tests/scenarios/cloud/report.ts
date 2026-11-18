@@ -4,8 +4,9 @@ import { z } from 'zod'
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { EXIT_CODE, Status } from '../runner/status'
-import { SCHEMA_VERSION, ScorecardProperties } from '../scorecard/scorecard'
+import { ADAPTERS, SCHEMA_VERSION, ScorecardProperties } from '../scorecard/scorecard'
 import { publish } from '../scorecard/write'
+import { reportToStore } from '../store/client'
 import { Controller, HOURS_PER_MONTH, dollars } from './admission'
 import { Aws } from './aws'
 import { FAILOVER_VALVE } from './card'
@@ -165,7 +166,10 @@ function costOf(profile: CloudProfile, hours: number, capacity: Capacity | undef
         [`reader, ${acuHours.toFixed(2)} ACU-hours, ${missing}`, acuHours * rates.acuPerHour],
         [`host ${profile.host.class}, ${hours.toFixed(2)} h`, hours * rates.hostPerHour],
         [`Aurora storage, ${allowances.storageGb} GB bound`, allowances.storageGb * rates.storagePerGbMonth * months],
-        [`host EBS, ${profile.host.ebsGb} GB`, profile.host.ebsGb * rates.ebsPerGbMonth * months],
+        [
+            `host EBS, ${profile.baseline.hostRootVolumeGb} GB`,
+            profile.baseline.hostRootVolumeGb * rates.ebsPerGbMonth * months,
+        ],
     ]
 }
 
@@ -250,6 +254,7 @@ export async function report(
     const properties: ScorecardProperties = {
         schema_version: SCHEMA_VERSION,
         card_id: card.id,
+        adapters: ADAPTERS,
         ...host?.event,
         ...environment,
         run_id: runId,
@@ -290,6 +295,12 @@ export async function report(
         controller.warn(`Could not publish the scorecard to Scenario runs: ${written.problem}`)
     } else {
         controller.print('Scenario runs credentials are not set, so the scorecard is not published.')
+    }
+    const reported = await reportToStore({ scorecard: properties }, controller.env)
+    if (reported.stored) {
+        controller.print('Reported the run to the run store.')
+    } else if (reported.problem) {
+        controller.warn(`Could not report the run to the run store: ${reported.problem}`)
     }
     if (written.problem || (!kept && !written.recorded)) {
         return EXIT_CODE.writeFailed

@@ -25,7 +25,7 @@
             "type": "string"
         },
         "type": {
-            "description": "Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.\n\n* `PostHogWarehouse` - PostHog warehouse\n* `Redshift` - Redshift\n* `Snowflake` - Snowflake\n* `BigQuery` - BigQuery\n* `Postgres` - Postgres\n* `Databricks` - Databricks\n* `AzureBlob` - Azure Blob\n* `S3` - S3",
+            "description": "Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.\n\n* `PostHogWarehouse` - PostHog warehouse\n* `Redshift` - Redshift\n* `Snowflake` - Snowflake\n* `BigQuery` - BigQuery\n* `Postgres` - Postgres\n* `Databricks` - Databricks\n* `AzureBlob` - Azure Blob\n* `S3` - S3\n* `MotherDuck` - MotherDuck",
             "enum": [
                 "PostHogWarehouse",
                 "Redshift",
@@ -34,7 +34,8 @@
                 "Postgres",
                 "Databricks",
                 "AzureBlob",
-                "S3"
+                "S3",
+                "MotherDuck"
             ],
             "type": "string"
         }

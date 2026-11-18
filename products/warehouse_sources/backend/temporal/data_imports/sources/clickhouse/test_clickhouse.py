@@ -42,6 +42,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse
     get_primary_keys_for_schemas,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.source import (
+    _CLOUDFLARE_TUNNEL_DOWN,
+    _EGRESS_DENIED_PRIVATE_HOST,
     _REDIRECTED,
     _TEMPORARILY_UNAVAILABLE,
     GENERIC_CONNECTION_ERROR,
@@ -473,12 +475,28 @@ class TestClickHouseSourceRetryableErrors:
         retryable = source.get_retryable_errors()
         assert not any(pattern in error_msg for pattern in retryable)
 
-    def test_bare_gateway_status_is_classified_as_retryable(self, source):
-        # A bare HTTP 500 (no X-ClickHouse-Exception-Code header) means a proxy/load balancer in
-        # front of ClickHouse failed, not ClickHouse itself — the same transient shape as the
-        # already-retryable 502/503/504. Without this, a transient gateway blip would be reported
-        # as tracked exception noise on every occurrence instead of silently retried.
-        error_msg = "HTTP driver received HTTP status 500, server response: An unexpected error occurred: EOF (for url https://host:8443)"
+    @pytest.mark.parametrize(
+        ("_name", "error_msg"),
+        [
+            (
+                # A bare HTTP 500 (no X-ClickHouse-Exception-Code header) means a proxy/load
+                # balancer in front of ClickHouse failed, not ClickHouse itself — the same
+                # transient shape as the already-retryable 502/503/504.
+                "bare_500",
+                "HTTP driver received HTTP status 500, server response: An unexpected error occurred: EOF (for url https://host:8443)",
+            ),
+            (
+                # Cloudflare's own "Argo Tunnel error" diagnostic (HTTP 530, error code 1033):
+                # the Cloudflare Tunnel in front of the host lost its connection to the origin.
+                # cloudflared reconnects on its own, so this gets the same transient treatment.
+                "cloudflare_tunnel_down",
+                "HTTP driver received HTTP status 530, server response: error code: 1033 (for url https://host:8443)",
+            ),
+        ],
+    )
+    def test_bare_gateway_status_is_classified_as_retryable(self, source, _name, error_msg):
+        # Without the matching entry, a transient gateway blip would be reported as tracked
+        # exception noise on every occurrence instead of silently retried.
         retryable = source.get_retryable_errors()
         assert any(pattern in error_msg for pattern in retryable)
 
@@ -634,6 +652,58 @@ class TestTranslateError:
         # ClickHouse is briefly down, not that the connection details are wrong.
         msg = f"HTTP driver received HTTP status {code} (for url https://host:8443)"
         assert ClickHouseSource._translate_error(msg) == _TEMPORARILY_UNAVAILABLE
+
+    def test_cloudflare_tunnel_error_names_the_tunnel(self):
+        # Cloudflare's own "error code: 1033" (Argo Tunnel error), not a ClickHouse one — the
+        # generic gateway copy above would send the customer to check the wrong thing.
+        msg = "HTTP driver received HTTP status 530, server response: error code: 1033 (for url https://host:8443)"
+        assert ClickHouseSource._translate_error(msg) == _CLOUDFLARE_TUNNEL_DOWN
+
+    @pytest.mark.parametrize(
+        "msg",
+        [
+            # Host resolved to a private-range address.
+            "HTTP driver received HTTP status 407, server response: Egress proxying is denied to host "
+            "'172.20.136.220:8000': no valid IP found among resolved addresses - 172.20.136.220 denied by "
+            "rule 'Deny: Private Range'. . (for url http://example.com:8123)",
+            # Different host and deny rule — the match must not depend on either.
+            "HTTP driver received HTTP status 407, server response: Egress proxying is denied to host "
+            "'169.254.169.254:80': no valid IP found among resolved addresses - 169.254.169.254 denied by "
+            "rule 'Deny: Not Global Unicast'. . (for url http://other.example.com:8443)",
+        ],
+    )
+    def test_egress_denied_host_maps_to_private_host_error(self, msg):
+        assert ClickHouseSource._translate_error(msg) == _EGRESS_DENIED_PRIVATE_HOST
+
+
+class TestClickHouseSourceNonRetryableErrors:
+    @pytest.fixture
+    def source(self):
+        return ClickHouseSource()
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            # Host resolved to a private-range address.
+            "DatabaseError: HTTP driver received HTTP status 407, server response: Egress proxying is denied "
+            "to host '172.20.136.220:8000': no valid IP found among resolved addresses - 172.20.136.220 "
+            "denied by rule 'Deny: Private Range'. . (for url http://example.com:18123)",
+            # Different host and deny rule — the match must not rely on either volatile detail.
+            "DatabaseError: HTTP driver received HTTP status 407, server response: Egress proxying is denied "
+            "to host '169.254.169.254:80': no valid IP found among resolved addresses - 169.254.169.254 "
+            "denied by rule 'Deny: Not Global Unicast'. . (for url http://other.example.com:8443)",
+        ],
+    )
+    def test_egress_denied_host_is_non_retryable(self, source, observed_error):
+        # Our egress proxy re-resolves the configured host on every connection, independently of
+        # this source's own setup-time DNS check — so a host that now resolves to a private/
+        # internal address is denied every attempt. Without this entry, `_handle_import_error`
+        # would retry the activity to its maximum before giving up, instead of stopping after a
+        # few attempts (see `get_non_retryable_errors`'s matching entry).
+        non_retryable_errors = source.get_non_retryable_errors()
+        matching = [key for key in non_retryable_errors if key in observed_error]
+        assert matching, "Egress-denied host error should be recognised as non-retryable"
+        assert all(non_retryable_errors[key] == _EGRESS_DENIED_PRIVATE_HOST for key in matching)
 
 
 class TestGetSchemas:

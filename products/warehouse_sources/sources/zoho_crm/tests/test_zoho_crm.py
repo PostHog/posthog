@@ -1,3 +1,4 @@
+import json
 from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, date, datetime
 from typing import Any, Optional
@@ -18,7 +19,7 @@ from products.warehouse_sources.sources.sdk.testing import (
     source_inputs,
 )
 from products.warehouse_sources.sources.zoho_crm._config import ZohoCRMSourceConfig
-from products.warehouse_sources.sources.zoho_crm.source import ZohoCRMSource
+from products.warehouse_sources.sources.zoho_crm.source import SCOPE_MISMATCH_MESSAGE, ZohoCRMSource
 from products.warehouse_sources.sources.zoho_crm.zoho_crm import (
     CLIENT_REJECTED_MESSAGE,
     CLIENT_SECRET_REJECTED_MESSAGE,
@@ -98,13 +99,14 @@ def _run(
     endpoint: str,
     data: Sequence[ScriptedResponse],
     resume_state: Optional[ZohoCRMResumeConfig] = None,
+    tokens: Optional[Sequence[ScriptedResponse]] = None,
     **inputs: Any,
 ) -> DriveResult:
     driver = SourceDriver(
         ZohoCRMSource(),
         ZohoCRMSourceConfig(client_id="cid", client_secret="secret", refresh_token="refresh", region="us"),
     )
-    return driver.run(endpoint, _script(data), resume_state=resume_state, **inputs)
+    return driver.run(endpoint, _script(data, tokens), resume_state=resume_state, **inputs)
 
 
 def _crm_requests(result: DriveResult) -> list[RecordedRequest]:
@@ -261,6 +263,22 @@ class TestReadableFieldNames:
         non_retryable = ZohoCRMSource().get_non_retryable_errors()
         assert any(pattern.lower() in str(ctx.value).lower() for pattern in non_retryable)
 
+    def test_scope_mismatch_names_the_scope_instead_of_blaming_the_token(self) -> None:
+        # Zoho answers a missing settings scope with a 401, which the client re-mints once for.
+        body = {"code": "OAUTH_SCOPE_MISMATCH", "message": "invalid oauth scope to access this URL"}
+        result = _run(
+            "Territories", [_response(401, body), _response(401, body)], tokens=[_token_response(), _token_response()]
+        )
+
+        assert isinstance(result.raised, ZohoCRMApiError)
+        error = str(result.raised).lower()
+        friendly = [
+            message
+            for pattern, message in ZohoCRMSource().get_non_retryable_errors().items()
+            if pattern.lower() in error
+        ]
+        assert friendly[0] == SCOPE_MISMATCH_MESSAGE
+
 
 class TestGetRows:
     def test_incremental_sync_filters_and_sorts_on_the_cursor_field(self) -> None:
@@ -316,16 +334,38 @@ class TestGetRows:
         assert _crm_requests(result)[1].param("page") == "1"
         assert _crm_requests(result)[1].param("page_token") is None
 
-    def test_users_endpoint_skips_field_metadata_and_reads_its_own_envelope(self) -> None:
-        result = _run("Users", [_records_response([{"id": "u1"}], data_key="users")])
+    @pytest.mark.parametrize(
+        ("endpoint", "data_key", "path", "type_param"),
+        [
+            ("Users", "users", "/crm/v8/users", "AllUsers"),
+            ("Territories", "territories", "/crm/v8/settings/territories", None),
+        ],
+    )
+    def test_settings_endpoints_skip_field_metadata_and_read_their_own_envelope(
+        self, endpoint: str, data_key: str, path: str, type_param: Optional[str]
+    ) -> None:
+        result = _run(endpoint, [_records_response([{"id": "x1"}], data_key=data_key)])
 
         requests_made = _crm_requests(result)
-        assert result.items == [[{"id": "u1"}]]
+        assert result.items == [[{"id": "x1"}]]
         assert len(requests_made) == 1
-        assert requests_made[0].url.startswith("https://www.zohoapis.com/crm/v8/users")
-        assert requests_made[0].param("type") == "AllUsers"
+        assert requests_made[0].path == path
+        assert requests_made[0].param("type") == type_param
         assert requests_made[0].param("sort_by") is None
         assert requests_made[0].param("fields") is None
+
+    def test_discovered_custom_module_reads_through_get_records(self) -> None:
+        result = _run(
+            "Custom_Projects",
+            [_fields_response(1), _records_response([{"id": "p1"}])],
+            incremental_field="Modified_Time",
+            db_incremental_field_last_value=datetime(2024, 6, 1, tzinfo=UTC),
+        )
+
+        records_request = _crm_requests(result)[1]
+        assert result.items == [[{"id": "p1"}]]
+        assert records_request.path == "/crm/v8/Projects"
+        assert records_request.headers["if-modified-since"] == "2024-06-01T00:00:00+00:00"
 
     def test_empty_records_body_stops_pagination_without_crashing(self) -> None:
         result = _run(
@@ -361,6 +401,132 @@ class TestGetRows:
 
         assert isinstance(result.raised, ZohoCRMApiError)
         assert "INVALID_MODULE: the module name given seems to be invalid" in str(result.raised)
+
+
+class TestPipelines:
+    def test_reads_the_pipelines_of_every_deals_layout(self) -> None:
+        result = _run(
+            "Pipelines",
+            [
+                _response(200, {"layouts": [{"id": "L1"}, {"id": "L2"}, {"name": "no id"}]}),
+                _response(200, {"pipeline": [{"id": "P1", "maps": []}, {"id": "P2", "maps": []}]}),
+                _no_content_response(204),
+            ],
+        )
+
+        requests_made = _crm_requests(result)
+        assert result.raised is None
+        assert result.rows == [
+            {"id": "P1", "maps": [], "layout_id": "L1"},
+            {"id": "P2", "maps": [], "layout_id": "L1"},
+        ]
+        assert requests_made[0].path == "/crm/v8/settings/layouts"
+        assert requests_made[0].param("module") == "Deals"
+        assert [request.param("layout_id") for request in requests_made[1:]] == ["L1", "L2"]
+        assert result.response is not None and result.response.primary_keys == ["layout_id", "id"]
+
+
+def _deals_response(ids: list[str], more_records: bool = False, next_page_token: Optional[str] = None):
+    return _records_response([{"id": deal_id} for deal_id in ids], more_records, next_page_token)
+
+
+def _timeline_response(ids: list[str], next_page_token: Optional[str] = None) -> ScriptedResponse:
+    info = {"more_records": next_page_token is not None, "next_page_token": next_page_token}
+    return _response(200, {"__timeline": [{"id": entry_id} for entry_id in ids], "info": info})
+
+
+class TestDealTimeline:
+    def test_walks_every_timeline_page_of_every_deal(self) -> None:
+        result = _run(
+            "Deal_Timeline",
+            [
+                _deals_response(["D1", "D2"], more_records=True, next_page_token="deals-2"),
+                _timeline_response(["t1"], next_page_token="tl-2"),
+                _timeline_response(["t2"]),
+                _no_content_response(204),
+                _deals_response(["D3"]),
+                _timeline_response(["t3"]),
+            ],
+        )
+
+        requests_made = _crm_requests(result)
+        assert result.raised is None
+        assert result.rows == [
+            {"id": "t1", "deal_id": "D1"},
+            {"id": "t2", "deal_id": "D1"},
+            {"id": "t3", "deal_id": "D3"},
+        ]
+        assert [request.path for request in requests_made] == [
+            "/crm/v8/Deals",
+            "/crm/v8/Deals/D1/__timeline",
+            "/crm/v8/Deals/D1/__timeline",
+            "/crm/v8/Deals/D2/__timeline",
+            "/crm/v8/Deals",
+            "/crm/v8/Deals/D3/__timeline",
+        ]
+        # Zoho refuses per_page next to page_token on the timeline.
+        assert (requests_made[2].param("page_token"), requests_made[2].param("per_page")) == ("tl-2", None)
+        assert requests_made[4].param("page_token") == "deals-2"
+        assert result.final_state is None
+        assert result.response is not None
+        assert result.response.primary_keys == ["deal_id", "id"]
+        assert result.response.sort_mode is None
+
+    def test_incremental_run_narrows_deals_and_entries_to_the_watermark(self) -> None:
+        result = _run(
+            "Deal_Timeline",
+            [_deals_response(["D1"]), _timeline_response(["t1"])],
+            incremental_field="audited_time",
+            db_incremental_field_last_value=datetime(2024, 6, 1, tzinfo=UTC),
+        )
+
+        deals_request, timeline_request = _crm_requests(result)
+        assert deals_request.headers["if-modified-since"] == "2024-06-01T00:00:00+00:00"
+        filters = json.loads(timeline_request.param("filters") or "")
+        assert filters["field"] == {"api_name": "audited_time"}
+        assert filters["comparator"] == "between"
+        assert filters["value"][0] == "2024-06-01T00:00:00+00:00"
+
+    def test_full_refresh_reads_every_entry(self) -> None:
+        result = _run("Deal_Timeline", [_deals_response(["D1"]), _timeline_response(["t1"])])
+
+        deals_request, timeline_request = _crm_requests(result)
+        assert "if-modified-since" not in deals_request.headers
+        assert timeline_request.param("filters") is None
+
+    @pytest.mark.parametrize(
+        ("deal_ids", "saved_token", "expected_calls"),
+        [
+            (["998", "999", "1000"], "tl-999", [("999", "tl-999"), ("1000", None)]),
+            (["999", "1000"], "tl-999", [("999", "tl-999"), ("1000", None)]),
+            (["998", "999", "1000"], "", [("1000", None)]),
+            (["998", "1000"], "tl-999", [("1000", None)]),
+        ],
+        ids=["inside_deal", "earlier_deal_deleted", "deal_finished", "saved_deal_deleted"],
+    )
+    def test_resumes_at_the_saved_deal(
+        self, deal_ids: list[str], saved_token: str, expected_calls: list[tuple[str, Optional[str]]]
+    ) -> None:
+        result = _run(
+            "Deal_Timeline",
+            [_deals_response(deal_ids), *[_timeline_response([f"t{index}"]) for index in range(len(expected_calls))]],
+            resume_state=ZohoCRMResumeConfig(page=1, parent_id="999", child_page_token=saved_token),
+        )
+
+        timeline_calls = [
+            (request.path.split("/")[-2], request.param("page_token")) for request in _crm_requests(result)[1:]
+        ]
+        assert result.raised is None
+        assert timeline_calls == expected_calls
+
+    def test_saves_the_position_inside_a_deal_before_yielding_its_page(self) -> None:
+        result = _run(
+            "Deal_Timeline",
+            [_deals_response(["D1", "D2"]), _timeline_response(["t1"], next_page_token="tl-2"), _timeline_response([])],
+        )
+
+        assert result.saved_states[0] == ZohoCRMResumeConfig(page=1, parent_id="D1", child_page_token="tl-2")
+        assert result.saved_states[1] == ZohoCRMResumeConfig(page=1, parent_id="D1")
 
 
 class TestValidateCredentials:

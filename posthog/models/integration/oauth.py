@@ -30,7 +30,7 @@ from posthog.integrations.secret_reads import UndecryptedIntegrationSecretError
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.schema_enums import SlackIntegrationScope, SlackIntegrationScopeInReview
-from posthog.scopes import get_oauth_scopes_supported
+from posthog.scopes.oauth import OAUTH_SCOPES_SUPPORTED
 
 from . import apple_ads, common, model, refresh_tracking, row_writes
 
@@ -391,7 +391,7 @@ POSTHOG_CONNECT_IDENTITY_SCOPES = ("openid", "email")
 # hidden, and privileged scopes). The real bound is enforced twice more downstream: the target cell's
 # OAuthApplication.allowed_scopes at consent time, and the target's per-request scope checks. Identity
 # scopes are auto-added and not part of this set.
-POSTHOG_CONNECT_GRANTABLE_SCOPES = frozenset(get_oauth_scopes_supported())
+POSTHOG_CONNECT_GRANTABLE_SCOPES = frozenset(OAUTH_SCOPES_SUPPORTED)
 
 
 @frozen

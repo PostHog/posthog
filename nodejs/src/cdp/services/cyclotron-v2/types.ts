@@ -18,6 +18,9 @@ export type CyclotronV2PoolConfig = {
     dbUrl: string
     maxConnections?: number
     idleTimeoutMs?: number
+    // Bound how long one query, or the wait for a connection, can take. Unset means no limit.
+    statementTimeoutMs?: number
+    connectionTimeoutMs?: number
 }
 
 export const CyclotronV2JobInitSchema = z.object({
@@ -48,7 +51,10 @@ export type CyclotronV2JobInit = z.infer<typeof CyclotronV2JobInitSchema>
 export type CyclotronV2IdempotentJobInit = {
     job: CyclotronV2JobInit & { id: string }
     fingerprint: string
+    reply?: Record<string, unknown>
 }
+
+export type CyclotronV2IdempotencyKey = { fingerprint: string; reply: Record<string, unknown> | null }
 
 export type CyclotronV2IdempotentOutcome = 'created' | 'replayed' | 'mismatch'
 
@@ -255,6 +261,7 @@ export type CyclotronV2WorkerConfig = {
     pollDelayMaxMs?: number
     heartbeatTimeoutMs?: number
     releaseWriteHeartbeatLimitMs?: number
+    releaseWriteRetry?: boolean
     includeEmptyBatches?: boolean
     boundedPolls?: boolean
     ownershipReadTimeoutMs?: number

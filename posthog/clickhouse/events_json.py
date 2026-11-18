@@ -58,8 +58,9 @@ def is_temporary_event_property(key: str) -> bool:
 
 # Every path not declared below is a dynamic subcolumn (up to the column's max_dynamic_paths per part, then
 # shared data) and keeps its JSON type. Declare only what ClickHouse cannot infer: LowCardinality
-# for genuinely low-cardinality strings, the feature-flags map, the String join keys behind the
-# $session_id, $window_id, and $group_N columns, and the arrays the event cleaner coerces.
+# for genuinely low-cardinality strings, the feature-flags map, and the String join keys behind the
+# $session_id, $window_id, and $group_N columns. The cleaner writes every object and array as a JSON string, so
+# none is declared here.
 EVENTS_PROPERTIES_JSON_MAX_DYNAMIC_PATHS = 1024
 PERSON_PROPERTIES_JSON_MAX_DYNAMIC_PATHS = 256
 TEMPORARY_PROPERTIES_JSON_TYPE = "JSON(max_dynamic_paths = 32)"
@@ -81,11 +82,6 @@ EVENTS_PROPERTIES_JSON_SUBCOLUMN_DECLARED_TYPES: dict[str, str] = {
     "$config_defaults": "LowCardinality(String)",
     "$current_url": "String",
     "$device_type": "LowCardinality(String)",
-    "$exception_functions": "Array(String)",
-    "$exception_list": "Array(JSON(max_dynamic_paths = 0, type String, value String))",
-    "$exception_sources": "Array(String)",
-    "$exception_types": "Array(String)",
-    "$exception_values": "Array(String)",
     "$feature_flags": "Map(LowCardinality(String), LowCardinality(String))",
     "$geoip_city_name": "LowCardinality(String)",
     "$geoip_continent_code": "LowCardinality(String)",
@@ -102,7 +98,6 @@ EVENTS_PROPERTIES_JSON_SUBCOLUMN_DECLARED_TYPES: dict[str, str] = {
     "$host": "String",
     "$lib": "LowCardinality(String)",
     "$lib_version": "LowCardinality(String)",
-    "$mcp_listed_tool_names": "Array(String)",
     "$os": "LowCardinality(String)",
     "$os_version": "LowCardinality(String)",
     "$pathname": "String",

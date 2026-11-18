@@ -38,7 +38,7 @@ dev = [
     "respx>=0.22.0",
     "openai>=2.20.0",
     "anthropic>=0.80.0",
-    "fakeredis==2.23.3",
+    "fakeredis==2.34.1",
     "asyncpg-stubs>=0.30.0",
     "types-cachetools>=5.5.0",
 ]

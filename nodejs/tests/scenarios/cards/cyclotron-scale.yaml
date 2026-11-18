@@ -41,3 +41,4 @@ bars:
               - email
 measure:
     - name: delivery_latency_ms
+    - name: step_claims_per_second

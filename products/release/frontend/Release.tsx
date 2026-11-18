@@ -28,6 +28,7 @@ import { ReleaseLoadError } from './ReleaseLoadError'
 import { releaseLogic } from './releaseLogic'
 import { ReleaseMergeButton } from './ReleaseMergeButton'
 import { ReleaseMergeIntoDialog } from './ReleaseMergeIntoDialog'
+import { ReleaseMetricsCard } from './ReleaseMetricsCard'
 import { ReleasePartialLoadWarning } from './ReleasePartialLoadWarning'
 import { ReleaseScheduleButton } from './ReleaseScheduleButton'
 import { ReleaseScheduleDialog } from './ReleaseScheduleDialog'
@@ -125,6 +126,7 @@ function ReleaseContent({ id }: ReleaseSceneProps): JSX.Element {
             <SceneTitleSection
                 name={row.name}
                 description={row.description}
+                descriptionAlwaysVisible
                 resourceType={{ type: 'release', forceIcon: <IconFlag /> }}
                 canEdit={canEditReleases}
                 renameDebounceMs={800}
@@ -142,6 +144,7 @@ function ReleaseContent({ id }: ReleaseSceneProps): JSX.Element {
                 <div className="grid items-start gap-4 @4xl:grid-cols-3">
                     <div className="flex min-w-0 flex-col gap-4 @4xl:col-span-2">
                         <ReleaseStatusCard row={row} />
+                        <ReleaseMetricsCard row={row} />
                         <ReleaseTrackCard row={row} />
                         <ReleaseHistory row={row} />
                     </div>

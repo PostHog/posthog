@@ -56,10 +56,26 @@ export function parseMessageTopHogMetrics<
     ]
 }
 
-export function createParseKafkaMessageStep<T extends { message: Message }>(): ProcessingStep<
-    T,
-    T & { event: IncomingEvent }
-> {
+export interface ParsedKafkaMessage {
+    event: IncomingEvent
+}
+
+export interface MeasuredEventBytes {
+    eventBytes: number
+}
+
+export interface ParseKafkaMessageOptions {
+    measureEventBytes: true
+}
+
+// Measuring is opt-in so pipelines that never read the size skip a pass over every event body.
+export function createParseKafkaMessageStep<T extends { message: Message }>(
+    parseOptions: ParseKafkaMessageOptions
+): ProcessingStep<T, T & ParsedKafkaMessage & MeasuredEventBytes>
+export function createParseKafkaMessageStep<T extends { message: Message }>(): ProcessingStep<T, T & ParsedKafkaMessage>
+export function createParseKafkaMessageStep<T extends { message: Message }>(
+    parseOptions?: ParseKafkaMessageOptions
+): ProcessingStep<T, T & ParsedKafkaMessage & Partial<MeasuredEventBytes>> {
     return function parseKafkaMessageStep(input) {
         const { message } = input
 
@@ -70,7 +86,8 @@ export function createParseKafkaMessageStep<T extends { message: Message }>(): P
                 options,
                 ...rawEvent
             } = requireObject(parseJSON(message.value!.toString()), 'outer message')
-            const data = requireObject(parseJSON(requireString(dataStr, 'data')), 'data field')
+            const eventJson = requireString(dataStr, 'data')
+            const data = requireObject(parseJSON(eventJson), 'data field')
             const combinedEvent: Record<string, unknown> = { ...data, ...rawEvent }
 
             if (!combinedEvent.uuid || !UUID.validateString(combinedEvent.uuid, false)) {
@@ -84,7 +101,8 @@ export function createParseKafkaMessageStep<T extends { message: Message }>(): P
             applyCaptureOptions(options, parsed.properties!, message.headers)
             const event: PipelineEvent = sanitizeEvent(parsed)
 
-            return Promise.resolve(ok({ ...input, event: { event } }))
+            const measured = parseOptions?.measureEventBytes ? { eventBytes: Buffer.byteLength(eventJson, 'utf8') } : {}
+            return Promise.resolve(ok({ ...input, event: { event }, ...measured }))
         } catch (error) {
             logger.warn('Failed to parse Kafka message', { error })
             return Promise.resolve(

@@ -31,6 +31,8 @@ function row(
         broadcast_ids: [],
         survey_ids: surveyIds,
         insight_ids: [],
+        metric_insight_ids: [],
+        metric_goals: [],
         insights: [],
         surveys: [],
         broadcasts: [],
@@ -71,6 +73,12 @@ const LAUNCH_SEND = {
 } as unknown as SendCalendarFlowApi
 
 describe('buildReleaseRow', () => {
+    it('marks a flag without an end date as ongoing', () => {
+        const result = row(false)
+
+        expect(result.spans.find((span) => span.kind === 'flag')?.ongoing).toBe(true)
+    })
+
     it('shows the sends of a linked broadcast and stops suggesting one', () => {
         const release = {
             id: 'release-1',
@@ -82,6 +90,8 @@ describe('buildReleaseRow', () => {
             broadcast_ids: [LAUNCH_SEND.id],
             survey_ids: [],
             insight_ids: [],
+            metric_insight_ids: [],
+            metric_goals: [],
             insights: [],
             surveys: [],
             broadcasts: [{ id: LAUNCH_SEND.id, name: 'Launch email', status: 'active', recent_sends: [] }],
@@ -131,6 +141,8 @@ describe('buildReleaseRow', () => {
             broadcast_ids: [],
             survey_ids: [],
             insight_ids: [],
+            metric_insight_ids: [],
+            metric_goals: [],
             insights: [],
             surveys: [],
             broadcasts: [],
@@ -161,6 +173,8 @@ describe('buildReleaseRow', () => {
             broadcast_ids: [],
             survey_ids: [],
             insight_ids: [],
+            metric_insight_ids: [],
+            metric_goals: [],
             insights: [],
             surveys: [],
             broadcasts: [],
@@ -223,6 +237,8 @@ describe('buildReleaseRow', () => {
             broadcast_ids: [],
             survey_ids: [],
             insight_ids: [],
+            metric_insight_ids: [],
+            metric_goals: [],
             insights: [],
             surveys: [],
             broadcasts: [],

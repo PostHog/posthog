@@ -62,8 +62,9 @@ function parametersOf(profile: CloudProfile, manifest: Manifest, image: string):
         HostSubnet: baseline.hostSubnet,
         HostSecurityGroup: baseline.hostSecurityGroup,
         HostInstanceProfile: baseline.hostInstanceProfile,
+        HostLaunchTemplate: baseline.hostLaunchTemplateId,
+        HostLaunchTemplateVersion: baseline.hostLaunchTemplateVersion,
         HostClass: host.class,
-        HostEbsGb: String(host.ebsGb),
         HostImage: image,
     }
 }

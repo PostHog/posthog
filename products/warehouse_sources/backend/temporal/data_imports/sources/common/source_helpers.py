@@ -8,6 +8,7 @@ check (and so the 401-vs-403 distinction the skill describes is handled consiste
 from collections.abc import Callable, Mapping
 
 import requests
+import botocore.exceptions
 from requests.auth import AuthBase
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
@@ -22,6 +23,14 @@ _UNREACHABLE_ERRORS: tuple[type[BaseException], ...] = (
     requests.Timeout,
     requests.exceptions.ChunkedEncodingError,
     RESTClientRetryableError,
+    # The object store sources (S3, R2, GCS) probe through boto3/s3fs rather than requests, so a
+    # connection-level failure reaching them raises botocore's own exception family instead. SSLError
+    # is a ConnectionError subclass: it's included here because a handshake failure before any
+    # response is received is the same "couldn't reach the vendor" case as a dropped connection, not
+    # proof of a permanent problem with the credentials.
+    botocore.exceptions.ConnectionError,
+    botocore.exceptions.ReadTimeoutError,
+    botocore.exceptions.ConnectionClosedError,
 )
 
 

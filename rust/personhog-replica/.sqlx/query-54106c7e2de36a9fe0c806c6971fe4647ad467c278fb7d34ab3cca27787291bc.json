@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-replica', operation='split_person_insert_persons' */\n                INSERT INTO posthog_person (uuid, team_id, properties, created_at, version, is_identified)\n                SELECT u.uuid, $2, '{}'::jsonb, NOW(), $3, false\n                FROM unnest($1::uuid[]) AS u(uuid)\n                RETURNING id::bigint as \"id!\", uuid as \"uuid!\", created_at as \"created_at!\"\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "uuid!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "created_at!",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Int4",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "54106c7e2de36a9fe0c806c6971fe4647ad467c278fb7d34ab3cca27787291bc"
+}
