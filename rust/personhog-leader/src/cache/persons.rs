@@ -133,11 +133,7 @@ pub struct PersonCache {
     capacity_bytes: usize,
     /// Present while a fill is pending.
     put_keys: Mutex<Option<PutTracking>>,
-    /// Serializes `put_if_newer` calls for one key, so its compare and insert are one step.
-    newer_stripes: Box<[Mutex<()>]>,
 }
-
-const NEWER_STRIPES: usize = 64;
 
 /// Every key put since a pending fill's warm build began.
 struct PutTracking {
@@ -171,7 +167,6 @@ impl PersonCache {
             codec,
             capacity_bytes,
             put_keys: Mutex::new(None),
-            newer_stripes: (0..NEWER_STRIPES).map(|_| Mutex::new(())).collect(),
         }
     }
 
@@ -277,11 +272,9 @@ impl PersonCache {
 
     /// Insert unless the cache already holds this version or a newer one. A follower's
     /// applies and loads reach the cache from two directions, and only the newer may stay.
+    /// The compare and the insert are two steps, so callers must not run it for one
+    /// partition at the same time; a follower holds the partition's gate around it.
     pub fn put_if_newer(&self, key: PersonCacheKey, person: CachedPerson) -> bool {
-        let stripe = self.inner.hash(&key) as usize % self.newer_stripes.len();
-        let _guard = self.newer_stripes[stripe]
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
         let held = self
             .inner
             .get(&key)
