@@ -39452,8 +39452,8 @@ export namespace Schemas {
     }
 
     /**
-     * * `service.version` - service.version
-     * * `k8s.replicaset.name` - k8s.replicaset.name
+     * * `service.version` - Service Version
+     * * `k8s.replicaset.name` - K8S Replicaset Name
      */
     export type VersionSourceEnum = typeof VersionSourceEnum[keyof typeof VersionSourceEnum];
 
@@ -39468,8 +39468,8 @@ export namespace Schemas {
       results: DeploymentVersion[];
       /** The resource attribute the versions come from: service.version when the service sets it, else k8s.replicaset.name, which changes on every Kubernetes rollout. Null when the spans carry neither.
        *
-       * * `service.version` - service.version
-       * * `k8s.replicaset.name` - k8s.replicaset.name */
+       * * `service.version` - Service Version
+       * * `k8s.replicaset.name` - K8S Replicaset Name */
       version_source: VersionSourceEnum | null;
       /** The service the versions belong to. */
       service: string;

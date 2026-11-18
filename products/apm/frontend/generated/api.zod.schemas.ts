@@ -114,7 +114,7 @@ export type DeploymentVersionApiOutput = zod.output<typeof DeploymentVersionApi>
 
 export const VersionSourceEnumApi = zod
     .enum(['service.version', 'k8s.replicaset.name'])
-    .describe('\* `service.version` - service.version\n\* `k8s.replicaset.name` - k8s.replicaset.name')
+    .describe('\* `service.version` - Service Version\n\* `k8s.replicaset.name` - K8S Replicaset Name')
 
 export type VersionSourceEnumApi = zod.input<typeof VersionSourceEnumApi>
 export type VersionSourceEnumApiOutput = zod.output<typeof VersionSourceEnumApi>
@@ -150,11 +150,11 @@ export const DeploymentsResponseApi = zod.object({
         .union([
             zod
                 .enum(['service.version', 'k8s.replicaset.name'])
-                .describe('\* `service.version` - service.version\n\* `k8s.replicaset.name` - k8s.replicaset.name'),
+                .describe('\* `service.version` - Service Version\n\* `k8s.replicaset.name` - K8S Replicaset Name'),
             zod.null(),
         ])
         .describe(
-            'The resource attribute the versions come from: service.version when the service sets it, else k8s.replicaset.name, which changes on every Kubernetes rollout. Null when the spans carry neither.\n\n\* `service.version` - service.version\n\* `k8s.replicaset.name` - k8s.replicaset.name'
+            'The resource attribute the versions come from: service.version when the service sets it, else k8s.replicaset.name, which changes on every Kubernetes rollout. Null when the spans carry neither.\n\n\* `service.version` - Service Version\n\* `k8s.replicaset.name` - K8S Replicaset Name'
         ),
     service: zod.string().describe('The service the versions belong to.'),
     environment: zod

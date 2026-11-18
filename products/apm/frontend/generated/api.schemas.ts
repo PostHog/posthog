@@ -109,8 +109,8 @@ export interface DeploymentVersionApi {
 }
 
 /**
- * * `service.version` - service.version
- * * `k8s.replicaset.name` - k8s.replicaset.name
+ * * `service.version` - Service Version
+ * * `k8s.replicaset.name` - K8S Replicaset Name
  */
 export type VersionSourceEnumApi = (typeof VersionSourceEnumApi)[keyof typeof VersionSourceEnumApi]
 
@@ -124,8 +124,8 @@ export interface DeploymentsResponseApi {
     results: DeploymentVersionApi[]
     /** The resource attribute the versions come from: service.version when the service sets it, else k8s.replicaset.name, which changes on every Kubernetes rollout. Null when the spans carry neither.
      *
-     * * `service.version` - service.version
-     * * `k8s.replicaset.name` - k8s.replicaset.name */
+     * * `service.version` - Service Version
+     * * `k8s.replicaset.name` - K8S Replicaset Name */
     version_source: VersionSourceEnumApi | null
     /** The service the versions belong to. */
     service: string
