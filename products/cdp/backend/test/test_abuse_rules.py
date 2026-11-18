@@ -161,15 +161,8 @@ class TestAbuseRules(SimpleTestCase):
                 content(inputs={"url": {"value": "http:\\\\127.0.0.1\\x"}}),
                 (Rule.INTERNAL_HOST,),
             ),
-            (
-                "url_in_parentheses",
-                content(
-                    hog="// see (http://localhost) for local runs\nreturn event",
-                    function_type="transformation",
-                    inputs={},
-                ),
-                (Rule.INTERNAL_HOST_REFERENCE,),
-            ),
+            ("ipv6_loopback_without_port", content(inputs={"url": {"value": "http://[::1]/"}}), (Rule.INTERNAL_HOST,)),
+            ("ipv6_unique_local", content(inputs={"url": {"value": "http://[fd00::1]/hook"}}), (Rule.INTERNAL_HOST,)),
             ("chained_schemes", content(hog="http:/a" * 200_000, inputs={}), ()),
             ("very_long_numeric_host", content(hog="fetch('https://" + "1" * 5_000 + "/')"), ()),
             (

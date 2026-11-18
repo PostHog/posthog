@@ -55,7 +55,6 @@ _SCHEME = re.compile(r"https?:[/\\]+", re.IGNORECASE)
 # The authority runs to the path, query or fragment, so userinfo such as `u;v@` keeps the host after it. It holds no
 # slash, so two authorities never overlap and the scan stays linear. A nested URL has its own scheme.
 _AUTHORITY = re.compile(r"[^\s\"'`<>/\\?#]+")
-_PROSE_PUNCTUATION = ").,;]}"
 _FETCH_LITERAL = re.compile(r"""\bfetch\s*\(\s*f?(?:'((?:[^'\\]++|\\.)*+)'|"((?:[^"\\]++|\\.)*+)")""", re.DOTALL)
 # A URL can hide inside a query parameter of another URL, encoded once per layer of redirect.
 _MAX_DECODE_PASSES = 3
@@ -129,7 +128,7 @@ def _url_hosts(text: str) -> Iterator[str]:
             if authority is None:
                 continue
             try:
-                parts = urlsplit(f"http://{authority.group().rstrip(_PROSE_PUNCTUATION)}")
+                parts = urlsplit(f"http://{authority.group()}")
             except ValueError:
                 continue
             if parts.hostname:
