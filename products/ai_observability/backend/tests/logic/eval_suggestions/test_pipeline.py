@@ -82,7 +82,7 @@ def _content(captured: bool, messages: list[dict[str, Any]], choices: list[dict[
 
 def _chat_traffic(team: Team, end: datetime, *, capture_content: bool = True, final_answer: bool = True) -> None:
     """60 chat turns over three days. Every action goes through one dispatcher tool, answers link to docs,
-    some turns pause for approval, and 3 turns end on a timeout nobody retried."""
+    some turns pause for approval, and 5 turns end on a timeout nobody retried."""
     for index in range(60):
         at = end - timedelta(hours=1 + index * 1.1)
         trace = {"$ai_trace_id": f"turn-{index}", "ai_product": "chat_assistant"}
@@ -112,7 +112,7 @@ def _chat_traffic(team: Team, end: datetime, *, capture_content: bool = True, fi
             messages = [*messages, assistant, {"role": "tool", "tool_call_id": call["id"], "content": "ok"}]
         # The last action's own span, or the approval pause, comes after the earlier spans, never at the same instant.
         at += timedelta(seconds=1)
-        if index % 20 == 7:
+        if index % 12 == 7:
             _event(
                 team,
                 "$ai_span",
@@ -314,7 +314,7 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
 
         errors = suggestions["check:unrecovered_errors"]
         assert errors.measured_failure_rate is not None and 0 < errors.measured_failure_rate < 0.1
-        assert errors.headline == "Unrecovered tool or model failures"
+        assert errors.headline == "Tool or model calls that never succeed"
         # The observation and the stored rate come from the same counts.
         observed = re.fullmatch(r"(\d+) of (\d+) sampled traces flagged", errors.draft["observation"])
         assert observed is not None

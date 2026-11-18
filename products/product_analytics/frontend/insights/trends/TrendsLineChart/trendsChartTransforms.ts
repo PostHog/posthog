@@ -11,8 +11,12 @@ import type {
 
 import { schemaGoalLinesToConfigs } from '../shared/goalLinesAdapter'
 import { humanizeSeriesLabel } from '../shared/humanizeSeriesLabel'
-import { computeMagnitudeAxisIds } from '../shared/magnitudeAxisIds'
-import { buildTrendsYAxisConfig } from '../shared/trendsAxisFormat'
+import {
+    applyTrendsYAxisPositions,
+    buildTrendsYAxisConfig,
+    resolveTrendsYAxisIds,
+    type TrendsYAxisPositions,
+} from '../shared/trendsAxisFormat'
 import type { CiRangesFn, GoalLineLike, YFormatterFields } from '../shared/trendsChartDisplayOptions'
 
 // Shape both IndexedTrendResult (kea) and TrendsResultItem (MCP) satisfy.
@@ -32,6 +36,7 @@ export interface BuildTrendsSeriesOpts<R extends TrendsResultLike, M = unknown> 
     isArea?: boolean
     /** Give series of different orders of magnitude their own y-axes (similar ones share). */
     showMultipleYAxes?: boolean
+    yAxisPositions?: TrendsYAxisPositions
     // Negative number — index from the end where the in-progress tail begins. Omit to skip.
     incompletenessOffsetFromEnd?: number
     isStickiness?: boolean
@@ -84,7 +89,11 @@ export function buildTrendsSeries<R extends TrendsResultLike, M = unknown>(
     results: R[],
     opts: BuildTrendsSeriesOpts<R, M>
 ): Series<M>[] {
-    const yAxisIds = opts.showMultipleYAxes ? computeMagnitudeAxisIds(results.map((r) => r.data)) : undefined
+    const yAxisIds = resolveTrendsYAxisIds(
+        results.map((r) => r.data),
+        opts.yAxisPositions,
+        opts.showMultipleYAxes
+    )
     return results.map((r, index) => buildMainTrendsSeries(r, index, opts, yAxisIds?.[index]))
 }
 
@@ -192,6 +201,7 @@ export interface BuildTrendsLineTimeSeriesConfigOpts<R extends TrendsResultLike>
     allDays?: string[]
     xAxisLabel?: string | null
     yAxisLabel?: string | null
+    yAxisPositions?: TrendsYAxisPositions
     hideAxes?: boolean
     xAxisTickFormatter?: (value: string, index: number) => string | null
     goalLines?: GoalLineLike[] | null
@@ -220,6 +230,8 @@ export function buildTrendsLineTimeSeriesConfig<R extends TrendsResultLike>(
     opts: BuildTrendsLineTimeSeriesConfigOpts<R>
 ): TimeSeriesLineChartConfig {
     const yAxis = buildTrendsYAxisConfig(opts.trendsFilter, opts.isPercentStackView, opts.baseCurrency, {
+        label: opts.yAxisLabel,
+        hide: opts.hideAxes,
         yAxisScaleType: opts.yAxisScaleType,
         showGrid: true,
         startAtZero: opts.yAxisStartAtZero,
@@ -248,11 +260,7 @@ export function buildTrendsLineTimeSeriesConfig<R extends TrendsResultLike>(
             tickFormatter: opts.xAxisTickFormatter,
             hide: opts.hideAxes,
         },
-        yAxis: {
-            ...yAxis,
-            label: normalizeAxisLabel(opts.yAxisLabel),
-            hide: opts.hideAxes,
-        },
+        yAxis: applyTrendsYAxisPositions(yAxis, opts.yAxisPositions),
         valueLabels: opts.valueLabels,
         goalLines: goalLineConfigs,
         ...derivedConfigs,
