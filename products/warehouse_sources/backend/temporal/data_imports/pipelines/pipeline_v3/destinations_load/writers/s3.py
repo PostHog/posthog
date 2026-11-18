@@ -165,6 +165,10 @@ def render_key_prefix(prefix: str, *, run_started_at: dt.datetime | None, table:
         }
     if any(name not in variables for name in _TEMPLATE_FIELD.findall(prefix)):
         return None
+    # A brace left over outside a field makes the whole template invalid, as it does for `str.format`.
+    leftover = _TEMPLATE_FIELD.sub("", prefix)
+    if "{" in leftover or "}" in leftover:
+        return None
     return _TEMPLATE_FIELD.sub(lambda match: variables[match.group(1)], prefix)
 
 
