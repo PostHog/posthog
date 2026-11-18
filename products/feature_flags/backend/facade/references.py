@@ -20,6 +20,7 @@ from collections.abc import Iterable, Mapping
 from typing import Any, Literal
 
 from posthog.dataclasses import frozen
+from posthog.utils import safe_int
 
 from products.feature_flags.backend.facade.config import (
     ConfigFormatError,
@@ -112,3 +113,24 @@ def _v1_properties(filters: Mapping[str, Any] | None, property_type: PropertyFil
         for prop in group.get("properties") or []
         if prop.get("type") == property_type
     ]
+
+
+def flag_ids_named_in_any_format(filters: Mapping[str, Any] | None) -> set[int]:
+    """Flag ids named by a flag-type property in the stored groups, whatever the config format.
+
+    For a caller that must keep a row it cannot read as a dependent. A malformed value is skipped.
+    """
+    groups = (filters or {}).get("groups")
+    if not isinstance(groups, list):
+        return set()
+    ids: set[int] = set()
+    for group in groups:
+        properties = group.get("properties") if isinstance(group, dict) else None
+        if not isinstance(properties, list):
+            continue
+        for prop in properties:
+            if isinstance(prop, dict) and prop.get("type") == PropertyFilterType.FLAG:
+                flag_id = safe_int(prop.get("key"))
+                if flag_id is not None:
+                    ids.add(flag_id)
+    return ids

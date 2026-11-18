@@ -169,7 +169,7 @@ from products.feature_flags.backend.facade.config import (
 )
 from products.feature_flags.backend.facade.config_validation import ConfigValidationError, ValidationLimits
 from products.feature_flags.backend.facade.enums import VERSION_RESTORE_JOB_TYPE
-from products.feature_flags.backend.facade.references import InvalidIds, references
+from products.feature_flags.backend.facade.references import InvalidIds, flag_ids_named_in_any_format, references
 from products.feature_flags.backend.filters_validation import collect_cross_field_violations, flatten_structural_errors
 from products.feature_flags.backend.flag_analytics import (
     increment_local_evaluation_request_counts,
@@ -726,7 +726,15 @@ def find_dependent_flags_batch(
     flag_id_strs = {str(fid) for fid in flag_ids}
 
     for dep_flag in dependent_flags:
-        for located in _iter_flag_filter_properties(dep_flag.conditions):
+        try:
+            conditions = dep_flag.conditions
+        except ConfigFormatError:
+            # The SQL candidate query matched this row on a flag reference, so keep it as a dependent of
+            # every flag it names: deleting one of them would break a dependency we cannot read.
+            for flag_id in flag_ids_named_in_any_format(dep_flag.filters) & set(flag_ids):
+                result[flag_id].append(dep_flag)
+            continue
+        for located in _iter_flag_filter_properties(conditions):
             prop = located.prop
             if prop.get("type") == "flag" and prop.get("key") in flag_id_strs:
                 dep_flag_id = int(prop["key"])
@@ -1965,17 +1973,13 @@ class FeatureFlagSerializer(
             dependency_runtime = _describe_runtime(dependency.evaluation_runtime)
             # A dependency the flag already stores fails only because this write changes the runtime.
             attr = "evaluation_runtime" if dependency.id in stored_dependency_ids else "filters"
-            raise serializers.ValidationError(
-                {
-                    attr: ErrorDetail(
-                        f"Cannot depend on flag '{dependency.key}' (ID: {dependency.id}) because it evaluates "
-                        f"{dependency_runtime} and this flag evaluates {_describe_runtime(runtime)}. Where "
-                        f"'{dependency.key}' doesn't evaluate, this flag reads it as false. Set '{dependency.key}' "
-                        f"to evaluate {_RUNTIME_DESCRIPTIONS['all']}, or set this flag to evaluate {dependency_runtime}.",
-                        code=DEPENDENCY_RUNTIME_MISMATCH,
-                    )
-                }
+            message = (
+                f"Cannot depend on flag '{dependency.key}' (ID: {dependency.id}) because it evaluates "
+                f"{dependency_runtime} and this flag evaluates {_describe_runtime(runtime)}. Where "
+                f"'{dependency.key}' doesn't evaluate, this flag reads it as false. Set '{dependency.key}' "
+                f"to evaluate {_RUNTIME_DESCRIPTIONS['all']}, or set this flag to evaluate {dependency_runtime}."
             )
+            raise serializers.ValidationError({attr: ErrorDetail(message, code=DEPENDENCY_RUNTIME_MISMATCH)})
 
     def _validate_evaluation_contexts_requirement(
         self, attrs: dict, request: Any, team: Team, creation_context: str | None

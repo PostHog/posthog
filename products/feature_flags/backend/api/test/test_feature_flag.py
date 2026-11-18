@@ -14268,9 +14268,10 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
         [
             ("well_formed_dependent", []),
             ("dependent_with_null_properties_group", [{"rollout_percentage": 100, "properties": None}]),
+            ("version_2_dependent", None),
         ]
     )
-    def test_bulk_delete_with_dependent_flags(self, _name: str, extra_groups: list[dict]):
+    def test_bulk_delete_with_dependent_flags(self, _name: str, extra_groups: list[dict] | None):
         """Test that flags with dependents cannot be deleted."""
         # Create a flag that other flags depend on
         base_flag = FeatureFlag.objects.create(
@@ -14279,12 +14280,20 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
             key="base_flag",
             filters={"groups": [{"rollout_percentage": 100, "properties": []}]},
         )
-        # Create a flag that depends on the base flag
-        FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="dependent_flag",
-            filters={
+        if extra_groups is None:
+            # A legacy row marked version 2 that still carries a groups array naming the base flag.
+            # The SQL candidate query matches it on that array, and the model cannot read it as v1.
+            dependent_filters = {
+                "version": 2,
+                "groups": [
+                    {
+                        "rollout_percentage": 100,
+                        "properties": [{"key": str(base_flag.id), "type": "flag", "value": "true"}],
+                    }
+                ],
+            }
+        else:
+            dependent_filters = {
                 "groups": [
                     *extra_groups,
                     {
@@ -14292,7 +14301,10 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
                         "properties": [{"key": str(base_flag.id), "type": "flag", "value": "true"}],
                     },
                 ]
-            },
+            }
+        # Create a flag that depends on the base flag
+        FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="dependent_flag", filters=dependent_filters
         )
 
         response = self.client.post(
