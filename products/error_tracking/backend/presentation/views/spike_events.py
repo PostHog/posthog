@@ -58,13 +58,13 @@ class ErrorTrackingSpikeEventViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
         ]
     )
     def list(self, request, *args, **kwargs):
+        issue_ids: list[UUID] | None = None
         issue_ids_param = request.query_params.get("issue_ids")
-        try:
-            issue_ids = (
-                [UUID(uid.strip()) for uid in issue_ids_param.split(",") if uid.strip()] if issue_ids_param else None
-            )
-        except ValueError as error:
-            raise ValidationError({"issue_ids": "Provide comma-separated valid issue UUIDs."}) from error
+        if issue_ids_param:
+            try:
+                issue_ids = [UUID(uid.strip()) for uid in issue_ids_param.split(",") if uid.strip()]
+            except ValueError as error:
+                raise ValidationError({"issue_ids": "Provide comma-separated valid issue UUIDs."}) from error
         date_from = request.query_params.get("date_from")
         date_to = request.query_params.get("date_to")
         order_by = request.query_params.get("order_by")

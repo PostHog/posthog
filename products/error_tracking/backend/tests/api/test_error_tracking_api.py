@@ -713,20 +713,23 @@ class TestErrorTracking(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("archived_status", "archived", []),
-            ("pending_release_status", "pending_release", []),
-            ("malformed_id", "resolved", ["not-a-uuid"]),
+            ("archived_status", "archived", lambda issue_id: [issue_id], None),
+            ("pending_release_status", "pending_release", lambda issue_id: [issue_id], None),
+            ("malformed_id", "resolved", lambda issue_id: [issue_id, "not-a-uuid"], "ids"),
+            ("null_ids", "resolved", lambda issue_id: None, "ids"),
         ]
     )
-    def test_issue_bulk_rejects_invalid_input(self, _name: str, bulk_status: str, extra_ids: list[str]) -> None:
+    def test_issue_bulk_rejects_invalid_input(
+        self, _name: str, bulk_status: str, build_ids: Callable[[str], object], expected_attr: str | None
+    ) -> None:
         issue = self.create_issue()
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/issues/bulk",
-            data={"ids": [str(issue.id), *extra_ids], "action": "set_status", "status": bulk_status},
+            data={"ids": build_ids(str(issue.id)), "action": "set_status", "status": bulk_status},
         )
 
-        assert response.status_code == 400, response.json()
+        assert (response.status_code, response.json()["attr"]) == (400, expected_attr), response.json()
         issue.refresh_from_db()
         assert issue.status == ErrorTrackingIssue.Status.ACTIVE
 
