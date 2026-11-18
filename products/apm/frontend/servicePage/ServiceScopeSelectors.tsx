@@ -25,8 +25,6 @@ export function ServiceScopeSelectors({ serviceName }: { serviceName: string }):
         servicesHealthLoading,
         scopeOptions: options,
         scopeOptionsLoading,
-        operationNames,
-        endpointsHealthLoading,
     } = useValues(logic)
     const { setScope, setTimeRange } = useActions(logic)
 
@@ -65,7 +63,6 @@ export function ServiceScopeSelectors({ serviceName }: { serviceName: string }):
             />
             {selector('environment', 'Environment', environments, servicesHealthLoading, environmentLabel)}
             {selector('version', 'Version', options.versions, scopeOptionsLoading)}
-            {selector('operation', 'Operation', operationNames, endpointsHealthLoading)}
         </div>
     )
 }

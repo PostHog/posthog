@@ -1,12 +1,13 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import * as apmApi from '../generated/api'
+import type { ServicesHealthResponseApi } from '../generated/api.schemas'
 import { readScopeParam } from './servicePage'
 import { servicePageLogic, servicePageStateFromUrl } from './servicePageLogic'
 
@@ -14,13 +15,10 @@ const EMPTY_HEALTH = { results: [], environments: [], environment: 'production' 
 
 describe('servicePageLogic', () => {
     let logic: ReturnType<typeof servicePageLogic.build>
-    let sparklineSpy: jest.SpyInstance
-    let endpointsRequests: URLSearchParams[]
     let servicesRequestCount: number
     let servicesStatus: number
 
     beforeEach(() => {
-        endpointsRequests = []
         servicesRequestCount = 0
         servicesStatus = 200
         const servicesHandler = (): [number, typeof EMPTY_HEALTH] => {
@@ -31,14 +29,6 @@ describe('servicePageLogic', () => {
             get: {
                 '/api/environments/:teamId/apm/services/': servicesHandler,
                 '/api/projects/:teamId/apm/services/': servicesHandler,
-                '/api/environments/:teamId/apm/endpoints/': ({ request }) => {
-                    endpointsRequests.push(new URL(request.url).searchParams)
-                    return [200, EMPTY_HEALTH]
-                },
-                '/api/projects/:teamId/apm/endpoints/': ({ request }) => {
-                    endpointsRequests.push(new URL(request.url).searchParams)
-                    return [200, EMPTY_HEALTH]
-                },
             },
             post: {
                 '/api/projects/:teamId/tracing/spans/attribute-breakdown/': async ({ request }) => {
@@ -62,9 +52,6 @@ describe('servicePageLogic', () => {
             },
         })
         initKeaTests()
-        sparklineSpy = jest.spyOn(api.tracing, 'sparkline').mockResolvedValue({ results: [] })
-        jest.spyOn(api.tracing, 'latencyHeatmap').mockResolvedValue({ results: [] })
-        jest.spyOn(api.tracing, 'listSpans').mockResolvedValue({ results: [], hasMore: false })
     })
 
     afterEach(() => {
@@ -112,28 +99,29 @@ describe('servicePageLogic', () => {
         expect(servicesRequestCount).toBe(servicesRequestsBefore)
     })
 
-    it('aborts a superseded error-span request without reporting it as a failed load', async () => {
+    it('aborts a superseded health request without reporting it as a failed load', async () => {
         logic = servicePageLogic({ serviceName: 'checkout' })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         const signals: AbortSignal[] = []
-        jest.spyOn(api.tracing, 'listSpans').mockImplementation((_, signal) => {
-            signals.push(signal!)
+        jest.spyOn(apmApi, 'apmServicesList').mockImplementation((_, __, options) => {
+            const signal = options!.signal!
+            signals.push(signal)
             if (signals.length > 1) {
-                return Promise.resolve({ results: [], hasMore: false })
+                return Promise.resolve({ ...EMPTY_HEALTH, date_from: '', date_to: '' })
             }
-            return new Promise((_resolve, reject) =>
-                signal!.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
+            return new Promise<ServicesHealthResponseApi>((_resolve, reject) =>
+                signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
             )
         })
 
-        const first = logic.asyncActions.fetchErrorSpans()
+        const first = logic.asyncActions.fetchServicesHealth()
         await expectLogic(logic).delay(20)
-        await logic.asyncActions.fetchErrorSpans()
+        await logic.asyncActions.fetchServicesHealth()
         await first
 
         expect(signals.map((signal) => signal.aborted)).toEqual([true, false])
-        expect(logic.values.errorSpansFailed).toBe(false)
+        expect(logic.values.servicesHealthFailed).toBe(false)
     })
 
     it('marks a failed health load instead of showing the previous response as current', async () => {
@@ -148,7 +136,7 @@ describe('servicePageLogic', () => {
             .toMatchValues({ servicesHealthFailed: true })
     })
 
-    it('filters spans on the environment key the team emits, and endpoints on the service', async () => {
+    it('filters spans on the environment key the team emits', async () => {
         router.actions.push(
             urls.applicationObservabilityService('checkout', { environment: 'production', operation: 'GET /cart' })
         )
@@ -156,36 +144,11 @@ describe('servicePageLogic', () => {
         logic.mount()
 
         await logic.asyncActions.fetchScopeOptions()
-        await logic.asyncActions.fetchRequestsSeries()
-        await logic.asyncActions.fetchEndpointsHealth()
 
         expect(logic.values.environmentKey).toBe('env')
-        expect(sparklineSpy).toHaveBeenLastCalledWith(
-            expect.objectContaining({
-                serviceNames: ['checkout'],
-                filterGroup: {
-                    type: 'AND',
-                    values: [
-                        {
-                            type: 'AND',
-                            values: [
-                                {
-                                    type: 'span_resource_attribute',
-                                    key: 'env',
-                                    operator: 'exact',
-                                    value: ['production'],
-                                },
-                                { type: 'span', key: 'name', operator: 'exact', value: ['GET /cart'] },
-                            ],
-                        },
-                    ],
-                },
-            }),
-            expect.any(AbortSignal)
-        )
-        // Every endpoint of the service, whatever operation is picked for the charts.
-        const lastEndpoints = endpointsRequests[endpointsRequests.length - 1]
-        expect(lastEndpoints.get('service')).toBe('checkout')
-        expect(lastEndpoints.get('environment')).toBe('production')
+        expect(logic.values.scopeFilters).toEqual([
+            { type: 'span_resource_attribute', key: 'env', operator: 'exact', value: ['production'] },
+            { type: 'span', key: 'name', operator: 'exact', value: ['GET /cart'] },
+        ])
     })
 })
