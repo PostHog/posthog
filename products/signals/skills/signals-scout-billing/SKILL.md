@@ -20,6 +20,22 @@ compatibility: >
 metadata:
   owner_team: billing
   scope: billing
+scout-precheck-query: |
+  SELECT
+    countIf(timestamp >= toStartOfDay({now}) - INTERVAL 1 DAY) AS events_yesterday,
+    countIf(timestamp < toStartOfDay({now}) - INTERVAL 7 DAY) AS events_same_day_last_week,
+    {since} < {now} - INTERVAL 156 HOUR AS weekly_run_due
+  FROM events
+  WHERE timestamp < toStartOfDay({now})
+    AND (
+      timestamp >= toStartOfDay({now}) - INTERVAL 1 DAY
+      OR (
+        timestamp >= toStartOfDay({now}) - INTERVAL 8 DAY
+        AND timestamp < toStartOfDay({now}) - INTERVAL 7 DAY
+      )
+    )
+  HAVING weekly_run_due
+    OR (events_same_day_last_week >= 1000 AND events_yesterday >= 2 * events_same_day_last_week)
 ---
 
 # Signals scout: billing (your own PostHog bill)
@@ -67,6 +83,14 @@ Scoping the call to your own project makes the step lane deduplicate by construc
 The **trajectory lane is inherently org-level** and has no such fix: it reads one organization-wide forecast.
 Run it, but frame it as the organization's bill rather than this project's, and check the inbox before authoring — if a sibling project's scout already filed this period's trajectory finding you will not see it, so keep to **one trajectory report per billing period** and prefer editing your own.
 
+## Cadence
+
+A scheduled run starts about once a week, and sooner when yesterday's event volume on this project was at least double the same weekday a week before.
+A run started that way carries a `<precheck_result>` block with one row: `events_yesterday`, `events_same_day_last_week`, and `weekly_run_due`.
+When `weekly_run_due` is false, the run exists because events jumped: score the Events family first, and still score the rest.
+The row is a trigger, not a finding. It counts every event, billed or not, so the gates below decide what is reported.
+A manual run has no block, and nothing in this body depends on one.
+
 ## Quick close-out
 
 Past the access gates, close out cheaply when there is nothing to score:
@@ -85,7 +109,7 @@ Cycle between these moves; skip what is not useful.
 
 - **Scan memory in two passes**, because `scout-scratchpad-search` defaults to 20 rows and this scout keeps a baseline per meter plus cursor, noise, dedupe, report, and reviewer entries — one project can exceed the default and silently drop the dedupe pointers you needed.
   First a wide scan: `text=billing`, `keys_only=true`, `limit=200`. Then re-read only the candidate keys with an exact `key=` lookup. If the scan hits your limit, page back with `date_to` set to the oldest entry's `updated_at`.
-- `scout-runs-list` with **`skill_name=signals-scout-billing`** and a 7-day bound. The fleet runs daily, so an unfiltered call spends its 20-row default on sibling scouts and your own last run drops out of the response.
+- `scout-runs-list` with **`skill_name=signals-scout-billing`** and a 21-day bound. Sibling scouts run far more often than this one, so an unfiltered call spends its 20-row default on sibling scouts and your own last run drops out of the response.
 - `inbox-reports-list` (`ordering=-updated_at`, `search`= the meter's plain name, such as "recordings" or "logs") — a live report on a meter you are about to score is an **edit**, not a new report. Search matches literal text in a report's title and summary, and a product scout's report on the same cause never contains a usage type identifier, so search the words a person would use and read the matches from the step's window.
 - `billing-usage-get` with `interval: "day"`, `breakdowns: ["type"]`, `team_ids: [{team_id}]`, and a `start_date` ~35 days back. `breakdowns`, `team_ids`, and `usage_types` are arrays.
 
@@ -124,8 +148,8 @@ Advancing the cursor past a date you skipped retires it: once the delayed batch 
 ### Lane 1 — the step (every run)
 
 For each usage type on this project, score **every complete day after your cursor**, oldest first, each against the **median of its own weekday over the trailing 4 weeks**.
-On the daily cadence that is one day. After a run failed, was skipped, or the schedule slipped, it is the whole gap — and scoring only the newest bucket retires every day in between unscored, so a one-day spike or a meter that went dark and came back inside the gap is missed permanently.
-Cap the catch-up at **7 days**: past that, score the 7 most recent and record the unscored span in `pattern:billing:cursor` rather than paging back through a month of series. Dates held in `pattern:billing:lag` rejoin this set once they fill.
+On the weekly cadence that is about seven days, and one day when a run follows a run. After a run failed, was skipped, or the schedule slipped, it is the whole gap — and scoring only the newest bucket retires every day in between unscored, so a one-day spike or a meter that went dark and came back inside the gap is missed permanently.
+Cap the catch-up at **10 days**: past that, score the 10 most recent and record the unscored span in `pattern:billing:cursor` rather than paging back through a month of series. Dates held in `pattern:billing:lag` rejoin this set once they fill.
 Same-weekday matters: most PostHog meters have a hard weekday/weekend shape, and comparing Monday to Sunday flags a fifth of all days.
 **Report the episode, not the day.** Consecutive scored days of the same step on one meter are one finding, dated from the first day that cleared the gates — catching up on a gap must not file a report per day.
 
