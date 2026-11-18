@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -109,6 +110,12 @@ class TestLogsAlertWithNoLogsRow(APIBaseTest):
                 first_enabled_at=_NOW,
             )
         return str(created.id)
+
+    def _create_copy_whose_logs_row_is_gone(self) -> str:
+        alert_id = self._create_with_logs_row()
+        assert LogsAlertConfiguration.objects.get(id=alert_id).owner == PlatformAlertOwner.PLATFORM
+        LogsAlertConfiguration.objects.filter(id=alert_id).delete()
+        return alert_id
 
     def _read(self, alert_id: str) -> dict[str, Any]:
         response = self.client.get(f"{self.base_url}{alert_id}/")
@@ -239,8 +246,14 @@ class TestLogsAlertWithNoLogsRow(APIBaseTest):
         )
 
     def test_terraform_sees_no_difference_between_an_alert_with_a_logs_row_and_one_without(self, *_: object) -> None:
+        self._assert_terraform_sees_no_difference(self._create_without_logs_row)
+
+    def test_terraform_sees_no_difference_for_a_platform_copy_whose_logs_row_was_deleted(self, *_: object) -> None:
+        self._assert_terraform_sees_no_difference(self._create_copy_whose_logs_row_is_gone)
+
+    def _assert_terraform_sees_no_difference(self, create_without_row: Callable[[], str]) -> None:
         with_row = self._terraform_lifecycle(self._create_with_logs_row())
-        without_row = self._terraform_lifecycle(self._create_without_logs_row())
+        without_row = self._terraform_lifecycle(create_without_row())
 
         assert without_row == with_row
         assert without_row[2] == {

@@ -163,6 +163,8 @@ pub struct FlagRequest {
     pub person_properties: Option<HashMap<String, Value>>,
     pub groups: Option<HashMap<String, Value>>,
     pub group_properties: Option<HashMap<String, HashMap<String, Value>>>,
+    pub person_property_keys_known_absent: Option<Value>, // array of strings
+    pub group_property_keys_known_absent: Option<Value>,  // group type name -> array of strings
     pub anon_distinct_id: Option<String>,    // alias: $anon_distinct_id
     pub device_id: Option<String>,           // alias: $device_id
     pub flag_keys: Option<Vec<String>>,      // evaluate only these flags
@@ -188,6 +190,24 @@ Two signals size how often that precedence matters:
 - The canonical log line carries the same fact as `geoip_properties_differ_from_lookup`. The counter has no labels, so query the log line in Loki to attribute a spike to a team or SDK.
 
 Both are removable once the precedence change has settled.
+
+#### Known-absent property keys
+
+`person_property_keys_known_absent` lists person property keys the caller knows the person doesn't have. `group_property_keys_known_absent` maps a group type name to the group property keys the caller knows that group doesn't have. An SDK sends them when local evaluation falls back to `/flags`, so the server reaches the same answer local evaluation would.
+
+```json
+{
+  "person_property_keys_known_absent": ["plan"],
+  "group_property_keys_known_absent": { "organization": ["subscription"] }
+}
+```
+
+- A listed key is absent for this request. The listing wins over a stored value, a value in `person_properties` or `group_properties`, and a value the service adds itself: `$geoip_*`, a copied `$initial_*`, the `$os`/`$os_name` alias, `$group_key`, and `distinct_id`.
+- Each operator then answers as it does for a key missing from the person's full stored properties: `is_not_set` and the negated operators (`is_not`, `not_icontains`, `not_regex`, `not_starts_with`, `not_ends_with`, `not_icontains_multi`, `not_between`) match, and every other operator, including `is_set` and `semver_neq`, does not.
+- A missing field or JSON null lists nothing. Each list holds at most 1000 strings, counted with duplicates. A wrong type or a longer list returns a 400 whose message names the field.
+- A group type name the team doesn't have is ignored. A person key with the person metadata prefix is ignored, so a listed `created_at` never hides the persons-table `created_at` column.
+- A listed key counts as supplied when the service decides whether to fetch stored properties, so listing a key never causes a fetch.
+- Static cohorts and realtime cohorts read membership from stored tables, so known absence doesn't change their membership. Cohorts evaluated from properties in the service do honor it.
 
 ### `FlagsResponse` (v2 response)
 

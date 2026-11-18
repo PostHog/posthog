@@ -28,7 +28,7 @@ from .adapters import AdaptedCheck
 from .call_review import REVIEW_TEMPLATE_KEY, ReviewCard
 from .call_review_queries import CALL_TYPE_INPUT_CHARS, CallTypeRow, SnippetMatches
 from .coverage import EvalFix, fix_dedupe_key
-from .judge_calibration import Calibration
+from .judge_calibration import Calibration, CodeCheck
 from .measure import Measurement, Outcome, SampledTrace, TraceSample
 from .prices import MODEL_PRICES
 from .profile import StructuredGap, TeamProfile, normalize_segment_value
@@ -41,7 +41,9 @@ MAX_SUGGESTIONS = 3
 MAX_PER_KIND = 2
 # A check that fails more than this share of traces does not fit the app, whatever it found.
 MAX_FAILURE_RATE = 0.25
-MIN_FAILURES = 2
+# Failures a check needs across the sampled days before it becomes a card. 1 to 3 in a few hundred traces is too
+# few to ask a team to run an eval on.
+MIN_FAILURES = 5
 # Filter rule: the segment holds a real share of the failures, enough of them to trust, and beats the rest.
 MIN_FILTER_FAILURE_SHARE = 0.3
 MIN_FILTER_FAILURES = 20
@@ -59,7 +61,6 @@ MIN_SCREENED_FLAGS = 3
 
 # Hog checks carry their own severity; these weigh the judges.
 SEVERITY: dict[str, float] = {
-    "prompt_injection": 0.9,
     "user_correction": 0.7,
     "sentiment": 0.4,
     "structured_output_gap": 0.8,
@@ -123,6 +124,9 @@ class Proposal:
     judge_model: str = ""
     target_evaluation_id: str | None = None
     similar_evaluation_id: str | None = None
+    # What the sample showed and where it came from, formatted from the counts above.
+    observation: str = ""
+    observation_scope: str = ""
 
 
 @frozen
@@ -316,7 +320,7 @@ def code_check_proposal(
     segment = normalize_segment_value(filters[0]["value"][0]) if filters else None
     scope_units = profile.traces * _scope_share(filters, sample.main)
     rollout = capped_rollout(scope_units, WEEKLY_HOG_RUNS)
-    text = cards.code_check_text(check, failed / applicable, segment, rollout)
+    text = cards.code_check_text(check, failed, applicable, segment)
     return Proposal(
         kind=EvalSuggestionKind.NEW_HOG,
         template_key=check.key,
@@ -324,9 +328,11 @@ def code_check_proposal(
         headline=text.headline,
         outcome=text.outcome,
         reason=text.reason,
+        observation=text.observation,
+        observation_scope=text.observation_scope,
         draft={
             "name": check.name,
-            "description": check.description,
+            "description": cards.check_words(check).rule,
             "evaluation_type": "hog",
             "evaluation_config": {"source": check.source},
             "output_type": "boolean",
@@ -400,7 +406,7 @@ def gap_proposal(
     excess_per_week = (
         (gap.segment_rate - gap.other_rate) * gap.segment_items * profile.traces / max(len(sample.main), 1)
     )
-    text = cards.gap_text(gap, cards.cost_clause(cost.weekly_cost_usd, free=False))
+    text = cards.gap_text(gap)
     return Proposal(
         kind=EvalSuggestionKind.NEW_LLM_JUDGE,
         template_key="structured_output_gap",
@@ -408,6 +414,8 @@ def gap_proposal(
         headline=text.headline,
         outcome=text.outcome,
         reason=text.reason,
+        observation=text.observation,
+        observation_scope=text.observation_scope,
         draft={
             # A field path comes from the customer's output and has no length bound of its own.
             "name": eval_text.name[: Evaluation._meta.get_field("name").max_length],
@@ -469,7 +477,7 @@ def screened_proposal(
     readable = sum(1 for s in sample.main if s.final_text.strip()) / len(sample.main) if sample.main else 1.0
     credible = len(result.flagged) / result.screened * profile.traces * readable * SCREENING_PRECISION
     is_judge = template.evaluation_type == "llm_judge"
-    text = cards.judge_text(template, unit_target, cards.cost_clause(cost.weekly_cost_usd, free=not is_judge))
+    text = cards.judge_text(template, unit_target, len(result.flagged), result.screened)
     return Proposal(
         kind=EvalSuggestionKind.NEW_LLM_JUDGE,
         template_key=template.key,
@@ -477,6 +485,8 @@ def screened_proposal(
         headline=text.headline,
         outcome=text.outcome,
         reason=text.reason,
+        observation=text.observation,
+        observation_scope=text.observation_scope,
         draft={
             "name": template.name,
             "description": template.description,
@@ -569,12 +579,12 @@ def call_type_filters(call_types: Sequence[CallTypeRow], snippets: Mapping[str, 
 
 def review_dedupe_key(card: ReviewCard) -> str:
     """The key of the earlier card the review said this one repeats, else the card's call types and the words of
-    what its judge checks. The check's case, punctuation, word order and filler words are left out, so a review
-    that does not name the earlier card still matches a check reworded only that far."""
+    its summary. The summary's case, punctuation, word order and filler words are left out, so a review that does
+    not name the earlier card still matches a summary reworded only that far."""
     if card.earlier_key:
         return card.earlier_key
     keys = ",".join(sorted(c.key for c in card.call_types))
-    words = sorted(set(re.findall(r"\w+", card.checks.lower())) - FILLER_WORDS)
+    words = sorted(set(re.findall(r"\w+", card.summary.lower())) - FILLER_WORDS)
     return bounded_key(f"review:{keys}:{' '.join(words)}")
 
 
@@ -594,7 +604,7 @@ def review_proposal(
     # Call types are counted over the last day.
     weekly_units = 7 * sum(c.calls for c in card.call_types)
     cost = judge_cost(weekly_units, profile.mean_input_tokens, judge_model)
-    text = cards.review_text(card, cards.cost_clause(cost.weekly_cost_usd, free=False))
+    text = cards.review_text(card)
     return Proposal(
         kind=EvalSuggestionKind.NEW_LLM_JUDGE,
         template_key=REVIEW_TEMPLATE_KEY,
@@ -602,9 +612,11 @@ def review_proposal(
         headline=text.headline,
         outcome=text.outcome,
         reason=text.reason,
+        observation=text.observation,
+        observation_scope=text.observation_scope,
         draft={
             "name": card.title[: Evaluation._meta.get_field("name").max_length],
-            "description": card.checks,
+            "description": card.rule,
             "evaluation_type": "llm_judge",
             "evaluation_config": {"prompt": card.judge_prompt},
             "output_type": "boolean",
@@ -631,6 +643,53 @@ def review_proposal(
     )
 
 
+def review_code_proposal(
+    card: ReviewCard, profile: TeamProfile, *, snippets: Mapping[str, str], code: CodeCheck
+) -> Proposal | None:
+    """The card as a free Hog check on the generations of its call types, with the code's own rate, or None when no
+    filter selects those generations. It keeps the judge card's filters and dedupe key, so the check stays one card
+    whichever kind a run gives it."""
+    filters = call_type_filters(card.call_types, snippets)
+    if filters is None:
+        return None
+    weekly_units = 7 * sum(c.calls for c in card.call_types)
+    rollout = capped_rollout(weekly_units, WEEKLY_HOG_RUNS)
+    text = cards.review_code_text(card, code.failed, code.of)
+    return Proposal(
+        kind=EvalSuggestionKind.NEW_HOG,
+        template_key=REVIEW_TEMPLATE_KEY,
+        dedupe_key=review_dedupe_key(card),
+        headline=text.headline,
+        outcome=text.outcome,
+        reason=text.reason,
+        observation=text.observation,
+        observation_scope=text.observation_scope,
+        draft={
+            "name": card.title[: Evaluation._meta.get_field("name").max_length],
+            "description": card.rule,
+            "evaluation_type": "hog",
+            "evaluation_config": {"source": code.source},
+            "output_type": "boolean",
+            "output_config": {"allows_na": True},
+            "target": "generation",
+            # How the code matched the review's labels. Accepting the card leaves this out of the evaluation.
+            "calibration": asdict(code.calibration),
+        },
+        filters=filters,
+        rollout_percentage=rollout,
+        measured_failure_rate=code.failed / code.of,
+        sample_size=code.of,
+        evidence=[Evidence(trace_id=e.trace_id, reason=e.reason[:160]) for e in card.examples],
+        score=_score(
+            REVIEW_SEVERITY,
+            wilson_interval(code.failed, code.of).low * weekly_units,
+            judge=False,
+            similar=False,
+        ),
+        estimated_weekly_runs=round(weekly_units * rollout / 100),
+    )
+
+
 def is_prompt_bug(card: ReviewCard) -> bool:
     """Whether the review saw the card's rule broken in most calls, by its own labels."""
     return card.failed >= MIN_PROMPT_BUG_FAILURES and card.failed >= PROMPT_BUG_FAIL_SHARE * card.of
@@ -650,10 +709,12 @@ def prompt_fix_proposal(card: ReviewCard, managed_prompts: Collection[str]) -> P
         headline=text.headline,
         outcome=text.outcome,
         reason=text.reason,
+        observation=text.observation,
+        observation_scope=text.observation_scope,
         # The earlier-card lookup reads a review card's name and description from its draft.
         draft={
             "name": card.title[: Evaluation._meta.get_field("name").max_length],
-            "description": card.checks,
+            "description": card.rule,
             # The card reports a rate over generations, as a judge on them would.
             "target": "generation",
             **({"prompt_name": prompts[0]} if len(prompts) == 1 else {}),
@@ -681,6 +742,8 @@ def fix_proposal(fix: EvalFix) -> Proposal:
         headline=text.headline,
         outcome=text.outcome,
         reason=text.reason,
+        observation=text.observation,
+        observation_scope=text.observation_scope,
         draft=fix.patch or {},
         filters=[],
         rollout_percentage=100.0,
