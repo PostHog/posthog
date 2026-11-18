@@ -30,7 +30,7 @@ from posthog.errors import ExposedCHQueryError
 from posthog.models import Team
 
 from products.metrics.backend.metric_query_runner import MAX_QUERY_SPAN
-from products.metrics.backend.promql import PromQLQueryError, snuffle_payload
+from products.metrics.backend.promql import PromQLQueryError, check_promql_length, snuffle_payload
 from products.metrics.backend.sql_mode import run_metrics_sql_values
 from products.metrics.backend.variables import (
     Variable,
@@ -394,9 +394,11 @@ def list_variable_options(
     elif not (query or "").strip():
         raise ValueError("Write a query for the variable first.")
     elif source == MetricsDashboardVariableSource.PROMQL:
+        check_promql_length(query or "")
         substitution = substitute_promql(query or "", variables)
         if substitution.unresolved:
             raise ValueError(unresolved_message(substitution.unresolved))
+        check_promql_length(substitution.text)
         key = _query_cache_key(team, source, substitution.text, {}, date_from, date_to, regex)
         options = _shared_options(
             key, lambda: apply_regex(_promql_options(team, substitution.text, date_from, date_to), regex), slot

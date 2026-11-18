@@ -571,6 +571,30 @@ class TestMetricsPromQLMode(APIBaseTest):
                 runner.calculate()
         request.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("as_written", "up" + " " * 9000, "api"),
+            ("after_variable_substitution", 'up{job="$job"}', "a" * 9000),
+        ]
+    )
+    def test_promql_longer_than_the_api_limit_is_rejected_without_a_query(
+        self, _name: str, promql: str, job: str
+    ) -> None:
+        runner = self._runner(promql)
+        runner.apply_dashboard_filters(
+            DashboardFilter(
+                metricVariables=[
+                    MetricsDashboardVariable(
+                        name="job", source="textbox", current=MetricsDashboardVariableSelection(values=[job])
+                    )
+                ]
+            )
+        )
+        with patch("posthog.api.snuffle_proxy.internal_requests.request") as request:
+            with pytest.raises(ExposedHogQLError, match="cannot be longer than 8192 characters"):
+                runner.calculate()
+        request.assert_not_called()
+
     def _sql_runner_with_all(self, source: str, query: str) -> MetricsQueryRunner:
         runner = MetricsQueryRunner(
             query=MetricsQuery(
