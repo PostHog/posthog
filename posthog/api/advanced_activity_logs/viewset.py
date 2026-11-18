@@ -142,10 +142,16 @@ class MergedActivityLogQuerysets:
         return sum(queryset.count() for queryset in self.querysets)
 
     def __getitem__(self, window: slice) -> list[ActivityLog]:
-        rows = merge_ordered_rows(
-            [list(queryset.order_by(*self.ordering)[: window.stop]) for queryset in self.querysets], self.ordering
-        )
-        return rows[window]
+        fields = [term.lstrip("-") for term in self.ordering]
+        position_lists = [
+            list(queryset.order_by(*self.ordering).values_list(*fields)[: window.stop]) for queryset in self.querysets
+        ]
+        positions = list(heapq.merge(*position_lists, reverse=self.ordering[0].startswith("-")))[window]
+        page_ids = [position[-1] for position in positions]
+        rows_by_id: dict[Any, ActivityLog] = {}
+        for queryset in self.querysets:
+            rows_by_id.update((row.id, row) for row in queryset.filter(id__in=page_ids))
+        return [rows_by_id[row_id] for row_id in page_ids if row_id in rows_by_id]
 
 
 def visible_detail(instance: ActivityLog, context: dict[str, Any]) -> Optional[dict[str, Any]]:
