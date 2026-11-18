@@ -719,8 +719,7 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
     // Self-managed tables (reading a bucket in place) can no longer be created.
     'warehouse-tables-create': () =>
         'Tool "warehouse-tables-create" was removed. PostHog no longer links tables that read your bucket directly. To import bucket files, add an Amazon S3, Google Cloud Storage, Azure Blob, or Cloudflare R2 source with "data-warehouse-source-setup". Run "external-data-sources-wizard" for the required fields. To import a local file, upload it in the PostHog app at /data-warehouse/new-source?kind=FileUpload. The upload creates a FileUpload source.',
-    // The review and auto-approval tools moved to the code-review namespace. Agent instructions
-    // written before the move still name the old tools.
+    // Renamed into the code-review namespace. Older agent instructions still name these tools.
     ...Object.fromEntries(
         [
             ['review-hog-reviews-get', 'code-review-reviews-get'],
@@ -1811,8 +1810,6 @@ function missingScopeRecovery(context: Context | undefined, connection: ScopeRec
     if (isChatGptAppConnection(connection.oauthClientId)) {
         return 'The PostHog app in ChatGPT and Codex does not request every PostHog scope, so reconnecting it adds these scopes only if the app asks for them. If the user already reconnected and approved all access, this tool is not available through the app yet. Continue with the other tools.'
     }
-    // A step-up client gets only the default scopes on every new authorization, so reauthorizing
-    // cannot add these. A call to the tool makes the client ask the user for the missing scopes.
     if (connection.supportsStepUp) {
         return 'Call the tool anyway: this client then asks the user to approve the missing scopes and retries the call. Reauthorizing the connection does not add them.'
     }
