@@ -36,7 +36,7 @@ describe('HogFunctionMonitoringService', () => {
         } as any
         outputs = new IngestionOutputs<MonitoringOutput>({
             [APP_METRICS_OUTPUT]: fakeOutput,
-            [LOG_ENTRIES_OUTPUT]: fakeOutput,
+            [LOG_ENTRIES_OUTPUT]: { ...fakeOutput, queueMessages: jest.fn().mockResolvedValue(undefined) },
         })
         service = new HogFunctionMonitoringService(outputs)
     })

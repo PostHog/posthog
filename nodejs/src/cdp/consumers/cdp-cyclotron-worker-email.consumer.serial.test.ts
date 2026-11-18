@@ -36,7 +36,7 @@ import { CyclotronJobInvocation } from '~/cdp/types'
 import { convertToHogFunctionFilterGlobal } from '~/cdp/utils/hog-function-filtering'
 import { KAFKA_EMAIL_STATUS } from '~/common/config/kafka-topics'
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { PostgresRouter } from '~/common/utils/db/postgres'
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
@@ -346,6 +346,55 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         )
         return latest && { status: latest.status, reason: latest.reason, sendingDomain: latest.sending_domain }
     }
+
+    it('counts a deleted sender separately in Prometheus and retains the workflow failure metric', async () => {
+        await posthogDb.query('DELETE FROM posthog_integration WHERE id = $1 AND team_id = $2', [
+            integration.id,
+            team.id,
+        ])
+        const emailCount = (metricName: string) =>
+            metric('cdp_hog_function_metric', { metric_kind: 'email', metric_name: metricName })
+        const unverifiedBefore = await emailCount('email_sender_unverified')
+        const failuresBefore = await emailCount('email_failed')
+        const send = transactionalSend(null)
+        await enqueue(send)
+        await startWorker(null)
+
+        await waitForExpect(() => {
+            const rows = mockProducerObserver
+                .getProducedKafkaMessagesForTopic(hub.HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC)
+                .map(({ value }) => value)
+            expect(rows).toContainEqual(
+                expect.objectContaining({
+                    team_id: team.id,
+                    metric_kind: 'email',
+                    metric_name: 'email_failed',
+                    count: 1,
+                })
+            )
+        })
+        expect(await emailCount('email_sender_unverified')).toBe(unverifiedBefore + 1)
+        expect(await emailCount('email_failed')).toBe(failuresBefore)
+        expect(delivered()).toEqual([])
+    })
+
+    it('delivers an email when the sender exists on the primary but is missing from the replica', async () => {
+        const query = hub.postgres.query.bind(hub.postgres)
+        const replica = jest.spyOn(hub.postgres, 'query').mockImplementation(async (use, sql, params, tag, level) => {
+            const response = await query(use, sql, params, tag, level)
+            if (use === PostgresUse.COMMON_READ && tag === 'fetchIntegrations') {
+                return { ...response, rows: response.rows.filter((row) => row.id !== integration.id) }
+            }
+            return response
+        })
+        try {
+            await enqueue(transactionalSend(null))
+            await startWorker(null)
+            await waitForExpect(() => expect(delivered()).toEqual([[]]))
+        } finally {
+            replica.mockRestore()
+        }
+    })
 
     it('a worker whose job the janitor re-queued to another worker does not send it, and its write is refused', async () => {
         const ownershipChecked = { CDP_EMAIL_JOB_OWNERSHIP_CHECK_TEAMS: String(team.id) }
