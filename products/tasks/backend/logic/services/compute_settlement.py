@@ -32,6 +32,7 @@ from products.tasks.backend.logic.services.sandbox_pricing import (
 from products.tasks.backend.logic.services.sandbox_usage import (
     close_sandbox_session,
     get_billable_sandbox_compute_usage_by_team,
+    iter_sandbox_sessions,
 )
 from products.tasks.backend.metrics import (
     ComputeSettlementOutcome,
@@ -84,17 +85,35 @@ def _reject_settle_since(raw: str, reason: str) -> NoReturn:
     raise ComputeSettlementDeploymentError(f"GATEWAY_COMPUTE_SETTLE_SINCE {reason}")
 
 
+def _parse_utc(raw: str) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+
+
 def _settle_since() -> datetime | None:
     raw = settings.GATEWAY_COMPUTE_SETTLE_SINCE
     if not raw:
         return None
-    try:
-        parsed = datetime.fromisoformat(raw)
-    except ValueError:
+    value = _parse_utc(raw)
+    if value is None:
         _reject_settle_since(raw, "is not a valid ISO timestamp")
-    value = parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
     if value > timezone.now():
         _reject_settle_since(raw, "is in the future")
+    return value
+
+
+def _billable_since() -> datetime | None:
+    raw = settings.GATEWAY_COMPUTE_BILLABLE_SINCE
+    if not raw:
+        return None
+    value = _parse_utc(raw)
+    if value is None:
+        observe_compute_settlement("deployment_error")
+        logger.error("compute_settlement.invalid_billable_since", value=raw)
+        raise ComputeSettlementDeploymentError("GATEWAY_COMPUTE_BILLABLE_SINCE is not a valid ISO timestamp")
     return value
 
 
@@ -158,6 +177,7 @@ def _ai_product(run: TaskRun) -> str:
 
 def build_settlement_body(session: SandboxSession, run: TaskRun, cost: SandboxComputeCost) -> dict[str, Any]:
     assert session.user_attributed_at is not None
+    billable_since = _billable_since()
     window_end = _window_end(session)
     detail: dict[str, Any] = {
         "rate_cards": [
@@ -190,7 +210,8 @@ def build_settlement_body(session: SandboxSession, run: TaskRun, cost: SandboxCo
         {
             "obo": str(session.team_id),
             "run": str(session.task_run_id),
-            "billable": is_billable_sandbox_session(session),
+            "billable": is_billable_sandbox_session(session)
+            and (billable_since is None or session.user_attributed_at >= billable_since),
             "detail": detail,
             "reason": "sandbox compute",
             "strict": True,
@@ -364,6 +385,9 @@ def settle_task_run_compute(task_run_id: UUID | str, team_id: int) -> list[Settl
         return []
     run_uuid = task_run_id if isinstance(task_run_id, UUID) else UUID(task_run_id)
     sessions = _unsettled(SandboxSession.objects.for_team(team_id).filter(task_run_id=run_uuid, ended_at__isnull=False))
+    since = _settle_since()
+    if since is not None:
+        sessions = sessions.filter(ended_at__gte=since)
     return [settle_sandbox_session(session) for session in sessions]
 
 
@@ -591,10 +615,10 @@ def reconcile_compute_settlement(since: datetime, until: datetime, wallet_team: 
 
     priced_usd: dict[str, Decimal] = {}
     priced_rows: dict[str, int] = {}
-    for session in (
-        SandboxSession.objects.unscoped()
-        .filter(user_attributed_at__isnull=False, ended_at__gte=since, ended_at__lt=until)
-        .iterator()
+    for session in iter_sandbox_sessions(
+        SandboxSession.objects.unscoped().filter(
+            user_attributed_at__isnull=False, ended_at__gte=since, ended_at__lt=until
+        )
     ):
         cost = session_compute_cost(session)
         key = str(session.team_id)
@@ -607,11 +631,10 @@ def reconcile_compute_settlement(since: datetime, until: datetime, wallet_team: 
     prorated_usd: dict[str, Decimal] = {}
     prorated_rows: dict[str, int] = {}
     calculated_at = timezone.now()
-    for session in (
+    for session in iter_sandbox_sessions(
         SandboxSession.objects.unscoped()
         .filter(compute_settled_usd__isnull=False, user_attributed_at__lt=until, ended_at__gt=since)
         .exclude(compute_ledger_entry_id="")
-        .iterator()
     ):
         if not is_billable_sandbox_session(session):
             continue

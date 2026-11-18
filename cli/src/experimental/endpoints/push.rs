@@ -9,10 +9,10 @@ use inquire::Confirm;
 use crate::invocation_context::context;
 
 use super::{
-    compute_changes_for_push, create_insight_variable, fetch_all_endpoints,
-    fetch_insight_variables, format_change_summary, get_remote_variable_names, print_diff, Change,
-    CreateInsightVariableRequest, EndpointResponse, EndpointVariable, EndpointYaml,
-    InsightVariable, PushArgs, ResolvedVariables, VALID_SYNC_FREQUENCIES,
+    compute_changes_for_push, create_insight_variable, debug_request, debug_request_body,
+    fetch_all_endpoints, fetch_insight_variables, format_change_summary, get_remote_variable_names,
+    print_diff, Change, CreateInsightVariableRequest, EndpointResponse, EndpointVariable,
+    EndpointYaml, InsightVariable, PushArgs, ResolvedVariables, VALID_SYNC_FREQUENCIES,
 };
 
 /// Represents a variable change for display in the diff
@@ -335,10 +335,8 @@ pub fn push_endpoints(args: &PushArgs) -> Result<()> {
                     Ok(r) => r,
                     Err(e) => {
                         crate::safe_println!(
-                            "{} Failed to resolve variables for {}: {}",
-                            "✗".red(),
-                            endpoint.name,
-                            e
+                            "{}",
+                            failure_line("resolve variables for", &endpoint.name, &e)
                         );
                         continue;
                     }
@@ -353,12 +351,7 @@ pub fn push_endpoints(args: &PushArgs) -> Result<()> {
                         success_count += 1;
                     }
                     Err(e) => {
-                        crate::safe_println!(
-                            "{} Failed to create {}: {}",
-                            "✗".red(),
-                            endpoint.name,
-                            e
-                        );
+                        crate::safe_println!("{}", failure_line("create", &endpoint.name, &e));
                     }
                 }
             }
@@ -377,10 +370,8 @@ pub fn push_endpoints(args: &PushArgs) -> Result<()> {
                     Ok(r) => r,
                     Err(e) => {
                         crate::safe_println!(
-                            "{} Failed to resolve variables for {}: {}",
-                            "✗".red(),
-                            local.name,
-                            e
+                            "{}",
+                            failure_line("resolve variables for", &local.name, &e)
                         );
                         continue;
                     }
@@ -395,12 +386,7 @@ pub fn push_endpoints(args: &PushArgs) -> Result<()> {
                         success_count += 1;
                     }
                     Err(e) => {
-                        crate::safe_println!(
-                            "{} Failed to update {}: {}",
-                            "✗".red(),
-                            local.name,
-                            e
-                        );
+                        crate::safe_println!("{}", failure_line("update", &local.name, &e));
                     }
                 }
             }
@@ -643,12 +629,8 @@ fn create_endpoint(
     };
     let request_body = endpoint.to_api_request(resolved_opt);
 
-    if debug {
-        crate::safe_eprintln!("  {} POST endpoints/", "DEBUG".cyan().bold());
-        if let Ok(json) = serde_json::to_string_pretty(&request_body) {
-            crate::safe_eprintln!("  Request body:\n{}", json.dimmed());
-        }
-    }
+    debug_request(debug, "POST", "endpoints/");
+    debug_request_body(debug, &request_body);
 
     let result = client.send_post(client.env_url("endpoints/")?, |req| req.json(&request_body));
 
@@ -678,16 +660,8 @@ fn update_endpoint(
     let request_body = endpoint.to_api_request(resolved_opt);
     let url = client.env_url(&format!("endpoints/{}/", endpoint.name))?;
 
-    if debug {
-        crate::safe_eprintln!(
-            "  {} PATCH endpoints/{}/",
-            "DEBUG".cyan().bold(),
-            endpoint.name
-        );
-        if let Ok(json) = serde_json::to_string_pretty(&request_body) {
-            crate::safe_eprintln!("  Request body:\n{}", json.dimmed());
-        }
-    }
+    debug_request(debug, "PATCH", &format!("endpoints/{}/", endpoint.name));
+    debug_request_body(debug, &request_body);
 
     let result = client.send_request(reqwest::Method::PATCH, url, |req| req.json(&request_body));
 
@@ -699,5 +673,58 @@ fn update_endpoint(
             }
             Err(e).context("Failed to update endpoint")
         }
+    }
+}
+
+fn failure_line(action: &str, name: &str, error: &anyhow::Error) -> String {
+    let mut message = error.to_string();
+    if let Some(api_error) = error
+        .chain()
+        .skip(1)
+        .find_map(|cause| cause.downcast_ref::<crate::api::client::ClientError>())
+    {
+        message.push_str(&format!(": {api_error}"));
+    }
+    format!("{} Failed to {action} {name}: {message}", "✗".red())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api::client::ClientError;
+
+    #[test]
+    fn failure_line_omits_response_decode_causes() {
+        let decode =
+            serde_json::from_str::<EndpointResponse>(r#"{"is_active":"SYNTHETIC_RESPONSE_VALUE"}"#)
+                .unwrap_err();
+        let error = anyhow::Error::new(decode).context("Failed to parse create response");
+
+        let line = failure_line("create", "demo", &error);
+
+        assert!(line.contains("Failed to parse create response"), "{line}");
+        assert!(!line.contains("SYNTHETIC_RESPONSE_VALUE"), "{line}");
+    }
+
+    #[test]
+    fn failure_line_keeps_the_api_error_under_the_context() {
+        let refusal = ClientError::ApiError(
+            400,
+            Box::new(
+                reqwest::Url::parse("https://example.com/api/environments/1/endpoints/").unwrap(),
+            ),
+            r#"{"type":"validation_error","code":"invalid","detail":"Name taken.","attr":"name"}"#
+                .to_string(),
+        );
+        let error = anyhow::Error::new(refusal).context("Failed to create endpoint");
+
+        let line = failure_line("create", "demo", &error);
+
+        assert!(
+            line.contains(
+                "Failed to create demo: Failed to create endpoint: API error: status='400'"
+            ),
+            "{line}"
+        );
     }
 }

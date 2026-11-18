@@ -212,3 +212,9 @@ class ApiKeySearchTool(ConsoleTool):
                 form_class=ApiKeySearchForm,
             )
         ]
+
+
+# The old page took the key in a POST body, so a bookmark carries no key and none lands in the new URL.
+console.register_moved_page(
+    old_path="admin/apikeysearch", title="API key search", url="/admin/console/tools/api-key-search/"
+)

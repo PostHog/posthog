@@ -6,4 +6,4 @@ from products.warehouse_sources.sources.sdk import config
 
 @config.config
 class WistiaSourceConfig(config.Config):
-    pass
+    api_token: str

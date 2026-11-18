@@ -12,7 +12,9 @@ import { assertRouterTargetsTestDatabase } from './database-guard'
 // Rows outlive their test file, so draw from the whole int4 range. Narrower schemes
 // (per-millisecond, per-file band) collide far more often. Not Math.random: tests mock
 // that to pin their own randomness, which would pin every id to one value too.
-export const uniqueTestId = (): number => randomInt(2_100_000_000)
+export const TEST_IDS_BELOW = 2_100_000_000
+
+export const uniqueTestId = (): number => randomInt(TEST_IDS_BELOW)
 
 export const commonUserId = 1001
 export const commonOrganizationMembershipId = '0177364a-fc7b-0000-511c-137090b9e4e1'

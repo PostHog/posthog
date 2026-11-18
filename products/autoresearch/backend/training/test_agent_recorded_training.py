@@ -427,6 +427,64 @@ class TestAgentRecordedTraining(TeamScopedTestMixin, APIBaseTest):
             holdout_score=0.81,
         ).exists()
 
+    @patch("products.autoresearch.backend.training.stop.tasks_cancellation")
+    @patch("products.autoresearch.backend.training.stop.tasks_facade.get_task_run")
+    def test_stop_fails_the_run_cancels_its_sandbox_and_promotes_nothing(
+        self, get_task_run: MagicMock, cancellation: MagicMock
+    ):
+        run_id = self._open_run()
+        self._record(run_id, number=0, status_value="kept", holdout=0.81)
+        task_run_id, task_id = UUID(int=1), UUID(int=2)
+        AutoresearchTrainingRun.objects.filter(pk=run_id, team_id=self.team.pk).update(task_run_id=task_run_id)
+        AutoresearchPipeline.objects.filter(pk=self.pipeline.pk).update(
+            status=AutoresearchPipeline.Status.BOOTSTRAPPING
+        )
+        get_task_run.return_value = MagicMock(id=task_run_id, task_id=task_id)
+        cancellation.cancel_task_run.return_value = ("accepted", None)
+
+        resp = self.client.post(f"{self.runs_url}/{run_id}/stop/", format="json")
+
+        assert resp.status_code == status.HTTP_200_OK, resp.json()
+        assert resp.json()["status"] == "failed"
+        cancel_args = cancellation.cancel_task_run.call_args
+        assert cancel_args.args[:3] == (task_run_id, task_id, self.team.pk)
+        assert cancel_args.kwargs["requested_by_user_id"] == self.user.pk
+        self.pipeline.refresh_from_db()
+        assert self.pipeline.status == AutoresearchPipeline.Status.DRAFT
+
+        # The agent's late complete and the cancelled TaskRun's receiver both find a closed run.
+        assert self.client.post(f"{self.runs_url}/{run_id}/complete/", {}, format="json").status_code == 400
+        handle_task_run_completed(
+            MagicMock(
+                id=task_run_id,
+                team_id=self.team.pk,
+                status=TaskRunModel.Status.CANCELLED,
+                state={"autoresearch_training_run_id": run_id},
+                error_message="Cancelled",
+            )
+        )
+        run = AutoresearchTrainingRun.objects.get(pk=run_id, team_id=self.team.pk)
+        assert run.status == AutoresearchTrainingRun.Status.FAILED
+        assert "stopped" in run.error
+        assert not AutoresearchModel.objects.filter(pipeline=self.pipeline).exists()
+
+        again = self.client.post(f"{self.runs_url}/{run_id}/stop/", format="json")
+        assert again.status_code == status.HTTP_400_BAD_REQUEST
+        assert cancellation.cancel_task_run.call_count == 1
+
+    def test_training_agent_cannot_stop_a_run(self):
+        run_id = self._open_run()
+        token = MagicMock(sandbox_task_id=None)
+        views = "products.autoresearch.backend.presentation.views.views"
+        with (
+            patch(f"{views}.is_sandbox_origin_request", return_value=True),
+            patch(f"{views}.get_oauth_access_token", return_value=token),
+        ):
+            resp = self.client.post(f"{self.runs_url}/{run_id}/stop/", format="json")
+        assert resp.status_code == status.HTTP_403_FORBIDDEN
+        run = AutoresearchTrainingRun.objects.get(pk=run_id, team_id=self.team.pk)
+        assert run.status == AutoresearchTrainingRun.Status.RUNNING
+
     def test_cross_team_isolation(self):
         other_org = Organization.objects.create(name="Other")
         other_team = Team.objects.create(organization=other_org, name="Other team")

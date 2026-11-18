@@ -27,6 +27,8 @@ import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, type IntervalType } from '~/types'
 
+import { RequestedAnomalyScoreOverlay } from 'products/product_analytics/frontend/insights/anomalies/RequestedAnomalyScoreOverlay'
+import { RetentionDeletionOverlay } from 'products/product_analytics/frontend/insights/dataRetention/RetentionDeletionOverlay'
 import type { SeriesDatum } from 'products/product_analytics/frontend/insights/shared/InsightTooltip/insightTooltipUtils'
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
@@ -107,6 +109,7 @@ export function TrendsLineChart({
         hasPersonsModal,
         actionNames,
         querySource,
+        compareFilter,
         incompletenessOffsetFromEnd,
         showMovingAverage,
         movingAverageIntervals,
@@ -428,12 +431,27 @@ export function TrendsLineChart({
             dataAttr="trend-line-graph"
             onError={handleChartError}
         >
+            <RetentionDeletionOverlay
+                isStickiness={isStickiness}
+                querySource={querySource}
+                compareFilter={compareFilter}
+            />
             {insight.id ? (
                 <TrendsAlertOverlays
                     insightId={insight.id}
                     insightProps={insightProps}
                     indexedResults={indexedResults}
                     getColor={getTrendsColor}
+                    getYAxisId={getYAxisId}
+                    isHidden={getTrendsHidden}
+                />
+            ) : null}
+            {insight.id ? (
+                <RequestedAnomalyScoreOverlay
+                    insightId={insight.id}
+                    dateFrom={insightData?.resolved_date_range?.date_from}
+                    dateTo={insightData?.resolved_date_range?.date_to}
+                    indexedResults={indexedResults}
                     getYAxisId={getYAxisId}
                     isHidden={getTrendsHidden}
                 />

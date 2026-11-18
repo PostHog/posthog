@@ -32,6 +32,7 @@ class TestListCitationGaps(BaseTest):
         answer_text: str | None = None,
         queries: list[str] | None = None,
         version: int | None = None,
+        mode: str = "web_search",
     ) -> None:
         target_urls = [url for url in cited_urls if "example.com" in url]
         AEOCitationCheck.objects.for_team(self.team.id).create(
@@ -42,6 +43,7 @@ class TestListCitationGaps(BaseTest):
             prompt_source=prompt.prompt_source,
             prompt_hash=prompt.prompt_hash,
             prompt_version=version,
+            mode=mode,
             engine=engine,
             model=engine,
             check_failed=failed,
@@ -69,12 +71,18 @@ class TestListCitationGaps(BaseTest):
             queries=["session replay tools", "open source replay"],
         )
         self._check(gap, "exa-answer", cited_urls=[], failed=True)
+        self._check(gap, "claude-web-search", cited_urls=[], answer_text="From memory: try PostHog.", mode="no_search")
 
         always_cited = self._prompt("example pricing")
         self._check(always_cited, "claude-web-search", cited_urls=["https://example.com/pricing"])
 
         only_failed = self._prompt("engine outage")
         self._check(only_failed, "claude-web-search", cited_urls=[], failed=True)
+
+        only_no_search = self._prompt("what is posthog")
+        self._check(
+            only_no_search, "openai-web-search", cited_urls=[], answer_text="An analytics suite.", mode="no_search"
+        )
 
         inactive = self._prompt("retired prompt", active=False)
         self._check(inactive, "claude-web-search", cited_urls=["https://rival.example/x"])

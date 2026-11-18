@@ -152,6 +152,11 @@
         background: var(--color-bg-surface-primary);
         border: 1px solid var(--color-border-primary);
         border-radius: var(--radius);
+
+        &--quill {
+            background: none;
+            border: 0;
+        }
     }
 
     > .InsightCard {
@@ -194,7 +199,7 @@
     }
 
     // The grid's drag `cancel` skips these, so they keep text selection instead of acting as a handle.
-    :is(p, h4, .LemonMarkdown) {
+    :is(p, h4, [role='heading'], .LemonMarkdown) {
         cursor: auto;
         user-select: text;
     }
@@ -380,6 +385,9 @@
         top: 0;
         bottom: 2rem;
         height: auto;
+
+        // Notch out the tile's "more" button so it gets the pointer, while the outer strip still resizes up to the corner.
+        clip-path: polygon(0.75rem 0, 100% 0, 100% 100%, 0 100%, 0 3rem, 0.75rem 3rem);
         cursor: ew-resize;
     }
 
@@ -388,6 +396,15 @@
         left: 0;
         width: auto;
         cursor: ns-resize;
+    }
+
+    // A bottom or right legend sits under the handle's inner strip, so give that strip to the legend and resize from the outer one.
+    &:has([data-legend-position='bottom']) > .react-resizable-handle.react-resizable-handle-s {
+        clip-path: inset(1rem 0 0);
+    }
+
+    &:has([data-legend-position='right']) > .react-resizable-handle.react-resizable-handle-e {
+        clip-path: inset(0 0 0 1rem);
     }
 
     & > .react-resizable-handle.react-resizable-handle-w {

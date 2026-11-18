@@ -28,9 +28,7 @@ from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.lazy_join_tags import PERSONS
-from posthog.hogql.database.models import Table
 from posthog.hogql.database.schema.events_with_flag_calls import EVENT_ROW_TABLES
-from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
 from posthog.hogql.database.schema.persons import persons_join_is_inner
 from posthog.hogql.database.schema.util.where_clause_extractor import top_level_conjuncts
 from posthog.hogql.resolver_utils import get_long_table_name
@@ -58,11 +56,6 @@ _NEGATED_COMPARISONS = frozenset(
 )
 
 
-_EVENT_ROW_TABLES_WITHOUT_FLAG_EVALUATIONS = tuple(
-    table for table in EVENT_ROW_TABLES if table is not FlagEvaluationsTable
-)
-
-
 def rewrite_negated_person_filters(node: _T_AST, context: HogQLContext) -> _T_AST | None:
     """Returns None when no SELECT qualifies. Otherwise it emits untyped nodes. The caller runs type resolution again."""
     # This mode reads the properties JSON instead of materialized columns. See `_all_materialized` for why that costs
@@ -72,11 +65,7 @@ def rewrite_negated_person_filters(node: _T_AST, context: HogQLContext) -> _T_AS
     # Without a team, persons_join_is_inner cannot decide. The persons join loads the team later, so leave it in place.
     if context.team is None:
         return None
-    # The events list on flag_evaluations turns on personIdPushdown, which limits the persons join to the persons that
-    # the selected flag calls reach. The exclusion would scan every person in the team instead.
-    planner = _Planner(
-        _EVENT_ROW_TABLES_WITHOUT_FLAG_EVALUATIONS if context.modifiers.personIdPushdown else EVENT_ROW_TABLES
-    )
+    planner = _Planner()
     planner.visit(node)
     if planner.blocks_rewrite or not planner.rewrites:
         return None
@@ -97,13 +86,13 @@ class _Rewrite:
     properties: list[list[str | int]]
 
 
-def _plan(node: ast.SelectQuery, tables: tuple[type[Table], ...]) -> _Rewrite | None:
+def _plan(node: ast.SelectQuery) -> _Rewrite | None:
     select_from = node.select_from
     if (
         node.where is None
         or not isinstance(node.type, ast.SelectQueryType)
         or select_from is None
-        or not _is_events(select_from.type, tables)
+        or not _is_events(select_from.type)
     ):
         return None
 
@@ -160,14 +149,12 @@ def _is_string_column(column: "MaterializedColumn | None") -> bool:
     return column is not None and column.type in ("String", "Nullable(String)")
 
 
-def _is_events(
-    table_type: ast.Type | None, tables: tuple[type[Table], ...]
-) -> TypeGuard[ast.TableType | ast.LazyTableType | ast.TableAliasType]:
+def _is_events(table_type: ast.Type | None) -> TypeGuard[ast.TableType | ast.LazyTableType | ast.TableAliasType]:
     if isinstance(table_type, ast.TableAliasType):
         table_type = table_type.table_type
     # flag_evaluations and the union of events and flag_evaluations have the events fields. When `person` on one of
     # them joins persons, the join is on `person_id`.
-    return isinstance(table_type, (ast.TableType, ast.LazyTableType)) and isinstance(table_type.table, tables)
+    return isinstance(table_type, (ast.TableType, ast.LazyTableType)) and isinstance(table_type.table, EVENT_ROW_TABLES)
 
 
 def _exclusion(person_key: list[str | int], filters: list[ast.Expr]) -> ast.Expr:
@@ -339,9 +326,8 @@ class _PersonsPropertyRebinder(CloningVisitor):
 
 
 class _Planner(TraversingVisitor):
-    def __init__(self, tables: tuple[type[Table], ...]) -> None:
+    def __init__(self) -> None:
         super().__init__()
-        self.tables = tables
         self.rewrites: dict[int, _Rewrite] = {}
         self.blocks_rewrite = False
 
@@ -353,7 +339,7 @@ class _Planner(TraversingVisitor):
         # `events.person_id`, so their unqualified inner fields become ambiguous in a SELECT that joins two tables.
         if node.select_from is not None and node.select_from.next_join is not None:
             self.blocks_rewrite = True
-        rewrite = _plan(node, self.tables)
+        rewrite = _plan(node)
         if rewrite is not None:
             self.rewrites[id(node)] = rewrite
         super().visit_select_query(node)

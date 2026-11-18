@@ -72,7 +72,7 @@ class TestWorkflowVisionRequestsAPI(APIBaseTest):
     def test_starts_a_scan_for_the_token_team(
         self, _name: str, created: bool, result: dict[str, Any] | None, expected: int
     ) -> None:
-        TeamWorkflowsConfig.objects.create(team=self.team, replay_vision_scan_rate_limit_per_day=7)
+        TeamWorkflowsConfig.objects.filter(team=self.team).update(replay_vision_scan_rate_limit_per_day=7)
         request_id = uuid4()
         started = StartedObservationRequest(
             request_id=request_id, status="completed" if result else "running", created=created, result=result

@@ -26,7 +26,8 @@ export type SesTracking = {
 
 export const utmTagsFor = (
     invocation: CyclotronJobInvocationHogFunction,
-    onRenderError: (key: string, message: string) => void
+    onRenderError: (key: string, message: string) => void,
+    deadline?: AbortSignal
 ): UtmTags | null => {
     const metadata = invocation.hogFunction.metadata
     if (metadata?.utm_tags_enabled !== true) {
@@ -39,7 +40,7 @@ export const utmTagsFor = (
             utm_campaign: metadata.hog_flow_name ?? invocation.hogFunction.name,
             utm_content: metadata.hog_flow_action_name ?? '',
         },
-        renderUtmOverrides(metadata.utm_params, invocation.state.globals, onRenderError)
+        renderUtmOverrides(metadata.utm_params, invocation.state.globals, onRenderError, deadline)
     )
 }
 

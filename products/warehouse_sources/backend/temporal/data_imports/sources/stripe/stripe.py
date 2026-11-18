@@ -1546,7 +1546,7 @@ def _webhook_history_table_transformer(table: pa.Table) -> pa.Table:
 
     Reading columns through `_column` (None-filled when absent) keeps a malformed payload — only
     reachable with the signature check bypassed — from raising and wedging the batch forever:
-    the S3 files are only deleted after a successful yield, so a raising transformer would replay
+    the S3 files are only deleted after the job completes, so a raising transformer would replay
     the same poison batch on every sync.
     """
 

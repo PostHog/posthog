@@ -1,7 +1,8 @@
 import { useValues } from 'kea'
 
+import { BrandMark } from 'lib/components/BrandMark/BrandMark'
+
 import { mcpCustomHarnessesLogic } from '../settings/mcpCustomHarnessesLogic'
-import { BrandMark } from './BrandMark'
 import { HarnessIconMask } from './HarnessIconMask'
 
 /** The icon a team set for one of its custom harnesses, or the generic harness mark when it set none. */

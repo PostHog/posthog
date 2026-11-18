@@ -23,6 +23,7 @@ export function QuillHogFunctionSceneActions(): JSX.Element {
         willReEnableOnSave,
         willChangeEnabledOnSave,
         hogFunction,
+        inputsDiff,
     } = useValues(hogFunctionConfigurationLogic)
     const { duplicate, deleteHogFunction, resetForm, submitConfiguration } = useActions(hogFunctionConfigurationLogic)
 
@@ -61,7 +62,13 @@ export function QuillHogFunctionSceneActions(): JSX.Element {
                 type="submit"
                 onClick={submitConfiguration}
                 loading={isConfigurationSubmitting}
-                disabledReason={!configurationChanged && hogFunction ? 'No changes' : undefined}
+                disabledReason={
+                    inputsDiff
+                        ? 'Accept or reject the suggested inputs first'
+                        : !configurationChanged && hogFunction
+                          ? 'No changes'
+                          : undefined
+                }
             >
                 {template ? 'Create' : 'Save'}
                 {willReEnableOnSave

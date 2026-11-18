@@ -6,4 +6,5 @@ rules:
           - '/schema/generated-tool-definitions.json'
           - '/schema/tool-inputs.json'
           - '/schema/exec-command-reference.md'
+          - '/worker-configuration.d.ts'
       status: generated

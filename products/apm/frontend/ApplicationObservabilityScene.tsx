@@ -14,8 +14,10 @@ import {
     applicationObservabilityLogic,
 } from './applicationObservabilityLogic'
 import { EndpointsTab } from './EndpointsTab'
+import { environmentOptions } from './environmentDisplay'
 import { ServiceMapTab } from './ServiceMapTab'
 import { ServicesTab } from './ServicesTab'
+import { UsageTab } from './UsageTab'
 
 export const scene: SceneExport = {
     component: ApplicationObservabilityScene,
@@ -23,27 +25,27 @@ export const scene: SceneExport = {
 }
 
 export function ApplicationObservabilityScene(): JSX.Element {
-    const { environments, resolvedEnvironment, timeRange, tab } = useValues(applicationObservabilityLogic)
+    const { environment, environments, timeRange, tab } = useValues(applicationObservabilityLogic)
     const { setEnvironment, setTimeRange, setTab } = useActions(applicationObservabilityLogic)
 
     return (
         <SceneContent>
             <SceneTitleSection
                 name="Application observability"
-                description="Services, endpoints, and their health, from the spans you already send."
+                description="Service health from your spans, and how much each service sends across logs, traces, and metrics."
                 resourceType={{ type: 'tracing' }}
             />
             <div className="flex flex-wrap items-center gap-2">
-                <LemonSelect
-                    size="small"
-                    value={resolvedEnvironment}
-                    onChange={(value) => setEnvironment(value)}
-                    options={(environments.length ? environments : [resolvedEnvironment]).map((env) => ({
-                        value: env,
-                        label: env,
-                    }))}
-                    data-attr="apm-environment"
-                />
+                {/* Usage counts every environment, so its tab has no environment picker. */}
+                {tab !== 'usage' && (
+                    <LemonSelect
+                        size="small"
+                        value={environment}
+                        onChange={(value) => setEnvironment(value)}
+                        options={environmentOptions(environments, environment)}
+                        data-attr="apm-environment"
+                    />
+                )}
                 <LemonSelect
                     size="small"
                     value={timeRange}
@@ -63,6 +65,7 @@ export function ApplicationObservabilityScene(): JSX.Element {
                     { key: 'services', label: 'Services', content: <ServicesTab /> },
                     { key: 'endpoints', label: 'Endpoints', content: <EndpointsTab /> },
                     { key: 'map', label: 'Map', content: <ServiceMapTab /> },
+                    { key: 'usage', label: 'Usage', content: <UsageTab /> },
                 ]}
                 data-attr="apm-tabs"
             />

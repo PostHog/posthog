@@ -24,6 +24,7 @@ from products.alerts.backend.logic.destinations import (
     _raise_if_alert_already_has_these_destination_configs,
     alert_destination_group_key,
     alert_internal_event_delivered,
+    count_active_alert_destinations,
     flush_alert_internal_events,
     group_alert_destination_rows,
     list_active_alert_destinations,
@@ -92,27 +93,31 @@ class AlertDestinationTestCase(APIBaseTest):
     def _make_hog_function(
         self,
         *,
-        template_id: str,
+        template_id: str | None,
         alert_id: str,
         event_id: str = "$logs_alert_firing",
         inputs: dict[str, Any] | None = None,
         team: Team | None = None,
         name: str = "Test destination",
         secret_keys: set[str] | None = None,
+        function_type: str = "internal_destination",
+        source: str | None = "internal-events",
+        properties: list[dict[str, Any]] | None = None,
     ) -> HogFunction:
-        resolved_inputs = _READABLE_INPUTS_BY_TEMPLATE.get(template_id, {}) if inputs is None else inputs
+        resolved_inputs = _READABLE_INPUTS_BY_TEMPLATE.get(template_id or "", {}) if inputs is None else inputs
         return HogFunction.objects.create(
             team=team or self.team,
             name=name,
-            type="destination",
+            type=function_type,
             template_id=template_id,
             enabled=True,
             inputs_schema=_schema_declaring_every_input(resolved_inputs, secret_keys or set()),
             inputs=resolved_inputs,
             hog="return event",
             filters={
+                **({"source": source} if source is not None else {}),
                 "events": [{"id": event_id, "type": "events"}],
-                "properties": [{"key": "alert_id", "value": alert_id}],
+                "properties": properties if properties is not None else [{"key": "alert_id", "value": alert_id}],
             },
         )
 
@@ -746,30 +751,100 @@ class TestFlushAlertInternalEvents(SimpleTestCase):
 
 
 class TestListActiveAlertDestinations(AlertDestinationTestCase):
-    def test_list_active_alert_destinations_returns_name_and_type(self) -> None:
+    @parameterized.expand(
+        [
+            ("slack", "template-slack", "slack"),
+            ("clickup", "template-clickup", None),
+            ("custom", None, None),
+        ]
+    )
+    def test_list_active_alert_destinations_returns_name_and_type(
+        self, _name: str, template_id: str | None, destination_type: str | None
+    ) -> None:
         self._make_hog_function(
-            template_id="template-slack", alert_id="alert-1", name="Alerts — Signups (firing) → Slack #eng-alerts"
+            template_id=template_id, alert_id="alert-1", name="Alerts — Signups (firing) → Engineering"
         )
         self._make_hog_function(
-            template_id="template-slack", alert_id="alert-1", name="Alerts — Signups (firing) → Slack #alerts"
+            template_id="template-slack",
+            alert_id="alert-1",
+            name="Alerts — Signups (firing) → Slack #alerts",
+            properties=[
+                {"key": "alert_id", "value": "alert-1", "operator": "exact"},
+                {"key": "is_test", "value": True, "operator": "exact"},
+            ],
         )
         self._make_hog_function(template_id="template-webhook", alert_id="alert-2")
-        disabled = self._make_hog_function(template_id="template-slack", alert_id="alert-1", name="Disabled")
+        self._make_hog_function(template_id=template_id, alert_id="alert-1", event_id="$logs_alert_resolved")
+        other_team = Team.objects.create(organization=self.organization)
+        self._make_hog_function(template_id=template_id, alert_id="alert-1", team=other_team)
+        disabled = self._make_hog_function(template_id=template_id, alert_id="alert-1", name="Disabled")
         disabled.enabled = False
         disabled.save()
-        deleted = self._make_hog_function(template_id="template-slack", alert_id="alert-1", name="Deleted")
+        deleted = self._make_hog_function(template_id=template_id, alert_id="alert-1", name="Deleted")
         deleted.deleted = True
         deleted.save()
+
+        self._make_hog_function(template_id=template_id, alert_id="alert-1", function_type="destination")
+        self._make_hog_function(template_id=template_id, alert_id="alert-1", source="events")
+        self._make_hog_function(template_id=template_id, alert_id="alert-1", source=None)
+        self._make_hog_function(
+            template_id=template_id,
+            alert_id="alert-1",
+            properties=[
+                {"key": "alert_id", "value": "alert-1", "operator": "is_not"},
+                {"key": "alert_id", "value": "alert-2", "operator": "exact"},
+            ],
+        )
+        self._make_hog_function(
+            template_id=template_id,
+            alert_id="alert-1",
+            properties=[{"key": "alert_id", "value": "alert-1", "operator": "icontains"}],
+        )
+        for contradicting in (
+            {"key": "alert_id", "value": "alert-2", "operator": "exact"},
+            {"key": "alert_id", "value": "alert-1", "operator": "is_not"},
+            {"key": "alert_id", "value": ["alert-1"], "operator": "is_not"},
+            {"key": "alert_id", "value": ["alert-2", "alert-3"], "operator": "exact"},
+        ):
+            self._make_hog_function(
+                template_id=template_id,
+                alert_id="alert-1",
+                properties=[{"key": "alert_id", "value": "alert-1", "operator": "exact"}, contradicting],
+            )
+        self._make_hog_function(
+            template_id=template_id,
+            alert_id="alert-1",
+            name="Alerts — Signups (firing) → Not alert 2",
+            properties=[
+                {"key": "alert_id", "value": "alert-1", "operator": None, "type": None},
+                {"key": "alert_id", "value": "alert-2", "operator": "is_not"},
+                {"key": "alert_id", "value": ["alert-1", "alert-2"], "operator": "exact"},
+                {"key": "alert_id", "value": [], "operator": "exact"},
+                {"key": "alert_id", "value": "alert-1", "operator": "is_not", "type": "person"},
+            ],
+        )
+        self._make_hog_function(
+            template_id=template_id,
+            alert_id="alert-1",
+            properties=[{"key": "alert_id", "value": "alert-1", "operator": "exact", "type": "person"}],
+        )
 
         destinations = list_active_alert_destinations(
             team_id=self.team.id, alert_id="alert-1", allowed_event_ids=("$logs_alert_firing",)
         )
         names_and_types = [(d.name, d.destination_type) for d in destinations]
 
-        assert ("Slack #eng-alerts", "slack") in names_and_types
+        assert ("Engineering", destination_type) in names_and_types
         assert ("Slack #alerts", "slack") in names_and_types
+        assert ("Not alert 2", destination_type) in names_and_types
         assert all(isinstance(d.id, str) for d in destinations)
-        assert len(destinations) == 2
+        assert len(destinations) == 3
+        assert (
+            count_active_alert_destinations(
+                team_id=self.team.id, alert_id="alert-1", allowed_event_ids=("$logs_alert_firing",)
+            )
+            == 3
+        )
 
     @parameterized.expand(
         [

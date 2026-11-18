@@ -52,6 +52,8 @@ POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES = 15
 # A person who ignores the connect offer still gets the answer, without the tool.
 SLACK_APP_CONNECT_TOOL_WAIT = timedelta(minutes=10)
 CONNECT_TOOL_FROM_CHAT_PATCH = "slack-app-connect-tool-from-chat-2026-11"
+# The cascade can now judge whether the ask needs code before it returns `agent_needed`.
+CASCADE_CLASSIFIES_NEEDS_REPO_PATCH = "slack-app-cascade-classifies-needs-repo-2026-11"
 
 
 @workflow.defn(name="slack-app-mention-processing")
@@ -176,12 +178,15 @@ class SlackAppMentionProcessingWorkflow(PostHogWorkflow):
                 # Multiple candidates and no explicit mention. Cheap Haiku
                 # check first to skip the agent entirely for analytics/config
                 # questions; otherwise hand off to the discovery agent.
-                needs_repo = await _execute_posthog_code_activity(
-                    classify_posthog_code_task_needs_repo_activity,
-                    event.get("text", ""),
-                    thread_messages,
-                    inputs,
-                )
+                if workflow.patched(CASCADE_CLASSIFIES_NEEDS_REPO_PATCH) and cascade.needs_repo_classified:
+                    needs_repo = True
+                else:
+                    needs_repo = await _execute_posthog_code_activity(
+                        classify_posthog_code_task_needs_repo_activity,
+                        event.get("text", ""),
+                        thread_messages,
+                        inputs,
+                    )
                 if not needs_repo:
                     repository = None
                 else:

@@ -26,6 +26,7 @@ from posthog.tasks.usage_report import get_instance_metadata, iter_reports_with_
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.metrics import ExecutionTimeRecorder
 from posthog.temporal.usage_report.aggregator import (
+    add_pre_ai_overage_bytes_patch_defaults,
     add_pre_business_knowledge_usage_patch_defaults,
     add_pre_local_evaluation_not_modified_patch_defaults,
     add_pre_logs_distinct_patterns_patch_defaults,
@@ -259,6 +260,7 @@ async def aggregate_and_chunk_org_reports(inputs: AggregateInputs) -> AggregateR
                 add_pre_replay_vision_spend_projection_patch_defaults(all_data, inputs.query_results)
                 add_pre_business_knowledge_usage_patch_defaults(all_data, inputs.query_results)
                 add_pre_local_evaluation_not_modified_patch_defaults(all_data, inputs.query_results)
+                add_pre_ai_overage_bytes_patch_defaults(all_data, inputs.query_results)
                 check_cancelled()
                 counter_report = load_usage_counter_report(inputs)
                 all_data.update({field: dict(rows) for field, rows in counter_report.counts.items()})
@@ -272,7 +274,7 @@ async def aggregate_and_chunk_org_reports(inputs: AggregateInputs) -> AggregateR
                 # TODO(usage-reports-v2): re-enable PostHog product-analytics
                 # `capture_report` per organization once the billing path is validated.
                 # That call updates organization group properties (member/project/dashboard
-                # counts) used by customer.io segmentation and emits the
+                # counts) used by Workflows cohorts and emits the
                 # "organization usage report" event consumed for internal analytics.
 
                 return write_org_report_chunks(

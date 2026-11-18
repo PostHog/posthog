@@ -39,6 +39,22 @@ describe('featureFlagLogic', () => {
         })
     })
 
+    describe('scene menu bar', () => {
+        it.each([
+            ['on with today-rail-nav', { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true }, true],
+            ['on by its own flag', { [FEATURE_FLAGS.SCENE_MENU_BAR]: true }, true],
+            ['off without either flag', { [FEATURE_FLAGS.TODAY_RAIL_NAV]: false }, undefined],
+        ])('is %s', (_name, variants, expected) => {
+            initKeaTests()
+            const logic = featureFlagLogic()
+            logic.mount()
+
+            logic.actions.setFeatureFlags(Object.keys(variants), variants)
+
+            expect(logic.values.featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]).toBe(expected)
+        })
+    })
+
     describe('receivedFeatureFlags', () => {
         afterEach(() => {
             delete (posthog as any).config

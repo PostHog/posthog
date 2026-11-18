@@ -14,7 +14,7 @@ import type {
 export type TraceNodeKind = TraceNodeApi['kind']
 
 export type TraceMode = 'spans' | 'thread' | 'timeline' | 'summary' | 'feedback'
-export type TraceOpeningMode = 'summary' | null
+export type TraceOpeningMode = 'summary' | 'thread' | null
 
 export type NodeDetailTab = 'messages' | 'details' | 'evals' | 'raw'
 
@@ -108,4 +108,10 @@ export interface FeedbackStepContext {
     traceId: string
     stepLabels: ReadonlyMap<string, string>
     focusNodeId: string | null
+}
+
+export interface TraceViewKey {
+    hostId: string
+    traceId: string
+    timestampHint: string | null
 }

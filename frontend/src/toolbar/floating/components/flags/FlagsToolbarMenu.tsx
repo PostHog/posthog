@@ -8,16 +8,15 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { ToolbarMenu } from '~/toolbar/floating/components/bar/ToolbarMenu'
-import { FlagCompareButton } from '~/toolbar/floating/components/flags/FlagCompareButton'
 import { FlagComparisonModal } from '~/toolbar/floating/components/flags/FlagComparisonModal'
 import { FlagsImpersonationPanel } from '~/toolbar/floating/components/flags/FlagsImpersonationPanel'
 import { FeatureFlagRow } from '~/toolbar/shared/flags/FeatureFlagRow'
+import { FlagCompareButton } from '~/toolbar/shared/flags/FlagCompareButton'
 import { flagComparisonLogic } from '~/toolbar/shared/flags/flagComparisonLogic'
 import { toFlagInfo } from '~/toolbar/shared/flags/flagInfo'
 import { flagsToolbarLogic } from '~/toolbar/shared/flags/flagsToolbarLogic'
-import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
+import { toolbarAppUrl, toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
 import { urls } from '~/toolbar/shared/urls'
-import { joinWithUiHost } from '~/toolbar/shared/utils'
 
 export const FlagsToolbarMenu = (): JSX.Element => {
     const {
@@ -44,8 +43,9 @@ export const FlagsToolbarMenu = (): JSX.Element => {
         clearAllOverrides,
         setImpersonationOpen,
     } = useActions(flagsToolbarLogic)
-    const { uiHost, posthog: posthogClient, toolbarFlagsKey } = useValues(toolbarConfigLogic)
+    const { posthog: posthogClient, toolbarFlagsKey } = useValues(toolbarConfigLogic)
     const { comparingFlagKey } = useValues(flagComparisonLogic)
+    const { compareFlag } = useActions(flagComparisonLogic)
     const comparingReason = comparingFlagKey ? 'Wait for the comparison to finish' : null
 
     useOnMountEffect(() => {
@@ -108,10 +108,7 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                                     <FeatureFlagRow
                                         key={key}
                                         flag={flag}
-                                        flagUrl={joinWithUiHost(
-                                            uiHost,
-                                            id ? urls.featureFlag(id) : urls.featureFlags()
-                                        )}
+                                        flagUrl={toolbarAppUrl(id ? urls.featureFlag(id) : urls.featureFlags())}
                                         payloadDraft={openPayloadEditors[key] ? (draftPayloads[key] ?? '') : null}
                                         payloadError={payloadErrors[key] ?? null}
                                         disabledReason={comparingReason}
@@ -124,7 +121,17 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                                         onPayloadDraftChange={(draft) => setDraftPayload(key, draft)}
                                         onSavePayload={() => savePayloadOverride(key)}
                                         onClosePayloadEditor={() => setPayloadEditorOpen(key, false)}
-                                        actions={<FlagCompareButton flag={flag} disabledReason={comparingReason} />}
+                                        actions={
+                                            <FlagCompareButton
+                                                comparing={comparingFlagKey === key}
+                                                disabledReason={
+                                                    comparingReason ??
+                                                    (posthogClient ? null : 'The page has no PostHog client')
+                                                }
+                                                onCompare={() => compareFlag(flag)}
+                                                dataAttr="toolbar-flag-compare"
+                                            />
+                                        }
                                         dataAttrPrefix="toolbar-flag"
                                     />
                                 )

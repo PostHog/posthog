@@ -38,5 +38,7 @@ def update_repo(input: UpdateRepoInput, team_id: int) -> Repo:
         repo.enable_pr_comments = input.enable_pr_comments
     if input.debt_digest_enabled is not None:
         repo.debt_digest_enabled = input.debt_digest_enabled
+    if input.auto_quarantine_mode is not None:
+        repo.auto_quarantine_mode = input.auto_quarantine_mode
     repo.save()
     return repo

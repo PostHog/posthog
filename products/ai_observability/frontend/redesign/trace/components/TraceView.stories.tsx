@@ -25,6 +25,14 @@ import {
 import { toMatchingNodeIds, toSearchBox } from '../traceSearchBox'
 import { stepLabelsOf } from '../traceTreeLookups'
 import { EvalRollupOutcome, MessagesOpening, NodeDetailTab, TraceMode } from '../types'
+import { SummaryModeView } from './SummaryModeView'
+import { Thread } from './Thread'
+import { TraceFeedbackView } from './TraceFeedbackView'
+import { TraceHeader } from './TraceHeader'
+import { TraceModeTabs } from './TraceModeTabs'
+import { TraceSplitView } from './TraceSplitView'
+import { TraceSummaryBar } from './TraceSummaryBar'
+import { TraceTimeline } from './TraceTimeline'
 import { TraceView } from './TraceView'
 
 function findNode(nodes: TraceNodeApi[], id: string): TraceNodeApi | null {
@@ -103,60 +111,101 @@ function Playground({
         selectAndShowSpans(Object.keys(evalOutcomes).find((id) => evalOutcomes[id] === 'fail') ?? fixture.tree[0].id)
         setTab('evals')
     }
+    const evalOutcomeMap = new Map(Object.entries(evalOutcomes))
+    const matchingNodeIds = search ? toMatchingNodeIds(searchResults(search)) : null
+    const highlightQuery = search?.query ?? null
+    const stepFeedback = stepFeedbackWithCounts({ 'trace-1': 7, 'gen-answer': 2 })
+    const body =
+        mode === 'spans' ? (
+            <TraceSplitView
+                tree={fixture.tree}
+                selectedNodeId={selectedNodeId}
+                onSelectNode={setSelectedNodeId}
+                onPrefetchNode={() => {}}
+                detail={{
+                    ...fixture.details[node.id],
+                    node,
+                    trace: fixture.trace,
+                    evaluationResults: fixture.evaluationResults,
+                    evaluationResultsFailed: false,
+                    stepLabels: stepLabelsOf(fixture.tree),
+                    tab,
+                    onTabChange: setTab,
+                    messagesOpening: opening,
+                    onMessagesOpeningChange: setOpening,
+                    onViewInThread: node.kind === 'generation' ? () => setMode('thread') : null,
+                }}
+                evalOutcomes={evalOutcomeMap}
+                stepFeedback={stepFeedback}
+                matchingNodeIds={matchingNodeIds}
+                highlightQuery={highlightQuery}
+            />
+        ) : mode === 'thread' ? (
+            <Thread
+                conversation={fixture.thread}
+                onSelectMessage={selectAndShowSpans}
+                highlightQuery={highlightQuery}
+                matchingNodeIds={matchingNodeIds}
+            />
+        ) : mode === 'summary' ? (
+            <SummaryModeView
+                state={{ status: 'ready', summary: FIXTURE_SUMMARY }}
+                requesting={false}
+                requestError={null}
+                consentGiven
+                onRequest={() => {}}
+                onRegenerate={() => {}}
+                onReload={() => {}}
+                onSelectStep={selectAndShowSpans}
+            />
+        ) : mode === 'feedback' ? (
+            <TraceFeedbackView
+                feedback={FIXTURE_FEEDBACK_WITH_SURVEYS}
+                failed={false}
+                steps={FIXTURE_FEEDBACK_STEPS}
+                onSelectStep={selectAndShowSpans}
+            />
+        ) : (
+            <TraceTimeline
+                rows={fixture.timeline.rows}
+                totalMs={fixture.timeline.totalMs}
+                selectedNodeId={selectedNodeId}
+                onSelectNode={selectAndShowSpans}
+                onPrefetchNode={() => {}}
+                matchingNodeIds={matchingNodeIds}
+            />
+        )
     return (
         <TraceView
             status="ready"
-            header={fixture.header}
-            summary={{ trace: fixture.trace, evals: evals ? { summary: evals, onClick: showFailingEvals } : null }}
-            mode={mode}
-            onModeChange={setMode}
-            tree={fixture.tree}
-            selectedNodeId={selectedNodeId}
-            onSelectNode={setSelectedNodeId}
-            onPrefetchNode={() => {}}
-            onSelectFromView={selectAndShowSpans}
-            detail={{
-                ...fixture.details[node.id],
-                node,
-                trace: fixture.trace,
-                evaluationResults: fixture.evaluationResults,
-                evaluationResultsFailed: false,
-                stepLabels: stepLabelsOf(fixture.tree),
-                tab,
-                onTabChange: setTab,
-                messagesOpening: opening,
-                onMessagesOpeningChange: setOpening,
-                onViewInThread: node.kind === 'generation' ? () => setMode('thread') : null,
-            }}
-            thread={fixture.thread}
-            timeline={fixture.timeline}
-            evalOutcomes={new Map(Object.entries(evalOutcomes))}
-            search={
-                search
-                    ? {
-                          ...toSearchBox(search.query, 'ready', searchResults(search), null, selectedNodeId),
-                          onQueryChange: () => {},
-                          onStep: () => {},
-                      }
-                    : null
+            header={
+                <TraceHeader
+                    {...fixture.header}
+                    search={
+                        search
+                            ? {
+                                  ...toSearchBox(search.query, 'ready', searchResults(search), null, selectedNodeId),
+                                  onQueryChange: () => {},
+                                  onStep: () => {},
+                              }
+                            : null
+                    }
+                />
             }
-            matchingNodeIds={search ? toMatchingNodeIds(searchResults(search)) : null}
-            highlightQuery={search?.query ?? null}
-            summaryMode={{
-                state: { status: 'ready', summary: FIXTURE_SUMMARY },
-                requesting: false,
-                requestError: null,
-                consentGiven: true,
-                onRequest: () => {},
-                onRegenerate: () => {},
-                onReload: () => {},
-                onSelectStep: selectAndShowSpans,
-            }}
-            feedback={FIXTURE_FEEDBACK_WITH_SURVEYS}
-            feedbackFailed={false}
-            feedbackSteps={FIXTURE_FEEDBACK_STEPS}
-            feedbackCount={FIXTURE_FEEDBACK_WITH_SURVEYS.summary.total}
-            stepFeedback={stepFeedbackWithCounts({ 'trace-1': 7, 'gen-answer': 2 })}
+            summaryBar={
+                <TraceSummaryBar
+                    trace={fixture.trace}
+                    evals={evals ? { summary: evals, onClick: showFailingEvals } : null}
+                />
+            }
+            modeTabs={
+                <TraceModeTabs
+                    mode={mode}
+                    onModeChange={setMode}
+                    feedbackCount={FIXTURE_FEEDBACK_WITH_SURVEYS.summary.total}
+                />
+            }
+            body={body}
         />
     )
 }

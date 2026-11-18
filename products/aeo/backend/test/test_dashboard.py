@@ -146,6 +146,10 @@ class TestDashboardQueries(ClickhouseTestMixin, NonAtomicBaseTest):
         self._check(self.team, 2, "is old any good", "", cited=True, answer="Acme fits", urls=["https://old.com/p"])
         self._check(self.team, 2, "best analytics tool", "analytics", cited=True, failed=True)
         self._check(self.team, 2, "what is Acme", "analytics", cited=True, answer="acme")
+        # A no-search answer never cites, so every tile leaves it out rather than count it as uncited.
+        self._check(
+            self.team, 2, "best analytics tool", "analytics", answer="acme", engine="claude-no-search", mode="no_search"
+        )
         # The week before. "beta" is another team's brand, so the prompt is non-branded here.
         self._check(self.team, 9, "best analytics tool", "analytics", cited=True, urls=["https://docs.acme.com/a"])
         self._check(self.team, 9, "is beta good", "", answer="no")
@@ -167,6 +171,8 @@ class TestDashboardQueries(ClickhouseTestMixin, NonAtomicBaseTest):
         failed: bool = False,
         answer: str = "",
         urls: list[str] | None = None,
+        engine: str = "exa-answer",
+        mode: str = "web_search",
     ) -> None:
         with team_scope(team.pk):
             prompt, _ = AEOPrompt.objects.get_or_create(
@@ -180,8 +186,9 @@ class TestDashboardQueries(ClickhouseTestMixin, NonAtomicBaseTest):
                 prompt_source="manual",
                 prompt_hash=prompt_text,
                 prompt_topic=topic,
-                engine="exa-answer",
-                model="exa-answer",
+                engine=engine,
+                model=engine,
+                mode=mode,
                 cited=cited,
                 check_failed=failed,
                 answer_text=answer,
