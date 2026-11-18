@@ -17,7 +17,7 @@ from pathlib import Path
 import click
 
 from .cli import _targets_own_box, resolve_workspace_name, workspace_argument
-from .coder import _fail, _ssh_host_alias, coder_ssh_alias_configured, ensure_runtime_ready, get_sharing_status
+from .coder import _fail, _ssh_host_alias, coder_ssh_alias_configured, ensure_runtime_ready, get_workspace_shares
 
 REFERENCES_FILE = Path.home() / ".config" / "posthog" / "devbox-secrets.env"
 BOX_SCRIPT = Path(__file__).with_name("devbox-secrets.sh")
@@ -99,18 +99,14 @@ def _box(workspace: str | None) -> str:
 
 
 def _refuse_shared_box(name: str) -> None:
-    """Fail unless only the owner can open the box: anyone it is shared with gets a shell as the owner.
-
-    Reads one `coder sharing status` answer and fails when it can't, so a lookup error never reads as "not shared".
-    """
-    result = get_sharing_status(name)
-    if result.returncode != 0:
+    """Fail unless only the owner can open the box: anyone it is shared with gets a shell as the owner."""
+    shares = get_workspace_shares(name)
+    if shares is None:
         _fail(f"Couldn't check who '{name}' is shared with. Run the command again.")
-    # The first line is the table header. A group share has "-" in the user column.
-    shares = [row.split() for row in result.stdout.strip().splitlines()[1:] if row.strip()]
     if shares:
-        names = ", ".join(row[0] if row[0] != "-" else f"group {row[1]}" for row in shares)
-        _fail(f"'{name}' is shared with {names}, who could read lent secrets. Run `hogli devbox:unshare` first.")
+        _fail(
+            f"'{name}' is shared with {', '.join(shares)}, who could read lent secrets. Run `hogli devbox:unshare` first."
+        )
 
 
 def _install_box_script(name: str) -> None:

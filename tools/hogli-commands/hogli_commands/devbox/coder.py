@@ -2270,6 +2270,19 @@ def get_sharing_status(name: str) -> subprocess.CompletedProcess[str]:
     return _run(["coder", "sharing", "status", name], capture_output=True)
 
 
+def get_workspace_shares(name: str) -> list[str] | None:
+    """Return every user and group a workspace is shared with, or ``None`` when Coder doesn't answer.
+
+    Unlike :func:`get_shared_users`, a failed lookup is ``None``, so callers that guard credentials can fail closed.
+    """
+    result = get_sharing_status(name)
+    if result.returncode != 0:
+        return None
+    # The first line is the table header. A group share has "-" in the user column.
+    rows = [line.split() for line in result.stdout.strip().splitlines()[1:] if line.strip()]
+    return [row[0] if row[0] != "-" else f"group {row[1]}" for row in rows]
+
+
 def get_shared_users(name: str) -> list[str]:
     """Return usernames that a workspace is shared with (empty if none)."""
     result = get_sharing_status(name)

@@ -18,7 +18,7 @@ from .cli import (
     _skip_startup_wait,
     _targets_own_box,
     logout_gh,
-    read_gh_login,
+    read_gh_logins,
     remote_gh_auth,
     resolve_workspace_name,
     workspace_argument,
@@ -27,6 +27,7 @@ from .coder import (
     _fail,
     ensure_runtime_ready,
     exec_replace,
+    get_workspace_shares,
     run_in_workspace,
     server_supports_user_secrets,
     user_secret_exists,
@@ -54,6 +55,14 @@ def devbox_gh_login(workspace: str | None) -> None:
     if not _targets_own_box(workspace):
         _fail("Log in to GitHub only on your own devbox.")
     name = _box(workspace)
+    shares = get_workspace_shares(name)
+    if shares is None:
+        _fail(f"Couldn't check who '{name}' is shared with. Run the command again.")
+    if shares:
+        _fail(
+            f"'{name}' is shared with {', '.join(shares)}, who could use a GitHub login stored there. "
+            "Run `hogli devbox:unshare` and restart the box first."
+        )
     if server_supports_user_secrets() and user_secret_exists("GH_TOKEN"):
         click.echo(click.style("Your GH_TOKEN Coder user secret is set, and gh on the box uses it first.", fg="yellow"))
         click.echo("  Run `hogli devbox:secret:rm GH_TOKEN` and restart the box so gh uses this login.")
@@ -92,10 +101,13 @@ def devbox_gh_logout(workspace: str | None) -> None:
     git on the box then falls back to Coder's GitHub token.
     """
     name = _box(workspace)
-    if read_gh_login(name) is False:
+    logins = read_gh_logins(name)
+    if logins is None:
+        _fail(f"Couldn't read the GitHub CLI login on '{name}'. Check that the devbox runs with `hogli devbox:status`.")
+    if not logins:
         click.echo(f"The GitHub CLI on '{name}' isn't logged in.")
         return
-    if not logout_gh(name):
+    if not logout_gh(name, logins):
         _fail(f"Couldn't log the GitHub CLI out on '{name}'. Check that the devbox runs with `hogli devbox:status`.")
     click.echo(f"Logged the GitHub CLI out on '{name}'.")
     click.echo(
