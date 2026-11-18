@@ -11,7 +11,7 @@ interface AccountViewTileEditorModalProps {
 
 export function AccountViewTileEditorModal({ projectId }: AccountViewTileEditorModalProps): JSX.Element {
     const logic = accountViewsLogic({ projectId })
-    const { tileEditor, tileSaving } = useValues(logic)
+    const { tileEditor, tileSaving, tileEditorConfigError, tileEditorConfigErrorLoading } = useValues(logic)
     const { closeTileEditor, saveTileEditor, setTileEditorName, setTileEditorConfig } = useActions(logic)
     const definition = tileEditor?.kind ? getAccountViewComponentByKind(tileEditor.kind) : undefined
     const ConfigEditor = definition?.ConfigEditor
@@ -19,9 +19,11 @@ export function AccountViewTileEditorModal({ projectId }: AccountViewTileEditorM
         ? 'Saving changes'
         : !tileEditor?.name.trim()
           ? 'Enter a tile name'
-          : tileEditor?.config
-            ? definition?.getConfigError?.(tileEditor.config)
-            : undefined
+          : definition?.getConfigError && tileEditorConfigErrorLoading
+            ? 'Validating tile settings'
+            : definition?.getConfigError
+              ? tileEditorConfigError
+              : undefined
 
     return (
         <LemonModal

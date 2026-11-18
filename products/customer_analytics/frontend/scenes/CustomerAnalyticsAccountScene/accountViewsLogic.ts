@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api'
@@ -76,6 +77,8 @@ export interface accountViewsLogicValues {
     editorSaving: boolean
     tileConfigReloads: Record<string, number>
     tileEditor: AccountViewTileEditor | null
+    tileEditorConfigError: string | undefined
+    tileEditorConfigErrorLoading: boolean
     tileSaving: boolean
     views: AccountViewApi[]
     viewsError: unknown
@@ -253,6 +256,21 @@ export interface accountViewsLogicActions {
         config: AccountViewTileConfig
         nodeId: string
         viewId: string
+    }
+    validateTileEditorConfig: (_: void) => void
+    validateTileEditorConfigFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    validateTileEditorConfigSuccess: (
+        tileEditorConfigError: string | undefined,
+        payload?: void
+    ) => {
+        tileEditorConfigError: string | undefined
+        payload?: void
     }
 }
 
@@ -582,6 +600,31 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
             },
         ],
     }),
+    loaders(({ values }) => ({
+        tileEditorConfigError: [
+            undefined as string | undefined,
+            {
+                validateTileEditorConfig: async (_: void, breakpoint) => {
+                    const editor = values.tileEditor
+                    const validate = editor?.kind
+                        ? getAccountViewComponentByKind(editor.kind)?.getConfigError
+                        : undefined
+                    if (!validate || !editor?.config) {
+                        return undefined
+                    }
+                    await breakpoint(150)
+                    let error: string | undefined
+                    try {
+                        error = await validate(editor.config)
+                    } catch {
+                        error = 'Could not validate tile settings'
+                    }
+                    breakpoint()
+                    return error
+                },
+            },
+        ],
+    })),
     selectors({
         editingView: [
             (selectors) => [selectors.views, selectors.editingViewId],
@@ -595,6 +638,8 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
         ],
     }),
     listeners(({ actions, cache, props, values }) => ({
+        setTileEditorConfig: () => actions.validateTileEditorConfig(),
+        closeTileEditor: () => actions.validateTileEditorConfig(),
         loadViews: async () => {
             try {
                 actions.loadViewsSuccess(await accountViewsList(String(props.projectId)))
@@ -635,6 +680,7 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
             actions.setEditorOpen(true)
         },
         openTileEditor: () => {
+            actions.validateTileEditorConfig()
             posthog.capture(AccountsEvents.AccountViewTileEditorOpened)
         },
         openConfigure: () => {
@@ -722,7 +768,11 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
                 return
             }
             const tileEditor = values.tileEditor
-            if (!tileEditor) {
+            const validatesConfig = tileEditor?.kind && getAccountViewComponentByKind(tileEditor.kind)?.getConfigError
+            if (
+                !tileEditor ||
+                (validatesConfig && (values.tileEditorConfigErrorLoading || values.tileEditorConfigError))
+            ) {
                 posthog.capture(AccountsEvents.AccountViewTileRenameFailed, { failure_type: 'validation' })
                 actions.saveViewComponentFailure()
                 return

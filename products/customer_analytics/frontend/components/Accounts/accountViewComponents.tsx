@@ -59,7 +59,7 @@ interface AccountViewComponentBase {
     featureFlag?: FeatureFlagKey
     Component: (props: AccountViewWidgetProps) => JSX.Element
     ConfigEditor?: (props: AccountViewTileConfigEditorProps) => JSX.Element
-    getConfigError?: (config: AccountViewTileConfig) => string | undefined
+    getConfigError?: (config: AccountViewTileConfig) => string | undefined | Promise<string | undefined>
     onConfigSaved?: (config: AccountViewTileConfig) => void
     tileInsetClassName?: string
     tileContentClassName?: string

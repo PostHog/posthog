@@ -34,9 +34,9 @@ export function AccountSqlQueryTileConfiguration(props: AccountViewTileConfigEdi
                         Filter an account ID column in every SELECT's WHERE clause, including subqueries and UNION
                         branches. For example:{' '}
                         <code>SELECT * FROM system.accounts WHERE external_id = {ACCOUNT_SQL_QUERY_PLACEHOLDER}</code>.
-                        For warehouse tables, use the column that stores the account's external ID. Every OR branch must
-                        keep this filter. Use the column directly, without a SELECT or WITH alias. Joins are not
-                        supported.
+                        For warehouse tables, choose the column that stores the account's external ID. The validator
+                        relies on your column choice. Every OR branch must keep this filter. Use the column directly,
+                        without a SELECT or WITH alias. Joins are not supported.
                     </>
                 }
             >

@@ -383,12 +383,14 @@ describe('accountViewsLogic tracking', () => {
         })
         await expectLogic(logic, () => logic.actions.loadViews()).toFinishAllListeners()
         const query = 'select * from invented_table where org_id = {account_external_id}'
-        logic.actions.openTileEditor(view.id, 'sql', 'Engagements', {
-            kind: 'sql_query',
-            config: {},
-            accountId: 'account-one',
-        })
-        logic.actions.setTileEditorConfig({ query })
+        await expectLogic(logic, () => {
+            logic.actions.openTileEditor(view.id, 'sql', 'Engagements', {
+                kind: 'sql_query',
+                config: {},
+                accountId: 'account-one',
+            })
+            logic.actions.setTileEditorConfig({ query })
+        }).toFinishAllListeners()
         await expectLogic(logic, () => logic.actions.saveTileEditor()).toFinishAllListeners()
         expect(parseAccountViewContent(logic.values.views[0].content).map(({ config }) => config)).toEqual([
             { query },
@@ -396,6 +398,21 @@ describe('accountViewsLogic tracking', () => {
         ])
         expect(capture).toHaveBeenCalledWith(AccountsEvents.SqlQueryTileConfigured, { query_length: query.length })
         expect(JSON.stringify(capture.mock.calls)).not.toContain('invented_table')
+    })
+
+    it('keeps the SQL editor open when the placeholder is only in a comment', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.openTileEditor(view.id, 'sql', 'SQL query', {
+                kind: 'sql_query',
+                config: { query: 'SELECT * FROM system.accounts -- {account_external_id}' },
+                accountId: 'account-one',
+            })
+        }).toFinishAllListeners()
+        expect(logic.values.tileEditorConfigError).toBeTruthy()
+        await expectLogic(logic, () => logic.actions.saveTileEditor()).toFinishAllListeners()
+        expect(logic.values.tileEditor).not.toBeNull()
+        expect(logic.values.tileSaving).toBe(false)
+        expect(logic.values.views).toEqual([view])
     })
 
     it.each(['editor', 'tabs'])('reports a blocked %s save without a write or success', async (surface) => {

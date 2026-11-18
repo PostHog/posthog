@@ -12,14 +12,18 @@ export const ACCOUNT_SQL_QUERY_PLACEHOLDER = `{${ACCOUNT_SQL_QUERY_PLACEHOLDER_N
 
 type ASTNode = Awaited<ReturnType<typeof parseSelectAst>>
 
-function isAccountSqlQueryFilter(expression: ASTNode | null, aliases: Set<string>): boolean {
+function isAccountSqlQueryFilter(
+    expression: ASTNode | null,
+    aliases: Set<string>,
+    allowedFields?: (string | number)[][]
+): boolean {
     if (expression?.node === 'And') {
-        return expression.exprs.some((item: ASTNode) => isAccountSqlQueryFilter(item, aliases))
+        return expression.exprs.some((item: ASTNode) => isAccountSqlQueryFilter(item, aliases, allowedFields))
     }
     if (expression?.node === 'Or') {
         return (
             expression.exprs.length > 0 &&
-            expression.exprs.every((item: ASTNode) => isAccountSqlQueryFilter(item, aliases))
+            expression.exprs.every((item: ASTNode) => isAccountSqlQueryFilter(item, aliases, allowedFields))
         )
     }
     if (expression?.node === 'CompareOperation' && expression.op === '==') {
@@ -29,6 +33,12 @@ function isAccountSqlQueryFilter(expression: ASTNode | null, aliases: Set<string
         ].some(
             ([field, placeholder]) =>
                 field.node === 'Field' &&
+                (!allowedFields ||
+                    allowedFields.some(
+                        (chain) =>
+                            chain.length === field.chain.length &&
+                            chain.every((part, index) => part === field.chain[index])
+                    )) &&
                 !aliases.has(field.chain.join('.')) &&
                 placeholder.node === 'Placeholder' &&
                 placeholder.expr?.node === 'Field' &&
@@ -69,7 +79,20 @@ function isAccountSqlQueryAstScoped(value: unknown, aliases: Set<string>): boole
         return false
     }
     if (node.node === 'SelectQuery') {
-        if (node.select_from?.next_join || !node.select_from || !isAccountSqlQueryFilter(node.where, aliases)) {
+        const source = node.select_from
+        const allowedFields: (string | number)[][] | undefined =
+            source?.table?.node === 'Field' &&
+            source.table.chain.length === 2 &&
+            source.table.chain[0] === 'system' &&
+            source.table.chain[1] === 'accounts'
+                ? [
+                      ['external_id'],
+                      ['accounts', 'external_id'],
+                      ['system', 'accounts', 'external_id'],
+                      ...(source.alias ? [[source.alias, 'external_id']] : []),
+                  ]
+                : undefined
+        if (source?.next_join || !source || !isAccountSqlQueryFilter(node.where, aliases, allowedFields)) {
             return false
         }
     }
@@ -108,28 +131,32 @@ export function createAccountSqlVisualizationNode(
     }
 }
 
-export function getAccountSqlQueryConfigError(config: AccountViewTileConfig): string | undefined {
+async function isAccountSqlQueryScoped(query: string): Promise<boolean> {
+    try {
+        const ast = await parseSelectAst(query)
+        const aliases = new Set<string>()
+        collectAccountSqlQueryAliases(ast, aliases)
+        return ['SelectQuery', 'SelectSetQuery'].includes(ast.node) && isAccountSqlQueryAstScoped(ast, aliases)
+    } catch {
+        return false
+    }
+}
+
+export async function getAccountSqlQueryConfigError(config: AccountViewTileConfig): Promise<string | undefined> {
     const query = getAccountSqlQuery(config)
     if (!query.trim()) {
         return 'Enter a SQL query'
     }
-    return query.includes(ACCOUNT_SQL_QUERY_PLACEHOLDER)
+    return (await isAccountSqlQueryScoped(query))
         ? undefined
-        : `Filter the query by ${ACCOUNT_SQL_QUERY_PLACEHOLDER}`
+        : `Enter a valid query that filters an account ID column by ${ACCOUNT_SQL_QUERY_PLACEHOLDER} in every SELECT's WHERE`
 }
 
 export async function createAccountSqlQueryNode(query: string, externalId: string): Promise<DataTableNode | null> {
     if (!query.trim() || !externalId.trim()) {
         return null
     }
-    try {
-        const ast = await parseSelectAst(query)
-        const aliases = new Set<string>()
-        collectAccountSqlQueryAliases(ast, aliases)
-        if (!['SelectQuery', 'SelectSetQuery'].includes(ast.node) || !isAccountSqlQueryAstScoped(ast, aliases)) {
-            return null
-        }
-    } catch {
+    if (!(await isAccountSqlQueryScoped(query))) {
         return null
     }
     return {

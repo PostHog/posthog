@@ -76,15 +76,20 @@ ACCOUNT_VIEW_NATIVE_PROPERTY_KEYS = {
 ACCOUNT_VIEW_MAX_PROPERTIES = 50
 
 
-def is_account_sql_query_filter(expression: ast.Expr | None, aliases: set[str]) -> bool:
+def is_account_sql_query_filter(
+    expression: ast.Expr | None, aliases: set[str], allowed_fields: set[tuple[str | int, ...]] | None = None
+) -> bool:
     if isinstance(expression, ast.And):
-        return any(is_account_sql_query_filter(item, aliases) for item in expression.exprs)
+        return any(is_account_sql_query_filter(item, aliases, allowed_fields) for item in expression.exprs)
     if isinstance(expression, ast.Or):
-        return bool(expression.exprs) and all(is_account_sql_query_filter(item, aliases) for item in expression.exprs)
+        return bool(expression.exprs) and all(
+            is_account_sql_query_filter(item, aliases, allowed_fields) for item in expression.exprs
+        )
     if isinstance(expression, ast.CompareOperation) and expression.op == ast.CompareOperationOp.Eq:
         for field, placeholder in [(expression.left, expression.right), (expression.right, expression.left)]:
             if (
                 isinstance(field, ast.Field)
+                and (allowed_fields is None or tuple(field.chain) in allowed_fields)
                 and ".".join(str(part) for part in field.chain) not in aliases
                 and isinstance(placeholder, ast.Placeholder)
                 and placeholder.chain == ["account_external_id"]
@@ -117,7 +122,20 @@ class AccountSqlQueryScopeValidator(TraversingVisitor):
             raise InvalidAccountViewContent(
                 ["SQL account widgets do not support joins. Use a single table per SELECT."]
             )
-        if not node.select_from or not is_account_sql_query_filter(node.where, self.aliases):
+        allowed_fields: set[tuple[str | int, ...]] | None = None
+        if (
+            node.select_from
+            and isinstance(node.select_from.table, ast.Field)
+            and node.select_from.table.chain == ["system", "accounts"]
+        ):
+            allowed_fields = {("external_id",), ("accounts", "external_id"), ("system", "accounts", "external_id")}
+            if node.select_from.alias:
+                allowed_fields.add((node.select_from.alias, "external_id"))
+        if not node.select_from or not is_account_sql_query_filter(node.where, self.aliases, allowed_fields):
+            if allowed_fields is not None:
+                raise InvalidAccountViewContent(
+                    ["SQL queries on system.accounts must filter external_id by {account_external_id}."]
+                )
             raise InvalidAccountViewContent(["SQL query must filter by {account_external_id} in every SELECT's WHERE."])
         super().visit_select_query(node)
 

@@ -1,9 +1,16 @@
 import { NodeKind } from '~/queries/schema/schema-general'
 
-import { createAccountSqlQueryNode } from './accountSqlQuery'
+import { createAccountSqlQueryNode, getAccountSqlQueryConfigError } from './accountSqlQuery'
 import cases from './accountSqlQuery.test.json'
 
 describe('createAccountSqlQueryNode', () => {
+    it.each(
+        cases.filter(({ name }) =>
+            ['system accounts external ID', 'comment placeholder', 'string placeholder'].includes(name)
+        )
+    )('validates the editor config for $name with the parsed filter', async ({ query, valid }) => {
+        expect(await getAccountSqlQueryConfigError({ query })).toEqual(valid ? undefined : expect.any(String))
+    })
     it.each(cases.filter(({ valid }) => valid))('runs $name with the current account value', async ({ query }) => {
         expect((await createAccountSqlQueryNode(query, "org-'123"))?.source).toMatchObject({
             kind: NodeKind.HogQLQuery,
