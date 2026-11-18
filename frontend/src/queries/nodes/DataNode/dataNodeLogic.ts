@@ -19,7 +19,7 @@ import { lazyLoaders, loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
-import api, { ApiMethodOptions } from 'lib/api'
+import api from 'lib/api'
 import { ApiRequestTiming } from 'lib/apiRequestTiming'
 import { dayjs } from 'lib/dayjs'
 import { ConcurrencyController } from 'lib/utils/concurrencyController'
@@ -42,7 +42,7 @@ import {
     haveVariablesOrFiltersChanged,
     validateQuery,
 } from '~/queries/nodes/InsightViz/queryUtils'
-import { performQuery } from '~/queries/query'
+import { performQuery, type QueryRequestOptions } from '~/queries/query'
 import {
     isActorsQuery,
     isDataVisualizationNode,
@@ -135,6 +135,7 @@ import {
 } from './responseCache'
 
 export interface DataNodeLogicProps {
+    captureQueryTelemetry?: boolean
     loadQueue?: TaskQueue
     key: string
     query: DataNode
@@ -1233,7 +1234,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         })
                     }
                     const requestTimings: ApiRequestTiming[] = []
-                    const methodOptions: ApiMethodOptions = {
+                    const methodOptions: QueryRequestOptions = {
+                        captureQueryTelemetry: props.captureQueryTelemetry,
                         signal: abortController.signal,
                         onRequestTiming: (timing) => requestTimings.push(timing),
                     }
@@ -1336,7 +1338,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         const newResponse =
                             (await performQuery(
                                 addModifiers(values.newQuery, props.modifiers),
-                                undefined,
+                                { captureQueryTelemetry: props.captureQueryTelemetry },
                                 props.refresh,
                                 undefined,
                                 undefined,
@@ -1387,7 +1389,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         const newResponse =
                             (await performQuery(
                                 addModifiers(values.nextQuery, props.modifiers),
-                                undefined,
+                                { captureQueryTelemetry: props.captureQueryTelemetry },
                                 props.refresh,
                                 undefined,
                                 undefined,
@@ -1431,7 +1433,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         const newResponse =
                             (await performQuery(
                                 addModifiers(values.nextQuery, props.modifiers),
-                                undefined,
+                                { captureQueryTelemetry: props.captureQueryTelemetry },
                                 props.refresh,
                                 undefined,
                                 undefined,
@@ -1659,7 +1661,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
         shouldCalculateCount: [false, { loadTotalCount: () => true, loadFilteredCount: () => true }],
     })),
-    lazyLoaders(({ values }) => ({
+    lazyLoaders(({ values, props }) => ({
         totalCount: [
             null as number | null,
             {
@@ -1670,11 +1672,15 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
 
                     try {
-                        const response = await performQuery(query)
+                        const response = await performQuery(query, {
+                            captureQueryTelemetry: props.captureQueryTelemetry,
+                        })
                         // Extract count from first row, first column
                         return response?.results?.[0]?.[0] || 0
                     } catch (error) {
-                        posthog.captureException(error, { action: 'load total count in dataNodeLogic' })
+                        if (props.captureQueryTelemetry !== false) {
+                            posthog.captureException(error, { action: 'load total count in dataNodeLogic' })
+                        }
                         return null
                     }
                 },
@@ -1691,14 +1697,18 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
 
                     try {
-                        const response = await performQuery(query)
+                        const response = await performQuery(query, {
+                            captureQueryTelemetry: props.captureQueryTelemetry,
+                        })
                         breakpoint()
                         return response?.results?.[0]?.[0] || 0
                     } catch (error: any) {
                         if (isBreakpoint(error)) {
                             throw error
                         }
-                        posthog.captureException(error, { action: 'load filtered count in dataNodeLogic' })
+                        if (props.captureQueryTelemetry !== false) {
+                            posthog.captureException(error, { action: 'load filtered count in dataNodeLogic' })
+                        }
                         return null
                     }
                 },

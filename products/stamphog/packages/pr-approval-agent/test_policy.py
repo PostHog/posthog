@@ -170,6 +170,15 @@ OLD_DENY_PATTERN_DEFS = {
             "^nodejs/src/cdp/[\\s\\S]*(?<!\\.test\\.ts)\\Z",
         ]
     },
+    "mcp_core": {
+        "paths": [
+            "^services/mcp/src/tools/exec(-learn)?\\.ts$",
+            "^services/mcp/src/hono/instructions\\.ts$",
+            "^services/mcp/src/lib/instructions-formatter\\.ts$",
+            "^services/mcp/src/hono/guidance/",
+            "^services/mcp/src/templates/sections/(cli-[^/]*|exec-[^/]*|basic-functionality|compact-instructions|skills-first|tool-search)\\.md$",
+        ]
+    },
 }
 OLD_ALLOW_ONLY_EXTENSIONS = {
     ".txt",
@@ -548,6 +557,18 @@ def test_deny_exception_keyword_requires_effective_path_literal(
     path.write_text(yaml.safe_dump(data))
     with pytest.raises(PolicyError, match="path-capable literal pattern"):
         load_policy(path, lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
+
+
+def test_deny_exception_keyword_accepts_an_edit_paths_literal(tmp_path: Path) -> None:
+    data = _valid_policy_dict()
+    data["deny"]["billing"]["match"] = {"edit_paths": ["billing"]}
+    data["deny_exceptions"] = {"billing": [{"keyword": "billing", "path_prefixes": ["apps/"]}]}
+    path = tmp_path / "policy.yml"
+    path.write_text(yaml.safe_dump(data))
+
+    loaded = load_policy(path, lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
+
+    assert [rule.keyword for rule in loaded.deny_exceptions["billing"]] == ["billing"]
 
 
 # ── 3. Folder-override resolution ──

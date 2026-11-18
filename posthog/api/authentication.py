@@ -33,7 +33,7 @@ from axes.handlers.proxy import AxesProxyHandler
 from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice
 from drf_spectacular.utils import extend_schema
-from loginas.utils import is_impersonated_session, restore_original_login
+from loginas.utils import is_impersonated_session
 from requests import RequestException
 from rest_framework import exceptions, mixins, permissions, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -64,6 +64,7 @@ from posthog.geoip import get_geoip_properties
 from posthog.helpers.dev_login import is_dev_login_allowed
 from posthog.helpers.dev_oauth_connectors import seeded_dev_oauth_connector_links
 from posthog.helpers.email_utils import EmailLookupHandler
+from posthog.helpers.impersonation import end_impersonation
 from posthog.helpers.sso import (
     GITHUB_EMAIL_LOOKUP_ERROR,
     UNVERIFIED_SOCIAL_EMAIL_ERROR,
@@ -153,7 +154,7 @@ def logout(request):
 
     if is_impersonated_session(request):
         impersonated_user_pk = request.user.pk
-        restore_original_login(request)
+        end_impersonation(request)
         return redirect(f"/admin/posthog/user/{impersonated_user_pk}/change/")
 
     auth_logout(request)

@@ -36,7 +36,7 @@ Invoke `/django-migrations` for model changes.
 
 ## 3. Build the lifecycle adapter
 
-Create one product state-machine module, following `products/logs/backend/alert_state_machine.py`. It imports the shared machine from `products.alerts.backend.facade.lifecycle`.
+Create one product state-machine module, following `products/logs/backend/alert_state_machine.py`. It imports the shared machine from `products.alerts_platform.backend.facade.lifecycle`.
 
 1. Select or define the product's `AlertPolicy`.
 2. Convert the model and recent history into the shared snapshot.
@@ -82,7 +82,7 @@ For email, call `send_alert_email(...)` from `products.alerts.backend.facade.ema
 Import the product-facing scheduling contract from the facade:
 
 ```python
-from products.alerts.backend.facade.scheduling import (
+from products.alerts_platform.backend.facade.scheduling import (
     CalendarInterval,
     advance_next_check_at,
     compute_shard_offset_seconds,

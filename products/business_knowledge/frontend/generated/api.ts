@@ -985,7 +985,7 @@ export const getBusinessKnowledgeSourcesUsageRetrieveUrl = (
 }
 
 /**
- * How much support agent runs cited the project's knowledge sources over a period.
+ * Usage of the project's knowledge over a period: chunks ingested, searches, and how often support agent runs cited the sources.
  */
 export const businessKnowledgeSourcesUsageRetrieve = async (
     projectId: string,

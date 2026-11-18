@@ -1,7 +1,7 @@
 """Table-access check for property filters at save time.
 
 Background jobs evaluate the step filters of an action and the test-account filters of a team.
-The web analytics weekly digest and the achievements sweep are two of these jobs. These jobs
+The web analytics weekly digest is one of these jobs. These jobs
 have no user, so they bypass warehouse access control. The person who saves a filter must
 therefore have read access to each warehouse table that the filter reaches. Without this check,
 a person could point a filter at a denied table through a join and read the effect in the

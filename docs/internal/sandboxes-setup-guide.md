@@ -18,7 +18,7 @@ flag for every team, and builds the agent skills bundle.
 ## Test egress identity
 
 Run `go -C products/tasks/services/egress-proxy test -race ./...` from the repository root.
-See the [egress README](../../products/tasks/services/egress-proxy/README.md) for recoverable cloud probes and opt-in observation on development Tasks runs.
+See the [egress README](../../products/tasks/services/egress-proxy/README.md) for container builds, recoverable cloud probes and opt-in observation, including sandbox replacement and revocation checks.
 
 ## GitHub App
 
@@ -77,15 +77,6 @@ fine — they get converted to newlines.
 
 Temporal and the temporal-django-worker start automatically via phrocs when you
 run `hogli start`.
-
-The separate `task-management` implementation is not registered with the worker.
-It stops polling closed or merged PRs and caps background runs at two idle checks; pending CI and merge-queue checks do not consume that budget.
-Pending CI and merge queues have a separate limit of 96 waiting checks (24 hours at the normal cadence).
-Follow-ups and sandbox-session boundaries reset both budgets, and the counters persist in server-owned `TaskRun.state` across orchestrator restarts.
-With the `tasks-task-management-durable-ci-checkpoints` Temporal patch, queue and budget changes are staged in a generation-protected checkpoint before application.
-Startup applies any unfinished checkpoint before restoring the queue and counters. Follow-ups wait for their reset and queued message to persist before delivery.
-Exhausted persistence retries stop the orchestrator instead of continuing with an unsaved budget; a new execution can recover a staged checkpoint. A failure before staging does not create a recoverable database checkpoint.
-With `tasks-task-management-checkpoint-recovery-status`, checkpoint read or write failures leave the task run non-terminal so recovery can reattach to its sandbox. `tasks-execute-sandbox-reopen-parent-delivery` resumes sandbox acknowledgements when the restarted orchestrator attaches.
 
 The `process-task` workflow defined in
 `products/tasks/backend/temporal/process_task/workflow.py` provisions a sandbox,
@@ -312,6 +303,8 @@ since frontend and backend group keys differ.
 The property identifies the active environment: explicitly include every environment that should have
 access. A parent project's flag does not enable its child environments, even though ReviewHog stores
 their settings and reviews under the shared parent project.
+Requests through an environment URL also require membership of the parent project.
+Project-restricted API keys and OAuth tokens must include both the environment and its parent.
 
 Newly enabled projects get every ReviewHog part: manual Full and Flash reviews, automatic Flash reviews,
 the Stamphog handoff, resolution, Inbox reviews, the tiered review models, and the Stamphog

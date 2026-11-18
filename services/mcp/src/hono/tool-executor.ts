@@ -560,6 +560,7 @@ export class ToolExecutor {
                     distinctId,
                     mcpClientName: getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext)
                         .mcpClientName,
+                    appendTimeSeriesChartData: state.clientProfile.drawsTimeSeriesCharts(),
                 })
             }
 
@@ -992,6 +993,7 @@ export class ToolExecutor {
             state.scopeGatedTools,
             {
                 isInlineExecUiHost: state.clientProfile.isInlineExecUiHost(),
+                appendTimeSeriesChartData: state.clientProfile.drawsTimeSeriesCharts(),
                 mcpClientName: getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext).mcpClientName,
                 learnCatalog: this.instructionsBuilder.buildExecLearnCatalog(
                     state,

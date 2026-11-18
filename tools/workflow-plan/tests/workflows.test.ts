@@ -2,11 +2,18 @@
 // job condition in a workflow file changed what runs; the planner itself is covered by plan.test.ts.
 import { load } from 'js-yaml'
 import { spawnSync } from 'node:child_process'
-import { readdirSync } from 'node:fs'
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-import { type JsonValue, evaluateCondition, evaluateValue, planFunctions } from '../src/expressions.ts'
+import {
+    type JsonValue,
+    evaluateCondition,
+    evaluateTemplate,
+    evaluateValue,
+    planFunctions,
+} from '../src/expressions.ts'
 import {
     type Outcome,
     type Scenario,
@@ -184,6 +191,7 @@ const EXPECTATIONS: Expectation[] = [
                 'get_clickhouse_versions',
                 'build-product-test-matrix',
                 'build_django_matrix',
+                'build-hogql-parser-rs',
                 'test-selection-verdict',
             ],
         }
@@ -229,6 +237,7 @@ const EXPECTATIONS: Expectation[] = [
                 'get_clickhouse_versions',
                 'build-product-test-matrix',
                 'build_django_matrix',
+                'build-hogql-parser-rs',
                 'prime-schema-cache',
                 'test-selection-verdict',
                 'capture-test-selection',
@@ -306,6 +315,7 @@ const EXPECTATIONS: Expectation[] = [
                 'django',
                 'get_clickhouse_versions',
                 'build_django_matrix',
+                'build-hogql-parser-rs',
                 'sdk-major-guard',
                 'backend-coverage-report',
             ],
@@ -580,6 +590,28 @@ const STEP_EXPECTATIONS: StepExpectation[] = [
     ]),
     { file: 'ci-e2e-playwright.yml', job: 'changes', step: 'schema-key', scenario: E2E_DISPATCH, runs: true },
     { file: 'ci-e2e-playwright.yml', job: 'playwright', step: 'schema-cache', scenario: E2E_DISPATCH, runs: true },
+    ...[
+        { name: 'ready PR labeled run-ci-backend', github: pullRequest({ labels: ['run-ci-backend'] }), runs: true },
+        {
+            name: 'draft PR labeled run-ci-backend',
+            github: pullRequest({ draft: true, labels: ['run-ci-backend'] }),
+            runs: true,
+        },
+        { name: 'unlabeled ready PR', github: pullRequest(), runs: false },
+        { name: 'merge queue labeled run-ci-backend', github: mergeQueue({ labels: ['run-ci-backend'] }), runs: false },
+        { name: 'master push', github: push(), runs: false },
+        { name: 'hourly schedule', github: schedule(), runs: false },
+    ].map(({ name, github, runs }) => ({
+        file: DEPOT_BACKEND,
+        job: 'django_tests',
+        step: 'full-run-label-token',
+        scenario: {
+            name,
+            github,
+            steps: { ...allFiltersChanged(workflow(DEPOT_BACKEND)), ...backendSelectors },
+        },
+        runs,
+    })),
 ]
 
 const namedJobs = (file: string): Set<string> =>
@@ -633,21 +665,23 @@ describe('CI workflow run plans', () => {
     })
 
     it.each([
-        ['MCP-only PR', pullRequest(), 'false', 'false', '2', 2, 'success', false],
-        ['MCP-only fork PR', pullRequest({ fork: true }), 'false', 'false', '2', 2, 'success', false],
-        ['Rust CLI change', pullRequest(), 'true', 'false', '2', 2, 'success', true],
-        ['missing filter output', pullRequest(), '', '', '', 2, 'success', true],
-        ['missing unmatched output', pullRequest(), 'false', '', '2', 2, 'success', true],
-        ['newline input with rename', pullRequest(), 'false', 'true', '3', 3, 'success', true],
-        ['newline rename source', pullRequest(), 'false', 'true', '2', 2, 'success', true],
-        ['newline rename destination', pullRequest(), 'false', 'true', '2', 2, 'success', true],
-        ['incomplete file list', pullRequest(), 'false', 'false', '1', 2, 'success', true],
-        ['API file cap', pullRequest(), 'false', 'false', '3000', 3000, 'success', true],
-        ['failed detector', pullRequest(), '', '', '', 2, 'failure', true],
-        ['merge queue', mergeQueue(), 'true', 'false', '2', 2, 'success', false],
+        ['MCP-only PR', pullRequest(), 'true', 'false', 'false', '2', 2, 'success', false, true],
+        ['MCP-only fork PR', pullRequest({ fork: true }), 'true', 'false', 'false', '2', 2, 'success', false, true],
+        ['Rust CLI change', pullRequest(), 'true', 'true', 'false', '2', 2, 'success', true, true],
+        ['Rust-only PR', pullRequest(), 'false', 'true', 'false', '2', 2, 'success', true, false],
+        ['Rust-only fork PR', pullRequest({ fork: true }), 'false', 'true', 'false', '2', 2, 'success', true, false],
+        ['missing filter output', pullRequest(), 'false', '', '', '', 2, 'success', true, true],
+        ['missing unmatched output', pullRequest(), 'false', 'false', '', '2', 2, 'success', true, true],
+        ['newline input with rename', pullRequest(), 'false', 'false', 'true', '3', 3, 'success', true, true],
+        ['newline rename source', pullRequest(), 'false', 'false', 'true', '2', 2, 'success', true, true],
+        ['newline rename destination', pullRequest(), 'false', 'false', 'true', '2', 2, 'success', true, true],
+        ['incomplete file list', pullRequest(), 'false', 'false', 'false', '1', 2, 'success', true, true],
+        ['API file cap', pullRequest(), 'false', 'false', 'false', '3000', 3000, 'success', true, true],
+        ['failed detector', pullRequest(), 'false', '', '', '', 2, 'failure', true, true],
+        ['merge queue', mergeQueue(), 'true', 'true', 'false', '2', 2, 'success', false, false],
     ] as const)(
-        'CLI Rust checks retain coverage (%s)',
-        (name, github, rust, unmatched, count, changedFiles, outcome, runs) => {
+        'CLI checks retain coverage (%s)',
+        (name, github, apiBundle, rust, unmatched, count, changedFiles, outcome, runs, bundleRuns) => {
             const event = github.event as Record<string, JsonValue>
             const plan = planWorkflow(workflow('ci-cli.yml'), {
                 name,
@@ -659,14 +693,19 @@ describe('CI workflow run plans', () => {
                     },
                 },
                 steps: {
-                    changes: { filter: { outcome, outputs: { rust, unmatched_paths: unmatched, all_count: count } } },
+                    changes: {
+                        filter: {
+                            outcome,
+                            outputs: { rust, api_bundle: apiBundle, unmatched_paths: unmatched, all_count: count },
+                        },
+                    },
                 },
             })
             expect(plan.errors).toEqual([])
             for (const job of ['tests', 'clippy', 'format']) {
                 expect(runningJobs(plan).includes(job)).toBe(runs)
             }
-            expect(runningJobs(plan).includes('api-cli-release-bundle')).toBe(name !== 'merge queue')
+            expect(runningJobs(plan).includes('api-cli-release-bundle')).toBe(bundleRuns)
         }
     )
 
@@ -1211,15 +1250,69 @@ describe('CI workflow run plans', () => {
         }).toEqual({ didNotRun: [], didNotSkip: [], filterRuns: false, productTimings: true })
     })
 
+    const fullDjangoLegs = ['Core', 'Core poe', 'Temporal', 'compat', 'json-targets']
     it.each([
-        ['23 */3 * * *', true],
-        ['23 1,2,4,5,7,8,10,11,13,14,16,17,19,20,22,23 * * *', false],
-    ])('the events_json leg follows the scheduled trigger %s', (cron, runs) => {
+        ['3-hourly schedule', { ...schedule(), event: { schedule: '23 */3 * * *' } }, fullDjangoLegs, 1],
+        [
+            'off-hour schedule',
+            { ...schedule(), event: { schedule: '23 1,2,4,5,7,8,10,11,13,14,16,17,19,20,22,23 * * *' } },
+            ['Core'],
+            0,
+        ],
+        ['schedule without a cron string', { ...schedule(), event: {} }, fullDjangoLegs, 1],
+        ['manual dispatch', workflowDispatch(), fullDjangoLegs, 1],
+        ['merge queue', mergeQueue(), ['Core', 'Temporal', 'compat', 'json-targets'], 1],
+    ] as const)('the core-only scheduled scope on %s', (_name, github, djangoLegs, productJobs) => {
         const depot = workflow(DEPOT_BACKEND)
-        const step = depot.jobs.build_django_matrix?.steps?.find((step) => step.id === 'build')
-        const github = { ...schedule(), event: { schedule: cron } }
         const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
-        expect(evaluateValue(step?.env?.RUN_JSON_TARGETS, { github }, functions)).toBe(runs)
+        const context = {
+            github,
+            needs: {
+                changes: { outputs: { legacy: 'true' } },
+                get_clickhouse_versions: {
+                    outputs: {
+                        oldest_supported_image: 'clickhouse/clickhouse-server:old',
+                        compat_matrix: '[{"clickhouse-server-image":"clickhouse/clickhouse-server:compat"}]',
+                    },
+                },
+                'turbo-discover': { outputs: { mode: 'full', run_legacy: 'true', matrix: '[{"group":"a"}]' } },
+            },
+        }
+        const buildInclude = (job: string): Record<string, JsonValue>[] => {
+            const step = depot.jobs[job]?.steps?.find((candidate) => candidate.id === 'build')
+            const env = Object.fromEntries(
+                Object.entries({ CORE_ONLY_RUN: depot.env?.CORE_ONLY_RUN, ...step?.env }).map(([name, value]) => [
+                    name,
+                    evaluateTemplate(value, context, functions),
+                ])
+            )
+            const dir = mkdtempSync(path.join(tmpdir(), 'matrix-'))
+            try {
+                const output = path.join(dir, 'output')
+                const result = spawnSync(
+                    'bash',
+                    ['--noprofile', '--norc', '-eo', 'pipefail', '-c', String(step?.run)],
+                    {
+                        env: { PATH: process.env.PATH, ...env, GITHUB_OUTPUT: output },
+                        encoding: 'utf8',
+                    }
+                )
+                expect(result.status, result.stderr || result.stdout).toBe(0)
+                return JSON.parse(/^include=(.*)$/m.exec(readFileSync(output, 'utf8'))![1]!)
+            } finally {
+                rmSync(dir, { recursive: true, force: true })
+            }
+        }
+        const legName = (entry: Record<string, JsonValue>): string =>
+            entry.compat
+                ? 'compat'
+                : entry['json-targets']
+                  ? 'json-targets'
+                  : `${entry.segment}${entry['person-on-events'] ? ' poe' : ''}`
+        expect({
+            djangoLegs: [...new Set(buildInclude('build_django_matrix').map(legName))],
+            productJobs: buildInclude('build-product-test-matrix').length,
+        }).toEqual({ djangoLegs, productJobs })
     })
 
     it.each([

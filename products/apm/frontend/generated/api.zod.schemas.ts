@@ -92,6 +92,130 @@ export const DependenciesResponseApi = zod.object({
 export type DependenciesResponseApi = zod.input<typeof DependenciesResponseApi>
 export type DependenciesResponseApiOutput = zod.output<typeof DependenciesResponseApi>
 
+export const DeploymentVersionApi = zod.object({
+    version: zod.string().describe('The service.version resource attribute.'),
+    first_seen: zod.iso.datetime({ offset: true }).describe('First span of this version in the window.'),
+    last_seen: zod.iso.datetime({ offset: true }).describe('Last span of this version in the window.'),
+    requests: zod.number().describe('Requests counted in the window.'),
+    error_count: zod.number().describe('Requests with an error status.'),
+    error_rate: zod.number().nullable().describe('Share of requests with an error status, 0 to 1.'),
+    p95_ms: zod.number().nullable().describe('95th percentile request duration in milliseconds.'),
+    previous_version: zod
+        .string()
+        .nullable()
+        .describe('The version first seen just before this one. Null for the oldest.'),
+    error_rate_change: zod.number().nullable().describe("Error rate minus the previous version's, as a fraction."),
+    p95_change_pct: zod.number().nullable().describe('Change in p95 from the previous version, in percent.'),
+    active: zod.boolean().describe('True for the version first seen most recently.'),
+})
+
+export type DeploymentVersionApi = zod.input<typeof DeploymentVersionApi>
+export type DeploymentVersionApiOutput = zod.output<typeof DeploymentVersionApi>
+
+export const DeploymentsResponseApi = zod.object({
+    results: zod
+        .array(
+            zod.object({
+                version: zod.string().describe('The service.version resource attribute.'),
+                first_seen: zod.iso.datetime({ offset: true }).describe('First span of this version in the window.'),
+                last_seen: zod.iso.datetime({ offset: true }).describe('Last span of this version in the window.'),
+                requests: zod.number().describe('Requests counted in the window.'),
+                error_count: zod.number().describe('Requests with an error status.'),
+                error_rate: zod.number().nullable().describe('Share of requests with an error status, 0 to 1.'),
+                p95_ms: zod.number().nullable().describe('95th percentile request duration in milliseconds.'),
+                previous_version: zod
+                    .string()
+                    .nullable()
+                    .describe('The version first seen just before this one. Null for the oldest.'),
+                error_rate_change: zod
+                    .number()
+                    .nullable()
+                    .describe("Error rate minus the previous version's, as a fraction."),
+                p95_change_pct: zod
+                    .number()
+                    .nullable()
+                    .describe('Change in p95 from the previous version, in percent.'),
+                active: zod.boolean().describe('True for the version first seen most recently.'),
+            })
+        )
+        .describe('One row per version, oldest first.'),
+    service: zod.string().describe('The service the versions belong to.'),
+    environment: zod
+        .string()
+        .nullable()
+        .describe(
+            'The environment filter the rows were computed for: null for every environment, empty for spans with no environment.'
+        ),
+    date_from: zod.iso.datetime({ offset: true }).describe('Start of the window used.'),
+    date_to: zod.iso.datetime({ offset: true }).describe('End of the window used.'),
+})
+
+export type DeploymentsResponseApi = zod.input<typeof DeploymentsResponseApi>
+export type DeploymentsResponseApiOutput = zod.output<typeof DeploymentsResponseApi>
+
+export const TimeSpentComponentKindEnumApi = zod
+    .enum(['service', 'inferred', 'other'])
+    .describe('\* `service` - Service\n\* `inferred` - Inferred\n\* `other` - Other')
+
+export type TimeSpentComponentKindEnumApi = zod.input<typeof TimeSpentComponentKindEnumApi>
+export type TimeSpentComponentKindEnumApiOutput = zod.output<typeof TimeSpentComponentKindEnumApi>
+
+export const TimeSpentComponentApi = zod.object({
+    name: zod
+        .string()
+        .describe("The service name, the inferred dependency (for example a database system or host), or 'Other'."),
+    kind: zod
+        .enum(['service', 'inferred', 'other'])
+        .describe('\* `service` - Service\n\* `inferred` - Inferred\n\* `other` - Other')
+        .describe(
+            'service: an instrumented service. inferred: a dependency seen only through client spans. other: the remaining components combined.\n\n\* `service` - Service\n\* `inferred` - Inferred\n\* `other` - Other'
+        ),
+    total_ms: zod.number().describe('Self-time summed across the sampled requests, in milliseconds.'),
+    avg_ms_per_request: zod.number().describe('Self-time per sampled request, in milliseconds.'),
+    share: zod.number().describe('Share of the attributed request time, 0 to 1.'),
+})
+
+export type TimeSpentComponentApi = zod.input<typeof TimeSpentComponentApi>
+export type TimeSpentComponentApiOutput = zod.output<typeof TimeSpentComponentApi>
+
+export const EndpointTimeSpentResponseApi = zod.object({
+    components: zod
+        .array(
+            zod.object({
+                name: zod
+                    .string()
+                    .describe(
+                        "The service name, the inferred dependency (for example a database system or host), or 'Other'."
+                    ),
+                kind: zod
+                    .enum(['service', 'inferred', 'other'])
+                    .describe('\* `service` - Service\n\* `inferred` - Inferred\n\* `other` - Other')
+                    .describe(
+                        'service: an instrumented service. inferred: a dependency seen only through client spans. other: the remaining components combined.\n\n\* `service` - Service\n\* `inferred` - Inferred\n\* `other` - Other'
+                    ),
+                total_ms: zod.number().describe('Self-time summed across the sampled requests, in milliseconds.'),
+                avg_ms_per_request: zod.number().describe('Self-time per sampled request, in milliseconds.'),
+                share: zod.number().describe('Share of the attributed request time, 0 to 1.'),
+            })
+        )
+        .describe('Where the request time goes, largest share first.'),
+    request_count: zod.number().describe('Requests sampled to compute the breakdown.'),
+    avg_duration_ms: zod.number().nullable().describe('Mean duration of the sampled requests, in milliseconds.'),
+    service: zod.string().describe('The service the endpoint belongs to.'),
+    endpoint: zod.string().describe("The endpoint's entry span name."),
+    environment: zod
+        .string()
+        .nullable()
+        .describe(
+            'The environment filter the breakdown was computed for: null for every environment, empty for spans with no environment.'
+        ),
+    date_from: zod.iso.datetime({ offset: true }).describe('Start of the window used.'),
+    date_to: zod.iso.datetime({ offset: true }).describe('End of the window used.'),
+})
+
+export type EndpointTimeSpentResponseApi = zod.input<typeof EndpointTimeSpentResponseApi>
+export type EndpointTimeSpentResponseApiOutput = zod.output<typeof EndpointTimeSpentResponseApi>
+
 export const HealthStatusEnumApi = zod
     .enum(['good', 'warning', 'serious', 'critical'])
     .describe('\* `good` - Good\n\* `warning` - Warning\n\* `serious` - Serious\n\* `critical` - Critical')

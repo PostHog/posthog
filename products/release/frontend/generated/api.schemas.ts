@@ -46,6 +46,33 @@ export interface LinkedBroadcastDTOApi {
     status: string
 }
 
+/**
+ * * `at_least` - At least the target
+ * * `at_most` - At most the target
+ */
+export type ReleaseGoalDirectionEnumApi = (typeof ReleaseGoalDirectionEnumApi)[keyof typeof ReleaseGoalDirectionEnumApi]
+
+export const ReleaseGoalDirectionEnumApi = {
+    AtLeast: 'at_least',
+    AtMost: 'at_most',
+} as const
+
+export interface MetricGoalApi {
+    /**
+     * ID of the metric insight the goal is for.
+     * @minimum 1
+     * @maximum 2147483647
+     */
+    insight_id: number
+    /** at_least when the metric should reach the value, at_most when it should stay at or below it.
+     *
+     * * `at_least` - At least the target
+     * * `at_most` - At most the target */
+    direction: ReleaseGoalDirectionEnumApi
+    /** Target value of the metric. */
+    value: number
+}
+
 export interface ReleaseOwnerDTOApi {
     id: number
     first_name: string
@@ -58,6 +85,10 @@ export interface ReleaseDTOApi {
     readonly insights: readonly LinkedInsightDTOApi[]
     /** ID, name and status of each linked broadcast the caller can see. Deleted broadcasts are left out. */
     readonly broadcasts: readonly LinkedBroadcastDTOApi[]
+    /** IDs of the insights that are the release's metrics. The first is the primary metric. */
+    readonly metric_insight_ids: readonly number[]
+    /** Target for each metric that has one. Metrics without a goal are left out. */
+    readonly metric_goals: readonly MetricGoalApi[]
     /** True when the release links flags the caller cannot see. Their IDs are left out of feature_flag_ids. */
     readonly has_hidden_flags: boolean
     id: string
@@ -117,6 +148,18 @@ export interface WriteReleaseApi {
      * @items.maximum 2147483647
      */
     insight_ids?: number[]
+    /**
+     * IDs of the saved trends insights that are the release's metrics, at most 5. The first is the primary metric, the rest are secondary. Replaces the current list.
+     * @maxItems 5
+     * @items.minimum 1
+     * @items.maximum 2147483647
+     */
+    metric_insight_ids?: number[]
+    /**
+     * Targets for the release's metrics, at most one per metric. Each insight_id must be one of the metric_insight_ids. Replaces the current goals.
+     * @maxItems 5
+     */
+    metric_goals?: MetricGoalApi[]
 }
 
 export interface PatchedUpdateReleaseApi {
@@ -156,6 +199,18 @@ export interface PatchedUpdateReleaseApi {
      * @items.maximum 2147483647
      */
     insight_ids?: number[]
+    /**
+     * IDs of the saved trends insights that are the release's metrics, at most 5. The first is the primary metric, the rest are secondary. Replaces the current list.
+     * @maxItems 5
+     * @items.minimum 1
+     * @items.maximum 2147483647
+     */
+    metric_insight_ids?: number[]
+    /**
+     * Targets for the release's metrics, at most one per metric. Each insight_id must be one of the metric_insight_ids. Replaces the current goals.
+     * @maxItems 5
+     */
+    metric_goals?: MetricGoalApi[]
 }
 
 export interface MergeReleasesApi {
@@ -235,6 +290,33 @@ export interface CatalogReleasesResponseApi {
     next_cursor: string | null
 }
 
+export interface ReleaseRefApi {
+    /** ID of the release. */
+    id: string
+    /** Name of the release. */
+    name: string
+}
+
+export interface ReleaseSuggestionApi {
+    /** ID of the release. */
+    id: string
+    /** Name of the release. */
+    name: string
+    /** Words the flag shares with the release's name, description or linked flags. */
+    matched_terms: string[]
+}
+
+export interface FlagReleasesApi {
+    /** ID of the feature flag. */
+    feature_flag_id: number
+    /** True when this project puts each new flag in a release of its own about a minute after it is created, unless the flag is already in a release. */
+    auto_release: boolean
+    /** Releases that already link this flag. */
+    current: ReleaseRefApi[]
+    /** Up to 5 existing releases this flag probably belongs to, best match first. Empty when nothing matches. */
+    suggestions: ReleaseSuggestionApi[]
+}
+
 export interface ImportAllResponseApi {
     /** How many releases the import created. */
     created_count: number
@@ -299,6 +381,11 @@ export type ReleasesCatalogReleasesRetrieveParams = {
      */
     cursor?: string
     /**
+     * Only releases that link this feature flag.
+     * @minimum 1
+     */
+    feature_flag_id?: number
+    /**
      * How many releases to return, at most 100.
      * @minimum 1
      * @maximum 100
@@ -322,4 +409,12 @@ export type ReleasesCatalogReleasesRetrieveParams = {
      * @maxLength 200
      */
     search?: string
+}
+
+export type ReleasesFlagSuggestionsRetrieveParams = {
+    /**
+     * ID of the feature flag to find releases for.
+     * @minimum 1
+     */
+    feature_flag_id: number
 }
