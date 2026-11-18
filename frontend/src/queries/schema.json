@@ -44128,7 +44128,19 @@
             "type": "object"
         },
         "MetricsAggregation": {
-            "enum": ["sum", "avg", "count", "min", "max", "quantile", "rate", "increase", "histogram_quantile"],
+            "enum": [
+                "sum",
+                "avg",
+                "count",
+                "min",
+                "max",
+                "quantile",
+                "rate",
+                "increase",
+                "histogram_quantile",
+                "count_rate",
+                "count_increase"
+            ],
             "type": "string"
         },
         "MetricsAlertConfig": {
