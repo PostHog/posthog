@@ -4,12 +4,11 @@ import { LemonButton, LemonInput, LemonSelect, LemonSkeleton, Link } from '@post
 
 import { urls } from 'scenes/urls'
 
-import { MAX_KEY_LABEL_LENGTH, connectAgentLogic } from './connectAgentLogic'
+import { ALL_KNOWLEDGE, MAX_KEY_LABEL_LENGTH, connectAgentLogic } from './connectAgentLogic'
 
 export function ConnectAgentKeyForm(): JSX.Element {
-    const { libraries, librariesLoading, libraryId, label, creating, createDisabledReason } =
-        useValues(connectAgentLogic)
-    const { loadLibraries, setLibraryId, setLabel, createKey } = useActions(connectAgentLogic)
+    const { libraries, librariesLoading, reads, label, creating, createDisabledReason } = useValues(connectAgentLogic)
+    const { loadLibraries, setReads, setLabel, createKey } = useActions(connectAgentLogic)
 
     if (!libraries) {
         return librariesLoading ? (
@@ -20,23 +19,28 @@ export function ConnectAgentKeyForm(): JSX.Element {
             </p>
         )
     }
-    if (libraries.length === 0) {
-        return (
-            <p className="m-0">
-                A key reads one library. <Link to={urls.businessKnowledge()}>Create a library</Link> and add sources to
-                it, then come back here.
-            </p>
-        )
-    }
 
     return (
         <div className="flex flex-wrap items-center gap-2">
             <LemonSelect
                 size="small"
-                placeholder="Choose a library"
-                value={libraryId}
-                onChange={setLibraryId}
-                options={libraries.map((library) => ({ value: library.id, label: library.name }))}
+                placeholder="Choose what the agent can read"
+                value={reads}
+                onChange={setReads}
+                options={[
+                    { options: [{ value: ALL_KNOWLEDGE, label: 'All business knowledge' }] },
+                    {
+                        title: 'One library',
+                        options: libraries.map((library) => ({ value: library.id, label: library.name })),
+                        footer:
+                            libraries.length === 0 ? (
+                                <div className="px-2 py-1 text-xs text-secondary">
+                                    <Link to={urls.businessKnowledge()}>Create a library</Link> to limit a key to it.
+                                </div>
+                            ) : undefined,
+                    },
+                ]}
+                // pinned: data-attr value. Autocapture insights and tests select on it.
                 data-attr="business-knowledge-connect-agent-library"
             />
             <LemonInput
