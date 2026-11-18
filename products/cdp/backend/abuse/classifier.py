@@ -3,6 +3,7 @@
 Pure: no database and no Celery, so a blocking check inside validation can reuse it.
 """
 
+import re
 import json
 import time
 import hashlib
@@ -27,6 +28,9 @@ from products.ml_inference.backend.facade.enums import DecisionQuestionType
 # The state limit of the ml_inference decide API, which asks the same model.
 MAX_STATE_CHARS = 65_536
 _TRUNCATED_MARKER = " [truncated]"
+# Padding would fill the state and hide how large the input is, so a long run collapses to one unit and its count.
+# The repeat is possessive because a greedy one keeps backtracking state for every repeat of a megabyte run.
+_REPEATED_RUN = re.compile(r"(.{1,8}?)\1{63,}+", re.DOTALL)
 
 _FRAMING = (
     "The state is the configuration of a data pipeline function that a customer saved. The function runs on "
@@ -49,10 +53,11 @@ QUESTIONS: dict[str, DecisionQuestion] = {
         instructions=f"{_FRAMING} Does the function build malformed, oversized, or probing payloads that are meant "
         "to break, crash, or test the limits of the systems that process them later?",
     ),
-    "unrelated_destination": DecisionQuestion(
+    "runtime_escape": DecisionQuestion(
         type=DecisionQuestionType.NOUL,
-        instructions=f"{_FRAMING} Does the function send event or person data to a host that is unrelated to the "
-        "integration it claims to be, such as a template for one service that posts to an arbitrary other domain?",
+        instructions=f"{_FRAMING} Does the function probe or try to escape the sandbox it runs in, for example by "
+        "reaching prototypes, constructors, globals, eval, import or require, or the internals of the Liquid "
+        "template engine in its inputs?",
     ),
     "normal_integration": DecisionQuestion(
         type=DecisionQuestionType.NOUL,
@@ -113,10 +118,6 @@ class AbuseVerdict:
     model: str
     latency_ms: float
     input_tokens: int
-
-    @property
-    def label(self) -> str:
-        return "would_block" if self.would_block else "alert" if self.would_alert else "clean"
 
 
 def public_inputs(inputs: object, inputs_schema: object) -> dict[str, JsonValue]:
@@ -201,7 +202,8 @@ def content_hash(content: HogFunctionContent) -> str:
 
 
 def build_state(content: HogFunctionContent) -> tuple[dict[str, JsonValue], bool]:
-    """The state Jev reads, capped at the decide limit. Also says whether a field was cut to fit."""
+    """The state Jev reads, with repeated runs collapsed and capped at the decide limit. Also says whether a field
+    was cut to fit."""
     state: dict[str, JsonValue] = {
         "function_type": content.type,
         "template_id": content.template_id,
@@ -215,7 +217,22 @@ def build_state(content: HogFunctionContent) -> tuple[dict[str, JsonValue], bool
         # The masking hash is a Hog expression that runs before the function.
         "masking": content.masking,
     }
-    return _fit(state)
+    return _fit({key: _collapse_runs(value) for key, value in state.items()})
+
+
+def _collapse_runs(value: JsonValue) -> JsonValue:
+    if isinstance(value, str):
+        return _REPEATED_RUN.sub(_run_marker, value)
+    if isinstance(value, dict):
+        return {key: _collapse_runs(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_collapse_runs(item) for item in value]
+    return value
+
+
+def _run_marker(run: re.Match[str]) -> str:
+    unit = run.group(1)
+    return f"[{json.dumps(unit, ensure_ascii=False)} repeated {len(run.group(0)) // len(unit)} times]"
 
 
 def _encoded_size(value: JsonValue) -> int:

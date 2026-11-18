@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
+from typing import Any
 
-from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField
+from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField, ResponseAction
 
 # Alguna list endpoints paginate with limit/offset.
 PAGE_LIMIT = 100
@@ -31,7 +32,15 @@ class AlgunaEndpointConfig:
     # the endpoints that sort.
     sort: str | None = "created_at:asc"
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
-    partition_key: str = "created_at"
+    # None for rows with no stable datetime (e.g. bundles, subscription revenue): no partitioning.
+    partition_key: str | None = "created_at"
+    # "$" for a child that returns one object per parent instead of a `data` list.
+    data_selector: str = "data"
+    # For a single-object response whose rows sit in a nested list (e.g. /revenue-schedules
+    # `entries`): rows are read from this key and get the envelope's scalar fields copied in.
+    rows_key: str | None = None
+    # Fixed query params for an unpaginated endpoint.
+    params: dict[str, Any] = field(default_factory=dict)
     # Whether the endpoint offset-paginates. False for a fan-out child that returns its whole
     # collection in one response (e.g. /subscriptions/{id}/versions).
     paginated: bool = True
@@ -45,8 +54,13 @@ class AlgunaEndpointConfig:
     query_fanout: AlgunaQueryFanout | None = None
 
 
+# The per-subscription endpoints read the current version; a subscription without one returns
+# no data for it, so a 404 means an empty child rather than a failed sync.
+_IGNORE_CHILD_404: list[ResponseAction] = [{"status_code": 404, "action": "ignore"}]
+
 ALGUNA_ENDPOINTS: dict[str, AlgunaEndpointConfig] = {
     "billable_metrics": AlgunaEndpointConfig(name="billable_metrics", path="/metrics"),
+    "bundles": AlgunaEndpointConfig(name="bundles", path="/bundles", sort=None, partition_key=None),
     "credit_notes": AlgunaEndpointConfig(
         name="credit_notes",
         path="/credit-notes",
@@ -60,7 +74,36 @@ ALGUNA_ENDPOINTS: dict[str, AlgunaEndpointConfig] = {
     "plans": AlgunaEndpointConfig(name="plans", path="/plans"),
     "products": AlgunaEndpointConfig(name="products", path="/products", sort=None),
     "refunds": AlgunaEndpointConfig(name="refunds", path="/refunds"),
+    "revenue_schedule": AlgunaEndpointConfig(
+        name="revenue_schedule",
+        path="/revenue-schedules",
+        sort=None,
+        # One entry per interval in a single organization-wide response.
+        primary_keys=["start_date"],
+        partition_key="start_date",
+        paginated=False,
+        rows_key="entries",
+        # The interval sets the table grain; pin it rather than rely on the API default.
+        params={"interval": "monthly"},
+    ),
     "subscriptions": AlgunaEndpointConfig(name="subscriptions", path="/subscriptions"),
+    "subscription_revenue": AlgunaEndpointConfig(
+        name="subscription_revenue",
+        path="/subscriptions/{subscription_id}/revenue",
+        sort=None,
+        primary_keys=["subscription_id"],
+        partition_key=None,
+        paginated=False,
+        data_selector="$",
+        fanout=DependentEndpointConfig(
+            parent_name="subscriptions",
+            resolve_param="subscription_id",
+            resolve_field="id",
+            # The revenue payload already carries subscription_id; nothing to copy down.
+            include_from_parent=[],
+            child_response_actions=_IGNORE_CHILD_404,
+        ),
+    ),
     "subscription_versions": AlgunaEndpointConfig(
         name="subscription_versions",
         path="/subscriptions/{subscription_id}/versions",

@@ -89,9 +89,8 @@ export interface applicationObservabilityLogicValues {
     endpointsLoadError: boolean
     endpointsService: string | null
     environment: string | null
-    environments: string[]
+    environments: (string | null)[]
     hasLoadError: boolean
-    resolvedEnvironment: string
     selectedMapService: ServiceHealthApi | null
     selectedMapServiceName: string | null
     serviceMap: ServiceMapResponseApi | null
@@ -216,8 +215,7 @@ export interface applicationObservabilityLogicActions {
 export interface applicationObservabilityLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         services: (servicesHealth: ServicesHealthResponseApi | null) => ServiceHealthApi[]
-        environments: (servicesHealth: ServicesHealthResponseApi | null) => string[]
-        resolvedEnvironment: (environment: string | null, servicesHealth: ServicesHealthResponseApi | null) => string
+        environments: (servicesHealth: ServicesHealthResponseApi | null) => (string | null)[]
         endpoints: (endpointsHealth: EndpointsHealthResponseApi | null) => EndpointHealthApi[]
         selectedMapService: (
             serviceMapLayout: ServiceGraph | null,
@@ -320,7 +318,7 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
                     const response = await apmEndpointsList(String(values.currentTeamId), {
                         date_from: dateFrom.toISOString(),
                         date_to: dateTo.toISOString(),
-                        ...(values.environment ? { environment: values.environment } : {}),
+                        ...(values.environment !== null ? { environment: values.environment } : {}),
                         ...(values.endpointsService ? { service: values.endpointsService } : {}),
                     })
                     breakpoint()
@@ -337,7 +335,7 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
                     const response = await apmServiceMapList(String(values.currentTeamId), {
                         date_from: dateFrom.toISOString(),
                         date_to: dateTo.toISOString(),
-                        ...(values.environment ? { environment: values.environment } : {}),
+                        ...(values.environment !== null ? { environment: values.environment } : {}),
                     })
                     breakpoint()
                     return response
@@ -388,7 +386,7 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
                     const response = await apmServicesList(String(values.currentTeamId), {
                         date_from: dateFrom.toISOString(),
                         date_to: dateTo.toISOString(),
-                        ...(values.environment ? { environment: values.environment } : {}),
+                        ...(values.environment !== null ? { environment: values.environment } : {}),
                     })
                     // A superseded call (environment/range changed again mid-flight) throws here
                     // instead of overwriting state with a stale response.
@@ -406,12 +404,7 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
         ],
         environments: [
             (s) => [s.servicesHealth],
-            (servicesHealth: ServicesHealthResponseApi | null): string[] => servicesHealth?.environments ?? [],
-        ],
-        resolvedEnvironment: [
-            (s) => [s.environment, s.servicesHealth],
-            (environment: string | null, servicesHealth: ServicesHealthResponseApi | null): string =>
-                environment ?? servicesHealth?.environment ?? 'default',
+            (servicesHealth: ServicesHealthResponseApi | null): (string | null)[] => servicesHealth?.environments ?? [],
         ],
         endpoints: [
             (s) => [s.endpointsHealth],
@@ -443,7 +436,7 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
         const toUrl = (): [string, Record<string, string>] => [
             APPLICATION_OBSERVABILITY_PATH,
             {
-                ...(values.environment ? { environment: values.environment } : {}),
+                ...(values.environment !== null ? { environment: values.environment } : {}),
                 ...(values.timeRange !== '-1h' ? { range: values.timeRange } : {}),
                 ...(values.tab !== 'services' ? { tab: values.tab } : {}),
                 ...(values.endpointsService ? { service: values.endpointsService } : {}),

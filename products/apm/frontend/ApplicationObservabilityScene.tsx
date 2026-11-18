@@ -15,6 +15,7 @@ import {
 } from './applicationObservabilityLogic'
 import { DependenciesTab } from './DependenciesTab'
 import { EndpointsTab } from './EndpointsTab'
+import { environmentOptions } from './environmentDisplay'
 import { ServiceMapTab } from './ServiceMapTab'
 import { ServicesTab } from './ServicesTab'
 import { UsageTab } from './UsageTab'
@@ -25,7 +26,7 @@ export const scene: SceneExport = {
 }
 
 export function ApplicationObservabilityScene(): JSX.Element {
-    const { environments, resolvedEnvironment, timeRange, tab } = useValues(applicationObservabilityLogic)
+    const { environment, environments, timeRange, tab } = useValues(applicationObservabilityLogic)
     const { setEnvironment, setTimeRange, setTab } = useActions(applicationObservabilityLogic)
 
     return (
@@ -40,12 +41,9 @@ export function ApplicationObservabilityScene(): JSX.Element {
                 {tab !== 'usage' && (
                     <LemonSelect
                         size="small"
-                        value={resolvedEnvironment}
+                        value={environment}
                         onChange={(value) => setEnvironment(value)}
-                        options={(environments.length ? environments : [resolvedEnvironment]).map((env) => ({
-                            value: env,
-                            label: env,
-                        }))}
+                        options={environmentOptions(environments, environment)}
                         data-attr="apm-environment"
                     />
                 )}

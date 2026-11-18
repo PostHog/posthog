@@ -245,20 +245,6 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "uses": "The amount of times the promo codes has been used.",
         },
     },
-    "leads": {
-        "description": "A prospective customer who has expressed interest in a company or product but has not yet purchased.",
-        "docs_url": "https://docs.whop.com/api-reference/leads/lead",
-        "columns": {
-            "created_at": "The datetime the lead was created.",
-            "id": "The unique identifier for the lead.",
-            "member": "The company member record if this lead has converted into a paying customer. Null if the lead has not converted.",
-            "metadata": "Custom key-value pairs attached to this lead. Null if no metadata was provided.",
-            "product": "The product the lead expressed interest in. Null if the lead is not associated with a specific product.",
-            "referrer": "The URL of the page that referred this lead to the company. Null if no referrer was captured.",
-            "updated_at": "The datetime the lead was last updated.",
-            "user": "The user account associated with this lead.",
-        },
-    },
     "experiences": {
         "description": "An experience is a feature or content module within a product, such as a chat, course, or custom app.",
         "docs_url": "https://docs.whop.com/api-reference/experiences/experience",

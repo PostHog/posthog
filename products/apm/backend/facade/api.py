@@ -132,9 +132,9 @@ __all__ = [
 
 
 def list_services_health(
-    *, team: "Team", date_from: "datetime", date_to: "datetime", environment: str
+    *, team: "Team", date_from: "datetime", date_to: "datetime", environment: str | None
 ) -> ServicesHealthResult:
-    """One health row per service in the environment and window, worst first.
+    """One health row per service in the environment and window, worst first. None reads every environment.
 
     Pure contracts out: the presentation layer serializes `ServicesHealthResult` without touching logic.
     """
@@ -142,7 +142,7 @@ def list_services_health(
 
 
 def list_endpoints_health(
-    *, team: "Team", date_from: "datetime", date_to: "datetime", environment: str, service: str | None = None
+    *, team: "Team", date_from: "datetime", date_to: "datetime", environment: str | None, service: str | None = None
 ) -> list[EndpointHealth]:
     """One health row per (service, entry span name) in the environment and window, worst first."""
     return _list_endpoints_health(
@@ -150,13 +150,15 @@ def list_endpoints_health(
     )
 
 
-def get_service_map(*, team: "Team", date_from: "datetime", date_to: "datetime", environment: str) -> ServiceMapResult:
+def get_service_map(
+    *, team: "Team", date_from: "datetime", date_to: "datetime", environment: str | None
+) -> ServiceMapResult:
     """Service-to-service call edges in the environment and window, from a bounded sample of traces."""
     return _get_service_map(team=team, date_from=date_from, date_to=date_to, environment=environment)
 
 
 def get_dependencies(
-    *, team: "Team", date_from: "datetime", date_to: "datetime", environment: str, service: str | None = None
+    *, team: "Team", date_from: "datetime", date_to: "datetime", environment: str | None, service: str | None = None
 ) -> DependenciesResult:
     """Caller to callee edges over the whole window, with dependencies inferred from client span attributes."""
     return _get_dependencies(team=team, date_from=date_from, date_to=date_to, environment=environment, service=service)

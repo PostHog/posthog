@@ -2,7 +2,8 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useMemo, useState } from 'react'
 
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonBanner, LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -78,28 +79,28 @@ function ConvertedNotice(): JSX.Element | null {
     }
     return (
         <>
-            <div
-                className="flex items-center justify-between gap-2 px-2 py-1 border-b shrink-0 flex-wrap"
-                data-attr="email-editor-converted-notice"
+            <Tooltip
+                title={
+                    <>
+                        This email was made in the old editor. Nothing changes until you edit it
+                        {emailConversion?.notKept.length
+                            ? `, and editing won't keep ${emailConversion.notKept.join(', ')}.`
+                            : '.'}
+                        {emailConversion?.keptAsHtml?.length
+                            ? ` Parts with ${emailConversion.keptAsHtml.join(', ')} keep their old HTML, which you can edit as code.`
+                            : ''}
+                    </>
+                }
             >
-                <span className="text-xs text-secondary">
-                    This email was made in the old editor. Nothing changes until you edit it
-                    {emailConversion?.notKept.length
-                        ? `, and editing won't keep ${emailConversion.notKept.join(', ')}.`
-                        : '.'}
-                    {emailConversion?.keptAsHtml?.length
-                        ? ` Parts with ${emailConversion.keptAsHtml.join(', ')} keep their old HTML, which you can edit as code.`
-                        : ''}
-                </span>
                 <LemonButton
                     size="xsmall"
-                    type="secondary"
+                    icon={<IconInfo />}
                     data-attr="email-editor-compare"
                     onClick={() => setComparing(true)}
                 >
-                    Compare versions
+                    Compare with old editor
                 </LemonButton>
-            </div>
+            </Tooltip>
             <LemonModal
                 isOpen={comparing}
                 onClose={() => setComparing(false)}

@@ -1446,6 +1446,22 @@ export const SignalsReportsRefundCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Set the repository the report's work targets. Appends an attributed repo_selection artefact, so the report's work log keeps the previous selection and records who changed it. Later implementation runs use the new repository. A run that already started keeps its repository. Setting the current repository again changes nothing.
+ * @summary Change a report's repository
+ */
+export const signalsReportsRepositoryUpdateBodyRepositoryMax = 140
+
+export const SignalsReportsRepositoryUpdateBody = /* @__PURE__ */ zod.object({
+    repository: zod
+        .string()
+        .min(1)
+        .max(signalsReportsRepositoryUpdateBodyRepositoryMax)
+        .describe(
+            "Repository the report's work targets, in 'owner\/repo' format (case-insensitive). It must be a repository the project's GitHub integration can reach. Later implementation runs use it."
+        ),
+})
+
+/**
  * Apply a human reviewer edit, including on reports without a reviewer artefact.
  * @summary Set a report's suggested reviewers
  */
