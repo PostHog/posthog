@@ -620,8 +620,12 @@ describe('shared-image publication', () => {
     })
     const results = await publishChannels(options)
     expect(results).toHaveLength(channelCount)
-    for (const {repository} of Object.values(channels)) {
+    const resultsByChannel = new Map(results.map(result => [result.channel, result]))
+    for (const [name, {repository}] of Object.entries(channels)) {
       expect(tags.get(repository)?.get(options.alias)).toBe(options.digest)
+      expect(resultsByChannel.get(`posthog-cloud/${name}`)).toMatchObject({
+        decision: 'published', tag: options.alias, digest: options.digest, outcome: 'present-at-expected-digest'
+      })
     }
     expect(peak).toBe(8)
   })
