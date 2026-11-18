@@ -3,7 +3,7 @@ import json
 import pytest
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models.event.sql import EVENTS_PROPERTIES_JSON_TYPE
+from posthog.models.event.sql import EVENTS_JSON_CLEANER, EVENTS_PROPERTIES_JSON_TYPE
 from posthog.temporal.common.clickhouse import ClickHouseClient
 
 from products.batch_exports.backend.temporal.sql.events import (
@@ -61,7 +61,7 @@ def test_native_events_export_sends_properties_without_storage_defaults(
     result = sync_execute(
         f"SELECT {_NATIVE_EVENTS_FIELD_EXPRESSIONS['properties']} FROM ("
         f"SELECT CAST(cleaned.properties, '{EVENTS_PROPERTIES_JSON_TYPE()}') AS properties "
-        "FROM (SELECT JSONCleanPostHogEvent(%(properties)s, '{}') AS cleaned)"
+        f"FROM (SELECT {EVENTS_JSON_CLEANER}(%(properties)s, '{{}}') AS cleaned)"
         ") AS events",
         {"properties": json.dumps(sent_properties)},
     )

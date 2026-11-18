@@ -147,6 +147,13 @@ def _dispatch_batch_export_failure_realtime(batch_export_run_id: str | UUIDT) ->
         )
 
 
+def with_inserted_at_field(fields: list[BatchExportField]) -> list[BatchExportField]:
+    """The fields, with an `_inserted_at` field added unless one already has that alias."""
+    if any(field["alias"] == "_inserted_at" for field in fields):
+        return fields
+    return [*fields, BatchExportField(expression="_inserted_at", alias="_inserted_at")]
+
+
 def default_fields() -> list[BatchExportField]:
     """Return list of default batch export Fields."""
     return [
@@ -304,13 +311,7 @@ def iter_records(
     else:
         events_to_include_array = []
 
-    if fields is None:
-        select_fields = default_fields()
-    elif "_inserted_at" not in [field["alias"] for field in fields]:
-        select_fields = [*fields, BatchExportField(expression="_inserted_at", alias="_inserted_at")]
-    else:
-        select_fields = fields
-    query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in select_fields)
+    select_fields = default_fields() if fields is None else with_inserted_at_field(fields)
 
     base_query_parameters = {
         "team_id": team_id,
@@ -333,17 +334,10 @@ def iter_records(
             team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS
         )
 
-    native_source = reads_native_events_table(
-        team_id=team_id,
-        interval_start=interval_start,
-        interval_end=interval_end,
-        use_new_events_schema=use_new_events_schema,
-        is_backfill=is_backfill,
-        backfill_details=backfill_details,
-    )
-    if native_source:
+    if use_new_events_schema and query is SELECT_FROM_EVENTS_VIEW_BACKFILL:
         query_str = native_events_export_query(select_fields, filters_str or "", order="ORDER BY _inserted_at, event")
     else:
+        query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in select_fields)
         if filters_str:
             filters_str = f"AND {filters_str}"
         query_str = query.safe_substitute(

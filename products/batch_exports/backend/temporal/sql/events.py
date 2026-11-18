@@ -6,7 +6,7 @@ from string import Template
 
 from posthog.hogql.printer.events_json_document import (
     EVENTS_PROPERTIES_DECLARED_STRING_PATHS,
-    json_member_pairs_sql,
+    json_document_sql,
     person_document_sql,
 )
 
@@ -412,32 +412,21 @@ SETTINGS
 """
 
 
-# The native table exports `properties` and `person_properties` in their stored shape, with these differences
-# from the legacy tables:
+# The native table exports `properties` and `person_properties` in their stored shape, built member by member the
+# way a HogQL read of the whole document builds them. Unlike the legacy tables:
 # - flags are sent in one `$feature_flags` map, which is left out when the event has no flags.
 # - temporary properties are not exported, so the legacy `set`, `set_once`, `unset` and `group_set`
 #   fields are always empty.
-# The documents are built member by member, the same way a HogQL read of the whole document builds them:
-# - the cleaner stores every top-level object and array as a string of its JSON text, and each one is put
-#   back as the object or array. Exporting the column as it is would send every nested value as an escaped string.
-# - a declared string path stores `""` on every row that did not send it, so `""` under a declared path is
-#   left out.
-# - `toJSONString` prints a stored dotted key as `a%2Eb` unless the query sets
-#   `json_type_escape_dots_in_keys`, which is why the native query's SETTINGS carry it.
-_NATIVE_PROPERTIES_PAIRS = json_member_pairs_sql(
-    "events.properties", declared_string_paths=EVENTS_PROPERTIES_DECLARED_STRING_PATHS
-)
+# `toJSONString` prints a stored dotted key as `a%2Eb` unless the query sets `json_type_escape_dots_in_keys`, which is
+# why the native query's SETTINGS carry it.
 _NATIVE_EVENTS_FIELD_EXPRESSIONS = {
-    "properties": (
-        "concat('{', arrayStringConcat(arrayFilter(pair -> pair != '\"$feature_flags\":{}', "
-        + _NATIVE_PROPERTIES_PAIRS
-        + "), ','), '}')"
+    "properties": json_document_sql(
+        "events.properties",
+        exclude_empty_key="$feature_flags",
+        declared_string_paths=EVENTS_PROPERTIES_DECLARED_STRING_PATHS,
     ),
     "person_properties": person_document_sql("events.person_properties"),
-    "set": "CAST(NULL, 'Nullable(String)')",
-    "set_once": "CAST(NULL, 'Nullable(String)')",
-    "unset": "CAST(NULL, 'Nullable(String)')",
-    "group_set": "CAST(NULL, 'Nullable(String)')",
+    **dict.fromkeys(("set", "set_once", "unset", "group_set"), "CAST(NULL, 'Nullable(String)')"),
 }
 
 

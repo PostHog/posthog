@@ -59,7 +59,7 @@ from products.batch_exports.backend.service import (
     afetch_last_run_records_completed,
     migrate_batch_export_model,
 )
-from products.batch_exports.backend.temporal.batch_exports import default_fields
+from products.batch_exports.backend.temporal.batch_exports import default_fields, with_inserted_at_field
 from products.batch_exports.backend.temporal.errors import MissingRequiredInputsError
 from products.batch_exports.backend.temporal.filters import InvalidFilterError, compose_filters_clause
 from products.batch_exports.backend.temporal.metrics import log_query_duration
@@ -682,10 +682,7 @@ async def _get_query(
                 team_id, custom_schema, hogql_query
             )
 
-        if "_inserted_at" not in [field["alias"] for field in fields]:
-            control_fields = [BatchExportField(expression="_inserted_at", alias="_inserted_at")]
-        else:
-            control_fields = []
+        fields = with_inserted_at_field(fields)
 
         filters_str = ""
         if filters is not None and len(filters) > 0:
@@ -694,9 +691,9 @@ async def _get_query(
             )
 
         if native_source:
-            query = native_events_export_query(fields + control_fields, filters_str, s3_function=s3_function)
+            query = native_events_export_query(fields, filters_str, s3_function=s3_function)
         else:
-            query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields + control_fields)
+            query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields)
             if filters_str:
                 filters_str = f"AND {filters_str}"
             query = query_template.safe_substitute(

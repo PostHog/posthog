@@ -155,7 +155,6 @@ def recompile_stored_schema(
         team_id=team_id,
         enable_select_queries=True,
         limit_top_select=False,
-        use_new_events_schema=True,
         modifiers=HogQLQueryModifiers(
             materializationMode=MaterializationMode.DISABLED,
             personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,

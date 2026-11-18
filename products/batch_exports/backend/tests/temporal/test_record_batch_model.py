@@ -18,7 +18,7 @@ from posthog.clickhouse.workload import Workload
 from posthog.constants import AvailableFeature
 from posthog.credentials import AWSKeyPair
 from posthog.models import OrganizationMembership, User
-from posthog.models.event.sql import EVENTS_PROPERTIES_JSON_TYPE, PERSON_PROPERTIES_JSON_TYPE
+from posthog.models.event.sql import EVENTS_JSON_CLEANER, EVENTS_PROPERTIES_JSON_TYPE, PERSON_PROPERTIES_JSON_TYPE
 from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import ClickHouseClient
@@ -904,7 +904,7 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
                 "INSERT INTO events_json SELECT uuid, person_id, team_id, event, distinct_id, timestamp, inserted_at, "
                 "created_at, elements_chain, cleaned.properties, cleaned.person_properties, cleaned.temporary_properties, "
                 "cleaned.properties_null_keys, cleaned.temporary_properties_null_keys, cleaned.person_properties_null_keys "
-                "FROM (SELECT *, JSONCleanPostHogEvent(properties, person_properties) AS cleaned FROM events_input) "
+                f"FROM (SELECT *, {EVENTS_JSON_CLEANER}(properties, person_properties) AS cleaned FROM events_input) "
                 f"SETTINGS {EVENTS_JSON_INSERT_SETTINGS}"
             )
             schema: BatchExportSchema = {

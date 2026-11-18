@@ -1,4 +1,3 @@
-import re
 import uuid
 import typing as t
 import datetime as dt
@@ -248,10 +247,10 @@ class TestGetBackfillInfoForEvents:
         )
 
     @pytest.mark.parametrize(
-        "use_new_events_schema,table_pattern,filter_snippet",
+        "use_new_events_schema,table,filter_snippet",
         [
-            (False, r"FROM\s+events\s+WHERE", "JSONExtractRaw(events.properties"),
-            (True, r"FROM\s+events_json AS events\s+WHERE", "events.properties.`$feature_flags`"),
+            (False, "events", "JSONExtractRaw(events.properties"),
+            (True, "events_json", "events.properties.`$feature_flags`"),
         ],
         ids=["legacy-schema", "new-schema"],
     )
@@ -261,7 +260,7 @@ class TestGetBackfillInfoForEvents:
         run_get_backfill_info,
         create_batch_export,
         use_new_events_schema: bool,
-        table_pattern: str,
+        table: str,
         filter_snippet: str,
     ):
         batch_export = await create_batch_export()
@@ -275,8 +274,9 @@ class TestGetBackfillInfoForEvents:
                 end_at=dt.datetime(2021, 1, 2, tzinfo=dt.UTC),
             )
 
+        mock_clickhouse_client.expect_select_from_table(table)
         query = mock_clickhouse_client.calls[0].query
-        assert re.search(table_pattern, query), query
+        assert ("events_json" in query) is use_new_events_schema, query
         assert filter_snippet in query, query
 
     async def test_query_caps_max_execution_time(
