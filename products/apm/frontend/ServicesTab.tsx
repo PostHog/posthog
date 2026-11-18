@@ -2,7 +2,10 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonInput, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
+import { urls } from 'scenes/urls'
+
 import { applicationObservabilityLogic } from './applicationObservabilityLogic'
+import { environmentLabel } from './environmentDisplay'
 import type { ServiceHealthApi } from './generated/api.schemas'
 import { healthColumns } from './healthColumns'
 import { Sparkline } from './Sparkline'
@@ -15,7 +18,7 @@ export function ServicesTab(): JSX.Element {
         search,
         servicesHealthLoading,
         hasLoadError,
-        resolvedEnvironment,
+        environment,
         timeRange,
         attentionCount,
     } = useValues(applicationObservabilityLogic)
@@ -26,7 +29,15 @@ export function ServicesTab(): JSX.Element {
             title: 'Service',
             key: 'service_name',
             sorter: (a, b) => a.service_name.localeCompare(b.service_name),
-            render: (_, row) => <span className="font-semibold">{row.service_name}</span>,
+            render: (_, row) => (
+                <Link
+                    to={urls.applicationObservabilityService(row.service_name, { range: timeRange, environment })}
+                    className="font-semibold"
+                    data-attr="apm-service-page"
+                >
+                    {row.service_name}
+                </Link>
+            ),
         },
         ...healthColumns<ServiceHealthApi>(),
         {
@@ -48,18 +59,19 @@ export function ServicesTab(): JSX.Element {
         },
     ]
 
+    const inEnvironment = environment === null ? 'across all environments' : `in ${environmentLabel(environment)}`
     const attentionMessage =
         attentionCount > 0
-            ? `${attentionCount} ${attentionCount === 1 ? 'service needs' : 'services need'} attention in ${resolvedEnvironment}`
-            : `All quiet in ${resolvedEnvironment}`
+            ? `${attentionCount} ${attentionCount === 1 ? 'service needs' : 'services need'} attention ${inEnvironment}`
+            : `All quiet ${inEnvironment}`
 
     return (
         <div className="flex flex-col gap-2">
             {hasLoadError ? (
                 <LemonBanner type="error">
                     {services.length > 0
-                        ? `Couldn't refresh service health for ${resolvedEnvironment}. Showing the last successful results.`
-                        : `Couldn't load service health for ${resolvedEnvironment}. Try again shortly.`}
+                        ? `Couldn't refresh service health ${inEnvironment}. Showing the last successful results.`
+                        : `Couldn't load service health ${inEnvironment}. Try again shortly.`}
                 </LemonBanner>
             ) : (
                 !servicesHealthLoading &&

@@ -2389,6 +2389,8 @@ class MetricsAggregation(StrEnum):
     RATE = "rate"
     INCREASE = "increase"
     HISTOGRAM_QUANTILE = "histogram_quantile"
+    COUNT_RATE = "count_rate"
+    COUNT_INCREASE = "count_increase"
 
 
 class MetricsAttributeScope(StrEnum):
