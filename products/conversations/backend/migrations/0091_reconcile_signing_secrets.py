@@ -35,13 +35,16 @@ def reconcile_signing_secrets(apps, schema_editor):
         # in Python; a filter on the column cannot match.
         if row.secret == current_token and not row.previous_secret:
             continue
-        row.secret = current_token
-        # A mirroring row never carries grace; a drifted previous_secret may hold a
-        # revoked key, so expire it with the resync.
-        row.previous_secret = None
-        row.previous_secret_rotated_at = None
-        row.save(update_fields=["secret", "previous_secret", "previous_secret_rotated_at"])
-        resynced += 1
+        # Conditional UPDATE instead of save(): a rotation that commits after the read
+        # above sets rotated_independently=True under its row lock, and this write must
+        # not clobber the secret it minted. The token column has no writers left, so the
+        # read value cannot go stale the other way. A mirroring row never carries grace;
+        # a drifted previous_secret may hold a revoked key, so expire it with the resync.
+        resynced += SigningSecret.objects.filter(pk=row.pk, rotated_independently=False).update(
+            secret=current_token,
+            previous_secret=None,
+            previous_secret_rotated_at=None,
+        )
 
     logger.info("reconciled_conversations_signing_secrets", checked=checked, resynced=resynced)
 
