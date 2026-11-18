@@ -1079,7 +1079,9 @@ jobs:
                   bin/ci-wait-for-docker wait --only db redis7 clickhouse || status=$?
                   echo "::group::Docker launch log and container timeline"
                   cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true
-                  bin/ci-wait-for-docker timeline || true
+                  docker ps -a -q --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME}" \
+                    | xargs -r docker inspect --format '{{.State.StartedAt}} {{.Name}} created={{.Created}}{{if .State.Health}} health={{.State.Health.Status}}{{end}}' \
+                    | sort || true
                   echo "::endgroup::"
                   exit "$status"
             - name: Build schema dump
@@ -1239,7 +1241,9 @@ jobs:
                   bin/ci-wait-for-docker wait objectstorage || status=$?
                   echo "::group::Docker launch log and container timeline"
                   cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true
-                  bin/ci-wait-for-docker timeline || true
+                  docker ps -a -q --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME}" \
+                    | xargs -r docker inspect --format '{{.State.StartedAt}} {{.Name}} created={{.Created}}{{if .State.Health}} health={{.State.Health.Status}}{{end}}' \
+                    | sort || true
                   echo "::endgroup::"
                   exit "$status"
             - name: Restore schema cache from master
@@ -1967,7 +1971,9 @@ jobs:
                   bin/ci-wait-for-docker wait --only db redis7 clickhouse || status=$?
                   echo "::group::Docker launch log and container timeline"
                   cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true
-                  bin/ci-wait-for-docker timeline || true
+                  docker ps -a -q --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME}" \
+                    | xargs -r docker inspect --format '{{.State.StartedAt}} {{.Name}} created={{.Created}}{{if .State.Health}} health={{.State.Health.Status}}{{end}}' \
+                    | sort || true
                   echo "::endgroup::"
                   exit "$status"
             - name: Prime posthog DB from cached schema
@@ -2654,7 +2660,9 @@ jobs:
                   bin/ci-wait-for-docker wait --only db clickhouse || status=$?
                   echo "::group::Docker launch log and container timeline"
                   cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true
-                  bin/ci-wait-for-docker timeline || true
+                  docker ps -a -q --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME}" \
+                    | xargs -r docker inspect --format '{{.State.StartedAt}} {{.Name}} created={{.Created}}{{if .State.Health}} health={{.State.Health.Status}}{{end}}' \
+                    | sort || true
                   echo "::endgroup::"
                   exit "$status"
             - name: Add OpenAPI Problem Matcher
@@ -3448,7 +3456,9 @@ jobs:
                   bin/ci-wait-for-docker wait || status=$?
                   echo "::group::Docker launch log and container timeline"
                   cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true
-                  bin/ci-wait-for-docker timeline || true
+                  docker ps -a -q --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME}" \
+                    | xargs -r docker inspect --format '{{.State.StartedAt}} {{.Name}} created={{.Created}}{{if .State.Health}} health={{.State.Health.Status}}{{end}}' \
+                    | sort || true
                   echo "::endgroup::"
                   exit "$status"
             - name: Restore schema cache from master
