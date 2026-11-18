@@ -97,6 +97,8 @@ on:
         # full matrix. The other hours run only the default-variant Core shards, the cheap slice
         # that catches the commonest master breaks. CORE_ONLY_RUN matches the second cron string
         # exactly, so keep the two in sync. Any other trigger runs the full matrix.
+        # .github/scripts/depot_backend_runs.py tells the two apart by start hour for the
+        # master-red alerter and the timing refresh, so change its schedule constants with these.
         - cron: '23 */3 * * *'
         - cron: '23 1,2,4,5,7,8,10,11,13,14,16,17,19,20,22,23 * * *'
     workflow_dispatch:
