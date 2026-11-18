@@ -16326,6 +16326,16 @@ export namespace Schemas {
       details: AnomalyBucketDetails;
     }
 
+    export interface AnomalyDashboard {
+      /** The numeric id of the dashboard. */
+      id: number;
+      /**
+         * The name of the dashboard. Null when it has none.
+         * @nullable
+         */
+      name: string | null;
+    }
+
     export interface AnomalyFlaggedPoint {
       /** The start of the flagged bucket, in the project timezone. */
       bucket_start: string;
@@ -16538,6 +16548,7 @@ export namespace Schemas {
     /**
      * * `unusual` - Unusual
      * * `recent` - Recent
+     * * `rate` - Rate
      */
     export type AnomalyOrderEnum = typeof AnomalyOrderEnum[keyof typeof AnomalyOrderEnum];
 
@@ -16545,6 +16556,7 @@ export namespace Schemas {
     export const AnomalyOrderEnum = {
       Unusual: 'unusual',
       Recent: 'recent',
+      Rate: 'rate',
     } as const;
 
     export interface AnomalySeriesPoint {
@@ -16626,6 +16638,8 @@ export namespace Schemas {
       last_flagged_bucket: string | null;
       /** Up to 5 flagged buckets in the range, newest first. */
       flagged_points: AnomalyFlaggedPoint[];
+      /** The dashboards the insight sits on that the caller may view, oldest tile first. Empty when none. */
+      dashboards: AnomalyDashboard[];
       /** Only with `include_points`. The newest 400 scored buckets of the series in the range, oldest first. A bucket that was not scored, or only has a warm-up row, has no point: it is unknown, not 0. Fewer points than `scored_buckets` means the cap left older buckets out. */
       points?: AnomalySeriesPoint[];
     }
@@ -16653,7 +16667,8 @@ export namespace Schemas {
       /** The applied order.
        *
        * * `unusual` - Unusual
-       * * `recent` - Recent */
+       * * `recent` - Recent
+       * * `rate` - Rate */
       order: AnomalyOrderEnum;
       /** One row per series, in the requested `order`. Empty unless `group_by` is `series`. */
       series: AnomalySeries[];
@@ -146558,10 +146573,11 @@ export namespace Schemas {
      */
     only_flagged?: boolean;
     /**
-     * `unusual` puts the series that flagged most above its usual rate first. `recent` puts the newest flagged bucket first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.
+     * `unusual` puts the series that flagged most above its usual rate first. `recent` puts the newest flagged bucket first, then sorts as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.
      *
      * * `unusual` - Unusual
      * * `recent` - Recent
+     * * `rate` - Rate
      * @minLength 1
      */
     order?: SignalsAnomaliesSearchRetrieveOrder;
@@ -146596,6 +146612,7 @@ export namespace Schemas {
     export const SignalsAnomaliesSearchRetrieveOrder = {
       Unusual: 'unusual',
       Recent: 'recent',
+      Rate: 'rate',
     } as const;
 
     export type SignalsProcessingListParams = {
