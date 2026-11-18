@@ -1,9 +1,10 @@
 import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
-import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
+import { AccessControlLevel, AppContext } from '~/types'
 
 export type StorybookAppContext = Omit<AppContext, 'effective_resource_access_control' | 'resource_access_control'> & {
-    resource_access_control: Partial<Record<AccessControlResourceType, `${AccessControlLevel}`>>
+    // Stories may keep a resource type that the app has since dropped.
+    resource_access_control: Record<string, `${AccessControlLevel}`>
 }
 
 export const getStorybookAppContext = (): StorybookAppContext => ({
