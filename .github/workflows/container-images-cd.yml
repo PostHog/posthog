@@ -1826,10 +1826,9 @@ jobs:
             - name: Fail when the ordered image alias is missing
               if: ${{ steps.ordered-release.outputs.tag == '' || steps.publish-alias.outputs.outcome != 'present-at-expected-digest' }}
               env:
-                  OUTCOME: ${{ steps.publish-alias.outputs.outcome || 'not published' }}
-              run: |
-                  echo "::error title=Ordered image alias missing::Kargo only creates freight from the ordered alias, so Kargo-delivered apps stay on the previous image (outcome: ${OUTCOME})."
-                  exit 1
+                  ORDERED_ALIAS: ${{ steps.ordered-release.outputs.tag }}
+                  OUTCOME: ${{ steps.publish-alias.outputs.outcome }}
+              run: bash .github/scripts/ordered-image-release.sh require "$ORDERED_ALIAS" "$OUTCOME"
 
     shared_image_channels:
         name: Publish eligible shared-image channels

@@ -1,30 +1,53 @@
+const { setTimeout: sleep } = require('node:timers/promises')
+
 const INITIAL_FAILURES = 3
 const REPEAT_INTERVAL = 10
-const HISTORY_LIMIT = 100
+const RUNS_PER_PAGE = 100
+const HISTORY_PAGES = 10
+const STALE_INDEX_RETRY_MS = 2000
 const SLACK_CHANNEL = 'C0B11J29GP9'
 
 const ALIAS_JOB = 'Publish ordered image alias'
+const aliasConsequence = (image, deploys = 'deploys') =>
+    `A missing or unverified ordered alias can leave Kargo without Freight for ${image}, so ${deploys} stay on the previous build.`
 const LANES = {
     'Container Images CD': [
-        { job: ALIAS_JOB, image: 'PostHog' },
-        { job: 'Publish eligible shared-image channels', image: 'PostHog shared-image channels' },
+        { job: ALIAS_JOB, image: 'PostHog', consequence: aliasConsequence('the PostHog image') },
+        {
+            job: 'Publish eligible shared-image channels',
+            image: 'PostHog shared-image channels',
+            consequence:
+                'One or more shared-image channels were not published, so workers on those channels stay on their previous image. See the linked run for publication evidence.',
+        },
     ],
-    'Build and deploy node container image': [{ job: ALIAS_JOB, image: 'Node.js' }],
+    'Build and deploy node container image': [
+        { job: ALIAS_JOB, image: 'Node.js', consequence: aliasConsequence('the Node.js image') },
+    ],
     'Build and deploy rust container images': ['ghcr', 'ecr'].map((registry) => ({
         job: `publish ordered image aliases (${registry})`,
         image: `Rust (${registry})`,
+        consequence: aliasConsequence(`the Rust images in ${registry.toUpperCase()}`, 'deploys using that registry'),
     })),
-    'Credentials Service Container Image CD': [{ job: ALIAS_JOB, image: 'Credentials service' }],
+    'Credentials Service Container Image CD': [
+        {
+            job: ALIAS_JOB,
+            image: 'Credentials service',
+            consequence: aliasConsequence('the credentials service image in the affected registry', 'deploys using that registry'),
+        },
+    ],
 }
 
 function laneConclusion(jobs, jobName) {
     const conclusion = jobs.find((job) => job.name === jobName)?.conclusion
+    if (conclusion === 'timed_out') {
+        return 'failure'
+    }
     if (conclusion === 'success' || conclusion === 'failure') {
         return conclusion
     }
 }
 
-async function streakMessages({ run, jobs }, loadHistory) {
+async function streakMessages({ run, jobs }, olderRuns) {
     const pending = (LANES[run.name] ?? []).flatMap((lane) => {
         const conclusion = laneConclusion(jobs, lane.job)
         if (!conclusion) {
@@ -45,18 +68,17 @@ async function streakMessages({ run, jobs }, loadHistory) {
         return messages
     }
 
-    const { olderRuns, reachedHistoryStart } = await loadHistory()
-    for await (const { run: olderRun, jobs: olderJobs } of olderRuns) {
+    for await (const older of olderRuns) {
         for (const streak of pending) {
             if (streak.settled) {
                 continue
             }
-            const conclusion = laneConclusion(olderJobs, streak.job)
-            if (conclusion === 'success') {
+            const conclusion = older && laneConclusion(older.jobs, streak.job)
+            if (!older || conclusion === 'success') {
                 streak.settled = true
             } else if (conclusion === 'failure') {
                 streak.count++
-                streak.firstFailure = olderRun
+                streak.firstFailure = older.run
                 if (streak.conclusion === 'success' && streak.count === INITIAL_FAILURES) {
                     streak.settled = true
                 }
@@ -67,16 +89,16 @@ async function streakMessages({ run, jobs }, loadHistory) {
         }
     }
 
-    for (const { image, conclusion, count, firstFailure, settled } of pending) {
+    for (const { image, job, consequence, conclusion, count, firstFailure, settled } of pending) {
         if (count < INITIAL_FAILURES) {
             continue
         }
         const lane = `${image} (${run.name})`
         if (conclusion === 'success') {
-            messages.push(`${lane} recovered in <${run.html_url}|this run>.`)
-        } else if ((settled || reachedHistoryStart) && (count - INITIAL_FAILURES) % REPEAT_INTERVAL === 0) {
+            messages.push(`${job} for ${lane} succeeded after at least three consecutive failures (<${run.html_url}|successful run>).`)
+        } else if (settled && (count - INITIAL_FAILURES) % REPEAT_INTERVAL === 0) {
             messages.push(
-                `${lane} ordered tagging failed in ${count} consecutive runs (<${run.html_url}|newest failure>, <${firstFailure.html_url}|first failure>). Without the ordered alias, Kargo creates no Freight for the image and deploys stay on the previous build.`
+                `${lane} failed in ${count} consecutive runs (<${run.html_url}|newest failure>, <${firstFailure.html_url}|first failure>). ${consequence}`
             )
         }
     }
@@ -87,32 +109,52 @@ function newestFirst(a, b) {
     return Date.parse(b.updated_at) - Date.parse(a.updated_at) || b.id - a.id
 }
 
-async function loadOlderRuns(actions, coordinates, trigger, readJobs) {
-    const { data } = await actions.listWorkflowRuns({
-        ...coordinates,
-        workflow_id: trigger.workflow_id,
-        branch: 'master',
-        event: 'push',
-        status: 'completed',
-        created: `<=${trigger.updated_at}`,
-        per_page: HISTORY_LIMIT,
-    })
-    const runs = data.workflow_runs
-        .filter((run) => run.id !== trigger.id && run.conclusion !== 'cancelled' && newestFirst(run, trigger) > 0)
-        .sort(newestFirst)
-
-    async function* olderRuns() {
-        for (const run of runs) {
-            yield { run, jobs: await readJobs(run) }
-        }
+async function* loadOlderRuns(actions, coordinates, trigger, readJobs, delay) {
+    const readPage = async (page) => {
+        const { data } = await actions.listWorkflowRuns({
+            ...coordinates,
+            workflow_id: trigger.workflow_id,
+            branch: 'master',
+            event: 'push',
+            status: 'completed',
+            created: `<=${trigger.updated_at}`,
+            per_page: RUNS_PER_PAGE,
+            page,
+        })
+        return data.workflow_runs
     }
 
-    return { olderRuns: olderRuns(), reachedHistoryStart: data.total_count <= HISTORY_LIMIT }
+    const seen = new Set([trigger.id])
+    for (let page = 1; page <= HISTORY_PAGES; page++) {
+        let runs = await readPage(page)
+        if (page === 1 && !runs.some((run) => run.id === trigger.id)) {
+            await delay(STALE_INDEX_RETRY_MS)
+            runs = await readPage(page)
+            if (!runs.some((run) => run.id === trigger.id)) {
+                throw new Error(`Stale Actions history: run ${trigger.id} is missing from the first page`)
+            }
+        }
+
+        for (const run of runs.sort(newestFirst)) {
+            if (seen.has(run.id) || newestFirst(run, trigger) <= 0) {
+                continue
+            }
+            seen.add(run.id)
+            yield { run, jobs: await readJobs(run) }
+        }
+        if (runs.length < RUNS_PER_PAGE) {
+            yield null
+            return
+        }
+    }
 }
 
-module.exports = async ({ context, github }, { fetch: send = fetch, token = process.env.SLACK_BOT_TOKEN } = {}) => {
+module.exports = async (
+    { context, github },
+    { fetch: send = fetch, token = process.env.SLACK_BOT_TOKEN, delay = sleep } = {}
+) => {
     const run = context.payload.workflow_run
-    if (run.run_attempt !== 1 || run.conclusion === 'cancelled') {
+    if (run.run_attempt !== 1) {
         return
     }
 
@@ -123,20 +165,25 @@ module.exports = async ({ context, github }, { fetch: send = fetch, token = proc
         return data.jobs
     }
     const jobs = await readJobs(run)
-    const messages = await streakMessages({ run, jobs }, () => loadOlderRuns(actions, coordinates, run, readJobs))
-
-    for (const text of messages) {
-        if (!token) {
-            throw new Error('Slack bot token is missing')
-        }
-        const result = await send('https://slack.com/api/chat.postMessage', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json; charset=utf-8', Authorization: `Bearer ${token}` },
-            body: JSON.stringify({ channel: SLACK_CHANNEL, text, unfurl_links: false, unfurl_media: false }),
-        })
-        const data = await result.json()
-        if (!result.ok || !data.ok) {
-            throw new Error(`Slack chat.postMessage failed: ${data.error || result.status}`)
-        }
+    const messages = await streakMessages({ run, jobs }, loadOlderRuns(actions, coordinates, run, readJobs, delay))
+    if (!messages.length) {
+        return
+    }
+    if (!token) {
+        throw new Error('Slack bot token is missing')
+    }
+    const result = await send('https://slack.com/api/chat.postMessage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json; charset=utf-8', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ channel: SLACK_CHANNEL, text: messages.join('\n'), unfurl_links: false, unfurl_media: false }),
+    })
+    if (!result.ok) {
+        throw new Error(`Slack chat.postMessage failed with HTTP ${result.status}`)
+    }
+    const data = await result.json()
+    if (!data.ok) {
+        throw new Error(`Slack chat.postMessage failed: ${data.error}`)
     }
 }
+
+module.exports.LANES = LANES
