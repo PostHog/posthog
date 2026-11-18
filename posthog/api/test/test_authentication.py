@@ -2630,11 +2630,11 @@ class TestSyntheticUser(SimpleTestCase):
         with self.assertRaises(TypeError):
             SyntheticUser(self._team())  # type: ignore[call-arg]
 
-    def _fake_psak(self, team, psak_id=99, scopes=None):
+    def _fake_psak(self, team):
         return type(
             "FakePSAK",
             (),
-            {"team": team, "team_id": team.id, "id": psak_id, "scopes": scopes or ["endpoint:read"]},
+            {"team": team, "team_id": team.id, "id": 99, "scopes": ["endpoint:read"]},
         )()
 
     def test_project_secret_api_key_user_carries_psak_and_distinct_id(self):
@@ -2651,7 +2651,7 @@ class TestSyntheticUser(SimpleTestCase):
         from posthog.synthetic_user import SyntheticUser
 
         team = self._team()
-        self.assertIsInstance(ProjectSecretAPIKeyUser(self._fake_psak(team, psak_id=1, scopes=[])), SyntheticUser)
+        self.assertIsInstance(ProjectSecretAPIKeyUser(self._fake_psak(team)), SyntheticUser)
 
     def test_mutable_attrs_are_isolated_per_instance(self):
         a = ProjectSecretAPIKeyUser(self._fake_psak(self._team(team_id=1)))

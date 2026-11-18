@@ -918,9 +918,9 @@ class TestWidgetIdentityVerification(BaseTest):
             "widget_public_token": self.widget_token,
         }
         self.team.save()
-        self.signing_secret = SigningSecret.objects.for_team(self.team.id).create(
-            team=self.team, secret=self.secret, rotated_independently=True
-        )
+        # rotated_independently stays False: a backfilled row must verify without ever
+        # being compared to the legacy token column.
+        self.signing_secret = SigningSecret.objects.for_team(self.team.id).create(team=self.team, secret=self.secret)
 
         self.distinct_id = "user_123"
         self.identity_hash = compute_identity_hash(self.distinct_id, self.secret)

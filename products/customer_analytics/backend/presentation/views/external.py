@@ -2,20 +2,9 @@
 External API endpoints for the Customer analytics product.
 
 The single-account endpoints are used by the CDP worker for workflow actions and
-authenticate via the team secret API token passed as a Bearer token in the
-Authorization header. The bulk account list instead authenticates via a project
-secret API key or personal API key carrying the ``account:read`` scope, because the team token is
-readable by every project member and must not unlock a team-wide account export.
-The single-account GET accepts either credential, and so do POST and PATCH, where a
-project secret API key needs the ``account:write`` scope.
-
-The team token deliberately grants single-account writes (create, tags,
-relationships, custom property values) without per-user ``account`` scope checks:
-workflow executions have no acting user to authorize, and the token is only
-readable by members of the project whose accounts it writes. Security reviewers
-periodically flag this as a write-permission bypass — it is the accepted model
-for this surface, matching the resource-level scoping note in the product's
-CLAUDE.md.
+authenticate via a project secret API key passed as a Bearer token: GET needs the
+``account:read`` scope, and POST and PATCH need ``account:write``. The bulk account
+list also accepts a personal API key carrying ``account:read``.
 
 The view holds only HTTP concerns — Bearer auth, throttles, the feature-flag gate,
 request validation, and mapping facade results to responses. Data access, the
@@ -203,12 +192,6 @@ def _authenticate_psak_team(request: Request, required_scope: str) -> tuple[Team
     return psak.team, None
 
 
-def _authenticate_team_for_update(request: Request) -> tuple[Team, None] | tuple[None, Response]:
-    """Updates require ``account:write`` on a project secret API key; reads alone don't
-    grant tag, relationship or churn changes."""
-    return _authenticate_psak_team(request, EXTERNAL_ACCOUNT_WRITE_SCOPE)
-
-
 class ExternalAccountAssignmentSerializer(serializers.Serializer):
     user_id = serializers.IntegerField(help_text="PostHog user id of the assigned user.")
     email = serializers.CharField(help_text="Email address of the assigned user.")
@@ -359,7 +342,7 @@ class ExternalAccountView(APIView):
     # that ExternalAccountErrorSerializer does not describe.
     @extend_schema(exclude=True)
     def patch(self, request: Request) -> Response:
-        team, error = _authenticate_team_for_update(request)
+        team, error = _authenticate_psak_team(request, EXTERNAL_ACCOUNT_WRITE_SCOPE)
         if error:
             return error
 
@@ -605,7 +588,7 @@ class ExternalAccountCustomPropertiesView(APIView):
 
     @extend_schema(request=ExternalAccountCustomPropertiesSerializer, responses={200: OpenApiTypes.OBJECT})
     def patch(self, request: Request) -> Response:
-        team, error = _authenticate_team_for_update(request)
+        team, error = _authenticate_psak_team(request, EXTERNAL_ACCOUNT_WRITE_SCOPE)
         if error:
             return error
 

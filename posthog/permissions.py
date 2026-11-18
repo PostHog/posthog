@@ -1341,7 +1341,7 @@ class AccessControlPermission(ScopeBasePermission):
     def has_object_permission(self, request, view, object) -> bool:
         # At this level we are checking an individual resource - this could be a project or a lower level item like a Dashboard
 
-        # Service credentials (TST, PSAK) are synthetic users UserAccessControl can't evaluate.
+        # Service credentials (PSAK) are synthetic users UserAccessControl can't evaluate.
         # They're gated by API scope + project membership, so scopes grant project-wide access
         # within that resource type and object-level RBAC restrictions don't apply.
         if is_service_auth(request):

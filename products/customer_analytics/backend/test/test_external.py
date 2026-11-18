@@ -124,11 +124,9 @@ class TestExternalAccountAPI(APIBaseTest):
                 response = self._get(token=token)
                 self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
                 self.assertEqual(response.json(), {"error": "Missing or invalid API key"})
-        for token in [write_psak]:
-            with self.subTest(token=token, method="post"):
-                response = self._post({"external_id": "acme-2"}, token=token)
-                self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-                self.assertEqual(response.json(), {"error": "Missing or invalid API key"})
+        response = self._post({"external_id": "acme-2"}, token=write_psak)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.json(), {"error": "Missing or invalid API key"})
         self.assertFalse(Account.objects.for_team(self.team.id).filter(external_id="acme-2").exists())
 
     @covers_authentication(ExternalAccountProjectSecretAPIKeyAuthentication)
