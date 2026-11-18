@@ -23,7 +23,7 @@ export interface OperationRoute {
 
 /**
  * The route attributes in the order application observability reads them: a span labelled by a later
- * attribute must not set an earlier one, or it belongs to the earlier attribute's endpoint.
+ * attribute must not set an earlier one, even to an empty value, or it belongs to the earlier attribute's endpoint.
  * Mirrors ROUTE_ATTRIBUTES in products/apm/backend/logic/health/sources.py.
  */
 const ROUTE_ATTRIBUTES = ['http.route', 'url.template']

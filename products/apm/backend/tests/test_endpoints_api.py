@@ -59,6 +59,8 @@ class TestEndpointsHealthAPI(ClickhouseTestMixin, APIBaseTest):
         w.span("rest", name="GET", env="routes", attributes={"url.template": "/items/{id}"})
         w.span("rest", name="GET", env="routes", attributes={"http.route": "/a/:id", "url.template": "/b/{id}"})
         w.span("rest", name="DELETE", env="routes")
+        # A present but empty http.route still outranks url.template, as the drilldown's is_not_set guard reads it.
+        w.span("rest", name="PUT", env="routes", attributes={"http.route": "", "url.template": "/x/{id}"})
         w.span("rest", name="process", env="routes", attributes={"http.route": "/ignored"})
         w.insert()
 
@@ -131,6 +133,7 @@ class TestEndpointsHealthAPI(ClickhouseTestMixin, APIBaseTest):
                 "GET /items/{id}": ("GET", "url.template", "/items/{id}", 1),
                 "GET /a/:id": ("GET", "http.route", "/a/:id", 1),
                 "DELETE": ("DELETE", None, None, 1),
+                "PUT": ("PUT", None, None, 1),
                 "process": ("process", None, None, 1),
             },
         )

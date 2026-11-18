@@ -96,14 +96,25 @@ def _route_attribute_read(key: str) -> ast.Expr:
     return ast.Field(chain=["attributes", f"{key}__str"])
 
 
+def _route_attribute_is_set(key: str) -> ast.Expr:
+    # Compiled the way a span attribute is_set filter is, so both read presence the same way.
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.NotEq, left=_route_attribute_read(key), right=ast.Constant(value=None)
+    )
+
+
 def route_attribute_expr() -> ast.Expr:
-    """The first route attribute a bare-method span sets, or empty when it isn't one or sets none."""
-    branches = ", ".join(f"notEmpty({{read_{i}}}), '{key}'" for i, key in enumerate(ROUTE_ATTRIBUTES))
+    """The first route attribute a bare-method span sets, or empty when it isn't one or sets none.
+
+    Precedence goes by presence, the check a span attribute is_set filter makes, so the tracing
+    drilldown's is_not_set guards select the same spans. A present but empty route leaves the bare name.
+    """
+    branches = ", ".join(f"{{set_{i}}}, '{key}'" for i, key in enumerate(ROUTE_ATTRIBUTES))
     return parse_expr(
         f"if(name IN {{methods}}, multiIf({branches}, ''), '')",
         placeholders={
             "methods": ast.Tuple(exprs=[ast.Constant(value=method) for method in HTTP_METHODS]),
-            **{f"read_{i}": _route_attribute_read(key) for i, key in enumerate(ROUTE_ATTRIBUTES)},
+            **{f"set_{i}": _route_attribute_is_set(key) for i, key in enumerate(ROUTE_ATTRIBUTES)},
         },
     )
 
@@ -411,7 +422,7 @@ def list_endpoints_health(
             service_name=service_name,
             endpoint=endpoint,
             span_name=span_name,
-            route_attribute=route_attribute or None,
+            route_attribute=route_attribute if route else None,
             route=route or None,
             environment=environment,
             health=HealthRow(
