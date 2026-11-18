@@ -9488,7 +9488,7 @@ Note: The synced alerts table maps to GET /actions. Every high-value gap is a pe
 
 ## Pipedrive — gaps
 
-Today (25): `activities`, `activity_types`, `archived_deals`, `archived_projects`, `deal_changelog`, `deal_fields`, `deal_products`, `deals`, `lead_labels`, `leads`, `mail_messages`, `mail_threads`, `notes`, `organization_fields`, `organizations`, `person_fields`, `persons`, `pipelines`, `products`, `project_boards`, `project_phases`, `project_tasks`, `projects`, `stages`, `users`
+Today (28): `activities`, `activity_types`, `archived_deals`, `archived_projects`, `call_logs`, `currencies`, `deal_changelog`, `deal_fields`, `deal_products`, `deals`, `goals`, `lead_labels`, `leads`, `mail_messages`, `mail_threads`, `notes`, `organization_fields`, `organizations`, `person_fields`, `persons`, `pipelines`, `products`, `project_boards`, `project_phases`, `project_tasks`, `projects`, `stages`, `users`
 
 Diffed against: <https://developers.pipedrive.com/docs/api/v2/openapi.yaml>
 
@@ -9497,11 +9497,11 @@ Diffed against: <https://developers.pipedrive.com/docs/api/v2/openapi.yaml>
 - [x] `GET /activityTypes (v1)` — lookup resolving the type key on every synced activity row (high). Added as `activity_types`.
 - [x] `GET /deals/{id}/flow and /deals/{id}/changelog (v1)` — per-field change history including stage moves - required for stage-transition, velocity and win-rate-over-time analysis (high). Added as `deal_changelog`, read for every active and archived deal. `/deals/{id}/flow` skipped: it is a mixed timeline of activities, notes, files and field changes that the changelog and existing tables already cover.
 - [x] `GET /leadLabels (v1)` — lookup resolving the label IDs carried on the leads we already sync (high). Added as `lead_labels`.
-- [ ] `GET /leadSources (v1)` — lookup resolving lead source values for attribution (medium)
-- [ ] `GET /currencies (v1)` — currency lookup for multi-currency deal and product values (medium)
+- [ ] `GET /leadSources (v1)` — lookup resolving lead source values for attribution (medium). Skipped: a fixed vendor-wide list of names with no ids; leads already carry `source_name`.
+- [x] `GET /currencies (v1)` — currency lookup for multi-currency deal and product values (medium). Added as `currencies`.
 - [x] `GET /pipelines/{id}/conversion_statistics and /movement_statistics (v1)` — Pipedrive's own funnel conversion and stage-movement metrics per pipeline (medium). Skipped: each call returns one aggregate for a required date range and a single user, not rows, and `deals` with `deal_changelog` hold the data it summarizes.
-- [ ] `GET /callLogs (v1)` — call activity with duration and outcome, not covered by the activities table (medium)
-- [ ] `GET /goals and /goals/{id}/results (v1)` — sales targets and attainment, the natural denominator for deal reporting (medium)
+- [x] `GET /callLogs (v1)` — call activity with duration and outcome, not covered by the activities table (medium). Added as `call_logs`, read 50 per page, the largest page the endpoint accepts.
+- [x] `GET /goals and /goals/{id}/results (v1)` — sales targets and attainment, the natural denominator for deal reporting (medium). Added as `goals`, read from `/goals/find`. `/goals/{id}/results` skipped: it returns one progress figure per goal for a required date range, not rows, and `deals` and `activities` hold the data it counts.
 - [x] `GET /mailbox/mailThreads and /mailbox/mailThreads/{id}/mailMessages (v1)` — email engagement tied to deals and persons (medium). Added as `mail_threads` (every folder, one row per thread) and `mail_messages` (read for every thread).
 - [x] `GET /projects, /projects/{id}/tasks, /projects/boards, /projects/phases (v1 and v2)` — the Projects product is entirely absent, including its board/phase lookups (medium). Added as `projects` and `archived_projects` (v2), and `project_tasks` (`/api/v1/tasks`, every task in one list), `project_boards` and `project_phases` on v1, because their v2 endpoints are still in beta.
 
