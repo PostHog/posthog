@@ -14,7 +14,6 @@ from pathlib import Path
 # These mirrors carry intentional deltas that each mirror's header documents.
 # Every other mirror stays byte-identical to its canonical action.
 DELTA_MIRRORS = frozenset({"commit-snapshots", "pnpm-install", "setup-pnpm", "setup-python-cached", "setup-sqlx-cli"})
-DEPOT_ONLY_ACTIONS = frozenset({"install-hogql-parser-rs"})
 # Depot resolves both `./.github/actions/<name>` and `./.depot/actions/<name>` from .depot/actions/<name>.
 LOCAL_ACTION_USE = re.compile(r"""uses:\s*['"]?\./\.(?:github|depot)/actions/([A-Za-z0-9_.-]+)""")
 
@@ -34,10 +33,6 @@ def mirror_violations(root: Path, changed: set[str]) -> list[str]:
         mirror = f".depot/actions/{name}/"
         if not (root / mirror).is_dir():
             violations.append(f"A Depot file uses the {name} action, but {mirror} does not exist.")
-            continue
-        if name in DEPOT_ONLY_ACTIONS:
-            if (root / canonical).exists():
-                violations.append(f"{canonical} exists, so {name} is a mirror and not a Depot-only action.")
             continue
         violations.extend(
             f"{path} changed without a matching update to {mirror}{path.removeprefix(canonical)}."

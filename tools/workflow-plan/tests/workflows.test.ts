@@ -184,6 +184,7 @@ const EXPECTATIONS: Expectation[] = [
                 'get_clickhouse_versions',
                 'build-product-test-matrix',
                 'build_django_matrix',
+                'build-hogql-parser-rs',
                 'test-selection-verdict',
             ],
         }
@@ -229,6 +230,7 @@ const EXPECTATIONS: Expectation[] = [
                 'get_clickhouse_versions',
                 'build-product-test-matrix',
                 'build_django_matrix',
+                'build-hogql-parser-rs',
                 'prime-schema-cache',
                 'test-selection-verdict',
                 'capture-test-selection',
@@ -306,6 +308,7 @@ const EXPECTATIONS: Expectation[] = [
                 'django',
                 'get_clickhouse_versions',
                 'build_django_matrix',
+                'build-hogql-parser-rs',
                 'sdk-major-guard',
                 'backend-coverage-report',
             ],
@@ -1186,32 +1189,6 @@ describe('CI workflow run plans', () => {
             '23 */3 * * *',
             '23 1,2,4,5,7,8,10,11,13,14,16,17,19,20,22,23 * * *',
         ])
-    })
-
-    it.each([
-        ['pull request', pullRequest(), true, false],
-        ['draft pull request', pullRequest({ draft: true }), true, false],
-        ['merge queue', mergeQueue(), false, false],
-        ['branch dispatch', workflowDispatch('feat/example'), false, false],
-        ['depot ci run', { ...workflowDispatch(), event_name: 'api' }, false, false],
-        ['master push', push(), false, true],
-        ['master dispatch', workflowDispatch(), false, true],
-        ['hourly schedule', schedule(), false, true],
-        ['hourly schedule without a ref', { ...schedule(), ref: '' }, false, true],
-    ] as const)('a %s restores and saves the Django parser wheel only when allowed', (_name, github, restore, save) => {
-        const depot = workflow(DEPOT_BACKEND)
-        const install = depot.jobs.django?.steps?.find(
-            (step) => step.uses === './.depot/actions/install-hogql-parser-rs'
-        )
-        const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
-        const context = {
-            github,
-            env: { IS_MASTER: String(evaluateValue(depot.env?.IS_MASTER, { github }, functions)) },
-        }
-        expect({
-            restore: evaluateValue(install?.with?.restore, context, functions),
-            save: evaluateValue(install?.with?.save, context, functions),
-        }).toEqual({ restore, save })
     })
 
     it.each(['refs/heads/master', ''])('the hourly Depot run keeps master coverage with ref %j', (ref) => {
