@@ -149,6 +149,12 @@ export type CommonConfig = BaseServerConfig & {
     PERSONHOG_IDENTITY_TIMEOUT_MS: number
     /** Deadline for the identity merge saga call; must exceed the engine's lifecycle_execute_timeout_secs. */
     PERSONHOG_MERGE_TIMEOUT_MS: number
+    /** Fold concurrent person creates into one identity batch call. */
+    PERSONHOG_BATCH_CREATE_ENABLED: boolean
+    /** How long the first create of a batch waits for batchmates before the batch is sent. */
+    PERSONHOG_BATCH_CREATE_WINDOW_MS: number
+    /** Creates that close a batch without waiting; the identity service caps it at 250. */
+    PERSONHOG_BATCH_CREATE_MAX_SIZE: number
     PERSONHOG_READ_MAX_BYTES: number
     PERSONHOG_WRITE_MAX_BYTES: number
     PERSONHOG_PING_INTERVAL_MS: number
@@ -428,6 +434,9 @@ export function getDefaultCommonConfig(): CommonConfig {
         PERSONHOG_TIMEOUT_MS: 3000,
         PERSONHOG_IDENTITY_TIMEOUT_MS: 3000,
         PERSONHOG_MERGE_TIMEOUT_MS: 35_000,
+        PERSONHOG_BATCH_CREATE_ENABLED: false,
+        PERSONHOG_BATCH_CREATE_WINDOW_MS: 5,
+        PERSONHOG_BATCH_CREATE_MAX_SIZE: 100,
         PERSONHOG_READ_MAX_BYTES: 128 * 1024 * 1024,
         PERSONHOG_WRITE_MAX_BYTES: 4 * 1024 * 1024,
         PERSONHOG_PING_INTERVAL_MS: 30_000,
