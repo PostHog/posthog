@@ -69,8 +69,9 @@ READERS: dict[str, str] = {
     "products/alerts/backend/facade/platform.py": "`follow_insight_alert` keeps copies in step (D1)",
     "products/logs/backend/tasks/tasks.py": "`follow_logs_alert` keeps copies in step (E5)",
     "products/alerts/backend/platform_insight_alert.py": "builds a copy's check input from its row (D1)",
-    "products/logs/backend/alert_source_cycle.py": "`_as_configured_now` checks the row (D3)",
-    "products/logs/backend/alert_signal_emitter.py": "signals read the row (D3)",
+    "products/logs/backend/alert_source_cycle.py": (
+        "`_as_configured_now` refreshes a copy the logs stack owns from its row (E2)"
+    ),
     "products/logs/backend/alert_incidents.py": "incident close reads `owner` from the row (E4)",
     "products/logs/backend/facade/api.py::_close_if_subscribed": "incident close reads `owner` from the row (E4)",
     "products/alerts/backend/platform_hooks.py": "creator and viewer of an alert with a row, else of the copy (G2)",
@@ -138,10 +139,6 @@ READERS: dict[str, str] = {
     "products/alerts/backend/logic/destination_bucket_report.py": "report that informs a cutover",
     "products/logs/backend/destination_buckets.py": "report that informs a cutover",
     "products/logs/backend/delivery_path_report.py": "report that informs a cutover",
-    # Not moved by B: these read rows only, so they miss native alerts. No plan row covers them yet.
-    "products/alerts/backend/logic/organization_offboarding.py": "offboarding lists a member's rows",
-    "products/pulse/backend/generation/persist.py": "Pulse links an alert evidence id to its row",
-    "products/signals/backend/scout_harness/profile/builders.py": "scout profile counts rows",
     "products/alerts/backend/presentation/views/alert.py::ThresholdViewSet": "thresholds endpoint (B6)",
     "products/alerts/backend/presentation/views/alert.py::ThresholdWithAlertSerializer": "thresholds endpoint (B6)",
     "products/alerts/backend/presentation/views/alert.py::_ThresholdsSerializer": "thresholds endpoint (B6)",

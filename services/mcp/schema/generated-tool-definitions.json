@@ -7440,6 +7440,21 @@
             "readOnlyHint": true
         }
     },
+    "external-data-sources-add-table": {
+        "description": "Add one table to an object storage source (Amazon S3, Google Cloud Storage, Azure Blob Storage or Cloudflare R2) from the path of its files. Use this for object storage sources, where a table is a folder, a file or a wildcard pattern in the bucket, and always for a source whose source refresh ('external-data-sources-refresh-schemas') fails because it reads tables from anywhere in its bucket. The path is relative to the folder of the source's files URL (such as events/ or events/2026/*.parquet), or a full URL inside that folder. A source whose files URL names one file or a pattern can't add tables (its supports_adding_tables is false). PostHog lists only that location to check that it holds files the key can read. It does not sync data. The new table is created turned off: to start syncing it, set should_sync to true with 'external-data-schemas-partial-update' on the returned schema id. A 400 names the field to fix in 'attr': 'name' when another table of the source has the name, 'path' when the location is outside the source's bucket or folder, holds no importable files, or can't be read.",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
+        "summary": "Add a table to an object storage source",
+        "title": "Add a table to an object storage source",
+        "required_scopes": ["external_data_source:write"],
+        "api_operations": ["POST /api/projects/{project_id}/external_data_sources/{id}/add_table/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "external-data-sources-bulk-update-schemas": {
         "description": "Apply sync configuration to several of a source's table schemas at once: enable or disable syncing (should_sync), live queries without syncing (live_query_enabled, on a synced source with live queries on), sync_type, sync frequency and UTC time of day, scheduled full refresh interval and UTC time of day (full_refresh_interval_days, full_refresh_time_of_day), incremental field, and primary key columns. Each entry needs the schema id plus the fields to change. Prefer this over looping 'external-data-schemas-partial-update' when reconfiguring more than a couple of tables of the same source, such as moving every table that cannot sync incrementally onto full_refresh. Every entry is validated before anything is written, and a schema that fails is reported by name while the rest of the batch is saved. Changes take effect on the next sync, not retroactively. sync_frequency takes 5min, 15min, 30min, 1hour, 6hour, 12hour, 24hour, 7day or 30day. Common spellings are mapped for you: hourly or 60min = 1hour, daily or 1day = 24hour, weekly = 7day, monthly = 30day. There is no 'never' value: to stop a table syncing, set should_sync to false.",
         "category": "Warehouse sources",
@@ -7669,7 +7684,7 @@
         }
     },
     "external-data-sources-refresh-schemas": {
-        "description": "Fetch the latest table list from the remote database and create schema entries for any new tables found. This is a metadata refresh — it does NOT move or sync any data (use 'external-data-sources-reload' for that). Use this after adding new tables to a source database to make them available for syncing.",
+        "description": "Fetch the latest table list from the remote database and create schema entries for any new tables found. This is a metadata refresh — it does NOT move or sync any data (use 'external-data-sources-reload' for that). Use this after adding new tables to a source database to make them available for syncing. It fails with a 400 for an object storage source that reads tables from anywhere in its bucket (the source's supports_table_discovery is false): add each table of such a source by its path with 'external-data-sources-add-table' instead.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "Discover new tables in source",
@@ -11395,7 +11410,7 @@
         }
     },
     "logs-alerts-destinations-create": {
-        "description": "Attach a Slack, webhook, Microsoft Teams, or PagerDuty notification destination to a log alert. Without a destination an alert evaluates silently and never notifies. One HogFunction is created per event kind (firing, resolved, broken, errored) atomically. A PagerDuty destination gets the incident opened and incident closed kinds instead. They follow every start and end of a firing, cooldown included, so each incident it opens is resolved. The returned hog_function_ids identify the destination group.",
+        "description": "Attach a Slack, webhook, Microsoft Teams, or PagerDuty notification destination to a log alert. Without a destination an alert evaluates silently and never notifies. One HogFunction is created per event kind (firing, resolved, broken, errored) atomically. A PagerDuty destination gets the incident opened and incident closed kinds instead. They follow every start and end of a firing, cooldown included, so each incident it opens is resolved. The returned id identifies the destination; pass it to logs-alerts-destinations-delete-create to remove it. When id is null, use hog_function_ids instead.",
         "category": "Logs",
         "feature": "logs",
         "summary": "Attach alert destination",
@@ -11410,7 +11425,7 @@
         }
     },
     "logs-alerts-destinations-delete-create": {
-        "description": "Remove a notification destination from a log alert by passing the hog_function_ids returned from logs-alerts-destinations-create. Destinations are deleted as one atomic group — partial deletion fails the call.",
+        "description": "Remove a notification destination from a log alert. Pass the id that logs-alerts-destinations-create returned, or the destination's id from the alert's destinations list, in destination_ids. When that id is null, pass the destination's hog_function_ids instead. A destination is deleted as one atomic group — partial deletion fails the call.",
         "category": "Logs",
         "feature": "logs",
         "summary": "Detach alert destination",
@@ -12555,6 +12570,21 @@
         "title": "Get notebook widget generation status",
         "required_scopes": ["notebook:read"],
         "api_operations": ["GET /api/projects/{project_id}/notebooks/{short_id}/widgets/{node_id}/status/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "oauth-applications-list": {
+        "description": "List the OAuth applications linked to the active organization, with each application's provisioning partner status and review. Use it to check whether an application that registered for agentic provisioning can create accounts yet, and to read the message PostHog staff left on its review. `provisioning_status` says whether the application can provision now, and `provisioning_review.status` says where its review stands. Only organization admins can call this. To ask PostHog about a review or to request verification of an application, send the user to the OAuth applications page in organization settings, which opens support with the details filled in.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "List the organization's OAuth applications",
+        "title": "List the organization's OAuth applications",
+        "required_scopes": ["organization:read"],
+        "api_operations": ["GET /api/organizations/{organization_id}/oauth_applications/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -18737,7 +18767,7 @@
         }
     },
     "workflows-make-email-template-transactional-execute": {
-        "description": "Step 2 of 2 for make email template transactional. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Make an email template sendable from code with one API call, for emails a person triggers such as password resets, receipts and sign-in codes. This is one-way: the template can't be made non-transactional again. Transactional sends ignore marketing opt-outs, so never use this for marketing email. The template needs a subject and a body, and the project needs a verified email sender (pass from_integration_id to pick one, otherwise the project's default sender is used). Requires human typed confirmation. The response has transactional_hog_flow_id, the workflow that sends the email. Share the template's _posthogUrl so the user can review and publish it. Then tell the user what is left: create a project secret API key with Transactional email set to Write, and send from their backend with posthog.emails.send in the Node.js or Python SDK, or POST /api/projects/@current/messaging/send/email/ with template.id in the body. Each send returns a message ID, and posthog.emails.get or GET /api/projects/@current/messaging/emails/{message_id}/ reads its status.",
+        "description": "Step 2 of 2 for make email template transactional. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Make an email template sendable from code with one API call, for emails a person triggers such as password resets, receipts and sign-in codes. This is one-way: the template can't be made non-transactional again. Transactional sends ignore marketing opt-outs, so never use this for marketing email. The template needs a subject and a body, and the project needs a verified email sender (pass from_integration_id to pick one, otherwise the project's default sender is used). Requires human typed confirmation. The response has transactional_hog_flow_id, the workflow that sends the email. Share the template's _posthogUrl so the user can review and publish it. Then tell the user what is left: create a project secret API key with Transactional email set to Write, and send from their backend with posthog.emails.send in the Node.js or Python SDK, or POST /api/messaging/send/email/ with template.id in the body. Each send returns a message ID, and posthog.emails.get or GET /api/messaging/emails/{message_id}/ reads its status.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Make email template transactional (execute)",
@@ -18753,7 +18783,7 @@
         "feature_flag": "workflows-transactional-email-api"
     },
     "workflows-make-email-template-transactional-prepare": {
-        "description": "Step 1 of 2 for make email template transactional. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Make an email template sendable from code with one API call, for emails a person triggers such as password resets, receipts and sign-in codes. This is one-way: the template can't be made non-transactional again. Transactional sends ignore marketing opt-outs, so never use this for marketing email. The template needs a subject and a body, and the project needs a verified email sender (pass from_integration_id to pick one, otherwise the project's default sender is used). Requires human typed confirmation. The response has transactional_hog_flow_id, the workflow that sends the email. Share the template's _posthogUrl so the user can review and publish it. Then tell the user what is left: create a project secret API key with Transactional email set to Write, and send from their backend with posthog.emails.send in the Node.js or Python SDK, or POST /api/projects/@current/messaging/send/email/ with template.id in the body. Each send returns a message ID, and posthog.emails.get or GET /api/projects/@current/messaging/emails/{message_id}/ reads its status.",
+        "description": "Step 1 of 2 for make email template transactional. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Make an email template sendable from code with one API call, for emails a person triggers such as password resets, receipts and sign-in codes. This is one-way: the template can't be made non-transactional again. Transactional sends ignore marketing opt-outs, so never use this for marketing email. The template needs a subject and a body, and the project needs a verified email sender (pass from_integration_id to pick one, otherwise the project's default sender is used). Requires human typed confirmation. The response has transactional_hog_flow_id, the workflow that sends the email. Share the template's _posthogUrl so the user can review and publish it. Then tell the user what is left: create a project secret API key with Transactional email set to Write, and send from their backend with posthog.emails.send in the Node.js or Python SDK, or POST /api/messaging/send/email/ with template.id in the body. Each send returns a message ID, and posthog.emails.get or GET /api/messaging/emails/{message_id}/ reads its status.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Make email template transactional (prepare)",
