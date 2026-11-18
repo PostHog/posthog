@@ -24,12 +24,11 @@ With `STUB_CREATE_WORKERS` above 0, a fixed set of worker tasks runs every stub-
 A worker takes one queued call and every call already queued behind it, up to `STUB_CREATE_MAX_BATCH_DISTINCT_IDS` distinct ids (default 50), into one transaction.
 Calls share a transaction only when they would otherwise wait for a worker, so latency does not change while a worker is free.
 Calls that share a distinct id never share a transaction, so each call gets the outcome its own transaction would give.
-A shared transaction locks the live person rows its inserts conflict with in `(team_id, uuid)` order, while the writer and the merge flip lock in `(team_id, id)` order, so it can deadlock where a one-call transaction cannot.
 When a shared transaction fails with a query error or a timeout, the worker reruns each call in its own transaction, so the failure reaches only the call that caused it.
 A connection error or an exhausted pool fails every call in the batch, and callers retry as they do for any storage error.
 The worker count also caps the heavy connections that stub creation can hold, so keep it well below `HEAVY_MAX_PG_CONNECTIONS`; startup warns when it is not.
-At most `STUB_CREATE_MAX_QUEUED_CALLS` calls (default 1000) wait for a worker, and a call waits at most `HEAVY_ACQUIRE_TIMEOUT_SECS`.
-A call refused either way gets UNAVAILABLE, the same answer a heavy-pool acquire timeout gives, so the caller retries on another pod.
+At most `STUB_CREATE_MAX_QUEUED_CALLS` calls (default 1000) wait for a worker, and a call that no worker has started stops waiting after `HEAVY_ACQUIRE_TIMEOUT_SECS`.
+A call refused either way gets the error a heavy-pool acquire timeout gives: UNAVAILABLE from get-or-create, so the caller retries on another pod, and INTERNAL from the merge target path.
 The default, `STUB_CREATE_WORKERS=0`, runs each call in its own transaction on the calling task.
 With workers on, pool and query metrics for stub creation carry `client="batched"` and `method="StubCreateBatch"` in place of the caller's labels.
 `personhog_identity_stub_create_callers_per_batch` shows how many calls share each transaction, `personhog_identity_stub_create_queue_wait_ms` shows how long a call waits for a worker, `personhog_identity_stub_create_batch_reruns_total` counts shared transactions that fell back to one transaction per call, and `personhog_identity_stub_create_rejected_total{reason}` counts calls refused for a full queue or a long wait.

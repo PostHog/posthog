@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
@@ -28,6 +29,9 @@ struct Pending {
     stubs: Vec<PersonStub>,
     enqueued_at: Instant,
     reply: Reply,
+    // Set once, by the worker that starts the call or by the caller that
+    // stops waiting for it, so a started call is never abandoned.
+    claimed: Arc<AtomicBool>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -41,6 +45,7 @@ pub struct CoalesceSettings {
 pub struct CoalescingIdentityStorage {
     inner: Arc<dyn IdentityStorage>,
     queue: mpsc::Sender<Pending>,
+    max_queue_wait: Duration,
 }
 
 impl CoalescingIdentityStorage {
@@ -52,10 +57,13 @@ impl CoalescingIdentityStorage {
                 inner.clone(),
                 receiver.clone(),
                 settings.max_batch_distinct_ids.max(1),
-                settings.max_queue_wait,
             ));
         }
-        Self { inner, queue }
+        Self {
+            inner,
+            queue,
+            max_queue_wait: settings.max_queue_wait,
+        }
     }
 }
 
@@ -94,11 +102,14 @@ impl IdentityStorage for CoalescingIdentityStorage {
         if stubs.is_empty() {
             return Ok(Vec::new());
         }
-        let (reply, outcome) = oneshot::channel();
+        let (reply, mut outcome) = oneshot::channel();
+        let claimed = Arc::new(AtomicBool::new(false));
+        let enqueued_at = Instant::now();
         let pending = Pending {
             stubs: stubs.to_vec(),
-            enqueued_at: Instant::now(),
+            enqueued_at,
             reply,
+            claimed: claimed.clone(),
         };
         match self.queue.try_send(pending) {
             Ok(()) => {}
@@ -114,11 +125,15 @@ impl IdentityStorage for CoalescingIdentityStorage {
                 ));
             }
         }
-        outcome.await.unwrap_or_else(|_| {
-            Err(StorageError::Query(
-                "stub-create batch ended without an outcome".to_string(),
-            ))
-        })
+        tokio::select! {
+            result = &mut outcome => return batch_outcome(result),
+            _ = tokio::time::sleep_until(enqueued_at + self.max_queue_wait) => {}
+        }
+        if !claimed.swap(true, Ordering::AcqRel) {
+            count_rejected("queue_wait");
+            return Err(StorageError::PoolExhausted);
+        }
+        batch_outcome(outcome.await)
     }
 
     async fn attach_distinct_ids(
@@ -131,6 +146,16 @@ impl IdentityStorage for CoalescingIdentityStorage {
             .attach_distinct_ids(team_id, person_id, distinct_ids)
             .await
     }
+}
+
+fn batch_outcome(
+    result: Result<StorageResult<Vec<StubOutcome>>, oneshot::error::RecvError>,
+) -> StorageResult<Vec<StubOutcome>> {
+    result.unwrap_or_else(|_| {
+        Err(StorageError::Query(
+            "stub-create batch ended without an outcome".to_string(),
+        ))
+    })
 }
 
 struct Batch {
@@ -178,12 +203,7 @@ fn distinct_id_keys(stubs: &[PersonStub]) -> Vec<(i64, String)> {
         .collect()
 }
 
-async fn run_worker(
-    inner: Arc<dyn IdentityStorage>,
-    queue: Queue,
-    max_batch_distinct_ids: usize,
-    max_queue_wait: Duration,
-) {
+async fn run_worker(inner: Arc<dyn IdentityStorage>, queue: Queue, max_batch_distinct_ids: usize) {
     let mut carried: Option<Pending> = None;
     loop {
         let batch = match carried.take() {
@@ -209,7 +229,7 @@ async fn run_worker(
         };
         // A separate task, so that a panic fails only this batch's callers
         // and the worker keeps running.
-        if let Err(e) = tokio::spawn(run_batch(inner.clone(), batch, max_queue_wait)).await {
+        if let Err(e) = tokio::spawn(run_batch(inner.clone(), batch)).await {
             tracing::error!(error = %e, "stub-create batch task failed");
         }
     }
@@ -234,20 +254,15 @@ fn fill(
     None
 }
 
-async fn run_batch(inner: Arc<dyn IdentityStorage>, batch: Batch, max_queue_wait: Duration) {
+async fn run_batch(inner: Arc<dyn IdentityStorage>, batch: Batch) {
     let started = Instant::now();
     let mut callers: Vec<Pending> = Vec::with_capacity(batch.pending.len());
     for pending in batch.pending {
-        if pending.reply.is_closed() {
+        if pending.reply.is_closed() || pending.claimed.swap(true, Ordering::AcqRel) {
             continue;
         }
         let waited = started.duration_since(pending.enqueued_at);
         common_metrics::histogram(QUEUE_WAIT, &[], waited.as_secs_f64() * 1000.0);
-        if waited > max_queue_wait {
-            count_rejected("queue_wait");
-            pending.reply.send(Err(StorageError::PoolExhausted)).ok();
-            continue;
-        }
         callers.push(pending);
     }
     if callers.is_empty() {
@@ -268,10 +283,8 @@ async fn run_batch(inner: Arc<dyn IdentityStorage>, batch: Batch, max_queue_wait
             }
         }
         Err(e) if callers.len() > 1 && fails_one_call(&e) => {
-            // The shared transaction locks the live person rows its inserts
-            // conflict with in (team_id, uuid) order. The writer and the merge
-            // flip lock persons in (team_id, id) order, so a batch can deadlock
-            // with them where a one-call transaction cannot.
+            // One call's rows can fail the shared transaction (a statement or
+            // lock timeout, a rejected row); a rerun keeps that to its own call.
             common_metrics::inc(
                 BATCH_RERUNS,
                 &[("error_type".to_string(), e.error_type().to_string())],
@@ -348,6 +361,7 @@ mod tests {
             stubs,
             enqueued_at: Instant::now(),
             reply,
+            claimed: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -700,9 +714,10 @@ mod tests {
         let mut expired = storage.create_person_stubs(&b);
         assert!(futures::poll!(&mut expired).is_pending());
         tokio::time::advance(Duration::from_secs(2)).await;
+        let refused = tokio::time::timeout(Duration::from_secs(60), expired).await;
         release_tx.send(()).unwrap();
 
-        assert!(matches!(expired.await, Err(StorageError::PoolExhausted)));
+        assert!(matches!(refused, Ok(Err(StorageError::PoolExhausted))));
         running.await.unwrap();
         assert_eq!(inner.primary_ids_per_call(), vec![vec!["a"]]);
     }
