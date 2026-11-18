@@ -13,11 +13,12 @@ from rest_framework import exceptions, filters, request, response, serializers, 
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from posthog.hogql.database.database import Database, qualify_model_name
+from posthog.hogql.database.database import Database, is_authored_model, qualify_model_name
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import BoundedPageNumberPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.utils import ErrorResponseSerializer
 from posthog.auth import SessionAuthentication
 from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
@@ -44,6 +45,7 @@ from products.data_modeling.backend.facade.api import (
 )
 from products.data_modeling.backend.facade.contracts import VIEW_ENGINE_ANNOTATIONS
 from products.data_modeling.backend.facade.flags import is_managed_viewset_enabled
+from products.data_modeling.backend.facade.modeling import rename_candidates
 from products.data_modeling.backend.facade.models import (
     DataModelingJob,
     DataModelingJobEngine,
@@ -55,7 +57,7 @@ from products.managed_warehouse.backend.facade.sql_editor import managed_trino_q
 from products.warehouse_sources.backend.facade.api import team_has_had_direct_query_source
 from products.warehouse_sources.backend.facade.models import sync_frequency_to_sync_frequency_interval
 
-from . import editing, incremental_config, lifecycle, lineage, sync_cadence, view_state
+from . import editing, incremental_config, lifecycle, lineage, rename, sync_cadence, view_state
 
 logger = structlog.get_logger(__name__)
 
@@ -215,13 +217,29 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         # Read actions stay out: building a database selects every view in the team, SQL body
         # included, and neither serializer reads it. Only the write paths below do, to check a
         # name collision and to resolve a query's source tables.
-        should_include_database = self.action == "create" or (
+        should_include_database = self.action in {"create", "rename_plan"} or (
             self.action in {"update", "partial_update"} and ("name" in request_data or "query" in request_data)
         )
 
         if should_include_database:
             context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
         return context
+
+    @validated_request(
+        request_serializer=rename.RenamePlanRequestSerializer,
+        responses={200: rename.RenamePlanSerializer, 400: ErrorResponseSerializer, 403: ErrorResponseSerializer},
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["warehouse_view:write"])
+    def rename_plan(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        source = self.get_object()
+        if not is_authored_model(source) or not source.engine.has_lineage.available:
+            raise serializers.ValidationError("Only authored HogQL models support rename plans.")
+        serializer = self.get_serializer(source, data=request.validated_data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        plan = rename.build_rename_plan(
+            source, serializer.validated_data["name"], list(rename_candidates(self.team_id)), self.user_access_control
+        )
+        return Response(rename.RenamePlanSerializer(plan).data)
 
     @validated_request(
         query_serializer=SavedQueryListQuerySerializer,

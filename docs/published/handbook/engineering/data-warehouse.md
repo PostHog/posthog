@@ -86,7 +86,11 @@ The insight picker keeps names readable at narrow widths. Scroll the table horiz
 
 **Fix errors with AI** keeps its pending state and suggestion in the SQL tab that requested the fix. Other open tabs keep their own queries and can request independent fixes.
 
-The data warehouse sidebar lets you rename saved views. The dialog lists references from data model lineage. Renaming does not update SQL references in saved views, materialized views, endpoints, insights, dashboards, notebooks, or external systems. Dragging a model into a folder opens the same dialog with a name that starts with the folder's name, for example `scratch.revenue` for the folder `Scratch`. Dragging it back to the top level proposes its last name segment.
+The saved-query API requires a plan before renaming an authored HogQL model. Send the proposed `name` to `POST /api/projects/{project_id}/warehouse_saved_queries/{id}/rename_plan/`. The response lists dependent models with their SQL before and after the rename, blocked queries with reasons, and a `plan_token`. Send the name and that token as `rename_plan_token` in the saved-query PATCH. A stale or missing token returns 409. A blocked query refuses the whole rename. The caller needs edit access to every affected model.
+
+The rename and dependent SQL rewrites commit together. Rewrites qualify model tables and unaliased table qualifiers with `models.` and preserve comments, spacing, and explicit aliases. They advance editor revisions without marking dependents modified, inferring columns, refreshing downstream columns, or rebuilding materializations. Matching incremental definition fingerprints advance with the SQL while watermarks stay unchanged. Raw Trino views, direct-connection views, endpoints, insights, dashboards, notebooks, and external systems are outside this rewrite.
+
+The sidebar rename dialog still lists references from data model lineage and does not yet send a plan token. It must adopt the plan API before it can rename authored HogQL models. Dragging a model into a folder opens that dialog with a name that starts with the folder's name, for example `scratch.revenue` for the folder `Scratch`. Dragging it back to the top level proposes its last name segment.
 
 Saved-query lineage endpoints return only neighboring saved views and warehouse tables the caller can read. PostHog system tables remain visible, denied nodes do not stop the walk, and dependency counts use the same filtered neighbors.
 

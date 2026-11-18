@@ -8,8 +8,9 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import QueryError, ResolutionCycleError, ResolutionDepthExceededError
 from posthog.hogql.parser import parse_select
+from posthog.hogql.resolver import resolve_types
 
-from products.data_modeling.backend.logic.model_references import qualify_model_references
+from products.data_modeling.backend.logic.model_references import qualify_model_references, rewrite_model_references
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.modeling import (
     DEFAULT_RESOLUTION_DEADLINE_SECONDS,
@@ -169,11 +170,103 @@ class TestGetParentsFromModelQuery(BaseTest):
 
 
 class TestQualifyModelReferences(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                table,
+                qualifier,
+                qualifier in ((table,) if table.startswith("`") else (table, table.replace(".", "__"), f"`{table}`")),
+            )
+            for table in ("marts.revenue", "models.marts.revenue", "`marts.revenue`", "`models.marts.revenue`")
+            for qualifier in (
+                "revenue",
+                "marts.revenue",
+                "models.marts.revenue",
+                "marts__revenue",
+                "models__marts__revenue",
+                "`marts.revenue`",
+                "`models.marts.revenue`",
+            )
+        ]
+    )
+    def test_resolver_qualifier_spellings(self, table: str, qualifier: str, resolves: bool) -> None:
+        context = HogQLContext(
+            team_id=self.team.pk, enable_select_queries=True, database=Database.create_for(team=self.team)
+        )
+        query = parse_select(f"select {qualifier}.id from {table}")
+        if resolves:
+            resolve_types(query, context, dialect="clickhouse")
+        else:
+            with pytest.raises(QueryError):
+                resolve_types(query, context, dialect="clickhouse")
+        rewritten = rewrite_model_references(
+            f"select {qualifier}.id from {table}",
+            {("marts", "revenue"), ("models", "marts", "revenue")},
+            ("models", "staging", "sales"),
+        )
+        expected_qualifier = "models.staging.sales" if resolves else qualifier
+        assert rewritten == f"select {expected_qualifier}.id from models.staging.sales"
+
+    @parameterized.expand(
+        [
+            ("qualifier", "select revenue.id from revenue", "select models.staging.sales.id from models.staging.sales"),
+            ("wildcard", "select revenue.* from revenue", "select models.staging.sales.* from models.staging.sales"),
+            ("alias", "select r.id from revenue r", "select r.id from models.staging.sales r"),
+            ("cte", "with revenue as (select 1 as id) select revenue.id from revenue", None),
+            (
+                "two_subqueries",
+                "select * from (select revenue.id from revenue) a join (select revenue.id from other) b on a.id = b.id",
+                "select * from (select models.staging.sales.id from models.staging.sales) a join (select revenue.id from other) b on a.id = b.id",
+            ),
+            (
+                "formatting",
+                "-- revenue\nSELECT  revenue /* qualifier */ . id\nFROM `revenue` -- keep\n",
+                "-- revenue\nSELECT  models.staging.sales /* qualifier */ . id\nFROM models.staging.sales -- keep\n",
+            ),
+            (
+                "qualified",
+                "select models.revenue.id from models.revenue",
+                "select models.staging.sales.id from models.staging.sales",
+            ),
+            ("bare_column", "select revenue from revenue", "select revenue from models.staging.sales"),
+            (
+                "pivot_table",
+                "select * from revenue r pivot (count() for r.id in (1))",
+                "select * from models.staging.sales r pivot (count() for r.id in (1))",
+            ),
+            (
+                "union_cte",
+                "with revenue as (select 1 as id) select * from revenue union all select * from revenue",
+                None,
+            ),
+            (
+                "join_condition",
+                "select r.id from events e join revenue on revenue.id = e.id join revenue r on r.id = revenue.id",
+                "select r.id from events e join models.staging.sales on models.staging.sales.id = e.id join models.staging.sales r on r.id = models.staging.sales.id",
+            ),
+        ]
+    )
+    def test_rewrite_model_references(self, _case: str, query: str, expected: str | None) -> None:
+        assert rewrite_model_references(
+            query, {("revenue",), ("models", "revenue")}, ("models", "staging", "sales")
+        ) == (query if expected is None else expected)
+
+    def test_cte_qualifier_resolves(self) -> None:
+        context = HogQLContext(
+            team_id=self.team.pk, enable_select_queries=True, database=Database.create_for(team=self.team)
+        )
+        resolve_types(
+            parse_select("with revenue as (select 1 as id) select revenue.id from revenue"),
+            context,
+            dialect="clickhouse",
+        )
+
     def setUp(self):
         super().setUp()
         for name, origin in [
             ("revenue", None),
             ("marts.orders", DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE),
+            ("marts.revenue", DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE),
             ("wrapper", None),
             ("shared", None),
             ("ep_view", DataWarehouseSavedQuery.Origin.ENDPOINT),
@@ -182,7 +275,9 @@ class TestQualifyModelReferences(BaseTest):
             ("models.held", None),
         ]:
             body = "select * from revenue" if name == "wrapper" else "select 1 as id"
-            DataWarehouseSavedQuery.objects.create(team=self.team, name=name, origin=origin, query={"query": body})
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team, name=name, origin=origin, query={"query": body}, columns={"id": "Int64"}
+            )
         credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
         for table_name in ("shared", "held"):
             DataWarehouseTable.objects.create(
@@ -198,28 +293,28 @@ class TestQualifyModelReferences(BaseTest):
 
     @parameterized.expand(
         [
-            ("bare", "select * from revenue -- keep me", "select * from models.revenue AS revenue -- keep me"),
-            ("backticks", "select * from `revenue`", "select * from models.`revenue` AS revenue"),
-            ("dotted", "select * from marts.orders", "select * from models.marts.orders AS marts__orders"),
+            ("bare", "select * from revenue -- keep me", "select * from models.revenue -- keep me"),
+            ("backticks", "select * from `revenue`", "select * from models.`revenue`"),
+            ("dotted", "select * from marts.orders", "select * from models.marts.orders"),
             ("already_qualified", "select * from models.revenue", "select * from models.revenue"),
             ("alias_and_column", "select r.revenue from revenue as r", "select r.revenue from models.revenue as r"),
             (
-                "implicit_alias_kept",
+                "qualifiers_rewritten",
                 "select revenue.id, marts.orders.id from revenue join marts.orders on 1 = 1",
-                "select revenue.id, marts.orders.id from models.revenue AS revenue join models.marts.orders AS marts__orders on 1 = 1",
+                "select models.revenue.id, models.marts.orders.id from models.revenue join models.marts.orders on 1 = 1",
             ),
             (
                 "join_and_subqueries",
                 "select * from events join (select id from revenue) as r on 1 = 1\nwhere 1 in (SELECT 1 FROM marts.orders)",
-                "select * from events join (select id from models.revenue AS revenue) as r on 1 = 1\nwhere 1 in (SELECT 1 FROM models.marts.orders AS marts__orders)",
+                "select * from events join (select id from models.revenue) as r on 1 = 1\nwhere 1 in (SELECT 1 FROM models.marts.orders)",
             ),
-            ("view_body_untouched", "select * from wrapper", "select * from models.wrapper AS wrapper"),
+            ("view_body_untouched", "select * from wrapper", "select * from models.wrapper"),
             ("cte", "with revenue as (select 1 as id) select * from revenue", None),
-            ("stored_under_models", "select * from costs", "select * from models.costs AS costs"),
+            ("stored_under_models", "select * from costs", "select * from models.costs"),
             (
                 "stored_under_models_dotted",
                 "select * from marts.fees",
-                "select * from models.marts.fees AS marts__fees",
+                "select * from models.marts.fees",
             ),
             ("warehouse_table_holds_the_name", "select * from shared", None),
             ("warehouse_table_holds_a_stored_models_name", "select * from held", None),

@@ -32,7 +32,14 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.data_modeling.backend.facade.api import UnsatisfiableFrequencyError, mark_node_suspended, suspension_state
+from products.data_modeling.backend.facade.api import (
+    UnsatisfiableFrequencyError,
+    definition_fingerprint,
+    get_incremental_config,
+    mark_node_suspended,
+    resolve_write_plan,
+    suspension_state,
+)
 from products.data_modeling.backend.facade.models import (
     CONNECTION_SAVE_REASON,
     DAG,
@@ -68,6 +75,201 @@ from products.warehouse_sources.backend.facade.types import DataWarehouseManaged
 
 
 class TestSavedQuery(APIBaseTest):
+    def _rename_token(self, view_id: str | uuid.UUID, name: str) -> str:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_saved_queries/{view_id}/rename_plan/", {"name": name}
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        return response.json()["plan_token"]
+
+    @parameterized.expand(
+        [
+            ("success", None, 200),
+            ("missing_token", None, 409),
+            ("blocked", "select * from revenue where", 400),
+            ("stale", "select 2 as id from revenue", 409),
+            ("added_dependent", None, 409),
+        ]
+    )
+    def test_rename_rewrites_dependents_atomically(
+        self, case: str, changed_query: str | None, expected_status: int
+    ) -> None:
+        source = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="revenue", query={"kind": "HogQLQuery", "query": "select id from unavailable_source"}
+        )
+        before = "SELECT revenue.* FROM revenue -- keep"
+        dependent = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="consumer",
+            query={"kind": "HogQLQuery", "query": before},
+            status=DataWarehouseSavedQuery.Status.COMPLETED,
+            incremental_config={"enabled": True, "incremental_key": "id", "unique_key": ["id"]},
+            incremental_state={"watermark": 42},
+        )
+        revision = dependent.query_revision
+        updated_at = dependent.query_updated_at
+        config = get_incremental_config(dependent)
+        assert config is not None
+        dependent.incremental_state = {
+            "watermark": 42,
+            "watermark_type": "int",
+            "definition_fingerprint": definition_fingerprint(dependent.query, config),
+        }
+        dependent.save(update_fields=["incremental_state"])
+        if case == "blocked":
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team, name="broken", query={"kind": "HogQLQuery", "query": changed_query}
+            )
+        url = f"/api/projects/{self.team.id}/warehouse_saved_queries/{source.id}/"
+        plan_response = self.client.post(f"{url}rename_plan/", {"name": "staging.sales"})
+        self.assertEqual(plan_response.status_code, 200, plan_response.content)
+        plan = plan_response.json()
+        self.assertEqual(
+            plan["dependents"],
+            [
+                {
+                    "id": str(dependent.id),
+                    "name": "consumer",
+                    "before": before,
+                    "after": "SELECT models.staging.sales.* FROM models.staging.sales -- keep",
+                }
+            ],
+        )
+        self.assertEqual(len(plan["blocked"]), 1 if case == "blocked" else 0)
+        if case == "stale":
+            DataWarehouseSavedQuery.objects.filter(pk=dependent.pk).update(
+                query={"kind": "HogQLQuery", "query": changed_query}, query_revision=uuid.uuid4()
+            )
+        if case == "added_dependent":
+            DataWarehouseSavedQuery.objects.create(team=self.team, name="new_consumer", query={"query": before})
+        with patch.object(DataWarehouseSavedQuery, "get_columns", side_effect=AssertionError("inference ran")):
+            body = {"name": "staging.sales"}
+            if case != "missing_token":
+                body["rename_plan_token"] = plan["plan_token"]
+            result = self.client.patch(url, body)
+        self.assertEqual(result.status_code, expected_status, result.content)
+        source.refresh_from_db()
+        dependent.refresh_from_db()
+        self.assertEqual(source.name, "models.staging.sales" if case == "success" else "revenue")
+        self.assertEqual(
+            dependent.query["query"],
+            plan["dependents"][0]["after"] if case == "success" else changed_query if case == "stale" else before,
+        )
+        self.assertEqual(dependent.incremental_state["watermark"], 42)
+        self.assertEqual(dependent.query_updated_at, updated_at)
+        self.assertEqual(dependent.status, DataWarehouseSavedQuery.Status.COMPLETED)
+        if case == "success":
+            self.assertNotEqual(dependent.query_revision, revision)
+            self.assertTrue(resolve_write_plan(self.team.pk, dependent.pk).incremental)
+
+    def test_rename_only_rewrites_the_model_when_a_table_holds_the_bare_name(self) -> None:
+        source = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="models.revenue", query={"query": "select 1 as id"}
+        )
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="revenue",
+            format="Parquet",
+            url_pattern="https://example.com/data.parquet",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True}},
+        )
+        before = (
+            "select revenue.id, models.revenue.id from revenue join models.revenue on revenue.id = models.revenue.id"
+        )
+        consumer = DataWarehouseSavedQuery.objects.create(team=self.team, name="consumer", query={"query": before})
+        endpoint = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="endpoint_query",
+            origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
+            query={"query": "select * from models.revenue"},
+        )
+        raw = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="raw_query",
+            query={"query": "select * from models.revenue", "executionTarget": "managed_trino", "sendRawQuery": True},
+        )
+        other_team = self.create_team_with_organization(organization=self.organization)
+        other = DataWarehouseSavedQuery.objects.create(
+            team=other_team, name="consumer", query={"query": "select * from models.revenue"}
+        )
+        token = self._rename_token(source.pk, "sales")
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/warehouse_saved_queries/{source.id}/",
+            {"name": "sales", "rename_plan_token": token},
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        consumer.refresh_from_db()
+        self.assertEqual(consumer.query["query"], before.replace("models.revenue", "models.sales"))
+        for untouched in (endpoint, raw, other):
+            untouched.refresh_from_db()
+            self.assertEqual(untouched.query["query"], "select * from models.revenue")
+
+    def test_rename_plan_is_stale_when_the_source_was_already_renamed(self) -> None:
+        source = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="revenue", query={"query": "select 1 as id"}
+        )
+        url = f"/api/projects/{self.team.id}/warehouse_saved_queries/{source.id}/"
+        missing = self.client.patch(url, {"name": "sales"})
+        self.assertEqual(missing.status_code, 409, missing.content)
+        body = {"name": "sales", "rename_plan_token": self._rename_token(source.id, "sales")}
+        first = self.client.patch(url, body)
+        self.assertEqual(first.status_code, 200, first.content)
+        stale = self.client.patch(url, body)
+        self.assertEqual(stale.status_code, 409, stale.content)
+
+    def test_rename_does_not_resolve_an_incremental_sources_body(self) -> None:
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="limited_source", query={"query": "select 1 as id limit 1"}, columns={"id": "Int64"}
+        )
+        source = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="revenue",
+            query={"query": "select id from limited_source"},
+            incremental_config={"enabled": True, "incremental_key": "id", "unique_key": ["id"]},
+            incremental_state={"watermark": 42},
+        )
+        token = self._rename_token(source.id, "sales")
+        result = self.client.patch(
+            f"/api/projects/{self.team.id}/warehouse_saved_queries/{source.id}/",
+            {"name": "sales", "rename_plan_token": token},
+        )
+        self.assertEqual(result.status_code, 200, result.content)
+        source.refresh_from_db()
+        self.assertEqual(source.incremental_state, {"watermark": 42})
+
+    @parameterized.expand([("none",), ("viewer",)])
+    def test_rename_refuses_dependents_the_caller_cannot_edit(self, access_level: str) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        source = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="revenue", query={"query": "select 1 as id"}
+        )
+        dependent = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="restricted", query={"query": "select * from revenue"}
+        )
+        token = self._rename_token(source.pk, "sales")
+        editor = self._create_user("editor@example.com")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_view",
+            resource_id=str(dependent.pk),
+            organization_member=OrganizationMembership.objects.get(user=editor, organization=self.organization),
+            access_level=access_level,
+        )
+        self.client.force_login(editor)
+        url = f"/api/projects/{self.team.id}/warehouse_saved_queries/{source.id}/"
+        plan = self.client.post(f"{url}rename_plan/", {"name": "sales"})
+        self.assertEqual(plan.status_code, 403, plan.content)
+        self.assertNotIn("select * from revenue", plan.content.decode())
+        result = self.client.patch(url, {"name": "sales", "rename_plan_token": token})
+        self.assertEqual(result.status_code, 403, result.content)
+        source.refresh_from_db()
+        dependent.refresh_from_db()
+        self.assertEqual(source.name, "revenue")
+        self.assertEqual(dependent.query["query"], "select * from revenue")
+
     def test_query_rejects_excessive_view_expansion_before_execution(self) -> None:
         previous = ""
         for name in ("leaf", "middle", "top"):
@@ -219,9 +421,9 @@ class TestSavedQuery(APIBaseTest):
             )
 
         assert response.status_code in (200, 201), response.content
-        assert response.json()["query"]["query"] == "select revenue.id from models.revenue AS revenue -- keep me"
+        assert response.json()["query"]["query"] == "select models.revenue.id from models.revenue -- keep me"
         stored = DataWarehouseSavedQuery.objects.get(team=self.team, name="models.child")
-        assert stored.query["query"] == "select revenue.id from models.revenue AS revenue -- keep me"
+        assert stored.query["query"] == "select models.revenue.id from models.revenue -- keep me"
 
     def test_create_raw_managed_trino_view(self) -> None:
         trino_sql = 'SELECT * FROM "warehouse_catalog".production.hub_occupancy'
@@ -369,14 +571,20 @@ class TestSavedQuery(APIBaseTest):
             name="hub_report",
             query={"kind": "HogQLQuery", "query": "SELECT x FROM hub_occupancy"},
         )
+        if "name" in body:
+            body = {**body, "rename_plan_token": self._rename_token(reader.id, body["name"])}
 
         response = self.client.patch(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{reader.id}", body, format="json"
         )
 
-        self.assertEqual(response.status_code, 400, response.content)
-        self.assertIn("This view reads 'hub_occupancy'.", response.json()["detail"])
-        self.assertIn("direct connection", response.json()["detail"])
+        if "name" in body:
+            self.assertEqual(response.status_code, 200, response.content)
+            self.assertEqual(response.json()["query"], reader.query)
+        else:
+            self.assertEqual(response.status_code, 400, response.content)
+            self.assertIn("This view reads 'hub_occupancy'.", response.json()["detail"])
+            self.assertIn("direct connection", response.json()["detail"])
 
     @parameterized.expand(
         [
@@ -488,6 +696,7 @@ class TestSavedQuery(APIBaseTest):
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}/",
             {
                 "name": "event_view_renamed",
+                "rename_plan_token": self._rename_token(saved_query["id"], "event_view_renamed"),
                 "query": {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 10"},
                 "edited_history_id": saved_query["latest_history_id"],
             },
@@ -579,7 +788,10 @@ class TestSavedQuery(APIBaseTest):
 
         response = self.client.patch(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}/",
-            {"name": "event_view_renamed"},
+            {
+                "name": "event_view_renamed",
+                "rename_plan_token": self._rename_token(saved_query["id"], "event_view_renamed"),
+            },
             format="json",
         )
         self.assertEqual(response.status_code, 200, response.content)
@@ -1802,6 +2014,7 @@ class TestSavedQuery(APIBaseTest):
             f"/api/environments/{self.team.id}/warehouse_saved_queries/" + saved_query_1_response["id"],
             {
                 "name": new_name,
+                "rename_plan_token": self._rename_token(saved_query_1_response["id"], new_name),
                 "query": {
                     "kind": "HogQLQuery",
                     "query": "select distinct_id as distinct_id from events LIMIT 100",
@@ -2178,7 +2391,10 @@ class TestSavedQuery(APIBaseTest):
         with patch.object(DataWarehouseSavedQuery, "get_columns") as mock_get_columns:
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
-                {"name": "updated_event_view"},  # Only changing the name, not the query
+                {
+                    "name": "updated_event_view",
+                    "rename_plan_token": self._rename_token(saved_query["id"], "updated_event_view"),
+                },
             )
 
             self.assertEqual(response.status_code, 200, response.content)
@@ -2722,10 +2938,12 @@ class TestSavedQuery(APIBaseTest):
             query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
         )
         DataWarehouseSavedQuery.objects.filter(pk=saved_query.pk).update(name=old_name)
-
+        body = {"name": new_name}
+        if origin == DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE and expected_status == 200 and expected != old_name:
+            body["rename_plan_token"] = self._rename_token(saved_query.pk, new_name)
         response = self.client.patch(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}",
-            {"name": new_name},
+            body,
         )
 
         self.assertEqual(response.status_code, expected_status, response.content)
@@ -3372,6 +3590,11 @@ class TestViewEngineFromQuery(SimpleTestCase):
 
 
 class TestSavedQueryNameValidation(SimpleTestCase):
+    def test_rename_token_is_rejected_on_create(self) -> None:
+        serializer = DataWarehouseSavedQuerySerializer(data={"rename_plan_token": "token"}, partial=True)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("rename_plan_token", serializer.errors)
+
     def test_unchanged_legacy_root_name_is_allowed_by_serializer(self) -> None:
         instance = DataWarehouseSavedQuery(name="models", origin=DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE)
         serializer = DataWarehouseSavedQuerySerializer(instance=instance, partial=True)
@@ -4147,7 +4370,11 @@ class TestSavedQueryDescription(APIBaseTest):
 
     def test_update_without_description_leaves_it_untouched(self):
         view = self._create(description="Keep me.")
-        patch = self.client.patch(f"{self._base()}{view['id']}/", {"name": "renamed_view"})
+        plan = self.client.post(f"{self._base()}{view['id']}/rename_plan/", {"name": "renamed_view"})
+        assert plan.status_code == 200, plan.content
+        patch = self.client.patch(
+            f"{self._base()}{view['id']}/", {"name": "renamed_view", "rename_plan_token": plan.json()["plan_token"]}
+        )
         assert patch.status_code == 200, patch.content
         assert patch.json()["description"] == "Keep me."
 

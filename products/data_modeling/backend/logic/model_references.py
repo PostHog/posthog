@@ -1,78 +1,209 @@
+import re
+
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.escape_sql import escape_hogql_identifier
 from posthog.hogql.parser import parse_select
-from posthog.hogql.visitor import TraversingVisitor
+from posthog.hogql.visitor import TraversingVisitor, clear_locations
 
-MODELS_ROOT = "models"
+from posthog.dataclasses import frozen
+
+
+class ModelReferenceRewriteError(ValueError):
+    pass
+
+
+@frozen
+class _Reference:
+    field: ast.Field
+    prefix_length: int
+    replacement: tuple[str, ...]
+
+
+@frozen
+class _Splice:
+    start: int
+    end: int
+    text: str
 
 
 class _ModelReferenceFinder(TraversingVisitor):
-    """Collects the source offsets of table references that bind to an authored model.
+    """Walk only the user's parse tree, never a resolved view's expanded body."""
 
-    It walks the parsed query, not the resolved one: the parse holds only the text the user wrote, so a
-    view's expanded body is never visited, and the resolver overwrites view references anyway.
-    """
-
-    def __init__(self, database: Database) -> None:
+    def __init__(self, replacements: dict[tuple[str, ...], tuple[str, ...]]) -> None:
         super().__init__()
-        self.database = database
-        self.cte_scopes: list[set[str]] = []
-        self.references: list[tuple[int, int, list[str], bool]] = []
+        self.replacements = replacements
+        self.ctes: set[str] = set()
+        self.qualifiers: dict[str, tuple[str, ...]] = {}
+        self.table_fields: set[int] = set()
+        self.references: list[_Reference] = []
+
+    def _replacement(self, table: ast.Field) -> tuple[str, ...] | None:
+        chain = tuple(str(part) for part in table.chain)
+        if ".".join(chain) in self.ctes:
+            return None
+        if len(chain) == 1:
+            chain = tuple(chain[0].split("."))
+        return self.replacements.get(chain)
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
-        self.cte_scopes.append(set(node.ctes or {}))
+        previous_ctes = self.ctes
+        self.ctes = self.ctes | set(node.ctes or {})
+        previous = self.qualifiers
+        self.qualifiers = {}
+        join = node.select_from
+        while join is not None:
+            if isinstance(join.table, ast.Field) and join.alias is None:
+                if replacement := self._replacement(join.table):
+                    self.qualifiers["__".join(str(part) for part in join.table.chain)] = replacement
+            join = join.next_join
         try:
             super().visit_select_query(node)
         finally:
-            self.cte_scopes.pop()
+            self.qualifiers = previous
+            self.ctes = previous_ctes
+
+    def visit_join_expr(self, node: ast.JoinExpr) -> None:
+        if isinstance(node.table, ast.Field):
+            self.table_fields.add(id(node.table))
+            if replacement := self._replacement(node.table):
+                self.references.append(
+                    _Reference(field=node.table, prefix_length=len(node.table.chain), replacement=replacement)
+                )
+        super().visit_join_expr(node)
 
     def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
-        self.cte_scopes.append(set(node.ctes or {}))
+        first = node.initial_select_query
+        while isinstance(first, ast.SelectSetQuery):
+            first = first.initial_select_query
+        previous_ctes = self.ctes
+        self.ctes = self.ctes | set(first.ctes or {})
         try:
             super().visit_select_set_query(node)
         finally:
-            self.cte_scopes.pop()
+            self.ctes = previous_ctes
 
-    def visit_join_expr(self, node: ast.JoinExpr) -> None:
-        table = node.table
-        if isinstance(table, ast.Field) and table.start is not None and table.end is not None:
-            chain = [str(part) for part in table.chain]
-            if self._is_model_reference(chain):
-                self.references.append((table.start, table.end, chain, node.alias is None))
-        super().visit_join_expr(node)
+    def visit_field(self, node: ast.Field) -> None:
+        if id(node) in self.table_fields or len(node.chain) < 2:
+            return
+        replacement = self.qualifiers.get(str(node.chain[0]))
+        consumed = 1
+        if replacement is None:
+            parts: list[str] = []
+            for length, segment in enumerate(node.chain[:-1], start=1):
+                parts.extend(str(segment).split("."))
+                if len(parts) > 1 and (match := self.qualifiers.get("__".join(parts))):
+                    replacement, consumed = match, length
+        if replacement is not None:
+            self.references.append(_Reference(field=node, prefix_length=consumed, replacement=replacement))
 
-    def _is_model_reference(self, chain: list[str]) -> bool:
-        if chain[0] == MODELS_ROOT or any(".".join(chain) in scope for scope in self.cte_scopes):
-            return False
-        try:
-            # Same node under both names means the bare name binds to the model, not to a table holding it.
-            return self.database.get_table_node(chain) is self.database.get_table_node([MODELS_ROOT, *chain])
-        except BaseHogQLError:
-            return False
+
+class _Fields(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.fields: list[ast.Field] = []
+
+    def visit_field(self, node: ast.Field) -> None:
+        self.fields.append(node)
+
+
+# Keep trivia outside identifier edits, including comments between chain segments.
+_FIELD_TOKEN = re.compile(
+    r"(?P<trivia>\s+|--[^\n]*(?:\n|$)|/\*.*?\*/)|(?P<identifier>`(?:\\.|``|[^`])*`|\"(?:\\.|\"\"|[^\"])*\"|[\w$]+|\*)|(?P<dot>\.)",
+    re.DOTALL,
+)
+
+
+def _splice_reference(query: str, reference: _Reference) -> list[_Splice]:
+    node = reference.field
+    if node.start is None or node.end is None:
+        raise ModelReferenceRewriteError("Parse check failed. The reference has no source location.")
+    tokens = list(_FIELD_TOKEN.finditer(query, node.start, node.end))
+    if not tokens or "".join(token.group() for token in tokens) != query[node.start : node.end]:
+        raise ModelReferenceRewriteError("Parse check failed. The reference does not match its source text.")
+    identifiers = [token for token in tokens if token.lastgroup == "identifier"]
+    if len(identifiers) != len(node.chain):
+        raise ModelReferenceRewriteError("Parse check failed. The reference does not match its source text.")
+    # Align the trailing segments so qualification preserves the author's existing quotes and spacing.
+    count = reference.prefix_length
+    replacement = reference.replacement
+    extra = len(replacement) - count
+    edits: list[_Splice] = []
+    for index, token in enumerate(identifiers[:count]):
+        new_index = index + extra
+        if new_index < 0:
+            text = ""
+            dot = next((part for part in tokens if part.lastgroup == "dot" and part.start() > token.end() - 1), None)
+            if dot is None:
+                raise ModelReferenceRewriteError("Parse check failed. The reference has no separator.")
+            edits.append(_Splice(start=dot.start(), end=dot.end(), text=""))
+        else:
+            text = (
+                token.group()
+                if str(node.chain[index]) == replacement[new_index]
+                else escape_hogql_identifier(replacement[new_index])
+            )
+            if index == 0 and extra > 0:
+                text = ".".join(escape_hogql_identifier(part) for part in replacement[:extra]) + "." + text
+        edits.append(_Splice(start=token.start(), end=token.end(), text=text))
+    return edits
+
+
+def _rewrite(query: str, replacements: dict[tuple[str, ...], tuple[str, ...]]) -> str:
+    try:
+        original = parse_select(query)
+    except BaseHogQLError as error:
+        raise ModelReferenceRewriteError("Query does not parse. Fix the query before renaming the model.") from error
+    finder = _ModelReferenceFinder(replacements)
+    finder.visit(original)
+    if not finder.references:
+        return query
+
+    edits = [edit for reference in finder.references for edit in _splice_reference(query, reference)]
+    result = query
+    for edit in sorted(edits, key=lambda edit: edit.start, reverse=True):
+        result = result[: edit.start] + edit.text + result[edit.end :]
+    try:
+        checked = parse_select(result)
+    except BaseHogQLError as error:
+        raise ModelReferenceRewriteError("Parse check failed. The rewritten query does not parse.") from error
+
+    before, after = _Fields(), _Fields()
+    before.visit(original)
+    after.visit(checked)
+    replacements_by_field = {id(ref.field): ref for ref in finder.references}
+    if len(before.fields) != len(after.fields):
+        raise ModelReferenceRewriteError("Parse check failed. The rewritten query has a different structure.")
+    for old, new in zip(before.fields, after.fields):
+        if reference := replacements_by_field.get(id(old)):
+            expected = [*reference.replacement, *old.chain[reference.prefix_length :]]
+            if new.chain != expected:
+                raise ModelReferenceRewriteError("Parse check failed. The rewritten reference differs from the plan.")
+            new.chain = old.chain.copy()
+    if clear_locations(original) != clear_locations(checked):
+        raise ModelReferenceRewriteError("Parse check failed. The rewritten query has a different structure.")
+    return result
+
+
+def rewrite_model_references(query: str, spellings: set[tuple[str, ...]], new: tuple[str, ...]) -> str:
+    return _rewrite(query, dict.fromkeys(spellings, new))
 
 
 def qualify_model_references(query: str, database: Database) -> str:
-    """Rewrites each table reference that binds to an authored model to `models.<name>`.
-
-    It splices the source text, so comments and formatting survive. A query that does not parse comes
-    back unchanged.
-    """
+    """Canonicalize model references on save; leave unparseable queries as written."""
+    replacements: dict[tuple[str, ...], tuple[str, ...]] = {}
+    for name in database.get_view_names():
+        if not name.startswith("models."):
+            continue
+        qualified = tuple(name.split("."))
+        bare = qualified[1:]
+        try:
+            if database.get_table_node(list(bare)) is database.get_table_node(list(qualified)):
+                replacements[bare] = qualified
+        except BaseHogQLError:
+            continue
     try:
-        select = parse_select(query)
-    except BaseHogQLError:
+        return _rewrite(query, replacements)
+    except ModelReferenceRewriteError:
         return query
-
-    finder = _ModelReferenceFinder(database)
-    finder.visit(select)
-
-    result = query
-    for start, end, chain, needs_alias in sorted(finder.references, key=lambda ref: ref[0], reverse=True):
-        # Offsets that do not cover exactly the name mean the parse and the text disagree; splicing would corrupt the query.
-        if result[start:end].replace("`", "") != ".".join(chain):
-            return query
-        # Without an alias the old name was the implicit alias, and columns qualified by it must keep resolving.
-        alias = f" AS {escape_hogql_identifier('__'.join(chain))}" if needs_alias else ""
-        result = f"{result[:start]}{MODELS_ROOT}.{result[start:end]}{alias}{result[end:]}"
-    return result

@@ -51,6 +51,8 @@ from products.data_modeling.backend.facade.modeling import (
     ResolutionCycleError,
     get_parents_from_model_query,
     qualify_model_references,
+    rename_candidates,
+    write_model_reference_rewrite,
 )
 from products.data_modeling.backend.facade.models import (
     CONNECTION_SAVE_REASON,
@@ -70,7 +72,7 @@ from products.warehouse_sources.backend.facade.hogql import (
 )
 from products.warehouse_sources.backend.facade.models import sync_frequency_to_sync_frequency_interval
 
-from . import incremental_config, sync_cadence, view_description, view_state
+from . import incremental_config, rename, sync_cadence, view_description, view_state
 
 if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -268,6 +270,11 @@ class DataWarehouseSavedQuerySerializer(
         "write, so conflict detection can tell whether someone else changed the query in the meantime. "
         "Edits that leave the query alone do not advance it.",
     )
+    rename_plan_token = serializers.CharField(
+        required=False,
+        write_only=True,
+        help_text="Token from rename_plan. Required when changing an authored HogQL model's name.",
+    )
     last_run_at = serializers.SerializerMethodField(read_only=True)
     status = serializers.SerializerMethodField(read_only=True)
     latest_error = serializers.SerializerMethodField(read_only=True)
@@ -353,6 +360,7 @@ class DataWarehouseSavedQuerySerializer(
             "latest_error",
             "edited_history_id",
             "latest_history_id",
+            "rename_plan_token",
             "soft_update",
             "acknowledge_breaking_changes",
             "is_materialized",
@@ -710,6 +718,13 @@ class DataWarehouseSavedQuerySerializer(
         return view
 
     def update(self, instance: Any, validated_data: Any) -> Any:
+        rename_plan_token = validated_data.pop("rename_plan_token", None)
+        renaming_model = (
+            is_authored_model(instance)
+            and instance.engine.has_lineage.available
+            and "name" in validated_data
+            and (validated_data["name"] != instance.name or rename_plan_token is not None)
+        )
         has_description = "description" in validated_data
         description = validated_data.pop("description", None)
 
@@ -761,7 +776,7 @@ class DataWarehouseSavedQuerySerializer(
         if engine.column_source == ViewColumnSource.CLIENT_TYPES and "query" in validated_data and not soft_update:
             inferred_columns = self._columns_from_request_types()
             inferred_external_tables = []
-        if engine.has_lineage.available and ("query" in validated_data or "name" in validated_data):
+        if engine.has_lineage.available and "query" in validated_data:
             self._validate_view_dependencies(
                 instance.team,
                 validated_data.get("name", instance.name),
@@ -796,6 +811,9 @@ class DataWarehouseSavedQuerySerializer(
                 raise BreakingColumnChangeError(breaking_column_change)
 
         with transaction.atomic():
+            candidates = (
+                list(rename_candidates(instance.team_id).select_for_update(no_key=True)) if renaming_model else []
+            )
             try:
                 # `FOR NO KEY UPDATE`, not `FOR UPDATE`: this lock is held across a DAG lock, and
                 # `FOR UPDATE` conflicts with the `KEY SHARE` lock a concurrent materialization
@@ -804,11 +822,17 @@ class DataWarehouseSavedQuerySerializer(
                 locked_instance = (
                     DataWarehouseSavedQuery.objects.select_for_update(no_key=True)
                     .exclude(deleted=True)
-                    .get(pk=instance.pk)
+                    .get(pk=instance.pk, team_id=instance.team_id)
                 )
             except DataWarehouseSavedQuery.DoesNotExist:
                 raise exceptions.NotFound("Not found.")
             before_update = copy.copy(locked_instance)
+            rename_plan = None
+            if renaming_model:
+                rename_plan = rename.build_rename_plan(
+                    locked_instance, validated_data["name"], candidates, self.user_access_control
+                )
+                rename.validate_rename_plan(rename_plan, rename_plan_token)
 
             query_changed = "query" in validated_data and validated_data["query"] != locked_instance.query
 
@@ -828,7 +852,10 @@ class DataWarehouseSavedQuerySerializer(
                 validated_data["query_updated_at"] = timezone.now()
 
             view: DataWarehouseSavedQuery = super().update(locked_instance, validated_data)
-            name_changed = before_update.name != view.name
+            if rename_plan is not None:
+                candidates_by_id = {candidate.pk: candidate for candidate in candidates}
+                for dependent in rename_plan.dependents:
+                    write_model_reference_rewrite(candidates_by_id[dependent.id], dependent.after)
 
             if frequency_changed:
                 previous_target = modeling_api.declared_targets_by_saved_query(view.team_id, [view.pk]).get(
@@ -880,7 +907,7 @@ class DataWarehouseSavedQuerySerializer(
 
             # Best effort sync to the data modeling DAG representation. The savepoint keeps a
             # failed sync best effort without poisoning the update's own transaction.
-            if ("query" in validated_data or name_changed) and view.engine.has_lineage.available:
+            if "query" in validated_data and view.engine.has_lineage.available:
                 try:
                     with transaction.atomic():
                         modeling_api.sync_saved_query_to_dag(view)
@@ -1004,6 +1031,9 @@ class DataWarehouseSavedQuerySerializer(
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
+        # A name-only change preserves the definition, so it must not expand view bodies for eligibility checks.
+        if self.instance is not None and "name" in attrs and "query" not in attrs and "incremental_config" not in attrs:
+            return attrs
 
         # Falls back to the stored config so editing the query of an already-incremental view is
         # checked too. Otherwise a query that incremental cannot serve would save while the view
@@ -1098,6 +1128,11 @@ class DataWarehouseSavedQuerySerializer(
         if folder is not None and folder.team_id != self.context["team_id"]:
             raise serializers.ValidationError("Folder not found.")
         return folder
+
+    def validate_rename_plan_token(self, token: str) -> str:
+        if self.instance is None:
+            raise serializers.ValidationError("Rename plan tokens can only be used when updating a model.")
+        return token
 
     def validate_name(self, name):
         own_models_name: str | None = None
