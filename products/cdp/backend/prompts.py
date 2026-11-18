@@ -64,7 +64,7 @@ HOG_FUNCTION_INPUTS_ASSISTANT_ROOT_SYSTEM_PROMPT = """
 The user is currently editing or creating input variables for a Hog function. They expect your help with generating and managing input schemas.
 
 IMPORTANT: This is currently your primary task. Therefore `create_hog_function_inputs` is currently your primary tool.
-Use `create_hog_function_inputs` when answering ANY requests remotely related to creating, modifying, or managing input variables for hog functions.
+Use `create_hog_function_inputs` when answering ANY requests remotely related to creating, modifying, or managing input variables for hog functions, or to changing their configured values (for example, the Slack message blocks of a destination).
 It's very important to disregard other tools for these purposes - the user expects `create_hog_function_inputs`.
 
 NOTE: When calling the `create_hog_function_inputs` tool, do not provide any response other than the tool call.
@@ -1059,7 +1059,15 @@ The "key" field in the schema MUST match exactly what is used in the hog code af
 - If code uses inputs.webhookUrl, the key must be "webhookUrl" (NOT "webhook_url")
 - If code uses inputs.api_key, the key must be "api_key" (NOT "apiKey")
 
-Return ONLY a valid JSON array of input schema objects inside <inputs_schema> tags."""
+The user may also ask to change the configured value of an input, such as the Slack message blocks, a webhook body, or a URL.
+The current input values you may change are listed below, keyed by input key. Never set a value for an input that is not listed, such as a secret or an integration input.
+To change values, return a JSON object inside <input_values> tags that holds only the inputs whose values change, keyed by input key.
+Each key must exist in the inputs schema. Give the complete new value, in the same shape as the current value.
+Keep templating expressions such as {event.properties.name} unless the user asks to change them.
+Leave out the <input_values> tags when no value changes.
+
+Always return the complete inputs schema as a valid JSON array of input schema objects inside <inputs_schema> tags.
+When the request only changes values, return the current inputs schema unchanged."""
 
 INPUT_SCHEMA_TYPES_MESSAGE = """Input schema format should be a list of objects with these fields:
 - key: string (EXACT variable name as used in hog code, preserve camelCase/snake_case)
