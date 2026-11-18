@@ -1,4 +1,4 @@
-import { LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { traceUrl } from 'lib/components/ViewTraceButton/traceUrl'
@@ -18,6 +18,9 @@ export interface ServiceTopErrorsProps {
     sampleSize: number
     sampleLimit: number
     statusCodeErrors: StatusCodeErrors[]
+    /** The last error-span fetch failed, so the table would show stale or missing rows as current. */
+    failed: boolean
+    onRetry: () => void
 }
 
 export function ServiceTopErrors({
@@ -26,7 +29,16 @@ export function ServiceTopErrors({
     sampleSize,
     sampleLimit,
     statusCodeErrors,
+    failed,
+    onRetry,
 }: ServiceTopErrorsProps): JSX.Element {
+    if (failed && !topErrorsLoading) {
+        return (
+            <LemonBanner type="error" action={{ children: 'Retry', onClick: () => onRetry() }}>
+                Couldn't load this service's errors.
+            </LemonBanner>
+        )
+    }
     return (
         <div className="flex flex-col gap-2">
             {statusCodeErrors.length > 0 && (

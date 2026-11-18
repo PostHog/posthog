@@ -1,4 +1,5 @@
 import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
@@ -15,13 +16,21 @@ describe('servicePageLogic', () => {
     let logic: ReturnType<typeof servicePageLogic.build>
     let sparklineSpy: jest.SpyInstance
     let endpointsRequests: URLSearchParams[]
+    let servicesRequestCount: number
+    let servicesStatus: number
 
     beforeEach(() => {
         endpointsRequests = []
+        servicesRequestCount = 0
+        servicesStatus = 200
+        const servicesHandler = (): [number, typeof EMPTY_HEALTH] => {
+            servicesRequestCount += 1
+            return [servicesStatus, EMPTY_HEALTH]
+        }
         useMocks({
             get: {
-                '/api/environments/:teamId/apm/services/': () => [200, EMPTY_HEALTH],
-                '/api/projects/:teamId/apm/services/': () => [200, EMPTY_HEALTH],
+                '/api/environments/:teamId/apm/services/': servicesHandler,
+                '/api/projects/:teamId/apm/services/': servicesHandler,
                 '/api/environments/:teamId/apm/endpoints/': ({ request }) => {
                     endpointsRequests.push(new URL(request.url).searchParams)
                     return [200, EMPTY_HEALTH]
@@ -82,7 +91,7 @@ describe('servicePageLogic', () => {
         })
     })
 
-    it('restores the scope from the URL and writes changes back to it', () => {
+    it('restores the scope from the URL and writes changes back to it', async () => {
         router.actions.push(
             urls.applicationObservabilityService('checkout', { environment: 'production', operation: 'GET /cart' })
         )
@@ -90,12 +99,29 @@ describe('servicePageLogic', () => {
         logic.mount()
 
         expect(logic.values.scope).toEqual({ environment: 'production', version: null, operation: 'GET /cart' })
+        await expectLogic(logic).toFinishAllListeners()
+        const servicesRequestsBefore = servicesRequestCount
 
         logic.actions.setScope({ operation: null, version: '2.0' })
         expect(servicePageStateFromUrl(router.values.searchParams)).toEqual({
             timeRange: '-1h',
             scope: { environment: 'production', version: '2.0', operation: null },
         })
+        // The health API doesn't take a version or an operation, so it isn't asked again.
+        await expectLogic(logic).toFinishAllListeners()
+        expect(servicesRequestCount).toBe(servicesRequestsBefore)
+    })
+
+    it('marks a failed health load instead of showing the previous response as current', async () => {
+        logic = servicePageLogic({ serviceName: 'checkout' })
+        logic.mount()
+        await logic.asyncActions.fetchServicesHealth()
+        expect(logic.values.servicesHealthFailed).toBe(false)
+
+        servicesStatus = 500
+        await expectLogic(logic, () => logic.actions.fetchServicesHealth())
+            .toDispatchActions(['fetchServicesHealthFailure'])
+            .toMatchValues({ servicesHealthFailed: true })
     })
 
     it('filters spans on the environment key the team emits, and endpoints on the service', async () => {

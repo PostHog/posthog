@@ -254,6 +254,11 @@
         "params": [],
         "scope": "project"
     },
+    "applicationObservabilityService": {
+        "template": "/application-observability/service",
+        "params": [],
+        "scope": "project"
+    },
     "approval": {
         "template": "/approvals/{id}",
         "params": ["id"],

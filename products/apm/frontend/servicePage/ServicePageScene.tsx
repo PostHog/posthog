@@ -1,7 +1,7 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconArrowUpRight } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -82,8 +82,10 @@ export function ServicePageScene(): JSX.Element {
         scopeFilters,
         service,
         servicesHealthLoading,
+        servicesHealthFailed,
         endpoints,
         endpointsHealthLoading,
+        endpointsHealthFailed,
         requestsSeries,
         requestsSeriesLoading,
         latencyHeatmapData,
@@ -92,8 +94,10 @@ export function ServicePageScene(): JSX.Element {
         topErrors,
         errorSpans,
         errorSpansLoading,
+        errorSpansFailed,
         statusCodeErrors,
     } = useValues(servicePageLogic)
+    const { fetchServicesHealth, fetchEndpointsHealth, fetchErrorSpans } = useActions(servicePageLogic)
 
     if (!featureFlags[FEATURE_FLAGS.APPLICATION_OBSERVABILITY]) {
         return <NotFound object="page" />
@@ -151,23 +155,40 @@ export function ServicePageScene(): JSX.Element {
                 <ServiceTableOfContents />
                 <div className="flex flex-col gap-6 flex-1 min-w-0">
                     <ServiceSection id="summary" title="Summary">
-                        <div className="flex flex-wrap items-end gap-8" data-attr="apm-service-stats">
-                            <StatBlock
-                                label="Requests"
-                                value={service ? service.health.span_count.toLocaleString() : '—'}
-                            />
-                            <StatBlock label="Request rate" value={formatRate(service?.health.request_rate ?? null)} />
-                            <StatBlock
-                                label="Errors"
-                                value={service ? service.health.error_count.toLocaleString() : '—'}
-                            />
-                            <StatBlock label="Error rate" value={formatPercent(service?.health.error_rate ?? null)} />
-                            <StatBlock label="p95" value={formatMs(service?.health.p95_ms ?? null)} />
-                            {service && <Sparkline values={service.sparkline} />}
-                            {!service && !servicesHealthLoading && (
-                                <span className="text-xs text-muted">No requests in this environment and range.</span>
-                            )}
-                        </div>
+                        {servicesHealthFailed && !servicesHealthLoading ? (
+                            <LemonBanner
+                                type="error"
+                                action={{ children: 'Retry', onClick: () => fetchServicesHealth() }}
+                            >
+                                Couldn't load this service's health.
+                            </LemonBanner>
+                        ) : (
+                            <div className="flex flex-wrap items-end gap-8" data-attr="apm-service-stats">
+                                <StatBlock
+                                    label="Requests"
+                                    value={service ? service.health.span_count.toLocaleString() : '—'}
+                                />
+                                <StatBlock
+                                    label="Request rate"
+                                    value={formatRate(service?.health.request_rate ?? null)}
+                                />
+                                <StatBlock
+                                    label="Errors"
+                                    value={service ? service.health.error_count.toLocaleString() : '—'}
+                                />
+                                <StatBlock
+                                    label="Error rate"
+                                    value={formatPercent(service?.health.error_rate ?? null)}
+                                />
+                                <StatBlock label="p95" value={formatMs(service?.health.p95_ms ?? null)} />
+                                {service && <Sparkline values={service.sparkline} />}
+                                {!service && !servicesHealthLoading && (
+                                    <span className="text-xs text-muted">
+                                        No requests in this environment and range.
+                                    </span>
+                                )}
+                            </div>
+                        )}
                         {(scope.version || scope.operation) && (
                             <span className="text-xs text-muted">
                                 These totals cover the whole service in the selected environment. The charts below
@@ -193,14 +214,23 @@ export function ServicePageScene(): JSX.Element {
                         </div>
                     </ServiceSection>
                     <ServiceSection id="endpoints" title="Endpoints">
-                        <LemonTable
-                            columns={endpointColumns}
-                            dataSource={endpoints}
-                            rowKey="endpoint"
-                            loading={endpointsHealthLoading}
-                            emptyState="No endpoints in this environment and range."
-                            data-attr="apm-service-endpoints-table"
-                        />
+                        {endpointsHealthFailed && !endpointsHealthLoading ? (
+                            <LemonBanner
+                                type="error"
+                                action={{ children: 'Retry', onClick: () => fetchEndpointsHealth() }}
+                            >
+                                Couldn't load endpoints.
+                            </LemonBanner>
+                        ) : (
+                            <LemonTable
+                                columns={endpointColumns}
+                                dataSource={endpoints}
+                                rowKey="endpoint"
+                                loading={endpointsHealthLoading}
+                                emptyState="No endpoints in this environment and range."
+                                data-attr="apm-service-endpoints-table"
+                            />
+                        )}
                     </ServiceSection>
                     <ServiceSection id="errors" title="Errors">
                         <ServiceTopErrors
@@ -209,6 +239,8 @@ export function ServicePageScene(): JSX.Element {
                             sampleSize={errorSpans.length}
                             sampleLimit={ERROR_SAMPLE_LIMIT}
                             statusCodeErrors={statusCodeErrors}
+                            failed={errorSpansFailed}
+                            onRetry={() => fetchErrorSpans()}
                         />
                     </ServiceSection>
                     <ServiceSection id="traces" title="Traces">

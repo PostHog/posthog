@@ -58,8 +58,8 @@ export function readScopeParam(value: unknown): string | null {
 export interface ServiceSpanFilter {
     key: string
     type: PropertyFilterType.Span | PropertyFilterType.SpanAttribute | PropertyFilterType.SpanResourceAttribute
-    operator: PropertyOperator.Exact
-    value: (string | number)[]
+    operator: PropertyOperator.Exact | PropertyOperator.IsNotSet
+    value?: (string | number)[]
 }
 
 /**
@@ -105,6 +105,16 @@ export const ERROR_STATUS_FILTER: ServiceSpanFilter = {
     type: PropertyFilterType.Span,
     operator: PropertyOperator.Exact,
     value: [2],
+}
+
+/**
+ * Narrows the older status key's breakdown to spans without the current one, so a span that
+ * carries both is counted once, under the current key.
+ */
+export const LEGACY_HTTP_STATUS_ONLY_FILTER: ServiceSpanFilter = {
+    key: HTTP_STATUS_KEYS[0],
+    type: PropertyFilterType.SpanAttribute,
+    operator: PropertyOperator.IsNotSet,
 }
 
 /** The nested group the older `api.tracing` calls and the tracing scene's URL take. */
@@ -249,7 +259,10 @@ export interface StatusCodeErrors {
     errors: number
 }
 
-/** Merges per-key status code breakdowns into one list of codes with errors, most errors first. */
+/**
+ * Merges per-key status code breakdowns into one list of codes with errors, most errors first.
+ * Each span must appear in only one breakdown, see `LEGACY_HTTP_STATUS_ONLY_FILTER`.
+ */
 export function mergeStatusCodeErrors(breakdowns: { value: string; error_count: number }[][]): StatusCodeErrors[] {
     const byCode = new Map<string, number>()
     for (const rows of breakdowns) {
