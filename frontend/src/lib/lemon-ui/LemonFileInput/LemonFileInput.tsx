@@ -4,10 +4,12 @@ import clsx from 'clsx'
 import { ChangeEvent, RefObject, useEffect, useRef, useState } from 'react'
 
 import { IconUpload } from '@posthog/icons'
+import { Badge, Button, Spinner as QuillSpinner } from '@posthog/quill'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 export interface LemonFileInputProps extends Pick<HTMLInputElement, 'multiple' | 'accept'> {
     value?: File[]
@@ -60,6 +62,7 @@ export const LemonFileInput = ({
     const dropRef = useRef<HTMLDivElement>(null)
     const localInputRef = useRef<HTMLInputElement>(null)
     const fileInputRef = inputRef ?? localInputRef
+    const quillSurface = useQuillSurface()
 
     const latest = useRef({ files, multiple, disabledReason, onChange })
     latest.current = { files, multiple, disabledReason, onChange }
@@ -165,6 +168,8 @@ export const LemonFileInput = ({
         }
     }, [drag, alternativeDropTargetRef])
 
+    const uploadLabel = `Click or drag and drop to upload${accept ? ` ${acceptToDisplayName(accept)}` : ''}`
+
     return (
         <>
             <div
@@ -191,22 +196,38 @@ export const LemonFileInput = ({
                     )}
                     onClick={handleCallToActionClick}
                 >
-                    {callToAction || (
-                        <LemonButton icon={<IconUpload />} type="tertiary" disabledReason={disabledReason}>
-                            Click or drag and drop to upload
-                            {accept ? ` ${acceptToDisplayName(accept)}` : ''}
-                        </LemonButton>
-                    )}
-                </div>
-                {files.length > 0 && showUploadedFiles && (
-                    <div className="flex flex-row gap-2">
-                        {files.map((x, i) => (
-                            <LemonTag key={i} icon={loading ? <Spinner /> : undefined}>
-                                {x.name}
-                            </LemonTag>
+                    {callToAction ||
+                        (quillSurface ? (
+                            <Button disabledReason={disabledReason}>
+                                <IconUpload />
+                                {uploadLabel}
+                            </Button>
+                        ) : (
+                            <LemonButton icon={<IconUpload />} type="tertiary" disabledReason={disabledReason}>
+                                {uploadLabel}
+                            </LemonButton>
                         ))}
-                    </div>
-                )}
+                </div>
+                {files.length > 0 &&
+                    showUploadedFiles &&
+                    (quillSurface ? (
+                        <div className="flex flex-wrap gap-2">
+                            {files.map((x, i) => (
+                                <Badge key={i}>
+                                    {loading && <QuillSpinner />}
+                                    <span className="truncate">{x.name}</span>
+                                </Badge>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="flex flex-row gap-2">
+                            {files.map((x, i) => (
+                                <LemonTag key={i} icon={loading ? <Spinner /> : undefined}>
+                                    {x.name}
+                                </LemonTag>
+                            ))}
+                        </div>
+                    ))}
             </div>
         </>
     )

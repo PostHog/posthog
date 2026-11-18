@@ -1,13 +1,16 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
+import { Skeleton } from '@posthog/quill'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 
 import { featureFlagRequestBlocklistLogic } from './featureFlagRequestBlocklistLogic'
+import { QuillFeatureFlagRequestBlocklist } from './QuillFeatureFlagRequestBlocklist'
 
 export function FeatureFlagRequestBlocklist(): JSX.Element {
     const { currentTeam, currentTeamLoading, blockedHosts, blockedIps } = useValues(featureFlagRequestBlocklistLogic)
@@ -16,9 +19,23 @@ export function FeatureFlagRequestBlocklist(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!currentTeam) {
-        return <LemonSkeleton />
+        return todayRailNav ? <Skeleton className="h-8 max-w-160" /> : <LemonSkeleton />
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillFeatureFlagRequestBlocklist
+                blockedHosts={blockedHosts}
+                blockedIps={blockedIps}
+                onBlockedHostsChange={setBlockedHosts}
+                onBlockedIpsChange={setBlockedIps}
+                disabled={currentTeamLoading}
+                disabledReason={restrictedReason}
+            />
+        )
     }
 
     return (

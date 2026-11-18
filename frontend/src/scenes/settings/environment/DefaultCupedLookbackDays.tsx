@@ -2,9 +2,11 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { LemonInput } from '@posthog/lemon-ui'
+import { NumberFieldGroup, NumberFieldInput, NumberFieldRoot } from '@posthog/quill'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { DEFAULT_LOOKBACK_DAYS, MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from 'products/experiments/frontend/constants'
 
@@ -18,6 +20,7 @@ export function DefaultCupedLookbackDays(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const savedValue = experimentsConfig?.default_cuped_lookback_days ?? null
     const displayValue = savedValue ?? DEFAULT_LOOKBACK_DAYS
@@ -52,6 +55,29 @@ export function DefaultCupedLookbackDays(): JSX.Element {
             return
         }
         updateExperimentsConfig({ default_cuped_lookback_days: rounded })
+    }
+
+    if (todayRailNav) {
+        return (
+            <NumberFieldRoot
+                className="w-32"
+                value={localValue !== undefined && Number.isFinite(localValue) ? localValue : null}
+                onValueChange={(value: number | null) => setLocalValue(value ?? undefined)}
+                min={MIN_LOOKBACK_DAYS}
+                max={MAX_LOOKBACK_DAYS}
+                allowOutOfRange
+                disabled={experimentsConfigLoading}
+                disabledReason={restrictionReason}
+            >
+                <NumberFieldGroup>
+                    <NumberFieldInput
+                        aria-invalid={showDanger || undefined}
+                        onBlur={commit}
+                        onKeyDown={(event) => event.key === 'Enter' && commit()}
+                    />
+                </NumberFieldGroup>
+            </NumberFieldRoot>
+        )
     }
 
     return (

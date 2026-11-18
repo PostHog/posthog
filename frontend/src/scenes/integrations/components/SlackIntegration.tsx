@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { integrationAuthorizeUrl, integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
@@ -14,6 +15,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { SLACK_INTEGRATION_SCOPES } from '~/types'
 
+import { QuillSlackIntegration } from './QuillSlackIntegration'
 import { useSlackRequiredScopes } from './slackScopes'
 
 // Modified version of https://app.slack.com/app-settings/TSS5W8YQZ/A03KWE2FJJ2/app-manifest to match current instance.
@@ -70,6 +72,29 @@ export function SlackIntegration({
 
     const requiredScopesArr = useSlackRequiredScopes()
     const requiredScopes = useMemo(() => requiredScopesArr.join(' '), [requiredScopesArr])
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    // Silent without `connectSurface`, because the OAuth landing page reports its own clicks.
+    const handleConnectClick = connectSurface
+        ? () => reportIntegrationConnectClicked('slack', 'slack', connectSurface)
+        : undefined
+
+    if (todayRailNav) {
+        return (
+            <QuillSlackIntegration
+                slackIntegrations={slackIntegrations}
+                slackAvailable={slackAvailable}
+                isStaff={!!user?.is_staff}
+                showSlackInstructions={showSlackInstructions}
+                requiredScopes={requiredScopes}
+                authorizeUrl={integrationAuthorizeUrl({ kind: 'slack', next })}
+                centered={centered}
+                slackAppManifest={JSON.stringify(getSlackAppManifest(), null, 2)}
+                onConnectClick={handleConnectClick}
+                onShowInstructions={() => setShowSlackInstructions(true)}
+            />
+        )
+    }
 
     return (
         <div>
@@ -84,12 +109,7 @@ export function SlackIntegration({
                             <Link
                                 to={integrationAuthorizeUrl({ kind: 'slack', next })}
                                 disableClientSideRouting
-                                // Silent without `connectSurface`, because the OAuth landing page reports its own clicks.
-                                onClick={
-                                    connectSurface
-                                        ? () => reportIntegrationConnectClicked('slack', 'slack', connectSurface)
-                                        : undefined
-                                }
+                                onClick={handleConnectClick}
                             >
                                 <img
                                     alt="Connect to Slack workspace"

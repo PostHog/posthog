@@ -21,7 +21,7 @@ interface CommonProps {
     disabledReason?: string
 }
 
-const gridPositions: SurveyPosition[] = [
+export const gridPositions: SurveyPosition[] = [
     SurveyPosition.TopLeft,
     SurveyPosition.TopCenter,
     SurveyPosition.TopRight,

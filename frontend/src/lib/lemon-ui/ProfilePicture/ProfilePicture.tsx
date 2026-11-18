@@ -5,6 +5,7 @@ import { useValues } from 'kea'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 
 import { HedgehogModeProfile } from 'lib/components/HedgehogMode/HedgehogModeStatic'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { inStorybookTestRunner } from 'lib/utils/dom'
 import { gravatarUrl as buildGravatarUrl } from 'lib/utils/gravatar'
 import { fullName } from 'lib/utils/strings'
@@ -14,6 +15,7 @@ import { HedgehogConfig, MinimalHedgehogConfig, UserBasicType } from '~/types'
 
 import { IconRobot } from '../icons'
 import { Lettermark, LettermarkColor } from '../Lettermark/Lettermark'
+import { QuillProfilePicture } from './QuillProfilePicture'
 
 export interface ProfilePictureProps {
     user?:
@@ -39,6 +41,7 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
     const { user: currentUser } = useValues(userLogic)
     const [gravatarLoaded, setGravatarLoaded] = useState<boolean | undefined>()
     const imgRef = useRef<HTMLImageElement>(null)
+    const quillSurface = useQuillSurface()
 
     let email = user?.email
 
@@ -84,6 +87,28 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
         }
     }, [gravatarUrl])
 
+    const displayName = currentUser?.email === email ? 'you' : name || email || 'an unknown user'
+
+    if (quillSurface) {
+        return (
+            <QuillProfilePicture
+                ref={ref}
+                nameAndEmail={combinedNameAndEmail}
+                gravatarUrl={gravatarUrl}
+                hedgehogAvatar={
+                    hedgehogProfile && user.hedgehog_config ? (
+                        <HedgehogModeProfile config={user.hedgehog_config} size="100%" />
+                    ) : undefined
+                }
+                size={size}
+                type={type}
+                title={title}
+                className={className}
+                displayName={showName ? displayName : undefined}
+            />
+        )
+    }
+
     const pictureComponent = (
         <span className={clsx('ProfilePicture ph-no-capture', size, className)} ref={ref}>
             {hedgehogProfile && user.hedgehog_config ? (
@@ -122,9 +147,7 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
     ) : (
         <div className="profile-package" title={combinedNameAndEmail}>
             {pictureComponent}
-            <span className="ph-no-capture profile-name">
-                {currentUser?.email === email ? 'you' : name || email || 'an unknown user'}
-            </span>
+            <span className="ph-no-capture profile-name">{displayName}</span>
         </div>
     )
 })

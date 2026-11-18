@@ -9,6 +9,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
 import { pathCleaningSuggestionsLogic } from './pathCleaningSuggestionsLogic'
+import { QuillPathCleaningSuggestionsBanner } from './QuillPathCleaningSuggestionsBanner'
 
 function PathCleaningPreviewModal({
     suggestionId,
@@ -87,12 +88,26 @@ export function PathCleaningSuggestionsBanner(): JSX.Element | null {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!flagEnabled || suggestionsLoading || !latestSuggestion || latestSuggestion.rules.length === 0) {
         return null
     }
 
     const ruleCount = latestSuggestion.rules.length
+
+    if (todayRailNav) {
+        return (
+            <QuillPathCleaningSuggestionsBanner
+                suggestion={latestSuggestion}
+                restrictedReason={restrictedReason}
+                applying={applying}
+                onApply={() => applySuggestion(latestSuggestion.id)}
+                onDismiss={() => dismissSuggestion(latestSuggestion.id)}
+                onPreview={() => openPreview(latestSuggestion.id)}
+            />
+        )
+    }
 
     return (
         <>
