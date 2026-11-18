@@ -1014,6 +1014,23 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
+    async fn unmapped_status_is_labeled_from_the_sdk_error_message() {
+        let snap = commit_against_status(404, r#"{"error":"not_found"}"#).await;
+        assert_eq!(
+            counter_value(
+                &snap,
+                "capture_batch_request_results_total",
+                &[
+                    ("outcome", "failed"),
+                    ("status", "404"),
+                    ("error", "unexpected_status")
+                ]
+            ),
+            Some(1)
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
     async fn quota_failure_is_separable_from_actionable_failures() {
         // The alerting-critical case: 402 must surface as reason="quota" so it
         // can be excluded from actionable-failure alerts.

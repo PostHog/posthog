@@ -146,9 +146,7 @@ fn connection_outcome(message: &str) -> (String, &'static str) {
             }
         }
     }
-    if message.contains("timed out") {
-        return ("timeout".into(), "timeout");
-    }
+    // Timeouts land here too: the SDK keeps only reqwest's top-level message, which omits the cause.
     ("transport".into(), "transport")
 }
 
@@ -293,9 +291,12 @@ mod tests {
                 "unexpected_status",
             ),
             (
-                Error::Connection("error sending request: operation timed out".into()),
-                "timeout",
-                "timeout",
+                Error::Connection(
+                    "error sending request for url (http://127.0.0.1:1/i/v1/analytics/events)"
+                        .into(),
+                ),
+                "transport",
+                "transport",
             ),
             (
                 Error::Connection("connection refused".into()),
