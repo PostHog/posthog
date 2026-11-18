@@ -8,7 +8,7 @@ from django_scim.adapters import SCIMUser
 from scim2_filter_parser.attr_paths import AttrPath
 
 from posthog.helpers.email_utils import EmailLookupHandler, EmailNormalizer
-from posthog.helpers.login_email import LoginEmailChange
+from posthog.helpers.login_email import remove_saml_links_keyed_by
 from posthog.models import Organization, OrganizationMembership, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
@@ -370,7 +370,7 @@ class PostHogSCIMUser(SCIMUser):
         old_email = self.obj.email
         self.obj.email = EmailNormalizer.normalize(email)
         if self.obj.email != EmailNormalizer.normalize(old_email):
-            LoginEmailChange.remove_saml_links_keyed_by(self.obj, old_email)
+            remove_saml_links_keyed_by(self.obj, old_email)
 
     def _write_attribute(self, path: AttrPath, value: Union[str, list, dict]) -> bool:
         """

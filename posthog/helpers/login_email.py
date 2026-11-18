@@ -21,9 +21,7 @@ class LoginEmailChange:
     def is_taken(self) -> bool:
         """True when another account holds the new email, under every fold a login resolves on."""
         return (
-            EmailLookupHandler.users_matching_email(self.new_email, User.objects.all())
-            .exclude(pk=self.user.pk)
-            .exists()
+            EmailLookupHandler.users_matching_email(self.new_email).exclude(pk=self.user.pk).exists()
             or EmailValidationHelper.user_exists_with_stripped_alias(self.new_email, exclude_user_id=self.user.pk)
             or EmailValidationHelper.user_exists_with_gmail_canonical(self.new_email, exclude_user_id=self.user.pk)
         )
@@ -34,7 +32,6 @@ class LoginEmailChange:
         self.user.email = EmailNormalizer.normalize(self.new_email)
         self.user.pending_email = None
         self.user.save(update_fields=["email", "pending_email"])
-        # Delete social auth so the old external identity can't keep logging in.
         UserSocialAuth.objects.filter(user=self.user).delete()
         if old_domain is not None:
             # An ID-JAG resolves a bound subject without reading the email, so a binding to an identity
@@ -44,17 +41,17 @@ class LoginEmailChange:
                 user=self.user, identity_provider_config__organization_id=old_domain.organization_id
             ).delete()
 
-    @staticmethod
-    def remove_saml_links_keyed_by(user: User, email: str) -> None:
-        """Deletes the user's SAML links whose ID at the identity provider is this email.
 
-        For a rename by the identity provider itself. A link with an ID that is not this email is still
-        correct after the rename, so it stays. A link keyed by the old email would give the account to
-        whoever the provider gives that address to next. The next sign-in links the account again by
-        its new email.
-        """
-        links = UserSocialAuth.objects.filter(user=user, provider="saml")
-        # The stored ID is "<identity provider>:<ID from the provider>".
-        stale = [link.pk for link in links if link.uid.partition(":")[2].lower() == email.lower()]
-        if stale:
-            UserSocialAuth.objects.filter(pk__in=stale).delete()
+def remove_saml_links_keyed_by(user: User, email: str) -> None:
+    """Deletes the user's SAML links whose ID at the identity provider is this email.
+
+    For a rename by the identity provider itself. A link with an ID that is not this email is still
+    correct after the rename, so it stays. A link keyed by the old email would give the account to
+    whoever the provider gives that address to next. The next sign-in links the account again by
+    its new email.
+    """
+    links = UserSocialAuth.objects.filter(user=user, provider="saml")
+    # The stored ID is "<identity provider>:<ID from the provider>".
+    stale = [link.pk for link in links if link.uid.partition(":")[2].lower() == email.lower()]
+    if stale:
+        UserSocialAuth.objects.filter(pk__in=stale).delete()
