@@ -234,6 +234,7 @@ from posthog.query_cache.failures import (
 from posthog.query_cache.single_flight import (
     QUERY_SINGLE_FLIGHT_COUNTER,
     QUERY_SINGLE_FLIGHT_FLAG,
+    FlightOutcome,
     FlightWait,
     QuerySingleFlight,
     query_single_flight_skipped,
@@ -317,6 +318,11 @@ def _contains_user_hogql_label() -> str:
 
 EXTENDED_CACHE_AGE = timedelta(days=1)
 CACHE_ENTRY_FRESHNESS_KEY = "_freshness"
+
+FOLLOWER_RAN_ALONE_ACTIONS: dict[FlightOutcome, str] = {
+    "unavailable": "follower_ran_alone",
+    "timeout": "follower_ran_alone_after_timeout",
+}
 
 QUERY_HASH_VERSION = 1
 
@@ -2810,10 +2816,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 self._phase = RunPhase(name="flight_wait")
                 with self.timings.measure("flight_wait"):
                     wait = flight.wait()
-                if wait.outcome != "unavailable":
+                ran_alone_action = FOLLOWER_RAN_ALONE_ACTIONS.get(wait.outcome)
+                if ran_alone_action is None:
                     return self._serve_flight_outcome(wait, cache_manager, query_run=query_run)
-                # The flight cannot be read, so this run goes alone, as it does when acquire hits a storage error.
-                QUERY_SINGLE_FLIGHT_COUNTER.labels(action="follower_ran_alone").inc()
+                # The flight cannot be read, or its leader held the lock past the follower wait, so this run goes
+                # alone, as it does when acquire hits a storage error.
+                QUERY_SINGLE_FLIGHT_COUNTER.labels(action=ran_alone_action).inc()
                 flight = None
 
         try:

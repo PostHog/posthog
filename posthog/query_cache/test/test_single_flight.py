@@ -2,6 +2,7 @@ import json
 import uuid
 from datetime import UTC, datetime
 
+import pytest
 from unittest import mock
 
 from django.test import SimpleTestCase
@@ -100,6 +101,21 @@ class TestQuerySingleFlight(SimpleTestCase):
             self.addCleanup(leader.release)
             leader.acquire()  # still running, and its heartbeat never stopped
             assert QuerySingleFlight(key, BUDGET_INTERACTIVE).wait(timeout_seconds=2) == FlightWait(outcome="released")
+
+    @parameterized.expand([("interactive", BUDGET_INTERACTIVE), ("extended", BUDGET_EXTENDED)])
+    @pytest.mark.timeout(10)
+    def test_a_follower_stops_waiting_for_a_leader_that_keeps_its_lock(self, _name, budget):
+        key = _cache_key()
+        leader = QuerySingleFlight(key, budget)
+        self.addCleanup(leader.release)
+        leader.acquire()
+        with mock.patch.multiple(
+            single_flight,
+            FLIGHT_MAX_FOLLOWER_WAIT_SECONDS=0.05,
+            FLIGHT_POLL_INTERVAL=0.01,
+            FLIGHT_MAX_POLL_INTERVAL=0.01,
+        ):
+            assert QuerySingleFlight(key, budget).wait() == FlightWait(outcome="timeout")
 
     def test_acquire_drops_the_previous_flights_published_result(self):
         key = _cache_key()

@@ -47,6 +47,7 @@ FLIGHT_MAX_LEADER_SECONDS: dict[Budget, float] = {
 # Followers poll quickly at first and then back off, so a follower of a long leader costs little.
 FLIGHT_POLL_INTERVAL = 0.25
 FLIGHT_MAX_POLL_INTERVAL = 1.0
+FLIGHT_MAX_FOLLOWER_WAIT_SECONDS = 60.0
 # Acquiring the lock drops the previous result, so the result can safely outlive a stalled follower.
 FLIGHT_RESULT_TTL = 60
 
@@ -225,9 +226,11 @@ class QuerySingleFlight:
 
     def wait(self, timeout_seconds: Optional[float] = None) -> FlightWait:
         """Poll until the leader releases the lock, the lock expires, or the timeout elapses. The
-        default timeout outlasts the longest a leader can hold the lock."""
+        default timeout is the longest a leader can hold the lock, capped at FLIGHT_MAX_FOLLOWER_WAIT_SECONDS."""
         if timeout_seconds is None:
-            timeout_seconds = FLIGHT_MAX_LEADER_SECONDS[self._budget] + FLIGHT_LOCK_TTL
+            timeout_seconds = min(
+                FLIGHT_MAX_LEADER_SECONDS[self._budget] + FLIGHT_LOCK_TTL, FLIGHT_MAX_FOLLOWER_WAIT_SECONDS
+            )
         start = time.monotonic()
         deadline = start + timeout_seconds
         interval = FLIGHT_POLL_INTERVAL
