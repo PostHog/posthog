@@ -53,6 +53,7 @@ test.describe('Funnel insights', () => {
         workspace = await playwrightSetup.createWorkspace({
             use_current_time: true,
             skip_onboarding: true,
+            no_demo_data: true,
             events: generateFunnelEvents(),
             insights: [{ name: 'Seeded Funnel', query: FUNNEL_QUERY }],
             dashboards: [{ name: 'Funnel Dashboard', insight_indexes: [0] }],

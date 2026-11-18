@@ -23,8 +23,8 @@ class TestScoreHogFunctionsForAbuse(AbuseClassificationTestCase):
 
         assert len(self.gateway.requests) == 1
         [header, row] = output.strip().split("\n")
-        assert header.split("\t")[:5] == ["hog_function_id", "type", "template_id", "verdict", "risk"]
-        assert row.split("\t")[:5] == [str(hog_function.id), "destination", "-", "alert", "0.80"]
+        assert header.split("\t")[:6] == ["hog_function_id", "type", "template_id", "verdict", "risk", "rules"]
+        assert row.split("\t")[:6] == [str(hog_function.id), "destination", "-", "would_block", "0.80", "internal_host"]
         assert self.captured_events() == []
 
     def test_scores_only_the_given_ids(self) -> None:
@@ -55,7 +55,7 @@ class TestScoreHogFunctionsForAbuse(AbuseClassificationTestCase):
         output = self.run_command(COMMAND, "--team-id", str(self.team.id))
 
         assert len(self.gateway.requests) == 2
-        assert output.count("error:gateway_error") == 2
+        assert output.count("error:gateway_error\t-\tinternal_host") == 2
 
     @parameterized.expand([("by_default", [], 0), ("with_include_disabled", ["--include-disabled"], 1)])
     def test_a_disabled_function_is_scored_only_when_asked(

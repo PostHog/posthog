@@ -1527,7 +1527,7 @@ export const productUrls = {
         }
         for (const key of ['environment', 'version', 'operation'] as const) {
             const value = params ? params[key] : null
-            if (value) {
+            if (value || (key === 'environment' && value === '')) {
                 query[key] = asText(value)
             }
         }
@@ -2806,6 +2806,16 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
                     FEATURE_FLAGS.DATA_MODELING_USAGE,
                 ],
                 searchKeywords: ['bytes read', 'cpu'],
+            },
+            {
+                name: 'Governance',
+                href: urls.dataCatalog('governance'),
+                requiredFlags: [
+                    FEATURE_FLAGS.TODAY_RAIL_NAV,
+                    FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE,
+                    FEATURE_FLAGS.DATA_CATALOG_USAGE,
+                ],
+                searchKeywords: ['agent topics', 'proposed metrics', 'metric usage'],
             },
             { name: 'Relationships', href: urls.dataCatalog('relationships') },
             { name: 'Certifications', href: urls.dataCatalog('certifications') },
