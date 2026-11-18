@@ -23,15 +23,18 @@ const RESPONSE: EndpointTimeSpentResponseApi = {
 
 describe('endpointTimeSpentLogic', () => {
     let requests: URLSearchParams[]
+    let failNext: boolean
 
     beforeEach(() => {
         requests = []
+        failNext = false
         useMocks({
             get: {
                 '/api/projects/:team_id/apm/endpoint_time_spent/': ({ request }) => {
                     requests.push(new URL(request.url).searchParams)
-                    return [200, RESPONSE]
+                    return failNext ? [500, {}] : [200, RESPONSE]
                 },
+                '/api/projects/:team_id/apm/endpoints/': () => [200, { results: [], environment: 'prod' }],
                 '/api/projects/:team_id/apm/services/': () => [
                     200,
                     { results: [], environments: [], environment: 'prod' },
@@ -41,9 +44,10 @@ describe('endpointTimeSpentLogic', () => {
         initKeaTests()
     })
 
-    it('loads the row it was opened for over the scene time range, and reloads when the range changes', async () => {
+    it('loads the row it was opened for, reloads with the endpoints table, and keeps the last result on a failed refresh', async () => {
         const scene = applicationObservabilityLogic()
         scene.mount()
+        scene.actions.setTab('endpoints')
         const logic = endpointTimeSpentLogic({ service: 'checkout', endpoint: 'POST /orders', environment: 'prod' })
         logic.mount()
 
@@ -59,9 +63,14 @@ describe('endpointTimeSpentLogic', () => {
         expect(hourMs).toBe(60 * 60 * 1000)
 
         scene.actions.setTimeRange('-24h')
-        await expectLogic(logic).toDispatchActions(['loadTimeSpentSuccess'])
+        await expectLogic(logic).toDispatchActions(['loadEndpointsHealthSuccess', 'loadTimeSpentSuccess'])
         const second = requests[requests.length - 1]
         expect(Date.parse(second.get('date_to')!) - Date.parse(second.get('date_from')!)).toBe(24 * 60 * 60 * 1000)
+
+        failNext = true
+        logic.actions.loadTimeSpent()
+        await expectLogic(logic).toDispatchActions(['loadTimeSpentFailure'])
+        expect(logic.values).toMatchObject({ timeSpent: RESPONSE, timeSpentFailed: true })
 
         logic.unmount()
         scene.unmount()

@@ -15,7 +15,7 @@ const KIND_LABELS: Record<TimeSpentComponentApi['kind'], string> = {
 }
 
 export function EndpointTimeSpent(props: EndpointTimeSpentLogicProps): JSX.Element {
-    const { timeSpent, timeSpentLoading } = useValues(endpointTimeSpentLogic(props))
+    const { timeSpent, timeSpentLoading, timeSpentFailed } = useValues(endpointTimeSpentLogic(props))
 
     if (timeSpentLoading && !timeSpent) {
         return <LemonSkeleton className="h-24" />
@@ -42,6 +42,9 @@ export function EndpointTimeSpent(props: EndpointTimeSpentLogicProps): JSX.Eleme
                     averaging {formatMs(timeSpent.avg_duration_ms)}
                 </span>
             </div>
+            {timeSpentFailed && (
+                <LemonBanner type="warning">Couldn't refresh this breakdown. It shows the last one loaded.</LemonBanner>
+            )}
             <div className="flex h-4 w-full overflow-hidden rounded">
                 {colored.map((component) => (
                     <Tooltip

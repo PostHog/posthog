@@ -125,3 +125,25 @@ class TestAttributeTimeSpent(SimpleTestCase):
 
         self.assertEqual([c.name for c in result.components], ["svc-0", "svc-2", "Other"])
         self.assertAlmostEqual(sum(c.share for c in result.components), 1.0)
+
+    def test_a_span_that_names_itself_as_parent_is_counted_once(self) -> None:
+        spans = [_span("root", "root", "web", 0, 100), _span("db", "root", "web", 0, 40, kind=3, inferred="pg")]
+
+        result = attribute_time_spent(spans, [("t", "root")])
+
+        self.assertEqual([(c.name, c.total_ms) for c in result.components], [("web", 60.0), ("pg", 40.0)])
+
+    def test_nested_entries_and_work_after_the_response_are_not_counted_twice(self) -> None:
+        spans = [
+            _span("outer", "", "web", 0, 100),
+            _span("inner", "outer", "web", 10, 50),
+            _span("db", "inner", "web", 20, 20, kind=3, inferred="pg"),
+            _span("job", "outer", "worker", 90, 1000),
+        ]
+
+        result = attribute_time_spent(spans, [("t", "inner"), ("t", "outer")])
+
+        self.assertEqual(result.request_count, 1)
+        self.assertEqual(
+            [(c.name, c.total_ms) for c in result.components], [("web", 70.0), ("pg", 20.0), ("worker", 10.0)]
+        )
