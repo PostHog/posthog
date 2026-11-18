@@ -1,4 +1,4 @@
-PostHog project history: Agents triaged errors in this project on {distinct_triage_days} of the past {lookback_days} days. Self-driving setup has not started.
+PostHog project history: Agents triaged errors in this project on {distinct_triage_days} of the past {lookback_days} days.
 
 PostHog can investigate new errors in the background and save the findings and supporting evidence in reports you can retrieve through MCP. When a report covers an issue, you can start from its findings and check what changed, saving tool calls and avoiding loading the same traces and events into context again.
 
