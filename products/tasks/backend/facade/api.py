@@ -2643,7 +2643,11 @@ def promote_run_to_user_authorship(run_id: str | UUID, actor_user_id: int) -> bo
 def signal_task_run_client_activity(run_id: str | UUID, task_id: str | UUID, team_id: int) -> None:
     """Best-effort: tell the run's workflow a client command landed, so the idle timer resets."""
     try:
-        run = TaskRun.objects.filter(id=run_id, task_id=task_id, team_id=team_id).only("id", "task_id", "state").first()
+        run = (
+            TaskRun.objects.filter(id=run_id, task_id=task_id, team_id=team_id)
+            .only("id", "task_id", "team_id", "state")
+            .first()
+        )
         if run is not None:
             run.signal_client_activity()
     except Exception:
