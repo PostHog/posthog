@@ -62,8 +62,7 @@ describe("buildLocalToolsServer", () => {
         taskId: "task-1",
         taskRunId: "run-1",
         baseBranch: "master",
-        taskOriginProduct: "workflow",
-        endRunWhenDone: true,
+        finishReportRequired: true,
       },
     );
 

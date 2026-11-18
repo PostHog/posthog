@@ -5,6 +5,7 @@ import type { Task, TaskRun, TaskRunState } from "../../types";
 import type { JwtPayload } from "../jwt";
 import { claudeCodeConfigSchema } from "../schemas";
 import type { AgentServerConfig, ClaudeCodeConfig } from "../types";
+import { type RunPolicy, runPolicyFromOrigin } from "./run-policy";
 
 export interface RunLaunchSources {
   readonly payload: Pick<JwtPayload, "task_id" | "run_id" | "user_id">;
@@ -33,8 +34,7 @@ export interface RunLaunch {
   readonly codexMaxSubagents: number | null;
   readonly initialPermissionMode: PermissionMode | null;
   readonly pendingUserArtifactIds: string[];
-  readonly endRunWhenDone: boolean;
-  readonly callerEndsRun: boolean;
+  readonly policy: RunPolicy;
   readonly disableRepoHooks: boolean;
   readonly disableSkills: boolean;
   readonly systemPrompt: ClaudeCodeConfig["systemPrompt"];
@@ -69,8 +69,7 @@ export function readRunLaunch(sources: RunLaunchSources): RunLaunch {
     codexMaxSubagents: runState?.codex_max_subagents ?? null,
     initialPermissionMode: runState?.initial_permission_mode ?? null,
     pendingUserArtifactIds: runState?.pending_user_artifact_ids ?? [],
-    endRunWhenDone: runState?.end_run_when_done === true,
-    callerEndsRun: runState?.caller_ends_run === true,
+    policy: readRunPolicy(sources),
     disableRepoHooks: runState?.disable_repo_hooks === true,
     disableSkills: runState?.disable_skills === true,
     systemPrompt: systemPrompt.success ? systemPrompt.data : undefined,
@@ -87,7 +86,7 @@ export function readProductLaunch(
     taskId: sources.payload.task_id,
     runId: sources.payload.run_id,
     originProduct: readInteractionOrigin(sources.env),
-    clientProvenance: readClientProvenance(sources.task),
+    clientProvenance: readClientProvenance(sources),
     launchOptions: structuredClone(sources.taskRun?.state ?? {}),
     source: readTaskSource(sources),
   };
@@ -103,12 +102,19 @@ function readInteractionOrigin(
   );
 }
 
-// Browser session auth records no provenance, so a posthog_ai task without one comes from the web.
-function readClientProvenance(task: Task | null): string | undefined {
-  if (task?.client_provenance) {
-    return task.client_provenance;
-  }
-  return task?.origin_product === "posthog_ai" ? "posthog_web" : undefined;
+function readRunPolicy({ task, taskRun }: RunLaunchSources): RunPolicy {
+  return runPolicyFromOrigin({
+    originProduct: task?.origin_product,
+    endRunWhenDone: taskRun?.state?.end_run_when_done === true,
+    callerEndsRun: taskRun?.state?.caller_ends_run === true,
+  });
+}
+
+function readClientProvenance(sources: RunLaunchSources): string | undefined {
+  return (
+    sources.task?.client_provenance ||
+    readRunPolicy(sources).defaultClientProvenance
+  );
 }
 
 function readRepositories(task: Task | null): string[] {
@@ -117,9 +123,6 @@ function readRepositories(task: Task | null): string[] {
   }
   return task?.repository ? [task.repository] : [];
 }
-
-// Automated origins get no thread link, so sibling tasks keep one shared prompt cache.
-const THREAD_ORIGINS = new Set(["user_created", "posthog_ai"]);
 
 // GitHub drops custom URL schemes from links, so Desktop threads use the /code/... web bridge.
 function readTaskSource(sources: RunLaunchSources): TaskSource | undefined {
@@ -135,12 +138,12 @@ function readTaskSource(sources: RunLaunchSources): TaskSource | undefined {
       url: `${projectWebUrl}/inbox/${task.signal_report}`,
     };
   }
-  if (!THREAD_ORIGINS.has(task.origin_product)) {
+  if (!readRunPolicy(sources).threadLink) {
     return undefined;
   }
 
   const taskId = encodeURIComponent(sources.payload.task_id);
-  const clientProvenance = readClientProvenance(task);
+  const clientProvenance = readClientProvenance(sources);
   if (
     clientProvenance === "posthog_web" ||
     clientProvenance === "posthog_mobile"

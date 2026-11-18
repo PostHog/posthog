@@ -35,16 +35,32 @@ function runWithState(state: Record<string, unknown>): TaskRun {
 
 describe("run launch", () => {
   describe("readRunLaunch", () => {
-    it.each([true, false])(
-      "preserves caller-managed completion: %s",
-      (callerEndsRun) => {
-        expect(
-          readRunLaunch(
-            sources({
-              taskRun: runWithState({ caller_ends_run: callerEndsRun }),
-            }),
-          ).callerEndsRun,
-        ).toBe(callerEndsRun);
+    it.each<[string, string, Record<string, unknown>, boolean]>([
+      ["a run that ends itself", "user_created", {}, true],
+      [
+        "a caller-managed run",
+        "user_created",
+        { caller_ends_run: true },
+        false,
+      ],
+      ["a workflow run", "workflow", {}, false],
+      [
+        "a workflow run with the end-run opt-in",
+        "workflow",
+        { end_run_when_done: true },
+        true,
+      ],
+    ])(
+      "decides the finish tool for %s",
+      (_, originProduct, state, expected) => {
+        const launch = readRunLaunch(
+          sources({
+            task: createTask({ origin_product: originProduct }),
+            taskRun: runWithState(state),
+          }),
+        );
+
+        expect(launch.policy.finishTool).toBe(expected);
       },
     );
     it.each<[string, TaskRun | null, string | null]>([
