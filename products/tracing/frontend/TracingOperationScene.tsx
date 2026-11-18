@@ -95,8 +95,8 @@ export function TracingOperationScene(): JSX.Element {
         useActions(tracingOperationSceneLogic)
 
     const agentContextItems = useMemo(
-        () => buildTracingOperationAgentContext(serviceName, spanName, dateRange),
-        [serviceName, spanName, dateRange]
+        () => buildTracingOperationAgentContext(serviceName, spanName, dateRange, route),
+        [serviceName, spanName, dateRange, route]
     )
     useSceneAgentPanel({
         sceneKey: 'tracing-operation',

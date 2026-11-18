@@ -20,4 +20,23 @@ describe('operationFilterGroup', () => {
             ],
         })
     })
+
+    // The endpoints table gives http.route precedence, so a url.template row excludes spans that set http.route.
+    test('excludes spans that set a higher-precedence route attribute', () => {
+        const group = operationFilterGroup('GET', null, { attribute: 'url.template', value: '/users/{id}' })
+
+        expect(group.values[0]).toEqual({
+            type: 'AND',
+            values: [
+                { type: PropertyFilterType.Span, key: 'name', operator: PropertyOperator.Exact, value: ['GET'] },
+                {
+                    type: PropertyFilterType.SpanAttribute,
+                    key: 'url.template',
+                    operator: PropertyOperator.Exact,
+                    value: ['/users/{id}'],
+                },
+                { type: PropertyFilterType.SpanAttribute, key: 'http.route', operator: PropertyOperator.IsNotSet },
+            ],
+        })
+    })
 })

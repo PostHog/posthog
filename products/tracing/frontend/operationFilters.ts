@@ -22,6 +22,13 @@ export interface OperationRoute {
 }
 
 /**
+ * The route attributes in the order application observability reads them: a span labelled by a later
+ * attribute must not set an earlier one, or it belongs to the earlier attribute's endpoint.
+ * Mirrors ROUTE_ATTRIBUTES in products/apm/backend/logic/health/sources.py.
+ */
+const ROUTE_ATTRIBUTES = ['http.route', 'url.template']
+
+/**
  * Filter group scoping a spans query to one operation, optionally to a duration range.
  * The span `duration` property filter's value unit is milliseconds — the backend translates
  * it to `duration_nano` (see translate_span_filter in backend/logic.py).
@@ -41,6 +48,10 @@ export function operationFilterGroup(
             operator: PropertyOperator.Exact,
             value: [route.value],
         })
+        const precedence = ROUTE_ATTRIBUTES.indexOf(route.attribute)
+        for (const earlier of precedence > 0 ? ROUTE_ATTRIBUTES.slice(0, precedence) : []) {
+            values.push({ type: PropertyFilterType.SpanAttribute, key: earlier, operator: PropertyOperator.IsNotSet })
+        }
     }
     if (durationRange) {
         values.push({

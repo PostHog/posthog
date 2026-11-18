@@ -91,24 +91,33 @@ def environment_where(environment: str | None) -> ast.Expr:
     )
 
 
-def _route_attribute_read(key: str) -> str:
-    # A missing map key reads as null, and a null comparison reads as true, so map it to empty.
-    return f"ifNull(attributes['{key}'], '')"
+def _route_attribute_read(key: str) -> ast.Expr:
+    # The __str suffix routes the read to the typed string map, where a missing key reads as ''.
+    return ast.Field(chain=["attributes", f"{key}__str"])
 
 
 def route_attribute_expr() -> ast.Expr:
     """The first route attribute a bare-method span sets, or empty when it isn't one or sets none."""
-    branches = ", ".join(f"notEmpty({_route_attribute_read(key)}), '{key}'" for key in ROUTE_ATTRIBUTES)
+    branches = ", ".join(f"notEmpty({{read_{i}}}), '{key}'" for i, key in enumerate(ROUTE_ATTRIBUTES))
     return parse_expr(
         f"if(name IN {{methods}}, multiIf({branches}, ''), '')",
-        placeholders={"methods": ast.Tuple(exprs=[ast.Constant(value=method) for method in HTTP_METHODS])},
+        placeholders={
+            "methods": ast.Tuple(exprs=[ast.Constant(value=method) for method in HTTP_METHODS]),
+            **{f"read_{i}": _route_attribute_read(key) for i, key in enumerate(ROUTE_ATTRIBUTES)},
+        },
     )
 
 
 def route_expr() -> ast.Expr:
     """The route a bare-method span carries, read from the attribute route_attribute_expr names."""
-    branches = ", ".join(f"{{attribute}} = '{key}', {_route_attribute_read(key)}" for key in ROUTE_ATTRIBUTES)
-    return parse_expr(f"multiIf({branches}, '')", placeholders={"attribute": route_attribute_expr()})
+    branches = ", ".join(f"{{attribute}} = '{key}', {{read_{i}}}" for i, key in enumerate(ROUTE_ATTRIBUTES))
+    return parse_expr(
+        f"multiIf({branches}, '')",
+        placeholders={
+            "attribute": route_attribute_expr(),
+            **{f"read_{i}": _route_attribute_read(key) for i, key in enumerate(ROUTE_ATTRIBUTES)},
+        },
+    )
 
 
 def endpoint_expr() -> ast.Expr:
@@ -117,6 +126,12 @@ def endpoint_expr() -> ast.Expr:
         "if(notEmpty({route}), concat(name, ' ', {route}), name)",
         placeholders={"route": route_expr()},
     )
+
+
+def endpoint_span_names(endpoint: str) -> list[str]:
+    """The raw span names an endpoint label can come from: itself, plus its method when it has a route."""
+    method, _, route = endpoint.partition(" ")
+    return [endpoint, method] if route and method in HTTP_METHODS else [endpoint]
 
 
 def window_where(date_from: datetime, date_to: datetime) -> ast.Expr:

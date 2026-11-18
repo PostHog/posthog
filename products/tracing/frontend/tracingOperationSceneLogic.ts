@@ -53,6 +53,7 @@ export interface tracingOperationSceneLogicValues {
     rawHistogramLoading: boolean
     rawLatencyHeatmap: LatencyHeatmapRow[]
     rawLatencyHeatmapLoading: boolean
+    route: OperationRoute | null
     sampleIndex: number
     sampleTraceSpans: Span[]
     sampleTraceSpansLoading: boolean
@@ -60,7 +61,6 @@ export interface tracingOperationSceneLogicValues {
     samplesHaveMore: boolean
     samplesLoading: boolean
     selectedSpanId: string | null
-    route: OperationRoute | null
     serviceName: string
     spanName: string
 }
