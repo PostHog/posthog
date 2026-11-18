@@ -12,14 +12,14 @@ It is in alpha: the first release is 0.1.0-alpha.1.
 curl -fsSL https://releases.posthog.com/hog/install.sh | sh   # macOS and Linux
 irm https://releases.posthog.com/hog/install.ps1 | iex        # Windows PowerShell
 brew install posthog/tap/hog                                  # Homebrew
-npm install -g @posthog/hog                                   # or pnpm add -g, bun add -g
-npx @posthog/hog setup                                        # run once without installing
+npm install -g hog                                            # or pnpm add -g, bun add -g
+npx hog setup                                                 # run once without installing
 ```
 
 - The install script picks the build for your OS, processor and C library (glibc or musl), checks it against `SHA256SUMS`, and puts `hog` in `~/.local/bin`. It tells you when that folder isn't on your `PATH`.
 - `--version <version>` (or `HOG_VERSION`) installs another version, and `--dir <folder>` (or `HOG_INSTALL_DIR`) installs somewhere else: `curl -fsSL https://releases.posthog.com/hog/install.sh | sh -s -- --version 0.1.0-alpha.3`.
 - Builds exist for macOS (Apple silicon and Intel), Linux (x64 and arm64, glibc and musl) and Windows (x64 and arm64).
-- The npm package `@posthog/hog` is a small launcher. npm, pnpm and bun install only the `@posthog/hog-<platform>` package with the binary for your machine.
+- The npm package `hog` is a small launcher. npm, pnpm and bun install only the `@posthog/hog-<platform>` package with the binary for your machine.
 
 ### Updates
 
@@ -339,7 +339,7 @@ Point `$schema` at the published schema to get validation in your editor:
 A `typescript` entry with `"sdk": "none"` holds event types only, with no posthog-js import, for posthog-react-native or any other SDK. `--sdk` sets it, and later pulls keep it.
 posthog-cli rewrites `posthog.json` with only `languages` when it pulls, so it drops the other settings. Restore them from version control after running it.
 
-`posthog.schema.json` is generated from `src/core/config.ts` with `pnpm --filter @posthog/hog schema`.
+`posthog.schema.json` is generated from `src/core/config.ts` with `pnpm --filter hog schema`.
 
 ## Error tracking
 
@@ -454,10 +454,10 @@ Each command is one file under `src/commands/`, and declares what people and age
 Install [Bun](https://bun.sh) 1.3.3 or later, then from the repo root:
 
 ```bash
-pnpm --filter @posthog/hog hog --help       # run hog from source
-pnpm --filter @posthog/hog unit             # run the tests
-pnpm --filter @posthog/hog typecheck        # check types
-pnpm --filter @posthog/hog compile          # build dist/hog for this machine
+pnpm --filter hog hog --help  # run hog from source
+pnpm --filter hog unit        # run the tests
+pnpm --filter hog typecheck   # check types
+pnpm --filter hog compile     # build dist/hog for this machine
 ```
 
 A build from `pnpm compile` or a run from source reports the version in `package.json` without a build date, and never checks for updates.
@@ -474,7 +474,7 @@ A pull request that changes code compiled into hog, which the downloadable tool 
 To add a changeset yourself, run from `hog/`:
 
 ```bash
-sampo add --package npm/@posthog/hog --bump patch --message "Describe the change for the changelog"
+sampo add --package npm/hog --bump patch --message "Describe the change for the changelog"
 ```
 
 Use `minor` or `major` instead of `patch` when it fits. While the version is a prerelease, such as `0.1.0-alpha.3`, every bump raises the prerelease number. Commit the file sampo writes under `hog/.sampo/changesets/`.

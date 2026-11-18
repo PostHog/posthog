@@ -27,7 +27,7 @@ export const RECEIPT_FILE = 'install.json'
 
 const Receipt = z.looseObject({ method: z.literal('script'), install_dir: z.string() })
 
-const PACKAGE = '@posthog/hog'
+const PACKAGE = 'hog'
 
 // The first match wins, so the runner caches and global folders come before a project's node_modules.
 const NODE_LAYOUTS: readonly [kind: InstallKind, pattern: RegExp][] = [
@@ -113,7 +113,7 @@ export function upgradeAdvice(method: InstallMethod, rerun: string): string {
         case 'npx':
             return `Run \`npx ${PACKAGE}@latest ${rerun}\` to use the latest version.`
         case 'project':
-            return `This hog is a dependency of ${method.project}. Update ${PACKAGE} in its package.json, or run \`npx ${PACKAGE}@latest ${rerun}\`.`
+            return `This hog is a dependency of ${method.project}. Update the ${PACKAGE} dependency in its package.json, or run \`npx ${PACKAGE}@latest ${rerun}\`.`
         case 'source':
             return 'This hog runs from source. Pull the latest changes.'
         default:
