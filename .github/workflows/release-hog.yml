@@ -327,12 +327,17 @@ jobs:
 
                   echo "committed=true" >> "$GITHUB_OUTPUT"
 
-            - name: Ensure master did not advance during release prep
+            # master moves every few minutes, so only a hog changeset that landed during prep matters: it
+            # would miss this release. The release job's approver check covers every other merge.
+            - name: Ensure no hog changeset landed during release prep
               if: steps.check-changes.outputs.committed == 'true'
               run: |
-                  git fetch origin master
-                  if [ "$(git rev-parse HEAD)" != "$(git rev-parse FETCH_HEAD)" ]; then
-                      echo "::error::master advanced while preparing the hog release. Re-run the workflow so the release includes the latest changesets."
+                  set -euo pipefail
+                  git fetch --no-tags origin master
+                  landed=$(git diff --name-only --diff-filter=A HEAD FETCH_HEAD -- 'hog/.sampo/changesets/*.md')
+                  if [ -n "$landed" ]; then
+                      echo "::error::A hog changeset landed on master while preparing the release. Re-run the workflow so the release includes it:"
+                      printf '%s\n' "$landed"
                       exit 1
                   fi
 
