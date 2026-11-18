@@ -162,10 +162,15 @@ class PhonePlayer {
             case 'blocks':
                 this.receive(command.requestId, command.text, command.done)
                 return
-            case 'blocksFailed':
+            case 'blocksFailed': {
+                const failed = this.pending.get(command.requestId)
+                for (let i = failed?.from ?? 0; failed && i <= failed.to; i++) {
+                    this.requested.delete(i)
+                }
                 this.pending.delete(command.requestId)
                 this.fail(new Error(command.message))
                 return
+            }
         }
     }
 

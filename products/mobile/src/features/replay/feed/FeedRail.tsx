@@ -1,62 +1,117 @@
 import type { ComponentType, ReactElement, ReactNode } from 'react'
 import { Text, View } from 'react-native'
+import Animated, { useAnimatedStyle, withTiming } from 'react-native-reanimated'
 
 import { ChatBubbleIcon } from '@/ui/icons/ChatBubbleIcon'
 import { ExpandIcon } from '@/ui/icons/ExpandIcon'
-import { InfoIcon } from '@/ui/icons/InfoIcon'
-import { SparklesIcon } from '@/ui/icons/SparklesIcon'
+import { LockIcon } from '@/ui/icons/LockIcon'
+import { ShareIcon } from '@/ui/icons/ShareIcon'
 import type { IconProps } from '@/ui/icons/types'
 import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles } from '@/ui/theme'
 
-import type { FeedUnit } from './feedModel'
 import { feedColors, feedTextShadow } from './feedStyle'
 
 interface FeedRailProps {
-    unit: FeedUnit
+    /** Only when the feed plays moments and this recording has one. */
+    showFull: boolean
+    fullOn: boolean
+    /** The rate playing now: a hold's or a lock's when one is on, else the set speed. */
     speed: number
-    onUnit: () => void
+    speedOn: boolean
+    locked: boolean
+    /** A hold fades every button but Speed, which shows the hold's rate. */
+    speedOnly: boolean
+    onFull: () => void
     onSpeed: () => void
     onChat: () => void
-    onInfo: () => void
+    onShare: () => void
 }
 
 export function speedLabel(speed: number): string {
-    return `${speed}×`
+    return `${speed}x`
 }
 
-export function FeedRail({ unit, speed, onUnit, onSpeed, onChat, onInfo }: FeedRailProps): ReactElement {
+export function FeedRail({
+    showFull,
+    fullOn,
+    speed,
+    speedOn,
+    locked,
+    speedOnly,
+    onFull,
+    onSpeed,
+    onChat,
+    onShare,
+}: FeedRailProps): ReactElement {
     const styles = useStyles()
+    const label = speedLabel(speed)
+    const others = useAnimatedStyle(
+        () => ({ opacity: withTiming(speedOnly ? 0 : 1, { duration: speedOnly ? 120 : 180 }) }),
+        [speedOnly]
+    )
     return (
         <View style={styles.rail} pointerEvents="box-none">
-            {unit === 'moment' ? (
-                <RailButton label="Session" Icon={ExpandIcon} onPress={onUnit} testID="feed-unit" />
-            ) : (
-                <RailButton label="Moments" Icon={SparklesIcon} onPress={onUnit} testID="feed-unit" />
-            )}
-            <RailButton label="Speed" onPress={onSpeed} testID="feed-speed">
-                <Text style={styles.speed}>{speedLabel(speed)}</Text>
+            {showFull ? (
+                <Animated.View style={others}>
+                    <RailButton
+                        label={fullOn ? 'Moment' : 'Full recording'}
+                        Icon={ExpandIcon}
+                        on={fullOn}
+                        onPress={onFull}
+                        testID="feed-full"
+                    />
+                </Animated.View>
+            ) : null}
+            <RailButton
+                label="Speed"
+                accessibilityLabel={locked ? `Speed, locked at ${label}` : `Speed, ${label}`}
+                on={speedOn}
+                onPress={onSpeed}
+                testID="feed-speed"
+            >
+                <Text style={[styles.speed, label.length > 3 && styles.speedSmall, speedOn && styles.speedOn]}>
+                    {label}
+                </Text>
+                {locked ? (
+                    <View style={styles.lockMark}>
+                        <LockIcon size={11} color={feedColors.text} strokeWidth={2.4} />
+                    </View>
+                ) : null}
             </RailButton>
-            <RailButton label="Chat" Icon={ChatBubbleIcon} onPress={onChat} testID="feed-chat" />
-            <RailButton label="Info" Icon={InfoIcon} onPress={onInfo} testID="feed-info" />
+            <Animated.View style={[styles.rail, others]} pointerEvents="box-none">
+                <RailButton label="Chat" Icon={ChatBubbleIcon} onPress={onChat} testID="feed-chat" />
+                <RailButton label="Share" Icon={ShareIcon} onPress={onShare} testID="feed-share" />
+            </Animated.View>
         </View>
     )
 }
 
 interface RailButtonProps {
     label: string
+    accessibilityLabel?: string
     Icon?: ComponentType<IconProps>
+    on?: boolean
     children?: ReactNode
     onPress: () => void
     testID: string
 }
 
-function RailButton({ label, Icon, children, onPress, testID }: RailButtonProps): ReactElement {
+function RailButton({
+    label,
+    accessibilityLabel,
+    Icon,
+    on = false,
+    children,
+    onPress,
+    testID,
+}: RailButtonProps): ReactElement {
     const styles = useStyles()
     return (
         <Pressable44
             onPress={onPress}
-            accessibilityLabel={label}
+            accessibilityLabel={accessibilityLabel ?? label}
+            accessibilityState={{ selected: on }}
             style={styles.button}
             pressedStyle={styles.pressed}
             haptic="selection"
@@ -64,10 +119,12 @@ function RailButton({ label, Icon, children, onPress, testID }: RailButtonProps)
         >
             {({ pressed }) => (
                 <>
-                    <View style={[styles.circle, pressed && styles.circlePressed]}>
-                        {Icon ? <Icon size={22} color={feedColors.text} /> : children}
+                    <View style={[styles.circle, on && styles.circleOn, pressed && styles.circlePressed]}>
+                        {Icon ? <Icon size={22} color={on ? feedColors.stage : feedColors.text} /> : children}
                     </View>
-                    <Text style={styles.label}>{label}</Text>
+                    <Text style={styles.label} numberOfLines={1}>
+                        {label}
+                    </Text>
                 </>
             )}
         </Pressable44>
@@ -82,7 +139,7 @@ const useStyles = createStyles(() => ({
     button: {
         alignItems: 'center',
         gap: 5,
-        width: 64,
+        width: 92,
     },
     pressed: {
         opacity: 0.85,
@@ -97,6 +154,10 @@ const useStyles = createStyles(() => ({
         borderWidth: 1,
         borderColor: feedColors.glassBorder,
     },
+    circleOn: {
+        backgroundColor: feedColors.text,
+        borderColor: feedColors.text,
+    },
     circlePressed: {
         backgroundColor: feedColors.glassPressed,
     },
@@ -104,11 +165,29 @@ const useStyles = createStyles(() => ({
         fontSize: 12,
         fontWeight: '600',
         color: feedColors.text,
+        textAlign: 'center',
         ...feedTextShadow,
     },
     speed: {
         fontSize: 15,
         fontWeight: '700',
         color: feedColors.text,
+    },
+    speedSmall: {
+        fontSize: 13,
+    },
+    speedOn: {
+        color: feedColors.stage,
+    },
+    lockMark: {
+        position: 'absolute',
+        top: -3,
+        right: -3,
+        width: 20,
+        height: 20,
+        borderRadius: 10,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: feedColors.accent,
     },
 }))

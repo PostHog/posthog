@@ -1,7 +1,9 @@
 import type { ReplayVideoExport } from '@/api/replayVideo'
 import type { RecordingView, SessionSummary } from '../replayModel'
 
-export type FeedSource = 'newest' | 'worth' | 'rage' | 'errors'
+export type FeedSource = 'highlights' | 'rage' | 'errors' | 'newest'
+
+export const FEED_SOURCES: readonly FeedSource[] = ['highlights', 'rage', 'errors', 'newest']
 
 export type FeedUnit = 'moment' | 'session'
 
@@ -49,9 +51,9 @@ export interface FeedSettings {
     leadInSeconds: number
     momentSeconds: number
     phoneFit: 'fill' | 'whole'
+    skipInactivity: boolean
 }
 
 export const SPEED_PRESETS: readonly number[] = [0.5, 1, 1.5, 2, 3, 4, 8, 16]
 export const LEAD_IN_PRESETS: readonly number[] = [3, 5, 10]
 export const MOMENT_LENGTH_PRESETS: readonly number[] = [15, 20, 30, 45]
-export const HOLD_SPEED = 4

@@ -167,7 +167,7 @@ function anchorsFor(timeline: FeedTimeline, summary: SessionSummary | null, sour
         return [{ kind, seconds: event.seconds, target: event.target, label: event.label }]
     })
     const key = summary?.keyMomentMs
-    if ((source === 'newest' || source === 'worth') && typeof key === 'number') {
+    if ((source === 'newest' || source === 'highlights') && typeof key === 'number') {
         fromEvents.push({ kind: 'key', seconds: key / 1000, target: keyChapterTitle(summary, key), label: null })
     }
     return fromEvents.sort((a, b) => a.seconds - b.seconds)

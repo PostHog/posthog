@@ -77,3 +77,35 @@ export function trackFeedSourceChanged(source: FeedSource): void {
 export function trackFeedInfoOpened(sessionId: string): void {
     track('mobile_replay_feed_info_opened', { session_id: sessionId })
 }
+
+export function trackFeedHoldStarted(props: { sessionId: string; rate: number; locked: boolean }): void {
+    track('mobile_replay_feed_hold_started', { session_id: props.sessionId, rate: props.rate, locked: props.locked })
+}
+
+export function trackFeedSpeedLocked(rate: number): void {
+    track('mobile_replay_feed_speed_locked', { rate, via: 'pull' })
+}
+
+export function trackFeedSpeedUnlocked(via: 'pull' | 'settings'): void {
+    track('mobile_replay_feed_speed_unlocked', { via })
+}
+
+export function trackFeedShared(props: { sessionId: string; action: 'copy_link' | 'open_web' }): void {
+    track('mobile_replay_feed_shared', { session_id: props.sessionId, action: props.action })
+}
+
+export function trackFeedLoadFailed(props: { sessionId: string; message: string }): void {
+    track('mobile_replay_feed_load_failed', { session_id: props.sessionId, message: props.message.slice(0, 120) })
+}
+
+export function trackFeedNotInterested(sessionId: string): void {
+    track('mobile_replay_feed_not_interested', { session_id: sessionId })
+}
+
+export function trackFeedFullRecording(props: { sessionId: string; on: boolean }): void {
+    track('mobile_replay_feed_full_recording', { session_id: props.sessionId, on: props.on })
+}
+
+export function trackFeedSourcesOpened(source: FeedSource): void {
+    track('mobile_replay_feed_sources_opened', { source })
+}

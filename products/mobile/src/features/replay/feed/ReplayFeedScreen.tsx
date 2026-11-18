@@ -1,20 +1,17 @@
+import * as Clipboard from 'expo-clipboard'
 import { useFocusEffect, useRouter } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, FlatList, type LayoutChangeEvent, Linking, RefreshControl, Text, View } from 'react-native'
+import Animated, { useAnimatedStyle, withTiming } from 'react-native-reanimated'
 
 import { RECORDING_OBJECT_TYPE } from '@/features/chat/objectContext'
-import { HeaderMenu } from '@/features/views/screen/HeaderMenu'
 import { useViewBack } from '@/features/views/screen/ViewScreenFrame'
 import { ViewsReauthState } from '@/features/views/ViewsReauthState'
 import { formatMonthDay } from '@/lib/dates'
 import { safeHttpsUrl } from '@/lib/urls'
 import { ChevronDownIcon } from '@/ui/icons/ChevronDownIcon'
 import { ChevronLeftIcon } from '@/ui/icons/ChevronLeftIcon'
-import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
-import { MoreIcon } from '@/ui/icons/MoreIcon'
-import { RowsIcon } from '@/ui/icons/RowsIcon'
-import { SettingsIcon } from '@/ui/icons/SettingsIcon'
 import { OverlayHost } from '@/ui/OverlayPortal'
 import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles } from '@/ui/theme'
@@ -23,26 +20,53 @@ import { useScreenInsets } from '@/ui/useScreenInsets'
 import { useReplayContext } from '../hooks'
 import { trackFullReplayOpened, trackSessionChatOpened } from '../replayAnalytics'
 import { sessionWebUrl } from '../replayLinks'
+import { formatOffset } from '../sessionAdapters'
 import { FeedCard, type FeedCardHandle, itemTitle } from './FeedCard'
-import { FeedInfoSheet, FeedSettingsSheet, FeedSourceSheet, SOURCE_LABELS } from './FeedSheets'
+import { FeedInfoSheet, FeedSettingsSheet, FeedShareSheet, FeedSourceSheet, SOURCE_LABELS } from './FeedSheets'
 import { hasReadyVideo } from './feedAdapters'
 import {
     trackFeedAutoAdvanced,
     trackFeedInfoOpened,
+    trackFeedNotInterested,
     trackFeedOpened,
+    trackFeedShared,
     trackFeedSourceChanged,
+    trackFeedSpeedUnlocked,
     trackFeedUnitChanged,
 } from './feedAnalytics'
+import { resetFeedHold, unlockFeed, useFeedHold } from './feedHoldStore'
 import type { FeedItem, FeedSettings, FeedSource, FeedTimeline, FeedUnit } from './feedModel'
 import { FEED_PLAYER_KIND } from './feedPlayerKind'
 import { useFeedSettings } from './feedSettingsStore'
 import { feedColors } from './feedStyle'
+import { HoldHud } from './HoldHud'
 import { readyJobFor, useRenderQueue } from './renderQueue'
 import { useFeed } from './useFeed'
 import { type PoolSource, usePlayerPool } from './usePlayerPool'
 import { useWebPlayerPool } from './useWebPlayerPool'
 
 const READY_LOOKAHEAD = 3
+
+function emptyTitle(source: FeedSource): string {
+    if (source === 'highlights') {
+        return 'No highlights yet'
+    }
+    return source === 'newest'
+        ? 'No finished recordings yet'
+        : `No recordings with ${SOURCE_LABELS[source].toLowerCase()}`
+}
+
+function emptyMessage(source: FeedSource, stillRecording: number): string {
+    if (source === 'highlights') {
+        return 'Highlights come from Replay Vision, which ranks recordings and finds their key moments. Pick another source for now.'
+    }
+    if (source === 'newest') {
+        return stillRecording > 0
+            ? `${stillRecording} recordings are still in progress. They show here once they end.`
+            : 'Recordings from the last 7 days show here once they end.'
+    }
+    return 'Nothing in the last 7 days.'
+}
 const WEB_PLAYER = FEED_PLAYER_KIND === 'web'
 const NO_SOURCES: ReadonlyMap<number, PoolSource> = new Map()
 
@@ -60,14 +84,37 @@ function FeedContent(): ReactElement {
     const router = useRouter()
     const insets = useScreenInsets()
     const { mode, access, scope } = useReplayContext()
-    const { unit, source, speed, autoplayNext, startAt, leadInSeconds, momentSeconds, phoneFit, set } =
-        useFeedSettings()
+    const {
+        unit,
+        source,
+        speed,
+        autoplayNext,
+        startAt,
+        leadInSeconds,
+        momentSeconds,
+        phoneFit,
+        skipInactivity,
+        hidden,
+        set,
+        hide,
+    } = useFeedSettings()
     const settings = useMemo(
-        (): FeedSettings => ({ speed, autoplayNext, startAt, leadInSeconds, momentSeconds, phoneFit }),
-        [speed, autoplayNext, startAt, leadInSeconds, momentSeconds, phoneFit]
+        (): FeedSettings => ({ speed, autoplayNext, startAt, leadInSeconds, momentSeconds, phoneFit, skipInactivity }),
+        [speed, autoplayNext, startAt, leadInSeconds, momentSeconds, phoneFit, skipInactivity]
     )
     const feed = useFeed(source)
-    const items = feed.items
+    const items = useMemo(() => {
+        const hiddenIds = new Set(hidden)
+        return feed.items?.filter((item) => !hiddenIds.has(item.recording.sessionId))
+    }, [feed.items, hidden])
+    const holding = useFeedHold((state) => state.hold !== null)
+    const lock = useFeedHold((state) => state.lock)
+    // The lock lasts while the feed is open: it survives swipes, and leaving the feed ends it.
+    useEffect(() => () => resetFeedHold(), [])
+    const chromeStyle = useAnimatedStyle(
+        () => ({ opacity: withTiming(holding ? 0 : 1, { duration: holding ? 120 : 180 }) }),
+        [holding]
+    )
     const jobs = useRenderQueue((state) => state.jobs)
 
     const [size, setSize] = useState<{ width: number; height: number } | null>(null)
@@ -203,7 +250,7 @@ function FeedContent(): ReactElement {
 
     const [sourceOpen, setSourceOpen] = useState(false)
     const [settingsOpen, setSettingsOpen] = useState(false)
-    const [menuOpen, setMenuOpen] = useState(false)
+    const [share, setShare] = useState<{ item: FeedItem; seconds: number } | null>(null)
     const [info, setInfo] = useState<{ item: FeedItem; timeline: FeedTimeline | null } | null>(null)
 
     const changeSource = (next: FeedSource): void => {
@@ -224,6 +271,13 @@ function FeedContent(): ReactElement {
         [set]
     )
     const openSpeed = useCallback(() => setSettingsOpen(true), [])
+    const openShare = useCallback((item: FeedItem, seconds: number) => setShare({ item, seconds }), [])
+    const changeSettings = (patch: Partial<FeedSettings>): void => {
+        if (patch.speed !== undefined && unlockFeed()) {
+            trackFeedSpeedUnlocked('settings')
+        }
+        set(patch)
+    }
     const openChat = useCallback(
         (item: FeedItem): void => {
             const { sessionId, personLabel, startedAt } = item.recording
@@ -258,6 +312,27 @@ function FeedContent(): ReactElement {
         },
         [webUrlFor]
     )
+    const sourceLabel = unit === 'session' ? `${SOURCE_LABELS[source]} · Whole recordings` : SOURCE_LABELS[source]
+    const [copied, setCopied] = useState<{ id: number; text: string } | null>(null)
+    const copyLink = async (item: FeedItem, seconds: number): Promise<void> => {
+        const url = webUrlFor(item, seconds)
+        if (!url) {
+            return
+        }
+        trackFeedShared({ sessionId: item.recording.sessionId, action: 'copy_link' })
+        const done = await Clipboard.setStringAsync(url).catch(() => false)
+        setCopied((previous) => ({
+            id: (previous?.id ?? 0) + 1,
+            text: done ? `Link copied at ${formatOffset(seconds * 1000)}` : "Couldn't copy the link. Try again.",
+        }))
+    }
+    useEffect(() => {
+        if (!copied) {
+            return undefined
+        }
+        const timer = setTimeout(() => setCopied(null), 1800)
+        return () => clearTimeout(timer)
+    }, [copied])
     const openInfo = useCallback((item: FeedItem, timeline: FeedTimeline | null): void => {
         trackFeedInfoOpened(item.recording.sessionId)
         setInfo({ item, timeline })
@@ -265,7 +340,6 @@ function FeedContent(): ReactElement {
 
     const { refresh } = feed
     const recheck = useCallback((): void => void refresh(), [refresh])
-    const currentItem = items?.[current] ?? null
     const renderItem = ({ item, index }: { item: FeedItem; index: number }): ReactElement => {
         const target = advanceTarget(index)
         let nextReady: { index: number; title: string } | null = null
@@ -297,8 +371,8 @@ function FeedContent(): ReactElement {
                 onSource={onSource}
                 onAdvance={onAdvance}
                 onJumpTo={scrollTo}
-                onUnit={changeUnit}
                 onSpeed={openSpeed}
+                onShare={openShare}
                 onChat={openChat}
                 onInfo={openInfo}
                 onOpenWeb={openWeb}
@@ -325,7 +399,7 @@ function FeedContent(): ReactElement {
     } else if (feed.error && !items) {
         body = (
             <FeedState
-                title="Couldn't load your sessions"
+                title="Couldn't load your recordings"
                 message="Check your connection and try again."
                 actionLabel="Try again"
                 onAction={feed.retry}
@@ -336,18 +410,8 @@ function FeedContent(): ReactElement {
     } else if (items.length === 0) {
         body = (
             <FeedState
-                title={
-                    source === 'newest'
-                        ? 'No finished recordings yet'
-                        : `No sessions with ${SOURCE_LABELS[source].toLowerCase()}`
-                }
-                message={
-                    source === 'newest'
-                        ? feed.stillRecording > 0
-                            ? `${feed.stillRecording} sessions are still recording. They show here once they end.`
-                            : 'Recordings from the last 7 days show here once they end.'
-                        : 'Nothing in the last 7 days. That is good news.'
-                }
+                title={emptyTitle(source)}
+                message={emptyMessage(source, feed.stillRecording)}
                 actionLabel={source === 'newest' ? 'Refresh' : 'Show newest'}
                 onAction={source === 'newest' ? () => void feed.refresh() : () => changeSource('newest')}
             />
@@ -361,6 +425,7 @@ function FeedContent(): ReactElement {
                 renderItem={renderItem}
                 extraData={[current, pool, settings, unit, focused, jobs, size, insets]}
                 pagingEnabled
+                scrollEnabled={!holding}
                 // A tap on the status bar would jump back to the first card mid-watch.
                 scrollsToTop={false}
                 decelerationRate="fast"
@@ -390,58 +455,39 @@ function FeedContent(): ReactElement {
         <View style={styles.screen} onLayout={onLayout}>
             <StatusBar style="light" />
             {body}
-            <View style={[styles.chrome, { top: insets.top + 4 }]} pointerEvents="box-none">
+            <Animated.View
+                style={[styles.chrome, { top: insets.top + 4 }, chromeStyle]}
+                pointerEvents={holding ? 'none' : 'box-none'}
+            >
                 <Pressable44
                     onPress={back}
                     accessibilityLabel="Back"
-                    style={styles.backChip}
+                    style={styles.backButton}
                     pressedStyle={styles.pressed}
                     testID="feed-back"
                 >
-                    <ChevronLeftIcon size={20} color={feedColors.text} />
-                    <Text style={styles.chipText}>Back</Text>
+                    <ChevronLeftIcon size={22} color={feedColors.text} />
                 </Pressable44>
                 <Pressable44
                     onPress={() => setSourceOpen(true)}
-                    accessibilityLabel={`Show: ${SOURCE_LABELS[source]}`}
+                    accessibilityLabel={`Source: ${sourceLabel}. Choose what the feed plays`}
                     style={styles.sourcePill}
                     pressedStyle={styles.pressed}
                     testID="feed-source"
                 >
-                    <Text style={styles.chipText}>{SOURCE_LABELS[source]}</Text>
+                    <View style={styles.sourceDot} />
+                    <Text style={styles.chipText} numberOfLines={1}>
+                        {sourceLabel}
+                    </Text>
                     <ChevronDownIcon size={13} color={feedColors.text} />
                 </Pressable44>
-                <Pressable44
-                    onPress={() => setMenuOpen(true)}
-                    accessibilityLabel="More"
-                    style={styles.morePill}
-                    pressedStyle={styles.pressed}
-                    testID="feed-more"
-                >
-                    <MoreIcon size={22} color={feedColors.text} />
-                </Pressable44>
-            </View>
-            <HeaderMenu
-                visible={menuOpen}
-                onClose={() => setMenuOpen(false)}
-                testID="feed-menu"
-                items={[
-                    {
-                        key: 'list',
-                        label: 'List',
-                        Icon: RowsIcon,
-                        onPress: () => router.push({ pathname: '/(stack)/replay', params: { view: 'list' } }),
-                    },
-                    { key: 'playback', label: 'Playback', Icon: SettingsIcon, onPress: () => setSettingsOpen(true) },
-                    {
-                        key: 'web',
-                        label: 'Open in PostHog',
-                        Icon: ExternalLinkIcon,
-                        disabled: !currentItem || !webUrlFor(currentItem, 0),
-                        onPress: () => currentItem && openWeb(currentItem, 0),
-                    },
-                ]}
-            />
+            </Animated.View>
+            <HoldHud top={insets.top + 8} />
+            {copied ? (
+                <View style={[styles.copied, { top: insets.top + 60 }]} pointerEvents="none" testID="feed-copied">
+                    <Text style={styles.chipText}>{copied.text}</Text>
+                </View>
+            ) : null}
             <FeedSourceSheet
                 visible={sourceOpen}
                 source={source}
@@ -451,8 +497,37 @@ function FeedContent(): ReactElement {
             <FeedSettingsSheet
                 visible={settingsOpen}
                 settings={settings}
-                onChange={set}
+                unit={unit}
+                lock={lock}
+                showsExportCost={!WEB_PLAYER}
+                onChange={changeSettings}
+                onUnit={changeUnit}
+                onUnlock={() => {
+                    if (unlockFeed()) {
+                        trackFeedSpeedUnlocked('settings')
+                    }
+                }}
                 onClose={() => setSettingsOpen(false)}
+            />
+            <FeedShareSheet
+                visible={share !== null}
+                seconds={share?.seconds ?? 0}
+                onCopyLink={() => {
+                    if (share) {
+                        void copyLink(share.item, share.seconds)
+                    }
+                    setShare(null)
+                }}
+                onOpenWeb={
+                    share && webUrlFor(share.item, share.seconds)
+                        ? () => {
+                              trackFeedShared({ sessionId: share.item.recording.sessionId, action: 'open_web' })
+                              openWeb(share.item, share.seconds)
+                              setShare(null)
+                          }
+                        : null
+                }
+                onClose={() => setShare(null)}
             />
             <FeedInfoSheet
                 visible={info !== null}
@@ -460,6 +535,13 @@ function FeedContent(): ReactElement {
                 timeline={info?.timeline ?? null}
                 onSeek={(seconds) => handles.current.get(current)?.seekToSession(seconds)}
                 onOpenWeb={info && webUrlFor(info.item, 0) ? () => openWeb(info.item, 0) : null}
+                onNotInterested={() => {
+                    if (info) {
+                        trackFeedNotInterested(info.item.recording.sessionId)
+                        hide(info.item.recording.sessionId)
+                    }
+                    setInfo(null)
+                }}
                 onClose={() => setInfo(null)}
             />
         </View>
@@ -533,21 +615,33 @@ const useStyles = createStyles(() => ({
         alignItems: 'center',
         justifyContent: 'space-between',
     },
-    backChip: {
+    backButton: {
         ...glassPill,
-        gap: 4,
-        paddingLeft: 10,
-        paddingRight: 14,
+        width: 44,
+        justifyContent: 'center',
     },
     sourcePill: {
         ...glassPill,
-        gap: 6,
+        position: 'absolute',
+        alignSelf: 'center',
+        left: '50%',
+        maxWidth: 260,
+        transform: [{ translateX: '-50%' }],
+        gap: 7,
         paddingHorizontal: 16,
     },
-    morePill: {
+    sourceDot: {
+        width: 8,
+        height: 8,
+        borderRadius: 4,
+        backgroundColor: feedColors.live,
+    },
+    copied: {
         ...glassPill,
-        width: 52,
-        justifyContent: 'center',
+        position: 'absolute',
+        alignSelf: 'center',
+        height: 36,
+        paddingHorizontal: 16,
     },
     pressed: {
         backgroundColor: feedColors.glassPressed,

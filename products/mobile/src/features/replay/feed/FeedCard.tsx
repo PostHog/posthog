@@ -1,6 +1,6 @@
 import { VideoView } from 'expo-video'
 import { memo, type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import Animated, {
     Easing,
@@ -19,7 +19,10 @@ import { formatRelativeAgo } from '@/lib/dates'
 import { haptic } from '@/lib/haptics'
 import { plural } from '@/model/adapters/text'
 import { FadeEdge } from '@/ui/FadeEdge'
+import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
 import { PlayIcon } from '@/ui/icons/PlayIcon'
+import { WarningIcon } from '@/ui/icons/WarningIcon'
+import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles } from '@/ui/theme'
 
 import { useFrameUrl } from '../hooks'
@@ -29,28 +32,22 @@ import { sessionSecondsForVideoSeconds, videoSecondsForSessionSeconds } from '..
 import { ReplayWebView } from '../web/ReplayWebView'
 import { FeedRail } from './FeedRail'
 import { FeedScrubber, type ScrubberTick } from './FeedScrubber'
+import { feedMoments, type RenderSpec, renderKey, renderViewport, sessionStartSeconds } from './feedAdapters'
 import {
-    compactDuration,
-    feedMetaLine,
-    feedMoments,
-    type RenderSpec,
-    renderKey,
-    renderViewport,
-    sessionStartSeconds,
-} from './feedAdapters'
-import { trackFeedAutoAdvanced, trackFeedEventJump, trackFeedItemShown } from './feedAnalytics'
-import {
-    type FeedEvent,
-    type FeedItem,
-    type FeedSettings,
-    type FeedSource,
-    type FeedTimeline,
-    type FeedUnit,
-    HOLD_SPEED,
-    type Moment,
-} from './feedModel'
+    trackFeedAutoAdvanced,
+    trackFeedEventJump,
+    trackFeedFullRecording,
+    trackFeedHoldStarted,
+    trackFeedItemShown,
+    trackFeedLoadFailed,
+    trackFeedSpeedLocked,
+    trackFeedSpeedUnlocked,
+} from './feedAnalytics'
+import { armHold, beginHold, finishHold, holdHaptic, holdPull, useFeedHold } from './feedHoldStore'
+import type { FeedEvent, FeedItem, FeedSettings, FeedSource, FeedTimeline, FeedUnit, Moment } from './feedModel'
 import type { FeedPlayer, PoolPlayer } from './feedPlayer'
 import { feedColors, feedTextShadow, type TickKind, tickColors } from './feedStyle'
+import { HOLD_PULL, playbackRate } from './holdLock'
 import { type LadderState, RenderLadder } from './RenderLadder'
 import { startRender, useRenderQueue } from './renderQueue'
 import { UpNextCard } from './UpNextCard'
@@ -88,8 +85,8 @@ interface FeedCardProps {
     onSource: (index: number, source: PoolSource | null) => void
     onAdvance: (index: number) => void
     onJumpTo: (index: number) => void
-    onUnit: (unit: FeedUnit) => void
     onSpeed: () => void
+    onShare: (item: FeedItem, seconds: number) => void
     onChat: (item: FeedItem) => void
     onInfo: (item: FeedItem, timeline: FeedTimeline | null) => void
     onOpenWeb: (item: FeedItem, seconds: number) => void
@@ -102,7 +99,7 @@ export function itemTitle(item: FeedItem): string {
         return item.summary.title
     }
     const { clickCount, consoleErrorCount } = item.recording
-    return ['Session', plural(clickCount, 'click'), consoleErrorCount ? plural(consoleErrorCount, 'error') : null]
+    return ['Recording', plural(clickCount, 'click'), consoleErrorCount ? plural(consoleErrorCount, 'error') : null]
         .filter(Boolean)
         .join(' · ')
 }
@@ -145,7 +142,7 @@ function FeedCardBody({
     near,
     pool,
     webPlayer,
-    unit,
+    unit: feedUnit,
     source,
     settings,
     next,
@@ -153,8 +150,8 @@ function FeedCardBody({
     onSource,
     onAdvance,
     onJumpTo,
-    onUnit,
     onSpeed,
+    onShare,
     onChat,
     onInfo,
     onOpenWeb,
@@ -171,6 +168,9 @@ function FeedCardBody({
         [timeline, summary, durationSeconds, settings, source]
     )
     const [momentIndex, setMomentIndex] = useState(0)
+    // Full recording plays this card's whole recording while the feed keeps playing moments.
+    const [fullOn, setFullOn] = useState(false)
+    const unit: FeedUnit = feedUnit === 'moment' && fullOn ? 'session' : feedUnit
     const safeIndex = Math.min(momentIndex, moments.length - 1)
     const moment = moments[safeIndex] as Moment
     const domain =
@@ -296,7 +296,9 @@ function FeedCardBody({
     const endedRef = useRef(false)
     endedRef.current = ended
     const [countdownCancelled, setCountdownCancelled] = useState(false)
-    const [holding, setHolding] = useState(false)
+    const holdNow = useFeedHold((state) => (active ? state.hold : null))
+    const lock = useFeedHold((state) => state.lock)
+    const holding = holdNow !== null
     const [firstFrame, setFirstFrame] = useState(false)
     const [nowSeconds, setNowSeconds] = useState(startSeconds)
     const pendingSeek = useRef<number | null>(null)
@@ -330,13 +332,17 @@ function FeedCardBody({
         [player, position]
     )
 
+    const currentRate = useCallback((): number => {
+        const state = useFeedHold.getState()
+        return playbackRate(settings.speed, active ? state.hold : null, state.lock)
+    }, [settings.speed, active])
     const play = useCallback((): void => {
         if (!player) {
             return
         }
-        player.playbackRate = settings.speed
+        player.playbackRate = currentRate()
         player.play()
-    }, [player, settings.speed])
+    }, [player, currentRate])
 
     const startKey = `${unit}:${moment.key}:${unit === 'session' ? startSeconds : ''}`
     // A WebView player loads only the blocks it needs, so it learns the window before the first seek reaches it.
@@ -385,16 +391,20 @@ function FeedCardBody({
     }, [active, player, startKey])
 
     useEffect(() => {
-        if (player && active && !holding) {
-            player.playbackRate = settings.speed
+        if (player && active) {
+            player.playbackRate = playbackRate(settings.speed, holdNow, lock)
         }
-    }, [player, active, holding, settings.speed])
+    }, [player, active, holdNow, lock, settings.speed])
+    useEffect(() => {
+        web?.setSkipInactivity(settings.skipInactivity)
+    }, [web, settings.skipInactivity])
 
     // Gestures and the end-of-window timer reach the newest handlers through this ref.
     const handlers = useRef<{
         togglePause: () => void
         jump: (direction: 1 | -1) => void
-        hold: (on: boolean) => void
+        holdStart: () => void
+        holdEnd: (cancelled: boolean) => void
         stepMoment: (direction: 1 | -1) => void
     } | null>(null)
 
@@ -549,42 +559,58 @@ function FeedCardBody({
         }
     }
 
-    const hold = (on: boolean): void => {
-        if (!player) {
+    const holdStart = (): void => {
+        if (!player || ended || !active) {
             return
         }
-        if (on === holding) {
+        const started = beginHold(settings.speed)
+        if (!started) {
             return
         }
-        setHolding(on)
-        if (on) {
-            haptic('light')
-            player.playbackRate = HOLD_SPEED
-            player.play()
-        } else {
-            player.playbackRate = settings.speed
-            if (pausedRef.current) {
-                player.pause()
-            }
+        holdHaptic('start')
+        trackFeedHoldStarted({ sessionId, rate: started.rate, locked: started.locked })
+        player.playbackRate = started.rate
+        player.play()
+    }
+    const holdEnd = (cancelled: boolean): void => {
+        const result = finishHold(cancelled, settings.speed)
+        if (result === 'locked') {
+            holdHaptic('locked')
+            trackFeedSpeedLocked(useFeedHold.getState().lock?.rate ?? 0)
+        } else if (result === 'unlocked') {
+            holdHaptic('unlocked')
+            trackFeedSpeedUnlocked('pull')
+        }
+        if (player && pausedRef.current) {
+            player.pause()
         }
     }
 
-    handlers.current = { togglePause, jump, hold, stepMoment }
-    const dispatch = useCallback((action: 'toggle' | 'jump' | 'hold' | 'step', value: number): void => {
-        const current = handlers.current
-        if (!current) {
-            return
-        }
-        if (action === 'toggle') {
-            current.togglePause()
-        } else if (action === 'jump') {
-            current.jump(value > 0 ? 1 : -1)
-        } else if (action === 'hold') {
-            current.hold(value > 0)
-        } else {
-            current.stepMoment(value > 0 ? 1 : -1)
-        }
-    }, [])
+    handlers.current = { togglePause, jump, holdStart, holdEnd, stepMoment }
+    const dispatch = useCallback(
+        (action: 'toggle' | 'jump' | 'holdStart' | 'holdArm' | 'holdEnd' | 'step', value: number): void => {
+            const current = handlers.current
+            if (!current) {
+                return
+            }
+            if (action === 'toggle') {
+                current.togglePause()
+            } else if (action === 'jump') {
+                current.jump(value > 0 ? 1 : -1)
+            } else if (action === 'holdStart') {
+                current.holdStart()
+            } else if (action === 'holdArm') {
+                armHold(value > 0 ? HOLD_PULL : 0)
+            } else if (action === 'holdEnd') {
+                current.holdEnd(value > 0)
+            } else {
+                current.stepMoment(value > 0 ? 1 : -1)
+            }
+        },
+        []
+    )
+    const holdArmed = useSharedValue(false)
+    const holdActive = useSharedValue(false)
     const canSwipeMoments = unit === 'moment' && moments.length > 1
     const gesture = useMemo(() => {
         const half = width / 2
@@ -605,16 +631,32 @@ function FeedCardBody({
                     scheduleOnRN(dispatch, 'jump', event.x > half ? 1 : -1)
                 }
             })
-        const longPress = Gesture.LongPress()
-            .minDuration(320)
-            .maxDistance(18)
+        // A hold owns the finger once it starts, so its pull never pages the feed or swipes a moment.
+        const hold = Gesture.Pan()
+            .activateAfterLongPress(380)
             .onStart(() => {
                 'worklet'
-                scheduleOnRN(dispatch, 'hold', 1)
+                holdActive.value = true
+                holdArmed.value = false
+                holdPull.value = 0
+                scheduleOnRN(dispatch, 'holdStart', 0)
             })
-            .onFinalize(() => {
+            .onUpdate((event) => {
                 'worklet'
-                scheduleOnRN(dispatch, 'hold', 0)
+                const pull = Math.max(0, event.translationY)
+                holdPull.value = pull
+                const armed = pull >= HOLD_PULL
+                if (armed !== holdArmed.value) {
+                    holdArmed.value = armed
+                    scheduleOnRN(dispatch, 'holdArm', armed ? 1 : 0)
+                }
+            })
+            .onFinalize((_event, success) => {
+                'worklet'
+                if (holdActive.value) {
+                    holdActive.value = false
+                    scheduleOnRN(dispatch, 'holdEnd', success ? 0 : 1)
+                }
             })
         const swipe = Gesture.Pan()
             .enabled(canSwipeMoments)
@@ -633,8 +675,8 @@ function FeedCardBody({
                     slide.value = withTiming(0, { duration: 160 })
                 }
             })
-        return Gesture.Race(swipe, Gesture.Exclusive(longPress, doubleTap, singleTap))
-    }, [width, canSwipeMoments, dispatch, slide])
+        return Gesture.Race(swipe, Gesture.Exclusive(hold, doubleTap, singleTap))
+    }, [width, canSwipeMoments, dispatch, slide, holdActive, holdArmed])
 
     const seekFromInfo = useCallback(
         (seconds: number): void => {
@@ -652,7 +694,7 @@ function FeedCardBody({
                     return
                 }
                 overrideStart.current = seconds
-                onUnit('session')
+                setFullOn(true)
                 return
             }
             seekSession(seconds)
@@ -662,7 +704,7 @@ function FeedCardBody({
             }
             play()
         },
-        [moments, safeIndex, seekSession, play, onUnit]
+        [moments, safeIndex, seekSession, play]
     )
     useEffect(() => {
         if (!active) {
@@ -670,7 +712,7 @@ function FeedCardBody({
         }
         registerHandle(index, {
             seekToSession: seekFromInfo,
-            hold: (on) => handlers.current?.hold(on),
+            hold: (on) => (on ? handlers.current?.holdStart() : handlers.current?.holdEnd(false)),
             togglePause: () => handlers.current?.togglePause(),
             stepMoment: (direction) => handlers.current?.stepMoment(direction),
         })
@@ -692,10 +734,10 @@ function FeedCardBody({
     }, [active])
 
     let ladder: LadderState | null = null
-    if (recording.ongoing) {
+    if (webPlayer) {
+        ladder = null
+    } else if (recording.ongoing) {
         ladder = { kind: 'recording', shownSeconds: durationSeconds }
-    } else if (webPlayer) {
-        ladder = webError ? { kind: 'failed', message: webError } : null
     } else if (!loaded || !firstFrame) {
         const state = job?.state
         if (state?.status === 'preparing') {
@@ -789,12 +831,34 @@ function FeedCardBody({
     const advance = useCallback((): void => onAdvance(index), [onAdvance, index])
 
     const scrubberBottom = Math.max(insets.bottom - 8, 10)
-    const captionBottom = scrubberBottom + 52
+    const captionBottom = scrubberBottom + 40
     const flag = countryFlag(recording.countryCode)
     const ago = recording.startedAt ? formatRelativeAgo(recording.startedAt, new Date()) : null
-    const [expanded, setExpanded] = useState(false)
     const anchorColor =
         moment.kind === 'exception' ? tickColors.error : moment.kind === 'key' ? tickColors.key : tickColors.rage
+    const hasMoment = moment.kind !== 'start'
+    const showDots = unit === 'moment' && moments.length > 1
+    const [scrubbingUI, setScrubbingUI] = useState(false)
+    const chromeHidden = holding || scrubbingUI
+    const chromeStyle = useAnimatedStyle(
+        () => ({ opacity: withTiming(chromeHidden ? 0 : 1, { duration: chromeHidden ? 120 : 180 }) }),
+        [chromeHidden]
+    )
+    const toggleFull = (): void => {
+        const next = !fullOn
+        trackFeedFullRecording({ sessionId, on: next })
+        haptic('selection')
+        overrideStart.current = next ? position.value : null
+        setEnded(false)
+        endedRef.current = false
+        setFullOn(next)
+    }
+    useEffect(() => {
+        if (webError) {
+            trackFeedLoadFailed({ sessionId, message: webError })
+        }
+    }, [webError, sessionId])
+    const dotsTop = bleed ? null : frame.top + frame.height + 12
 
     return (
         <View style={[styles.card, { width, height }]} testID={`feed-card-${index}`}>
@@ -837,12 +901,18 @@ function FeedCardBody({
                                 accessibilityIgnoresInvertColors
                             />
                         ) : (
-                            <View style={[StyleSheet.absoluteFill, styles.textPoster]}>
-                                <Text style={styles.textPosterPath} numberOfLines={1}>
-                                    {recording.startPath ?? ''}
-                                </Text>
-                            </View>
+                            <View style={[StyleSheet.absoluteFill, styles.dimFrame]} />
                         )}
+                        {webPlayer && !webError ? (
+                            <View style={[StyleSheet.absoluteFill, styles.loading]}>
+                                <ActivityIndicator
+                                    size="small"
+                                    color={feedColors.textSoft}
+                                    accessibilityLabel="Loading the recording"
+                                    testID={active ? 'feed-loading' : undefined}
+                                />
+                            </View>
+                        ) : null}
                     </Animated.View>
                 </View>
             </Animated.View>
@@ -857,6 +927,40 @@ function FeedCardBody({
                 <View style={StyleSheet.absoluteFill} collapsable={false} />
             </GestureDetector>
 
+            {webPlayer && webError ? (
+                <View
+                    style={[styles.ladder, { top: frame.top, height: bleed ? height * 0.62 : frame.height }]}
+                    pointerEvents="box-none"
+                >
+                    <View style={styles.errorPanel} testID={active ? 'feed-load-error' : undefined}>
+                        <WarningIcon size={22} color={feedColors.text} />
+                        <Text style={styles.errorTitle}>Could not load this recording</Text>
+                        <View style={styles.errorActions}>
+                            <Pressable44
+                                onPress={() => web?.restart()}
+                                accessibilityLabel="Try again"
+                                style={styles.errorButton}
+                                pressedStyle={styles.pressed}
+                                testID="feed-load-retry"
+                            >
+                                <Text style={styles.errorButtonText}>Try again</Text>
+                            </Pressable44>
+                            <Pressable44
+                                onPress={() => onOpenWeb(item, startSeconds)}
+                                accessibilityRole="link"
+                                accessibilityLabel="Open in PostHog"
+                                style={styles.errorButton}
+                                pressedStyle={styles.pressed}
+                                testID="feed-load-open-web"
+                            >
+                                <Text style={styles.errorButtonText}>Open in PostHog</Text>
+                                <ExternalLinkIcon size={13} color={feedColors.text} />
+                            </Pressable44>
+                        </View>
+                    </View>
+                </View>
+            ) : null}
+
             {ladder ? (
                 <View
                     style={[styles.ladder, { top: frame.top, height: bleed ? height * 0.62 : frame.height }]}
@@ -865,7 +969,7 @@ function FeedCardBody({
                     <RenderLadder
                         state={ladder}
                         onPlay={() => requestRender('tap')}
-                        onRetry={() => (webPlayer ? web?.restart() : requestRender('tap'))}
+                        onRetry={() => requestRender('tap')}
                         onOpenWeb={() => onOpenWeb(item, startSeconds)}
                         onCheckAgain={onRecheck}
                         nextReady={
@@ -884,24 +988,19 @@ function FeedCardBody({
                 </View>
             ) : null}
 
-            {unit === 'moment' && moments.length > 1 ? (
-                <View style={[styles.dots, { top: insets.top + 58 }]} pointerEvents="none" testID="feed-moment-dots">
-                    {moments.map((item, position) => (
-                        <View key={item.key} style={[styles.dot, position === safeIndex && styles.dotOn]} />
-                    ))}
-                    <Text style={styles.dotsLabel}>{`Moment ${safeIndex + 1} of ${moments.length}`}</Text>
-                </View>
-            ) : null}
-
-            {holding ? (
+            {showDots ? (
                 <Animated.View
-                    entering={FadeIn.duration(120)}
-                    exiting={FadeOut.duration(120)}
-                    style={[styles.holdChip, { top: insets.top + 88 }]}
+                    style={[
+                        styles.dots,
+                        dotsTop === null ? { bottom: captionBottom + 132 } : { top: dotsTop },
+                        chromeStyle,
+                    ]}
                     pointerEvents="none"
-                    testID="feed-hold-chip"
+                    testID="feed-moment-dots"
                 >
-                    <Text style={styles.holdText}>{`${HOLD_SPEED}× speed`}</Text>
+                    {moments.map((entry, position) => (
+                        <View key={entry.key} style={[styles.dot, position === safeIndex && styles.dotOn]} />
+                    ))}
                 </Animated.View>
             ) : null}
 
@@ -920,52 +1019,58 @@ function FeedCardBody({
                 </Animated.View>
             ) : null}
 
-            <View style={[styles.rail, { bottom: captionBottom }]} pointerEvents="box-none">
+            <Animated.View
+                style={[styles.rail, { bottom: captionBottom }, scrubbingUI && chromeStyle]}
+                pointerEvents={chromeHidden ? 'none' : 'box-none'}
+            >
                 <FeedRail
-                    unit={unit}
-                    speed={settings.speed}
-                    onUnit={() => onUnit(unit === 'moment' ? 'session' : 'moment')}
+                    showFull={feedUnit === 'moment' && hasMoment}
+                    fullOn={fullOn}
+                    speed={playbackRate(settings.speed, holdNow, lock)}
+                    speedOn={holding || lock !== null}
+                    locked={lock !== null}
+                    speedOnly={holding}
+                    onFull={toggleFull}
                     onSpeed={onSpeed}
                     onChat={() => onChat(item)}
-                    onInfo={() => onInfo(item, timeline)}
+                    onShare={() => onShare(item, Math.max(0, Math.floor(position.value)))}
                 />
-            </View>
+            </Animated.View>
 
-            <View style={[styles.caption, { bottom: captionBottom }]} pointerEvents="box-none">
-                <Text style={styles.person} numberOfLines={1}>
-                    {[flag, recording.personLabel].filter(Boolean).join(' ')}
-                    {ago ? <Text style={styles.personAgo}>{` · ${ago}`}</Text> : null}
-                </Text>
+            <Animated.View
+                style={[styles.caption, { bottom: captionBottom }, chromeStyle]}
+                pointerEvents={chromeHidden ? 'none' : 'box-none'}
+            >
                 <Pressable
-                    onPress={() => setExpanded((open) => !open)}
+                    onPress={() => onInfo(item, timeline)}
                     accessibilityRole="button"
-                    accessibilityLabel={expanded ? 'Show less' : 'Show the summary'}
+                    accessibilityLabel={`${itemTitle(item)}. Opens Info`}
+                    testID={active ? 'feed-caption' : undefined}
                 >
-                    <Text style={styles.title} numberOfLines={expanded ? 4 : 2}>
+                    <Text style={styles.person} numberOfLines={1}>
+                        {[flag, recording.personLabel].filter(Boolean).join(' ')}
+                        {ago ? <Text style={styles.personAgo}>{` · ${ago}`}</Text> : null}
+                    </Text>
+                    {unit === 'moment' && hasMoment ? (
+                        <View style={styles.anchorRow}>
+                            <View style={[styles.anchorDot, { backgroundColor: anchorColor }]} />
+                            <Text style={styles.anchor} numberOfLines={1}>
+                                {moment.label}
+                            </Text>
+                            <Text style={styles.anchorTime}>{`· ${formatOffset(moment.anchorSeconds * 1000)}`}</Text>
+                        </View>
+                    ) : null}
+                    <Text style={styles.title} numberOfLines={2}>
                         {itemTitle(item)}
                     </Text>
-                    {expanded && summary?.text ? (
-                        <Text style={styles.summary} numberOfLines={7}>
-                            {summary.text}
+                    <View style={styles.summaryRow}>
+                        <Text style={[styles.summary, !summary?.text && styles.summaryNone]} numberOfLines={1}>
+                            {summary?.text ?? 'No summary yet'}
                         </Text>
-                    ) : null}
-                </Pressable>
-                <Text style={styles.meta} numberOfLines={1}>
-                    {feedMetaLine({ timeline, durationSeconds, keyMomentMs: summary?.keyMomentMs ?? null })}
-                </Text>
-                {unit === 'moment' ? (
-                    <View style={styles.anchorRow}>
-                        <View style={[styles.anchorDot, { backgroundColor: anchorColor }]} />
-                        <Text style={styles.anchor} numberOfLines={1}>
-                            {moment.label}
-                        </Text>
+                        <Text style={styles.more}>more</Text>
                     </View>
-                ) : (
-                    <Text style={styles.wholeSession} numberOfLines={1}>
-                        {`Whole session · ${compactDuration(durationSeconds)}`}
-                    </Text>
-                )}
-            </View>
+                </Pressable>
+            </Animated.View>
 
             <View style={[styles.scrubber, { bottom: scrubberBottom }]} pointerEvents="box-none">
                 <FeedScrubber
@@ -985,9 +1090,15 @@ function FeedCardBody({
                             : formatOffset(durationSeconds * 1000)
                     }
                     idleLabel={formatOffset(nowSeconds * 1000)}
-                    onScrubStart={onScrubStart}
+                    onScrubStart={() => {
+                        setScrubbingUI(true)
+                        onScrubStart()
+                    }}
                     onScrub={onScrub}
-                    onScrubEnd={onScrubEnd}
+                    onScrubEnd={(seconds, tick) => {
+                        setScrubbingUI(false)
+                        onScrubEnd(seconds, tick)
+                    }}
                 />
             </View>
 
@@ -1059,15 +1170,49 @@ const useStyles = createStyles(() => ({
         borderWidth: 1,
         borderColor: feedColors.glassBorder,
     },
-    textPoster: {
+    dimFrame: {
         backgroundColor: '#15161A',
+    },
+    loading: {
         alignItems: 'center',
         justifyContent: 'center',
     },
-    textPosterPath: {
+    errorPanel: {
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 10,
+        paddingHorizontal: 24,
+        backgroundColor: 'rgba(0,0,0,0.55)',
+    },
+    errorTitle: {
+        fontSize: 15,
+        fontWeight: '700',
+        color: feedColors.text,
+        textAlign: 'center',
+    },
+    errorActions: {
+        flexDirection: 'row',
+        gap: 8,
+    },
+    errorButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        height: 34,
+        paddingHorizontal: 14,
+        borderRadius: 17,
+        backgroundColor: feedColors.glassStrong,
+        borderWidth: 1,
+        borderColor: feedColors.glassBorder,
+    },
+    errorButtonText: {
         fontSize: 13,
-        color: feedColors.textFaint,
         fontWeight: '600',
+        color: feedColors.text,
+    },
+    pressed: {
+        opacity: 0.8,
     },
     fadeTop: {
         position: 'absolute',
@@ -1101,11 +1246,8 @@ const useStyles = createStyles(() => ({
         alignSelf: 'center',
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 6,
-        height: 26,
-        paddingHorizontal: 10,
-        borderRadius: 13,
-        backgroundColor: feedColors.glass,
+        gap: 5,
+        height: 12,
     },
     dot: {
         width: 6,
@@ -1114,28 +1256,8 @@ const useStyles = createStyles(() => ({
         backgroundColor: 'rgba(255,255,255,0.4)',
     },
     dotOn: {
-        width: 16,
+        width: 14,
         backgroundColor: feedColors.text,
-    },
-    dotsLabel: {
-        marginLeft: 4,
-        fontSize: 12,
-        fontWeight: '600',
-        color: feedColors.text,
-    },
-    holdChip: {
-        position: 'absolute',
-        alignSelf: 'center',
-        height: 32,
-        paddingHorizontal: 14,
-        borderRadius: 16,
-        justifyContent: 'center',
-        backgroundColor: feedColors.glassStrong,
-    },
-    holdText: {
-        fontSize: 14,
-        fontWeight: '700',
-        color: feedColors.text,
     },
     toast: {
         position: 'absolute',
@@ -1156,13 +1278,12 @@ const useStyles = createStyles(() => ({
     },
     rail: {
         position: 'absolute',
-        right: 6,
+        right: 4,
     },
     caption: {
         position: 'absolute',
         left: 16,
-        right: 84,
-        gap: 4,
+        right: 100,
     },
     person: {
         fontSize: 14,
@@ -1175,29 +1296,40 @@ const useStyles = createStyles(() => ({
         color: feedColors.textMuted,
     },
     title: {
+        marginTop: 4,
         fontSize: 17,
         fontWeight: '700',
         lineHeight: 22,
         color: feedColors.text,
         ...feedTextShadow,
     },
+    summaryRow: {
+        flexDirection: 'row',
+        alignItems: 'baseline',
+        gap: 6,
+        marginTop: 3,
+    },
     summary: {
-        marginTop: 4,
+        flexShrink: 1,
         fontSize: 14,
         lineHeight: 19,
         color: feedColors.textMuted,
         ...feedTextShadow,
     },
-    meta: {
-        fontSize: 13,
-        color: feedColors.textMuted,
+    summaryNone: {
+        color: feedColors.textFaint,
+    },
+    more: {
+        fontSize: 14,
+        fontWeight: '700',
+        color: feedColors.text,
         ...feedTextShadow,
     },
     anchorRow: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 7,
-        marginTop: 2,
+        marginTop: 4,
     },
     anchorDot: {
         width: 8,
@@ -1211,10 +1343,9 @@ const useStyles = createStyles(() => ({
         color: '#FFD2B8',
         ...feedTextShadow,
     },
-    wholeSession: {
-        marginTop: 2,
-        fontSize: 13,
-        fontWeight: '600',
+    anchorTime: {
+        fontSize: 14,
+        fontWeight: '500',
         color: feedColors.textMuted,
         ...feedTextShadow,
     },

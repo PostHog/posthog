@@ -1,12 +1,19 @@
 import { apiJson, projectPath } from '@/api/client'
 import { runQuery } from '@/api/query'
 import type { RecordingsListApi } from '@/api/recordings'
-import type { ObservationListApi } from '@/api/replayVision'
+import { fetchWatchFeed, type ObservationListApi } from '@/api/replayVision'
 
 import type { FeedSource } from './feedModel'
 
 export const FEED_PAGE_SIZE = 10
 const FEED_FROM = '-7d'
+/**
+ * Every list stops an hour back, so a busy project's first page is finished recordings and not the ones still being
+ * recorded. The server parses it like `date_from` (`relative_date_parse`: `-1h` is one hour before now).
+ */
+const LIST_TO = '-1h'
+/** Wider than the Highlights window, so every ranked recording is in the list query's range. */
+const HIGHLIGHTS_RECORDINGS_FROM = '-8d'
 
 interface RecordingFilter {
     type: 'recording'
@@ -16,23 +23,16 @@ interface RecordingFilter {
 }
 
 interface SourceQuery {
-    order: 'start_time' | 'activity_score'
+    order: 'start_time'
     having: RecordingFilter[]
     event?: '$rageclick' | '$exception'
-    hideViewed?: boolean
 }
 
-// The web playlist's default drops sessions with 5 active seconds or fewer. "Worth watching" follows the backend
-// recipe: dense sessions first, at least 10 active seconds, shorter than 30 minutes, not seen on the web yet.
-const SOURCE_QUERIES: Record<FeedSource, SourceQuery> = {
-    newest: { order: 'start_time', having: [{ type: 'recording', key: 'active_seconds', operator: 'gt', value: 5 }] },
-    worth: {
-        order: 'activity_score',
-        having: [
-            { type: 'recording', key: 'active_seconds', operator: 'gt', value: 10 },
-            { type: 'recording', key: 'duration', operator: 'lt', value: 1800 },
-        ],
-        hideViewed: true,
+// The web playlist's default drops sessions with 5 active seconds or fewer.
+const SOURCE_QUERIES: Record<Exclude<FeedSource, 'highlights'>, SourceQuery> = {
+    newest: {
+        order: 'start_time',
+        having: [{ type: 'recording', key: 'active_seconds', operator: 'gt', value: 5 }],
     },
     rage: {
         order: 'start_time',
@@ -52,11 +52,15 @@ export async function fetchFeedRecordings(
     after: string | undefined,
     signal?: AbortSignal
 ): Promise<RecordingsListApi> {
+    if (source === 'highlights') {
+        return fetchHighlightRecordings(after, signal)
+    }
     const config = SOURCE_QUERIES[source]
     return apiJson<RecordingsListApi>(projectPath('session_recordings/'), {
         query: {
             limit: FEED_PAGE_SIZE,
             date_from: FEED_FROM,
+            date_to: LIST_TO,
             order: config.order,
             order_direction: 'DESC',
             filter_test_accounts: true,
@@ -64,11 +68,50 @@ export async function fetchFeedRecordings(
             events: config.event
                 ? JSON.stringify([{ id: config.event, type: 'events', name: config.event }])
                 : undefined,
-            hide_viewed_recordings: config.hideViewed ? JSON.stringify('current-user') : undefined,
             after,
         },
         signal,
     })
+}
+
+/** The cursor of a Highlights page: the ranked feed's offset and the time it ranks as of. */
+function parseHighlightsCursor(after: string | undefined): { offset: number; asOf: string | null } {
+    if (!after) {
+        return { offset: 0, asOf: null }
+    }
+    const [offset, asOf] = after.split('|')
+    return { offset: Number(offset) || 0, asOf: asOf || null }
+}
+
+/**
+ * Highlights is Replay Vision's ranked feed. It returns observations, so the recordings of a page come from one list
+ * call by session id, put back in the feed's order. A project without Replay Vision gets an empty page.
+ */
+async function fetchHighlightRecordings(after: string | undefined, signal?: AbortSignal): Promise<RecordingsListApi> {
+    const cursor = parseHighlightsCursor(after)
+    const feed = await fetchWatchFeed(signal, { limit: FEED_PAGE_SIZE, offset: cursor.offset, asOf: cursor.asOf })
+    const ids = [...new Set((feed.results ?? []).map((item) => item.observation.session_id))]
+    const next = feed.has_more ? `${cursor.offset + FEED_PAGE_SIZE}|${feed.as_of ?? cursor.asOf ?? ''}` : null
+    if (ids.length === 0) {
+        return { results: [], has_next: Boolean(next), next_cursor: next }
+    }
+    const rows = await apiJson<RecordingsListApi>(projectPath('session_recordings/'), {
+        query: {
+            limit: ids.length,
+            date_from: HIGHLIGHTS_RECORDINGS_FROM,
+            session_ids: JSON.stringify(ids),
+        },
+        signal,
+    })
+    const byId = new Map((rows.results ?? []).map((row) => [row.id, row]))
+    return {
+        results: ids.flatMap((id) => {
+            const row = byId.get(id)
+            return row ? [row] : []
+        }),
+        has_next: Boolean(next),
+        next_cursor: next,
+    }
 }
 
 export async function fetchFeedObservations(sessionIds: readonly string[], signal?: AbortSignal) {

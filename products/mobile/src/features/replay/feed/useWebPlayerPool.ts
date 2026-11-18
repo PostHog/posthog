@@ -25,7 +25,7 @@ export function useWebPlayerPool(
             for (const index of [current, current + 1, current - 1]) {
                 const recording = items[index]?.recording
                 const startMs = recording?.startedAt ? Date.parse(recording.startedAt) : Number.NaN
-                if (!recording || recording.ongoing || Number.isNaN(startMs)) {
+                if (!recording || Number.isNaN(startMs)) {
                     continue
                 }
                 const player =

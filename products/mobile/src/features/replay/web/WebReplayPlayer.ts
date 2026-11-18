@@ -35,6 +35,7 @@ export class WebReplayPlayer implements FeedPlayer {
     marks: PlaybackMark[] = []
     private time = 0
     private rate = 1
+    private skipInactivity = true
     private listeners = new Map<keyof VideoPlayerEvents, Set<Listener>>()
     private firstFrameListeners = new Set<() => void>()
     private page: PageHandle | null = null
@@ -71,6 +72,13 @@ export class WebReplayPlayer implements FeedPlayer {
         if (rate !== this.rate) {
             this.rate = rate
             this.send({ type: 'speed', speed: rate })
+        }
+    }
+
+    setSkipInactivity(on: boolean): void {
+        if (on !== this.skipInactivity) {
+            this.skipInactivity = on
+            this.send({ type: 'skipInactivity', on })
         }
     }
 
@@ -261,7 +269,7 @@ export class WebReplayPlayer implements FeedPlayer {
                     sessionId: this.sessionId,
                     sources: this.blocks.map(({ startTs, endTs }) => ({ startTs, endTs })),
                     speed: this.rate,
-                    skipInactivity: true,
+                    skipInactivity: this.skipInactivity,
                 })
             )
             this.initSent = true

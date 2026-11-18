@@ -86,6 +86,17 @@ export function backgroundReadDelay(family: BudgetFamily, now: number = Date.now
     )
 }
 
+/** Milliseconds until every bucket of the family holds a token again. */
+export function budgetRetryAfterMs(family: BudgetFamily, now: number = Date.now()): number {
+    const state = bucketsFor(family, now)
+    return Math.ceil(
+        Math.max(
+            0,
+            ...BUDGETS[family].map((spec, index) => ((1 - (state[index]?.tokens ?? 0)) * spec.windowMs) / spec.capacity)
+        )
+    )
+}
+
 /** Takes one token from every bucket of the family, or none when any bucket is empty. */
 export function trySpend(family: BudgetFamily, now: number = Date.now()): boolean {
     const state = bucketsFor(family, now)

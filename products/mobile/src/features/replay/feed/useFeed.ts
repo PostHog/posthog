@@ -1,5 +1,5 @@
 import { type InfiniteData, useInfiniteQuery, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { RecordingApi, RecordingsListApi } from '@/api/recordings'
 import { listRecentReplayVideoExports, type ReplayVideoExport } from '@/api/replayVideo'
@@ -35,12 +35,16 @@ export interface Feed {
 }
 
 /** Problem sources keep a session that is still recording: the problem already happened, so it is worth a look. */
+// The WebView player plays without a video, so it never reads the exports list.
+const VIDEO_PLAYER = FEED_PLAYER_KIND === 'video'
+
+/** Problem sources keep a recording still in progress: the problem already happened, and the part so far plays. */
 function keepsOngoing(source: FeedSource): boolean {
     return source === 'rage' || source === 'errors'
 }
 
-// The WebView player plays without a video, so it never reads the exports list.
-const VIDEO_PLAYER = FEED_PLAYER_KIND === 'video'
+/** A page can hold only recordings still in progress. The feed reads this many pages before it says it is empty. */
+const EMPTY_PAGE_LIMIT = 5
 
 export function useFeed(source: FeedSource): Feed {
     const { scope, ready } = useReplayContext()
@@ -159,9 +163,15 @@ export function useFeed(source: FeedSource): Feed {
             void fetchNextPage({ cancelRefetch: false })
         }
     }, [hasNextPage, isFetching, fetchNextPage])
+    const searching = items !== undefined && items.length === 0 && hasNextPage && pages.length < EMPTY_PAGE_LIMIT
+    useEffect(() => {
+        if (searching && !isFetching) {
+            void fetchNextPage({ cancelRefetch: false })
+        }
+    }, [searching, isFetching, fetchNextPage])
 
     return {
-        items,
+        items: searching ? undefined : items,
         error: recordings.isError ? toError(recordings.error) : null,
         retry: () => void refetchRecordings(),
         refresh,
