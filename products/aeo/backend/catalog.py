@@ -105,8 +105,9 @@ def recompute_own_citations(team_id: int) -> int:
     changed = 0
     domains = own_domains(team_id)
     for _ in range(RECOMPUTE_MAX_PASSES):
-        _recompute_branded_prompts(team_id, domains)
-        changed += _recompute_with(team_id, domains)
+        recomputed = _recompute_with(team_id, domains)
+        changed += recomputed.changed
+        _recompute_branded_prompts(team_id, domains, whole_history=recomputed.rekeyed)
         current = own_domains(team_id)
         if current == domains:
             break
@@ -114,16 +115,27 @@ def recompute_own_citations(team_id: int) -> int:
     return changed
 
 
-def _recompute_branded_prompts(team_id: int, domains: list[str]) -> None:
-    """Set `prompt_branded` on every check of the team, failed ones included, because the branded split
-    counts them too. Only the rows on the wrong side are written."""
+@frozen
+class _Recomputed:
+    changed: int
+    # A check carried the key of other own domains, so the own domains changed since the last reconcile.
+    rekeyed: bool
+
+
+def _recompute_branded_prompts(team_id: int, domains: list[str], *, whole_history: bool) -> None:
+    """Set `prompt_branded` on the checks of the team, failed ones included, because the branded split
+    counts them too. The runner stores it against the own domains of the moment, so the whole history is
+    read again only when those changed. Otherwise only the checks that have none are read, from the
+    window index. Only the rows on the wrong side are written."""
     checks = AEOCitationCheck.objects.for_team(team_id, canonical=True)
+    if not whole_history:
+        checks = checks.filter(prompt_branded__isnull=True)
     branded = branded_filter(domains)
     checks.filter(branded).exclude(prompt_branded=True).update(prompt_branded=True)
     checks.exclude(branded).exclude(prompt_branded=False).update(prompt_branded=False)
 
 
-def _recompute_with(team_id: int, domains: list[str]) -> int:
+def _recompute_with(team_id: int, domains: list[str]) -> _Recomputed:
     key = own_domains_key(domains)
     checks = AEOCitationCheck.objects.for_team(team_id, canonical=True)
     # exclude() keeps the null keys of checks recorded before the key existed. A check on the current
@@ -135,6 +147,7 @@ def _recompute_with(team_id: int, domains: list[str]) -> int:
         .order_by("id")
     )
     changed = 0
+    rekeyed = False
     last_id = None
     # Keyset pages with a database limit: behind PgBouncer, iterator() would buffer the whole result.
     while page := list((stale.filter(id__gt=last_id) if last_id else stale)[:RECOMPUTE_BATCH_SIZE]):
@@ -156,10 +169,11 @@ def _recompute_with(team_id: int, domains: list[str]) -> int:
                 rescored.append(check)
             else:
                 kept.append(check)
+            rekeyed = rekeyed or check.own_domains_key != key
             check.own_domains_key = key
             changed += citations_moved
         _write_recomputed(checks, rescored, kept)
-    return changed
+    return _Recomputed(changed=changed, rekeyed=rekeyed)
 
 
 def _recompute_check(check: AEOCitationCheck, domains: list[str]) -> bool:
