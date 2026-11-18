@@ -34,6 +34,7 @@ from posthog.auth import (
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions import Conflict, EnterpriseFeatureException, InsufficientScope, PaidFeatureException
+from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, is_enforcement_disable_request
 from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Project, Team, User
 from posthog.models.oauth import OAuthAccessToken
@@ -335,6 +336,39 @@ class VerifiedDomainEnforcementPermission(BasePermission):
             raise PermissionDenied(detail=VERIFIED_DOMAIN_REQUIRED_ERROR, code="verified_domain_required")
 
         return True
+
+
+class TwoFactorEnforcementPermission(BasePermission):
+    """
+    Deny session requests to an organization that requires 2FA when the session hasn't met it.
+
+    `SessionAuthentication` checks the current organization only, so this checks the URL-resolved
+    organization, for the same reason as `VerifiedDomainEnforcementPermission`. Token requests
+    pass: a token meets the policy when it is minted (`enforce_credential_two_factor`).
+    """
+
+    def has_permission(self, request: Request, view) -> bool:
+        if not self._applies(request) or not view_targets_one_organization(view):
+            return True
+
+        organization = url_target_organization(view)
+        if organization is not None:
+            enforce_two_factor(request, request.user, organization)
+        return True
+
+    def has_object_permission(self, request: Request, view, object: Model) -> bool:
+        if not self._applies(request):
+            return True
+
+        if isinstance(object, Organization):
+            enforce_two_factor(request, request.user, object)
+        elif isinstance(object, Team | Project):
+            enforce_two_factor(request, request.user, object.organization)
+        return True
+
+    @staticmethod
+    def _applies(request: Request) -> bool:
+        return isinstance(request.user, User) and isinstance(request.successful_authenticator, SessionAuthentication)
 
 
 def url_target_organization(view) -> Optional[Organization]:

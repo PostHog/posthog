@@ -97,7 +97,7 @@ from posthog.helpers.oauth_pending_connection import (
     clear_pending_oauth_connection_cookie,
     set_pending_oauth_connection_cookie,
 )
-from posthog.helpers.two_factor_session import missing_two_factor_step
+from posthog.helpers.two_factor_session import enforce_credential_two_factor, missing_two_factor_step
 from posthog.ip_restrictions import enforce_credential_ip_restrictions, enforce_ip_restrictions
 from posthog.llm.wizard_blocklist import GATEWAY_BEARING_SCOPES, WIZARD_BLOCKED_DETAIL
 from posthog.middleware import is_read_only_impersonation
@@ -1793,6 +1793,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 enforce_credential_ip_restrictions(
                     request, credentials["scoped_organizations"], credentials["scoped_teams"]
                 )
+                enforce_credential_two_factor(request, credentials["scoped_organizations"], credentials["scoped_teams"])
 
                 uri, headers, body, status_code = self.create_authorization_response(
                     request=request, scopes=scope_str, credentials=credentials, allow=True
@@ -1823,6 +1824,9 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                         credentials["scoped_teams"] = token.scoped_teams
                         credentials["scoped_organizations"] = token.scoped_organizations
                         enforce_credential_ip_restrictions(
+                            request, credentials["scoped_organizations"], credentials["scoped_teams"]
+                        )
+                        enforce_credential_two_factor(
                             request, credentials["scoped_organizations"], credentials["scoped_teams"]
                         )
                         # Conservative fallback: check every org the impersonated user belongs to,
@@ -2047,6 +2051,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             enforce_credential_ip_restrictions(
                 request, credentials["scoped_organizations"], credentials["scoped_teams"]
             )
+            enforce_credential_two_factor(request, credentials["scoped_organizations"], credentials["scoped_teams"])
 
             if block := _impersonation_ai_processing_block(
                 request,

@@ -2,11 +2,12 @@ import re
 import time
 import datetime
 import unicodedata
-from typing import Literal
+from typing import Literal, cast
 
 from django.conf import settings
 from django.contrib.auth.models import AbstractBaseUser
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
+from django.db.models import Q
 from django.http import HttpRequest
 from django.utils.crypto import constant_time_compare, salted_hmac
 
@@ -16,6 +17,7 @@ from loginas.utils import is_impersonated_session
 from posthoganalytics import capture_exception
 from prometheus_client import Counter
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.request import Request
 from two_factor.utils import default_device
 
 from posthog.cloud_utils import is_cloud, is_dev_mode
@@ -125,19 +127,40 @@ def is_two_factor_session_expired(request: HttpRequest) -> bool:
     return time.time() - session_created_at > settings.SESSION_COOKIE_AGE
 
 
-def enforce_two_factor(request, user):
+def enforce_two_factor(request, user, organization: Organization | None = None):
     """
     Enforce Two-Factor Authentication requirements for authenticated users in organizations that require it.
     Excludes paths that are whitelisted and domains that have SSO enforcement enabled.
+    `organization` defaults to the user's current organization.
     """
     if is_path_whitelisted(request.path):
         return
 
-    missing_step = missing_two_factor_step(request._request, user)
+    missing_step = missing_two_factor_step(request._request, user, organization)
     if missing_step == "setup":
         raise PermissionDenied(detail="2FA setup required", code="two_factor_setup_required")
     if missing_step == "verification":
         raise PermissionDenied(detail="2FA verification required", code="two_factor_verification_required")
+
+
+def enforce_credential_two_factor(
+    request: Request, scoped_organization_ids: list[str] | None, scoped_team_ids: list[int] | None
+) -> None:
+    """Refuse a credential that reaches an organization whose 2FA policy this session hasn't met.
+
+    Session auth checks the current organization only, and the credential never meets a 2FA check
+    later. A credential with no scope reaches every organization of the user.
+    """
+    user = cast(User, request.user)
+    organizations = user.organizations.filter(enforce_2fa=True)
+    if scoped_organization_ids or scoped_team_ids:
+        organizations = organizations.filter(
+            Q(id__in=scoped_organization_ids or []) | Q(team__id__in=scoped_team_ids or [])
+        )
+    # The policy is the same for every organization that enforces 2FA, so one is enough.
+    organization = organizations.first()
+    if organization is not None:
+        enforce_two_factor(request, user, organization)
 
 
 def missing_two_factor_step(
