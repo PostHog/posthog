@@ -92,6 +92,26 @@ class TestFastPropertyFiltersFirst(SimpleTestCase):
                 "properties.query.kind = 'deep' AND properties.fast IS NOT NULL",
                 ["fast", "deep"],
             ),
+            (
+                "whole_feature_flag_map_stays",
+                "properties.query.kind = 'deep' AND properties.$feature_flags = 'fast'",
+                ["deep", "fast"],
+            ),
+            (
+                "active_feature_flags_stay",
+                "properties.query.kind = 'deep' AND properties.$active_feature_flags = 'fast'",
+                ["deep", "fast"],
+            ),
+            (
+                "one_feature_flag_stays",
+                "properties.query.kind = 'deep' AND properties.`$feature/beta` = 'fast'",
+                ["deep", "fast"],
+            ),
+            (
+                "nothing_moves_ahead_of_a_function_that_numbers_the_rows_it_is_given",
+                "rowNumberInBlock() = length(properties.plan) - 7 AND properties.query_type = 'fast'",
+                ["seven", "fast"],
+            ),
         ]
     )
     def test_filter_order_on_the_native_table(self, _name: str, where: str, expected: list[str]) -> None:

@@ -16,12 +16,18 @@ also true for a row without the property, where ClickHouse never evaluates it, s
 filter that can fail on some rows, such as ``properties.plan::int > 0``, and every other filter. A filter that guards a
 later conversion therefore still runs before it. The position of a fast filter against filters on other columns
 changes nothing, because ClickHouse orders those by column size.
+
+Two more things keep their written order. A filter on ``$feature_flags``, ``$active_feature_flags`` or
+``$feature/<key>`` does, because the native table rebuilds each of them from the whole flag map, which is not a small
+read. A whole WHERE does when it calls a function such as ``rowNumberInBlock()``, because that function numbers the rows
+that reach it, and a filter moved ahead of it changes which rows those are.
 """
 
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
+from posthog.hogql.constants import is_virtual_feature_flag_key
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.schema.util.where_clause_extractor import top_level_conjuncts
+from posthog.hogql.database.schema.util.where_clause_extractor import is_nondeterministic_function, top_level_conjuncts
 from posthog.hogql.visitor import TraversingVisitor
 
 _POSITIVE_COMPARISONS = frozenset(
@@ -91,9 +97,27 @@ def _is_fast_property_filter(term: ast.Expr, context: HogQLContext) -> bool:
     return (
         isinstance(property_read, ast.PropertyAccess)
         and len(property_read.keys) == 1
+        and not is_virtual_feature_flag_key(str(property_read.keys[0]))
         and _is_constant(term.right)
         and _reads_a_json_column_path(property_read, context)
     )
+
+
+class _OrderSensitiveCallFinder(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.found = False
+
+    def visit_call(self, node: ast.Call) -> None:
+        if is_nondeterministic_function(node.name):
+            self.found = True
+        super().visit_call(node)
+
+
+def _calls_an_order_sensitive_function(expr: ast.Expr) -> bool:
+    finder = _OrderSensitiveCallFinder()
+    finder.visit(expr)
+    return finder.found
 
 
 class _FastPropertyFiltersFirst(TraversingVisitor):
@@ -110,7 +134,7 @@ class _FastPropertyFiltersFirst(TraversingVisitor):
         terms = top_level_conjuncts(node.where)
         is_fast = [_is_fast_property_filter(term, self.context) for term in terms]
         first_other = is_fast.index(False) if False in is_fast else len(terms)
-        if True not in is_fast[first_other:]:
+        if True not in is_fast[first_other:] or _calls_an_order_sensitive_function(node.where):
             return
 
         node.where = ast.And(
