@@ -845,7 +845,6 @@ export const VALID_RECORDING_ORDERS = [
     'mouse_activity_count',
     'activity_score',
     'recording_ttl',
-    'surfacing_score',
 ] as const
 
 export interface MatchingEventsResponse {
@@ -888,8 +887,6 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     having_predicates?: AnyPropertyFilter[] // duration and snapshot_source filters
     comment_text?: RecordingPropertyFilter // search comments by text content
     filter_test_accounts?: boolean
-    /** Restrict results to recordings above the replay relevance threshold. */
-    recommended_only?: boolean
     /**
      * @default "AND"
      * */
@@ -5548,6 +5545,8 @@ export interface MetricsQueryClause {
     groupBy?: MetricsQueryGroupBy[]
     /** In (0, 1); required for `quantile` / `histogram_quantile` aggregations */
     quantile?: number
+    /** Apdex threshold T in milliseconds for `posthog.derived.spans.apdex`: a request is satisfied at or under T and tolerating up to 4T. Defaults to 500. */
+    apdexThresholdMs?: number
 }
 
 export interface MetricsQueryPoint {
@@ -7915,6 +7914,8 @@ export interface PCADetectorConfig {
  * Hands the series to a model instead of a statistical test. Carries no preprocessing block:
  * differencing or smoothing would hide from the model exactly what it is meant to read.
  */
+export type LLMDetectorModel = 'claude-haiku-5-5' | 'gpt-6-luna'
+
 export interface LLMDetectorConfig {
     type: 'llm'
     /**
@@ -7922,6 +7923,11 @@ export interface LLMDetectorConfig {
      * @maxLength 2000
      */
     instructions?: string
+    /**
+     * The model that judges each check: claude-haiku-5-5 or gpt-6-luna. Optional. When it is not set, the
+     * alert uses claude-haiku-5-5.
+     */
+    model?: LLMDetectorModel
 }
 
 /**
@@ -7942,7 +7948,7 @@ export interface ForecastSideRule {
 /**
  * Forecasts the next point from the points before it, then compares the actual value with the
  * forecast. Carries no preprocessing block: the forecast reads the series as it is. With neither
- * side set, it fires outside the 0.05 to 0.95 forecast range on either side.
+ * side set, it fires outside the 0.01 to 0.99 forecast range on either side.
  */
 export interface ForecastDetectorConfig {
     type: 'forecast'

@@ -1680,7 +1680,7 @@ class TestPartnerBillingLockCoverage(SimpleTestCase):
 
 
 class TestBillingAccessCoverage(SimpleTestCase):
-    MEMBER_READ_ACTIONS = {"list", "period", "get_invoices", "credits_overview", "coupons_overview"}
+    MEMBER_READ_ACTIONS = {"list", "period", "credits_overview", "coupons_overview"}
     USAGE_SPEND_READ_ACTIONS = {"usage", "usage_team_options", "spend", "usage_export", "spend_export"}
     CHECKS_ACCESS_IN_METHOD_ACTIONS = {"apply_startup_program"}
 
@@ -3017,6 +3017,7 @@ class TestBillingPermissionDeniedForMembers(APILicensedTest):
                 BILLING_ACCESS_DENIED_MESSAGE,
             ),
             ("portal", "get", "/api/billing/portal", None, BILLING_ACCESS_DENIED_MESSAGE),
+            ("get_invoices", "get", "/api/billing/get_invoices?status=open", None, BILLING_ACCESS_DENIED_MESSAGE),
             (
                 "activate_trial",
                 "post",
@@ -3065,12 +3066,6 @@ class TestBillingPermissionDeniedForMembers(APILicensedTest):
         response = self.client.get("/api/billing")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_get_invoices_still_accessible(self):
-        response = self.client.get("/api/billing/get_invoices")
-        self.assertIn(
-            response.status_code, [status.HTTP_200_OK, status.HTTP_301_MOVED_PERMANENTLY, status.HTTP_302_FOUND]
-        )
-
     def test_credits_overview_still_accessible(self):
         response = self.client.get("/api/billing/credits/overview")
         self.assertIn(
@@ -3082,6 +3077,69 @@ class TestBillingPermissionDeniedForMembers(APILicensedTest):
         self.assertIn(
             response.status_code, [status.HTTP_200_OK, status.HTTP_301_MOVED_PERMANENTLY, status.HTTP_302_FOUND]
         )
+
+
+HOSTED_INVOICE_URL = "https://invoice.stripe.com/i/acct_test/test_invoice"
+
+
+@patch("ee.billing.billing_manager.http_session.get")
+class TestBillingGetInvoicesAccess(APILicensedTest):
+    """The invoice list carries the first invoice's hosted URL, which shows the invoice and lets
+    whoever holds it pay, so it needs full billing access like the portal."""
+
+    def _set_level(self, level: OrganizationMembership.Level) -> None:
+        self.organization_membership.level = level
+        self.organization_membership.save()
+
+    def _get_invoices(self, mock_get: MagicMock, owner_only_billing: bool) -> Any:
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = {"count": 1, "portal_url": HOSTED_INVOICE_URL}
+        with patch("ee.billing.grants.posthog_feature_flag_enabled") as mock_flag:
+            mock_flag.side_effect = lambda key, *args, **kwargs: key == OWNER_ONLY_BILLING_FLAG and owner_only_billing
+            return self.client.get("/api/billing/get_invoices?status=open")
+
+    @parameterized.expand(
+        [
+            ("member", OrganizationMembership.Level.MEMBER, False, False),
+            ("member_owner_only_billing", OrganizationMembership.Level.MEMBER, True, False),
+            ("admin", OrganizationMembership.Level.ADMIN, False, True),
+            ("admin_owner_only_billing", OrganizationMembership.Level.ADMIN, True, False),
+            ("owner", OrganizationMembership.Level.OWNER, False, True),
+            ("owner_owner_only_billing", OrganizationMembership.Level.OWNER, True, True),
+        ]
+    )
+    def test_requires_billing_access(
+        self,
+        mock_get: MagicMock,
+        _name: str,
+        level: OrganizationMembership.Level,
+        owner_only_billing: bool,
+        allowed: bool,
+    ) -> None:
+        self._set_level(level)
+
+        response = self._get_invoices(mock_get, owner_only_billing)
+
+        if allowed:
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json(), {"link": HOSTED_INVOICE_URL, "count": 1})
+        else:
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            self.assertEqual(response.json()["detail"], BILLING_ACCESS_DENIED_MESSAGE)
+            self.assertNotIn(HOSTED_INVOICE_URL, response.content.decode())
+            mock_get.assert_not_called()
+
+    def test_deactivated_organization_can_still_list_invoices(self, mock_get: MagicMock) -> None:
+        # A deactivated organization is often blocked for an unpaid balance, so whoever can pay must
+        # still reach the invoice that settles it.
+        self._set_level(OrganizationMembership.Level.OWNER)
+        self.organization.is_active = False
+        self.organization.save()
+
+        response = self._get_invoices(mock_get, owner_only_billing=False)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"link": HOSTED_INVOICE_URL, "count": 1})
 
 
 class TestResolveTeamLabels(SimpleTestCase):

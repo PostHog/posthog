@@ -5,8 +5,10 @@
 // holds it, so a failed send leaves the rows for the next tick. A send that succeeds but fails
 // to commit sends the rows again, and the event uuid (the row id) lets PostHog drop the copy.
 
+import https from 'node:https'
 import type { Pool, PoolClient } from 'pg'
 
+import type { ProxyAwareAgentOptions } from '../crypto/aws-kms'
 import type { AuditExportConfig } from '../lib/config'
 import { logger } from '../lib/logging'
 import { auditExportLagSeconds, auditExportedTotal } from './metrics'
@@ -50,7 +52,7 @@ export interface CaptureEvent {
  * Only these columns are ever selected. `details` and `jti` stay out of the event on purpose.
  * `fields` holds secret key names, never values.
  */
-export function toCaptureEvent(row: AuditRow): CaptureEvent {
+export function toCaptureEvent(row: AuditRow, environment: string): CaptureEvent {
     return {
         event: AUDIT_EVENT,
         distinct_id: AUDIT_DISTINCT_ID,
@@ -58,6 +60,7 @@ export function toCaptureEvent(row: AuditRow): CaptureEvent {
         timestamp: row.occurred_at.toISOString(),
         properties: {
             $process_person_profile: false,
+            environment,
             deployment: row.deployment,
             caller: row.caller,
             user_id: row.user_id === null ? null : Number(row.user_id),
@@ -77,11 +80,57 @@ export type TickResult = 'idle' | 'exported' | 'not_leader' | 'failed'
 
 export type Sender = (events: CaptureEvent[]) => Promise<void>
 
-/** Plain fetch, so it follows the pod's own proxy handling: direct unless Node is told to use the env proxy. */
-export function captureSender(config: AuditExportConfig, fetchFn: typeof fetch = fetch): Sender {
+/** A fetch-shaped POST over `node:https`. Node's fetch takes no agent, so it cannot use a proxy agent. */
+export function agentFetch(agent: https.Agent, timeoutMs: number): typeof fetch {
+    return ((url: URL, init: RequestInit) =>
+        new Promise<Response>((resolve, reject) => {
+            const req = https.request(
+                url,
+                {
+                    method: init.method,
+                    headers: init.headers as Record<string, string>,
+                    agent,
+                    signal: init.signal ?? undefined,
+                },
+                (res) => {
+                    clearTimeout(timer)
+                    // The promise is settled here, so a later reset only needs to not crash the process.
+                    res.on('error', (err) => logger.debug('audit:export_response_error', { error: err.message }))
+                    // The body is never read. Draining it frees the socket.
+                    res.resume()
+                    resolve(new Response(null, { status: res.statusCode ?? 502 }))
+                }
+            )
+            // Neither the abort signal nor a socket timeout fires while the proxy holds the CONNECT
+            // open without answering, because the request has no socket yet.
+            const timer = setTimeout(() => req.destroy(new Error('capture request timed out')), timeoutMs)
+            req.on('error', (err) => {
+                clearTimeout(timer)
+                reject(err)
+            })
+            req.end(init.body as string)
+        })) as unknown as typeof fetch
+}
+
+/**
+ * Sends direct by default. With `proxyUrl` it goes through the egress proxy, because Node's fetch
+ * ignores the pod's HTTPS_PROXY.
+ */
+export function captureSender(config: AuditExportConfig, fetchFn?: typeof fetch): Sender {
     const url = new URL('/batch/', config.host)
+    const doFetch =
+        fetchFn ??
+        (config.proxyUrl
+            ? agentFetch(
+                  new https.Agent({
+                      keepAlive: true,
+                      proxyEnv: { HTTPS_PROXY: config.proxyUrl },
+                  } as ProxyAwareAgentOptions),
+                  config.timeoutMs
+              )
+            : fetch)
     return async (events) => {
-        const res = await fetchFn(url, {
+        const res = await doFetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ api_key: config.apiKey, batch: events }),
@@ -102,7 +151,8 @@ export class AuditExporter {
     constructor(
         private readonly pool: Pool,
         private readonly send: Sender,
-        private readonly batchSize: number
+        private readonly batchSize: number,
+        private readonly environment: string
     ) {}
 
     /** Ends the current pass after its batch, so shutdown does not wait for the whole backlog. */
@@ -172,7 +222,7 @@ export class AuditExporter {
                 return 0
             }
             try {
-                await this.send(result.rows.map(toCaptureEvent))
+                await this.send(result.rows.map((row) => toCaptureEvent(row, this.environment)))
             } catch (err) {
                 auditExportedTotal.labels({ outcome: 'failed' }).inc(result.rows.length)
                 throw err

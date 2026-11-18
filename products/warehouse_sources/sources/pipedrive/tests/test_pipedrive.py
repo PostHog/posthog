@@ -19,7 +19,7 @@ from products.warehouse_sources.sources.pipedrive.pipedrive import (
     pipedrive_source,
     validate_credentials,
 )
-from products.warehouse_sources.sources.pipedrive.settings import endpoints_for_version
+from products.warehouse_sources.sources.pipedrive.settings import CALL_LOGS_PAGE_SIZE, endpoints_for_version
 from products.warehouse_sources.sources.sdk.internals import table_from_py_list
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, always, scripted_network
 
@@ -207,29 +207,33 @@ class TestPagination:
         assert session.send.call_count == 1
         manager.save_state.assert_not_called()
 
+    # `notes` is an offset-paginated endpoint under every version (activities is offset only under
+    # a v1 pin; the default is now v2, where it paginates by cursor). `/callLogs` caps pages at 50,
+    # so a larger limit would come back as a short page and end the walk after the first page.
+    @pytest.mark.parametrize("endpoint, page_size", [("notes", PAGE_SIZE), ("call_logs", CALL_LOGS_PAGE_SIZE)])
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_offset_endpoint_and_progresses_start(self, MockSession: mock.MagicMock) -> None:
+    def test_paginates_offset_endpoint_and_progresses_start(
+        self, MockSession: mock.MagicMock, endpoint: str, page_size: int
+    ) -> None:
         session = MockSession.return_value
-        full_page = [{"id": i} for i in range(PAGE_SIZE)]
+        full_page = [{"id": i} for i in range(page_size)]
         params = _wire(
             session,
             [
-                _response(full_page, {"pagination": {"more_items_in_collection": True, "next_start": PAGE_SIZE}}),
+                _response(full_page, {"pagination": {"more_items_in_collection": True, "next_start": page_size}}),
                 _response([{"id": 9999}], {"pagination": {"more_items_in_collection": False}}),
             ],
         )
 
         manager = _make_manager()
-        # `notes` is an offset-paginated endpoint under every version (activities is offset only
-        # under a v1 pin; the default is now v2, where it paginates by cursor).
-        rows = _rows(_source("notes", manager))
+        rows = _rows(_source(endpoint, manager))
 
-        assert [r["id"] for r in rows] == [*range(PAGE_SIZE), 9999]
+        assert [r["id"] for r in rows] == [*range(page_size), 9999]
         # OffsetPaginator injects start + limit; a full page advances start by the page size.
-        assert params[0] == {"start": 0, "limit": PAGE_SIZE}
-        assert params[1] == {"start": PAGE_SIZE, "limit": PAGE_SIZE}
+        assert params[0] == {"start": 0, "limit": page_size}
+        assert params[1] == {"start": page_size, "limit": page_size}
         # Short second page ends pagination; checkpoint saved once after the first (full) page.
-        manager.save_state.assert_called_once_with(PipedriveResumeConfig(paginator_state={"offset": PAGE_SIZE}))
+        manager.save_state.assert_called_once_with(PipedriveResumeConfig(paginator_state={"offset": page_size}))
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_short_first_page_makes_one_request_and_no_checkpoint(self, MockSession: mock.MagicMock) -> None:
@@ -318,7 +322,7 @@ class TestPagination:
 
 
 class TestLookupEndpoints:
-    @pytest.mark.parametrize("endpoint", ["lead_labels", "activity_types", "project_boards"])
+    @pytest.mark.parametrize("endpoint", ["lead_labels", "activity_types", "currencies", "project_boards"])
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_reads_every_row_in_one_request(self, MockSession: mock.MagicMock, endpoint: str) -> None:
         session = MockSession.return_value
@@ -328,6 +332,32 @@ class TestLookupEndpoints:
         rows = _rows(_source(endpoint, _make_manager()))
 
         assert len(rows) == PAGE_SIZE + 100
+        assert session.send.call_count == 1
+        assert params == [{}]
+
+    @pytest.mark.parametrize(
+        "body, expected_ids",
+        [
+            ({"data": {"goals": [{"id": "g1"}, {"id": "g2"}]}}, ["g1", "g2"]),
+            ({"data": {"goals": []}}, []),
+            ({"data": {"goals": None}}, []),
+            ({"data": None}, []),
+        ],
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_goals_reads_rows_under_the_goals_key(
+        self, MockSession: mock.MagicMock, body: dict[str, Any], expected_ids: list[str]
+    ) -> None:
+        session = MockSession.return_value
+        resp = Response()
+        resp.status_code = 200
+        resp.url = f"{BASE}/api/v1/goals/find"
+        resp._content = json.dumps({"success": True, **body}).encode()
+        params = _wire(session, [resp])
+
+        rows = _rows(_source("goals", _make_manager()))
+
+        assert [row["id"] for row in rows] == expected_ids
         assert session.send.call_count == 1
         assert params == [{}]
 
