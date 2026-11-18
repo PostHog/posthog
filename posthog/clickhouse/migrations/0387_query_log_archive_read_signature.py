@@ -279,8 +279,10 @@ def _roles() -> _Roles:
     """Read table and write path roles for the current deployment."""
     shared = [NodeRole.DATA, NodeRole.AUX, NodeRole.AI_EVENTS, NodeRole.SESSIONS, NodeRole.LOGS, NodeRole.OPS]
     if run_mode().is_deployed_cloud:
+        # 0273 creates the read table on all roles, but not the write path on batch exports.
         return _Roles(
-            read_table=shared, write_path=[*shared, NodeRole.METRICS, NodeRole.INGESTION_METRICS, NodeRole.APM]
+            read_table=[*shared, NodeRole.BATCH_EXPORTS],
+            write_path=[*shared, NodeRole.METRICS, NodeRole.INGESTION_METRICS, NodeRole.APM],
         )
     # The multinode stack's logs node holds only the read table, and its ingestion nodes hold it too.
     read_roles = [*shared, NodeRole.INGESTION_EVENTS, NodeRole.INGESTION_SMALL, NodeRole.INGESTION_MEDIUM]
