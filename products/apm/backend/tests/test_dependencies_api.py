@@ -201,6 +201,11 @@ class TestDependenciesAPI(ClickhouseTestMixin, APIBaseTest):
             [(e["caller"], e["callee"], e["inferred"]) for e in self._get(service="payments.example.com")["edges"]],
             [("api", "payments.example.com", True)],
         )
+        # No attribute holds the whole name of a database node, only its system and namespace apart.
+        self.assertEqual(
+            [(e["caller"], e["callee"], e["inferred"]) for e in self._get(service="postgresql:orders")["edges"]],
+            [("api", "postgresql:orders", True)],
+        )
 
     def test_session_request_is_refused_while_the_team_logs_api_slots_are_full(self) -> None:
         limiter = get_logs_api_team_rate_limiter()

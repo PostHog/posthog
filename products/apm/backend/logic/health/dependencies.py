@@ -38,9 +38,10 @@ _CALL_KINDS = "(3, 4)"
 
 
 def _attr(key: str) -> str:
-    # HogQL returns null for a missing map key, and reads a null comparison as true, so every
-    # attribute is read as a string with missing keys as empty.
-    return f"ifNull(attributes['{key}'], '')"
+    # `attributes` is an alias that rebuilds the whole map for every row, so the key is read from the
+    # type-suffixed backing map instead. arrayElement returns an empty string for a missing key, where
+    # HogQL's subscript returns null and reads a null comparison as true.
+    return f"arrayElement(attributes_map_str, '{key}__str')"
 
 
 def _has(key: str) -> str:
@@ -178,16 +179,25 @@ def _service_traces_where(
     # spans. The scans and the join then see only those traces instead of the whole environment.
     if not service:
         return ast.Constant(value=True)
+    # Reading any attribute costs about as much as reading the whole attributes map for every span
+    # in the window, which alone can pass the byte cap on an hour. A call span that names the service
+    # carries it, or the database or queue system before the first colon, as a whole attribute value,
+    # so the bloom filter index on the map values skips the granules that cannot match.
+    values = [service] if ":" not in service else [service, service.split(":", 1)[0]]
     return parse_expr(
         f"""trace_id IN (
             SELECT trace_id FROM posthog.trace_spans
-            WHERE {{where}} AND {{env_where}}
-                AND (service_name = {{service}} OR (kind IN {_CALL_KINDS} AND {_TARGET} = {{service}}))
+            WHERE {{where}} AND {{env_where}} AND service_name = {{service}}
+        ) OR trace_id IN (
+            SELECT trace_id FROM posthog.trace_spans
+            WHERE {{where}} AND {{env_where}} AND kind IN {_CALL_KINDS}
+                AND hasAny(mapValues(attributes_map_str), {{values}}) AND {_TARGET} = {{service}}
         )""",
         placeholders={
             "where": window_where(date_from, date_to),
             "env_where": environment_where(environment),
             "service": ast.Constant(value=service),
+            "values": ast.Array(exprs=[ast.Constant(value=value) for value in values]),
         },
     )
 
