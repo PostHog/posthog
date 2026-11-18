@@ -47,6 +47,15 @@ import {
     terminateRoleConnections,
 } from './stack'
 import { RoleExit, createSupervisor } from './supervisor'
+import {
+    WORKFLOWS_ADAPTER,
+    Wiring,
+    kafkaGroups,
+    postgresClients,
+    scenarioGroupsOf,
+    unionOf,
+    wiringOf,
+} from './topology'
 import { writerCpuOf } from './writer-cpu'
 
 export type { RoleExit } from './supervisor'
@@ -61,6 +70,7 @@ export interface Environment {
     dependencyHealth(): Promise<{ healthy: boolean; down: string[] }>
     exits(): RoleExit[]
     groupLag(group: string): Promise<number>
+    wiring(signal: AbortSignal): Promise<Wiring>
     writerCpu(manifest: RunManifest, window: DriveWindow, signal: AbortSignal): Promise<CpuPoint[]>
     down(): Promise<void>
 }
@@ -272,6 +282,17 @@ export function createEnvironment({
 
         groupLag: (group) => groupLag(group, docker),
 
+        async wiring(signal) {
+            const clients = await Promise.all(postgresServers.map((server) => postgresClients(server)))
+            return wiringOf({
+                adapter: WORKFLOWS_ADAPTER,
+                specs: running,
+                groups: await kafkaGroups(docker, signal),
+                clients: clients.flat(),
+                recordedAt: new Date(),
+            })
+        },
+
         writerCpu: (manifest, window, signal) => writerCpuOf(aws ?? awsCli(env), manifest, window, signal),
 
         down: stop,
@@ -286,10 +307,11 @@ export function createEnvironment({
 
     async function resetRoles(edge: ProviderEdge, settings: Profile['settings'], replicas: Replicas): Promise<void> {
         const exitsBefore = supervisor.exits().length
+        const joined = await kafkaGroups(docker).then(scenarioGroupsOf, () => [])
         await supervisor.stop()
         const specs = roleSpecs(env, edge, secrets, stateDir, settings, sesRateLimiterValkey, replicas)
         running = specs
-        const groups = consumerGroupsOf(specs)
+        const groups = unionOf(consumerGroupsOf(specs), joined)
         await waitForExpect(
             async () => {
                 const busy = await groupsWithMembers(groups, docker)
