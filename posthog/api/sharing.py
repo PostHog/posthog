@@ -32,7 +32,7 @@ from posthog.api.data_color_theme import DataColorTheme, PublicDataColorThemeSer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_dict
 from posthog.api.shared import TeamPublicSerializer
-from posthog.api.sharing_publish_gate import insights_denied_to, share_access_error
+from posthog.api.sharing_publish_gate import share_access_error
 from posthog.auth import (
     SharingAccessTokenAuthentication,
     SharingPasswordProtectedAuthentication,
@@ -90,11 +90,7 @@ from products.exports.backend.url_security import is_heatmap_url_allowed
 from products.notebooks.backend.facade.content import extract_inline_query_nodes, filter_notebook_content_for_sharing
 from products.notebooks.backend.models import Notebook
 from products.notebooks.backend.presentation.views.notebook import NotebookSerializer
-from products.product_analytics.backend.facade.api import (
-    insight_variables_for_team,
-    insights_in_project,
-    record_insight_view,
-)
+from products.product_analytics.backend.facade.api import insight_variables_for_team, record_insight_view
 from products.product_analytics.backend.facade.models import Insight
 from products.product_analytics.backend.presentation.insight import InsightSerializer
 
@@ -566,20 +562,14 @@ class SharingConfigurationViewSet(
             instance = self._get_sharing_configuration(context, dedupe=True)
             if share_denied_message and not instance.enabled:
                 raise ValidationError(share_denied_message)
-            if gate_applies and instance.notebook is not None:
-                instance.notebook.refresh_from_db(fields=["content", "deleted"])
-            if (
-                gate_applies
-                and not instance.enabled
-                and insights_denied_to(
-                    self.user_access_control,
-                    insights_in_project(
-                        project_id=self.team.project_id, insight_ids=instance.get_connected_insight_ids()
-                    ),
-                )
-            ):
-                # Tiles can change between the check above and this lock, so the insight half runs again.
-                raise ValidationError("You don't have access to every insight this share would expose.")
+            if gate_applies and not instance.enabled:
+                if instance.notebook is not None:
+                    instance.notebook.refresh_from_db(fields=["content", "deleted"])
+                # Tiles and notebook content can change between the check above and this lock, so it runs again.
+                if locked_denied_message := share_access_error(
+                    cast(User, request.user), self.team, instance, self.user_access_control
+                ):
+                    raise ValidationError(locked_denied_message)
             serializer.instance = instance
             was_enabled = instance.enabled
             serializer.save(**({"shared_by": request.user} if serializer.validated_data.get("enabled") else {}))

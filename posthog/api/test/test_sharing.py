@@ -2628,17 +2628,20 @@ class TestSharingPublishGate(APIBaseTest):
     @patch("posthog.api.sharing.export_asset_for_opengraph")
     @patch("posthog.models.sharing_configuration.SharingConfiguration.lock_resource")
     @patch("posthog.api.sharing.share_access_error")
-    def test_publish_validation_runs_before_resource_lock(self, check: Mock, lock: Mock, _export: Mock) -> None:
+    def test_publish_validation_runs_before_and_again_under_resource_lock(
+        self, check: Mock, lock: Mock, _export: Mock
+    ) -> None:
+        locked_at_call: list[bool] = []
+
         def validate(*args: Any) -> str | None:
-            lock.assert_not_called()
+            locked_at_call.append(lock.called)
             return None
 
         check.side_effect = validate
         response = self._enable_sharing("dashboard")
 
         assert response.status_code == status.HTTP_200_OK, response.content
-        check.assert_called_once()
-        lock.assert_called_once()
+        assert locked_at_call == [False, True]
 
     @patch("posthog.api.sharing.share_access_error")
     def test_enable_checks_current_state_after_concurrent_disable(self, check: Mock) -> None:
