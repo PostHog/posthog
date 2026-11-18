@@ -52,7 +52,6 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 _ACCOUNT_LOOKUP_CHUNK_SIZE = 1_000
-_SEGMENT_EXTERNAL_ID_CHUNK_SIZE = 10_000
 _PARQUET_BATCH_SIZE = 50_000
 _CHECKPOINT_INTERVAL_SECONDS = 60.0
 _SEGMENTS_REQUIRED_FOR_CLEANUP = frozenset({"tracked", "ignored"})
@@ -390,9 +389,7 @@ def _segment_accounts(team_id: int, segment: AccountPropertySyncSegment) -> Quer
 
 def _segment_external_ids(team_id: int, segment: AccountPropertySyncSegment) -> frozenset[str]:
     external_ids = _segment_accounts(team_id, segment).values_list("external_id", flat=True)
-    return frozenset(
-        external_id for external_id in external_ids.iterator(chunk_size=_SEGMENT_EXTERNAL_ID_CHUNK_SIZE) if external_id
-    )
+    return frozenset(external_id for external_id in external_ids.iterator() if external_id)
 
 
 def _matching_account_ids(
