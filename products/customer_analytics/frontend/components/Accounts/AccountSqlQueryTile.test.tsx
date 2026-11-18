@@ -1,5 +1,6 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import posthog from 'posthog-js'
+import { autocapturePropertiesForElement } from 'posthog-js/lib/src/autocapture'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -84,7 +85,16 @@ describe('AccountSqlQueryTile', () => {
                     }}
                 />
             )
-            expect(await screen.findByText(JSON.stringify(value))).not.toBeNull()
+            const cell = await screen.findByText(JSON.stringify(value))
+            const result = autocapturePropertiesForElement(cell, {
+                e: new Event('copy', { bubbles: true }),
+                maskAllElementAttributes: false,
+                maskAllText: false,
+                elementsChainAsString: false,
+                disableCaptureUrlHashes: false,
+            })
+            expect(result.explicitNoCapture).toBe(true)
+            expect(result.props).toEqual({})
             expect(container.querySelector('a[href="https://example.com/details"]')).toBeNull()
         }
     )

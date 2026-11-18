@@ -2,11 +2,14 @@ import json
 from pathlib import Path
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
+
+from posthog.hogql.database.database import Database
 
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, PersonalAPIKey, Team, User
@@ -35,6 +38,29 @@ def account_view_content(*components: str) -> dict:
 
 
 class TestAccountViewContentValidation(SimpleTestCase):
+    @parameterized.expand([(50, True), (51, False)])
+    def test_component_count_limit(self, count: int, valid: bool) -> None:
+        content = account_view_content(*(f'<Usage nodeId="usage-{index}" />' for index in range(count)))
+        if valid:
+            validate_account_view_content(content)
+        else:
+            with self.assertRaises(InvalidAccountViewContent) as error:
+                validate_account_view_content(content)
+            assert error.exception.errors == ["Account views support up to 50 components."]
+
+    @parameterized.expand([(10, True), (11, False)])
+    def test_sql_component_count_limit(self, count: int, valid: bool) -> None:
+        config = json.dumps({"query": "SELECT name FROM system.accounts WHERE external_id = {account_external_id}"})
+        content = account_view_content(
+            *(f'<SqlQuery nodeId="sql-{index}" config={{{config}}} />' for index in range(count))
+        )
+        if valid:
+            validate_account_view_content(content)
+        else:
+            with self.assertRaises(InvalidAccountViewContent) as error:
+                validate_account_view_content(content)
+            assert error.exception.errors == ["Account views support up to 10 SQL query components."]
+
     @parameterized.expand(
         [
             ("unknown_native_key", {"properties": [{"kind": "account", "key": "arbitrary_key"}]}),
@@ -158,7 +184,7 @@ class TestAccountViewContentValidation(SimpleTestCase):
                     {"query": case["query"]},
                     None
                     if case["valid"]
-                    else "SQL query must filter by {account_external_id} in every SELECT's WHERE.",
+                    else case.get("error", "SQL query must filter by {account_external_id} in every SELECT's WHERE."),
                 )
                 for case in json.loads(
                     (Path(__file__).parents[2] / "frontend/components/Accounts/accountSqlQuery.test.json").read_text()
@@ -195,6 +221,37 @@ class TestAccountViewContentValidation(SimpleTestCase):
 
 
 class TestAccountViews(APIBaseTest):
+    def test_sql_widgets_share_one_catalog_per_save(self) -> None:
+        content = account_view_content(
+            *(
+                f'<SqlQuery nodeId="sql-{index}" config={{{json.dumps({"query": query})}}} />'
+                for index, query in enumerate(
+                    [
+                        "SELECT name FROM system.accounts WHERE external_id = {account_external_id}",
+                        "SELECT external_id FROM system.accounts WHERE external_id = {account_external_id}",
+                    ]
+                )
+            )
+        )
+        with patch.object(Database, "create_for", wraps=Database.create_for) as create_catalog:
+            response = self.client.post(self.endpoint, {"name": "SQL view", "content": content}, format="json")
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert create_catalog.call_count == 1
+        assert AccountView.objects.for_team(self.team.id).get(id=response.json()["id"]).content == content
+
+    def test_sql_validation_deadline_prevents_saving(self) -> None:
+        content = account_view_content(
+            *(
+                f'<SqlQuery nodeId="sql-{index}" config={{{json.dumps({"query": f"SELECT name FROM system.accounts WHERE external_id = {{account_external_id}} LIMIT {index + 1}"})}}} />'
+                for index in range(3)
+            )
+        )
+        with patch("products.customer_analytics.backend.logic.account_views.monotonic", side_effect=[0, 0, 0, 3, 3, 6]):
+            response = self.client.post(self.endpoint, {"name": "SQL view", "content": content}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "SQL validation took too long" in str(response.json())
+        assert not AccountView.objects.for_team(self.team.id).filter(name="SQL view").exists()
+
     @parameterized.expand([(False, status.HTTP_403_FORBIDDEN), (True, status.HTTP_201_CREATED)])
     def test_sql_widget_writes_require_query_scope(self, can_query: bool, expected_status: int) -> None:
         view = self._create()

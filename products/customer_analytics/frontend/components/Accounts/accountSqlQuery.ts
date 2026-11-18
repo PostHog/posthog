@@ -55,6 +55,19 @@ function isAccountSqlQueryAstScoped(value: unknown, aliases: Set<string>): boole
         return true
     }
     const node = value as ASTNode
+    if (node.node === 'Placeholder') {
+        return (
+            node.expr?.node === 'Field' &&
+            node.expr.chain.length === 1 &&
+            node.expr.chain[0] === ACCOUNT_SQL_QUERY_PLACEHOLDER_NAME
+        )
+    }
+    if (
+        node.node === 'JoinExpr' &&
+        (!['Field', 'SelectQuery', 'SelectSetQuery'].includes(node.table?.node) || node.table_args?.length)
+    ) {
+        return false
+    }
     if (node.node === 'SelectQuery') {
         if (node.select_from?.next_join || !node.select_from || !isAccountSqlQueryFilter(node.where, aliases)) {
             return false

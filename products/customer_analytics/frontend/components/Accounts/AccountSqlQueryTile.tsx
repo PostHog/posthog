@@ -71,7 +71,7 @@ export function AccountSqlQueryTile({
     }
     return (
         <div
-            className={clsx('AccountSqlQueryTile', {
+            className={clsx('AccountSqlQueryTile ph-no-capture', {
                 'AccountSqlQueryTile--chart flex h-80 flex-col has-[.DataVisualizationTable]:h-auto': isSavedChart,
                 'AccountSqlQueryTile--table': !onVisualizationChange && !isSavedChart,
             })}

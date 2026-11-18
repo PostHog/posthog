@@ -1,6 +1,9 @@
 import re
 import json
+from collections import Counter
 from collections.abc import Callable
+from functools import cached_property
+from time import monotonic
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -19,6 +22,8 @@ from products.notebooks.backend.facade import content as notebook_content
 from products.notebooks.backend.facade.contracts import NotebookMarkdownContentInvalid
 
 if TYPE_CHECKING:
+    from posthog.hogql.database.database import Database
+
     from posthog.models.team import Team
     from posthog.models.user import User
 
@@ -42,6 +47,9 @@ ACCOUNT_VIEW_COMPONENT_LABELS = {
 ACCOUNT_VIEW_ALLOWED_PROPS = {"config", "nodeId", "span", "title"}
 ACCOUNT_VIEW_COMPONENT_TITLE_MAX_LENGTH = 400
 ACCOUNT_VIEW_CONFIG_MAX_BYTES = 16_384
+ACCOUNT_VIEW_MAX_COMPONENTS = 50
+ACCOUNT_VIEW_COMPONENT_LIMITS = {"SqlQuery": 10}
+ACCOUNT_VIEW_SQL_VALIDATION_SECONDS = 5
 DOT_MATRIX_PRESET_SOURCES = ("usage_metrics", "product_usage")
 DOT_MATRIX_REQUIRED_MAPPING = frozenset({"row", "column"})
 DOT_MATRIX_MAPPING_KEYS = frozenset({"row", "column", "series", "value", "user", "rowLabel"})
@@ -112,6 +120,15 @@ class AccountSqlQueryScopeValidator(TraversingVisitor):
         if not node.select_from or not is_account_sql_query_filter(node.where, self.aliases):
             raise InvalidAccountViewContent(["SQL query must filter by {account_external_id} in every SELECT's WHERE."])
         super().visit_select_query(node)
+
+    def visit_placeholder(self, node: ast.Placeholder) -> None:
+        if not isinstance(node.expr, ast.Field) or node.expr.chain != ["account_external_id"]:
+            raise InvalidAccountViewContent(["SQL account widgets only support the {account_external_id} placeholder."])
+
+    def visit_join_expr(self, node: ast.JoinExpr) -> None:
+        if not isinstance(node.table, ast.Field | ast.SelectQuery | ast.SelectSetQuery) or node.table_args:
+            raise InvalidAccountViewContent(["SQL account widgets require a table name or scoped subquery in FROM."])
+        super().visit_join_expr(node)
 
 
 class InvalidAccountViewContent(ValueError):
@@ -293,39 +310,72 @@ ACCOUNT_VIEW_CONFIG_VALIDATORS: dict[str, Callable[[dict[str, Any]], list[str]]]
 }
 
 
-def authorize_sql_query_widget_config(config: dict[str, Any], team: "Team", user: "User", can_query: bool) -> None:
-    if not can_query:
-        raise AccountViewPermissionDenied("Saving SQL widgets requires the query:read API scope.")
+class AccountViewQueryAccess:
+    def __init__(self, team: "Team", user: "User", can_query: bool) -> None:
+        self.team = team
+        self.user = user
+        self.can_query = can_query
+        self.deadline = monotonic() + ACCOUNT_VIEW_SQL_VALIDATION_SECONDS
+        self.authorized_queries: set[str] = set()
 
-    from posthog.schema import HogLanguage, HogQLMetadata  # noqa: PLC0415 -- load query schemas only for SQL writes
+    @cached_property
+    def database(self) -> "Database":
+        from posthog.hogql.database.database import Database  # noqa: PLC0415 -- load the catalog only for SQL writes
 
-    from posthog.hogql.metadata import get_hogql_metadata  # noqa: PLC0415 -- load the query engine only for SQL writes
+        database = Database.create_for(team=self.team, user=self.user, trigger="metadata")
+        self.check_deadline()
+        return database
 
-    metadata = get_hogql_metadata(
-        HogQLMetadata(
-            language=HogLanguage.HOG_QL,
-            query=config["query"],
-            globals={"account_external_id": ""},
-            freshSources=True,
-        ),
-        team=team,
-        user=user,
-    )
-    if not metadata.isValid:
-        raise AccountViewPermissionDenied("The SQL query must be valid and accessible to the person saving it.")
+    def check_deadline(self) -> None:
+        if monotonic() >= self.deadline:
+            raise InvalidAccountViewContent(["SQL validation took too long. Try fewer or simpler SQL widgets."])
+
+    def authorize_query(self, query: str) -> None:
+        if not self.can_query:
+            raise AccountViewPermissionDenied("Saving SQL widgets requires the query:read API scope.")
+        if query in self.authorized_queries:
+            return
+        self.check_deadline()
+
+        from posthog.schema import HogLanguage, HogQLMetadata  # noqa: PLC0415 -- load query schemas only for SQL writes
+
+        from posthog.hogql.metadata import (
+            get_hogql_metadata,  # noqa: PLC0415 -- load the query engine only for SQL writes
+        )
+
+        metadata = get_hogql_metadata(
+            HogQLMetadata(
+                language=HogLanguage.HOG_QL,
+                query=query,
+                globals={"account_external_id": ""},
+                freshSources=True,
+            ),
+            team=self.team,
+            user=self.user,
+            database=self.database,
+        )
+        self.check_deadline()
+        if not metadata.isValid:
+            raise AccountViewPermissionDenied("The SQL query must be valid and accessible to the person saving it.")
+        self.authorized_queries.add(query)
 
 
-ACCOUNT_VIEW_CONFIG_AUTHORIZERS: dict[str, Callable[[dict[str, Any], "Team", "User", bool], None]] = {
+def authorize_sql_query_widget_config(config: dict[str, Any], access: AccountViewQueryAccess) -> None:
+    access.authorize_query(config["query"])
+
+
+ACCOUNT_VIEW_CONFIG_AUTHORIZERS: dict[str, Callable[[dict[str, Any], AccountViewQueryAccess], None]] = {
     "SqlQuery": authorize_sql_query_widget_config,
 }
 
 
 def authorize_account_view_content(content: dict[str, Any], *, team: "Team", user: "User", can_query: bool) -> None:
     validated_content, _ = validate_account_view_content(content)
+    access = AccountViewQueryAccess(team, user, can_query)
     for component in notebook_content.parse_markdown_component_document(validated_content):
         config = component.props.get("config")
         if config is not None and (authorize_config := ACCOUNT_VIEW_CONFIG_AUTHORIZERS.get(component.tag_name)):
-            authorize_config(config, team, user, can_query)
+            authorize_config(config, access)
 
 
 def validate_account_view_content(content: dict[str, Any]) -> tuple[dict[str, Any], str]:
@@ -336,6 +386,14 @@ def validate_account_view_content(content: dict[str, Any]) -> tuple[dict[str, An
 
     if not components:
         raise InvalidAccountViewContent(["Add at least one component."])
+    if len(components) > ACCOUNT_VIEW_MAX_COMPONENTS:
+        raise InvalidAccountViewContent([f"Account views support up to {ACCOUNT_VIEW_MAX_COMPONENTS} components."])
+    component_counts = Counter(component.tag_name for component in components)
+    for tag_name, limit in ACCOUNT_VIEW_COMPONENT_LIMITS.items():
+        if component_counts[tag_name] > limit:
+            raise InvalidAccountViewContent(
+                [f"Account views support up to {limit} {ACCOUNT_VIEW_COMPONENT_LABELS[tag_name]} components."]
+            )
 
     errors: list[str] = []
     node_ids: set[str] = set()
