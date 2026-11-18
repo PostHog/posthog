@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
@@ -59,8 +60,25 @@ describe('metricsSummaryLogic', () => {
         expect(logic.values.filteredMetrics.map((metric) => metric.name)).toEqual(['queue.depth'])
     })
 
-    it('opens a clicked metric in the viewer', async () => {
+    it('asks the server to search when the catalog is truncated', async () => {
         await expectLogic(logic).toDispatchActions(['loadMetricsSuccess'])
+        logic.actions.setCatalogTruncated(true)
+
+        await expectLogic(logic, () => {
+            logic.actions.setSearch('queue')
+        }).toDispatchActions(['loadMetricsSuccess'])
+
+        expect(jest.mocked(metricsValuesRetrieve).mock.lastCall?.[1]).toMatchObject({ value: 'queue' })
+    })
+
+    it('opens a clicked metric in the viewer as a builder query', async () => {
+        await expectLogic(logic).toDispatchActions(['loadMetricsSuccess'])
+        metricsViewerLogic.actions.applyQuery({
+            kind: NodeKind.MetricsQuery,
+            clauses: [],
+            language: 'promql',
+            promql: 'up',
+        })
 
         await expectLogic(logic, () => {
             logic.actions.viewMetric('queue.depth')
@@ -69,5 +87,6 @@ describe('metricsSummaryLogic', () => {
             metricsSceneLogic.actionCreators.setActiveTab('viewer'),
         ])
         expect(metricsSceneLogic.values.activeTab).toBe('viewer')
+        expect(metricsViewerLogic.values.language).toBe('builder')
     })
 })

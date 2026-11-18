@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonInput, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTable, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -8,8 +8,9 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { SUMMARY_LIMIT, metricsSummaryLogic } from './metricsSummaryLogic'
 
 export const MetricsSummaryTable = (): JSX.Element => {
-    const { filteredMetrics, metrics, metricsLoading, search } = useValues(metricsSummaryLogic)
-    const { setSearch, viewMetric } = useActions(metricsSummaryLogic)
+    const { filteredMetrics, metrics, metricsLoading, metricsFailed, search, catalogTruncated } =
+        useValues(metricsSummaryLogic)
+    const { setSearch, viewMetric, loadMetrics } = useActions(metricsSummaryLogic)
 
     return (
         <div className="flex flex-col gap-2">
@@ -30,9 +31,22 @@ export const MetricsSummaryTable = (): JSX.Element => {
                 rowKey="name"
                 pagination={{ pageSize: 50 }}
                 defaultSorting={{ columnKey: 'series_count', order: -1 }}
-                emptyState={search ? 'No metrics match this filter.' : 'No metrics have arrived in the last 24 hours.'}
+                emptyState={
+                    metricsFailed ? (
+                        <div className="flex flex-col items-center gap-2">
+                            <span>Couldn't load metrics.</span>
+                            <LemonButton type="secondary" size="small" onClick={() => loadMetrics()}>
+                                Try again
+                            </LemonButton>
+                        </div>
+                    ) : search ? (
+                        'No metrics match this filter.'
+                    ) : (
+                        'No metrics have arrived in the last 24 hours.'
+                    )
+                }
                 footer={
-                    metrics.length >= SUMMARY_LIMIT ? (
+                    catalogTruncated && metrics.length >= SUMMARY_LIMIT ? (
                         <div className="text-xs text-secondary p-2">
                             Showing the first {SUMMARY_LIMIT} metrics. Filter to narrow the list.
                         </div>

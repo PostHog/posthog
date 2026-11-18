@@ -20,6 +20,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.visitor import clone_expr
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.metrics.backend.facade.contracts import MAX_SPARKLINE_BATCH_SIZE
@@ -37,6 +38,15 @@ _SPARKLINE_QUERY_SETTINGS = HogQLGlobalSettings(
     max_bytes_to_read=HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES,
     read_overflow_mode="throw",
 )
+
+
+@frozen
+class SeriesStats:
+    series_count: int
+    tag_key_count: int
+
+
+_NO_SERIES_STATS = SeriesStats(series_count=0, tag_key_count=0)
 
 METRIC_NAMES_CACHE_TTL = 60
 
@@ -281,9 +291,9 @@ class MetricNamesQueryRunner:
             if first_seen is not None:
                 row["first_seen"] = _isoformat(first_seen.get(name))
             if series_stats is not None:
-                series_count, tag_key_count = series_stats.get(name, (0, 0))
-                row["series_count"] = series_count
-                row["tag_key_count"] = tag_key_count
+                stats = series_stats.get(name, _NO_SERIES_STATS)
+                row["series_count"] = stats.series_count
+                row["tag_key_count"] = stats.tag_key_count
             rows.append(row)
         return rows
 
@@ -320,8 +330,11 @@ class MetricNamesQueryRunner:
         )
         return dict(response.results)
 
-    def _series_stats(self, names: Sequence[str]) -> dict[str, tuple[int, int]]:
-        """Approximate series count and distinct datapoint attribute key count per name, within the lookback."""
+    def _series_stats(self, names: Sequence[str]) -> dict[str, SeriesStats]:
+        """Approximate series count and distinct datapoint attribute key count per name, within the lookback.
+
+        Throws at the read budget: a partial scan would undercount exactly the metrics with the most series.
+        """
         if not names:
             return {}
         # uniq(series_fingerprint) matches how the overview counts active series.
@@ -351,9 +364,12 @@ class MetricNamesQueryRunner:
             query=query,
             team=self.team,
             workload=Workload.METRICS,
-            settings=_QUERY_SETTINGS,
+            settings=_SPARKLINE_QUERY_SETTINGS,
         )
-        return {name: (int(series), int(tag_keys)) for name, series, tag_keys in response.results}
+        return {
+            name: SeriesStats(series_count=int(series), tag_key_count=int(tag_keys))
+            for name, series, tag_keys in response.results
+        }
 
     def _sparklines(self, names: Sequence[str]) -> dict[str, list[float]]:
         if not names:
