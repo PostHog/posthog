@@ -7,6 +7,7 @@ import { logger } from '~/common/utils/logger'
 import { UUID, UUIDT } from '~/common/utils/utils'
 import { Team } from '~/types'
 
+import { Settlement } from '../../intake/intake-producer'
 import { Claim, Committed, Produced, Recalled, Run, RunIntake, keyedRunId } from '../../intake/run-intake'
 import { HogFlow } from '../../schema/hogflow'
 import {
@@ -320,7 +321,10 @@ export class TransactionalSends {
         request: TransactionalEmailRequest,
         stages: TransactionalEmailStageTimer,
         files: SendFiles,
-        sender: CodeSendSender = { kind: 'own' }
+        sender: CodeSendSender = { kind: 'own' },
+        // Collects this send's publishes, so a caller that bounds its sends in flight can wait them out past the ack
+        // deadline.
+        settlement?: Settlement
     ): Promise<TransactionalSendResult> {
         const senderKind = sender.kind === 'email_sandbox' ? sender.kind : undefined
         const { idempotencyKeys } = this.deps
@@ -459,11 +463,11 @@ export class TransactionalSends {
             }
             if (isAsync) {
                 stages.start('intake_produce')
-                const produced = await this.deps.runIntake.produce(run)
+                const produced = await this.deps.runIntake.produce(run, settlement)
                 return producedResult(produced, invocation.id, scheduledAt, attachmentTotals)
             }
             stages.start('queue_insert')
-            committed = (await this.deps.runIntake.launch([run], { wait: 'committed' }))[0]
+            committed = (await this.deps.runIntake.launch([run], { wait: 'committed', settlement }))[0]
         } catch (error) {
             await releaseKey()
             if (isLockTimeout(error)) {

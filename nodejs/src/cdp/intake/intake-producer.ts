@@ -47,6 +47,10 @@ export const intakeModeOf = (
     return (teamId) => (isAsync(teamId) ? 'async' : isShadow(teamId) ? 'shadow' : 'off')
 }
 
+// Collects the publishes a caller must wait out: a produce keeps running after its ack deadline, so a caller that
+// bounds its work in flight releases its share only once the publish itself settles.
+export type Settlement = { track: (publish: Promise<unknown>) => void }
+
 export type IntakeRun = {
     kind: RunKind
     invocation: CyclotronJobInvocation
@@ -64,7 +68,8 @@ export class IntakeProducer {
 
     async produce(
         { kind, invocation, fingerprint, reply }: IntakeRun,
-        mode: IntakeMode
+        mode: IntakeMode,
+        settlement?: Settlement
     ): Promise<IntakeProduceOutcome> {
         const encoded = encodeIntakeMessage({
             kind,
@@ -79,7 +84,7 @@ export class IntakeProducer {
         }
         const startedAt = performance.now()
         try {
-            await this.withinDeadline(this.outputs.produce(OUTPUT_OF[kind], encoded.message))
+            await this.withinDeadline(this.outputs.produce(OUTPUT_OF[kind], encoded.message), settlement)
             ackMs.labels({ kind }).observe(performance.now() - startedAt)
             launchesCounter.labels({ kind, mode, outcome: 'acked' }).inc()
             return 'acked'
@@ -97,12 +102,13 @@ export class IntakeProducer {
 
     // The produce keeps running after the deadline, so a late ack can still land the message: an unacked run is
     // unconfirmed, not lost.
-    private withinDeadline(produce: Promise<void>): Promise<void> {
+    private withinDeadline(produce: Promise<void>, settlement?: Settlement): Promise<void> {
         let timer: NodeJS.Timeout | undefined
         const deadline = new Promise<never>((_, reject) => {
             timer = setTimeout(() => reject(new Error('no ack before the deadline')), this.ackDeadlineMs)
         })
-        produce.catch(() => undefined)
+        const published = produce.catch(() => undefined)
+        settlement?.track(published)
         return Promise.race([produce, deadline]).finally(() => clearTimeout(timer))
     }
 }

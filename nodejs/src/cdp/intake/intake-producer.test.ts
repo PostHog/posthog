@@ -101,6 +101,30 @@ describe('IntakeProducer', () => {
         await expect(outcome).resolves.toBe('unacked')
     })
 
+    it('hands the caller a publish that outlives its ack deadline, so the caller can wait it out', async () => {
+        jest.useFakeTimers()
+        let ack: () => void = () => {}
+        produce = () => new Promise<void>((resolve) => (ack = resolve))
+        const publishes: Promise<unknown>[] = []
+        let publishSettled = false
+
+        const outcome = new IntakeProducer(outputs()).produce(
+            { kind: 'transactional-email', invocation: invocation() },
+            'async',
+            { track: (publish) => publishes.push(publish) }
+        )
+        await jest.advanceTimersByTimeAsync(INTAKE_ACK_DEADLINE_MS)
+        await expect(outcome).resolves.toBe('unacked')
+        void Promise.allSettled(publishes).then(() => (publishSettled = true))
+        await jest.advanceTimersByTimeAsync(0)
+        expect(publishSettled).toBe(false)
+
+        ack()
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(publishSettled).toBe(true)
+    })
+
     it('records the wait for the ack in milliseconds', async () => {
         jest.useFakeTimers()
         produce = () => new Promise<void>((resolve) => setTimeout(resolve, 400))
