@@ -88,30 +88,8 @@ The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tas
 
 ## What's left
 
-hog replaces posthog-cli in three steps: settle the CLI, ship it, then move everyone over.
-[MIGRATING.md](MIGRATING.md) drafts the guidance for people moving from `posthog-cli` to `hog`, and it moves to posthog.com when hog ships.
-
-First, settle the CLI:
-
-- [x] `hog upgrade`, which updates hog to the latest version.
-- [x] `hog skills add`, which replaces `posthog-cli api skill`.
-
-Then ship it:
-
-- [x] Distribution: a binary for each platform, macOS signing and notarization, the npm package and the Homebrew formula. See [Releases](#releases).
-- [ ] CI on Linux and Windows: run the tests on Windows, and the install scripts on each platform.
-
-Then move everyone over:
-
-- [ ] Publish the migration guide on posthog.com.
-- [ ] Callers: move the SDK build integrations (posthog-js, React Native and Expo, the Android Gradle plugin, the iOS build script), the error tracking onboarding in the web app, and the posthog.com docs from `posthog-cli` to `hog`.
-
-Not planned:
-
-- `posthog-cli exp query editor`, the interactive query editor in the terminal.
-- `posthog-cli exp task`.
-- `posthog-cli exp logs import`, which imports historical logs from Loki.
-- `posthog-cli api agents-md`. `hog setup` writes the AGENTS.md note for a project it sets up.
+The plan to replace posthog-cli with hog, and its calendar, is in the [posthog-cli deprecation RFC](https://github.com/PostHog/requests-for-comments-internal/pull/1378), which is internal to PostHog.
+[MIGRATING.md](MIGRATING.md) is the guide for moving from posthog-cli to hog, and lists the posthog-cli commands that don't come to hog.
 
 ## Agents, people and pipes
 
