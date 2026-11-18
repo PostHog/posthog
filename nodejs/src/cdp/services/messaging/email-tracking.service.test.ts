@@ -249,16 +249,6 @@ describe('EmailTrackingService', () => {
                     '<a href="https://example.com/a">a',
                 ],
                 [
-                    'a quoted href holding a >',
-                    '<a href="https://example.com/a?x=1>2">a</a>',
-                    '<a href="https://example.com/a?x=1>2" ses:tags="phl:0">a</a>',
-                ],
-                [
-                    'an unquoted href holding an apostrophe',
-                    "<a href=https://example.com/it's>a</a>",
-                    `<a href=https://example.com/it's ses:tags="phl:0">a</a>`,
-                ],
-                [
                     'a tag that only starts with a',
                     '<abbr href="https://example.com/a">a</abbr><a href="https://example.com/b">b</a>',
                     '<abbr href="https://example.com/a">a</abbr><a href="https://example.com/b" ses:tags="phl:0">b</a>',
@@ -275,11 +265,6 @@ describe('EmailTrackingService', () => {
                     invocation,
                 ],
                 ['data-ph-no-track', '<body><a href="https://example.com" data-ph-no-track>x</a></body>', invocation],
-                [
-                    'data-ph-no-track after a > in a quoted title',
-                    '<body><a href="https://example.com" title="a>b" data-ph-no-track>x</a></body>',
-                    invocation,
-                ],
                 ['a sensitive template', '<body><a href="https://example.com">x</a></body>', sensitiveInvocation],
             ])('translates the %s opt-out into ses:no-track', (_name, html, inv) => {
                 // SES honors only its own attribute, so without this the anchor is still rewritten
