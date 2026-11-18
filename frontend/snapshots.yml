@@ -14998,6 +14998,10 @@ snapshots:
         hash: v1.k794b7964.79424fa0aba0fb6b19217aa892ee2183e7692fab705098a1eb33dfd1f469ae73.VoMtOUJuG5aHSYwKL5R2KpQQ2N9SAiKxagBR_MsB_uQ
     scenes-app-metrics-alerting--alert-list-narrow--light:
         hash: v1.k794b7964.db7e7217a3c01ed0613d86866fbf9e8bf46bfc02ddaffa9f7be32eae8e8a2ee8.kEommHffSzixBiFHCh7a8Seicq-qgiyog7iJprATa4U
+    scenes-app-metrics-summary-table--default--dark:
+        hash: v1.k794b7964.a98317052e07b31322cbbcf0be45b99db21c0447a7b39c93ea0ad4404df316ca.fjyMNkniktedL4-Are-sNuJmyXzyBsuWt8naAK6lZHw
+    scenes-app-metrics-summary-table--default--light:
+        hash: v1.k794b7964.fe27cb5d4fd6cbf4f356ff15d0230be13881d4626c8c8809605e3cadfeebb83c.g07Vxh0zH6LcvnvhaatYqyyt6jFCcO_Ddt7DY_VlL1g
     scenes-app-mlinference--playground--dark:
         hash: v1.k794b7964.a9df705956d7728515a76cee6267e5451c06f9802deab795f8f74826dec0b4c7.MbZhIPP4m6wo2SM8LW7qqdXza75-wlLiyu62Q6cUyuQ
     scenes-app-mlinference--playground--light:
