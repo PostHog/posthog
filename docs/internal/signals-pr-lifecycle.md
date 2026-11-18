@@ -277,6 +277,14 @@ A confirmed public source does not restrict destination visibility, so an unavai
 The restricted candidate list governs both the prompt and validation of the agent's result.
 A single permitted repository is selected without running the agent, and re-research reuses a stored non-null repository selection.
 
+A person can change the report's repository with `PUT /api/projects/:id/signals/reports/:report_id/repository/`.
+The repository must be one the project's own GitHub installation reaches and that is not archived.
+The change appends an attributed `repo_selection` artefact, so the work log keeps the earlier selection.
+The new row keeps the earlier row's `research_context`.
+It keeps the earlier `autostart_eligible` only when that row named a repository, and is otherwise not autostart eligible, so it changes where work goes without granting or withdrawing an automatic pull request.
+Selecting the current repository adds no row.
+The report detail response returns each decision (repository, priority, actionability, already addressed) under `decisions`, with the stored reason and who set it.
+
 The shared repository selection prompt also asks the agent to check other sources in the supplied context before choosing a repository.
 For information from a private repository or another explicitly private source, it prefers a relevant private candidate and returns no repository if none is suitable or its visibility cannot be confirmed.
 Each candidate carries a private, public, or unknown label from the cached GitHub repository list, so the agent does not query GitHub for visibility.

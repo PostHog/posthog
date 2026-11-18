@@ -85,6 +85,7 @@ from products.signals.backend.report_checks import CheckComparison
 from products.signals.backend.report_claims import get_active_claim
 from products.signals.backend.report_merge import MERGE_DISMISSAL_REASON
 from products.signals.backend.report_monitoring_attempts import check_definition_version, current_monitoring_attempt
+from products.signals.backend.report_repository import INBOX_REPOSITORY_REASON
 from products.signals.backend.scout_harness.profile.builders import _recent_reviewer_corrections
 from products.signals.backend.serializers import ReportMetricListSerializer
 from products.signals.backend.signal_metadata import REASSIGN_SIGNAL_ROW_CAP, ReportSignalMeta
@@ -5639,6 +5640,105 @@ class TestSignalReportContentUpdateAPI(APIBaseTest):
         response = self.client.put(self._url(str(report.id)) + "priority/", {"priority": priority}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not report.artefacts.exists()
+
+    @parameterized.expand(
+        [
+            ("agent_named_a_repository", "acme/website", True),
+            ("agent_found_no_repository", None, False),
+        ]
+    )
+    def test_repository_edit_appends_attributed_selection_and_keeps_research_context(
+        self, _name: str, previous_repository: str | None, expected_autostart_eligible: bool
+    ) -> None:
+        report = self._create_report()
+        previous = SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=RepoSelectionResult(
+                repository=previous_repository,
+                reason="Stack trace paths match this repository.",
+                research_context={"mode": "code", "repository_status": "available"},
+                autostart_eligible=True,
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
+        url = self._url(str(report.id)) + "repository/"
+        with patch(
+            "products.tasks.backend.facade.repo_selection.list_team_connected_repositories",
+            return_value=["acme/website", "acme/checkout"],
+        ):
+            response = self.client.put(url, {"repository": "Acme/Checkout"}, format="json")
+            repeat = self.client.put(url, {"repository": "acme/checkout"}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["repo_slug"] == "acme/checkout"
+        assert body["decisions"]["repository"]["value"] == "acme/checkout"
+        assert body["decisions"]["repository"]["reason"] == INBOX_REPOSITORY_REASON
+        assert body["decisions"]["repository"]["set_by"]["kind"] == "user"
+        assert body["decisions"]["repository"]["set_by"]["user"]["id"] == self.user.id
+        assert repeat.status_code == status.HTTP_200_OK
+        first, correction = report.artefacts.filter(type="repo_selection").order_by("created_at")
+        assert first.id == previous.id
+        assert correction.created_by_id == self.user.id
+        assert RepoSelectionResult.model_validate_json(correction.content).model_dump(exclude={"reason"}) == {
+            "repository": "acme/checkout",
+            "research_context": {"mode": "code", "repository_status": "available"},
+            "task_id": None,
+            "autostart_eligible": expected_autostart_eligible,
+        }
+
+    @parameterized.expand(
+        [
+            ("unreachable", "acme/other"),
+            ("not_owner_repo", "checkout"),
+            ("blank", ""),
+        ]
+    )
+    def test_repository_edit_rejects_repositories_the_integration_cannot_use(self, _name: str, repository: str) -> None:
+        report = self._create_report()
+        with patch(
+            "products.tasks.backend.facade.repo_selection.list_team_connected_repositories",
+            return_value=["acme/checkout"],
+        ):
+            response = self.client.put(
+                self._url(str(report.id)) + "repository/", {"repository": repository}, format="json"
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "repository"
+        assert not report.artefacts.exists()
+
+    def test_retrieve_returns_decisions_with_reason_and_setter_but_list_does_not(self) -> None:
+        report = self._create_report()
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=PriorityAssessment(priority=ReportPriority.P1, explanation="Breaks checkout for many users."),
+            attribution=ArtefactAttribution.system(),
+        )
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+            content=json.dumps(
+                {"actionability": "made_up", "already_addressed": True, "explanation": "A fix PR is open."}
+            ),
+            actor_kind="user",
+            created_by=self.user,
+        )
+
+        decisions = self.client.get(self._url(str(report.id))).json()["decisions"]
+
+        assert decisions["repository"] is None
+        assert decisions["priority"]["value"] == "P1"
+        assert decisions["priority"]["reason"] == "Breaks checkout for many users."
+        assert decisions["priority"]["set_by"] == {"kind": "system", "user": None, "agent": None, "task_id": None}
+        assert decisions["actionability"]["value"] is None
+        assert decisions["already_addressed"]["value"] is True
+        assert decisions["already_addressed"]["reason"] == "A fix PR is open."
+        assert decisions["already_addressed"]["set_by"]["user"]["id"] == self.user.id
+        listed = self.client.get(f"/api/projects/{self.team.id}/signals/reports/").json()["results"]
+        assert next(row for row in listed if row["id"] == str(report.id))["decisions"] is None
 
     def test_priority_edit_cannot_write_to_another_project(self) -> None:
         other_team = Team.objects.create(organization=self.organization)
