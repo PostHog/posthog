@@ -46,7 +46,6 @@ from posthog.models.async_deletion import AsyncDeletion, DeletionRunJob, Deletio
 from posthog.models.deletion_targets import (
     COVERAGE_DOC,
     DEFAULT_DELETION_TARGETS,
-    EVENTS,
     EVENTS_TARGETS,
     PERSONAL_DATA_TARGETS,
     DeletionTarget,
@@ -309,8 +308,6 @@ _DELETE_PREDICATE_TEMPLATE = _any_of(_PERSON_ARM, _TEAM_ARM, _EVENT_ARM, _ADHOC_
 def _delete_predicate(target: DeletionTarget) -> str:
     return _DELETE_PREDICATE_TEMPLATE.format(inserted_at=target.inserted_at_column)
 
-
-_DELETE_PREDICATE = _delete_predicate(EVENTS)
 
 # sharded_events_json writes deletes as patch parts. The team_id sets come from the dictionaries and
 # lead the sorting key, so the read skips the granules of every team with nothing to delete.
@@ -1171,7 +1168,7 @@ def _count_through(
     table: str,
     params: dict[str, str | int],
     max_execution_time: int,
-    predicate: str = _DELETE_PREDICATE,
+    predicate: str,
 ) -> int | None:
     """Survivors on ``table``, or None when no attempt could complete.
 

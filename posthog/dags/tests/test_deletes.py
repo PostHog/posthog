@@ -19,7 +19,6 @@ from dateutil.relativedelta import relativedelta
 from posthog.clickhouse.cluster import ClickhouseCluster, LightweightDeleteMutationRunner, NodeRole, Query
 from posthog.dags.common.staged_dictionary import create_on_every_cluster
 from posthog.dags.deletes import (
-    _DELETE_PREDICATE,
     _SURVIVOR_COUNT_ATTEMPTS,
     DELETES_RUN_CONFIG,
     SESSIONS_RETENTION_TABLES,
@@ -36,6 +35,7 @@ from posthog.dags.deletes import (
     StagedDictionary,
     _count_through,
     _count_unswept_rows,
+    _delete_predicate,
     _delete_predicate_params,
     _watermark_holders,
     cleanup_old_events_by_partition,
@@ -1351,7 +1351,7 @@ def test_the_post_sweep_count_reports_rows_the_sweep_left_behind(cluster: Clickh
 
         runner = LightweightDeleteMutationRunner(
             table=EVENTS_DATA_TABLE(),
-            predicate=_DELETE_PREDICATE,
+            predicate=_delete_predicate(EVENTS),
             parameters=_delete_predicate_params(dictionary, adhoc),
         )
         for _host, mutation in cluster.map_one_host_per_shard(runner).result().items():
@@ -1658,7 +1658,7 @@ def test_the_survivor_count_retries_before_reporting_unknown(failing_attempts: i
             raise TimeoutError("count exceeded max_execution_time")
         return [[[5]]]
 
-    assert _count_through(build_op_context(), runner, "events", {}, 300) == expected
+    assert _count_through(build_op_context(), runner, "events", {}, 300, _delete_predicate(EVENTS)) == expected
 
 
 @pytest.mark.parametrize(
