@@ -4,9 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("error_tracking", "0052_errortrackingissuetag"),
-    ]
+    dependencies = [("error_tracking", "0053_errortrackingissuetagrule")]
 
     operations = [
         migrations.AddField(

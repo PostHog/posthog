@@ -31,6 +31,7 @@ from products.warehouse_sources.sources.whop.settings import (
     INCREMENTAL_FIELDS,
     MERGE_ONLY_ENDPOINTS,
     RESOURCE_TO_EVENT_PREFIX,
+    RETIRED_ENDPOINTS,
     SCHEMA_TO_WEBHOOK_EVENTS,
     WHOP_API_KEYS_URL,
     WHOP_API_VERSION_2025_01_01,
@@ -185,6 +186,7 @@ class WhopSource(
             "is not available on API version": (
                 "This table isn't available on the Whop API version this source uses. Turn off syncing for this table."
             ),
+            **{reason: reason for reason in RETIRED_ENDPOINTS.values()},
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
