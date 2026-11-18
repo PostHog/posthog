@@ -10,6 +10,7 @@ from typing import cast
 
 import pytest
 import time_machine
+from unittest.mock import patch
 
 from django.conf import settings
 from django.test import override_settings
@@ -786,12 +787,15 @@ def test_resolve_log_source_unmapped_workflow_type():
         ("fixture-workflow", "fixture_source", "run-1"),
         ("external-data-job", "fixture_source", "run-1"),
         ("other-workflow", "temporal_workflow", "other-workflow"),
+        ("broken-workflow", "temporal_workflow", "broken-workflow"),
     ],
 )
 def test_log_messages_renderer_asks_declared_resolvers_first(workflow_type, expected_source, expected_source_id):
     from posthog.temporal.common.logger import Logger, LogMessagesRenderer
 
     def resolver(workflow_type: str, workflow_id: str) -> tuple[str, str] | None:
+        if workflow_type == "broken-workflow":
+            raise ValueError("broken resolver")
         if workflow_type in ("fixture-workflow", "external-data-job"):
             return ("fixture_source", workflow_id)
         return None
@@ -807,8 +811,10 @@ def test_log_messages_renderer_asks_declared_resolvers_first(workflow_type, expe
         "workflow_run_id": "abc-run-id",
     }
 
-    rendered = renderer(logger=cast(Logger, None), name="info", event_dict=event_dict)
+    with patch("posthog.temporal.common.logger.capture_exception") as capture:
+        rendered = renderer(logger=cast(Logger, None), name="info", event_dict=event_dict)
     assert rendered["produce_message"] is not None
+    assert capture.called == (workflow_type == "broken-workflow")
 
     payload = json.loads(rendered["produce_message"].decode("utf-8"))
     assert (payload["log_source"], payload["log_source_id"]) == (expected_source, expected_source_id)

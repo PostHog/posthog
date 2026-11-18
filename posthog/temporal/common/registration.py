@@ -53,7 +53,7 @@ class HistogramSpec:
 ScheduleReconciler = Callable[[Client], Coroutine[Any, Any, None]]
 
 # Maps a workflow type and a workflow id to a log source and a log source id, or to None for a
-# workflow that is not the product's. It runs inside the log pipeline, so it must not raise.
+# workflow that is not the product's. The log pipeline skips a resolver that raises and reports the error.
 LogSourceResolver = Callable[[str, str], tuple[str, str] | None]
 
 
@@ -62,6 +62,7 @@ class TemporalRegistration:
     queues: tuple[QueueBinding, ...] = ()
     # Like core's own interceptors, each one applies to every task queue it supports.
     interceptors: tuple[type[Interceptor], ...] = ()
+    # Core's own buckets win for a metric that core configures.
     histograms: tuple[HistogramSpec, ...] = ()
     schedules: tuple[ScheduleReconciler, ...] = ()
     log_sources: tuple[LogSourceResolver, ...] = ()

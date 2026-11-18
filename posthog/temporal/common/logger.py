@@ -38,6 +38,7 @@ from django.conf import settings
 import structlog
 import temporalio.activity
 import temporalio.workflow
+from posthoganalytics import capture_exception
 from structlog._frames import _find_first_app_frame_and_name
 from structlog._log_levels import LEVEL_TO_NAME, NAME_TO_LEVEL
 from structlog.processors import EventRenamer
@@ -172,7 +173,14 @@ class LogMessagesRenderer:
                 # A product resolves its own workflows through the resolvers in its TEMPORAL
                 # declaration, so a declared resolver wins over the branches in resolve_log_source.
                 for resolve in self.log_sources:
-                    if (resolved := resolve(workflow_type, workflow_id)) is not None:
+                    try:
+                        resolved = resolve(workflow_type, workflow_id)
+                    except Exception as error:
+                        # A broken product resolver must not break the log call, so the log keeps the
+                        # built-in source and the error goes to error tracking.
+                        capture_exception(error)
+                        continue
+                    if resolved is not None:
                         log_source, log_source_id = resolved
                         break
 

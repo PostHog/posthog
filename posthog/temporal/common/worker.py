@@ -213,6 +213,12 @@ def interceptor_classes() -> list[type[Interceptor]]:
     return [*ALL_INTERCEPTOR_CLASSES, *combined_registration().interceptors]
 
 
+def with_declared_histograms(core_buckets: dict[str, list[float]]) -> dict[str, list[float]]:
+    # Core's buckets win, so a product declaration cannot change the buckets of a core metric.
+    declared = {histogram.metric_name: list(histogram.buckets) for histogram in combined_registration().histograms}
+    return declared | core_buckets
+
+
 @frozen
 class ActivityWorkerConfig:
     task_queue: str
@@ -500,9 +506,7 @@ async def create_worker(
                 itertools.repeat(TASKS_SDK_LATENCY_HISTOGRAM_BUCKETS),
             )
         )
-    histogram_bucket_overrides |= {
-        histogram.metric_name: list(histogram.buckets) for histogram in combined_registration().histograms
-    }
+    histogram_bucket_overrides = with_declared_histograms(histogram_bucket_overrides)
 
     runtime = Runtime(
         telemetry=TelemetryConfig(
