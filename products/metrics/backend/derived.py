@@ -254,20 +254,26 @@ def _source_field(source: DerivedSource, name: str, *, scope: AttributeScope = "
 
 
 def _picker_field(source: DerivedSource, name: str) -> ast.Expr:
-    """`_source_field` for the key and value pickers, reading attributes from the typed maps.
+    """`_source_field` for the key and value pickers, with bare reads of the physical attribute maps.
 
-    The span and log `attributes` column aliases a `mapApply` over the whole `attributes_map_str` map, so
-    `arrayElement(attributes, ...)` rebuilds every attribute of every scanned row. A `__str`-suffixed key on
-    the field chain reads `attributes_map_str` directly through its property group.
+    The span and log `attributes` column aliases a `mapApply` over all of `attributes_map_str`, and a
+    property-group read adds a `has()` guard that reads every map bucket. A bare `arrayElement` on the
+    physical map reads only the bucket that holds the key. A missing key reads as ''.
     """
     if name in _COLUMN_KEYS[source] or name in _ENUM_COLUMN_KEYS[source] or name in _SERVICE_NAME_KEYS:
         return _source_field(source, name)
-    return parse_expr(
-        "if(coalesce({resource}, '') != '', {resource}, coalesce({attribute}, ''))",
-        placeholders={
-            "resource": ast.Field(chain=["resource_attributes", name]),
-            "attribute": ast.Field(chain=["attributes", f"{name}__str"]),
-        },
+    # Explicit calls, so the resolver does not fold the reads back into property chains.
+    resource = ast.Call(name="arrayElement", args=[ast.Field(chain=["resource_attributes"]), ast.Constant(value=name)])
+    attribute = ast.Call(
+        name="arrayElement", args=[ast.Field(chain=["attributes_map_str"]), ast.Constant(value=f"{name}__str")]
+    )
+    return ast.Call(
+        name="if",
+        args=[
+            ast.CompareOperation(op=ast.CompareOperationOp.NotEq, left=resource, right=ast.Constant(value="")),
+            resource,
+            attribute,
+        ],
     )
 
 
