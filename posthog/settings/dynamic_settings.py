@@ -9,6 +9,13 @@ CONSTANCE_DATABASE_PREFIX = "constance:posthog:"
 # To edit, visit: ${SITE_URL}/admin/posthog/instancesetting/
 
 CONSTANCE_CONFIG = {
+    "CIMD_PROVISIONING_REQUIRES_ORGANIZATION": (
+        False,
+        "Require every provisioning partner that registered itself from a client ID metadata document (CIMD) to be "
+        "linked to a PostHog organization with a CIMD verification token. A partner without that link cannot provision "
+        "while this is on, including a partner that was already accepted.",
+        bool,
+    ),
     "AI_OBSERVABILITY_DATASET_RETENTION_ENABLED": (
         True,
         "Enable expiry and deletion of unused AI observability datasets and historical versions in this region.",
@@ -436,9 +443,18 @@ CONSTANCE_CONFIG = {
         "run rather than at the end of the cache TTL.",
         bool,
     ),
+    "REALTIME_COHORT_JOIN_OPEN": (
+        False,
+        "Whether a project in this region joins the realtime cohorts beta when a member opts in. "
+        "Turning it off stops new joins within about a minute. Projects already in keep access. "
+        "Turn it on only once ingestion's PERSON_MERGE_EVENTS_TEAM_ALLOWLIST is * (every team) in this region, because "
+        "realtime cohorts miss the person merges of a project that list leaves out.",
+        bool,
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
+    "CIMD_PROVISIONING_REQUIRES_ORGANIZATION",
     "GROWTH_SIGNUP_ENRICHMENT_ENABLED",
     "GROWTH_ICP_REENRICH_DAILY_CAP",
     "GROWTH_RESCORE_WEBHOOK_SECRET",
@@ -505,6 +521,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "WEB_ANALYTICS_WARMING_SHARD_THREADS",
     "WEB_ANALYTICS_WARMING_SHARDS",
     "WEB_ANALYTICS_WARMING_PRESET_LANE_ENABLED",
+    "REALTIME_COHORT_JOIN_OPEN",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)

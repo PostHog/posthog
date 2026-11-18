@@ -181,7 +181,7 @@ export function ReleaseTrackCard({ row }: { row: ReleaseRow }): JSX.Element | nu
     const measuredOffset = useStickyColumnWidth(stacked ? null : container, labelWidth)
     const stickyOffset = stacked ? 0 : measuredOffset
     useScrollToToday(container, scale, !stacked, width > 0 && track.lanes.length > 0)
-    const color = STAGE_COLOR[row.stage]
+    const color = STAGE_COLOR.flag
     const warnings = row.audiences.flatMap((audience) => {
         const warning = emptyVariantWarning(row, audience)
         return warning ? [{ audience, warning }] : []

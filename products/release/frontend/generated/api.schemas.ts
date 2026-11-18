@@ -235,6 +235,33 @@ export interface CatalogReleasesResponseApi {
     next_cursor: string | null
 }
 
+export interface ReleaseRefApi {
+    /** ID of the release. */
+    id: string
+    /** Name of the release. */
+    name: string
+}
+
+export interface ReleaseSuggestionApi {
+    /** ID of the release. */
+    id: string
+    /** Name of the release. */
+    name: string
+    /** Words the flag shares with the release's name, description or linked flags. */
+    matched_terms: string[]
+}
+
+export interface FlagReleasesApi {
+    /** ID of the feature flag. */
+    feature_flag_id: number
+    /** True when this project puts each new flag in a release of its own about a minute after it is created, unless the flag is already in a release. */
+    auto_release: boolean
+    /** Releases that already link this flag. */
+    current: ReleaseRefApi[]
+    /** Up to 5 existing releases this flag probably belongs to, best match first. Empty when nothing matches. */
+    suggestions: ReleaseSuggestionApi[]
+}
+
 export interface ImportAllResponseApi {
     /** How many releases the import created. */
     created_count: number
@@ -299,6 +326,11 @@ export type ReleasesCatalogReleasesRetrieveParams = {
      */
     cursor?: string
     /**
+     * Only releases that link this feature flag.
+     * @minimum 1
+     */
+    feature_flag_id?: number
+    /**
      * How many releases to return, at most 100.
      * @minimum 1
      * @maximum 100
@@ -322,4 +354,12 @@ export type ReleasesCatalogReleasesRetrieveParams = {
      * @maxLength 200
      */
     search?: string
+}
+
+export type ReleasesFlagSuggestionsRetrieveParams = {
+    /**
+     * ID of the feature flag to find releases for.
+     * @minimum 1
+     */
+    feature_flag_id: number
 }

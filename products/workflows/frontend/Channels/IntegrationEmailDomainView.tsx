@@ -71,8 +71,6 @@ export function IntegrationEmailDomainView({
     const makeDefault = (integrationId: number): void => {
         updateCurrentTeam({
             workflows_config: {
-                capture_workflows_engagement_events:
-                    currentTeam?.workflows_config?.capture_workflows_engagement_events ?? false,
                 default_email_integration_id: integrationId,
             },
         })

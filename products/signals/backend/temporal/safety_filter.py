@@ -4,15 +4,18 @@ import uuid
 import hashlib
 import datetime
 from dataclasses import dataclass, field
+from datetime import timedelta
 from typing import Optional
 
 from django.core.exceptions import ImproperlyConfigured
 
 import structlog
 import posthoganalytics
+from anthropic import BadRequestError
 from pydantic import BaseModel, Field, model_validator
 from redis.exceptions import RedisError
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.event_usage import groups
 from posthog.exceptions import QuotaLimitExceeded
@@ -32,6 +35,9 @@ from products.signals.backend.temporal.llm import SAFETY_MODEL, EmptyLLMResponse
 from products.signals.backend.trial.policy import TrialRefused
 
 logger = structlog.get_logger(__name__)
+
+PROVIDER_USAGE_LIMIT_ERROR_TYPE = "SafetyFilterProviderUsageLimit"
+PROVIDER_USAGE_LIMIT_RETRY_DELAY = timedelta(minutes=15)
 
 
 class SafetyFilterJudgeResponse(BaseModel):
@@ -373,7 +379,14 @@ async def safety_filter_activity(input: SafetyFilterInput) -> SafetyFilterOutput
         metrics.increment_dropped(stage="safety_filter", reason=reason)
         logger.info("signals_safety_filter.admission_refused", team_id=input.team_id, reason=reason)
         return SafetyFilterOutput(safe=False, threat_type="admission_refused", explanation=reason)
-    except Exception:
+    except Exception as error:
+        if isinstance(error, BadRequestError) and "specified api usage limits" in str(error).lower():
+            logger.warning("signals_safety_filter.provider_usage_limited", team_id=input.team_id)
+            raise ApplicationError(
+                "Safety filter provider usage limit reached",
+                type=PROVIDER_USAGE_LIMIT_ERROR_TYPE,
+                non_retryable=True,
+            ) from None
         logger.exception("Failed to run safety filter")
         raise
 

@@ -31,6 +31,7 @@ from temporalio.exceptions import (
 )
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from temporalio.workflow import ChildWorkflowCancellationType, ParentClosePolicy
 
 from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxBase, SandboxConfig, SandboxTemplate
 from products.tasks.backend.models import SandboxSnapshot, TaskRun
@@ -80,6 +81,7 @@ from products.tasks.backend.temporal.process_task.activities import (
     track_workflow_event,
     update_task_run_status,
 )
+from products.tasks.backend.temporal.process_task.activities.agent_egress import AgentEgressProbeInput
 from products.tasks.backend.temporal.process_task.activities.create_resume_snapshot import CreateResumeSnapshotOutput
 from products.tasks.backend.temporal.process_task.activities.emit_progress_activity import EmitProgressInput
 from products.tasks.backend.temporal.process_task.activities.persist_agent_memory import PersistAgentMemoryOutput
@@ -1781,19 +1783,24 @@ async def test_shared_startup_boundaries_are_present_only_for_new_workflows(
 
 
 @pytest.mark.parametrize(
-    ("origin_product", "team_id"),
+    ("origin_product", "team_id", "provisioning_fallback_reason", "expected_custom_image_id"),
     [
-        ("signals_scout", 314),  # platform start the alert must exclude
-        ("user_created", 42),  # customer start the alert must count
+        ("signals_scout", 314, None, "image-id"),  # platform start the alert must exclude
+        ("user_created", 42, None, "image-id"),  # customer start the alert must count
+        ("user_created", 42, "boot_failed", None),
     ],
 )
-async def test_sandbox_started_carries_run_attribution(origin_product, team_id, monkeypatch):
+async def test_sandbox_started_carries_run_attribution(
+    origin_product, team_id, provisioning_fallback_reason, expected_custom_image_id, monkeypatch
+):
     # The sandboxes-started alert filters platform work out by origin_product, and
     # cross-references team_id and task_run_id. Dropping any of them from this payload
     # blinds the alert to who a sandbox belongs to, so lock the three fields in.
     workflow_instance = ProcessTaskWorkflow()
     workflow_instance._context = dataclasses.replace(
-        _build_context(github_integration_id=123, origin_product=origin_product), team_id=team_id
+        _build_context(github_integration_id=123, origin_product=origin_product),
+        team_id=team_id,
+        state={"custom_image_id": "image-id"},
     )
 
     monkeypatch.setattr(workflow_instance, "_update_task_run_status", AsyncMock())
@@ -1817,6 +1824,7 @@ async def test_sandbox_started_carries_run_attribution(origin_product, team_id, 
                 agent_invoke_ms=6,
                 agent_server_launched=False,
                 agent_shadow_launched=False,
+                custom_image_fallback_reason=provisioning_fallback_reason,
             )
         ),
     )
@@ -1853,6 +1861,7 @@ async def test_sandbox_started_carries_run_attribution(origin_product, team_id, 
     assert sandbox_started["team_id"] == team_id
     assert sandbox_started["task_run_id"] == "run-id"
     assert sandbox_started["agent_launcher_to_process_ms"] == 7
+    assert sandbox_started["custom_image_id"] == expected_custom_image_id
 
 
 @pytest.mark.parametrize(
@@ -1985,19 +1994,45 @@ class TestProcessTaskWorkflowUnit:
         )
         assert wf._self_driving_quota_recheck_scheduled() is False
 
-    async def test_final_sandbox_cleanup_completes_the_run_stream(self, monkeypatch):
+    @pytest.mark.parametrize("observe", [False, True])
+    async def test_final_sandbox_cleanup_completes_the_run_stream(self, monkeypatch, observe: bool):
         cleanup_inputs: list[CleanupSandboxInput] = []
+        events: list[str] = []
+        observing = asyncio.Event()
+
+        async def child_workflow(workflow_fn, input: AgentEgressProbeInput, **kwargs):
+            assert input == AgentEgressProbeInput(
+                config_path="/run/egress/observation.json", team_id=1, run_id="run-id", sandbox_id="sandbox-123"
+            )
+            assert kwargs["cancellation_type"] == ChildWorkflowCancellationType.WAIT_CANCELLATION_COMPLETED
+            assert kwargs["parent_close_policy"] == ParentClosePolicy.REQUEST_CANCEL
+            observing.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                events.append("revoke")
 
         async def fake_execute_activity(activity_fn, activity_input, **kwargs):
             assert activity_fn is cleanup_sandbox
             cleanup_inputs.append(activity_input)
+            events.append("destroy")
 
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_child_workflow", child_workflow)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "uuid4", uuid.uuid4)
+        monkeypatch.setattr(
+            process_task_workflow_module.workflow, "info", lambda: SimpleNamespace(task_queue="egress-test")
+        )
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(github_integration_id=123)
+        if observe:
+            workflow._context.agent_egress_observation_config = "/run/egress/observation.json"
+            workflow._agent_egress_observation_task = asyncio.create_task(workflow._observe_egress("sandbox-123"))
+            await asyncio.wait_for(observing.wait(), timeout=5)
 
         await workflow._cleanup_sandbox("sandbox-123", complete_stream=True)
 
+        assert events == (["revoke", "destroy"] if observe else ["destroy"])
         assert cleanup_inputs == [
             CleanupSandboxInput(
                 sandbox_id="sandbox-123",

@@ -12,7 +12,7 @@ import temporalio
 import temporalio.exceptions
 from temporalio import workflow
 from temporalio.common import RetryPolicy
-from temporalio.workflow import ParentClosePolicy
+from temporalio.workflow import ChildWorkflowCancellationType, ParentClosePolicy
 
 from posthog.dataclasses import frozen
 from posthog.temporal.common.base import PostHogWorkflow
@@ -21,6 +21,7 @@ from posthog.temporal.oauth import PosthogMcpScopes
 from products.tasks.backend.constants import RESUME_SNAPSHOT_KIND, is_same_run_resume_state
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
+from products.tasks.backend.temporal.agent_egress import AgentEgressProbeWorkflow
 from products.tasks.backend.temporal.babysit_pr.prompts import (
     MAX_RENDERED_COMMENTS,
     MAX_RENDERED_THREADS,
@@ -34,6 +35,7 @@ from products.tasks.backend.temporal.metrics import (
     sandbox_runtime_label,
 )
 from products.tasks.backend.temporal.patches import ci_follow_up_actionable_gate
+from products.tasks.backend.temporal.process_task.activities.agent_egress import AgentEgressProbeInput
 from products.tasks.backend.temporal.process_task.activities.get_pr_babysit_snapshot import (
     GetPrBabysitSnapshotInput,
     get_pr_babysit_snapshot,
@@ -435,6 +437,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._accepted_message_ids: list[str] = []
         self._accepted_message_id_set: set[str] = set()
         self._active_followup_task: asyncio.Task[None] | None = None
+        self._agent_egress_observation_task: asyncio.Task[None] | None = None
         self._shutting_down: bool = False
         self._pending_permission_responses: list[PendingPermissionResponse] = []
         self._ci_repetitions: int = 0
@@ -1256,6 +1259,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             if input.resumed_sandbox is None:
                 self._dev_stack_preview_enabled = self.context.dev_stack_preview_enabled
                 sandbox_id, sandbox_url, sandbox_connect_token = await self._provision_and_start_agent(input, run_id)
+                if workflow.patched("tasks-agent-egress-observation") and self.context.agent_egress_observation_config:
+                    self._agent_egress_observation_task = asyncio.create_task(self._observe_egress(sandbox_id))
                 if self._agent_shadow_launched:
                     agent_shadow_task = asyncio.create_task(self._collect_agent_shadow_result(sandbox_id))
             else:
@@ -1328,6 +1333,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                             await self._cancel_relay(task)
                     await self._flush_boot_telemetry_tasks()
                     await self._flush_pending_progress_activities()
+                    await self._stop_egress_observation()
                     workflow.continue_as_new(self._build_resumed_input(input, sandbox_id))
                 event = await self._wait_for_event()
                 self._schedule_agent_memory_persist(sandbox_id)
@@ -1701,6 +1707,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             # ContinueAsNewError); the loops are already stopped and the sandbox lives on.
             if not continuing_as_new:
                 try:
+                    await self._stop_egress_observation()
                     if self._active_followup_task is not None:
                         await self._cancel_relay(self._active_followup_task)
                         self._active_followup_task = None
@@ -1813,6 +1820,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "repository": self.context.repository,
                 "boot_path": sandbox_output.boot_path,
                 "image_source": sandbox_output.image_source,
+                "custom_image_id": None
+                if (self.context.state or {}).get("custom_image_fallback_reason")
+                or sandbox_output.custom_image_fallback_reason
+                else (self.context.state or {}).get("custom_image_id"),
                 "boot_total_ms": agent_server_output.boot_total_ms,
                 "sandbox_create_ms": sandbox_output.create_ms,
                 "repo_clone_ms": sandbox_output.clone_ms,
@@ -2369,6 +2380,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             agent_invoke_ms=agent_invoke_ms,
             dev_stack_preview_sized=created.dev_stack_preview_sized,
             agent_shadow_launched=self._agent_shadow_launched,
+            custom_image_fallback_reason=created.custom_image_fallback_reason,
         )
 
     async def _run_sandbox_creation_activity(
@@ -2411,6 +2423,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         raise _TaskCompletedDuringSandboxCreation
 
     async def _cleanup_sandbox(self, sandbox_id: str, *, complete_stream: bool = False) -> None:
+        await self._stop_egress_observation()
         context = self._context
         cleanup_input = CleanupSandboxInput(
             sandbox_id=sandbox_id,
@@ -3121,7 +3134,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         send commands the same way — so the swap needs no client involvement beyond keeping that
         stream fed.
         """
+        await self._stop_egress_observation()
         self._resume_snapshot_invalidated = False
+        self.context.agent_egress_observation_config = None
         activity_count = self._sandbox_activity_count
         # A replacement built from a snapshot without a baseline (its restore failed) restores from
         # storage, so storage must hold the snapshot's memory first. Taken after the activity count,
@@ -3442,6 +3457,40 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     "error": str(e),
                 },
             )
+
+    async def _observe_egress(self, sandbox_id: str) -> None:
+        config_path = self.context.agent_egress_observation_config
+        if config_path is None:
+            return
+        try:
+            statuses = await workflow.execute_child_workflow(
+                AgentEgressProbeWorkflow.run,
+                AgentEgressProbeInput(
+                    config_path=config_path,
+                    team_id=self.context.team_id,
+                    run_id=self.context.run_id,
+                    sandbox_id=sandbox_id,
+                ),
+                id=f"agent-egress-observation-{self.context.run_id}-{workflow.uuid4()}",
+                task_queue=workflow.info().task_queue,
+                execution_timeout=timedelta(minutes=15),
+                parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,
+                cancellation_type=ChildWorkflowCancellationType.WAIT_CANCELLATION_COMPLETED,
+            )
+            workflow.logger.info(
+                "agent_egress_observation_completed", extra={"run_id": self.context.run_id, "statuses": statuses}
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            if not temporalio.exceptions.is_cancelled_exception(error):
+                workflow.logger.warning("agent_egress_observation_failed", extra={"run_id": self.context.run_id})
+
+    async def _stop_egress_observation(self) -> None:
+        task = self._agent_egress_observation_task
+        if task is not None:
+            await self._cancel_relay(task)
+            self._agent_egress_observation_task = None
 
     @staticmethod
     async def _cancel_relay(relay_task: "asyncio.Task[None]") -> None:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
@@ -1586,6 +1587,85 @@ class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
         config.refresh_from_db()
         assert config.run_interval_minutes == 720
 
+    @parameterized.expand(
+        [
+            ("plain_member", False, False, "shared", False, None, False, status.HTTP_403_FORBIDDEN),
+            ("plain_member_resends_unchanged", False, False, "shared", True, None, False, status.HTTP_200_OK),
+            ("scout_author", True, False, "shared", False, None, False, status.HTTP_200_OK),
+            ("project_admin_private_image", False, True, "private", False, None, False, status.HTTP_400_BAD_REQUEST),
+            ("project_admin_missing_image", False, True, "missing", False, None, False, status.HTTP_400_BAD_REQUEST),
+            (
+                "scout_author_key_without_skill_scope",
+                True,
+                False,
+                "shared",
+                False,
+                ["signal_scout:write"],
+                False,
+                status.HTTP_403_FORBIDDEN,
+            ),
+            (
+                "scout_author_key_with_skill_scope",
+                True,
+                False,
+                "shared",
+                False,
+                ["signal_scout:write", "llm_skill:write"],
+                False,
+                status.HTTP_200_OK,
+            ),
+            ("project_admin_without_skill_editor", False, True, "shared", False, None, True, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_custom_image_needs_the_acting_user_or_an_admin_and_a_shared_image(
+        self,
+        _name: str,
+        is_author: bool,
+        is_admin: bool,
+        lookup: str,
+        already_set: bool,
+        key_scopes: list[str] | None,
+        deny_skill_editor: bool,
+        expected: int,
+    ) -> None:
+        image_id = uuid4()
+        config = self._config(custom_image_id=image_id if already_set else None)
+        self._authored_by(self.user if is_author else self._other_member())
+        if is_admin:
+            self._become_admin()
+        found = None if lookup == "missing" else SimpleNamespace(private=lookup == "private")
+        if key_scopes:
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self._personal_api_key(key_scopes)}")
+        real_check = UserAccessControl.check_access_level_for_resource
+
+        def resource_access(
+            access: UserAccessControl, resource: APIScopeObject, required_level: AccessControlLevel
+        ) -> bool:
+            if deny_skill_editor and resource == "llm_skill":
+                return False
+            return real_check(access, resource, required_level)
+
+        with (
+            patch("products.tasks.backend.facade.api.get_sandbox_custom_image", return_value=found),
+            patch.object(
+                UserAccessControl, "check_access_level_for_resource", autospec=True, side_effect=resource_access
+            ),
+        ):
+            response = self.client.patch(
+                self._detail_url(str(config.id)),
+                data={"custom_image_id": str(image_id), "run_interval_minutes": 720},
+                format="json",
+            )
+
+        assert response.status_code == expected, response.json()
+        config.refresh_from_db()
+        if expected == status.HTTP_200_OK:
+            assert response.json()["custom_image_id"] == str(image_id)
+            assert config.custom_image_id == image_id
+            assert config.run_interval_minutes == 720
+        else:
+            assert config.custom_image_id is None
+
     def test_revoking_write_access_needs_the_same_claim(self) -> None:
         # Narrowing is safe, but the refusal keeps one rule to state: a member who cannot grant
         # cannot rewrite the field at all, so nobody can flip a scout's access behind its author.
@@ -1851,7 +1931,13 @@ class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
         assert config.allowed_mcp_tools is None
         assert response.json()["attr"] == "allowed_mcp_tools"
 
-    @parameterized.expand([({"allowed_mcp_tools": []},), ({"tool_preset": "read_only"},)])
+    @parameterized.expand(
+        [
+            ({"allowed_mcp_tools": []},),
+            ({"tool_preset": "read_only"},),
+            ({"custom_image_id": "8f6d2c1e-4b7a-4e0f-9a3d-5c2b1e7f6a90"},),
+        ]
+    )
     def test_sandbox_token_cannot_select_tools(self, payload: dict) -> None:
         self._authored_by(self.user)
         config = self._config()
@@ -1862,6 +1948,7 @@ class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
         assert response.status_code == 403, response.json()
         config.refresh_from_db()
         assert config.allowed_mcp_tools is None
+        assert config.custom_image_id is None
 
     def test_preset_is_snapshotted_and_reordered_list_does_not_log(self) -> None:
         config = self._config()
@@ -2674,6 +2761,60 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         sibling_run.refresh_from_db()
         assert (sandbox_run.metadata or {}).get(NOT_IN_USE_WRITES_KEY) == expected
         assert NOT_IN_USE_WRITES_KEY not in (sibling_run.metadata or {})
+
+
+class TestScoutHarnessScratchpadDiscardAPI(APIBaseTest):
+    def _discard_url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/scratchpad/discard/"
+
+    @parameterized.expand(
+        [
+            ("scout_scope_only", ["signal_scout:write"], status.HTTP_403_FORBIDDEN, True),
+            ("scratchpad_internal_scope_only", ["signal_scratchpad_internal:write"], status.HTTP_403_FORBIDDEN, True),
+            ("both_steering_scopes", ["signal_scout:write", "llm_skill:write"], status.HTTP_200_OK, False),
+        ]
+    )
+    def test_api_keys_need_the_steering_scopes(
+        self, _name: str, scopes: list[str], expected: int, entry_survives: bool
+    ) -> None:
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        SignalScratchpad.objects.create(team=self.team, key="dedupe:stale", content="old marker")
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw), scopes=scopes)
+        self.client.logout()
+
+        response = self.client.post(
+            self._discard_url(), data={"key": "dedupe:stale"}, format="json", HTTP_AUTHORIZATION=f"Bearer {raw}"
+        )
+
+        assert response.status_code == expected, response.content
+        assert SignalScratchpad.objects.filter(team=self.team, key="dedupe:stale").exists() == entry_survives
+
+    def test_session_discard_requires_skill_editor_rbac(self) -> None:
+        from products.access_control.backend.facade.user_access_control import UserAccessControl
+
+        SignalScratchpad.objects.create(team=self.team, key="dedupe:stale", content="old marker")
+        real_check = UserAccessControl.check_access_level_for_resource
+
+        def deny_llm_skill(
+            self_: UserAccessControl, resource: APIScopeObject, required_level: AccessControlLevel
+        ) -> bool:
+            if resource == "llm_skill":
+                return False
+            return real_check(self_, resource, required_level)
+
+        with patch.object(UserAccessControl, "check_access_level_for_resource", autospec=True) as mock_check:
+            mock_check.side_effect = deny_llm_skill
+            denied = self.client.post(self._discard_url(), data={"key": "dedupe:stale"}, format="json")
+        assert denied.status_code == status.HTTP_403_FORBIDDEN
+        assert SignalScratchpad.objects.filter(team=self.team, key="dedupe:stale").exists()
+
+        allowed = self.client.post(self._discard_url(), data={"key": "dedupe:stale"}, format="json")
+        assert allowed.status_code == status.HTTP_200_OK
+        assert allowed.json() == {"deleted": True}
+        assert not SignalScratchpad.objects.filter(team=self.team, key="dedupe:stale").exists()
 
 
 class TestSearchMemoryQuerySerializer(SimpleTestCase):
