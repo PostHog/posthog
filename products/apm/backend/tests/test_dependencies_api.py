@@ -123,6 +123,7 @@ class TestDependenciesAPI(ClickhouseTestMixin, APIBaseTest):
 
     def _get(self, **params) -> dict:
         query = {"date_from": DATE_FROM, "date_to": DATE_TO, "environment": "prod", **params}
+        query = {key: value for key, value in query.items() if value is not None}
         with patch(FLAG_PATCH, return_value=True):
             response = self.client.get(URL.format(self.team.id), query)
         self.assertEqual(response.status_code, 200, response.content)
@@ -188,6 +189,12 @@ class TestDependenciesAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             [(e["caller"], e["callee"], e["kind"]) for e in data["edges"]], [("eu-web", "redis", "database")]
         )
+
+        everything = self._get(environment=None)
+        self.assertIsNone(everything["environment"])
+        callees = {(e["caller"], e["callee"]) for e in everything["edges"]}
+        self.assertIn(("eu-web", "redis"), callees)
+        self.assertTrue(callees > {("eu-web", "redis")})
 
     def test_edge_cap_sets_truncated(self) -> None:
         with patch("products.apm.backend.logic.health.dependencies.DEPENDENCY_EDGES_LIMIT", 1):
