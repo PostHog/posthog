@@ -79,6 +79,7 @@ from products.managed_warehouse.backend.temporal.ducklake_register_data_imports_
 )
 from products.managed_warehouse.backend.temporal.gigahog_client import GigahogClient, GigahogConfig
 from products.managed_warehouse.backend.temporal.gigahog_register_data_imports import (
+    REPLACEMENT_MAX_FILES,
     gigahog_commit_refused,
     gigahog_config,
     gigahog_landing_uri,
@@ -341,10 +342,7 @@ async def ducklake_register_data_imports_gate_activity(inputs: DuckLakeRegisterD
         if flag_enabled:
             break
 
-    from products.managed_warehouse.backend.facade.access import (  # noqa: PLC0415
-        background_loading_configured,
-        internal_loading_enabled,
-    )
+    from products.managed_warehouse.backend.facade.access import background_loading_configured, internal_loading_enabled  # noqa: PLC0415
 
     if await database_sync_to_async(background_loading_configured)(organization_id):
         flag_enabled = await database_sync_to_async(internal_loading_enabled)(organization_id)
@@ -434,7 +432,7 @@ def _registers_in_gigahog(organization_id: str) -> bool:
     Gigahog organization to another catalog and leave its Gigahog table stale. A worker without them reads it as
     off, so a flag that is not defined does not stop data imports where Gigahog is not deployed.
     """
-    configured = _gigahog_config() is not None
+    configured = bool(settings.GIGAHOG_URL)
     flag = data_imports_gigahog_flag(organization_id)
     if not configured:
         if flag:
@@ -446,6 +444,10 @@ def _registers_in_gigahog(organization_id: str) -> bool:
         raise ApplicationError(
             f"The Gigahog data imports flag gave no answer for organization {organization_id}", non_retryable=False
         )
+    if flag:
+        # Only flagged organizations need the rest of the settings, so an incomplete rollout of them does not stop
+        # the imports of organizations that do not use Gigahog.
+        _gigahog_config()
     return flag
 
 
@@ -921,7 +923,10 @@ def _copy_and_register_in_gigahog(
             # credentials cannot be renewed, so the copy gets a session with its full lifetime.
             with _stage_timer(stage="copy", team_id=inputs.team_id, schema_id=schema_id):
                 landing_paths, copied_bytes = _copy_prepared_parquet_files(
-                    metadata.prepared_source_uri, landing_uri, s3=gigahog_team_filesystem(client, fresh=True)
+                    metadata.prepared_source_uri,
+                    landing_uri,
+                    s3=gigahog_team_filesystem(client, fresh=True),
+                    max_files=REPLACEMENT_MAX_FILES,
                 )
             with _stage_timer(stage="register", team_id=inputs.team_id, schema_id=schema_id):
                 result = register_prepared_files_in_gigahog(
@@ -1180,7 +1185,9 @@ def _generation_scoped_landing_uri(
     raise ApplicationError("DuckLake landing URI does not match the registration job", non_retryable=True)
 
 
-def _copy_prepared_parquet_files(source_uri: str, landing_uri: str, *, s3: typing.Any = None) -> tuple[list[str], int]:
+def _copy_prepared_parquet_files(
+    source_uri: str, landing_uri: str, *, s3: typing.Any = None, max_files: int | None = None
+) -> tuple[list[str], int]:
     source_prefix = source_uri.removeprefix("s3://").rstrip("/")
     landing_prefix = landing_uri.removeprefix("s3://").rstrip("/")
     s3 = get_s3_client() if s3 is None else s3
@@ -1194,6 +1201,12 @@ def _copy_prepared_parquet_files(source_uri: str, landing_uri: str, *, s3: typin
     parquet_paths = sorted(str(path) for path in source_paths if str(path).lower().endswith(".parquet"))
     if not parquet_paths:
         raise ApplicationError(f"No prepared Parquet files found under {source_uri}", non_retryable=True)
+    if max_files is not None and len(parquet_paths) > max_files:
+        raise ApplicationError(
+            f"The generation has {len(parquet_paths)} files, and the destination takes at most {max_files} per "
+            "registration",
+            non_retryable=True,
+        )
 
     source_copy_paths: list[str] = []
     landing_copy_paths: list[str] = []

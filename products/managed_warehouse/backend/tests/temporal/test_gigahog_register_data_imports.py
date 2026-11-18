@@ -70,6 +70,8 @@ class _FakeGigahog:
         # "unauthorized" answers 401 whatever the token.
         self.commit_faults: list[str] = []
         self.token_faults: list[str] = []
+        # A table another writer creates right after this writer's lookup misses it.
+        self.created_concurrently: dict[str, Any] | None = None
 
     def install(self, mocker: requests_mock.Mocker) -> None:
         mocker.post(TOKEN_URL, json=self._token)
@@ -157,6 +159,10 @@ class _FakeGigahog:
         if match := re.fullmatch(r"/namespaces/([^/]+)/tables/([^/]+)", path):
             table = self.tables.get((match.group(1), match.group(2)))
             if table is None:
+                if self.created_concurrently is not None:
+                    self.tables[(match.group(1), match.group(2))] = self.created_concurrently
+                    self.live_files[(match.group(1), match.group(2))] = []
+                    self.created_concurrently = None
                 context.status_code = 404
                 return {"error": "table_not_found"}
             return {**table, "read_snapshot_id": self.snapshot}
@@ -369,6 +375,7 @@ def test_a_repeated_commit_lands_the_generation_once(
         ("outside_team_prefix", False),
         ("data_in_hive_partition", False),
         ("changed_columns", False),
+        ("changed_columns_from_a_concurrent_create", False),
         ("unsupported_type", False),
         ("case_only_names", False),
         ("columns_with_field_ids", False),
@@ -395,14 +402,18 @@ def test_registration_refuses_without_committing(gigahog, files, case, retryable
         gigahog.known_teams.clear()
     elif case == "namespace_of_another_org":
         gigahog.mark(TEAM, str(uuid.UUID(int=1)))
-    elif case == "changed_columns":
-        gigahog.tables[("team_42", TABLE)] = {
+    elif case.startswith("changed_columns"):
+        other_table = {
             "namespace": "team_42",
             "name": TABLE,
             "table_uuid": str(uuid.uuid4()),
             "columns": [{"name": "id", "type": "string", "nullable": True}],
         }
-        gigahog.live_files[("team_42", TABLE)] = [{"path": "old"}]
+        if case == "changed_columns":
+            gigahog.tables[("team_42", TABLE)] = other_table
+            gigahog.live_files[("team_42", TABLE)] = [{"path": "old"}]
+        else:
+            gigahog.created_concurrently = other_table
     elif case == "unsupported_type":
         tables = {"a.parquet": pa.table({"tags": pa.array([["a"]], pa.list_(pa.string()))})}
     elif case == "columns_with_field_ids":
@@ -445,17 +456,23 @@ def test_a_commit_counts_as_refused_only_when_no_send_may_have_landed(
     assert gigahog_commit_refused(raised.value) is refused
 
 
-@pytest.mark.parametrize("stale_after_a_conflict", [False, True])
-def test_a_stale_generation_commits_nothing(gigahog, files, stale_after_a_conflict: bool) -> None:
-    # The conflict is a newer generation's commit, so a retry would replace newer rows with older ones.
-    gigahog.commit_faults = ["conflict"] if stale_after_a_conflict else []
-    checks = iter([True, False] if stale_after_a_conflict else [False])
+@pytest.mark.parametrize("newer_generation", ["before_the_sync", "after_a_conflict", "during_the_table_read"])
+def test_a_stale_generation_commits_nothing(gigahog, files, newer_generation: str) -> None:
+    # A newer generation's rows are in the table, so committing this one would replace them with older rows.
+    if newer_generation == "after_a_conflict":
+        gigahog.commit_faults = ["conflict"]
+        checks = iter([True, False])
+        should_publish = lambda: next(checks)
+    elif newer_generation == "during_the_table_read":
+        # The newer generation lands while this one reads the table, so only a check after the read sees it.
+        should_publish = lambda: not gigahog.tables
+    else:
+        should_publish = lambda: False
     landing_uri = _landing_uri()
     paths = _write_generation(files, landing_uri, {"a.parquet": _charges(1)})
 
-    assert _register(files, landing_uri, paths, should_publish=lambda: next(checks)).published is False
+    assert _register(files, landing_uri, paths, should_publish=should_publish).published is False
     assert gigahog.commits == 0
-    assert (gigahog.tables == {}) is not stale_after_a_conflict
 
 
 @pytest.mark.parametrize(

@@ -295,7 +295,8 @@ def _table_for_commit(
     if table is None:
         table = client.create_table(namespace, table_name, columns)
         LOGGER.info("Created the Gigahog import table", table=f"{namespace}.{table_name}")
-    elif not _columns_match(table.columns, columns):
+    # `create_table` returns the other writer's table when a concurrent create wins, so its columns are checked too.
+    if not _columns_match(table.columns, columns):
         raise ApplicationError(
             f"The columns of Gigahog table {namespace}.{table_name} differ from the generation's, and the "
             "Gigahog import writer does not change a table's columns",
@@ -373,10 +374,12 @@ def register_prepared_files_in_gigahog(
             for file in prepared
         ]
         for attempt in range(1, COMMIT_CONFLICT_ATTEMPTS + 1):
-            # A conflict can be a newer generation's commit, which this one must not replace.
+            table = _table_for_commit(gigahog, namespace, table_name, columns)
+            # A newer generation can commit at any time. Checked after the table read, a newer commit either is in
+            # the snapshot read here, so this generation stops, or lands after it, so Gigahog refuses this commit as
+            # a conflict and the next pass checks again.
             if not should_publish():
                 return GigahogRegistrationResult(published=False, row_count=0)
-            table = _table_for_commit(gigahog, namespace, table_name, columns)
             if before_commit is not None:
                 before_commit()
             try:

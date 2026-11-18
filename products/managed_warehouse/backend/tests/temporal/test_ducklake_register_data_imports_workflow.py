@@ -3163,22 +3163,27 @@ def test_hoglake_copy_activity_lands_under_the_attempt_and_deletes_unpublished_f
 
 
 @pytest.mark.parametrize(
-    "flag_on, url, expected",
+    "flag_on, url, complete, expected",
     [
-        (False, None, False),
-        (True, "http://gigahog.test", True),
+        (False, None, True, False),
+        (True, "http://gigahog.test", True, True),
         # A flagged organization on a worker without Gigahog fails instead of landing in another catalog.
-        (True, None, "refused"),
-        (None, "http://gigahog.test", "retried"),
+        (True, None, True, "refused"),
+        (None, "http://gigahog.test", True, "retried"),
         # Where Gigahog is not deployed, a flag that is not defined must not stop data imports.
-        (None, None, False),
+        (None, None, True, False),
+        # A half-configured worker refuses only the organizations that write to Gigahog.
+        (True, "http://gigahog.test", False, "refused"),
+        (False, "http://gigahog.test", False, False),
     ],
 )
 def test_registers_in_gigahog_needs_the_flag_and_a_configured_worker(
-    flag_on: bool | None, url: str | None, expected: bool | str, monkeypatch, settings
+    flag_on: bool | None, url: str | None, complete: bool, expected: bool | str, monkeypatch, settings
 ) -> None:
     monkeypatch.setattr(registration_module, "data_imports_gigahog_flag", lambda organization_id: flag_on)
     _configure_gigahog(settings, url=url)
+    if not complete:
+        settings.GIGAHOG_IMPORTS_CLIENT_SECRET = None
 
     if expected in ("refused", "retried"):
         with pytest.raises(ApplicationError) as raised:
@@ -3208,6 +3213,8 @@ async def test_registration_gate_sends_a_gigahog_organization_past_trino_and_duc
     "outcome, files_kept",
     [
         ("namespace_missing", False),
+        # One replacement could not carry the generation, so copying it would only make files to delete.
+        ("too_many_files", False),
         ("published", True),
         ("stale", False),
         ("refused", False),
@@ -3273,12 +3280,14 @@ def test_gigahog_copy_activity_lands_under_the_attempt_and_deletes_files_no_tabl
         registration_table_names=names,
     )
 
-    if outcome in ("namespace_missing", "refused", "unknown"):
+    if outcome == "too_many_files":
+        monkeypatch.setattr(registration_module, "REPLACEMENT_MAX_FILES", len(source_keys) - 1)
+    if outcome in ("namespace_missing", "too_many_files", "refused", "unknown"):
         with pytest.raises(ApplicationError):
             copy_and_register_ducklake_data_imports_activity(inputs)
     else:
         assert copy_and_register_ducklake_data_imports_activity(inputs) is (outcome == "published")
-    if outcome == "namespace_missing":
+    if outcome in ("namespace_missing", "too_many_files"):
         assert fake_s3.copy_destinations == []
         return
     assert session_requests[0] is True
