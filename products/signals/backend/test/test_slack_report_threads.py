@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
-from celery.exceptions import Retry
+from celery.exceptions import Retry, SoftTimeLimitExceeded
 from slack_sdk.errors import SlackApiError
 from slack_sdk.web import SlackResponse
 
@@ -12,6 +12,7 @@ from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.integration import Integration
 from posthog.models.user_integration import UserIntegration
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.facade.api import notify_implementation_pr_opened, notify_implementation_prs_opened
 from products.signals.backend.implementation_pr_notification_tasks import deliver_implementation_pr_notifications
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportSlackThread
@@ -228,7 +229,7 @@ def test_implementation_pr_reaches_report_threads_once(team, django_capture_on_c
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("failure", ["connection", "rate_limit"])
+@pytest.mark.parametrize("failure", ["connection", "rate_limit", "soft_timeout"])
 def test_pr_notification_retries_failed_threads_and_remembers_each_pr(team, failure: str) -> None:
     report = _report(team)
     integration = _integration(team)
@@ -249,6 +250,8 @@ def test_pr_notification_retries_failed_threads_and_remembers_each_pr(team, fail
     pr_url = "https://github.com/example/repo/pull/42"
     other_pr_url = "https://github.com/example/repo/pull/43"
     error: Exception = RuntimeError("Slack unavailable")
+    if failure == "soft_timeout":
+        error = SoftTimeLimitExceeded()
     if failure == "rate_limit":
         error = SlackApiError(
             "Rate limited",
@@ -269,16 +272,26 @@ def test_pr_notification_retries_failed_threads_and_remembers_each_pr(team, fail
         client.chat_postMessage.side_effect = [error, {"ok": True}]
         with pytest.raises(Retry) as retry:
             deliver_implementation_pr_notifications.apply(kwargs=job_args, throw=True)
-        assert retry.value.when == (120 if failure == "rate_limit" else 60)
-        failed, sent = client.chat_postMessage.call_args_list
+        if failure == "soft_timeout":
+            assert 0 <= retry.value.when <= 60
+        else:
+            assert retry.value.when == (120 if failure == "rate_limit" else 60)
+        failed = client.chat_postMessage.call_args_list[0]
+        if failure == "soft_timeout":
+            assert len(client.chat_postMessage.call_args_list) == 1
+        else:
+            sent = client.chat_postMessage.call_args_list[1]
+            assert failed.kwargs["channel"] != sent.kwargs["channel"]
         client.chat_postMessage.reset_mock(side_effect=True)
         deliver_implementation_pr_notifications.apply(kwargs=job_args, throw=True)
-        client.chat_postMessage.assert_called_once_with(**failed.kwargs)
-        assert failed.kwargs["channel"] != sent.kwargs["channel"]
+        if failure == "soft_timeout":
+            assert {call.kwargs["channel"] for call in client.chat_postMessage.call_args_list} == {"CFAILED", "CSENT"}
+        else:
+            client.chat_postMessage.assert_called_once_with(**failed.kwargs)
 
         deliver_implementation_pr_notifications.apply(kwargs={**job_args, "pr_urls": [other_pr_url]}, throw=True)
         deliver_implementation_pr_notifications.apply(kwargs=job_args, throw=True)
-        assert client.chat_postMessage.call_count == 3
+        assert client.chat_postMessage.call_count == (4 if failure == "soft_timeout" else 3)
 
 
 @pytest.mark.django_db
@@ -333,7 +346,7 @@ def test_pr_notification_does_not_reach_an_invalid_target(team, boundary: str) -
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("recipient", ["active", "saved", "removed", "guest", "unknown", "changed_email"])
+@pytest.mark.parametrize("recipient", ["active", "saved", "removed", "guest", "unknown", "changed_email", "no_inbox"])
 def test_pr_notification_rechecks_dm_recipient(team, recipient: str) -> None:
     report = _report(team)
     integration = _integration(team)
@@ -363,6 +376,10 @@ def test_pr_notification_rechecks_dm_recipient(team, recipient: str) -> None:
     if recipient == "changed_email":
         other_user = User.objects.create(email="active@example.com")
         OrganizationMembership.objects.create(user=other_user, organization=team.organization)
+    if recipient == "no_inbox":
+        team.organization.available_product_features = [{"key": "access_control", "name": "access_control"}]
+        team.organization.save()
+        AccessControl.objects.create(team=team, resource="task", access_level="none", organization_member=membership)
     with patch("products.signals.backend.slack_report_threads.SlackIntegration") as slack_cls:
         slack = slack_cls.return_value
         slack.get_user_by_id.return_value = (
@@ -377,6 +394,38 @@ def test_pr_notification_rechecks_dm_recipient(team, recipient: str) -> None:
             throw=True,
         )
         assert slack.client.chat_postMessage.call_count == (1 if recipient in {"active", "saved"} else 0)
+
+
+@pytest.mark.django_db
+def test_completed_mapped_run_announces_a_promoted_primary_pr(team) -> None:
+    pr_url = "https://github.com/example/repo/pull/42"
+    other_pr_url = "https://github.com/example/repo/pull/43"
+    task = Task.objects.create(team=team, title="Implement report", repository="example/repo")
+    run = TaskRun.objects.create(
+        task=task,
+        team=team,
+        status=TaskRun.Status.COMPLETED,
+        output={"pr_url": pr_url, "pr_urls": [pr_url, other_pr_url]},
+        state={"slack_notified_pr_url": pr_url},
+    )
+    SlackThreadTaskMapping.objects.create(
+        team=team,
+        integration=_integration(team),
+        slack_workspace_id="T123",
+        channel="CTEAM",
+        thread_ts="1700000000.000100",
+        task=task,
+        task_run=run,
+        mentioning_slack_user_id="UREVIEWER",
+    )
+    with (
+        patch("products.slack_app.backend.slack_thread.SlackIntegration") as slack_cls,
+        patch("celery.app.task.Task.apply_async"),
+    ):
+        update_task_run(run.id, task.id, team.id, validated_data={"output": {"pr_url": other_pr_url}})
+        posts = slack_cls.return_value.client.chat_postMessage.call_args_list
+        assert len(posts) == 1
+        assert other_pr_url in str(posts[0].kwargs["blocks"])
 
 
 @pytest.mark.django_db

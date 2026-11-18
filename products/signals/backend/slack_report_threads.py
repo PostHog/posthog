@@ -17,17 +17,19 @@ from uuid import NAMESPACE_URL, uuid5
 from django.db import IntegrityError
 from django.db.models import Func, Q, Value
 
+from celery.exceptions import SoftTimeLimitExceeded
 from slack_sdk.errors import SlackApiError
 
 from posthog.dataclasses import frozen
 from posthog.integrations import IntegrationManager, IntegrationRecord
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.models.integration import SlackIntegration
 from posthog.models.user_integration import UserIntegration
 
 from products.signals.backend.artefact_schemas import TASK_RUN_TYPE_IMPLEMENTATION
 from products.signals.backend.assignment_flags import assignment_side_effects_allowed
 from products.signals.backend.models import SignalReportSlackThread, SignalReportTask
+from products.signals.backend.report_access import may_read_reports
 from products.signals.backend.slack_notification_targets import is_slack_member_target
 
 logger = logging.getLogger(__name__)
@@ -56,7 +58,7 @@ def _notification_retry_after(error: Exception) -> int | None:
     return int(wait) if wait.isdigit() else 0
 
 
-def _thread_recipient_can_receive_pr(slack: SlackIntegration, thread: SignalReportSlackThread) -> bool:
+def _thread_recipient_can_receive_pr(slack: SlackIntegration, thread: SignalReportSlackThread, team: Team) -> bool:
     target = thread.target or ""
     if not is_slack_member_target(target):
         return not thread.channel.startswith(("D", "U", "W"))
@@ -69,8 +71,10 @@ def _thread_recipient_can_receive_pr(slack: SlackIntegration, thread: SignalRepo
         config__slack_team_id=thread.slack_workspace_id,
     ).values("user_id")
     identity = Q(id=thread.recipient_user_id) if thread.recipient_user_id is not None else Q(id__in=linked_users)
-    team = Team.objects.get(id=thread.team_id)
-    return team.all_users_with_access().filter(is_active=True).filter(identity).exists()
+    user_uuids = [str(uuid) for uuid in User.objects.filter(identity, is_active=True).values_list("uuid", flat=True)]
+    if not user_uuids:
+        return False
+    return any(may_read_reports(user=user, team=team) for user in team.all_users_with_access(user_uuids=user_uuids))
 
 
 def _pr_repository(pr_url: str) -> str | None:
@@ -101,12 +105,35 @@ def eligible_implementation_pr_urls(*, team_id: int, task_id: str, pr_urls: Sequ
     return urls
 
 
-def _report_thread_integrations(team_id: int, integration_ids: set[int]) -> dict[int, IntegrationRecord]:
-    team = Team.objects.get(id=team_id)
+def _report_thread_integrations(team: Team, integration_ids: set[int]) -> dict[int, IntegrationRecord]:
     integrations: dict[int, IntegrationRecord] = {}
     for environment_id in Team.objects.filter(project_id=team.project_id).values_list("id", flat=True):
         integrations.update(IntegrationManager.slack.any.get_many(environment_id, integration_ids))
     return integrations
+
+
+def _deliver_implementation_pr_to_thread(
+    *, team: Team, thread: SignalReportSlackThread, integration: IntegrationRecord, pr_url: str
+) -> bool:
+    if integration.integration_id != thread.slack_workspace_id:
+        return False
+    if not assignment_side_effects_allowed(team_id=team.id, report_id=str(thread.report_id)):
+        return False
+    slack = SlackIntegration(integration, source="signals_inbox", timeout_seconds=10)
+    if not _thread_recipient_can_receive_pr(slack, thread, team):
+        return False
+    slack.client.chat_postMessage(
+        channel=thread.channel,
+        thread_ts=thread.thread_ts,
+        text=f"Pull request opened: <{pr_url}|View pull request>",
+        client_msg_id=str(uuid5(NAMESPACE_URL, f"signals-pr:{thread.id}:{pr_url}")),
+        unfurl_links=False,
+        unfurl_media=False,
+    )
+    SignalReportSlackThread.objects.for_team(team.id).filter(id=thread.id).exclude(
+        notified_pr_urls__contains=[pr_url]
+    ).update(notified_pr_urls=Func("notified_pr_urls", Value(pr_url), function="array_append"))
+    return True
 
 
 def dispatch_implementation_pr_notifications(*, team_id: int, task_id: str, pr_url: str) -> int:
@@ -127,32 +154,21 @@ def dispatch_implementation_pr_notifications(*, team_id: int, task_id: str, pr_u
     )
     if not threads:
         return 0
+    team = Team.objects.get(id=team_id)
     integration_ids = {thread.integration_id for thread in threads if thread.integration_id is not None}
-    integrations = _report_thread_integrations(team_id, integration_ids)
+    integrations = _report_thread_integrations(team, integration_ids)
     sent = 0
     retry_after: int | None = None
     for thread in threads:
         integration = integrations.get(thread.integration_id) if thread.integration_id is not None else None
-        if integration is None or integration.integration_id != thread.slack_workspace_id:
+        if integration is None:
             continue
         try:
-            if not assignment_side_effects_allowed(team_id=team_id, report_id=str(thread.report_id)):
-                continue
-            slack = SlackIntegration(integration, source="signals_inbox", timeout_seconds=10)
-            if not _thread_recipient_can_receive_pr(slack, thread):
-                continue
-            slack.client.chat_postMessage(
-                channel=thread.channel,
-                thread_ts=thread.thread_ts,
-                text=f"Pull request opened: <{pr_url}|View pull request>",
-                client_msg_id=str(uuid5(NAMESPACE_URL, f"signals-pr:{thread.id}:{pr_url}")),
-                unfurl_links=False,
-                unfurl_media=False,
+            sent += _deliver_implementation_pr_to_thread(
+                team=team, thread=thread, integration=integration, pr_url=pr_url
             )
-            SignalReportSlackThread.objects.for_team(team_id).filter(id=thread.id).exclude(
-                notified_pr_urls__contains=[pr_url]
-            ).update(notified_pr_urls=Func("notified_pr_urls", Value(pr_url), function="array_append"))
-            sent += 1
+        except SoftTimeLimitExceeded:
+            raise
         except Exception as error:
             if (wait := _notification_retry_after(error)) is not None:
                 retry_after = max(retry_after or 0, wait)

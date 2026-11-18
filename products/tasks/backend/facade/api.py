@@ -4161,7 +4161,7 @@ def update_task_run(
 
             notify_task_run_cancelled(run)
     new_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
-    if set(read_pr_urls(run.output)) - old_pr_urls:
+    if set(read_pr_urls(run.output)) - old_pr_urls or (new_pr_url and new_pr_url != old_pr_url):
         _post_slack_update_for_pr(run)
     if new_pr_url and new_pr_url != old_pr_url:
         _refresh_self_driving_quota_for_pr(run, old_pr_url)
