@@ -34,7 +34,7 @@ Look in particular at:
 - Environment files: `.env*`, and any file passed with `--dotenv-file`.
 - The names of CI secrets, such as `POSTHOG_CLI_API_KEY`. You can't read their values, and you don't need to.
 
-Also look for a PostHog build plugin: `@posthog/nextjs-config`, `@posthog/webpack-plugin`, `@posthog/rollup-plugin` or `@posthog/nuxt`. A plugin runs the CLI for the build, so [it changes differently](#build-plugins), and only once it has a release that runs hog.
+Also look for a PostHog build plugin: `@posthog/nextjs-config`, `@posthog/webpack-plugin`, `@posthog/rollup-plugin` or `@posthog/nuxt`. A plugin runs the CLI for the build, so [it changes differently](#build-plugins).
 
 List what you found before you change anything, so the person can check it.
 
@@ -97,18 +97,10 @@ A script that reads hog's output passes `-o text` or `-o json`, as [Output](#out
 
 ## Build plugins
 
-A PostHog build plugin runs the CLI for the build, and it moves to hog in its own release.
-Until the plugin's release that runs hog is out, leave the plugin, its version and its `personalApiKey` as they are: the current versions run posthog-cli and need the key.
+When a PostHog build plugin is the only thing that runs posthog-cli, update the plugin to its latest version, which runs hog itself.
+The plugin config stays the same.
 
-| Plugin                    | First version that runs hog |
-| ------------------------- | --------------------------- |
-| `@posthog/nextjs-config`  | Not released yet            |
-| `@posthog/webpack-plugin` | Not released yet            |
-| `@posthog/rollup-plugin`  | Not released yet            |
-| `@posthog/nuxt`           | Not released yet            |
-
-Once that version is out, update the plugin to it. The plugin config stays the same.
-In GitHub Actions, GitLab.com and Depot CI, that version can also use the job's OIDC token:
+In GitHub Actions, GitLab.com and Depot CI, the plugin can use the job's OIDC token too:
 run `hog ci setup` as in [step 4](#4-log-in-from-ci), then remove `personalApiKey` from the plugin config.
 
 ## 6. Check the result
