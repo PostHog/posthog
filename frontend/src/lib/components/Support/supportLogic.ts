@@ -247,8 +247,8 @@ export type SupportFormFields = {
 export interface supportLogicValues {
     sidePanelAvailable: boolean // sidePanelStateLogic
     user: UserType | null // userLogic
-    isBillingIssue: boolean
     earnsSupportExemption: boolean
+    isBillingIssue: boolean
     isEmailFormOpen: boolean
     isErrorReport: boolean
     isSendSupportRequestSubmitting: boolean
@@ -360,12 +360,12 @@ export interface supportLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         title: (arg: SupportFormFields) => string
         isBillingIssue: (sendSupportRequest: SupportFormFields) => boolean
+        isErrorReport: (sendSupportRequest: SupportFormFields) => boolean
         earnsSupportExemption: (
             isBillingIssue: boolean,
             isErrorReport: boolean,
             sendSupportRequest: SupportFormFields
         ) => boolean
-        isErrorReport: (sendSupportRequest: SupportFormFields) => boolean
     }
 }
 
