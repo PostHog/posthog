@@ -564,6 +564,9 @@ class TestBounceClassificationRows:
         assert {request.path for request in result.requests} == {"/v2/bounce-classification/metrics"}
         assert len(result.requests) == METRICS_LOOKBACK_DAYS + 1
         busy_bodies = [request.json() for request in result.requests if _request_day(request) == busy_day]
+        # `timestamp` isn't a requested dimension: Mailgun rejects this endpoint's request with a
+        # 400 past an undocumented dimension-count cap, and the window is already one bucket wide.
+        assert {tuple(body["dimensions"]) for body in busy_bodies} == {("domain.name", "entity-name", "category")}
         assert [body["pagination"]["skip"] for body in busy_bodies] == [0, BOUNCE_CLASSIFICATION_PAGE_SIZE]
         assert {body["pagination"]["limit"] for body in busy_bodies} == {BOUNCE_CLASSIFICATION_PAGE_SIZE}
         assert len(result.rows) == BOUNCE_CLASSIFICATION_PAGE_SIZE + 1
