@@ -73863,6 +73863,36 @@ export namespace Schemas {
     }
 
     /**
+     * * `sum` - sum
+     * * `avg` - avg
+     * * `count` - count
+     * * `min` - min
+     * * `max` - max
+     * * `p95` - p95
+     * * `rate` - rate
+     * * `increase` - increase
+     * * `histogram_quantile` - histogram_quantile
+     * * `count_rate` - count_rate
+     * * `count_increase` - count_increase
+     */
+    export type MetricAnomalyAggregationEnum = typeof MetricAnomalyAggregationEnum[keyof typeof MetricAnomalyAggregationEnum];
+
+
+    export const MetricAnomalyAggregationEnum = {
+      Sum: 'sum',
+      Avg: 'avg',
+      Count: 'count',
+      Min: 'min',
+      Max: 'max',
+      P95: 'p95',
+      Rate: 'rate',
+      Increase: 'increase',
+      HistogramQuantile: 'histogram_quantile',
+      CountRate: 'count_rate',
+      CountIncrease: 'count_increase',
+    } as const;
+
+    /**
      * * `up` - up
      * * `down` - down
      * * `flat` - flat
@@ -130306,36 +130336,6 @@ export namespace Schemas {
       refreshing: boolean;
     }
 
-    /**
-     * * `sum` - sum
-     * * `avg` - avg
-     * * `count` - count
-     * * `min` - min
-     * * `max` - max
-     * * `p95` - p95
-     * * `rate` - rate
-     * * `increase` - increase
-     * * `histogram_quantile` - histogram_quantile
-     * * `count_rate` - count_rate
-     * * `count_increase` - count_increase
-     */
-    export type _MetricAnomalyBodyAggregationEnum = typeof _MetricAnomalyBodyAggregationEnum[keyof typeof _MetricAnomalyBodyAggregationEnum];
-
-
-    export const _MetricAnomalyBodyAggregationEnum = {
-      Sum: 'sum',
-      Avg: 'avg',
-      Count: 'count',
-      Min: 'min',
-      Max: 'max',
-      P95: 'p95',
-      Rate: 'rate',
-      Increase: 'increase',
-      HistogramQuantile: 'histogram_quantile',
-      CountRate: 'count_rate',
-      CountIncrease: 'count_increase',
-    } as const;
-
     export interface _MetricFilter {
       /**
          * Attribute name to filter on, without any type-tag suffix (e.g. 'k8s.pod.name', 'env').
@@ -130389,7 +130389,7 @@ export namespace Schemas {
        * * `histogram_quantile` - histogram_quantile
        * * `count_rate` - count_rate
        * * `count_increase` - count_increase */
-      aggregation?: _MetricAnomalyBodyAggregationEnum | null;
+      aggregation?: MetricAnomalyAggregationEnum | null;
       /**
          * Quantile for histogram_quantile. Defaults to 0.95.
          * @minimum 0

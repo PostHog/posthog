@@ -64,10 +64,10 @@ export interface _MetricAttributeKeysResponseApi {
  * * `count_rate` - count_rate
  * * `count_increase` - count_increase
  */
-export type _MetricAnomalyBodyAggregationEnumApi =
-    (typeof _MetricAnomalyBodyAggregationEnumApi)[keyof typeof _MetricAnomalyBodyAggregationEnumApi]
+export type MetricAnomalyAggregationEnumApi =
+    (typeof MetricAnomalyAggregationEnumApi)[keyof typeof MetricAnomalyAggregationEnumApi]
 
-export const _MetricAnomalyBodyAggregationEnumApi = {
+export const MetricAnomalyAggregationEnumApi = {
     Sum: 'sum',
     Avg: 'avg',
     Count: 'count',
@@ -162,7 +162,7 @@ export interface _MetricAnomalyBodyApi {
      * * `histogram_quantile` - histogram_quantile
      * * `count_rate` - count_rate
      * * `count_increase` - count_increase */
-    aggregation?: _MetricAnomalyBodyAggregationEnumApi | null
+    aggregation?: MetricAnomalyAggregationEnumApi | null
     /**
      * Quantile for histogram_quantile. Defaults to 0.95.
      * @minimum 0

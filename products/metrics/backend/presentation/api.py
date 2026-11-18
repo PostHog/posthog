@@ -113,6 +113,20 @@ class MetricQueryAggregation(models.TextChoices):
     COUNT_INCREASE = "count_increase", "count_increase"
 
 
+class MetricAnomalyAggregation(models.TextChoices):
+    SUM = "sum", "sum"
+    AVG = "avg", "avg"
+    COUNT = "count", "count"
+    MIN = "min", "min"
+    MAX = "max", "max"
+    P95 = "p95", "p95"
+    RATE = "rate", "rate"
+    INCREASE = "increase", "increase"
+    HISTOGRAM_QUANTILE = "histogram_quantile", "histogram_quantile"
+    COUNT_RATE = "count_rate", "count_rate"
+    COUNT_INCREASE = "count_increase", "count_increase"
+
+
 class Op(models.TextChoices):
     EQ = "eq", "eq"
     NEQ = "neq", "neq"
@@ -758,19 +772,7 @@ class _MetricAnomalyBodySerializer(serializers.Serializer):
         help_text="End of the healthy comparison window. Defaults to anomalyFrom. Must not extend past anomalyFrom.",
     )
     aggregation = serializers.ChoiceField(
-        choices=[
-            "sum",
-            "avg",
-            "count",
-            "min",
-            "max",
-            "p95",
-            "rate",
-            "increase",
-            "histogram_quantile",
-            "count_rate",
-            "count_increase",
-        ],
+        choices=MetricAnomalyAggregation.choices,
         required=False,
         allow_null=True,
         help_text="Aggregation to characterize. Omit to auto-pick from the metric's OTel type (counter -> rate, gauge -> avg, histogram -> histogram_quantile 0.95).",

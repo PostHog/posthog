@@ -1057,6 +1057,10 @@ describe('metrics query languages', () => {
             expect(sql).toContain("metric_type IN ('exponential_histogram', 'histogram', 'summary')")
             expect(sql).toContain(rangeValue)
             expect(sql).toContain('sum(s.series_value) AS value')
+            expect(sqlToBuilder(sql)).toEqual({
+                value: { clauses: [clause({ metricName: 'http.server.request.duration', aggregation })] },
+                issues: [],
+            })
         })
 
         it('reads a handwritten SQL query with a group-by', () => {
