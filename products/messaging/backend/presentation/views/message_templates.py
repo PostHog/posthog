@@ -498,6 +498,7 @@ IDEMPOTENCY_KEY_PARAMETER = OpenApiParameter(
 
 
 TRANSACTIONAL_EMAIL_API_FLAG = "workflows-transactional-email-api"
+EMAIL_IMPACT_FLAG = "workflows-email-impact"
 FIRST_CODE_SEND_EVENT = "email first code send"
 INTEGRATION_MARKER = re.compile(r"([a-z0-9-]{1,40})/[0-9A-Za-z.+-]{1,40}", re.ASCII)
 USER_AGENT_PRODUCT = re.compile(r"([!#$%&'*+.^_`|~0-9A-Za-z-]+)(?:/|\s|\Z)", re.ASCII)
@@ -853,6 +854,10 @@ def transactional_email_authorized_by(request: Any, required_scope: str) -> str:
 
 def require_transactional_email_api(team: Any) -> None:
     _require_flag(team, TRANSACTIONAL_EMAIL_API_FLAG)
+
+
+def require_email_impact(team: Any) -> None:
+    _require_flag(team, EMAIL_IMPACT_FLAG)
 
 
 def require_email_from_code(team: Any) -> None:
