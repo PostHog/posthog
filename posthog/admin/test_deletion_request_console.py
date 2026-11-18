@@ -337,7 +337,7 @@ class TestDeletionRequestConsole(BaseTest):
             self.user.groups.clear()
 
         response = self.client.get(
-            "/admin/console/tools/deletion-requests/", {"status": "pending", "team_id": self.team.pk}
+            "/admin/console/tools/deletion-requests/", {"status": "pending", "team_id": str(self.team.pk)}
         )
 
         assert response.status_code == 200

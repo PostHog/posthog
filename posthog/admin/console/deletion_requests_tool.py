@@ -106,7 +106,11 @@ def _action_cell(obj: DataDeletionRequest, can_approve: bool) -> Cell:
         return Cell(text="-", muted=True)
     if not can_approve:
         return Cell(text="Waiting for the ClickHouse Team", muted=True)
-    return Cell(text="Approve", href=f"{RECORD_TYPES['deletion-request'].url(obj)}workflow/approve/")
+    approve_url = reverse(
+        RECORD_TYPES["deletion-request"].operation_url_name,
+        kwargs={"pk": obj.pk, "panel_key": "workflow", "operation_key": "approve"},
+    )
+    return Cell(text="Approve", href=approve_url)
 
 
 def _request_row(obj: DataDeletionRequest, team_names: dict[int, str], can_approve: bool) -> Row:
