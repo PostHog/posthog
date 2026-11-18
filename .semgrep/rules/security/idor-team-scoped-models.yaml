@@ -280,6 +280,7 @@ rules:
                               |KnowledgeChunk
                               |KnowledgeDocument
                               |KnowledgeGapSuggestion
+                              |KnowledgeKeyLibrary
                               |KnowledgeLearningRun
                               |KnowledgeLibrary
                               |KnowledgeLibraryRepository
@@ -831,6 +832,7 @@ rules:
                         |KnowledgeChunk
                         |KnowledgeDocument
                         |KnowledgeGapSuggestion
+                        |KnowledgeKeyLibrary
                         |KnowledgeLearningRun
                         |KnowledgeLibrary
                         |KnowledgeLibraryRepository

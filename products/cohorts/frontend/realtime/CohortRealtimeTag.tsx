@@ -39,8 +39,7 @@ const TAG_BY_STATE: Partial<Record<CohortRealtimeStateEnumApi, TagContent>> = {
     },
     off: {
         label: 'Realtime off',
-        explanation:
-            "Realtime is off for this cohort, so feature flags can't target it. Open the cohort to turn it on.",
+        explanation: "Realtime is off for this cohort, so feature flags can't target it until it's turned on.",
     },
     daily: {
         label: 'No flag targeting',
