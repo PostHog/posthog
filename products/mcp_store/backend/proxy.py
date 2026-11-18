@@ -20,7 +20,6 @@ from ee.hogai.utils.asgi import SyncIterableToAsync
 
 from .models import MCPAuditEvent, MCPGatewayServer, MCPServerInstallation, MCPServerInstallationTool
 from .oauth import TokenRefreshError, TokenRefreshRejectedError, is_token_expiring, refresh_installation_token
-from .oauth_credentials import oauth_credentials_source_is_allowed
 from .policy import GatewayCaller, PolicyContext, legacy_state_for_caller
 from .url_policy import resolve_mcp_url_policy, trust_environment_proxy
 
@@ -119,10 +118,6 @@ def send_mcp_request_with_same_origin_redirect(
 
 
 def build_upstream_auth_headers(installation: MCPServerInstallation) -> dict[str, str]:
-    if installation.template and not oauth_credentials_source_is_allowed(
-        installation.template.oauth_credentials_source, installation.team_id
-    ):
-        raise TokenRefreshRejectedError("OAuth app is not available for this project")
     sensitive = installation.sensitive_configuration or {}
 
     if installation.auth_type == "api_key":
@@ -153,12 +148,7 @@ def validate_installation_auth(
 
     Returns (True, None) if auth is valid, or (False, error_response) if not.
     """
-    if not installation.is_enabled or (
-        installation.template
-        and not oauth_credentials_source_is_allowed(
-            installation.template.oauth_credentials_source, installation.team_id
-        )
-    ):
+    if not installation.is_enabled:
         logger.warning(
             "Proxy auth failed: server is disabled",
             installation_id=str(installation.id),

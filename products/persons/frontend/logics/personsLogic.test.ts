@@ -432,10 +432,10 @@ describe('personsLogic', () => {
     })
 
     it('gives the Today rail the person as a recent once the person has loaded, under one URL for each person', () => {
-        expect(logic.values.todayPeopleRecent).toBeNull()
+        expect(logic.values.todayRecent).toBeNull()
 
         logic.actions.setPerson({ id: 'uuid-1', distinct_ids: ['ada@example.com'], properties: {} } as PersonType)
-        expect(logic.values.todayPeopleRecent).toEqual({
+        expect(logic.values.todayRecent).toEqual({
             type: 'person',
             name: 'ada@example.com',
             href: '/persons/uuid-1',

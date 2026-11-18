@@ -935,6 +935,7 @@ export const tracingSpansQueryCreateBodyQueryOneOffsetMin = 0
 export const tracingSpansQueryCreateBodyQueryOneRootSpansDefault = true
 export const tracingSpansQueryCreateBodyQueryOneFlatSpansDefault = false
 export const tracingSpansQueryCreateBodyQueryOneExcludeAttributesDefault = false
+export const tracingSpansQueryCreateBodyQueryOneIncludeEventsDefault = false
 
 export const TracingSpansQueryCreateBody = /* @__PURE__ */ zod.object({
     query: zod
@@ -1054,6 +1055,12 @@ export const TracingSpansQueryCreateBody = /* @__PURE__ */ zod.object({
                 .default(tracingSpansQueryCreateBodyQueryOneExcludeAttributesDefault)
                 .describe(
                     'Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false.'
+                ),
+            includeEvents: zod
+                .boolean()
+                .default(tracingSpansQueryCreateBodyQueryOneIncludeEventsDefault)
+                .describe(
+                    "Include each span's OpenTelemetry events, such as recorded exceptions. The events are large, so keep `limit` small. Ignored when `excludeAttributes` is true. Defaults to false."
                 ),
         })
         .describe('The tracing spans query to execute.'),

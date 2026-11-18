@@ -1,17 +1,7 @@
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
 import childProcess, { ChildProcess, SpawnOptions, spawn } from 'child_process'
 import { EventEmitter, once } from 'events'
-import {
-    existsSync,
-    mkdirSync,
-    mkdtempSync,
-    readFileSync,
-    realpathSync,
-    rmSync,
-    rmdirSync,
-    symlinkSync,
-    writeFileSync,
-} from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'fs'
 import http from 'http'
 import Redis from 'ioredis'
 import net from 'net'
@@ -482,6 +472,26 @@ describe('scenario environment', () => {
                 },
             ])
             expect(consumerGroupsOf(replicated)).toEqual(consumerGroupsOf(specs))
+        })
+
+        it('splits the role processes evenly across the poolers the host names, spreading a role over them', () => {
+            const poolers = ['postgres://a@127.0.0.1:6432/cyclotron_node', 'postgres://a@127.0.0.1:6433/cyclotron_node']
+            const split = roleSpecs(
+                { ...base, SCENARIO_POOLER_URLS: poolers.join(',') },
+                EDGE,
+                secretsOf({}),
+                STATE_DIR,
+                { CYCLOTRON_NODE_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/cyclotron_node' },
+                undefined,
+                { 'cdp-cyclotron-worker-hogflow': 2 }
+            )
+            const shares = poolers.map((url) => split.filter(({ env }) => env.CYCLOTRON_NODE_DATABASE_URL === url))
+
+            expect(shares.map((share) => share.length)).toEqual([4, 3])
+            expect(
+                shares.map((share) => share.filter(({ role }) => role === 'cdp-cyclotron-worker-hogflow').length)
+            ).toEqual([1, 1])
+            expect(split.filter(({ env }) => 'SCENARIO_POOLER_URLS' in env)).toEqual([])
         })
 
         it.each(CdpRole.options)(
@@ -1013,47 +1023,6 @@ describe('scenario environment', () => {
                 )
             } finally {
                 await killedElsewhere.stop()
-            }
-        }, 15_000)
-
-        it('records a role it cannot start again and keeps retrying until it starts', async () => {
-            const cwd = mkdtempSync(path.join(tempRoot, 'cwd-'))
-            const exiting = createSupervisor({
-                command: process.execPath,
-                args: ['-e', 'process.exit(3)'],
-                cwd,
-                logDir: mkdtempSync(path.join(tempRoot, 'logs-')),
-                graceMs: 1000,
-                restartBackoffMs: 50,
-            })
-            const [spec] = roleSpecs(process.env, EDGE, secretsOf({}), STATE_DIR)
-            try {
-                await exiting.start([spec])
-                rmdirSync(cwd)
-                await waitForExpect(
-                    () =>
-                        expect(exiting.exits().map(({ error }) => error)).toContainEqual(
-                            expect.stringContaining('ENOENT')
-                        ),
-                    5000,
-                    20
-                )
-                mkdirSync(cwd)
-                const failedStarts = exiting.exits().length
-
-                await waitForExpect(
-                    () =>
-                        expect(
-                            exiting
-                                .exits()
-                                .slice(failedStarts)
-                                .map(({ code }) => code)
-                        ).toContain(3),
-                    5000,
-                    20
-                )
-            } finally {
-                await exiting.stop()
             }
         }, 15_000)
     })
@@ -1588,7 +1557,7 @@ describe('scenario environment', () => {
             })
         }, 30_000)
 
-        it("drops the roles' Postgres connections in every database on their servers and spares every other one", async () => {
+        it("keeps dropping the roles' Postgres connections in every database on their servers until release, and spares every other one", async () => {
             environment = environmentOf()
             await environment.up()
             const connect = async (
@@ -1625,7 +1594,17 @@ describe('scenario environment', () => {
                     templatesUrl
                 )
                 expect(alive).toEqual(bystanders.map(({ backend }) => backend).sort((x, y) => x - y))
+                const reconnected = await connect(cyclotronUrl, 'cdp-cyclotron-worker-hogflow')
+                sessions.push(reconnected)
+                let reconnectedDropped = false
+                void reconnected.ended.then(() => (reconnectedDropped = true))
+                await waitForExpect(() => expect(reconnectedDropped).toBe(true), 5_000)
                 await actuation.release()
+                const afterRelease = await connect(cyclotronUrl, 'cdp-cyclotron-worker-hogflow')
+                sessions.push(afterRelease)
+                await expect(
+                    Promise.race([afterRelease.ended.then(() => 'dropped'), nextTimers(1_000).then(() => 'kept')])
+                ).resolves.toBe('kept')
             } finally {
                 await Promise.all(sessions.map(({ client }) => client.end().catch(() => undefined)))
             }

@@ -1,10 +1,11 @@
-"""Staff requests to enable a team for realtime cohorts or to backfill it, carried out by a Celery task.
+"""Requests to enable a team for realtime cohorts or to backfill it, carried out by a Celery task. Staff file
+backfill requests, and only a member who joins the beta files an enable request.
 
-`enable` and a team backfill both run ClickHouse scans that can outlast an admin request, so a request
-records what staff asked for and the task records how it ended.
+`enable` and a team backfill both run ClickHouse scans that can outlast a web request, so a request
+records what was asked for and the task records how it ended.
 """
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from uuid import UUID
 
 from django.conf import settings
@@ -15,6 +16,10 @@ from django.utils import timezone
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.event_usage import groups
+from posthog.models.team.team import Team
+from posthog.ph_client import ph_scoped_capture
+from posthog.utils import get_instance_region
 
 from products.cohorts.backend.backfill.runs import (
     check_person_run_preconditions,
@@ -46,6 +51,12 @@ logger = structlog.get_logger(__name__)
 # The next submit for the team fails a request that stayed queued or running this long. The threshold is an
 # hour past the task's time limit, so the worker of a running request is already dead.
 REQUEST_STALE_AFTER = REQUEST_TIME_LIMIT + timedelta(hours=1)
+
+_JOIN_OUTCOME_EVENTS = {
+    RealtimeCohortRequestState.DONE: "realtime cohorts join completed",
+    RealtimeCohortRequestState.REFUSED: "realtime cohorts join refused",
+    RealtimeCohortRequestState.FAILED: "realtime cohorts join failed",
+}
 
 
 @frozen
@@ -150,9 +161,32 @@ def process_request(team_id: int, request_id: UUID) -> None:
     except Exception as error:
         logger.exception("realtime_cohort_request_failed", team_id=team_id, request_id=str(request_id))
         outcome = _Outcome(state=RealtimeCohortRequestState.FAILED, error=str(error))
+    finished_at = timezone.now()
     requests.filter(id=request_id).update(
-        state=outcome.state, error=outcome.error, detail=outcome.detail, finished_at=timezone.now()
+        state=outcome.state, error=outcome.error, detail=outcome.detail, finished_at=finished_at
     )
+    # Only a member's join files an enable request, and the staff command calls `enable` directly. A staff path that
+    # files enable requests would need its own events.
+    if request.kind == RealtimeCohortRequestKind.ENABLE:
+        _report_join_outcome(request, outcome.state, finished_at)
+
+
+def _report_join_outcome(
+    request: RealtimeCohortRequest, state: RealtimeCohortRequestState, finished_at: datetime
+) -> None:
+    team = Team.objects.only("uuid", "organization_id").get(id=request.team_id)
+    properties = (
+        {"seconds_since_request": (finished_at - request.created_at).total_seconds()}
+        if state == RealtimeCohortRequestState.DONE
+        else {}
+    )
+    with ph_scoped_capture(event_region=get_instance_region()) as capture:
+        capture(
+            distinct_id=str(team.uuid),
+            event=_JOIN_OUTCOME_EVENTS[state],
+            properties=properties,
+            groups=groups(team=team),
+        )
 
 
 def _enable(team_id: int) -> _Outcome:
@@ -174,7 +208,7 @@ def _enable(team_id: int) -> _Outcome:
     # A later request finds the team serving and does nothing, so it cannot repair this.
     warning = (
         "The flags cache rebuild was not enqueued. Enqueue update_team_flags_cache and "
-        "update_team_service_flags_cache for this team."
+        "invalidate_team_flags_cache_for_cohorts for this team."
         if result.resave.rebuild_dispatch_failed
         else ""
     )

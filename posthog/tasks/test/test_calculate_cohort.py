@@ -1068,6 +1068,7 @@ class TestCohortCalculationTasks(APIBaseTest):
             team=self.team,
             name="backfill trigger",
             cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=timezone.now(),
             filters={
                 "properties": {
                     "type": "AND",

@@ -2,9 +2,11 @@ import type { Profile } from '../cards/schema'
 import { nameOf } from '../environment/identity'
 import type { RoleExit } from '../environment/supervisor'
 import type { DriveSummary } from '../generator/generator'
+import type { BarResult } from '../judge/bars'
 import type { Convergence, InvariantResult } from '../judge/judge'
-import { Baseline, MIN_BASELINE_SECONDS } from '../judge/measurements'
-import type { ValveTimelineEntry } from '../valves/valves'
+import { Baseline, DriveWindow, MIN_BASELINE_SECONDS, phasesOf } from '../judge/measurements'
+import type { WriterSample } from '../probe/writer-probe'
+import { VALVES, ValveTimelineEntry } from '../valves/valves'
 
 export type Status = 'passed' | 'failed' | 'invalid'
 
@@ -93,12 +95,91 @@ export type Verdict = {
     invariants: InvariantResult[]
     timeline: ValveTimelineEntry[]
     exits: RoleExit[]
+    writer: readonly WriterSample[]
+    drive: DriveWindow
+    bars: BarResult[]
 }
 
-const unexpectedExit = (exit: RoleExit): string =>
-    `${nameOf(exit)} exited (${exit.signal ?? `code ${exit.code}`}) without a valve causing it`
+const DATABASE_TARGETS = new Set(['postgres', 'cyclotron'])
+const SUSTAINED_FAILURES = 5
+const CONNECTION_LOST = /^(08...|57P01)$/
 
-export function statusOf({ admissions, minOffered, units, down, convergence, invariants, timeline, exits }: Verdict): {
+const appliedWithin = (
+    { intentAt, appliedAt, releasedAt }: ValveTimelineEntry,
+    at: string,
+    graceMs: number
+): boolean => {
+    const from = intentAt ?? appliedAt
+    const time = Date.parse(at)
+    return (
+        from !== undefined &&
+        appliedAt !== undefined &&
+        Date.parse(from) <= time &&
+        (releasedAt === undefined || time <= Date.parse(releasedAt) + graceMs)
+    )
+}
+
+const exitedByValve = (exit: RoleExit, timeline: ValveTimelineEntry[]): boolean =>
+    exit.byValve ||
+    (exit.code !== null &&
+        exit.signal === null &&
+        timeline.some((entry) => {
+            const graceMs = VALVES.find(({ name }) => name === entry.valve)?.roleExitGraceMs
+            return graceMs !== undefined && appliedWithin(entry, exit.at, graceMs)
+        }))
+
+function unexpectedExit(exit: RoleExit, timeline: ValveTimelineEntry[]): string {
+    const applied = timeline.filter((entry) => DATABASE_TARGETS.has(entry.target) && appliedWithin(entry, exit.at, 0))
+    return [
+        `${nameOf(exit)} exited (${exit.signal ?? `code ${exit.code}`}) without a valve causing it`,
+        ...applied.map(({ valve, target }) => `while ${valve} on ${target} was applied`),
+    ].join(', ')
+}
+
+function interruptionWithoutValve(
+    writer: readonly WriterSample[],
+    drive: DriveWindow,
+    timeline: ValveTimelineEntry[]
+): string | undefined {
+    const firstIntent = phasesOf(drive, timeline).baseline.to
+    const lastRelease = Math.max(
+        drive.endedAt,
+        ...timeline.flatMap(({ releasedAt }) => (releasedAt === undefined ? [] : [Date.parse(releasedAt)]))
+    )
+    const anyValve = timeline.some(({ intentAt, appliedAt }) => (intentAt ?? appliedAt) !== undefined)
+    let failedInARow = 0
+    for (const sample of [...writer].sort((a, b) => a.at - b.at)) {
+        const unguarded = !anyValve || sample.at + sample.latencyMs < firstIntent || sample.at >= lastRelease
+        failedInARow = unguarded && !sample.ok ? failedInARow + 1 : 0
+        if (failedInARow >= SUSTAINED_FAILURES || (unguarded && CONNECTION_LOST.test(sample.sqlstate ?? ''))) {
+            const what =
+                failedInARow >= SUSTAINED_FAILURES
+                    ? `${SUSTAINED_FAILURES} writer probes failed in a row`
+                    : `a writer probe lost its connection (SQLSTATE ${sample.sqlstate})`
+            const when = !anyValve
+                ? 'with no valve applied'
+                : sample.at < firstIntent
+                  ? 'before any valve applied'
+                  : 'after the drive and every valve ended'
+            return `Cyclotron interrupted without a valve: ${what} ${when}, at ${new Date(sample.at).toISOString()}`
+        }
+    }
+    return undefined
+}
+
+export function statusOf({
+    admissions,
+    minOffered,
+    units,
+    down,
+    convergence,
+    invariants,
+    timeline,
+    exits,
+    writer,
+    drive,
+    bars,
+}: Verdict): {
     status: Status
     statusReason: string
 } {
@@ -118,10 +199,19 @@ export function statusOf({ admissions, minOffered, units, down, convergence, inv
             statusReason: `the generator offered ${units.offeredUnits} of ${units.targetUnits} units, under minOffered ${minOffered}`,
         }
     }
-    const crashes = exits.filter(({ byValve }) => !byValve).map(unexpectedExit)
-    const unobserved = timeline
-        .filter(({ observedAt }) => observedAt === undefined)
-        .map(({ valve, target, error }) => `${valve} on ${target} was not observed: ${error ?? 'no record'}`)
+    const interrupted = interruptionWithoutValve(writer, drive, timeline)
+    if (interrupted !== undefined) {
+        return { status: 'invalid', statusReason: interrupted }
+    }
+    const crashes = exits.filter((exit) => !exitedByValve(exit, timeline)).map((exit) => unexpectedExit(exit, timeline))
+    const unobserved = [
+        ...timeline
+            .filter(({ observedAt }) => observedAt === undefined)
+            .map(({ valve, target, error }) => `${valve} on ${target} was not observed: ${error ?? 'no record'}`),
+        ...bars.flatMap(({ name, unjudged }) =>
+            unjudged === undefined ? [] : [`${name} was not judged: ${unjudged}`]
+        ),
+    ]
     const failures = [
         ...(convergence.converged
             ? []
@@ -131,20 +221,27 @@ export function statusOf({ admissions, minOffered, units, down, convergence, inv
         ...invariants
             .filter(({ passed }) => !passed)
             .map(({ name, violation }) => `${name} failed${violation ? `: ${violation}` : ''}`),
+        ...bars.flatMap(({ name, unit, breakingPoint: broke }) =>
+            broke === undefined
+                ? []
+                : [
+                      `${name} broke at the ${broke.scale}x step, ${broke.offeredPerSecond.toFixed(1)} units/s offered: ${broke.key ? `${broke.key} ` : ''}${broke.value} ${unit}`,
+                  ]
+        ),
     ]
     if (crashes.length === 0 && failures.length === 0 && unobserved.length > 0) {
         return { status: 'invalid', statusReason: unobserved.join('; ') }
     }
-    const unreleased = timeline.filter(
-        ({ appliedAt, releasedAt }) => appliedAt !== undefined && releasedAt === undefined
-    )
+    const unreleased = [
+        ...timeline
+            .filter(({ appliedAt, releasedAt }) => appliedAt !== undefined && releasedAt === undefined)
+            .map(({ valve, target, error }) => `${valve} on ${target} was not released: ${error ?? 'no record'}`),
+        ...timeline
+            .filter(({ releaseError }) => releaseError !== undefined)
+            .map(({ valve, target, releaseError }) => `${valve} on ${target} did not fail back: ${releaseError}`),
+    ]
     if (unreleased.length > 0) {
-        return {
-            status: 'invalid',
-            statusReason: unreleased
-                .map(({ valve, target, error }) => `${valve} on ${target} was not released: ${error ?? 'no record'}`)
-                .join('; '),
-        }
+        return { status: 'invalid', statusReason: unreleased.join('; ') }
     }
     const reasons = [...crashes, ...unobserved, ...failures]
     return reasons.length > 0

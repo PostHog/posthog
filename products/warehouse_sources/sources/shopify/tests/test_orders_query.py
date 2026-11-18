@@ -20,6 +20,7 @@ def test_orders_query_omits_protected_fields_without_their_scopes():
 
     assert "fulfillmentOrders" not in query
     assert "paymentTerms" not in query
+    assert "customerJourneySummary" in query
     assert graphql.parse(query) is not None
 
 

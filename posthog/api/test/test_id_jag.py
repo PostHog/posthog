@@ -1354,7 +1354,7 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
 
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND, resp.content)
 
-    def test_me_hides_the_current_project_and_organization_outside_the_tokens_organization(self) -> None:
+    def test_me_replaces_the_current_project_and_organization_outside_the_tokens_organization(self) -> None:
         other_organization, _, other_team = Organization.objects.bootstrap(self.user)
         self.user.current_team = other_team
         self.user.current_organization = other_organization
@@ -1367,8 +1367,8 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
 
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
         body = resp.json()
-        self.assertIsNone(body["team"])
-        self.assertIsNone(body["organization"])
+        self.assertEqual(body["team"]["id"], self.team.id)
+        self.assertEqual(body["organization"]["id"], str(self.organization.id))
         self.assertEqual([organization["id"] for organization in body["organizations"]], [str(self.organization.id)])
         self.assertEqual(body["pending_invites"], [])
 

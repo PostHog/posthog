@@ -5,10 +5,12 @@ rest, a rare severe failure can win and a common harmless one can lose, because 
 weekly failures by severity, uncovered scope and running cost.
 """
 
+import re
 import math
 import hashlib
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Collection, Mapping, Sequence
+from dataclasses import asdict
 from typing import Any
 
 from posthog.dataclasses import frozen
@@ -23,8 +25,12 @@ from products.ai_observability.backend.models.evaluations import Evaluation
 
 from . import cards, catalog
 from .adapters import AdaptedCheck
+from .call_review import REVIEW_TEMPLATE_KEY, ReviewCard
+from .call_review_queries import CALL_TYPE_INPUT_CHARS, CallTypeRow, SnippetMatches
 from .coverage import EvalFix, fix_dedupe_key
+from .judge_calibration import Calibration, CodeCheck
 from .measure import Measurement, Outcome, SampledTrace, TraceSample
+from .prices import MODEL_PRICES
 from .profile import StructuredGap, TeamProfile, normalize_segment_value
 from .stats import wilson_interval
 
@@ -35,7 +41,9 @@ MAX_SUGGESTIONS = 3
 MAX_PER_KIND = 2
 # A check that fails more than this share of traces does not fit the app, whatever it found.
 MAX_FAILURE_RATE = 0.25
-MIN_FAILURES = 2
+# Failures a check needs across the sampled days before it becomes a card. 1 to 3 in a few hundred traces is too
+# few to ask a team to run an eval on.
+MIN_FAILURES = 5
 # Filter rule: the segment holds a real share of the failures, enough of them to trust, and beats the rest.
 MIN_FILTER_FAILURE_SHARE = 0.3
 MIN_FILTER_FAILURES = 20
@@ -53,28 +61,37 @@ MIN_SCREENED_FLAGS = 3
 
 # Hog checks carry their own severity; these weigh the judges.
 SEVERITY: dict[str, float] = {
-    "prompt_injection": 0.9,
     "user_correction": 0.7,
     "sentiment": 0.4,
     "structured_output_gap": 0.8,
 }
 FIX_SEVERITY = 1.0
+# A reviewed card names a failure the review model saw several times against a rule in the team's own prompt, which
+# makes it worth more than a judge picked from the catalog.
+REVIEW_SEVERITY = 1.0
+# A call type that breaks a rule this often has a prompt that does not get the rule across. An evaluation of it would
+# fail nearly every call, which tells the team nothing they cannot see in the examples.
+PROMPT_BUG_FAIL_SHARE = 0.7
+MIN_PROMPT_BUG_FAILURES = 5
+# The property that names each kind of call type on a live generation. A call type named by its input has none.
+CALL_TYPE_PROPERTIES = {"prompt_name": "$ai_prompt_name", "span_name": "$ai_span_name"}
+# Plain text that a generation's input holds as is and that the condition matcher's string of the input keeps. The
+# matcher escapes quotes, backslashes and control characters, so they are left out, and so is every character that
+# is special in a LIKE or a regex pattern, so a snippet needs no escaping. Any script's letters are plain, except the
+# Unicode line and paragraph separators.
+_PLAIN_TEXT = re.compile("[A-Za-z0-9 _,:;!/=<>#@&\u00a0-\u2027\u202a-\U0010ffff-]+")
+_JSON_ESCAPE = re.compile(r"\\(u[0-9a-fA-F]{4}|.)")
+MIN_SNIPPET_CHARS = 24
+MAX_SNIPPET_CHARS = 120
+SNIPPET_CANDIDATES = 5
+# The share of the generations a snippet matches that must belong to its call type. The text can also appear in call
+# types outside the busiest ones, or further into another call type's input.
+MIN_SNIPPET_PRECISION = 0.9
+# Words that two phrasings of the same check swap freely, left out of a reviewed card's dedupe key.
+FILLER_WORDS = frozenset(
+    "a an the and or of to in on for is are it its that this whether if check checks does do".split()
+)
 
-
-@frozen
-class ModelPrice:
-    input_per_token: float
-    output_per_token: float
-
-
-# ponytail: list prices of each provider's default model, read for estimates only. Model prices live in the
-# Node ingestion package, which the Python image does not ship; move this to a shared file when a caller
-# outside eval suggestions needs prices. A test keeps every provider default priced here.
-MODEL_PRICES: dict[str, ModelPrice] = {
-    "gpt-5-mini": ModelPrice(input_per_token=0.25e-6, output_per_token=2e-6),
-    "claude-haiku-4-5": ModelPrice(input_per_token=1e-6, output_per_token=5e-6),
-    "gemini-2.5-flash": ModelPrice(input_per_token=0.3e-6, output_per_token=2.5e-6),
-}
 # What a judge runs on when the team has no provider key yet: the evaluator's OpenAI default.
 DEFAULT_JUDGE_MODEL = DEFAULT_MODEL_BY_PROVIDER["openai"]
 
@@ -107,6 +124,9 @@ class Proposal:
     judge_model: str = ""
     target_evaluation_id: str | None = None
     similar_evaluation_id: str | None = None
+    # What the sample showed and where it came from, formatted from the counts above.
+    observation: str = ""
+    observation_scope: str = ""
 
 
 @frozen
@@ -300,7 +320,7 @@ def code_check_proposal(
     segment = normalize_segment_value(filters[0]["value"][0]) if filters else None
     scope_units = profile.traces * _scope_share(filters, sample.main)
     rollout = capped_rollout(scope_units, WEEKLY_HOG_RUNS)
-    text = cards.code_check_text(check, failed / applicable, segment, rollout)
+    text = cards.code_check_text(check, failed, applicable, segment)
     return Proposal(
         kind=EvalSuggestionKind.NEW_HOG,
         template_key=check.key,
@@ -308,9 +328,11 @@ def code_check_proposal(
         headline=text.headline,
         outcome=text.outcome,
         reason=text.reason,
+        observation=text.observation,
+        observation_scope=text.observation_scope,
         draft={
             "name": check.name,
-            "description": check.description,
+            "description": cards.check_words(check).rule,
             "evaluation_type": "hog",
             "evaluation_config": {"source": check.source},
             "output_type": "boolean",
@@ -384,7 +406,7 @@ def gap_proposal(
     excess_per_week = (
         (gap.segment_rate - gap.other_rate) * gap.segment_items * profile.traces / max(len(sample.main), 1)
     )
-    text = cards.gap_text(gap, cards.cost_clause(cost.weekly_cost_usd, free=False))
+    text = cards.gap_text(gap)
     return Proposal(
         kind=EvalSuggestionKind.NEW_LLM_JUDGE,
         template_key="structured_output_gap",
@@ -392,6 +414,8 @@ def gap_proposal(
         headline=text.headline,
         outcome=text.outcome,
         reason=text.reason,
+        observation=text.observation,
+        observation_scope=text.observation_scope,
         draft={
             # A field path comes from the customer's output and has no length bound of its own.
             "name": eval_text.name[: Evaluation._meta.get_field("name").max_length],
@@ -453,7 +477,7 @@ def screened_proposal(
     readable = sum(1 for s in sample.main if s.final_text.strip()) / len(sample.main) if sample.main else 1.0
     credible = len(result.flagged) / result.screened * profile.traces * readable * SCREENING_PRECISION
     is_judge = template.evaluation_type == "llm_judge"
-    text = cards.judge_text(template, unit_target, cards.cost_clause(cost.weekly_cost_usd, free=not is_judge))
+    text = cards.judge_text(template, unit_target, len(result.flagged), result.screened)
     return Proposal(
         kind=EvalSuggestionKind.NEW_LLM_JUDGE,
         template_key=template.key,
@@ -461,6 +485,8 @@ def screened_proposal(
         headline=text.headline,
         outcome=text.outcome,
         reason=text.reason,
+        observation=text.observation,
+        observation_scope=text.observation_scope,
         draft={
             "name": template.name,
             "description": template.description,
@@ -489,6 +515,224 @@ def screened_proposal(
     )
 
 
+def prompt_snippets(call_type: CallTypeRow, others: Sequence[CallTypeRow]) -> list[str]:
+    """Plain texts in the start of the call type's input, which every call of the type shares, that no other call
+    type's input holds, longest first."""
+    elsewhere = [other.example_input.lower() for other in others]
+    # The input is JSON cut short, so an escape such as \n reads as a letter after a backslash that the decoded
+    # input does not hold.
+    shared = _JSON_ESCAPE.sub("\0", call_type.example_input[:CALL_TYPE_INPUT_CHARS])
+    snippets: list[str] = []
+    for run in sorted((run.strip() for run in _PLAIN_TEXT.findall(shared)), key=len, reverse=True):
+        if len(run) < MIN_SNIPPET_CHARS:
+            break
+        # Two prompts can open a long run with the same text, so its end is a candidate too.
+        for snippet in (run[:MAX_SNIPPET_CHARS].strip(), run[-MAX_SNIPPET_CHARS:].strip()):
+            if len(snippets) == SNIPPET_CANDIDATES:
+                return snippets
+            unique = not any(snippet.lower() in text for text in elsewhere)
+            if len(snippet) >= MIN_SNIPPET_CHARS and snippet not in snippets and unique:
+                snippets.append(snippet)
+    return snippets
+
+
+def choose_snippet(snippets: Sequence[str], matches: Sequence[SnippetMatches]) -> str | None:
+    """The first snippet whose matches belong mostly to its call type."""
+    for snippet, match in zip(snippets, matches):
+        if match.matched and match.in_call_type / match.matched >= MIN_SNIPPET_PRECISION:
+            return snippet
+    return None
+
+
+def call_type_filters(call_types: Sequence[CallTypeRow], snippets: Mapping[str, str]) -> list[dict[str, Any]] | None:
+    """Filters that select the generations of the call types, or None when no filter can. A judge on every
+    generation would grade mostly calls its question does not apply to.
+
+    Call types named by their input are selected by their snippet, keyed by call type. A generation with a prompt
+    name belongs to that prompt's call type even when it has a span name too, so a span-name filter leaves out
+    generations with a prompt name."""
+    sources = {call_type.source for call_type in call_types}
+    if sources == {"input"}:
+        if any(call_type.key not in snippets for call_type in call_types):
+            return None
+        chosen = sorted({snippets[call_type.key] for call_type in call_types})
+        if len(chosen) == 1:
+            return [{"key": "$ai_input", "value": chosen[0], "operator": "icontains", "type": "event"}]
+        return [{"key": "$ai_input", "value": "|".join(chosen), "operator": "regex", "type": "event"}]
+    key = CALL_TYPE_PROPERTIES.get(next(iter(sources))) if len(sources) == 1 else None
+    if key is None:
+        return None
+    source = next(iter(sources))
+    names = {"key": key, "value": sorted(c.name for c in call_types), "operator": "exact", "type": "event"}
+    if source != "span_name":
+        return [names]
+    # The value repeats the operator, as the property filter UI stores it. An empty list would compile to a filter
+    # that matches every generation.
+    unset = {
+        "key": CALL_TYPE_PROPERTIES["prompt_name"],
+        "value": ["is_not_set"],
+        "operator": "is_not_set",
+        "type": "event",
+    }
+    return [names, unset]
+
+
+def review_dedupe_key(card: ReviewCard) -> str:
+    """The key of the earlier card the review said this one repeats, else the card's call types and the words of
+    its summary. The summary's case, punctuation, word order and filler words are left out, so a review that does
+    not name the earlier card still matches a summary reworded only that far."""
+    if card.earlier_key:
+        return card.earlier_key
+    keys = ",".join(sorted(c.key for c in card.call_types))
+    words = sorted(set(re.findall(r"\w+", card.summary.lower())) - FILLER_WORDS)
+    return bounded_key(f"review:{keys}:{' '.join(words)}")
+
+
+def review_proposal(
+    card: ReviewCard,
+    profile: TeamProfile,
+    *,
+    snippets: Mapping[str, str],
+    judge_model: str,
+    calibration: Calibration,
+) -> Proposal | None:
+    """A judge on the generations of the card's call types, with the judge's counts and the review's examples, or
+    None when no filter selects those generations."""
+    filters = call_type_filters(card.call_types, snippets)
+    if filters is None:
+        return None
+    # Call types are counted over the last day.
+    weekly_units = 7 * sum(c.calls for c in card.call_types)
+    cost = judge_cost(weekly_units, profile.mean_input_tokens, judge_model)
+    text = cards.review_text(card)
+    return Proposal(
+        kind=EvalSuggestionKind.NEW_LLM_JUDGE,
+        template_key=REVIEW_TEMPLATE_KEY,
+        dedupe_key=review_dedupe_key(card),
+        headline=text.headline,
+        outcome=text.outcome,
+        reason=text.reason,
+        observation=text.observation,
+        observation_scope=text.observation_scope,
+        draft={
+            "name": card.title[: Evaluation._meta.get_field("name").max_length],
+            "description": card.rule,
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": card.judge_prompt},
+            "output_type": "boolean",
+            "output_config": {"allows_na": True},
+            "target": "generation",
+            # How the judge matched the review's labels. Accepting the card leaves this out of the evaluation.
+            "calibration": asdict(calibration),
+        },
+        filters=filters,
+        rollout_percentage=cost.rollout_percentage,
+        measured_failure_rate=card.failed / card.of,
+        sample_size=card.of,
+        evidence=[Evidence(trace_id=e.trace_id, reason=e.reason[:160]) for e in card.examples],
+        score=_score(
+            REVIEW_SEVERITY,
+            wilson_interval(card.failed, card.of).low * weekly_units,
+            judge=True,
+            similar=False,
+        ),
+        estimated_weekly_runs=cost.weekly_runs,
+        estimated_weekly_cost_usd=cost.weekly_cost_usd,
+        mean_input_tokens=round(profile.mean_input_tokens) if profile.mean_input_tokens else None,
+        judge_model=judge_model,
+    )
+
+
+def review_code_proposal(
+    card: ReviewCard, profile: TeamProfile, *, snippets: Mapping[str, str], code: CodeCheck
+) -> Proposal | None:
+    """The card as a free Hog check on the generations of its call types, with the code's own rate, or None when no
+    filter selects those generations. It keeps the judge card's filters and dedupe key, so the check stays one card
+    whichever kind a run gives it."""
+    filters = call_type_filters(card.call_types, snippets)
+    if filters is None:
+        return None
+    weekly_units = 7 * sum(c.calls for c in card.call_types)
+    rollout = capped_rollout(weekly_units, WEEKLY_HOG_RUNS)
+    text = cards.review_code_text(card, code.failed, code.of)
+    return Proposal(
+        kind=EvalSuggestionKind.NEW_HOG,
+        template_key=REVIEW_TEMPLATE_KEY,
+        dedupe_key=review_dedupe_key(card),
+        headline=text.headline,
+        outcome=text.outcome,
+        reason=text.reason,
+        observation=text.observation,
+        observation_scope=text.observation_scope,
+        draft={
+            "name": card.title[: Evaluation._meta.get_field("name").max_length],
+            "description": card.rule,
+            "evaluation_type": "hog",
+            "evaluation_config": {"source": code.source},
+            "output_type": "boolean",
+            "output_config": {"allows_na": True},
+            "target": "generation",
+            # How the code matched the review's labels. Accepting the card leaves this out of the evaluation.
+            "calibration": asdict(code.calibration),
+        },
+        filters=filters,
+        rollout_percentage=rollout,
+        measured_failure_rate=code.failed / code.of,
+        sample_size=code.of,
+        evidence=[Evidence(trace_id=e.trace_id, reason=e.reason[:160]) for e in card.examples],
+        score=_score(
+            REVIEW_SEVERITY,
+            wilson_interval(code.failed, code.of).low * weekly_units,
+            judge=False,
+            similar=False,
+        ),
+        estimated_weekly_runs=round(weekly_units * rollout / 100),
+    )
+
+
+def is_prompt_bug(card: ReviewCard) -> bool:
+    """Whether the review saw the card's rule broken in most calls, by its own labels."""
+    return card.failed >= MIN_PROMPT_BUG_FAILURES and card.failed >= PROMPT_BUG_FAIL_SHARE * card.of
+
+
+def prompt_fix_proposal(card: ReviewCard, managed_prompts: Collection[str]) -> Proposal:
+    """A card that asks the team to fix the prompt of the card's call types, with the review's examples. It keeps the
+    review card's dedupe key, so the check stays one card whichever kind a run gives it. It names the prompt only
+    when the team manages one by that name, since the card links to it."""
+    text = cards.prompt_fix_text(card)
+    weekly_units = 7 * sum(c.calls for c in card.call_types)
+    prompts = [c.name for c in card.call_types if c.source == "prompt_name" and c.name in managed_prompts]
+    return Proposal(
+        kind=EvalSuggestionKind.FIX_PROMPT,
+        template_key=REVIEW_TEMPLATE_KEY,
+        dedupe_key=review_dedupe_key(card),
+        headline=text.headline,
+        outcome=text.outcome,
+        reason=text.reason,
+        observation=text.observation,
+        observation_scope=text.observation_scope,
+        # The earlier-card lookup reads a review card's name and description from its draft.
+        draft={
+            "name": card.title[: Evaluation._meta.get_field("name").max_length],
+            "description": card.rule,
+            # The card reports a rate over generations, as a judge on them would.
+            "target": "generation",
+            **({"prompt_name": prompts[0]} if len(prompts) == 1 else {}),
+        },
+        filters=[],
+        rollout_percentage=100.0,
+        measured_failure_rate=card.failed / card.of,
+        sample_size=card.of,
+        evidence=[Evidence(trace_id=e.trace_id, reason=e.reason[:160]) for e in card.examples],
+        score=_score(
+            REVIEW_SEVERITY,
+            wilson_interval(card.failed, card.of).low * weekly_units,
+            judge=False,
+            similar=False,
+        ),
+    )
+
+
 def fix_proposal(fix: EvalFix) -> Proposal:
     text = cards.fix_text(fix)
     return Proposal(
@@ -498,6 +742,8 @@ def fix_proposal(fix: EvalFix) -> Proposal:
         headline=text.headline,
         outcome=text.outcome,
         reason=text.reason,
+        observation=text.observation,
+        observation_scope=text.observation_scope,
         draft=fix.patch or {},
         filters=[],
         rollout_percentage=100.0,

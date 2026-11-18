@@ -20,12 +20,11 @@ import { currentPageLogic } from '~/toolbar/shared/stats/currentPageLogic'
 import { heatmapCaptureLogic } from '~/toolbar/shared/stats/heatmapCaptureLogic'
 import { toolbarPosthogJS } from '~/toolbar/shared/toolbarPosthogJS'
 import { urls } from '~/toolbar/shared/urls'
-import { joinWithUiHost } from '~/toolbar/shared/utils'
 
-import { toolbarConfigLogic } from '../../../shared/toolbarConfigLogic'
+import { toolbarAppUrl, toolbarConfigLogic } from '../../../shared/toolbarConfigLogic'
 
 const HeatmapsJSWarning = (): JSX.Element | null => {
-    const { posthog, uiHost } = useValues(toolbarConfigLogic)
+    const { posthog } = useValues(toolbarConfigLogic)
 
     if (!posthog || posthog?.heatmaps?.isEnabled) {
         return null
@@ -38,10 +37,7 @@ const HeatmapsJSWarning = (): JSX.Element | null => {
             ) : !posthog.heatmaps.isEnabled ? (
                 <>
                     You can enable heatmap collection in your posthog-js configuration or{' '}
-                    <Link
-                        to={joinWithUiHost(uiHost, urls.settings('environment-heatmaps', 'heatmaps'))}
-                        target="_blank"
-                    >
+                    <Link to={toolbarAppUrl(urls.settings('environment-heatmaps', 'heatmaps'))} target="_blank">
                         in your project config
                     </Link>
                     .

@@ -12,14 +12,14 @@ Postgres instead of loading whole state blobs.
 import datetime
 from collections.abc import Collection
 
-from django.db.models import BooleanField, Case, Exists, F, OuterRef, Q, Subquery, Value, When
+from django.db.models import BooleanField, Case, F, OuterRef, Q, Subquery, Value, When
 from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Coalesce
 
 from posthog.dataclasses import frozen
 
 from products.tasks.backend.models import PRIOR_RUN_SUMMARY_STATE_KEY, TASK_RUN_SUMMARY_STATE_KEY, Task, TaskRun
-from products.tasks.backend.visibility import task_visibility_q
+from products.tasks.backend.visibility import public_slack_thread_q, task_visibility_q
 
 
 @frozen
@@ -36,17 +36,8 @@ class TeamTaskSummary:
 
 
 def _readable_by_team_q(team_id: int) -> Q:
-    """Tasks any member of the team may read, with a Slack task judged by its thread rather than its channel."""
-    from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off the import path
-        PUBLIC_CHANNEL_CONVERSATION_TYPES,
-        SlackThreadTaskMapping,
-    )
-
-    thread_mappings = SlackThreadTaskMapping.objects.filter(task_id=OuterRef("pk"))
-    in_public_thread = Exists(thread_mappings.filter(conversation_type__in=sorted(PUBLIC_CHANNEL_CONVERSATION_TYPES)))
-    in_other_thread = Exists(thread_mappings.exclude(conversation_type__in=sorted(PUBLIC_CHANNEL_CONVERSATION_TYPES)))
-    slack_q = Q(origin_product=Task.OriginProduct.SLACK)
-    return (slack_q & in_public_thread & ~in_other_thread) | (~slack_q & task_visibility_q(None, team_id))
+    """Tasks any member of the team may read, with a Slack task judged by its threads rather than its channel."""
+    return public_slack_thread_q() | (~Q(origin_product=Task.OriginProduct.SLACK) & task_visibility_q(None, team_id))
 
 
 def list_team_task_summaries(
