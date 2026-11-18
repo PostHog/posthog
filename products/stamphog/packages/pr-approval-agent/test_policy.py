@@ -112,7 +112,7 @@ OLD_DENY_PATTERN_DEFS = {
             "^posthog/ingress/views\\.py$",
         ]
     },
-    "ownership_files": {"paths": ["(?:^|/)owners\\.yaml$", "(?:^|/)product\\.yaml$"]},
+    "ownership_files": {"paths": ["(?:^|/)product\\.yaml$"], "edit_paths": ["(?:^|/)owners\\.yaml$"]},
     "billing": {"any": ["billing", "payment", "stripe", "invoice", "pricing"]},
     "public_api": {"any": ["openapi", "api_schema", "swagger", "public_api"]},
     "deps_toolchain": {
@@ -554,6 +554,18 @@ def test_deny_exception_keyword_requires_effective_path_literal(
     path.write_text(yaml.safe_dump(data))
     with pytest.raises(PolicyError, match="path-capable literal pattern"):
         load_policy(path, lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
+
+
+def test_deny_exception_keyword_accepts_an_edit_paths_literal(tmp_path: Path) -> None:
+    data = _valid_policy_dict()
+    data["deny"]["billing"]["match"] = {"edit_paths": ["billing"]}
+    data["deny_exceptions"] = {"billing": [{"keyword": "billing", "path_prefixes": ["apps/"]}]}
+    path = tmp_path / "policy.yml"
+    path.write_text(yaml.safe_dump(data))
+
+    loaded = load_policy(path, lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
+
+    assert [rule.keyword for rule in loaded.deny_exceptions["billing"]] == ["billing"]
 
 
 # ── 3. Folder-override resolution ──

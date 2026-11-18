@@ -84,7 +84,7 @@ WorkFocusFlow = Literal["slack_app_onboarding", "slack_app_daily_focus"]
 _FLOW_MODES: dict[WorkFocusFlow, str] = {"slack_app_onboarding": "onboarding", "slack_app_daily_focus": "daily"}
 # Jev ranks the messages, because a judgment costs far less than generated text, and only the few messages it keeps
 # reach the model that writes. One question for each message, and a request takes 32 questions at most.
-ONBOARDING_PRIVACY_LINE = "🔒 I read your recent messages once and kept nothing. Each one starts its own thread."
+ONBOARDING_PRIVACY_LINE = "I read your recent messages once and kept nothing. Each one starts its own thread."
 
 RANK_MODEL = DEFAULT_DECISION_MODEL
 RANK_BATCH_SIZE = GATEWAY_MAX_QUESTIONS
@@ -124,13 +124,13 @@ Return:
 about. Start it with one fitting emoji. At most 120 characters. For example: "👀 Looks like your week is all about \
 Slack handoffs and feature tips."
 - "suggestions": at most 3 tasks that PostHog could do for them, the most useful first. Each task has:
-  - "offer": one short line in the second person that ends with a question. Start it with one emoji that fits the \
-task. At most 100 characters. For example: "📈 Chart previews ignore edited query params. Want me to find out why?"
+  - "offer": one short line in the second person that ends with a question. At most 100 characters. For example: \
+"Chart previews ignore edited query params. Want me to find out why?"
   - "request": the full task, written as the person would ask PostHog, such as "Find out why chart link previews \
 ignore edited query parameters, and open a pull request with the fix." At most 500 characters.
   - "source": the number of the message the task comes from.
 
-Keep it short and friendly, and never use em dashes. Never quote a message, never name a person, and never copy \
+Keep it short and friendly, with no other emoji and no em dashes. Never quote a message, never name a person, and never copy \
 private details. Suggest nothing when no message shows work that PostHog can help with."""
 
 _RESPONSE_FORMAT: ResponseFormatJSONSchema = {
@@ -404,7 +404,7 @@ def _daily_privacy_line(since: datetime, zone: ZoneInfo) -> str:
     since_day = since.astimezone(zone).date()
     today = timezone.now().astimezone(zone).date()
     when = "yesterday" if since_day == today - timedelta(days=1) else since_day.strftime("%A")
-    return f"🔒 I read your messages since {when} and kept nothing. Each one starts its own thread."
+    return f"I read your messages since {when} and kept nothing. Each one starts its own thread."
 
 
 def _search_messages(
@@ -604,7 +604,7 @@ def work_focus_blocks(
                 "block_id": f"{WORK_FOCUS_SUGGESTION_BLOCK_PREFIX}{index}",
                 "accessory": {
                     "type": "button",
-                    "text": {"type": "plain_text", "text": "Do it 🚀", "emoji": True},
+                    "text": {"type": "plain_text", "text": "Do it"},
                     "action_id": WORK_FOCUS_TASK_ACTION_ID,
                     # The full request opens in a thread for the person to read before anything runs. Unicode stays as
                     # is, because escaping it can push the value past Slack's 2,000 characters.
@@ -646,7 +646,7 @@ def work_focus_opened_blocks(blocks: list[dict], opened_block_ids: set[str]) -> 
         if block.get("block_id") in opened_block_ids and block.get("type") == "section" and "accessory" in block:
             text = (block.get("text") or {}).get("text") or ""
             block = {key: value for key, value in block.items() if key != "accessory"}
-            block["text"] = {"type": "mrkdwn", "text": f"{text}\n👇 Opened below"}
+            block["text"] = {"type": "mrkdwn", "text": f"{text}\nOpened below"}
         marked.append(block)
     return marked
 
@@ -666,7 +666,7 @@ def work_focus_review_blocks(choice: WorkFocusChoice) -> list[dict]:
             "elements": [
                 {
                     "type": "button",
-                    "text": {"type": "plain_text", "text": "Start 🚀", "emoji": True},
+                    "text": {"type": "plain_text", "text": "Start"},
                     "style": "primary",
                     "action_id": WORK_FOCUS_START_ACTION_ID,
                     "value": json.dumps(value, separators=(",", ":"), ensure_ascii=False),
