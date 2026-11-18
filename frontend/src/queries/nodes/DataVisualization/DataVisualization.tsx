@@ -587,7 +587,8 @@ function DataTableVisualizationContent({
                         column,
                         columnTypes.get(column) ?? 'UNKNOWN',
                         record[column],
-                        isDarkModeOn
+                        isDarkModeOn,
+                        props.context?.dataTableCaptureQueryTelemetry !== false
                     )
                 }
             />

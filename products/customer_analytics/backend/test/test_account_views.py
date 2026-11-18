@@ -20,6 +20,7 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.customer_analytics.backend.logic.account_views import (
     InvalidAccountViewContent,
     validate_account_view_content,
+    validate_sql_query_widget_config,
 )
 from products.customer_analytics.backend.models import Account, AccountView
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
@@ -212,6 +213,45 @@ class TestAccountViewContentValidation(SimpleTestCase):
             with self.assertRaises(InvalidAccountViewContent) as context:
                 validate_account_view_content(content)
             assert context.exception.errors == [f"Component 1: {expected_error}"]
+
+    @parameterized.expand(
+        [
+            (20, ["_H", 1, 32, "input", 1, 1, 32, "value", 1, 1, 11, 38], None),
+            (
+                21,
+                ["_H", 1, 32, "input", 1, 1, 32, "value", 1, 1, 11, 38],
+                "SQL tables support up to 20 conditional formatting rules. Remove extra rules.",
+            ),
+            (1, ["bad"], "SQL conditional formatting bytecode is invalid. Recreate the formatting rule."),
+            (1, ["_H", 1], "SQL conditional formatting bytecode is invalid. Recreate the formatting rule."),
+            (
+                1,
+                ["_H", 1, *([0] * 255)],
+                "SQL conditional formatting bytecode is invalid. Recreate the formatting rule.",
+            ),
+        ]
+    )
+    def test_sql_formatting_limits(self, count: int, bytecode: list, expected_error: str | None) -> None:
+        config = {
+            "query": "SELECT name FROM system.accounts WHERE external_id = {account_external_id}",
+            "visualization": {
+                "display": "ActionsTable",
+                "tableSettings": {
+                    "conditionalFormatting": [
+                        {
+                            "id": str(index),
+                            "columnName": "name",
+                            "input": "example",
+                            "color": "#FFADAD",
+                            "templateId": "equals",
+                            "bytecode": bytecode,
+                        }
+                        for index in range(count)
+                    ]
+                },
+            },
+        }
+        assert validate_sql_query_widget_config(config) == ([] if expected_error is None else [expected_error])
 
     def test_rejects_span_outside_twelve_columns(self) -> None:
         with self.assertRaises(InvalidAccountViewContent) as context:

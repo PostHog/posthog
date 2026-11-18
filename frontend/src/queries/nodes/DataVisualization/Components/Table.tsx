@@ -362,7 +362,8 @@ export const Table = (props: TableProps): JSX.Element => {
                 sourceColumnName,
                 sourceColumnType,
                 cell.value,
-                isDarkModeOn
+                isDarkModeOn,
+                props.context?.dataTableCaptureQueryTelemetry !== false
             )
         }
 

@@ -50,6 +50,8 @@ ACCOUNT_VIEW_CONFIG_MAX_BYTES = 16_384
 ACCOUNT_VIEW_MAX_COMPONENTS = 50
 ACCOUNT_VIEW_COMPONENT_LIMITS = {"SqlQuery": 10}
 ACCOUNT_VIEW_SQL_VALIDATION_SECONDS = 5
+ACCOUNT_VIEW_SQL_MAX_FORMATTING_RULES = 20
+ACCOUNT_VIEW_SQL_MAX_FORMATTING_BYTECODE = 256
 DOT_MATRIX_PRESET_SOURCES = ("usage_metrics", "product_usage")
 DOT_MATRIX_REQUIRED_MAPPING = frozenset({"row", "column"})
 DOT_MATRIX_MAPPING_KEYS = frozenset({"row", "column", "series", "value", "user", "rowLabel"})
@@ -318,11 +320,21 @@ def validate_sql_query_widget_config(config: dict[str, Any]) -> list[str]:
         }:
             return ["SQL visualization settings are invalid."]
         try:
-            DataVisualizationNode.model_validate(
+            node = DataVisualizationNode.model_validate(
                 {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": query}, **visualization}
             )
         except ValidationError:
             return ["SQL visualization settings are invalid."]
+        rules = node.tableSettings.conditionalFormatting if node.tableSettings else None
+        if rules:
+            if len(rules) > ACCOUNT_VIEW_SQL_MAX_FORMATTING_RULES:
+                return ["SQL tables support up to 20 conditional formatting rules. Remove extra rules."]
+            if any(
+                not 3 <= len(rule.bytecode) <= ACCOUNT_VIEW_SQL_MAX_FORMATTING_BYTECODE
+                or rule.bytecode[:2] != ["_H", 1]
+                for rule in rules
+            ):
+                return ["SQL conditional formatting bytecode is invalid. Recreate the formatting rule."]
     return []
 
 
