@@ -9,8 +9,10 @@ from products.warehouse_sources.sources.amazon_ads.amazon_ads import (
 )
 from products.warehouse_sources.sources.amazon_ads.settings import (
     AMAZON_ADS_ENDPOINTS,
+    HISTORY_INCREMENTAL_FIELDS,
     REPORT_INCREMENTAL_FIELDS,
     REPORT_LOOKBACK_SECONDS,
+    AmazonAdsEndpointConfig,
 )
 from products.warehouse_sources.sources.sdk import (
     CanonicalDescriptions,
@@ -31,6 +33,25 @@ from products.warehouse_sources.sources.sdk import (
     SourceSchema,
     detect,
 )
+
+
+def _schema(endpoint: str, config: AmazonAdsEndpointConfig) -> SourceSchema:
+    if config.report is not None:
+        return SourceSchema(
+            name=endpoint,
+            supports_incremental=True,
+            supports_append=False,
+            incremental_fields=REPORT_INCREMENTAL_FIELDS,
+            default_incremental_lookback_seconds=REPORT_LOOKBACK_SECONDS,
+        )
+    if config.history:
+        return SourceSchema(
+            name=endpoint,
+            supports_incremental=True,
+            supports_append=False,
+            incremental_fields=HISTORY_INCREMENTAL_FIELDS,
+        )
+    return SourceSchema(name=endpoint, supports_incremental=False, supports_append=False, incremental_fields=[])
 
 
 @SourceRegistry.register
@@ -74,7 +95,7 @@ class AmazonAdsSource(ResumableSource[AmazonAdsSourceConfig, AmazonAdsResumeConf
             label="Amazon Ads",
             caption="""Connect your Amazon Ads account to pull your advertising entity data into the PostHog Data warehouse.
 
-You need a Login with Amazon (LWA) application with Advertising API access: enter its client ID and secret plus a refresh token authorized for your advertiser account. Pick the region that matches your advertising profiles (North America, Europe, or Far East). Your portfolios, your Sponsored Products, Sponsored Brands and Sponsored Display entities, and daily Sponsored Products campaign performance are synced from every profile the token can access.""",
+You need a Login with Amazon (LWA) application with Advertising API access: enter its client ID and secret plus a refresh token authorized for your advertiser account. Pick the region that matches your advertising profiles (North America, Europe, or Far East). Your portfolios, your Sponsored Products, Sponsored Brands and Sponsored Display entities, daily Sponsored Products campaign performance, change history and invoices are synced from every profile the token can access, along with your advertising accounts.""",
             iconPath="/static/services/amazon_ads.png",
             docsUrl="https://posthog.com/docs/cdp/sources/amazon-ads",
             releaseStatus=ReleaseStatus.GA,
@@ -137,16 +158,7 @@ You need a Login with Amazon (LWA) application with Advertising API access: ente
         # Entity lists have no updated-since filter, so they are full refresh only. Report tables
         # are windowed on `date`, and Amazon restates recent days as attribution lands, so they
         # carry a lookback wide enough to re-read what it revises.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=config.report is not None,
-                supports_append=False,
-                incremental_fields=REPORT_INCREMENTAL_FIELDS if config.report is not None else [],
-                default_incremental_lookback_seconds=REPORT_LOOKBACK_SECONDS if config.report is not None else None,
-            )
-            for endpoint, config in AMAZON_ADS_ENDPOINTS.items()
-        ]
+        schemas = [_schema(endpoint, config) for endpoint, config in AMAZON_ADS_ENDPOINTS.items()]
 
         if names is not None:
             names_set = set(names)
