@@ -17,6 +17,7 @@ from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.dataclasses import frozen
+from posthog.schema_enums import ParserMode
 from posthog.security.oob_domains import matched_oob_domain
 from posthog.security.url_validation import canonicalize_host, internal_host_name
 
@@ -144,10 +145,20 @@ def matched_rules(content: HogFunctionContent) -> tuple[Rule, ...]:
         matched.add(Rule.HUGE_RANGE)
     # Unedited template code is PostHog's, such as the hidden workflow templates that call internal functions.
     if content.code_modified_from_template is not False:
-        matched |= _hog_code_rules(parse_program, content.hog)
+        matched |= _hog_code_rules(_parse_code, content.hog)
     for template in _hog_templates(content):
-        matched |= _hog_code_rules(parse_string_template, template)
+        matched |= _hog_code_rules(_parse_template, template)
     return tuple(rule for rule in Rule if rule in matched)
+
+
+# The default parser mode samples a shadow parse and sends a diverging statement to error tracking, and a template here
+# can be the decrypted value of a secret input.
+def _parse_code(hog: str) -> ast.AST:
+    return parse_program(hog, parser_mode=ParserMode.RUST_PY_ONLY)
+
+
+def _parse_template(template: str) -> ast.AST:
+    return parse_string_template(template, parser_mode=ParserMode.RUST_PY_ONLY)
 
 
 def _hog_code_rules(parse: Callable[[str], ast.AST], hog: str) -> set[Rule]:
