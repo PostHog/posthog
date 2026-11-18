@@ -74,9 +74,13 @@ class PinnedResolver(AbstractResolver):
 
 
 def _without_userinfo(url: URL) -> URL:
-    # Deployments put per-pod credentials in the proxy URL, so trust is decided by the
-    # proxy address alone. This matches the pinned httpx client, where httpx moves the
-    # userinfo into separate proxy credentials before the trust check.
+    """Remove userinfo from proxy URL.
+
+    Deployments put per-pod credentials in the proxy URL but trust should be
+    decided by the proxy address alone. This matches the behaviour of the
+    pinned httpx client.
+    """
+
     return url.with_user(None)
 
 
