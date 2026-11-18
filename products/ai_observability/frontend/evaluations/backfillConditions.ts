@@ -46,6 +46,17 @@ function backfillHandledCount(backfill: EvaluationBackfillApi): number {
         : backfill.dispatched_count
 }
 
+export function backfillIsWaitingForProgress(backfill: EvaluationBackfillApi): boolean {
+    // boffin: Zero counters can persist while the first batch runs.
+    return (
+        backfill.status === 'running' &&
+        backfill.dispatched_count === 0 &&
+        backfill.skipped_count === 0 &&
+        backfillHandledCount(backfill) === 0 &&
+        backfill.failed_count === 0
+    )
+}
+
 /** A rerun dispatches every unit, so only a run over ungraded units has a gap the live path filled. */
 export function backfillLiveCoveredCount(backfill: EvaluationBackfillApi): number {
     if (backfill.rerun_existing || backfill.status !== 'completed' || backfill.remaining_count === null) {

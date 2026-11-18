@@ -80,6 +80,21 @@ class TestZyloSourceResumeBehavior:
         assert result.requests[0].param("zylo_created_at") == f"{INITIAL_INCREMENTAL_VALUE},gte"
         assert result.requests[0].param("sort") == "+zylo_created_at"
 
+    @pytest.mark.parametrize("incremental_field", ["zylo_created_at", "zylo_modified_at"])
+    def test_application_stats_never_filters_on_application_timestamps(self, incremental_field: str) -> None:
+        result = self._driver().run(
+            "ApplicationStats",
+            [self._page([{"id": "app_1", "last_12_months_spend": "1200.00"}])],
+            incremental_field=incremental_field,
+            db_incremental_field_last_value=datetime(2026, 7, 21, 12, tzinfo=UTC),
+        )
+
+        assert result.paths == ["/v2/applicationStats"]
+        assert result.requests[0].param("zylo_created_at") is None
+        assert result.requests[0].param("zylo_modified_at") is None
+        assert result.requests[0].param("sort") == "+zylo_created_at"
+        assert len(result.rows) == 1
+
     def test_executions_fan_out_per_automation_with_incremental_filter(self) -> None:
         result = self._driver().run(
             "AutomationExecutions",

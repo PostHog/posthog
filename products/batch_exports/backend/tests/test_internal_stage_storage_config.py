@@ -14,10 +14,12 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     _get_s3_endpoint_url,
     _write_batch_export_record_batches_to_internal_stage,
     get_base_s3_staging_folder,
+    get_s3_client,
     get_s3_staging_folder,
 )
 
 OBJECT_STORAGE_ENDPOINT = "http://objectstorage:19000"
+AWS_OBJECT_STORAGE_ENDPOINT = "https://s3.us-east-2.amazonaws.com"
 OBJECT_STORAGE_BUCKET = "posthog-test"
 OBJECT_STORAGE_REGION = "us-east-2"
 OBJECT_STORAGE_ACCESS_KEY_ID = "object-storage-key"
@@ -156,6 +158,24 @@ def test_s3_endpoint_url_self_hosted_uses_configured_endpoint_not_localhost() ->
         BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT=OBJECT_STORAGE_ENDPOINT,
     ):
         assert _get_s3_endpoint_url() == OBJECT_STORAGE_ENDPOINT
+
+
+@pytest.mark.asyncio
+async def test_s3_client_ignores_proxy_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in ("http_proxy", "https_proxy", "no_proxy", "NO_PROXY"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:9/")
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:9/")
+
+    with override_settings(
+        CLOUD_DEPLOYMENT=None,
+        DEBUG=False,
+        TEST=False,
+        BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT=AWS_OBJECT_STORAGE_ENDPOINT,
+    ):
+        async with get_s3_client() as s3_client:
+            proxy_config = s3_client._endpoint.http_session._proxy_config
+            assert proxy_config.proxy_url_for(AWS_OBJECT_STORAGE_ENDPOINT) is None
 
 
 @pytest.mark.parametrize(

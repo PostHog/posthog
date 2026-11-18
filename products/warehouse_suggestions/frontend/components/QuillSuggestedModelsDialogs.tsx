@@ -2,6 +2,7 @@ import { useValues } from 'kea'
 
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 import { QuillDeprecateSuggestionModal } from './QuillDeprecateSuggestionModal'
+import { QuillDismissSuggestionDialog } from './QuillDismissSuggestionDialog'
 import { QuillMaterializeSuggestionModal } from './QuillMaterializeSuggestionModal'
 import { QuillSuggestedModelsGroups } from './QuillSuggestedModelsGroups'
 import { QuillSuggestionsReviewModal } from './QuillSuggestionsReviewModal'
@@ -22,6 +23,7 @@ export function QuillSuggestedModelsDialogs(): JSX.Element {
             <QuillMaterializeSuggestionModal />
             <QuillUnmaterializeSuggestionModal />
             <QuillDeprecateSuggestionModal />
+            <QuillDismissSuggestionDialog />
         </>
     )
 }

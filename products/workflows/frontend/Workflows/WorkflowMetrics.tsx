@@ -89,9 +89,10 @@ export const WORKFLOW_METRICS_INFO: Record<string, { name: string; description: 
 
 export interface WorkflowMetricsProps extends WorkflowLogicProps {
     /**
-     * Set on a page outside the workflow editor. An email metric then drills into the sends here instead of the
-     * workflow's Invocations tab, and the step picker is hidden because it opens the workflow.
+     * Set on a page outside the workflow editor, which takes email metric clicks instead of the Invocations tab.
+     * The step picker is hidden because it opens the workflow.
      */
+    onEmailMetricClick?: (metric: EmailMetricName, range: { dateFrom: string; dateTo: string }) => void
     onShowInvocations?: (searchParams: Record<string, string>) => void
 }
 
@@ -177,11 +178,15 @@ function WorkflowRunMetrics(props: WorkflowMetricsProps): JSX.Element {
     )
 
     // Drill an email metric into the invocations behind it over the current window.
-    const onEmailMetricClick = (metricKey: EmailMetricName): void => {
+    const drillIntoEmailMetric = (metricKey: EmailMetricName): void => {
+        const { dateFrom, dateTo } = getDateRangeAbsolute()
+        if (props.onEmailMetricClick) {
+            props.onEmailMetricClick(metricKey, { dateFrom: dateFrom.toISOString(), dateTo: dateTo.toISOString() })
+            return
+        }
         if (!props.id) {
             return
         }
-        const { dateFrom, dateTo } = getDateRangeAbsolute()
         const invocationSearchParams = buildEmailMetricInvocationSearchParams(
             metricKey,
             dateFrom.toISOString(),
@@ -196,6 +201,7 @@ function WorkflowRunMetrics(props: WorkflowMetricsProps): JSX.Element {
             router.actions.push(urls.workflow(props.id, 'invocations'), invocationSearchParams)
         }
     }
+    const outsideEditor = !!props.onEmailMetricClick || !!props.onShowInvocations
 
     // Reflect the selected step in the URL (?action=) so it survives refresh/share/back-forward. The
     // actual params.instanceId update is applied by workflowSceneLogic's urlToAction watching this.
@@ -214,7 +220,7 @@ function WorkflowRunMetrics(props: WorkflowMetricsProps): JSX.Element {
         <div className="flex flex-col gap-2" data-attr="workflow-metrics">
             <div className="flex flex-row gap-2 flex-wrap justify-end items-center">
                 <div className="flex flex-row gap-2 items-center flex-wrap">
-                    {!props.onShowInvocations && (
+                    {!outsideEditor && (
                         <>
                             <span className="text-muted text-xs whitespace-nowrap">Metrics for</span>
                             <LemonSelect
@@ -227,7 +233,7 @@ function WorkflowRunMetrics(props: WorkflowMetricsProps): JSX.Element {
                             />
                         </>
                     )}
-                    {selectedAction?.type === 'function_email' && props.id && !props.onShowInvocations ? (
+                    {selectedAction?.type === 'function_email' && props.id && !outsideEditor ? (
                         <LemonButton
                             type="secondary"
                             size="small"
@@ -246,37 +252,53 @@ function WorkflowRunMetrics(props: WorkflowMetricsProps): JSX.Element {
                     logicKey={logicKey}
                     id={props.id ?? ''}
                     defaultRange={{ dateFrom: params.dateFrom, dateTo: params.dateTo, interval: params.interval }}
-                    onSelectAction={props.onShowInvocations ? undefined : (actionId) => selectMetricsAction(actionId)}
-                    onMetricClick={onEmailMetricClick}
+                    onSelectAction={outsideEditor ? undefined : (actionId) => selectMetricsAction(actionId)}
+                    onMetricClick={drillIntoEmailMetric}
                 />
             ) : selectedAction?.type === 'function_email' ? (
-                <EmailMetricsSummary logicKey={logicKey} onMetricClick={onEmailMetricClick} />
+                <EmailMetricsSummary logicKey={logicKey} onMetricClick={drillIntoEmailMetric} />
             ) : selectedAction?.type === 'function_push' ? (
                 <PushMetricsSummary logicKey={logicKey} />
             ) : (
-                <>
-                    <div className="flex flex-row gap-2 flex-wrap justify-center">
-                        {['succeeded', 'failed'].map((key) => (
-                            <WorkflowMetricCard
-                                key={key}
-                                name={WORKFLOW_METRICS_INFO[key].name}
-                                description={WORKFLOW_METRICS_INFO[key].description}
-                                loading={appMetricsTrendsLoading}
-                                timeSeries={getSingleTrendSeries(key)}
-                                previousPeriodTimeSeries={getSingleTrendSeries(key, true)}
-                                color={WORKFLOW_METRICS_INFO[key].color}
-                                colorIfZero={getColorVar('muted')}
-                            />
-                        ))}
-                    </div>
-                    <AppMetricsTrends
-                        appMetricsTrends={modifiedAppMetricsTrends}
-                        loading={appMetricsTrendsLoading}
-                        seriesColors={METRIC_COLORS}
-                    />
-                </>
+                <RunOutcomeMetrics
+                    loading={appMetricsTrendsLoading}
+                    getSingleTrendSeries={getSingleTrendSeries}
+                    appMetricsTrends={modifiedAppMetricsTrends}
+                />
             )}
         </div>
+    )
+}
+
+type AppMetricsValues = ReturnType<typeof appMetricsLogic.build>['values']
+
+function RunOutcomeMetrics({
+    loading,
+    getSingleTrendSeries,
+    appMetricsTrends,
+}: {
+    loading: boolean
+    getSingleTrendSeries: AppMetricsValues['getSingleTrendSeries']
+    appMetricsTrends: AppMetricsValues['appMetricsTrends']
+}): JSX.Element {
+    return (
+        <>
+            <div className="flex flex-row gap-2 flex-wrap justify-center">
+                {['succeeded', 'failed'].map((key) => (
+                    <WorkflowMetricCard
+                        key={key}
+                        name={WORKFLOW_METRICS_INFO[key].name}
+                        description={WORKFLOW_METRICS_INFO[key].description}
+                        loading={loading}
+                        timeSeries={getSingleTrendSeries(key)}
+                        previousPeriodTimeSeries={getSingleTrendSeries(key, true)}
+                        color={WORKFLOW_METRICS_INFO[key].color}
+                        colorIfZero={getColorVar('muted')}
+                    />
+                ))}
+            </div>
+            <AppMetricsTrends appMetricsTrends={appMetricsTrends} loading={loading} seriesColors={METRIC_COLORS} />
+        </>
     )
 }
 
@@ -408,27 +430,11 @@ function BatchJobMetrics({ job, requestedAction }: { job: HogFlowBatchJob; reque
             ) : selectedAction?.type === 'function_push' ? (
                 <PushMetricsSummary logicKey={logicKey} />
             ) : (
-                <>
-                    <div className="flex flex-row gap-2 flex-wrap justify-center">
-                        {['succeeded', 'failed'].map((key) => (
-                            <WorkflowMetricCard
-                                key={key}
-                                name={WORKFLOW_METRICS_INFO[key].name}
-                                description={WORKFLOW_METRICS_INFO[key].description}
-                                loading={appMetricsTrendsLoading}
-                                timeSeries={getSingleTrendSeries(key)}
-                                previousPeriodTimeSeries={getSingleTrendSeries(key, true)}
-                                color={WORKFLOW_METRICS_INFO[key].color}
-                                colorIfZero={getColorVar('muted')}
-                            />
-                        ))}
-                    </div>
-                    <AppMetricsTrends
-                        appMetricsTrends={modifiedAppMetricsTrends}
-                        loading={appMetricsTrendsLoading}
-                        seriesColors={METRIC_COLORS}
-                    />
-                </>
+                <RunOutcomeMetrics
+                    loading={appMetricsTrendsLoading}
+                    getSingleTrendSeries={getSingleTrendSeries}
+                    appMetricsTrends={modifiedAppMetricsTrends}
+                />
             )}
         </div>
     )

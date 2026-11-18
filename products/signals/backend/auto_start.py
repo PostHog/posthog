@@ -22,6 +22,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.oauth import McpScopePreset, grants_scratchpad_write
 from posthog.user_permissions import UserPermissions
 
+from products.signals.backend.agent_instructions import SignalAgentRole, resolve_custom_image_id
 from products.signals.backend.agent_runtime import STEP_IMPLEMENTATION, resolve_agent_runtime
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import (
@@ -75,7 +76,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     resolve_org_github_login_to_users,
     resolve_org_users_by_uuid,
 )
-from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.report_generation.select_repo import RepoSelectionResult, saved_repository_connected
 from products.signals.backend.report_monitoring_provenance import monitoring_repository_allowed
 from products.signals.backend.report_steering import NO_STEERING, ReportSteering, load_report_steering
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
@@ -807,6 +808,7 @@ def _create_implementation_task_if_absent(
     """
     # Resolved outside the transaction: the flag read does network I/O and must not hold the row lock.
     agent_runtime = resolve_agent_runtime(team_id, STEP_IMPLEMENTATION)
+    custom_image_id = resolve_custom_image_id(team_id, SignalAgentRole.IMPLEMENTATION)
 
     # Create the task before the provider issue. A failed task creation must not leave an external
     # issue that says Self-driving started work when no run exists.
@@ -965,6 +967,7 @@ def _create_implementation_task_if_absent(
             stack_base_branch=stack_base_branch,
             github_access_repositories=access_repositories,
             service_tier=agent_runtime.service_tier,
+            extra_run_state={"custom_image_id": custom_image_id} if custom_image_id is not None else None,
         )
         if created.latest_run is None:
             raise RuntimeError(f"Task {created.task_id} auto-started without producing a TaskRun")
@@ -1526,9 +1529,15 @@ async def maybe_autostart_implementation_task(
         )
         return AutostartOutcome(status="blocked", reason="Autostart is disabled")
     team_default_priority = Priority(team_config.default_autostart_priority) if team_config else Priority.P4
-    if await database_sync_to_async(ResearchAccessPolicy.enabled)(team_id) and not await database_sync_to_async(
-        ResearchAccessPolicy.repository_available, thread_sensitive=False
-    )(team_id, repository, priority=EgressPriority.BATCH):
+    if await database_sync_to_async(ResearchAccessPolicy.enabled)(team_id):
+        repository_reachable = await database_sync_to_async(
+            ResearchAccessPolicy.repository_available, thread_sensitive=False
+        )(team_id, repository, priority=EgressPriority.BATCH)
+    else:
+        repository_reachable = await database_sync_to_async(saved_repository_connected, thread_sensitive=False)(
+            team_id, repository
+        )
+    if not repository_reachable:
         return AutostartOutcome(status="blocked", reason="Connect or repair GitHub access to the selected repository")
 
     if not await database_sync_to_async(monitoring_repository_allowed, thread_sensitive=False)(

@@ -303,14 +303,20 @@ NEEDS_REPO_TRUE = (
     "or why the team's own app, job, handler or logic does something, such as how a value is calculated or "
     "when a retry gives up. It also includes a request to start, change or stop tracking something, such as "
     '"can we track when someone does X?": a new event or property is sent from the team\'s app, so it is a '
-    "code change."
+    "code change. Investigating a bug or wrong behavior in the team's own app, such as a broken page element "
+    "or a feature that does the wrong thing, is code work too, even when it is asked as a question."
 )
 NEEDS_REPO_FALSE = (
     "A question about the team's product data or setup that PostHog holds: metrics, trends, funnels, "
     "retention, events, persons, cohorts, dashboards, insights, session recordings, feature flag or "
     "experiment state, surveys, errors, logs or LLM traces. Also a question about how PostHog itself works or "
     "how to use it, a request to change a PostHog setting, or a social message. Checking whether an event "
-    "already arrives is a data question."
+    "already arrives is a data question. Setting up or changing a PostHog scout, alert, subscription, workflow, "
+    "survey, dashboard or other PostHog resource is a setting change, not code. A question about a GitHub issue "
+    "or pull request itself, such as who opened it, its status, or when it merged, is answered from GitHub "
+    "without the code. So is listing or finding pull requests or issues, such as open pull requests by status "
+    "or the ones a person merged this week. Reviewing the changes in a pull request is code. How often errors "
+    "happen, or how many users they reach, is a data question."
 )
 
 

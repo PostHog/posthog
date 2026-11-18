@@ -105,9 +105,34 @@ A backfill for it in the meantime, such as a disaster-recovery run, is truncated
 A resave through `resave_cohorts` or team enablement rechecks every cohort, so it does take such a cohort off realtime.
 Keep `REALTIME_COHORT_MAX_HISTORY_DAYS` at or below the seeder's `SEEDER_MAX_LOOKBACK_DAYS`.
 
+`REALTIME_COHORT_MAX_HISTORY_DAYS` is the pipeline's own cap, and it is the same for every plan.
+The plan's history limit is a separate and lower limit, and it never changes `cohort_type` ([plan limits](#plan-limits)).
+
 The rule reads the criteria, plus the team's current day for the history limit.
 No team allowlist or rollout flag is involved, so any project can hold `realtime` cohorts, and the Rust services choose which teams they actually process.
 The rule also checks no composition, which matters later on this page.
+
+### Plan limits
+
+Two billing features limit what a project can have on.
+`products/cohorts/backend/realtime_limits.py` reads them from the organization's `available_product_features`.
+
+| Feature                    | Limit                                                | Without the feature                        |
+| -------------------------- | ---------------------------------------------------- | ------------------------------------------ |
+| `realtime_cohorts`         | Cohorts per project with realtime on                 | `REALTIME_COHORT_DEFAULT_MAX_COHORTS`      |
+| `realtime_cohorts_history` | Days back the criteria of a realtime cohort can look | `REALTIME_COHORT_DEFAULT_MAX_HISTORY_DAYS` |
+
+A feature with a null limit sets no limit, and so does an unset setting.
+The history limit is never above `REALTIME_COHORT_MAX_HISTORY_DAYS`, also when the plan sets none.
+A cohort holds a slot while it is `realtime`, on, not static and not deleted.
+
+The limits only gate turning realtime on.
+`cohort_enablement.py` refuses a turn-on that needs more slots than are left, or whose criteria look back further than the plan allows.
+The cohort API refuses the same for a criteria edit of a cohort that is on, when the request's user sees realtime cohorts.
+A cohort that is on keeps its switch while it is daily, static or deleted, so the API judges an edit that brings it back, such as a restore, like a turn-on.
+It judges an edit in the transaction that saves it, under the same team lock as a turn-on.
+A cohort that is on keeps running when the plan changes or its start date ages past the limit, and a rename that resends the same criteria is not judged again.
+The refusal is a `400` with code `realtime_limit_reached`, and it is captured as the `cohort realtime limit reached` event.
 
 Other writers can take `realtime` away after a save.
 The batch recalculation clears it when a cohort's count grows past the size cap, and a resave management command clears it for some nested references.
@@ -191,7 +216,7 @@ Changing the derivation would re-key every behavioral state row in every store, 
 Every Rust service that needs definitions builds a **catalog**: an immutable, per-team index of parsed cohorts.
 The shared `cohort-core` crate owns the parsing, classification and indexing, so the processor and the seeder interpret a definition with the same code.
 
-- The **processor** loads every row with `cohort_type = 'realtime' AND deleted = false AND filters IS NOT NULL`, joined to the team's timezone.
+- The **processor** loads every row with `cohort_type = 'realtime' AND realtime_enabled_at IS NOT NULL AND is_static = false AND deleted = false AND filters IS NOT NULL`, joined to the team's timezone.
   It keeps only the teams in its own copy of `REALTIME_COHORT_TEAM_ALLOWLIST` and the teams that a `cohort_realtime_team_access` row grants, builds the catalog off the async runtime, and swaps it in atomically.
   A refresh whose read of that table fails builds nothing, so the catalog never misses a team that the table granted before the refresh began, as long as the database it reads is current.
   It refreshes every few minutes with jitter, and within about 15 seconds of a grant or a revoke.
@@ -201,8 +226,8 @@ The shared `cohort-core` crate owns the parsing, classification and indexing, so
   That catalog holds only the run's cohorts, and it always has cascades off.
   A run's reconcile is different, because it runs on the processor against the processor's live catalog.
   See [the seeder](seeder.md).
-- The **shuffler** only needs to know which teams have realtime cohorts.
-  It keeps a team index from the same predicate.
+- The **shuffler** only needs to know which teams have a realtime cohort that is on.
+  It reads them through `cohort-core`, whose team query and catalog load share one predicate.
   See [event routing](event-routing.md).
 
 Definitions do not travel through Kafka.

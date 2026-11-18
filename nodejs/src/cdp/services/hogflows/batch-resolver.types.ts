@@ -12,6 +12,20 @@ export const HOGFLOW_BATCH_RESOLVE_QUEUE = 'hogflow_batch_resolve' as const
 // fails so the janitor can clean it up.
 export const MAX_RESOLVER_ATTEMPTS = 5
 
+// Why a run reached a terminal failure. The failure and the terminal write happen on separate
+// dequeues, so the reason travels in state to reach the metric that alerting reads.
+export const BatchResolverFailureReasonSchema = z.enum([
+    'quota_limited',
+    'missing_entity',
+    'cohort_timeout',
+    'realtime_cohort_unavailable',
+    'audience_snapshot_timeout',
+    'audience_query_failed',
+    'fetch_failure',
+])
+
+export type BatchResolverFailureReason = z.infer<typeof BatchResolverFailureReasonSchema>
+
 // Zod-validated on every dequeue so a job written by an older deploy fails
 // cleanly at the boundary instead of crashing later in the page logic.
 export const BatchResolverStateSchema = z.object({
@@ -72,6 +86,7 @@ export const BatchResolverStateSchema = z.object({
     attempts: z.number().int().nonnegative().default(0),
     startedAt: z.string(),
     pendingTerminal: z.enum(['completed', 'failed']).optional(),
+    terminalReason: BatchResolverFailureReasonSchema.optional(),
 })
 
 export type BatchResolverState = z.infer<typeof BatchResolverStateSchema>

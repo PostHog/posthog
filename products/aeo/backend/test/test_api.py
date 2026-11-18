@@ -54,6 +54,7 @@ class TestAEOPromptAPI(APIBaseTest):
         cited_urls: list[str] | None = None,
         search_queries: list[str] | None = None,
         mode: str = "web_search",
+        names_brand: bool | None = None,
     ) -> str:
         with team_scope(self.team.pk):
             prompt = AEOPrompt.objects.get(id=prompt_id)
@@ -73,6 +74,7 @@ class TestAEOPromptAPI(APIBaseTest):
                 target_best_position=position,
                 check_failed=check_failed,
                 answer_text=answer_text,
+                names_brand=names_brand,
                 cited_urls=cited_urls or [],
                 top_cited_domains=top_domains(cited_urls or []),
                 search_queries=search_queries or [],
@@ -636,6 +638,8 @@ class TestAEOPromptAPI(APIBaseTest):
             ("brand_case_ignored", {"answer_text": "EXAMPLE ships session replay."}, 1),
             ("brand_inside_another_word", {"answer_text": "Counterexample: nothing fits."}, 0),
             ("cited_without_the_name_in_the_text", {"cited": True, "answer_text": "See [1]."}, 1),
+            ("stored_flag_set", {"names_brand": True, "answer_text": "Nothing about the brand."}, 1),
+            ("stored_flag_decides_over_the_text", {"names_brand": False, "answer_text": "Try Example."}, 0),
             ("failed_check", {"check_failed": True}, 0),
         ]
     )
@@ -663,6 +667,9 @@ class TestAEOPromptAPI(APIBaseTest):
                 AEOCitationCheck.objects.filter(answer_text__contains=text).update(
                     brand_sentiment=label, brand_sentiment_score=score
                 )
+            AEOCitationCheck.objects.filter(id=scored).update(
+                brand_sentiment_sentences=[{"start": 0, "end": 17, "label": "positive", "score": 0.9}]
+            )
 
         create_own_brand(self.team, "example.com")
 
@@ -678,6 +685,11 @@ class TestAEOPromptAPI(APIBaseTest):
             **{check["id"]: (check["brand_sentiment"], check["brand_sentiment_score"]) for check in checks[1:]},
         }
         assert [check["brand_sentiment"] for check in checks] == ["positive", "negative", None]
+        assert [check["brand_sentiment_sentences"] for check in checks] == [
+            [{"start": 0, "end": 17, "label": "positive", "score": 0.9}],
+            [],
+            [],
+        ]
 
     @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
     def test_stats_rank_engine_consensus_and_search_words_over_the_window(self) -> None:
@@ -1251,6 +1263,98 @@ class TestAEOPromptAPI(APIBaseTest):
         path = f"{self.url}{endpoint}/" if endpoint else self.url
         assert self.client.get(f"{path}?{query}").status_code == status.HTTP_400_BAD_REQUEST
 
+    @parameterized.expand(
+        [
+            ("exact_url", "url=https://docs.example.com/funnels", ["best funnel tools?"]),
+            ("url_is_not_a_prefix", "url=https://docs.example.com/", []),
+            ("domain_matches_subdomains", "domain=Example.com", ["best funnel tools?"]),
+            ("host", "domain=docs.example.com", ["best funnel tools?"]),
+            ("domain_skips_lookalikes", "domain=notexample.com", ["is example good?"]),
+            ("longer_window", "domain=example.com&days=60", ["best funnel tools?", "best funnel tools?"]),
+            ("engine", "domain=example.com&engine=claude-web-search", []),
+            ("search_normalized", "search=%20FUNNEL%20%20tools%20", ["best funnel tools?"]),
+            ("search_branded", "search=funnel%20tools%20pricing&branded=branded", ["is example good?"]),
+            ("search_non_branded", "search=funnel%20tools%20pricing&branded=non_branded", []),
+            ("no_filter", "days=7", None),
+            ("two_filters", "url=https://example.com/&domain=example.com", None),
+        ]
+    )
+    def test_citations_list_the_answers_behind_a_page_site_or_search(
+        self, _name: str, query: str, expected: list[str] | None
+    ) -> None:
+        create_own_brand(self.team, "example.com")
+        ids = self._import_prompts([{"prompt": "best funnel tools?"}, {"prompt": "is example good?"}])
+        self._record_check(
+            ids["best funnel tools?"],
+            "exa-answer",
+            minutes_ago=10,
+            cited=True,
+            position=1,
+            cited_urls=["https://docs.example.com/funnels", "https://rival.example.org/x"],
+            search_queries=["Funnel  Tools"],
+        )
+        self._record_check(
+            ids["is example good?"],
+            "claude-web-search",
+            minutes_ago=20,
+            answer_text="Example is fine.",
+            cited_urls=["https://notexample.com/a"],
+            search_queries=["funnel tools pricing"],
+        )
+        self._record_check(
+            ids["best funnel tools?"], "exa-answer", minutes_ago=40 * 24 * 60, cited_urls=["https://example.com/"]
+        )
+        self._record_check(
+            ids["is example good?"], "exa-answer", minutes_ago=5, check_failed=True, search_queries=["funnel tools"]
+        )
+        self._record_check(
+            ids["is example good?"],
+            "claude-no-search",
+            minutes_ago=5,
+            mode="no_search",
+            cited_urls=["https://example.com/"],
+        )
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_check_id = create_citation_check(other_team, "other")
+        with team_scope(other_team.pk):
+            AEOCitationCheck.objects.filter(id=other_check_id).update(
+                cited_urls=["https://example.com/"], top_cited_domains=["example.com"], search_queries=["funnel tools"]
+            )
+
+        response = self.client.get(f"{self.url}citations/?{query}")
+
+        if expected is None:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            return
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["count"] == len(expected)
+        assert [row["prompt_text"] for row in body["results"]] == expected
+        for row in body["results"]:
+            assert row["prompt_id"] == ids[row["prompt_text"]]
+            assert row["answer_text"] is None
+
+    def test_citations_flag_mentions_and_return_answers_on_request(self) -> None:
+        create_own_brand(self.team, "example.com")
+        ids = self._import_prompts([{"prompt": "best replay tool?", "topic": "Replay"}])
+        for minutes_ago, answer in ((10, "Example does replay."), (20, "Rival does replay.")):
+            self._record_check(
+                ids["best replay tool?"],
+                "exa-answer",
+                minutes_ago=minutes_ago,
+                answer_text=answer,
+                cited_urls=["https://rival.example.org/replay"],
+            )
+
+        rows = self.client.get(
+            f"{self.url}citations/?domain=rival.example.org&include_answer_text=true&limit=1&offset=1"
+        ).json()
+
+        assert rows["count"] == 2
+        assert [(row["answer_text"], row["mentioned"], row["prompt_topic"]) for row in rows["results"]] == [
+            ("Rival does replay.", False, "Replay")
+        ]
+
     @parameterized.expand([("above_range", 140), ("not_a_number", "NaN"), ("infinite", "Infinity")])
     def test_bulk_import_rejects_invalid_visibility(self, _name: str, visibility: object) -> None:
         response = self.client.post(
@@ -1444,6 +1548,32 @@ class TestAEOPromptAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert AEOBrand.objects.for_team(other_team.id).get(id=brand_id).status == "suggested"
+
+    def test_competitor_candidates_lists_brands_answers_name_and_cite(self) -> None:
+        ids = self._import_prompts([{"prompt": "which lighting tools?"}])
+        brand_id = self._brand(self.team, "lantern.example.org")
+        self._record_check(
+            ids["which lighting tools?"],
+            "claude-web-search",
+            minutes_ago=10,
+            answer_text="Lantern is a good pick.",
+            cited_urls=["https://lantern.example.org/pricing"],
+        )
+
+        url = f"/api/projects/{self.team.id}/aeo_brands/competitor_candidates/"
+        response = self.client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == [
+            {
+                "brand_id": brand_id,
+                "name": "lantern",
+                "domain": "lantern.example.org",
+                "answers_naming": 1,
+                "answers_citing": 1,
+            }
+        ]
+        assert self.client.get(f"{url}?limit=0").status_code == status.HTTP_400_BAD_REQUEST
 
     @parameterized.expand(
         [

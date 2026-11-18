@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 from django.db import connection
 from django.db.models.signals import post_save
 from django.test import TestCase, override_settings
+from django.utils import timezone
 
 import requests
 from celery.exceptions import Retry
@@ -159,6 +160,7 @@ class TestHogFlowBatchJob(TestCase):
             name="c",
             filters=behavioral,
             cohort_type=CohortType.REALTIME if cohort_kind == "realtime" else None,
+            realtime_enabled_at=timezone.now(),
             last_backfill_events_at=datetime(2026, 1, 1, tzinfo=UTC),
             last_backfill_person_properties_at=datetime(2026, 1, 1, tzinfo=UTC),
         )
@@ -181,6 +183,7 @@ class TestHogFlowBatchJob(TestCase):
             team=self.team,
             name="c",
             cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=timezone.now(),
             filters={
                 "properties": {
                     "type": "AND",

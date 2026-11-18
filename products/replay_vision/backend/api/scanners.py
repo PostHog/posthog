@@ -105,7 +105,6 @@ from products.replay_vision.backend.models.replay_observation import (
 from products.replay_vision.backend.models.replay_observation_feed_dismissal import ReplayObservationFeedDismissal
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
-    SamplingMode,
     ScannerDisabledReason,
     ScannerModel,
     ScannerProvider,
@@ -187,6 +186,7 @@ from products.replay_vision.backend.scanning import (
     scan_existing_scanner,
     scan_outcome_counts,
 )
+from products.replay_vision.backend.scope.load import experiment_id_of
 from products.replay_vision.backend.scout_writes import (
     check_scout_scanner_credit_limit,
     refuse_scout_scanner_delete,
@@ -376,7 +376,6 @@ def scanner_lifecycle_properties(scanner: ReplayScanner) -> dict[str, Any]:
         # The model's price, so experiments on the model picker can compare spend without joining a price table.
         "credits_per_observation": observation_credits_for_model(scanner.model),
         "sampling_rate": scanner.sampling_rate,
-        "sampling_mode": scanner.sampling_mode,
         "enabled": scanner.enabled,
         # An experiment scope narrows the population server-side, so it counts as filtered; the
         # separate flag keeps experiment-scoped scanners countable apart from hand-filtered ones.
@@ -582,11 +581,6 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "the sampling precision."
         ),
     )
-    sampling_mode = serializers.ChoiceField(
-        choices=SamplingMode.choices,
-        required=False,
-        help_text="Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).",
-    )
     credit_limit = serializers.IntegerField(
         required=False,
         allow_null=True,
@@ -751,7 +745,6 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "prompt_question",
             "query",
             "sampling_rate",
-            "sampling_mode",
             "credit_limit",
             "free_only",
             "provider",
@@ -1246,9 +1239,9 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         if cached is not None:
             return cached
         page_ids = {
-            scope["experiment_id"]
+            experiment_id
             for scanner in self._page_scanners() or ()
-            if (scope := scanner.experiment_scope()) and isinstance(scope.get("experiment_id"), int)
+            if (experiment_id := experiment_id_of(scanner)) is not None
         }
         accessible = accessible_experiment_ids(self.user_access_control, team_id, page_ids) if page_ids else set()
         page_access = {experiment_id: experiment_id in accessible for experiment_id in page_ids}
@@ -1778,15 +1771,6 @@ class EstimateRequestSerializer(serializers.Serializer):
         max_value=1.0,
         help_text="0..1 downsample applied to matched sessions. Defaults to 1.0 (no downsampling).",
     )
-    sampling_mode = serializers.ChoiceField(
-        choices=SamplingMode.choices,
-        required=False,
-        default=SamplingMode.COMPREHENSIVE,
-        help_text=(
-            "Quality pre-filter applied to the matched-session count, mirroring the sweep's candidate query. "
-            "Defaults to comprehensive (no filter)."
-        ),
-    )
     scanner_id = serializers.UUIDField(
         required=False,
         allow_null=True,
@@ -2078,8 +2062,7 @@ class EstimateResponseSerializer(serializers.Serializer):
 
     matched_sessions_in_window = serializers.IntegerField(
         help_text=(
-            "Distinct sessions matching the query within the scanned window (`window_days`), after the "
-            "sampling_mode quality filter but before random sampling."
+            "Distinct sessions matching the query within the scanned window (`window_days`), before random sampling."
         ),
     )
     window_days = serializers.IntegerField(
@@ -2090,7 +2073,7 @@ class EstimateResponseSerializer(serializers.Serializer):
     )
     estimated_observations_per_month = serializers.IntegerField(
         help_text=(
-            "Projected monthly observations: quality-filtered matched sessions scaled from `window_days` to 30 days, "
+            "Projected monthly observations: matched sessions scaled from `window_days` to 30 days, "
             "times sampling_rate."
         ),
     )
@@ -2139,7 +2122,7 @@ class DraftScannerRequestSerializer(serializers.Serializer):
         max_value=100_000_000,
         help_text=(
             "Credits a month to spend (1 credit = $0.01). The draft picks the `model`, then solves "
-            "`sampling_mode` and `sampling_rate` so the projected spend lands on this number, and sets "
+            "`sampling_rate` so the projected spend lands on this number, and sets "
             "`credit_limit` to it as a hard cap. Ask the person for it rather than guessing. "
             "Required unless `free_only` is true, and not allowed with it."
         ),
@@ -2169,7 +2152,7 @@ class DraftScannerRequestSerializer(serializers.Serializer):
             "it and never removes or widens it. When the goal asks for narrower recordings, the draft can AND "
             "its own page, event, action or cohort filters onto it. It keeps them only when the combined "
             "filter still matches recent recordings, returns them in `query_additions`, and sizes the "
-            "sampling dials against the combined `query`. `experiment_exposure` becomes the scanner's "
+            "sampling rate against the combined `query`. `experiment_exposure` becomes the scanner's "
             "experiment and variants, which the draft keeps as they are. `date_from`/`date_to` are dropped, "
             "because a scanner's schedule owns time. `comment_text`, `hide_viewed_recordings` and in-session "
             "exposure are refused, because a scanner cannot apply them. A query with no filters starts from "
@@ -2222,20 +2205,13 @@ class DraftScannerResponseSerializer(serializers.Serializer):
             "was passed."
         ),
     )
-    sampling_mode = serializers.ChoiceField(
-        choices=SamplingMode.choices,
-        allow_null=True,
-        help_text=(
-            "The quality pre-filter the draft chose for the goal. Null when the costing estimate "
-            "failed, in which case the wizard keeps its defaults."
-        ),
-    )
     sampling_rate = serializers.FloatField(
         allow_null=True,
         help_text=(
             "The random sampling rate solved from `monthly_credit_budget`, 0..1. "
             "1.0 when the budget covers every matching recording. Floored at the minimum rate, so a "
-            "budget below that floor keeps the minimum. Null whenever `sampling_mode` is."
+            "budget below that floor keeps the minimum. Null when the costing estimate failed, in which "
+            "case the wizard keeps its defaults."
         ),
     )
     model = serializers.ChoiceField(
@@ -2257,9 +2233,9 @@ class DraftScannerResponseSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "Recordings a month the drafted scanner is projected to watch under "
-            "the solved dials. Its credit cost lands at or under `monthly_credit_budget`, except when "
+            "the solved rate. Its credit cost lands at or under `monthly_credit_budget`, except when "
             "the budget is below what the minimum sampling rate can reach, where this is the floor and "
-            "exceeds the budget. Null whenever `sampling_mode` is."
+            "exceeds the budget. Null whenever `sampling_rate` is."
         ),
     )
 
@@ -2587,7 +2563,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             ):
                 experiment_targeting = None
         if source.scanner_type == ScannerType.EXPERIMENT:
-            scope_experiment_id = (source.experiment_scope() or {}).get("experiment_id")
+            scope_experiment_id = experiment_id_of(source)
             if scope_experiment_id is None or not is_experiment_accessible(
                 self.user_access_control, self.team_id, scope_experiment_id
             ):
@@ -2610,7 +2586,6 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     prompt_valence=source.prompt_valence,
                     query=source.query,
                     sampling_rate=source.sampling_rate,
-                    sampling_mode=source.sampling_mode,
                     credit_limit=source.credit_limit,
                     free_only=source.free_only,
                     provider=source.provider,
@@ -3376,7 +3351,6 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             # The exposure filter's access check runs as the requesting user, so a preview can't
             # count exposed sessions of an experiment the caller is denied.
             user=cast(User, request.user),
-            sampling_mode=body.validated_data["sampling_mode"],
             budget=PREVIEW_ESTIMATE_BUDGET,
         )
         observations_per_month = project_monthly_observations(estimate, sampling_rate)
@@ -3546,7 +3520,6 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 "narrowing_refusal": drafted.narrowing_refusal,
                 "has_experiment_targeting": drafted.scanner_type == ScannerType.EXPERIMENT,
                 "experiment_picked": experiment_id is not None,
-                "sampling_mode": drafted.sampling_mode,
                 "sampling_rate": drafted.sampling_rate,
                 "model": drafted.model,
                 "credit_limit": drafted.credit_limit,
@@ -3566,7 +3539,6 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     "rationale": drafted.rationale,
                     "query": drafted.query,
                     "query_additions": drafted.query_additions,
-                    "sampling_mode": drafted.sampling_mode,
                     "sampling_rate": drafted.sampling_rate,
                     "model": drafted.model,
                     "credit_limit": drafted.credit_limit,

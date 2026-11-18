@@ -32,12 +32,15 @@ from products.conversations.backend.services.identity import (
 )
 
 
-def _verification_counter(outcome: str, source: str) -> float:
+def _verification_counter(outcome: str, source: str, team_id: int) -> float:
     # Process-global, so callers compare deltas rather than absolute values.
     from prometheus_client import REGISTRY
 
     return (
-        REGISTRY.get_sample_value("conversations_identity_verification_total", {"outcome": outcome, "source": source})
+        REGISTRY.get_sample_value(
+            "conversations_identity_verification_total",
+            {"outcome": outcome, "source": source, "team_id": str(team_id)},
+        )
         or 0.0
     )
 
@@ -1071,7 +1074,7 @@ class TestWidgetIdentityVerification(BaseTest):
         )
         self._create_ticket()
         before_stale = _stale_counter()
-        before_outcome = _verification_counter(outcome, source)
+        before_outcome = _verification_counter(outcome, source, self.team.id)
 
         response = self.client.get(
             "/api/conversations/v1/widget/tickets",
@@ -1084,7 +1087,7 @@ class TestWidgetIdentityVerification(BaseTest):
 
         self.assertEqual(response.status_code, expected_status)
         self.assertEqual(_stale_counter() - before_stale, 0.0)
-        self.assertEqual(_verification_counter(outcome, source) - before_outcome, 1.0)
+        self.assertEqual(_verification_counter(outcome, source, self.team.id) - before_outcome, 1.0)
 
     def test_list_tickets_legacy_hash_rejected_after_independent_rotation(self):
         # Even with the kill switch on, an independent rotation must revoke the legacy
@@ -1112,8 +1115,8 @@ class TestWidgetIdentityVerification(BaseTest):
         # what gates dropping the plaintext column — silently reports legacy forever.
         SigningSecret.objects.for_team(self.team.id).create(team=self.team, secret=self.secret)
         self._create_ticket()
-        before_signing = _verification_counter("verified", "signing_secret")
-        before_legacy = _verification_counter("verified", "legacy_token")
+        before_signing = _verification_counter("verified", "signing_secret", self.team.id)
+        before_legacy = _verification_counter("verified", "legacy_token", self.team.id)
 
         response = self.client.get(
             "/api/conversations/v1/widget/tickets",
@@ -1125,8 +1128,8 @@ class TestWidgetIdentityVerification(BaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(_verification_counter("verified", "signing_secret") - before_signing, 1.0)
-        self.assertEqual(_verification_counter("verified", "legacy_token") - before_legacy, 0.0)
+        self.assertEqual(_verification_counter("verified", "signing_secret", self.team.id) - before_signing, 1.0)
+        self.assertEqual(_verification_counter("verified", "legacy_token", self.team.id) - before_legacy, 0.0)
 
     def test_list_tickets_non_hex_identity_hash_is_rejected_not_a_server_error(self):
         # hmac.compare_digest raises TypeError on non-ASCII str, so a 64-character non-hex

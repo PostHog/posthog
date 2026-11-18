@@ -405,7 +405,14 @@ tools:
         description: >
             List past batch runs for a workflow (both one-off broadcasts and schedule-triggered runs). Each entry shows
             the audience filters and variable overrides the run used, plus when it was created. The status field is not
-            tracked — use workflows-logs / workflows-stats for the outcome of a run.
+            tracked. A run's sends, steps, outcomes and logs are keyed on the run's id, not the workflow's, so
+            workflows-stats and workflows-logs never show them. Read one run's counts with execute-sql: SELECT
+            metric_name, sum(count) FROM app_metrics WHERE app_source = 'hog_flow' AND app_source_id = '<run id>' GROUP
+            BY metric_name. Bookkeeping counters such as masked, quota_limited and billable_invocation stay on the
+            workflow and are missing from that read. Read who the run reached or failed for with execute-sql over
+            posthog.hog_invocation_results WHERE function_id = '<workflow id>' AND parent_run_id = '<run id>' AND
+            scheduled_at >= '<run created_at>', taking argMax(status, version) per invocation_id; its rows last 30 days.
+            workflows-list-invocations has no run filter, so it mixes every run of the workflow.
     workflows-list-invocations:
         operation: hog_flows_invocation_results_retrieve
         enabled: true
@@ -676,7 +683,11 @@ tools:
             email_opened and email_link_clicked against (email_sent - email_untracked): email_untracked counts sends
             with open/click tracking off, which can never register an open or a click. Set breakdown_by=name and name
             the metrics you read in `name`: each named metric is returned, as zeros when it recorded nothing. This reads
-            the workflow's whole history; for one published version, call workflows-version-stats.
+            the workflow's whole history; for one published version, call workflows-version-stats. Batch runs,
+            broadcasts included, key their sends, steps and outcomes on the run, not the workflow, so they never show
+            here: a broadcast that sent still reads zero sends. Only bookkeeping counters such as masked, quota_limited
+            and billable_invocation stay on the workflow. For its totals across runs, call workflows-version-stats for
+            each version live while it sent. For one run, read its counts as workflows-list-batch-jobs describes.
     workflows-suggest:
         operation: hog_flows_proposals_create
         enabled: true
