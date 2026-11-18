@@ -1,12 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
-import { useState } from 'react'
+import { useId, useState } from 'react'
 
 import { IconGear } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSwitch, Link } from '@posthog/lemon-ui'
+import { Button, Field, FieldLabel, Switch } from '@posthog/quill'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
 import { sanitizeSurveyAppearance, validateSurveyAppearance } from 'scenes/surveys/utils'
@@ -25,20 +27,42 @@ export function SurveyEnableToggle(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const switchId = useId()
+
+    const handleChange = (checked: boolean): void => {
+        updateCurrentTeam({
+            surveys_opt_in: checked,
+        })
+    }
+
+    const disabledReason = currentTeamLoading ? 'Loading...' : restrictedReason
+
+    if (todayRailNav) {
+        return (
+            <Field orientation="horizontal" className="w-fit">
+                <Switch
+                    id={switchId}
+                    data-attr="opt-in-surveys-switch"
+                    checked={!!currentTeam?.surveys_opt_in}
+                    onCheckedChange={handleChange}
+                    disabled={currentTeamLoading}
+                    disabledReason={disabledReason}
+                />
+                <FieldLabel htmlFor={switchId}>Enable surveys</FieldLabel>
+            </Field>
+        )
+    }
 
     return (
         <LemonSwitch
             data-attr="opt-in-surveys-switch"
-            onChange={(checked) => {
-                updateCurrentTeam({
-                    surveys_opt_in: checked,
-                })
-            }}
+            onChange={handleChange}
             label="Enable surveys"
             bordered
             checked={!!currentTeam?.surveys_opt_in}
             disabled={currentTeamLoading}
-            disabledReason={currentTeamLoading ? 'Loading...' : restrictedReason}
+            disabledReason={disabledReason}
         />
     )
 }
@@ -56,6 +80,7 @@ export function SurveyDefaultAppearance(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const [editableSurveyConfig, setEditableSurveyConfig] = useState({
         ...defaultSurveyAppearance,
@@ -93,6 +118,53 @@ export function SurveyDefaultAppearance(): JSX.Element {
         })
     }
 
+    const customizationEditor = (
+        <Customization
+            survey={templatedSurvey}
+            hasBranchingLogic={false}
+            hasRatingButtons={true}
+            hasPlaceholderText={true}
+            onAppearanceChange={(appearance) => {
+                const newAppearance = {
+                    ...editableSurveyConfig,
+                    ...appearance,
+                }
+                const errors = validateSurveyAppearance(newAppearance, true, templatedSurvey.type)
+                setValidationErrors(errors)
+                setEditableSurveyConfig(newAppearance)
+                setTemplatedSurvey({
+                    ...templatedSurvey,
+                    appearance: newAppearance,
+                })
+            }}
+            validationErrors={validationErrors}
+            disabledReason={restrictedReason ?? undefined}
+        />
+    )
+
+    if (todayRailNav) {
+        return (
+            <div className="flex flex-col gap-4">
+                {globalSurveyAppearanceConfigAvailable && (
+                    <div>
+                        <Button variant="primary" onClick={updateSurveySettings} disabledReason={restrictedReason}>
+                            Save appearance changes
+                        </Button>
+                    </div>
+                )}
+
+                <div className="flex flex-wrap gap-8">
+                    <div className="min-w-80 flex-1">{customizationEditor}</div>
+                    {globalSurveyAppearanceConfigAvailable && (
+                        <div className="overflow-auto">
+                            <SurveyAppearancePreview survey={templatedSurvey} previewPageIndex={0} />
+                        </div>
+                    )}
+                </div>
+            </div>
+        )
+    }
+
     return (
         <div className="space-y-4">
             <div className="flex items-center justify-between">
@@ -104,29 +176,7 @@ export function SurveyDefaultAppearance(): JSX.Element {
             </div>
 
             <div className="flex gap-8">
-                <div className="min-w-1/2">
-                    <Customization
-                        survey={templatedSurvey}
-                        hasBranchingLogic={false}
-                        hasRatingButtons={true}
-                        hasPlaceholderText={true}
-                        onAppearanceChange={(appearance) => {
-                            const newAppearance = {
-                                ...editableSurveyConfig,
-                                ...appearance,
-                            }
-                            const errors = validateSurveyAppearance(newAppearance, true, templatedSurvey.type)
-                            setValidationErrors(errors)
-                            setEditableSurveyConfig(newAppearance)
-                            setTemplatedSurvey({
-                                ...templatedSurvey,
-                                appearance: newAppearance,
-                            })
-                        }}
-                        validationErrors={validationErrors}
-                        disabledReason={restrictedReason ?? undefined}
-                    />
-                </div>
+                <div className="min-w-1/2">{customizationEditor}</div>
                 {globalSurveyAppearanceConfigAvailable && (
                     <div className="max-w-1/2 pt-8 pr-8 overflow-auto">
                         <SurveyAppearancePreview survey={templatedSurvey} previewPageIndex={0} />

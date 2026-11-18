@@ -1,7 +1,19 @@
 import { useActions, useValues } from 'kea'
 
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
+} from '@posthog/quill'
+
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 
 import { CONFIDENCE_LEVEL_OPTIONS } from 'products/experiments/frontend/constants'
@@ -16,6 +28,7 @@ export function DefaultExperimentConfidenceLevel(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const currentValue = Number(experimentsConfig?.default_experiment_confidence_level ?? 0.95)
 
@@ -26,12 +39,40 @@ export function DefaultExperimentConfidenceLevel(): JSX.Element {
         updateExperimentsConfig({ default_experiment_confidence_level: value })
     }
 
+    const disabledReason = experimentsConfigLoading ? 'Loading...' : restrictedReason
+
+    if (todayRailNav) {
+        return (
+            <Select
+                items={CONFIDENCE_LEVEL_OPTIONS}
+                value={currentValue}
+                onValueChange={(value) => handleChange(value as number | null)}
+                disabled={!!disabledReason}
+            >
+                {/* Select has no disabledReason prop, so the trigger carries the reason itself. */}
+                <Tooltip disabled={!disabledReason}>
+                    <TooltipTrigger delay={0} render={<SelectTrigger className="w-fit" />}>
+                        <SelectValue />
+                    </TooltipTrigger>
+                    <TooltipContent>{disabledReason}</TooltipContent>
+                </Tooltip>
+                <SelectContent>
+                    {CONFIDENCE_LEVEL_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                        </SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+        )
+    }
+
     return (
         <LemonSelect
             value={currentValue}
             onChange={handleChange}
             options={CONFIDENCE_LEVEL_OPTIONS}
-            disabledReason={experimentsConfigLoading ? 'Loading...' : restrictedReason}
+            disabledReason={disabledReason}
         />
     )
 }

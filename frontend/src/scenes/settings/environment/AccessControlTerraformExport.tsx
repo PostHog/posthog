@@ -3,9 +3,11 @@ import { useState } from 'react'
 
 import { IconCode2 } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { TerraformExportModal } from 'lib/components/TerraformExporter/TerraformExportModal'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -17,25 +19,37 @@ export function AccessControlTerraformExport(): JSX.Element | null {
     const { currentOrganization } = useValues(organizationLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const [modalOpen, setModalOpen] = useState(false)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!currentTeam || !currentOrganization) {
         return null
     }
 
+    const openModal = (): void => {
+        guardAvailableFeature(AvailableFeature.ACCESS_CONTROL, () => setModalOpen(true))
+    }
+
     return (
         <>
-            <LemonButton
-                type="tertiary"
-                size="small"
-                className="group/terraform-button"
-                icon={<IconCode2 className="text-secondary group-hover/terraform-button:text-primary" />}
-                onClick={() => guardAvailableFeature(AvailableFeature.ACCESS_CONTROL, () => setModalOpen(true))}
-                data-attr="access-control-manage-terraform"
-            >
-                <span className="font-normal text-secondary group-hover/terraform-button:text-primary">
+            {todayRailNav ? (
+                <Button onClick={openModal} data-attr="access-control-manage-terraform">
+                    <IconCode2 />
                     Manage with Terraform
-                </span>
-            </LemonButton>
+                </Button>
+            ) : (
+                <LemonButton
+                    type="tertiary"
+                    size="small"
+                    className="group/terraform-button"
+                    icon={<IconCode2 className="text-secondary group-hover/terraform-button:text-primary" />}
+                    onClick={openModal}
+                    data-attr="access-control-manage-terraform"
+                >
+                    <span className="font-normal text-secondary group-hover/terraform-button:text-primary">
+                        Manage with Terraform
+                    </span>
+                </LemonButton>
+            )}
             <TerraformExportModal
                 isOpen={modalOpen}
                 onClose={() => setModalOpen(false)}
