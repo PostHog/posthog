@@ -2,9 +2,11 @@ import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { insightsApi } from 'scenes/insights/utils/api'
 
 import { initKeaTests } from '~/test/init'
+import { AccessControlResourceType } from '~/types'
 
 import { metricsAttributeValuesRetrieve, metricsNamesRetrieve } from 'products/metrics/frontend/generated/api'
 
@@ -14,6 +16,10 @@ jest.mock('products/metrics/frontend/generated/api', () => ({
     ...jest.requireActual('products/metrics/frontend/generated/api'),
     metricsNamesRetrieve: jest.fn(),
     metricsAttributeValuesRetrieve: jest.fn(),
+}))
+jest.mock('lib/utils/accessControlUtils', () => ({
+    ...jest.requireActual('lib/utils/accessControlUtils'),
+    userHasAccess: jest.fn(),
 }))
 jest.mock('scenes/insights/utils/api', () => ({
     insightsApi: { create: jest.fn() },
@@ -25,6 +31,7 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
 const mockNames = metricsNamesRetrieve as jest.MockedFunction<typeof metricsNamesRetrieve>
 const mockValues = metricsAttributeValuesRetrieve as jest.MockedFunction<typeof metricsAttributeValuesRetrieve>
 const mockInsightCreate = insightsApi.create as jest.MockedFunction<typeof insightsApi.create>
+const mockUserHasAccess = userHasAccess as jest.MockedFunction<typeof userHasAccess>
 
 describe('metricsStarterDashboardLogic', () => {
     let logic: ReturnType<typeof metricsStarterDashboardLogic.build>
@@ -35,6 +42,7 @@ describe('metricsStarterDashboardLogic', () => {
         mockNames.mockReset()
         mockValues.mockReset()
         mockInsightCreate.mockReset()
+        mockUserHasAccess.mockReset().mockReturnValue(true)
         ;(lemonToast.success as jest.Mock).mockReset()
         ;(lemonToast.warning as jest.Mock).mockReset()
         ;(lemonToast.error as jest.Mock).mockReset()
@@ -161,6 +169,29 @@ describe('metricsStarterDashboardLogic', () => {
                 ...serviceScope,
             },
         ])
+    })
+
+    it('leaves out the span-derived panels for a user without tracing access', async () => {
+        mockUserHasAccess.mockImplementation((resource) => resource !== AccessControlResourceType.Tracing)
+        mockNames.mockResolvedValue({
+            results: [
+                { name: 'billing.queue.depth', metric_type: 'gauge' },
+                { name: 'posthog.derived.spans.requests', metric_type: 'sum' },
+                { name: 'posthog.derived.spans.errors', metric_type: 'sum' },
+                { name: 'posthog.derived.spans.duration', metric_type: 'histogram' },
+            ],
+        })
+        logic.actions.openModal()
+        await expectLogic(logic).toDispatchActions(['loadServicePanelsAvailableSuccess', 'loadMetricOptionsSuccess'])
+        expect(logic.values.servicePanelsAvailable).toBe(false)
+
+        logic.actions.setDashboardName('Billing')
+        logic.actions.setSelectedMetrics([metricOptionKey('billing.queue.depth', 'gauge')])
+        await expectLogic(logic, () => {
+            logic.actions.createDashboard()
+        }).toDispatchActions(['createDashboardSuccess'])
+
+        expect(mockInsightCreate.mock.calls.map(([insight]) => insight.name)).toEqual(['billing.queue.depth'])
     })
 
     it('navigates to the partially built dashboard when an insight create fails mid-loop', async () => {

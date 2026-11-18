@@ -4,13 +4,14 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import type { MetricsQuery, MetricsQueryClause } from '~/queries/schema/schema-general'
-import type { DashboardType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, type DashboardType } from '~/types'
 
 import { metricsAttributeValuesRetrieve, metricsNamesRetrieve } from 'products/metrics/frontend/generated/api'
 import type { _MetricPickerNameApi } from 'products/metrics/frontend/generated/api.schemas'
@@ -247,6 +248,11 @@ export const metricsStarterDashboardLogic = kea<metricsStarterDashboardLogicType
             false,
             {
                 loadServicePanelsAvailable: async (_, breakpoint) => {
+                    // The query runner rejects span-derived series without tracing access,
+                    // so these panels would only show errors.
+                    if (!userHasAccess(AccessControlResourceType.Tracing, AccessControlLevel.Viewer)) {
+                        return false
+                    }
                     await breakpoint(100)
                     // A separate search, because the derived names come after the ingested
                     // ones and a team with many metrics would not see them in the picker list.
