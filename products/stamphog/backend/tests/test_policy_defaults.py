@@ -157,6 +157,10 @@ _ISSUER_POLICY = f"attestations:\n  - name: proof\n    issuer: {_ISSUER}\n"
         pytest.param("attestations:\n  - issuer: ../outside.yml\n", (), id="escapes-the-tree"),
         pytest.param("attestations:\n  - issuer: /etc/passwd\n", (), id="absolute"),
         pytest.param("attestations:\n  - issuer: tools/proof/\n", (), id="a-directory"),
+        # The worker writes the manifest into the tree its engine subprocess imports modules from.
+        pytest.param("attestations:\n  - issuer: tools/proof/argparse.py\n", (), id="not-yaml"),
+        pytest.param("attestations:\n  - issuer: tools/pr-approval-agent/x.yml\n", (), id="beside-the-engine"),
+        pytest.param("attestations:\n  - issuer: tools/owners/owners_yaml/x.yml\n", (), id="beside-owners"),
     ],
 )
 def test_issuer_manifest_paths_names_only_plain_files(policy_text: str | None, expected: tuple[str, ...]) -> None:
@@ -194,6 +198,13 @@ def test_review_payload_command_wipes_optional_paths_from_pr_head() -> None:
     assert _ISSUER in wipe.partition("rm -f")[2]
     assert "rm -rf tools/pr-approval-agent tools/owners" in wipe
     assert extract
+
+
+@pytest.mark.parametrize("path", ["tools/pr-approval-agent/yaml.py", "tools/owners/owners_yaml/json.py"])
+def test_review_payload_refuses_a_repository_file_beside_the_engine_modules(path: str) -> None:
+    # The engine imports from its own directory first, so such a file would run as code.
+    with pytest.raises(RuntimeError, match="engine tree"):
+        _review_payload_archive({path: "import os"}, "{}")
 
 
 @pytest.mark.parametrize("tools_is_symlink", [False, True])

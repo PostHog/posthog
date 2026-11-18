@@ -140,11 +140,30 @@ attestations:
           - '(?:^|/)package\.json$'
           - '(?:^|/)pnpm-lock\.yaml$'
           - '(?:^|/)pnpm-workspace\.yaml$'
-      # The prover's own manifest lists the default-branch paths it runs from. The engine reads it
-      # from the default branch and ignores a proof whose marker does not pin every path in it.
-      issuer: tools/change-prover/issuer.yml
-# Stamphog reviews PRs from these bots. It approves one only when an attestation that pins its
-# publisher, through `issuer` or `publisher_files`, proved every file the PR changes.
+      # Transitional: the prover now pins the paths in tools/change-prover/issuer.yml, so a proof
+      # it makes holds none of these keys and lifts nothing. A deployed engine that predates the
+      # `issuer` key refuses a policy that uses it, so the switch to `issuer` lands in its own PR
+      # after this engine is deployed.
+      publisher_files:
+          - .github/actions/setup-uv/action.yml
+          - .github/workflows/dependency-proof-trigger.yml
+          - .github/workflows/dependency-proof.yml
+          - .nvmrc
+          - tools/change-prover/change_prover/__init__.py
+          - tools/change-prover/change_prover/__main__.py
+          - tools/change-prover/change_prover/cli.py
+          - tools/change-prover/change_prover/core/__init__.py
+          - tools/change-prover/change_prover/core/conclusion.py
+          - tools/change-prover/change_prover/core/identity.py
+          - tools/change-prover/change_prover/core/lockfile_yaml.py
+          - tools/change-prover/change_prover/core/policy.py
+          - tools/change-prover/change_prover/core/replay.py
+          - tools/change-prover/change_prover/prove.py
+          - tools/change-prover/change_prover/scan.py
+          - tools/change-prover/pyproject.toml
+          - tools/change-prover/uv.lock
+# Stamphog reviews PRs from these bots. It approves one only when an attestation that declares
+# `publisher_files` proved every file the PR changes.
 bot_authors:
     - name: renovate
       login: 'renovate[bot]'

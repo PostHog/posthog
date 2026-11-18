@@ -141,7 +141,9 @@ jobs:
 
             # The dependency proof is its own uv project, so its tests run with its own locked
             # dependencies and its own pytest settings rather than the shared venv above.
+            # An open PR that has not rebased onto the prover's move does not carry the package.
             - name: Dependency proof tests
+              if: hashFiles('tools/change-prover/pyproject.toml') != ''
               run: uv run --frozen --project tools/change-prover --group test python -m pytest tools/change-prover
 
             # schema-impact.test.js shells out to schema_usage_scan.py via the same

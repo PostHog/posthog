@@ -7,7 +7,8 @@ on:
             - '**/uv.lock'
             - '**/Cargo.lock'
             - '**/go.mod'
-            - tools/change-prover/change_prover/scan.py
+            # The CLI that runs the scanner imports the whole package.
+            - tools/change-prover/change_prover/**
             - tools/change-prover/pyproject.toml
             - tools/change-prover/uv.lock
             - .github/scripts/post-dependency-scan-section.mjs
