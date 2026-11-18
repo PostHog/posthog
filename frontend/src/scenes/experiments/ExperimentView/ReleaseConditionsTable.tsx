@@ -59,10 +59,7 @@ export function ReleaseConditionsModal(): JSX.Element {
             }
         >
             <div className="deprecated-space-y-4">
-                <LemonBanner type="info">
-                    Adjusting user targeting may impact the validity of your results. Adjust only if you're aware of how
-                    changes will affect your experiment.
-                </LemonBanner>
+                <LemonBanner type="info">{RELEASE_CONDITIONS_WARNING}</LemonBanner>
 
                 <BindLogic logic={featureFlagLogic} props={{ id: experiment.feature_flag?.id ?? null }}>
                     <FeatureFlagReleaseConditions
@@ -78,11 +75,35 @@ export function ReleaseConditionsModal(): JSX.Element {
     )
 }
 
-export function ReleaseConditionsTable(): JSX.Element {
+export const RELEASE_CONDITIONS_WARNING =
+    "Adjusting user targeting may impact the validity of your results. Adjust only if you're aware of how changes will affect your experiment."
+
+export function useReleaseConditionsTable(): {
+    groups: FeatureFlagGroupType[]
+    releaseText: (group: FeatureFlagGroupType) => string
+    openReleaseConditions: () => void
+} {
     const { experiment } = useValues(experimentLogic)
     const { reportExperimentReleaseConditionsViewed } = useActions(experimentLogic)
     const { openReleaseConditionsModal } = useActions(modalsLogic)
     const { aggregationLabel } = useValues(groupsModel)
+    const aggregationTargetName =
+        experiment.feature_flag?.filters?.aggregation_group_type_index != null
+            ? aggregationLabel(experiment.feature_flag.filters.aggregation_group_type_index).plural
+            : 'users'
+
+    return {
+        groups: experiment.feature_flag?.filters.groups || [],
+        releaseText: (group) => `${group.rollout_percentage ?? 0}% of ${aggregationTargetName}`,
+        openReleaseConditions: () => {
+            openReleaseConditionsModal()
+            reportExperimentReleaseConditionsViewed(experiment.id)
+        },
+    }
+}
+
+export function ReleaseConditionsTable(): JSX.Element {
+    const { groups, releaseText: getReleaseText, openReleaseConditions } = useReleaseConditionsTable()
 
     const columns: LemonTableColumns<FeatureFlagGroupType> = [
         {
@@ -96,12 +117,7 @@ export function ReleaseConditionsTable(): JSX.Element {
             key: 'rollout_percentage',
             title: 'Rollout',
             render: function Key(_, item): JSX.Element {
-                const aggregationTargetName =
-                    experiment.feature_flag?.filters?.aggregation_group_type_index != null
-                        ? aggregationLabel(experiment.feature_flag.filters.aggregation_group_type_index).plural
-                        : 'users'
-
-                const releaseText = `${item.rollout_percentage ?? 0}% of ${aggregationTargetName}`
+                const releaseText = getReleaseText(item)
 
                 return (
                     <div>
@@ -134,10 +150,7 @@ export function ReleaseConditionsTable(): JSX.Element {
                     <div className="ml-auto mb-2">
                         <LemonButton
                             icon={<IconFlag />}
-                            onClick={() => {
-                                openReleaseConditionsModal()
-                                reportExperimentReleaseConditionsViewed(experiment.id)
-                            }}
+                            onClick={openReleaseConditions}
                             type="secondary"
                             size="xsmall"
                             className="font-semibold"
@@ -147,7 +160,7 @@ export function ReleaseConditionsTable(): JSX.Element {
                     </div>
                 </div>
             </div>
-            <LemonTable loading={false} columns={columns} dataSource={experiment.feature_flag?.filters.groups || []} />
+            <LemonTable loading={false} columns={columns} dataSource={groups} />
         </div>
     )
 }

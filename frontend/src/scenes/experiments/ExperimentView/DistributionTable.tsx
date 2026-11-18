@@ -25,7 +25,7 @@ import {
 import { experimentLogic } from '~/scenes/experiments/experimentLogic'
 import { modalsLogic } from '~/scenes/experiments/modalsLogic'
 import { getBaselineVariantKey, getExperimentVariants } from '~/scenes/experiments/utils'
-import { MultivariateFlagVariant } from '~/types'
+import { Experiment, MultivariateFlagVariant } from '~/types'
 
 import { HoldoutSelector } from './HoldoutSelector'
 import { VariantNotes } from './VariantNotes'
@@ -86,9 +86,8 @@ export function DistributionModal(): JSX.Element {
         >
             <div className="flex flex-col gap-4">
                 <LemonBanner type="info">
-                    Adjusting variant distribution may impact the validity of your results. Adjust only if you're aware
-                    of how changes will affect your experiment.{' '}
-                    <Link to="https://posthog.com/docs/experiments/changing-distribution-after-rollout" target="_blank">
+                    {DISTRIBUTION_CHANGE_WARNING}{' '}
+                    <Link to={DISTRIBUTION_DOCS_URL} target="_blank">
                         Read more
                     </Link>
                 </LemonBanner>
@@ -106,32 +105,104 @@ export function DistributionModal(): JSX.Element {
     )
 }
 
-export function DistributionTable(): JSX.Element {
+export const DISTRIBUTION_EXCLUDE_HELP =
+    'Toggle off to exclude a variant from metric results. Excluded variants are still served to users but omitted from statistical analysis.'
+export const DISTRIBUTION_LAST_VARIANT_REASON = 'At least one test variant must remain in analysis'
+export const DISTRIBUTION_LAST_VARIANT_WARNING =
+    'At least one test variant must remain in analysis. Re-include a variant to exclude others.'
+export const DISTRIBUTION_CHANGE_WARNING =
+    "Adjusting variant distribution may impact the validity of your results. Adjust only if you're aware of how changes will affect your experiment."
+export const DISTRIBUTION_DOCS_URL = 'https://posthog.com/docs/experiments/changing-distribution-after-rollout'
+export const PREVIEW_DOMAIN_TITLE = 'Select a domain'
+export const PREVIEW_DOMAIN_DESCRIPTION = 'Choose the domain on which to preview this experiment variant'
+
+export function holdoutNote(percentage: number | null | undefined): string {
+    return `This experiment has a holdout group of ${percentage ?? ''}%. The variants are modified to show their relative rollout percentage.`
+}
+
+export function previewQuery(experimentId: number | string | undefined, variant: string): string {
+    return '?__experiment_id=' + experimentId + '&__experiment_variant=' + variant
+}
+
+export interface DistributionTableModel {
+    experiment: Experiment
+    baselineKey: string
+    excludedVariants: string[]
+    excludedVariantsEnabled: boolean
+    hasOnlyOneTestVariant: boolean
+    holdoutKey: string | null
+    tableData: MultivariateFlagVariant[]
+    experimentUpdateLoading: boolean
+    setVariantExcluded: (key: string, excluded: boolean) => void
+    openDistribution: () => void
+}
+
+export function useDistributionTable(): DistributionTableModel {
     const { openDistributionModal } = useActions(modalsLogic)
     const { experiment, excludedVariants, experimentUpdateLoading } = useValues(experimentLogic)
     const { reportExperimentReleaseConditionsViewed, setVariantExcluded } = useActions(experimentLogic)
-
     const excludedVariantsEnabled = useFeatureFlag('EXPERIMENTS_EXCLUDED_VARIANTS')
 
     const baselineKey = getBaselineVariantKey(experiment)
     const variants = getExperimentVariants(experiment)
+    const holdoutData = experiment.holdout
+        ? [
+              {
+                  key: `holdout-${experiment.holdout.id}`,
+                  rollout_percentage: experiment.holdout.filters[0].rollout_percentage,
+              } as MultivariateFlagVariant,
+          ]
+        : []
+    const variantData = variants.map((variant) => ({
+        ...variant,
+        rollout_percentage:
+            variant.rollout_percentage * ((100 - (experiment.holdout?.filters[0].rollout_percentage || 0)) / 100),
+    }))
 
-    /**
-     * We use this check to disable the toggle if there's only one test variant left.
-     * - not the baseline variant
-     * - not excluded
-     */
-    const hasOnlyOneTestVariant =
-        variants.filter(({ key }) => key !== baselineKey && !excludedVariants.includes(key)).length <= 1
+    return {
+        experiment,
+        baselineKey,
+        excludedVariants,
+        excludedVariantsEnabled,
+        /**
+         * We use this check to disable the toggle if there's only one test variant left.
+         * - not the baseline variant
+         * - not excluded
+         */
+        hasOnlyOneTestVariant:
+            variants.filter(({ key }) => key !== baselineKey && !excludedVariants.includes(key)).length <= 1,
+        holdoutKey: experiment.holdout ? `holdout-${experiment.holdout.id}` : null,
+        tableData: [...variantData, ...holdoutData],
+        experimentUpdateLoading,
+        setVariantExcluded,
+        openDistribution: () => {
+            openDistributionModal()
+            reportExperimentReleaseConditionsViewed(experiment.id)
+        },
+    }
+}
+
+export function DistributionTable(): JSX.Element {
+    const {
+        experiment,
+        baselineKey,
+        excludedVariants,
+        excludedVariantsEnabled,
+        hasOnlyOneTestVariant,
+        tableData,
+        experimentUpdateLoading,
+        setVariantExcluded,
+        openDistribution,
+    } = useDistributionTable()
 
     const onSelectElement = (variant: string): void => {
         LemonDialog.open({
-            title: 'Select a domain',
-            description: 'Choose the domain on which to preview this experiment variant',
+            title: PREVIEW_DOMAIN_TITLE,
+            description: PREVIEW_DOMAIN_DESCRIPTION,
             content: (
                 <>
                     <AuthorizedUrlList
-                        query={'?__experiment_id=' + experiment?.id + '&__experiment_variant=' + variant}
+                        query={previewQuery(experiment?.id, variant)}
                         experimentId={experiment?.id}
                         type={AuthorizedUrlListType.WEB_EXPERIMENTS}
                     />
@@ -170,8 +241,7 @@ export function DistributionTable(): JSX.Element {
                       className,
                       key: 'analysis',
                       title: 'Include in analysis',
-                      tooltip:
-                          'Toggle off to exclude a variant from metric results. Excluded variants are still served to users but omitted from statistical analysis.',
+                      tooltip: DISTRIBUTION_EXCLUDE_HELP,
                       render: function Analysis(_, { key }): JSX.Element {
                           /**
                            * bail early for holdouts
@@ -201,11 +271,7 @@ export function DistributionTable(): JSX.Element {
                                   <LemonSwitch
                                       checked={!excluded}
                                       onChange={(checked) => setVariantExcluded(key, !checked)}
-                                      disabledReason={
-                                          disableToggle
-                                              ? 'At least one test variant must remain in analysis'
-                                              : undefined
-                                      }
+                                      disabledReason={disableToggle ? DISTRIBUTION_LAST_VARIANT_REASON : undefined}
                                       loading={experimentUpdateLoading}
                                   />
                                   {excluded && <LemonTag type="warning">Excluded</LemonTag>}
@@ -268,23 +334,6 @@ export function DistributionTable(): JSX.Element {
         })
     }
 
-    const holdoutData = experiment.holdout
-        ? [
-              {
-                  key: `holdout-${experiment.holdout.id}`,
-                  rollout_percentage: experiment.holdout.filters[0].rollout_percentage,
-              } as MultivariateFlagVariant,
-          ]
-        : []
-
-    const variantData = getExperimentVariants(experiment).map((variant) => ({
-        ...variant,
-        rollout_percentage:
-            variant.rollout_percentage * ((100 - (experiment.holdout?.filters[0].rollout_percentage || 0)) / 100),
-    }))
-
-    const tableData = [...variantData, ...holdoutData]
-
     return (
         <div>
             <div className="flex">
@@ -296,10 +345,7 @@ export function DistributionTable(): JSX.Element {
                     <div className="ml-auto mb-2">
                         <LemonButton
                             icon={<IconFlag />}
-                            onClick={() => {
-                                openDistributionModal()
-                                reportExperimentReleaseConditionsViewed(experiment.id)
-                            }}
+                            onClick={openDistribution}
                             type="secondary"
                             size="xsmall"
                             className="font-semibold"
@@ -311,13 +357,12 @@ export function DistributionTable(): JSX.Element {
             </div>
             {experiment.holdout && (
                 <LemonBanner type="info" className="mb-4">
-                    This experiment has a holdout group of {experiment.holdout.filters[0].rollout_percentage}%. The
-                    variants are modified to show their relative rollout percentage.
+                    {holdoutNote(experiment.holdout.filters[0].rollout_percentage)}
                 </LemonBanner>
             )}
             {excludedVariants.length > 0 && hasOnlyOneTestVariant && (
                 <LemonBanner type="warning" className="mb-4">
-                    At least one test variant must remain in analysis. Re-include a variant to exclude others.
+                    {DISTRIBUTION_LAST_VARIANT_WARNING}
                 </LemonBanner>
             )}
             <LemonTable

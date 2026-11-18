@@ -54,6 +54,7 @@ import { MultiVariantBiasWarning } from './MultiVariantBiasWarning'
 import { PageHeaderCustom } from './PageHeader'
 import { type ExperimentTabDefinition, QuillExperimentTabs } from './QuillExperimentTabs'
 import { QuillLoadingState } from './QuillLoadingState'
+import { QuillVariantsTab } from './QuillVariantsTab'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
 import { SettingsTab } from './SettingsTab'
 
@@ -173,6 +174,11 @@ const CodeTab = (): JSX.Element => {
 }
 
 const VariantsTab = (): JSX.Element => {
+    const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    if (todayRailNav && resultsRedesign) {
+        return <QuillVariantsTab />
+    }
     return (
         <div className="deprecated-space-y-8 mt-2">
             <ReleaseConditionsTable />
