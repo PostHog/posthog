@@ -225,6 +225,7 @@ class TestScoreWindow(SimpleTestCase):
     @parameterized.expand(
         [
             ("everyone", EDIT, None, False),
+            ("everyone_with_watched_conditions", EDIT_WITH_CONDITIONS, None, None),
             ("in_the_watched_conditions", EDIT_WITH_CONDITIONS, ConditionMatch.REASON, True),
             ("not_found_without_watched_conditions", EDIT, ConditionMatch.PROPERTIES, False),
             ("not_found_with_watched_conditions", EDIT_WITH_CONDITIONS, ConditionMatch.PROPERTIES, None),

@@ -82,10 +82,10 @@ WEB_PARAMETERS = ScoreParameters(
 @frozen
 class WindowScore:
     """Levels 2, 4 and 5 and the proximity are in [0, 1]. Level 1 is None when the test can't run: no exposure, nobody
-    exposed or everyone with the flag exposed, fewer than 5 people in a group, or a watched condition that this source
-    doesn't find. Level 2 is None without exposure, when nobody or everyone with the flag is exposed, without the
-    counts by last value, below the minimum volume, or for an edit with watched conditions. Level 4 is None without an
-    error rise or with fewer than two exposure steps.
+    exposed or everyone with the flag exposed, fewer than 5 people in a group, or an edit with watched conditions when
+    `condition_match` is None or this source doesn't find it. Level 2 is None without exposure, when nobody or everyone
+    with the flag is exposed, without the counts by last value, below the minimum volume, or for an edit with watched
+    conditions. Level 4 is None without an error rise or with fewer than two exposure steps.
 
     The window is suspicious when level 1 finds the exposed people significantly worse with enough volume, or when the
     volume is enough and `score` reaches the threshold."""
@@ -125,9 +125,9 @@ def score_window(
 ) -> WindowScore:
     """Scores the window from the one-hour exposure buckets of the edit so far, oldest first, and the errors from the
     edit to the latest bucket. `hours` holds the errors of the window by the start of each UTC hour, and `baseline` the
-    same hours of earlier weeks. `condition_match` is how the exposure and error queries found the watched conditions,
-    and it picks the people that level 1 compares: only those in the watched conditions, or everyone with the flag
-    when None."""
+    same hours of earlier weeks. `condition_match` is how the exposure and error queries found the watched conditions.
+    For an edit with watched conditions, level 1 compares only the people in them, so it needs the match. For an edit
+    without them, level 1 compares everyone with the flag."""
     for start in [*(bucket.start for bucket in exposure), *hours]:
         # Queries return times in the team's time zone, which can be a half hour off UTC.
         if start != _utc_hour(start):
@@ -243,7 +243,7 @@ def _level_1_split(
     if match is not None and match in exposure.in_condition:
         counts = exposure.in_condition[match]
         error_counts = errors.in_condition.get(match) if errors else None
-    elif match is not None and edit.conditions:
+    elif edit.conditions:
         # Everyone with the flag would compare the people in the edited conditions with people outside them.
         return None
     return _split_people(counts.with_flag, counts.exposed, error_counts)
