@@ -96,20 +96,39 @@ class TestSentimentQueries(ClickhouseTestMixin, BaseTest):
         assert sentiments == {}
         assert len(queries) == 1
 
-    def test_a_page_past_retention_reads_the_shared_table_inside_the_window(self) -> None:
+    def test_a_page_past_retention_reads_the_shared_table_from_the_window_start_until_now(self) -> None:
         bulk_create_events(
             [
                 _event(self.team, "inside", _sentiment("negative", 0.8, "generation-1"), T0, 0),
                 _event(
                     self.team,
-                    "after",
+                    "rated-later",
                     _sentiment("negative", 0.8, "generation-2"),
                     T0 + FALLBACK_AFTER_HINT + timedelta(hours=1),
                     1,
                 ),
+                _event(
+                    self.team,
+                    "before",
+                    _sentiment("negative", 0.8, "generation-3"),
+                    WINDOW.start - timedelta(minutes=1),
+                    2,
+                ),
+                _event(
+                    self.team,
+                    "future",
+                    _sentiment("negative", 0.8, "generation-4"),
+                    PAST_RETENTION + timedelta(hours=1),
+                    3,
+                ),
             ]
         )
 
-        sentiments = load_sentiments(self.team, self.user, ["inside", "after"], WINDOW, PAST_RETENTION)
+        sentiments = load_sentiments(
+            self.team, self.user, ["inside", "rated-later", "before", "future"], WINDOW, PAST_RETENTION
+        )
 
-        assert sentiments == {"inside": TraceSentimentRow(label="negative", score=0.8)}
+        assert sentiments == {
+            "inside": TraceSentimentRow(label="negative", score=0.8),
+            "rated-later": TraceSentimentRow(label="negative", score=0.8),
+        }

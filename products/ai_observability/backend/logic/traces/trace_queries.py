@@ -668,6 +668,13 @@ _PAGE_ROWS_QUERY_SECONDS = 15
 class PageTraceRows:
     rows: tuple[TraceEventRow, ...]
     truncated: bool
+    from_shared_table: bool
+
+
+@frozen
+class _PageRead:
+    rows: list[Sequence[Any]]
+    shared_table_trace_ids: frozenset[str]
 
 
 def rows_per_trace_cap(trace_count: int) -> int:
@@ -698,14 +705,19 @@ def _page_rows_settings() -> HogQLGlobalSettings:
     return HogQLGlobalSettings(max_execution_time=_PAGE_ROWS_QUERY_SECONDS)
 
 
-def _page_trace_rows(results: Iterable[Sequence[Any]], cap: int) -> dict[str, PageTraceRows]:
+def _page_trace_rows(read: _PageRead, cap: int) -> dict[str, PageTraceRows]:
     grouped: dict[str, list[TraceEventRow]] = {}
-    for *values, trace_id in results:
+    for *values, trace_id in read.rows:
         grouped.setdefault(str(trace_id), []).append(_trace_event_row(values))
     # The read orders each trace's rows trace event first, then by time and uuid, so the cut keeps the earliest rows
     # and keeps the same rows on every read.
     return {
-        trace_id: PageTraceRows(rows=tuple(rows[:cap]), truncated=len(rows) > cap) for trace_id, rows in grouped.items()
+        trace_id: PageTraceRows(
+            rows=tuple(rows[:cap]),
+            truncated=len(rows) > cap,
+            from_shared_table=trace_id in read.shared_table_trace_ids,
+        )
+        for trace_id, rows in grouped.items()
     }
 
 
@@ -716,7 +728,7 @@ def _read_page(
     user: User | None,
     trace_ids: Sequence[str],
     window: FallbackWindow,
-) -> list[Sequence[Any]]:
+) -> _PageRead:
     """Reads the traces from `posthog.ai_events`, then the ones it misses from the shared events table inside the
     window. `build_query` takes the number of traces read and selects the trace id last."""
     results = read_ai_events_table(
@@ -738,7 +750,7 @@ def _read_page(
             _page_rows_settings(),
             events_placeholders(column_in("trace_id", missing), TRACE_EVENT_NAMES, window),
         )
-    return results
+    return _PageRead(rows=results, shared_table_trace_ids=frozenset(missing))
 
 
 def load_traces_rows(
@@ -803,7 +815,7 @@ def load_trace_distinct_ids(
     grouped: dict[str, list[_TraceUserRow]] = {}
     for event, timestamp, distinct_id, trace_id in _read_page(
         TRACE_USERS_QUERY_NAME, _trace_users_query, team, user, requested, window
-    ):
+    ).rows:
         grouped.setdefault(str(trace_id), []).append(
             _TraceUserRow(event=str(event), timestamp=timestamp, distinct_id=str(distinct_id))
         )
