@@ -656,6 +656,13 @@ def test_derived_column_types_reach_type_dependent_lowerings(query: str, expecte
     assert expected in sql
 
 
+def test_rejects_property_read_on_a_value_a_subquery_already_extracted() -> None:
+    query = parse_select("SELECT p.key FROM (SELECT properties.nested AS p FROM users)")
+
+    with pytest.raises(TrinoLoweringError, match="TRINO_PROPERTY_NOT_LOWERED"):
+        prepare_and_print_ast(query, _context_with_trino_table(), "trino")
+
+
 def test_drops_clickhouse_global_distribution_modifiers() -> None:
     membership_query = parse_select("SELECT user_id FROM users WHERE user_id IN ['a']")
     assert isinstance(membership_query, ast.SelectQuery)

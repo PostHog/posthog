@@ -78,9 +78,18 @@ class LogicalPropertyLowering(CloningVisitor):
     def _reads_json_blob(self, field_type: ast.FieldType) -> bool:
         if isinstance(field_type.resolve_database_field(self.context), StringJSONDatabaseField):
             return True
-        return self.follow_subquery_columns and isinstance(
-            field_type.resolve_constant_type(self.context), ast.StringJSONType
-        )
+        return self.follow_subquery_columns and self._subquery_passes_json_blob_through(field_type)
+
+    def _subquery_passes_json_blob_through(self, field_type: ast.FieldType) -> bool:
+        subquery_type = field_type.table_type
+        if isinstance(subquery_type, ast.SelectQueryAliasType):
+            subquery_type = subquery_type.select_query_type
+        if not isinstance(subquery_type, ast.SelectQueryType):
+            return False
+        column_type = subquery_type.columns.get(field_type.name)
+        while isinstance(column_type, ast.FieldAliasType):
+            column_type = column_type.type
+        return isinstance(column_type, ast.FieldType) and self._reads_json_blob(column_type)
 
 
 def lower_property_access(node: _T_AST, context: HogQLContext, *, follow_subquery_columns: bool = False) -> _T_AST:
