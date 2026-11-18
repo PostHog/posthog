@@ -291,7 +291,7 @@ class TestOIDCAuthentication(APILicensedTest):
                 response = self._complete_oidc_login("member@example.com")
                 self.assertIn("code_verification_pending=1", response["Location"])
                 self.assertEqual(mock_send.call_count, 1)
-            response = self.client.post("/api/login/code-based-verification/", {"code": code})
+            response = self.client.post("/api/login/code-based-verification/", {"code": code, "email": ""})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(self.client.session["_auth_user_id"], str(self.user.pk))
@@ -539,8 +539,13 @@ class TestOIDCAuthentication(APILicensedTest):
         self.assertFalse(UserSocialAuth.objects.filter(user=self.user).exists())
         self.assertFalse(IdentityProviderEmailVerification.objects.filter(user=self.user).exists())
 
+    @parameterized.expand(
+        [("current_frontend", False, False), ("legacy_frontend", True, False), ("password_login", True, True)]
+    )
     @pytest.mark.disable_mock_code_based_verifier
-    def test_idp_signup_confirms_the_mailbox_before_starting_a_session(self) -> None:
+    def test_idp_signup_confirms_the_mailbox_before_starting_a_session(
+        self, _name: str, legacy_frontend: bool, password_login: bool
+    ) -> None:
         self.client.logout()
         with (
             override_settings(DEBUG=True),
@@ -554,9 +559,31 @@ class TestOIDCAuthentication(APILicensedTest):
             user = User.objects.get(email="signup@example.com")
             self.assertFalse(user.is_email_verified)
             self.assertNotIn("_auth_user_id", self.client.session)
-            response = self.client.get(response.json()["continue_url"])
+            continue_url = response.json()["continue_url"]
+            if password_login:
+                self.user.is_email_verified = True
+                self.user.save(update_fields=["is_email_verified"])
+                response = self.client.post(
+                    "/api/login/", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD}
+                )
+                self.assertEqual(response.status_code, 401, response.content)
+                self.assertRedirects(self.client.get("/"), "/login", fetch_redirect_response=False)
+                response = self.client.post(
+                    "/api/login/code-based-verification/", {"code": sent.call_args.args[1], "email": ""}
+                )
+                self.assertEqual(response.status_code, 200, response.content)
+                self.assertEqual(self.client.session["_auth_user_id"], str(self.user.pk))
+                self.assertFalse(IdentityProviderEmailVerification.objects.filter(user=user).exists())
+                return
+            if legacy_frontend:
+                response = self.client.get("/")
+                self.assertRedirects(response, continue_url, fetch_redirect_response=False)
+            response = self.client.get(continue_url)
             self.assertIn("code_verification_pending=1", response["Location"])
-            response = self.client.post("/api/login/code-based-verification/", {"code": sent.call_args.args[1]})
+            self.assertEqual(self.client.get(response["Location"]).status_code, 200)
+            response = self.client.post(
+                "/api/login/code-based-verification/", {"code": sent.call_args.args[1], "email": ""}
+            )
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(self.client.session["_auth_user_id"], str(user.pk))
         user.refresh_from_db()
@@ -2408,7 +2435,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
                 self.assertIn("code_verification_pending=1", response["Location"])
                 self.assertEqual(self.client.session["code_based_verification_issued_at"], issued_at)
                 self.assertEqual(mock_send.call_count, 1)
-            response = self.client.post("/api/login/code-based-verification/", {"code": code})
+            response = self.client.post("/api/login/code-based-verification/", {"code": code, "email": ""})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(self.client.session["_auth_user_id"], str(user.pk))

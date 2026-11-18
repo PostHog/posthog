@@ -47,7 +47,7 @@ from posthog.helpers.oauth_pending_connection import (
     apply_pending_connection_onboarding_skip,
     read_pending_oauth_connection,
 )
-from posthog.helpers.sso import IDP_SSO_BACKENDS, idp_authentication_is_fresh
+from posthog.helpers.sso import IDP_SIGNUP_CONTINUATION_SESSION_KEY, IDP_SSO_BACKENDS, idp_authentication_is_fresh
 from posthog.helpers.verified_domain_enforcement import resolve_login_organization
 from posthog.inbox_providers import InboxProvider, InboxProviderLookup
 from posthog.models import (
@@ -1003,6 +1003,8 @@ class SocialSignupSerializer(serializers.Serializer):
             user=user.id,
         )
 
+        if partial.backend in IDP_SSO_BACKENDS:
+            request.session[IDP_SIGNUP_CONTINUATION_SESSION_KEY] = partial.token
         return {"continue_url": reverse("social:complete", args=[partial.backend])}
 
     def to_representation(self, instance: Any) -> Any:

@@ -19,6 +19,7 @@ UNVERIFIED_SOCIAL_EMAIL_ERROR = (
 GITHUB_EMAIL_LOOKUP_ERROR = "Couldn't check your email address with GitHub. Wait a minute, then sign in again."
 
 IDP_SSO_BACKENDS = ("saml", "oidc")
+IDP_SIGNUP_CONTINUATION_SESSION_KEY = "idp_signup_continuation"
 IDP_AUTHENTICATION_TTL_SECONDS = 30 * 60
 
 

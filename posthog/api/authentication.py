@@ -1328,6 +1328,7 @@ class CodeBasedVerificationSerializer(serializers.Serializer):
     )
     email = serializers.EmailField(
         required=False,
+        allow_blank=True,
         help_text="Email the code was sent to. Informational; the pending login session identifies the user.",
     )
 
