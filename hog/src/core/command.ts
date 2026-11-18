@@ -120,14 +120,7 @@ export interface Group {
     guide?: Command
 }
 
-// A command posthog-cli still owns. hog lists it and points the caller to `use`, with the same arguments.
-export interface Legacy {
-    kind: 'legacy'
-    description: string
-    use: string
-}
-
-export type CommandTree = Readonly<Record<string, Command | Group | Legacy>>
+export type CommandTree = Readonly<Record<string, Command | Group>>
 
 export function defineCommand<
     const Args extends Record<string, ArgumentSpec> = {},
@@ -139,10 +132,6 @@ export function defineCommand<
 
 export function defineGroup(definition: Omit<Group, 'kind'>): Group {
     return { kind: 'group', ...definition }
-}
-
-export function defineLegacy(definition: Omit<Legacy, 'kind'>): Legacy {
-    return { kind: 'legacy', ...definition }
 }
 
 // `source` names where the value came from, such as `--host` or `HOG_HOST`, so the error says what to fix.

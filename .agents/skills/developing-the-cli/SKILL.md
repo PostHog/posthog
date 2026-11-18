@@ -30,9 +30,8 @@ A fix that lands only in `cli/` leaves the bug in hog, and the reverse ships a h
 
 The only exceptions are commands that exist on one side:
 
-- `hog/src/commands/legacy.ts` lists the commands posthog-cli still owns (`logs`, `tasks`, `upgrade`). A change to those touches only `cli/`.
 - hog-only commands, such as `hog setup`, `hog api`, `hog ci` and `hog auth migrate`, have no Rust counterpart.
-- The "Not planned" list in `hog/README.md` names posthog-cli commands hog will not port.
+- The "Not planned" list in `hog/README.md` names posthog-cli commands hog will not port. A change to those touches only `cli/`.
 
 When a change does not apply to the other CLI, say why in the PR description, for example "hog prints only the error message, which never contains the URL".
 Reviewers: a PR that touches `cli/src/` or `hog/src/` without the other side, and without that sentence, is incomplete.

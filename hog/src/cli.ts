@@ -15,7 +15,6 @@ import {
     type Command,
     type CommandTree,
     type Group,
-    type Legacy,
     type OptionSpec,
 } from '@/core/command'
 import { findConfig, loadConfig } from '@/core/config'
@@ -55,8 +54,6 @@ ${EXIT_CODES.map(({ code, meaning }) => `  ${String(code).padEnd(CODE_WIDTH)}  $
 
 const UNFINISHED_CODES: ReadonlySet<number> = new Set(NO_FAIL_CODES)
 
-const LEGACY_HELP_GROUP = 'Not ported yet (each one prints the posthog-cli command to run):'
-
 function toOption(name: string, spec: OptionSpec): Option {
     const sources = [
         spec.env?.length ? `env: ${spec.env.join(', ')}` : '',
@@ -81,45 +78,6 @@ function helpText(command: Command): string {
         .filter(Boolean)
         .map((section) => `\n${section}`)
         .join('\n')
-}
-
-const SHELL_SAFE_ARG = /^[\w@%+=:,./-]+$/
-
-function shellQuote(arg: string): string {
-    return SHELL_SAFE_ARG.test(arg) ? arg : `'${arg.replaceAll("'", "'\\''")}'`
-}
-
-// posthog-cli takes --host and --dotenv-file before the subcommand only. Every other argument
-// belongs to the legacy command, including an --output that names a path there.
-const LEGACY_GLOBALS = new Set(['host', 'dotenv-file'])
-
-function notPorted(argv: readonly string[], route: LegacyRoute): HogError {
-    const globals: string[] = []
-    const rest: string[] = []
-    const skip = new Set(route.pathIndices)
-    for (const token of route.tokens) {
-        if (token.kind !== 'option') {
-            continue
-        }
-        const beforePath = token.index < route.pathIndices[0]!
-        if (LEGACY_GLOBALS.has(token.name) || beforePath) {
-            skip.add(token.index)
-            if (token.value !== undefined && !token.inlineValue) {
-                skip.add(token.index + 1)
-            }
-            if (LEGACY_GLOBALS.has(token.name) && token.value !== undefined) {
-                globals.push(`--${token.name}`, token.value)
-            }
-        }
-    }
-    argv.forEach((arg, index) => {
-        if (!skip.has(index)) {
-            rest.push(arg)
-        }
-    })
-    const [binary, ...subcommand] = route.legacy.use.split(' ')
-    const invocation = [binary, ...globals.map(shellQuote), ...subcommand, ...rest.map(shellQuote)].join(' ')
-    return new HogError('not_ported', `\`hog ${route.path}\` isn't available yet. Run this instead:\n  ${invocation}`)
 }
 
 // A 403 without a step-up challenge names the scopes the command declares, which the API client doesn't know about.
@@ -301,7 +259,7 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState, telemetry:
         })
     }
 
-    function addNode(parent: Commander, name: string, node: Command | Group | Legacy, prefix = ''): void {
+    function addNode(parent: Commander, name: string, node: Command | Group, prefix = ''): void {
         const command = parent.command(name).description(node.description)
         const path = prefix ? `${prefix} ${name}` : name
         switch (node.kind) {
@@ -313,10 +271,6 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState, telemetry:
                 if (node.guide) {
                     addRunnable(command, node.guide, path)
                 }
-                return
-            case 'legacy':
-                // Listed in help only: run() answers a legacy command before commander parses it.
-                command.helpGroup(LEGACY_HELP_GROUP)
                 return
             case 'command':
                 addRunnable(command, node, path)
@@ -363,13 +317,6 @@ interface PreParsed {
     tokens: Token[]
 }
 
-interface LegacyRoute {
-    legacy: Legacy
-    path: string
-    pathIndices: number[]
-    tokens: Token[]
-}
-
 // Reads the global options before commander runs, so hog knows the output format for errors
 // raised while parsing, and where the command name starts.
 function preParse(argv: readonly string[]): PreParsed {
@@ -394,13 +341,12 @@ function preParse(argv: readonly string[]): PreParsed {
 interface ResolvedRoute {
     // Names from the tree only, so arguments never reach the feedback hint.
     names: string[]
-    indices: number[]
-    node: Command | Group | Legacy | undefined
+    node: Command | Group | undefined
 }
 
 function resolveRoute(tokens: Token[]): ResolvedRoute {
     let tree: CommandTree = COMMANDS
-    const route: ResolvedRoute = { names: [], indices: [], node: undefined }
+    const route: ResolvedRoute = { names: [], node: undefined }
     for (const token of tokens) {
         if (token.kind !== 'positional') {
             continue
@@ -414,7 +360,6 @@ function resolveRoute(tokens: Token[]): ResolvedRoute {
 
         const [name, node] = entry
         route.names.push(name)
-        route.indices.push(token.index)
         route.node = node
         if (node.kind !== 'group') {
             break
@@ -422,12 +367,6 @@ function resolveRoute(tokens: Token[]): ResolvedRoute {
         tree = node.commands
     }
     return route
-}
-
-function findLegacy(route: ResolvedRoute, tokens: Token[]): LegacyRoute | undefined {
-    return route.node?.kind === 'legacy'
-        ? { legacy: route.node, path: route.names.join(' '), pathIndices: route.indices, tokens }
-        : undefined
 }
 
 // Full names of commands in groups whose last word is `name`, so `hog login` can point to `hog auth login`.
@@ -661,11 +600,6 @@ export async function run(argv: readonly string[], runtime: Runtime): Promise<nu
     let exitCode: number
     let failure: HogError | undefined
     try {
-        const legacy = findLegacy(route, routeTokens)
-        if (legacy) {
-            state.command = legacy.path
-            throw notPorted(args, legacy)
-        }
         await program.parseAsync(args, { from: 'user' })
         // --no-fail also covers a result that reports a problem, like a failed push or a stale SDK.
         exitCode = state.noFail && UNFINISHED_CODES.has(state.exitCode) ? EXIT_SUCCESS : state.exitCode
@@ -675,7 +609,7 @@ export async function run(argv: readonly string[], runtime: Runtime): Promise<nu
         }
         failure = toHogError(caught)
         new Output(runtime, mode).error(failure, feedbackCommand(route, failure))
-        if (UNFINISHED_CODES.has(failure.exitCode) && failure.code !== 'not_ported') {
+        if (UNFINISHED_CODES.has(failure.exitCode)) {
             captureFailure(telemetry, state.command, failure, caught)
         }
         const ignore = state.noFail ?? (noFail || safeEnvFlag(runtime.env, GLOBAL_OPTIONS.noFail.env))
