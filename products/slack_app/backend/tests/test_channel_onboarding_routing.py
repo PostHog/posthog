@@ -156,20 +156,22 @@ class TestMemberJoinedChannelRouting(_SlackRoutingTestBase):
 
         instance.client.chat_postMessage.assert_called_once()
 
+    @patch("products.slack_app.backend.analytics.ph_background_capture")
     @patch("products.slack_app.backend.api.SlackIntegration")
-    def test_ext_shared_channel_drops_silently_without_db_touch(self, slack_cls):
-        """Onboarding never posts in externally-shared channels.
+    def test_ext_shared_channel_counts_the_join_without_a_welcome(self, slack_cls, capture_factory):
+        instance = self._mock_slack(slack_cls)
 
-        The drop happens before workspace lookup, so ``SlackIntegration`` is
-        never instantiated — asserting that catches future regressions that
-        reorder the gate behind the DB query.
-        """
         result = route_posthog_code_event_to_relevant_region(
             self._request(), self._event(), self.SLACK_TEAM_ID, is_ext_shared_channel=True
         )
 
         assert result == ROUTE_HANDLED_LOCALLY
-        slack_cls.assert_not_called()
+        instance.client.chat_postMessage.assert_not_called()
+        instance.client.chat_postEphemeral.assert_not_called()
+        assert cache.get(_channel_onboarding_cache_key(self.SLACK_TEAM_ID, self.CHANNEL_ID)) is None
+        captured = capture_factory.return_value.call_args.kwargs
+        assert captured["event"] == "slack app bot joined channel"
+        assert captured["properties"]["is_ext_shared_channel"] is True
 
     @patch("products.slack_app.backend.api.SlackIntegration")
     def test_auth_test_failure_drops_silently(self, slack_cls):
