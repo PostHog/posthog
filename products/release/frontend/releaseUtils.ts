@@ -6,6 +6,8 @@ import { dayjs } from 'lib/dayjs'
 import { hasDeniedApprovalRequest, isSchedulePaused } from 'scenes/feature-flags/scheduleOccurrences'
 import { urls } from 'scenes/urls'
 
+import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
+import type { FileSystemEntry } from '~/queries/schema/schema-general'
 import { ExperimentStatus } from '~/types'
 
 import type { EarlyAccessFeatureApi } from 'products/early_access_features/frontend/generated/api.schemas'
@@ -76,6 +78,16 @@ export interface ReleaseSuggestion {
 }
 
 export const releaseSourceRecord = (releaseId: string): string => `release:${releaseId}`
+
+export function releaseSidebarEntryName(
+    entry: FileSystemEntry,
+    releasesById: ReadonlyMap<string, { name: string }>
+): string | null {
+    if (entry.type === 'release') {
+        return releasesById.get(entry.ref ?? '')?.name ?? null
+    }
+    return splitPath(entry.path).pop() || entry.path
+}
 
 export interface ReleaseSpan {
     key: string

@@ -157,9 +157,25 @@ jobs:
               # .agents/skills/authoring-ci-workflows/SKILL.md for why a cron cannot
               # diff, and what breaks if this guard is dropped.
               if: github.event_name != 'push' && github.event_name != 'schedule'
+              env:
+                  PATHS_FILTER_REUSE_POSTHOG_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   list-files: 'escape'
+                  reuse-checks: Frontend Tests Pass
+                  reuse-filters: |
+                      frontend
+                      frontend_code
+                      replay_shared
+                      complexity
+                  reuse-blocking-labels: |
+                      run-ci-frontend
+                      ci-no-reuse
+                  reuse-proof-checks: |
+                      Frontend formatting
+                      Frontend typechecking
+                      Jest test (replay-shared)
+                  reuse-disabled: ${{ vars.DISABLE_CI_REUSE }}
                   filters: |
                       all_files:
                         - '**'

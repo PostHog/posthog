@@ -12,6 +12,7 @@ import {
     drillDownParams,
     metricsDrillDownUrl,
 } from './applicationObservabilityLogic'
+import { deploymentsLogic } from './deploymentsLogic'
 import type {
     EndpointsHealthResponseApi,
     ServiceMapResponseApi,
@@ -206,6 +207,42 @@ describe('applicationObservabilityLogic', () => {
         expect(url.searchParams.get('dateFrom')).toBe('-24h')
     })
 
+    it('skips the poll while paused, catches up on resume, and keeps paused in the URL', async () => {
+        logic.unmount()
+        const setIntervalSpy = jest.spyOn(window, 'setInterval')
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+        const poll = setIntervalSpy.mock.calls.find((call: unknown[]) => call[1] === 5 * 60 * 1000)?.[0] as () => void
+        setIntervalSpy.mockRestore()
+        const before = requests.length
+
+        logic.actions.setPaused(true)
+        expect(router.values.searchParams).toMatchObject({ paused: true })
+        jest.useFakeTimers()
+        try {
+            poll()
+            // Runs the debounced reload, which would start loading synchronously if the poll went through.
+            jest.runOnlyPendingTimers()
+            expect(logic.values.servicesHealthLoading).toBe(false)
+        } finally {
+            jest.useRealTimers()
+        }
+        expect(requests.length).toBe(before)
+
+        logic.actions.refresh()
+        await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+        expect(requests.length).toBe(before + 1)
+
+        logic.actions.setPaused(false)
+        await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+        expect(requests.length).toBe(before + 2)
+        expect(router.values.searchParams.paused).toBeUndefined()
+
+        router.actions.push(APPLICATION_OBSERVABILITY_PATH, { paused: 'true' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.paused).toBe(true)
+    })
+
     describe('tabs', () => {
         it('opens on the services tab and does not load other tabs until they are open', async () => {
             await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
@@ -249,6 +286,43 @@ describe('applicationObservabilityLogic', () => {
 
             expect(logic.values.usageLoadError).toBe(true)
             expect(logic.values.usageRows).toHaveLength(2)
+        })
+
+        it('loads deployments once per refresh while the deployments tab is open', async () => {
+            const deploymentRequests: string[] = []
+            useMocks({
+                get: {
+                    // A real services response lands after the deployments request has gone out.
+                    '/api/projects/:team_id/apm/services/': async () => {
+                        await new Promise((resolve) => setTimeout(resolve, 20))
+                        return [200, RESPONSE]
+                    },
+                    '/api/projects/:team_id/apm/deployments/': ({ request }) => {
+                        deploymentRequests.push(new URL(request.url).search)
+                        return [200, { results: [], service: 'queue', environment: 'prod', date_from: '', date_to: '' }]
+                    },
+                },
+            })
+            await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+            logic.actions.setTab('deployments')
+            const deployments = deploymentsLogic()
+            deployments.mount()
+            await expectLogic(deployments).toFinishAllListeners()
+            deploymentRequests.length = 0
+
+            logic.actions.setTimeRange('-24h')
+            await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+            await expectLogic(deployments).toFinishAllListeners()
+            expect(deploymentRequests).toHaveLength(1)
+            expect(deploymentRequests[0]).toContain('service=queue')
+
+            useMocks({ get: { '/api/projects/:team_id/apm/services/': () => [500, { detail: 'boom' }] } })
+            logic.actions.setEnvironment('staging')
+            await expectLogic(logic).toDispatchActions(['loadServicesHealthFailure'])
+            await expectLogic(deployments).toFinishAllListeners()
+            expect(deploymentRequests).toHaveLength(2)
+            expect(deploymentRequests[1]).toContain('environment=staging')
+            deployments.unmount()
         })
 
         it('ignores an unknown tab in the URL', async () => {
