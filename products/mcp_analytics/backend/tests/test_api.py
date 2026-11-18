@@ -1,9 +1,12 @@
 import re
 import json
 import hashlib
+from collections.abc import Callable
 from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from typing import Any, Literal
+from uuid import uuid4
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events, materialized
@@ -26,6 +29,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.constants import AvailableFeature
+from posthog.models.scoping import team_scope
 from posthog.models.utils import uuid7
 from posthog.test.persons import create_person
 from posthog.utils import generate_cache_key
@@ -35,7 +39,13 @@ from products.access_control.backend.property_access_control import PropertyAcce
 from products.event_definitions.backend.models import PropertyDefinition
 from products.mcp_analytics.backend import intent_generation, logic, mcp_harness
 from products.mcp_analytics.backend.facade import api, contracts, enums
-from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPCustomHarness, MCPSession
+from products.mcp_analytics.backend.intent_topics.invalidation import freeze_writes, has_pending_registered_writers
+from products.mcp_analytics.backend.models import (
+    MCPAnalyticsSubmission,
+    MCPCustomHarness,
+    MCPIntentWriteBarrier,
+    MCPSession,
+)
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 
 INTERNAL_CLIENT = "internal-bot"
@@ -700,6 +710,29 @@ class TestGenerateIntentDigest(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestM
         assert result == contracts.IntentDigest(digest=None, intent_count=0)
         mock_summarize.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("refused_llm_call", "summarize_project_intents", contracts.IntentGenerationUnavailable),
+            ("failed_source_read", "fetch_recent_project_intents", OverflowError),
+        ]
+    )
+    def test_failure_before_the_digest_is_cached_does_not_leave_a_pending_writer(
+        self, _name: str, failing_step: str, error: type[Exception]
+    ) -> None:
+        # Nothing was written, so this failure must not block an erasure.
+        self._seed_intent_event("check the signups funnel")
+        flush_persons_and_events()
+        operation = uuid4()
+
+        def fail(*_args: object, **_kwargs: object) -> None:
+            freeze_writes(self.team, invalidation_id=operation)
+            raise error("example failure")
+
+        with patch.object(intent_generation, failing_step, side_effect=fail), self.assertRaises(error):
+            api.generate_intent_digest(self.team)
+
+        assert not has_pending_registered_writers(self.team, invalidation_id=operation)
+
     def test_generates_then_serves_from_cache_for_same_corpus(self) -> None:
         cache.clear()
         self._seed_intent_event("check the signups funnel")
@@ -771,6 +804,72 @@ class TestGenerateIntentDigest(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestM
             result = api.generate_intent_digest(self.team)
 
         assert result.digest == "Fresh."
+
+
+class TestErasureFencedCacheFills(APIBaseTest):
+    """A result read while an erasure froze the project must not be cached past the erasure."""
+
+    def _reopen(self) -> None:
+        # What a completed erasure leaves behind: writes admitted again, generation still bumped.
+        with team_scope(self.team.pk, canonical=True):
+            MCPIntentWriteBarrier.objects.filter(team_id=self.team.pk).update(invalidation_id=None, frozen_at=None)
+
+    @parameterized.expand([("sessions_list",), ("intent_digest",), ("activity_overview",)])
+    def test_fill_computed_during_an_erasure_is_not_served_afterwards(self, entrypoint: str) -> None:
+        cache.clear()
+        operation = uuid4()
+        calls: list[int] = []
+
+        def freeze_while_reading(value: object) -> Callable[..., object]:
+            def read(*_args: object, **_kwargs: object) -> object:
+                calls.append(1)
+                if len(calls) == 1:
+                    freeze_writes(self.team, invalidation_id=operation)
+                return value
+
+            return read
+
+        if entrypoint == "sessions_list":
+            source = patch.object(
+                logic, "_query_mcp_sessions", side_effect=freeze_while_reading(SimpleNamespace(results=[1]))
+            )
+
+            def call() -> object:
+                return api.list_mcp_sessions(self.team, limit=50, offset=0)
+
+        elif entrypoint == "intent_digest":
+            # The digest reads intents before its cache lookup, so the LLM call is what a cache hit skips.
+            self.enterContext(
+                patch.object(
+                    intent_generation,
+                    "fetch_recent_project_intents",
+                    return_value=[("check the signups funnel", "query_run")],
+                )
+            )
+            parsed = intent_generation.IntentThemesSchema(summary="Signup funnel checks.", themes=[])
+            source = patch.object(
+                intent_generation, "summarize_project_intents", side_effect=freeze_while_reading(parsed)
+            )
+
+            def call() -> object:
+                return api.generate_intent_digest(self.team)
+
+        else:
+            source = patch.object(
+                logic,
+                "_query_activity_overview",
+                side_effect=freeze_while_reading(SimpleNamespace(stats=SimpleNamespace(total_calls=1))),
+            )
+
+            def call() -> object:
+                return api.get_activity_overview(self.team)
+
+        with source:
+            call()
+            self._reopen()
+            call()
+
+        assert len(calls) == 2
 
 
 class TestResolveIntentThemes(SimpleTestCase):
@@ -1186,22 +1285,54 @@ class TestGenerateSessionIntent(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTest
         assert result == "already summarised"
         mock_summarize.assert_not_called()
 
-    def test_generates_persists_and_returns_summary(self) -> None:
+    @parameterized.expand([("unfrozen", False), ("freeze_during_inference", True)])
+    def test_generates_persists_and_returns_summary(self, _name: str, freeze_during_inference: bool) -> None:
         session_id = str(uuid7())
         self._seed_intent_event(session_id, "check the signups funnel")
         self._seed_intent_event(session_id, "compare to last week")
+        operation = uuid4()
 
-        with patch.object(
-            intent_generation, "summarize_intents", return_value="Investigating signup funnel trends."
-        ) as mock:
+        def infer(*_args: object, **_kwargs: object) -> str:
+            if freeze_during_inference:
+                freeze_writes(self.team, invalidation_id=operation)
+                assert has_pending_registered_writers(self.team, invalidation_id=operation)
+            return "Investigating signup funnel trends."
+
+        with patch.object(intent_generation, "summarize_intents", side_effect=infer):
             result = api.generate_session_intent(self.team, session_id=session_id)
 
         assert result == "Investigating signup funnel trends."
-        mock.assert_called_once()
         assert (
             MCPSession.objects.get(team=self.team, session_id=session_id).intent
             == "Investigating signup funnel trends."
         )
+        if freeze_during_inference:
+            assert not has_pending_registered_writers(self.team, invalidation_id=operation)
+
+    @parameterized.expand(
+        [
+            ("refused_llm_call", "summarize_intents", contracts.IntentGenerationUnavailable),
+            ("failed_source_read", "fetch_session_intents", OverflowError),
+        ]
+    )
+    def test_failure_before_the_summary_is_persisted_does_not_leave_a_pending_writer(
+        self, _name: str, failing_step: str, error: type[Exception]
+    ) -> None:
+        # Nothing was written, so this failure must not block an erasure.
+        session_id = str(uuid7())
+        self._seed_intent_event(session_id, "check the signups funnel")
+        flush_persons_and_events()
+        operation = uuid4()
+
+        def fail(*_args: object, **_kwargs: object) -> str:
+            freeze_writes(self.team, invalidation_id=operation)
+            raise error("example failure")
+
+        with patch.object(intent_generation, failing_step, side_effect=fail), self.assertRaises(error):
+            api.generate_session_intent(self.team, session_id=session_id)
+
+        assert not has_pending_registered_writers(self.team, invalidation_id=operation)
+        assert not MCPSession.objects.filter(team=self.team, session_id=session_id).exists()
 
     def test_second_call_returns_persisted_without_regenerating(self) -> None:
         session_id = str(uuid7())

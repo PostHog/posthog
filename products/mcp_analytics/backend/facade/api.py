@@ -1,4 +1,5 @@
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from contextlib import AbstractAsyncContextManager
 from datetime import datetime
 from typing import Literal
 from uuid import UUID
@@ -16,7 +17,7 @@ from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.mcp_analytics.backend import custom_harnesses, logic
+from products.mcp_analytics.backend import custom_harnesses, intent_erasure_writers, logic
 from products.mcp_analytics.backend.mcp_harness import HARNESS_TOKEN_SQL, custom_arms_sql, harness_label_sql
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
 
@@ -226,6 +227,10 @@ def get_intent_cluster_snapshot(
     return logic.get_intent_cluster_snapshot(team, user=user, tool=tool)
 
 
+def registered_intent_writer_async(team: Team, *, purpose: str) -> AbstractAsyncContextManager[Callable[[], None]]:
+    return intent_erasure_writers.registered_intent_writer_async(team, purpose=purpose)
+
+
 def trigger_intent_cluster_recompute(team: Team, user: User | None) -> None:
     """Kick off the intent cluster recompute Temporal workflow.
 
@@ -320,6 +325,36 @@ def trigger_intent_cluster_recompute(team: Team, user: User | None) -> None:
             updated_at=timezone.now(),
         )
         raise
+
+
+# Intent topics pipeline runs for the Temporal activities. The pipeline is imported inside each function:
+# it loads NumPy and the clustering libraries, which the web process must not pay for at startup.
+
+
+def sync_intent_topic_embeddings(team: Team, *, now: datetime) -> contracts.IntentTopicsRunOutcome:
+    from products.mcp_analytics.backend.intent_topics import (
+        pipeline,  # noqa: PLC0415 — keeps the heavy dep off the import path
+    )
+
+    return pipeline.run_sync(team, window_start=pipeline.sync_window_start(team, now=now), window_end=now)
+
+
+def assign_intent_topics(
+    team: Team, *, window_start: datetime, window_end: datetime
+) -> contracts.IntentTopicsRunOutcome:
+    from products.mcp_analytics.backend.intent_topics import (
+        pipeline,  # noqa: PLC0415 — keeps the heavy dep off the import path
+    )
+
+    return pipeline.run_assign(team, window_start=window_start, window_end=window_end)
+
+
+def refit_intent_topics(team: Team, *, now: datetime) -> contracts.IntentTopicsRunOutcome:
+    from products.mcp_analytics.backend.intent_topics import (
+        pipeline,  # noqa: PLC0415 — keeps the heavy dep off the import path
+    )
+
+    return pipeline.run_refit(team, now=now)
 
 
 def prepare_intent_erasure(

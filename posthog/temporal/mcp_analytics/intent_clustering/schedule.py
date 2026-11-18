@@ -26,6 +26,7 @@ from temporalio.client import (
     ScheduleSpec,
 )
 
+from posthog.dataclasses import frozen
 from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_schedule_exists, a_update_schedule
 from posthog.temporal.mcp_analytics.intent_clustering.constants import (
     COORDINATOR_EXECUTION_TIMEOUT,
@@ -45,25 +46,38 @@ FEATURE_FLAG_KEY = "mcp-analytics-clustering-schedule"
 FEATURE_FLAG_DISTINCT_ID = "internal_mcpa_clustering_schedule"
 
 
-def _schedule_enabled() -> tuple[bool, bool]:
-    """Return ``(enabled, check_succeeded)``.
+@frozen
+class ScheduleFlagCheck:
+    enabled: bool
+    check_succeeded: bool
+
+
+def _schedule_enabled(
+    flag_key: str = FEATURE_FLAG_KEY, distinct_id: str = FEATURE_FLAG_DISTINCT_ID
+) -> ScheduleFlagCheck:
+    """Whether the schedule flag is on, and whether the check itself succeeded.
 
     Three logical states the caller must distinguish:
 
-    * ``(True, True)``  — FF explicitly ON. Register / update the schedule.
-    * ``(False, True)`` — FF explicitly OFF. Delete any existing schedule
+    * enabled, check succeeded — FF explicitly ON. Register / update the schedule.
+    * disabled, check succeeded — FF explicitly OFF. Delete any existing schedule
       (kill switch).
-    * ``(False, False)`` — FF check raised. **Preserve current state.** Do
+    * disabled, check failed — FF check raised. **Preserve current state.** Do
       not register a new schedule (fail-closed on registration) and do not
       delete an existing one (a transient PostHog API outage shouldn't tear
-      down a properly-enabled production schedule).
+      down a properly-enabled production schedule). The SDK returns None
+      instead of raising when the flag request times out, so None counts
+      as a failed check too.
     """
     try:
-        enabled = posthoganalytics.feature_enabled(FEATURE_FLAG_KEY, FEATURE_FLAG_DISTINCT_ID)
-        return bool(enabled), True
+        enabled = posthoganalytics.feature_enabled(flag_key, distinct_id)
+        if enabled is None:
+            logger.warning("mcpa.intent_clustering.schedule.feature_flag_check_returned_none", flag_key=flag_key)
+            return ScheduleFlagCheck(enabled=False, check_succeeded=False)
+        return ScheduleFlagCheck(enabled=bool(enabled), check_succeeded=True)
     except Exception:
         logger.warning("mcpa.intent_clustering.schedule.feature_flag_check_failed_defaulting_off", exc_info=True)
-        return False, False
+        return ScheduleFlagCheck(enabled=False, check_succeeded=False)
 
 
 async def create_intent_clustering_coordinator_schedule(client: Client) -> None:
@@ -79,10 +93,10 @@ async def create_intent_clustering_coordinator_schedule(client: Client) -> None:
     # posthoganalytics.feature_enabled() is sync and can block on a network call,
     # so offload to a thread to keep the asyncio loop responsive — matches the
     # llm_analytics/team_discovery.py pattern.
-    enabled, check_succeeded = await asyncio.to_thread(_schedule_enabled)
+    flag = await asyncio.to_thread(_schedule_enabled)
 
-    if not enabled:
-        if not check_succeeded:
+    if not flag.enabled:
+        if not flag.check_succeeded:
             # FF check raised. Don't touch the existing schedule (if any) —
             # transient PostHog outages must not silently disable production.
             logger.info(
