@@ -15,9 +15,7 @@ if TYPE_CHECKING:
 
 class OrganizationProvisioningQuerySet(models.QuerySet["OrganizationProvisioning"]):
     def paid_by_partner(self) -> "OrganizationProvisioningQuerySet":
-        # A subquery, not a join: Django runs an UPDATE over a join as `pk IN (SELECT ...)`, and Postgres
-        # doesn't re-run that subquery after waiting on a row lock, so record_partner_paid's time guard
-        # would check a stale row and a delayed status could undo a newer one.
+        # A join would turn the UPDATE into `pk IN (SELECT ...)`, which Postgres doesn't re-check after a row-lock wait.
         paying = OAuthApplication.objects.filter(_provisioning_config__pays_for_customers=True).values("id")
         return self.filter(application_id__in=paying)
 
