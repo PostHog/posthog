@@ -2112,6 +2112,7 @@ describe('exec tool', () => {
             ['llma-tagger-create', 'llma-evaluation-create'],
             ['vision-scanners-suggest-tags', 'vision-scanners-update'],
             ['warehouse-tables-create', 'data-warehouse-source-setup'],
+            ['stamphog-review-runs-create', 'code-review-approvals-runs-create'],
         ])('throws redirect when calling deprecated %s', async (deprecated, replacement) => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: `call ${deprecated} {}` })).rejects.toThrow(
@@ -2188,9 +2189,14 @@ describe('exec tool', () => {
                 recovery:
                     'If the user already reconnected and approved all access, this tool is not available through the app yet.',
             },
+            {
+                apiToken: 'pha_test',
+                supportsStepUp: true,
+                recovery: 'Call the tool anyway: this client then asks the user to approve the missing scopes',
+            },
         ])(
-            'gives the scope recovery step for the connection credential ($apiToken, $oauthClientId)',
-            async ({ apiToken, oauthClientId, recovery }) => {
+            'gives the scope recovery step for the connection credential ($apiToken, $oauthClientId, $supportsStepUp)',
+            async ({ apiToken, oauthClientId, supportsStepUp, recovery }) => {
                 const context = { ...mockContext, api: { config: { apiToken } } } as unknown as Context
                 const scopeGated = [
                     {
@@ -2211,6 +2217,7 @@ describe('exec tool', () => {
                     scopeGated,
                     {
                         oauthClientId,
+                        supportsStepUp,
                     }
                 )
 
