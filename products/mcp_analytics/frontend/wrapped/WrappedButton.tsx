@@ -24,7 +24,7 @@ function WrappedButtonContent({ quill }: { quill: boolean }): JSX.Element | null
     const Hoggie = CARD_THEMES.intro.hoggie
     const content = (
         <>
-            <Hoggie className="-my-1 h-6 w-6" loading="eager" />
+            <Hoggie className="h-5 w-5" loading="eager" />
             Your {wrapped.year} wrapped
         </>
     )

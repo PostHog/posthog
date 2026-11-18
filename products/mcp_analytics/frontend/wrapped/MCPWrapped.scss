@@ -146,6 +146,9 @@
 }
 
 .MCPWrapped__header-button {
+    // The hedgehog has its own transparent margin, so the gap and left padding are tighter than the default.
+    gap: 0.375rem;
+    padding-left: 0.375rem;
     color: white;
 
     // Painted from the border edge, or the gradient repeats under the transparent border at both ends.
