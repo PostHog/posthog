@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::core::types::notification::SeveritySource;
 use crate::{
-    app_context::AppContext,
+    app_context::{AppContext, NEW_ISSUE_STATE_RESEND_WINDOW},
     error::UnhandledError,
     issue_resolution::{
         infer_issue_severity, send_fingerprint_issue_state, send_issue_created_notification,
@@ -16,7 +16,8 @@ use crate::{
     },
     metric_consts::{ISSUE_CREATED, ISSUE_LINKER_OPERATOR},
     modes::processing::issue_changes::{
-        record_issue_change, ExceptionRef, IssueChange, IssueSnapshot,
+        cap_idle_time, load_assignments, record_issue_change, ExceptionRef, IssueChange,
+        IssueSnapshot,
     },
     modes::processing::rules::assignment::{try_assignment_rules, Assignment},
     modes::processing::rules::severity::try_severity_rules,
@@ -211,6 +212,7 @@ async fn load_and_maybe_reopen(
     )
     .await?
     else {
+        resend_new_issue_state(context, &mut conn, &issue, fingerprint, first_seen).await?;
         return Ok(Some(issue));
     };
     // Reopened — mirror the side effects from `resolve_issue`'s fast-path reopen branch.
@@ -283,6 +285,15 @@ async fn resolve_issue(
                 &event_timestamp,
             )
             .await?;
+        } else {
+            resend_new_issue_state(
+                context,
+                &mut conn,
+                &issue,
+                &fingerprint,
+                first_seen_for_state,
+            )
+            .await?;
         }
         return Ok(issue);
     }
@@ -304,6 +315,7 @@ async fn resolve_issue(
 
     // Start a transaction, so we can roll it back on override insert failure
     let mut txn = conn.begin().await?;
+    cap_idle_time(&mut *txn).await?;
     // Insert a new issue
     let issue = Issue::insert_new(
         team_id,
@@ -405,11 +417,11 @@ async fn resolve_issue(
             .await?;
         }
         let processed_properties = event_properties.processed_properties(&issue);
-        // Produce before the commit on purpose. A failure here rolls the transaction back, so the
-        // retry re-runs this whole slow path and produces again. Committing first would leave a
-        // new issue whose fingerprint state never reached ClickHouse: the retry takes the fast
-        // path, finds the issue already active, and `maybe_reopen` returns false, so nothing
-        // re-sends it. Moving this after the commit needs a durable outbox first.
+        txn.commit().await?;
+        drop(conn);
+
+        // After the commit, so no transaction stays open across a Kafka produce. A failure here
+        // fails the event, and its redelivery resends through `resend_new_issue_state`.
         send_fingerprint_issue_state(
             context,
             &issue,
@@ -418,9 +430,7 @@ async fn resolve_issue(
             event_timestamp,
         )
         .await?;
-
-        txn.commit().await?;
-        drop(conn);
+        context.new_issue_state_sent.insert(issue.id, ()).await;
 
         send_issue_created_notification(
             context,
@@ -459,6 +469,31 @@ async fn process_event_severity(
     Ok(true)
 }
 
+/// Produces the fingerprint state of an issue created in the last few minutes, once per pod.
+/// The slow path produces it after its commit, so this is the retry when that produce fails.
+async fn resend_new_issue_state(
+    context: &AppContext,
+    conn: &mut PgConnection,
+    issue: &Issue,
+    fingerprint: &str,
+    first_seen: DateTime<Utc>,
+) -> Result<(), UnhandledError> {
+    let window = chrono::Duration::from_std(NEW_ISSUE_STATE_RESEND_WINDOW)
+        .expect("resend window fits in a chrono duration");
+    if issue.created_at < Utc::now() - window
+        || context.new_issue_state_sent.contains_key(&issue.id)
+    {
+        return Ok(());
+    }
+    let assignment = load_assignments(&mut *conn, &[issue.id])
+        .await?
+        .remove(&issue.id);
+    send_fingerprint_issue_state(context, issue, fingerprint, assignment.as_ref(), first_seen)
+        .await?;
+    context.new_issue_state_sent.insert(issue.id, ()).await;
+    Ok(())
+}
+
 /// Returns the assignment when the issue was reopened, and None when it was not.
 async fn reopen_and_record(
     context: &AppContext,
@@ -472,6 +507,7 @@ async fn reopen_and_record(
         return Ok(None);
     }
     let mut txn = Acquire::begin(&mut *conn).await?;
+    cap_idle_time(&mut *txn).await?;
     let Some(previous) = issue.reopen(&mut *txn).await? else {
         txn.rollback().await?;
         return Ok(None);

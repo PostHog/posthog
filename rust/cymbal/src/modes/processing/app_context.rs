@@ -2,6 +2,8 @@ use common_kafka::kafka_producer::{create_kafka_producer, KafkaContext};
 use common_redis::{Client as RedisClientTrait, RedisClient};
 use health::HealthRegistry;
 use moka::future::{Cache, CacheBuilder};
+
+pub const NEW_ISSUE_STATE_RESEND_WINDOW: Duration = Duration::from_secs(10 * 60);
 use rdkafka::producer::FutureProducer;
 use sqlx::PgPool;
 use std::{collections::HashSet, sync::Arc, time::Duration};
@@ -60,6 +62,8 @@ pub struct AppContext {
     // itself, so suppression / reopen always see current PG state (see `IssueLinker`).
     // moka caches are cheap to clone (internally Arc'd).
     pub issue_cache: Cache<(TeamId, String), Uuid>,
+    // New issues whose fingerprint state this pod already produced. See `resend_new_issue_state`.
+    pub new_issue_state_sent: Cache<Uuid, ()>,
     // Caches event-level release resolution (`$release_id` and the mobile app-metadata hash) so a
     // per-event lookup doesn't re-hit Postgres for the same release, including the negative result
     // for apps that never bound one. Lives here so it survives across batches.
@@ -172,6 +176,10 @@ impl AppContext {
             .time_to_live(Duration::from_secs(config.issue_cache_ttl_seconds))
             .build();
 
+        let new_issue_state_sent = CacheBuilder::new(config.issue_cache_capacity)
+            .time_to_live(NEW_ISSUE_STATE_RESEND_WINDOW)
+            .build();
+
         let release_cache = ReleaseCache::new(
             config.release_cache_max_entries,
             Duration::from_secs(config.release_cache_ttl_seconds),
@@ -204,6 +212,7 @@ impl AppContext {
             rate_limiter_enabled_team_ids,
             drop_code_variables_team_ids,
             issue_cache,
+            new_issue_state_sent,
             release_cache,
             remote_resolution,
             remote_resolution_refresh_task,

@@ -116,6 +116,19 @@ pub struct ExceptionRef {
     pub timestamp: DateTime<Utc>,
 }
 
+/// The alert evaluation reads rows by `created_at` with a settle margin, so a row must commit soon
+/// after its insert. Postgres aborts a transaction left idle longer than this, so a row commits
+/// within this much of its insert or never.
+pub async fn cap_idle_time<'c, E>(executor: E) -> Result<(), UnhandledError>
+where
+    E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+{
+    sqlx::query("SET LOCAL idle_in_transaction_session_timeout = '10s'")
+        .execute(executor)
+        .await?;
+    Ok(())
+}
+
 pub async fn record_issue_change<'c, E>(
     executor: E,
     issue: &Issue,
