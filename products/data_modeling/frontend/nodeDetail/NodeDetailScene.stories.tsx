@@ -578,3 +578,7 @@ export const QuillNoConnectedModels: Story = {
         },
     },
 }
+
+export const QuillRefreshSlowedByPlan: Story = {
+    parameters: { ...RefreshSlowedByPlan.parameters, ...QUILL_PARAMETERS },
+}
