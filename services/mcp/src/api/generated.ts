@@ -74050,6 +74050,34 @@ export namespace Schemas {
     }
 
     /**
+     * * `at_least` - At least the target
+     * * `at_most` - At most the target
+     */
+    export type ReleaseGoalDirectionEnum = typeof ReleaseGoalDirectionEnum[keyof typeof ReleaseGoalDirectionEnum];
+
+
+    export const ReleaseGoalDirectionEnum = {
+      AtLeast: 'at_least',
+      AtMost: 'at_most',
+    } as const;
+
+    export interface MetricGoal {
+      /**
+         * ID of the metric insight the goal is for.
+         * @minimum 1
+         * @maximum 2147483647
+         */
+      insight_id: number;
+      /** at_least when the metric should reach the value, at_most when it should stay at or below it.
+       *
+       * * `at_least` - At least the target
+       * * `at_most` - At most the target */
+      direction: ReleaseGoalDirectionEnum;
+      /** Target value of the metric. */
+      value: number;
+    }
+
+    /**
      * * `precise` - Precise
      * * `coarse` - Coarse
      * * `partial` - Partial
@@ -81057,6 +81085,10 @@ export namespace Schemas {
       readonly insights: readonly LinkedInsightDTO[];
       /** ID, name and status of each linked broadcast the caller can see. Deleted broadcasts are left out. */
       readonly broadcasts: readonly LinkedBroadcastDTO[];
+      /** IDs of the insights that are the release's metrics. The first is the primary metric. */
+      readonly metric_insight_ids: readonly number[];
+      /** Target for each metric that has one. Metrics without a goal are left out. */
+      readonly metric_goals: readonly MetricGoal[];
       /** True when the release links flags the caller cannot see. Their IDs are left out of feature_flag_ids. */
       readonly has_hidden_flags: boolean;
       id: string;
@@ -98358,6 +98390,18 @@ export namespace Schemas {
          * @items.maximum 2147483647
          */
       insight_ids?: number[];
+      /**
+         * IDs of the saved trends insights that are the release's metrics, at most 5. The first is the primary metric, the rest are secondary. Replaces the current list.
+         * @maxItems 5
+         * @items.minimum 1
+         * @items.maximum 2147483647
+         */
+      metric_insight_ids?: number[];
+      /**
+         * Targets for the release's metrics, at most one per metric. Each insight_id must be one of the metric_insight_ids. Replaces the current goals.
+         * @maxItems 5
+         */
+      metric_goals?: MetricGoal[];
     }
 
     /**
@@ -129488,6 +129532,18 @@ export namespace Schemas {
          * @items.maximum 2147483647
          */
       insight_ids?: number[];
+      /**
+         * IDs of the saved trends insights that are the release's metrics, at most 5. The first is the primary metric, the rest are secondary. Replaces the current list.
+         * @maxItems 5
+         * @items.minimum 1
+         * @items.maximum 2147483647
+         */
+      metric_insight_ids?: number[];
+      /**
+         * Targets for the release's metrics, at most one per metric. Each insight_id must be one of the metric_insight_ids. Replaces the current goals.
+         * @maxItems 5
+         */
+      metric_goals?: MetricGoal[];
     }
 
     export interface ZendeskImportError {
