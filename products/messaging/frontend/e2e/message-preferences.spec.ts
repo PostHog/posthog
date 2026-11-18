@@ -610,6 +610,51 @@ test.describe('Message preferences page', () => {
                 })
             })
 
+            await test.step('a late answer from an older save does not undo a newer one', async () => {
+                const [refusal, trackingCommitted, trackingAnswer] = [responseGate(), responseGate(), responseGate()]
+                const [topicCommitted, topicAnswer] = [responseGate(), responseGate()]
+                const [savedBefore, refusedBefore] = [await successToast.count(), await refusals.count()]
+                let saves = 0
+                handleSave = async (route) => {
+                    saves++
+                    if (saves === 1) {
+                        await refusal.opened
+                        await refuse(route)
+                    } else if (saves === 2 || saves === 3) {
+                        const [committed, answer] =
+                            saves === 2 ? [trackingCommitted, trackingAnswer] : [topicCommitted, topicAnswer]
+                        const response = await route.fetch()
+                        committed.open()
+                        await answer.opened
+                        await route.fulfill({ response })
+                    } else {
+                        await route.continue()
+                    }
+                }
+                await productNews.click()
+                await tracking.click()
+                await trackingCommitted.opened
+                refusal.open()
+                await expect(refusals).toHaveCount(refusedBefore + 1)
+                await expect(productNews).not.toBeChecked()
+                await eventInvites.click()
+                await topicCommitted.opened
+                trackingAnswer.open()
+                await expect(successToast).toHaveCount(savedBefore + 1)
+                await expect(productNews).not.toBeChecked()
+                await tracking.click()
+                await expect(successToast).toHaveCount(savedBefore + 2)
+                topicAnswer.open()
+                await expect(status(eventInvitesId)).toHaveText('Subscribed')
+                await expect(status(productNewsId)).toHaveText('Not subscribed')
+                expect(await storedPreferences('product_news')).toEqual({
+                    $all: 'OPTED_IN',
+                    $email_tracking: 'OPTED_IN',
+                    [productNewsId]: 'OPTED_OUT',
+                    [eventInvitesId]: 'OPTED_IN',
+                })
+            })
+
             await test.step('an older refusal does not undo a newer click on the same switch', async () => {
                 const refusal = responseGate()
                 const committed = responseGate()
@@ -646,7 +691,7 @@ test.describe('Message preferences page', () => {
                     $all: 'OPTED_OUT',
                     $email_tracking: 'OPTED_OUT',
                     [productNewsId]: 'OPTED_OUT',
-                    [eventInvitesId]: 'OPTED_OUT',
+                    [eventInvitesId]: 'OPTED_IN',
                 })
             })
         } finally {

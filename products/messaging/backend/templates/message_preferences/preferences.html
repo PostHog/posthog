@@ -80,11 +80,12 @@
                     return choices
                 }
                 const wanted = savedChoices(document)
-                // Each choice as the newest accepted save sent it. Saves can commit out of order, so the read-back corrects it.
+                // Each choice from the newest save the server accepted. Saves can commit out of order, so the read-back corrects it.
                 const accepted = savedChoices(document)
                 const acceptedBy = {}
-                // A switch with no click in flight or accepted shows its accepted value
                 const lastClickByToggle = {}
+                // Every marketing save sends every switch, so a save can carry a value the recipient did not click
+                const sentBy = {}
                 const saving = new Set()
                 let savesPending = 0
                 let savesStarted = 0
@@ -153,6 +154,7 @@
                         // The backend preserves a stored answer when the key is absent.
                         if (toggle.name !== '$email_tracking' || toggle === changedToggle) {
                             choices[toggle.name] = wanted[toggle.name]
+                            sentBy[toggle.name] = saveNumber
                         }
                     })
 
@@ -178,7 +180,6 @@
                             if (!(acceptedBy[name] > saveNumber)) {
                                 accepted[name] = on
                                 acceptedBy[name] = saveNumber
-                                if (!lastClickByToggle[name]) wanted[name] = on
                             }
                         })
                         showToast('Preferences updated successfully', false)
@@ -188,9 +189,12 @@
                         if (lastClickByToggle[changedToggle.name] === saveNumber) {
                             lastClickByToggle[changedToggle.name] = 0
                             wanted[changedToggle.name] = accepted[changedToggle.name]
-                            render()
                         }
                     } finally {
+                        // A switch whose last click was refused takes what the server kept, once no newer save can change it
+                        Object.keys(choices).forEach((name) => {
+                            if (!lastClickByToggle[name] && sentBy[name] === saveNumber) wanted[name] = accepted[name]
+                        })
                         savesPending--
                         render()
                         if (savesPending === 0) {
@@ -212,8 +216,8 @@
                                 }
                                 saving.clear()
                             }
+                            render()
                         }
-                        render()
                     }
                 }
 
