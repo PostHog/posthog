@@ -290,6 +290,11 @@ describe('TransactionalEmailsTable', () => {
         await waitFor(() => expect(clipboard.text).toContain('PostHog project token: phc_default-team-api-token'))
         expect(clipboard.text).toContain('Leave out the from address.')
 
+        if (wizardShown) {
+            fireEvent.click(screen.getByLabelText('Copy wizard command'))
+            await waitFor(() => expect(clipboard.text).toBe('npx -y @posthog/wizard@latest email'))
+        }
+
         fireEvent.click(container.querySelector('[data-attr=send-from-code-show-code]')!)
 
         expect(container.querySelector('[data-attr=send-from-code-snippet]')).toHaveTextContent('Node.js')
