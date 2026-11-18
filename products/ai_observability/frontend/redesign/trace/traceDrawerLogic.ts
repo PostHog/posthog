@@ -17,12 +17,12 @@ import { subscriptions } from 'kea-subscriptions'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
-import { rawSearchParam } from './rawSearchParam'
+import { currentUrlWith, rawSearchParam, withRawParams } from './rawSearchParam'
 import { recordTraceViewed } from './recordTraceViewed'
 import { shouldCloseOnEscape } from './shouldCloseOnEscape'
 import { toFullPageListParams } from './traceBackLink'
 import { TRACE_DRAWER_LISTS, TraceDrawerListConfig, TraceDrawerListId } from './traceDrawerLists'
-import { TRACE_DRAWER_PARAMS, withoutTraceDrawerParams } from './traceDrawerRows'
+import { withoutTraceDrawerParams } from './traceDrawerRows'
 import { TraceListRow, uniqueTraces } from './traceListRows'
 import { traceViewHostLogic } from './traceViewHostLogic'
 import { traceViewTracking } from './traceViewTracking'
@@ -44,22 +44,6 @@ function traceDrawerHostId(listId: string): string {
     return `trace-drawer-${listId}`
 }
 
-// kea-router loses the text of a number or boolean, so a typed `1.50` must stay raw. A JSON param such as `filters` must
-// stay parsed, because kea-router pads a string shaped like JSON and reads it back as a string. The drawer's own params
-// are ids, so they stay raw whatever their shape.
-function keepsRawText(name: string, value: unknown): boolean {
-    return TRACE_DRAWER_PARAMS.includes(name) || typeof value === 'number' || typeof value === 'boolean'
-}
-
-function withRawParams(searchParams: Record<string, unknown>, search: string): Record<string, unknown> {
-    return Object.fromEntries(
-        Object.entries(searchParams).map(([name, value]) => [
-            name,
-            keepsRawText(name, value) ? (rawSearchParam(search, name) ?? value) : value,
-        ])
-    )
-}
-
 function toDrawerParams(row: TraceListRow | null): Record<string, string | undefined> {
     return { trace: row?.traceId, ts: row?.timestamp ?? undefined, step: row?.stepId ?? undefined }
 }
@@ -67,14 +51,9 @@ function toDrawerParams(row: TraceListRow | null): Record<string, string | undef
 let isDrawerWriting = false
 
 function writeUrlParams(method: 'push' | 'replace', changes: Record<string, string | undefined>): void {
-    const { pathname, search } = router.values.location
     isDrawerWriting = true
     try {
-        router.actions[method](
-            pathname,
-            { ...withRawParams(router.values.searchParams, search), ...changes },
-            router.values.hashParams
-        )
+        router.actions[method](...currentUrlWith(router.values, changes))
     } finally {
         isDrawerWriting = false
     }
