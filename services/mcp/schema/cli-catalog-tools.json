@@ -10329,7 +10329,7 @@
             "stripNulls": false,
             "enrich": {
                 "kind": "list",
-                "baseUrl": "/stamphog"
+                "baseUrl": "/code-review"
             },
             "agentNote": null,
             "informational": null,
@@ -10417,7 +10417,7 @@
             "stripNulls": false,
             "enrich": {
                 "kind": "list",
-                "baseUrl": "/stamphog"
+                "baseUrl": "/code-review"
             },
             "agentNote": null,
             "informational": null,
@@ -10527,7 +10527,7 @@
             "stripNulls": false,
             "enrich": {
                 "kind": "list",
-                "baseUrl": "/stamphog"
+                "baseUrl": "/code-review"
             },
             "agentNote": null,
             "informational": null,
@@ -10742,7 +10742,7 @@
             "stripNulls": false,
             "enrich": {
                 "kind": "list",
-                "baseUrl": "/stamphog"
+                "baseUrl": "/code-review"
             },
             "agentNote": null,
             "informational": {
@@ -10888,7 +10888,7 @@
             "stripNulls": false,
             "enrich": {
                 "kind": "list",
-                "baseUrl": "/stamphog"
+                "baseUrl": "/code-review"
             },
             "agentNote": null,
             "informational": null,
@@ -12715,8 +12715,8 @@
     "create-feature-flag": {
         "name": "create-feature-flag",
         "kind": "http",
-        "requires": ["hook:featureFlags/conditionIdHooks"],
-        "hooks": "featureFlags/conditionIdHooks",
+        "requires": ["hook:featureFlags/createFeatureFlagHooks"],
+        "hooks": "featureFlags/createFeatureFlagHooks",
         "uiApp": null,
         "request": {
             "method": "POST",
@@ -18112,6 +18112,51 @@
             "validators": []
         }
     },
+    "error-tracking-external-references-link": {
+        "name": "error-tracking-external-references-link",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/error_tracking/external_references/link_issue/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "integration_id",
+                    "key": "integration_id"
+                },
+                {
+                    "param": "issue",
+                    "key": "issue"
+                },
+                {
+                    "param": "external_context",
+                    "key": "external_context"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "error-tracking-grouping-rules-create": {
         "name": "error-tracking-grouping-rules-create",
         "kind": "http",
@@ -18583,6 +18628,10 @@
                 {
                     "param": "ingestion_enabled",
                     "key": "ingestion_enabled"
+                },
+                {
+                    "param": "ai_issue_summaries_enabled",
+                    "key": "ai_issue_summaries_enabled"
                 }
             ],
             "injectBody": {},
@@ -29845,6 +29894,43 @@
             "validators": []
         }
     },
+    "llma-clustering-config-set-enabled": {
+        "name": "llma-clustering-config-set-enabled",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/llm_analytics/clustering_config/set_enabled/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "enabled",
+                    "key": "enabled"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "llma-clustering-config-set-event-filters": {
         "name": "llma-clustering-config-set-event-filters",
         "kind": "http",
@@ -40629,6 +40715,389 @@
             "validators": []
         }
     },
+    "release-create": {
+        "name": "release-create",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/releases/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "name",
+                    "key": "name"
+                },
+                {
+                    "param": "description",
+                    "key": "description"
+                },
+                {
+                    "param": "owner_id",
+                    "key": "owner_id"
+                },
+                {
+                    "param": "feature_flag_ids",
+                    "key": "feature_flag_ids"
+                },
+                {
+                    "param": "broadcast_ids",
+                    "key": "broadcast_ids"
+                },
+                {
+                    "param": "survey_ids",
+                    "key": "survey_ids"
+                },
+                {
+                    "param": "insight_ids",
+                    "key": "insight_ids"
+                },
+                {
+                    "param": "metric_insight_ids",
+                    "key": "metric_insight_ids"
+                },
+                {
+                    "param": "metric_goals",
+                    "key": "metric_goals"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": {
+                "kind": "item",
+                "baseUrl": "/releases",
+                "joiner": "/",
+                "prefix": "",
+                "field": "id",
+                "suffix": "",
+                "source": "result"
+            },
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "release-delete": {
+        "name": "release-delete",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "DELETE",
+            "path": "/api/projects/{project_id}/releases/{id}/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "release-get": {
+        "name": "release-get",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/releases/{id}/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": {
+                "kind": "item",
+                "baseUrl": "/releases",
+                "joiner": "/",
+                "prefix": "",
+                "field": "id",
+                "suffix": "",
+                "source": "result"
+            },
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "release-merge": {
+        "name": "release-merge",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/releases/{id}/merge/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "release_ids",
+                    "key": "release_ids"
+                },
+                {
+                    "param": "name",
+                    "key": "name"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": {
+                "kind": "item",
+                "baseUrl": "/releases",
+                "joiner": "/",
+                "prefix": "",
+                "field": "id",
+                "suffix": "",
+                "source": "result"
+            },
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "release-update": {
+        "name": "release-update",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "PATCH",
+            "path": "/api/projects/{project_id}/releases/{id}/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "name",
+                    "key": "name"
+                },
+                {
+                    "param": "description",
+                    "key": "description"
+                },
+                {
+                    "param": "owner_id",
+                    "key": "owner_id"
+                },
+                {
+                    "param": "feature_flag_ids",
+                    "key": "feature_flag_ids"
+                },
+                {
+                    "param": "broadcast_ids",
+                    "key": "broadcast_ids"
+                },
+                {
+                    "param": "survey_ids",
+                    "key": "survey_ids"
+                },
+                {
+                    "param": "insight_ids",
+                    "key": "insight_ids"
+                },
+                {
+                    "param": "metric_insight_ids",
+                    "key": "metric_insight_ids"
+                },
+                {
+                    "param": "metric_goals",
+                    "key": "metric_goals"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": {
+                "kind": "item",
+                "baseUrl": "/releases",
+                "joiner": "/",
+                "prefix": "",
+                "field": "id",
+                "suffix": "",
+                "source": "result"
+            },
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "releases-list": {
+        "name": "releases-list",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/releases/catalog_releases/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": [
+                {
+                    "param": "cursor",
+                    "key": "cursor",
+                    "csv": false
+                },
+                {
+                    "param": "feature_flag_id",
+                    "key": "feature_flag_id",
+                    "csv": false
+                },
+                {
+                    "param": "limit",
+                    "key": "limit",
+                    "csv": false
+                },
+                {
+                    "param": "order",
+                    "key": "order",
+                    "csv": false
+                },
+                {
+                    "param": "owner",
+                    "key": "owner",
+                    "csv": false
+                },
+                {
+                    "param": "search",
+                    "key": "search",
+                    "csv": false
+                }
+            ],
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": true,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": {
+                "kind": "list_items",
+                "baseUrl": "/releases",
+                "joiner": "/",
+                "prefix": "",
+                "field": "id",
+                "suffix": ""
+            },
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "releases-suggest-for-flag": {
+        "name": "releases-suggest-for-flag",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/releases/flag_suggestions/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": [
+                {
+                    "param": "feature_flag_id",
+                    "key": "feature_flag_id",
+                    "csv": false
+                }
+            ],
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "reminder-create": {
         "name": "reminder-create",
         "kind": "http",
@@ -43322,6 +43791,43 @@
             "fallbacks": [],
             "query": null,
             "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "scout-scratchpad-discard": {
+        "name": "scout-scratchpad-discard",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/signals/scout/scratchpad/discard/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "key",
+                    "key": "key"
+                }
+            ],
             "injectBody": {},
             "softDelete": null,
             "transformBody": false

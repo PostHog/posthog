@@ -5517,18 +5517,6 @@ export namespace Schemas {
       variables_override?: AccountsTableQueryRequestVariablesOverride;
     }
 
-    /**
-     * * `user` - user
-     * * `team` - team
-     */
-    export type AchievementDefinitionScopeEnum = typeof AchievementDefinitionScopeEnum[keyof typeof AchievementDefinitionScopeEnum];
-
-
-    export const AchievementDefinitionScopeEnum = {
-      User: 'user',
-      Team: 'team',
-    } as const;
-
     export interface AchievementStage {
       /** Stage number within the track, 1-5. */
       stage: number;
@@ -5545,11 +5533,6 @@ export namespace Schemas {
       display_name: string;
       /** One-line description of what the track rewards. */
       description: string;
-      /** Whether the track is tracked per user or per team.
-       *
-       * * `user` - user
-       * * `team` - team */
-      scope: AchievementDefinitionScopeEnum;
       /** True for the streak track, whose thresholds vary by the streak-cadence experiment arm. */
       is_experiment_track: boolean;
       /** The five stages of this track, in ascending threshold order. */
@@ -5589,10 +5572,8 @@ export namespace Schemas {
     export interface AchievementsListResponse {
       /** All Wave-1 track definitions, thresholds resolved for the user's streak arm. */
       definitions: AchievementDefinition[];
-      /** The requesting user's progress on per-user tracks. */
+      /** The requesting user's progress on each track. */
       user_progress: AchievementProgress[];
-      /** The team's progress on per-team tracks. */
-      team_progress: AchievementProgress[];
       /** Newly unlocked stages awaiting an in-session celebration; acknowledge each to clear it. */
       pending_celebrations: PendingCelebration[];
     }
@@ -7777,18 +7758,29 @@ export namespace Schemas {
       Preset15: 'preset-15',
     } as const;
 
+    export type YAxisPosition2 = typeof YAxisPosition2[keyof typeof YAxisPosition2];
+
+
+    export const YAxisPosition2 = {
+      Auto: 'auto',
+      Left: 'left',
+      Right: 'right',
+    } as const;
+
     export interface ResultCustomizationByValue {
       assignmentBy?: 'value';
       color?: DataColorToken | null;
       customColor?: string | null;
       hidden?: boolean | null;
       label?: string | null;
+      yAxisPosition?: YAxisPosition2 | null;
     }
 
     export interface ResultCustomizationByPosition {
       assignmentBy?: 'position';
       color?: DataColorToken | null;
       hidden?: boolean | null;
+      yAxisPosition?: YAxisPosition2 | null;
     }
 
     export type YAxisScaleType = typeof YAxisScaleType[keyof typeof YAxisScaleType];
@@ -8084,6 +8076,7 @@ export namespace Schemas {
       showAnnotations?: boolean | null;
       /** Whether to show a legend describing the series. The legend only renders when the funnel has multiple series. Only applies to historical-trends funnels. */
       showLegend?: boolean | null;
+      showSummaryOnDashboards?: boolean | null;
       /** Display linear regression trend lines on the chart (only for historical trends viz) */
       showTrendLines?: boolean | null;
       showValuesOnSeries?: boolean | null;
@@ -12693,6 +12686,8 @@ export namespace Schemas {
       boxPlot?: BoxPlotSettings | null;
       /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
       chartStyle?: ChartStyle | null;
+      /** Color each X-axis category in single-series bar charts. */
+      colorBarsByCategory?: boolean | null;
       goalLines?: GoalLine[] | null;
       heatmap?: HeatmapSettings | null;
       leftYAxisSettings?: YAxisSettings | null;
@@ -12717,6 +12712,8 @@ export namespace Schemas {
       /** Whether we fill the bars to 100% in stacked mode */
       stackBars100?: boolean | null;
       valueLabelBackground?: boolean | null;
+      valueLabelBackgroundColor?: string | null;
+      valueLabelColor?: string | null;
       valueLabelFontSize?: number | null;
       valueLabelPosition?: ValueLabelPosition | null;
       valueLabelRotation?: number | null;
@@ -14360,32 +14357,6 @@ export namespace Schemas {
       users?: number | null;
     }
 
-    /**
-     * * `sum` - sum
-     * * `avg` - avg
-     * * `count` - count
-     * * `min` - min
-     * * `max` - max
-     * * `p95` - p95
-     * * `rate` - rate
-     * * `increase` - increase
-     * * `histogram_quantile` - histogram_quantile
-     */
-    export type AggregationEnum = typeof AggregationEnum[keyof typeof AggregationEnum];
-
-
-    export const AggregationEnum = {
-      Sum: 'sum',
-      Avg: 'avg',
-      Count: 'count',
-      Min: 'min',
-      Max: 'max',
-      P95: 'p95',
-      Rate: 'rate',
-      Increase: 'increase',
-      HistogramQuantile: 'histogram_quantile',
-    } as const;
-
     export interface AhaFeedbackSignalExtra {
       workflow_status: string | null;
       score: string | null;
@@ -15828,20 +15799,6 @@ export namespace Schemas {
       first_seen: string | null;
       last_seen: string | null;
     }
-
-    /**
-     * * `trace` - trace
-     * * `generation` - generation
-     * * `evaluation` - evaluation
-     */
-    export type AnalysisLevelEnum = typeof AnalysisLevelEnum[keyof typeof AnalysisLevelEnum];
-
-
-    export const AnalysisLevelEnum = {
-      Trace: 'trace',
-      Generation: 'generation',
-      Evaluation: 'evaluation',
-    } as const;
 
     export interface AnalyticsAlertFiringSignalExtra {
       alert_id: string;
@@ -23170,6 +23127,8 @@ export namespace Schemas {
       sends_email?: boolean;
       /** The workflow's email sending rate limit. A slow enough rate raises the email audience limit. The response's rate_limited field says which rates qualify. */
       email_sending_rate_limit?: HogFlowEmailSendingRateLimit | null;
+      /** Count the audience now instead of reusing a count from the last few minutes. Set it when the count decides whether a send may go ahead. */
+      refresh?: boolean;
     }
 
     /**
@@ -28810,13 +28769,34 @@ export namespace Schemas {
       truncated: boolean;
     }
 
+    /**
+     * * `trace` - trace
+     * * `generation` - generation
+     * * `evaluation` - evaluation
+     */
+    export type ClusteringAnalysisLevelEnum = typeof ClusteringAnalysisLevelEnum[keyof typeof ClusteringAnalysisLevelEnum];
+
+
+    export const ClusteringAnalysisLevelEnum = {
+      Trace: 'trace',
+      Generation: 'generation',
+      Evaluation: 'evaluation',
+    } as const;
+
     export type ClusteringConfigEventFiltersItem = { [key: string]: unknown };
 
     export interface ClusteringConfig {
+      /** Whether this project has opted in to automated clustering. */
+      enabled: boolean;
       /** PostHog property filters that scope automated clustering jobs. Empty array means no saved filters. */
       event_filters: ClusteringConfigEventFiltersItem[];
       readonly created_at: string;
       readonly updated_at: string;
+    }
+
+    export interface ClusteringConfigSetEnabled {
+      /** Enable or disable automated clustering for this project. */
+      enabled: boolean;
     }
 
     export type ClusteringConfigSetEventFiltersEventFiltersItem = { [key: string]: unknown };
@@ -28832,7 +28812,7 @@ export namespace Schemas {
       readonly id: string;
       /** @maxLength 100 */
       name: string;
-      analysis_level: AnalysisLevelEnum;
+      analysis_level: ClusteringAnalysisLevelEnum;
       /** PostHog property filters that scope this clustering job. Empty array means no filters. */
       event_filters?: ClusteringJobEventFiltersItem[];
       enabled?: boolean;
@@ -34622,11 +34602,15 @@ export namespace Schemas {
       layout: AnalyticsFragmentLayout;
     }
 
-    export interface DailyCitedRuns {
+    export interface DailyUsage {
       /** Day, in UTC. */
       readonly date: string;
       /** Support agent runs that cited knowledge on this day. */
       readonly cited_run_count: number;
+      /** Chunks written on this day. */
+      readonly chunks_ingested: number;
+      /** Knowledge searches made on this day. */
+      readonly query_count: number;
     }
 
     export type DashboardFilters = { [key: string]: unknown };
@@ -38349,9 +38333,10 @@ export namespace Schemas {
     }
 
     /**
-     * * `datasets` - datasets
-     * * `dataset_items` - dataset_items
-     * * `dataset_item_versions` - dataset_item_versions
+     * * `datasets` - Datasets
+     * * `dataset_items` - Dataset Items
+     * * `dataset_item_versions` - Dataset Item Versions
+     * * `project_dataset_item_versions` - Project Dataset Item Versions
      */
     export type DatasetConflictResponseResourceEnum = typeof DatasetConflictResponseResourceEnum[keyof typeof DatasetConflictResponseResourceEnum];
 
@@ -38360,6 +38345,7 @@ export namespace Schemas {
       Datasets: 'datasets',
       DatasetItems: 'dataset_items',
       DatasetItemVersions: 'dataset_item_versions',
+      ProjectDatasetItemVersions: 'project_dataset_item_versions',
     } as const;
 
     export interface DatasetConflictResponse {
@@ -38387,9 +38373,10 @@ export namespace Schemas {
       current_item_id?: string | null;
       /** Resource whose configured limit was reached.
        *
-       * * `datasets` - datasets
-       * * `dataset_items` - dataset_items
-       * * `dataset_item_versions` - dataset_item_versions */
+       * * `datasets` - Datasets
+       * * `dataset_items` - Dataset Items
+       * * `dataset_item_versions` - Dataset Item Versions
+       * * `project_dataset_item_versions` - Project Dataset Item Versions */
       resource?: DatasetConflictResponseResourceEnum;
       /** Number of resources that already exist. */
       current_count?: number;
@@ -39212,6 +39199,68 @@ export namespace Schemas {
       total_billable_minutes: number | null;
       /** Pushes summed over the merged PRs in scope. */
       push_count: number;
+    }
+
+    /**
+     * * `service` - Service
+     * * `database` - Database
+     * * `queue` - Queue
+     * * `external` - External
+     */
+    export type DependencyKindEnum = typeof DependencyKindEnum[keyof typeof DependencyKindEnum];
+
+
+    export const DependencyKindEnum = {
+      Service: 'service',
+      Database: 'database',
+      Queue: 'queue',
+      External: 'external',
+    } as const;
+
+    export interface DependencyEdge {
+      /** The calling service. */
+      caller: string;
+      /** The called service, or for an inferred dependency the peer service, database, queue or host it names. */
+      callee: string;
+      /** True when the callee sends no spans and is named by the caller's client span attributes. */
+      inferred: boolean;
+      /** What the callee is.
+       *
+       * * `service` - Service
+       * * `database` - Database
+       * * `queue` - Queue
+       * * `external` - External */
+      kind: DependencyKindEnum;
+      /** Calls from the caller into the callee in the window. */
+      requests: number;
+      /** Calls with an error status, on the caller's client span when it has one. */
+      error_count: number;
+      /**
+         * 95th percentile call duration in ms, on the caller's client span when it has one.
+         * @nullable
+         */
+      p95_ms: number | null;
+    }
+
+    export interface DependenciesResponse {
+      /** One edge per caller and callee, most requests first. */
+      edges: DependencyEdge[];
+      /** True when more edges matched than the response holds. */
+      truncated: boolean;
+      /**
+         * The environment filter the edges were computed for: null for every environment, empty for spans with no environment.
+         * @nullable
+         */
+      environment: string | null;
+      /**
+         * The service filter applied, if any.
+         * @nullable
+         */
+      service: string | null;
+      /** Start of the window used. */
+      date_from: string;
+      /** End of the window used. */
+      date_to: string;
     }
 
     export interface DependentFlag {
@@ -42651,8 +42700,11 @@ export namespace Schemas {
       service_name: string;
       /** The entry span name, for example the HTTP route or the job name. */
       endpoint: string;
-      /** The environment the row was computed for. */
-      environment: string;
+      /**
+         * The environment filter the row was computed for: null for every environment, empty for spans with no environment.
+         * @nullable
+         */
+      environment: string | null;
       /** Health band from the error rate.
        *
        * * `good` - Good
@@ -43021,8 +43073,11 @@ export namespace Schemas {
     export interface EndpointsHealthResponse {
       /** One row per service and endpoint, worst status first. */
       results: EndpointHealth[];
-      /** The environment the rows were computed for. */
-      environment: string;
+      /**
+         * The environment filter the rows were computed for: null for every environment, empty for spans with no environment.
+         * @nullable
+         */
+      environment: string | null;
       /**
          * The service filter applied, if any.
          * @nullable
@@ -43825,7 +43880,7 @@ export namespace Schemas {
     }
 
     /**
-     * Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}.
+     * Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. For GitHub, add resource_type 'pull_request' to link a pull request instead of an issue.
      */
     export type ErrorTrackingExternalReferenceLinkExternalContext = { [key: string]: unknown };
 
@@ -43834,7 +43889,7 @@ export namespace Schemas {
       integration_id: number;
       /** ID of the error tracking issue to link the reference to. */
       issue: string;
-      /** Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. */
+      /** Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. For GitHub, add resource_type 'pull_request' to link a pull request instead of an issue. */
       external_context: ErrorTrackingExternalReferenceLinkExternalContext;
     }
 
@@ -44249,6 +44304,8 @@ export namespace Schemas {
       sparkline?: number[];
       /** Aggregate over matching events. Returned only when includeBreakdown is true. */
       breakdown?: ErrorTrackingIssueBreakdown;
+      /** Work linked to this issue in GitHub, GitLab, Linear, or Jira, such as provider issues and GitHub pull requests, oldest first. An empty list means nothing is linked. Absent when the lookup failed. */
+      external_issues?: ErrorTrackingExternalReferenceResult[];
       /** An AI-written summary of the issue. Present only when summary_status is 'ready'. Treat likely_cause as a hypothesis, not a fact. */
       summary?: ErrorTrackingIssueSummary;
       /** 'ready' means summary is present. 'not_generated' means no summary exists for this issue. A summary is written only when an issue is created. 'unavailable' means no summary can be shown, and summary_reason says why.
@@ -45089,6 +45146,8 @@ export namespace Schemas {
       per_issue_rate_limit_bucket_size_minutes?: number | null;
       /** Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered. */
       ingestion_enabled?: boolean;
+      /** Whether PostHog writes an AI summary of each new issue in this project. Each summary uses the organization's AI credits. Setting it to true fails until the organization approves AI data processing. Setting it to false always succeeds. */
+      ai_issue_summaries_enabled?: boolean;
     }
 
     /**
@@ -45671,7 +45730,7 @@ export namespace Schemas {
       readonly applies: boolean;
       /** Catalog template or adapted check the suggestion comes from. Empty for fix_eval. */
       readonly template_key: string;
-      /** A short, stable name for the issue, such as 'Unrecovered tool or model failures'. For fix_eval, the condition observed on the evaluation. It carries no counts; `observation` does. */
+      /** A short, stable name for the issue, such as 'Tool or model calls that never succeed'. For fix_eval, the condition observed on the evaluation. It carries no counts; `observation` does. */
       readonly headline: string;
       /** One sentence on what the evaluation flags and where it applies, starting with 'Flags'. For fix_eval and fix_prompt, what was observed and the next step. */
       readonly outcome: string;
@@ -56010,6 +56069,33 @@ export namespace Schemas {
       Number2: 2,
     } as const;
 
+    export interface ReleaseRef {
+      /** ID of the release. */
+      id: string;
+      /** Name of the release. */
+      name: string;
+    }
+
+    export interface ReleaseSuggestion {
+      /** ID of the release. */
+      id: string;
+      /** Name of the release. */
+      name: string;
+      /** Words the flag shares with the release's name, description or linked flags. */
+      matched_terms: string[];
+    }
+
+    export interface FlagReleases {
+      /** ID of the feature flag. */
+      feature_flag_id: number;
+      /** True when this project puts each new flag in a release of its own about a minute after it is created, unless the flag is already in a release. */
+      auto_release: boolean;
+      /** Releases that already link this flag. */
+      current: ReleaseRef[];
+      /** Up to 5 existing releases this flag probably belongs to, best match first. Empty when nothing matches. */
+      suggestions: ReleaseSuggestion[];
+    }
+
     export interface FlagValueItem {
       name: unknown;
     }
@@ -61752,6 +61838,8 @@ export namespace Schemas {
       Rate: 'rate',
       Increase: 'increase',
       HistogramQuantile: 'histogram_quantile',
+      CountRate: 'count_rate',
+      CountIncrease: 'count_increase',
     } as const;
 
     export interface MetricsQueryGroupBy {
@@ -62088,6 +62176,8 @@ export namespace Schemas {
       filterGroup?: PropertyGroupFilter | null;
       /** Return the matching spans themselves, one row per span (root and child), instead of the whole-trace grouping. Streams the matches under `ORDER BY … LIMIT` rather than grouping every matching span by trace, so a filter on a hot child attribute (e.g. `code.filepath`) stays bounded. Distinct from `rootSpans`, which scopes whole-trace selection. The single-trace waterfall never sets this. */
       flatSpans?: boolean | null;
+      /** Include each span's OpenTelemetry events. The column is large, so only set this on small lists */
+      includeEvents?: boolean | null;
       kind?: 'TraceSpansQuery';
       limit?: number | null;
       /** Modifiers used when performing the query */
@@ -67335,8 +67425,11 @@ export namespace Schemas {
          * @maxLength 40
          */
       label: string;
-      /** The library this key reads. It cannot be changed later. */
-      library_id: string;
+      /**
+         * The library this key reads. Send null for a key that reads all business knowledge in the project. It cannot be changed later.
+         * @nullable
+         */
+      library_id: string | null;
     }
 
     export interface KnowledgeLibrary {
@@ -67569,6 +67662,13 @@ export namespace Schemas {
       readonly safety_verdict: SafetyVerdictEnum;
     }
 
+    export interface SurfaceUsage {
+      /** Where the usage came from. For chunks: text, url, file, or generated (learned from a support ticket). For searches: api (the API and MCP), support, posthog_ai, or learning. */
+      readonly surface: string;
+      /** Usage from this surface in the period. */
+      readonly total: number;
+    }
+
     export interface SourceUsage {
       /** ID of the knowledge source. */
       readonly source_id: string;
@@ -67583,7 +67683,7 @@ export namespace Schemas {
     }
 
     /**
-     * How much support agent runs used the knowledge base in a period.
+     * How much the knowledge base was used in a period: ingestion, searches, and support agent citations.
      */
     export interface KnowledgeUsage {
       /** Number of days the report covers, today included. */
@@ -67596,8 +67696,16 @@ export namespace Schemas {
       readonly source_count: number;
       /** Knowledge sources that at least one run cited in the period. */
       readonly cited_source_count: number;
+      /** Chunks written in the period. Content that a refresh finds changed is chunked again and counts again. */
+      readonly chunks_ingested: number;
+      /** Knowledge searches made in the period, from every surface. */
+      readonly query_count: number;
+      /** Chunks written in the period by source type, largest first. */
+      readonly chunks_by_surface: readonly SurfaceUsage[];
+      /** Searches in the period by where they came from, largest first. */
+      readonly queries_by_surface: readonly SurfaceUsage[];
       /** One entry per day, oldest first. */
-      readonly daily: readonly DailyCitedRuns[];
+      readonly daily: readonly DailyUsage[];
       /** The most cited sources in the period, most cited first. */
       readonly top_sources: readonly SourceUsage[];
     }
@@ -71720,7 +71828,7 @@ export namespace Schemas {
     } as const;
 
     export interface MCPRecurringIntent {
-      /** The intent text repeated verbatim across sessions. Empty when intent text is redacted. */
+      /** The most common wording of this automation step. Empty when intent text is redacted. */
       readonly intent_text: string;
       /** Sessions in the window that opened with this intent. */
       readonly session_count: number;
@@ -71730,6 +71838,10 @@ export namespace Schemas {
       readonly error_count: number;
       /** Error rate across those sessions' tool calls, from 0 to 100. */
       readonly error_rate_pct: number;
+      /** How many different wordings of this automation step were merged into the entry. 1 when none were. */
+      readonly variant_count: number;
+      /** Up to five merged wordings, most common first. Empty when nothing was merged or intent text is redacted. */
+      readonly sample_variants: readonly string[];
     }
 
     export interface MCPToolPivotCompetitor {
@@ -73889,6 +74001,36 @@ export namespace Schemas {
     }
 
     /**
+     * * `sum` - sum
+     * * `avg` - avg
+     * * `count` - count
+     * * `min` - min
+     * * `max` - max
+     * * `p95` - p95
+     * * `rate` - rate
+     * * `increase` - increase
+     * * `histogram_quantile` - histogram_quantile
+     * * `count_rate` - count_rate
+     * * `count_increase` - count_increase
+     */
+    export type MetricAnomalyAggregationEnum = typeof MetricAnomalyAggregationEnum[keyof typeof MetricAnomalyAggregationEnum];
+
+
+    export const MetricAnomalyAggregationEnum = {
+      Sum: 'sum',
+      Avg: 'avg',
+      Count: 'count',
+      Min: 'min',
+      Max: 'max',
+      P95: 'p95',
+      Rate: 'rate',
+      Increase: 'increase',
+      HistogramQuantile: 'histogram_quantile',
+      CountRate: 'count_rate',
+      CountIncrease: 'count_increase',
+    } as const;
+
+    /**
      * * `up` - up
      * * `down` - down
      * * `flat` - flat
@@ -73922,6 +74064,34 @@ export namespace Schemas {
     }
 
     /**
+     * * `at_least` - At least the target
+     * * `at_most` - At most the target
+     */
+    export type ReleaseGoalDirectionEnum = typeof ReleaseGoalDirectionEnum[keyof typeof ReleaseGoalDirectionEnum];
+
+
+    export const ReleaseGoalDirectionEnum = {
+      AtLeast: 'at_least',
+      AtMost: 'at_most',
+    } as const;
+
+    export interface MetricGoal {
+      /**
+         * ID of the metric insight the goal is for.
+         * @minimum 1
+         * @maximum 2147483647
+         */
+      insight_id: number;
+      /** at_least when the metric should reach the value, at_most when it should stay at or below it.
+       *
+       * * `at_least` - At least the target
+       * * `at_most` - At most the target */
+      direction: ReleaseGoalDirectionEnum;
+      /** Target value of the metric. */
+      value: number;
+    }
+
+    /**
      * * `precise` - Precise
      * * `coarse` - Coarse
      * * `partial` - Partial
@@ -73946,6 +74116,8 @@ export namespace Schemas {
      * * `rate` - rate
      * * `increase` - increase
      * * `histogram_quantile` - histogram_quantile
+     * * `count_rate` - count_rate
+     * * `count_increase` - count_increase
      */
     export type MetricQueryAggregationEnum = typeof MetricQueryAggregationEnum[keyof typeof MetricQueryAggregationEnum];
 
@@ -73961,6 +74133,8 @@ export namespace Schemas {
       Rate: 'rate',
       Increase: 'increase',
       HistogramQuantile: 'histogram_quantile',
+      CountRate: 'count_rate',
+      CountIncrease: 'count_increase',
     } as const;
 
     /**
@@ -80925,6 +81099,10 @@ export namespace Schemas {
       readonly insights: readonly LinkedInsightDTO[];
       /** ID, name and status of each linked broadcast the caller can see. Deleted broadcasts are left out. */
       readonly broadcasts: readonly LinkedBroadcastDTO[];
+      /** IDs of the insights that are the release's metrics. The first is the primary metric. */
+      readonly metric_insight_ids: readonly number[];
+      /** Target for each metric that has one. Metrics without a goal are left out. */
+      readonly metric_goals: readonly MetricGoal[];
       /** True when the release links flags the caller cannot see. Their IDs are left out of feature_flag_ids. */
       readonly has_hidden_flags: boolean;
       id: string;
@@ -82201,6 +82379,12 @@ export namespace Schemas {
       SourceSuggestion: 'source_suggestion',
     } as const;
 
+    /**
+     * * `user` - User
+     * * `task` - Task
+     * * `agent` - Agent
+     * * `system` - System
+     */
     export type SignalActorKindEnum = typeof SignalActorKindEnum[keyof typeof SignalActorKindEnum];
 
 
@@ -82690,6 +82874,110 @@ export namespace Schemas {
       reason: string;
     }
 
+    export interface ReportDecisionSetBy {
+      /** Who set the value. `user`: a person in PostHog. `agent`: a person's external coding agent. `task`: a PostHog agent task, such as report research. `system`: the pipeline, or an older row with no recorded attribution.
+       *
+       * * `user` - User
+       * * `task` - Task
+       * * `agent` - Agent
+       * * `system` - System */
+      kind: SignalActorKindEnum;
+      /** The person who set the value, or whose external agent did. Null for task and system writes. */
+      user: _User | null;
+      /**
+         * External agent client name when kind is `agent`, otherwise null.
+         * @nullable
+         */
+      agent: string | null;
+      /**
+         * PostHog task that set the value when kind is `task`.
+         * @nullable
+         */
+      task_id: string | null;
+    }
+
+    export interface ReportRepositoryDecision {
+      /**
+         * The reason stored with the value by whoever set it. Null when none was stored.
+         * @nullable
+         */
+      reason: string | null;
+      /** Who set the current value. */
+      set_by: ReportDecisionSetBy;
+      /** When the current value was set. */
+      set_at: string;
+      /**
+         * 'owner/repo' the report's work targets. Null when repository selection chose no repository.
+         * @nullable
+         */
+      value: string | null;
+    }
+
+    export interface ReportPriorityDecision {
+      /**
+         * The reason stored with the value by whoever set it. Null when none was stored.
+         * @nullable
+         */
+      reason: string | null;
+      /** Who set the current value. */
+      set_by: ReportDecisionSetBy;
+      /** When the current value was set. */
+      set_at: string;
+      /** Report priority, from P0 (critical) to P4.
+       *
+       * * `P0` - P0
+       * * `P1` - P1
+       * * `P2` - P2
+       * * `P3` - P3
+       * * `P4` - P4 */
+      value: AutonomyPriorityEnum | null;
+    }
+
+    export interface ReportActionabilityDecision {
+      /**
+         * The reason stored with the value by whoever set it. Null when none was stored.
+         * @nullable
+         */
+      reason: string | null;
+      /** Who set the current value. */
+      set_by: ReportDecisionSetBy;
+      /** When the current value was set. */
+      set_at: string;
+      /**
+         * `immediately_actionable`, `requires_human_input`, or `not_actionable`: whether the report can be acted on now, needs a person's input first, or needs no action.
+         * @nullable
+         */
+      value: string | null;
+    }
+
+    export interface ReportAlreadyAddressedDecision {
+      /**
+         * The reason stored with the value by whoever set it. Null when none was stored.
+         * @nullable
+         */
+      reason: string | null;
+      /** Who set the current value. */
+      set_by: ReportDecisionSetBy;
+      /** When the current value was set. */
+      set_at: string;
+      /**
+         * Whether the issue is already fixed, or has a fix in flight that someone else is working on.
+         * @nullable
+         */
+      value: boolean | null;
+    }
+
+    export interface ReportDecisions {
+      /** From the latest repo_selection artefact. Null when there is none. */
+      repository: ReportRepositoryDecision | null;
+      /** From the latest priority_judgment artefact. Null when there is none. */
+      priority: ReportPriorityDecision | null;
+      /** From the latest actionability_judgment artefact. Null when there is none. */
+      actionability: ReportActionabilityDecision | null;
+      /** From the latest actionability_judgment artefact, so it shares the reason and the setter with actionability. Null when there is none. */
+      already_addressed: ReportAlreadyAddressedDecision | null;
+    }
+
     export type SignalReportSuppressionSourceEnum = typeof SignalReportSuppressionSourceEnum[keyof typeof SignalReportSuppressionSourceEnum];
 
 
@@ -83164,6 +83452,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly already_addressed: boolean | null;
+      /** The current value of each decision made about the report (repository, priority, actionability, already addressed), with the reason stored with it and who set it. Always null in list responses. */
+      readonly decisions: ReportDecisions | null;
       /**
          * Reason code from the latest dismissal artefact, set when the report was suppressed (when present).
          * @nullable
@@ -88797,7 +89087,7 @@ export namespace Schemas {
       readonly id?: string;
       /** @maxLength 100 */
       name?: string;
-      analysis_level?: AnalysisLevelEnum;
+      analysis_level?: ClusteringAnalysisLevelEnum;
       /** PostHog property filters that scope this clustering job. Empty array means no filters. */
       event_filters?: PatchedClusteringJobEventFiltersItem[];
       enabled?: boolean;
@@ -90307,6 +90597,8 @@ export namespace Schemas {
       per_issue_rate_limit_bucket_size_minutes?: number | null;
       /** Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered. */
       ingestion_enabled?: boolean;
+      /** Whether PostHog writes an AI summary of each new issue in this project. Each summary uses the organization's AI credits. Setting it to true fails until the organization approves AI data processing. Setting it to false always succeeds. */
+      ai_issue_summaries_enabled?: boolean;
     }
 
     /**
@@ -98112,6 +98404,18 @@ export namespace Schemas {
          * @items.maximum 2147483647
          */
       insight_ids?: number[];
+      /**
+         * IDs of the saved trends insights that are the release's metrics, at most 5. The first is the primary metric, the rest are secondary. Replaces the current list.
+         * @maxItems 5
+         * @items.minimum 1
+         * @items.maximum 2147483647
+         */
+      metric_insight_ids?: number[];
+      /**
+         * Targets for the release's metrics, at most one per metric. Each insight_id must be one of the metric_insight_ids. Replaces the current goals.
+         * @maxItems 5
+         */
+      metric_goals?: MetricGoal[];
     }
 
     /**
@@ -109067,6 +109371,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly already_addressed: boolean | null;
+      /** The current value of each decision made about the report (repository, priority, actionability, already addressed), with the reason stored with it and who set it. Always null in list responses. */
+      readonly decisions: ReportDecisions | null;
       /**
          * Reason code from the latest dismissal artefact, set when the report was suppressed (when present).
          * @nullable
@@ -116042,8 +116348,11 @@ export namespace Schemas {
     export interface ServiceHealth {
       /** The service.name resource attribute. */
       service_name: string;
-      /** The environment the row was computed for. */
-      environment: string;
+      /**
+         * The environment filter the row was computed for: null for every environment, empty for spans with no environment.
+         * @nullable
+         */
+      environment: string | null;
       /** Health band from the error rate.
        *
        * * `good` - Good
@@ -116320,8 +116629,11 @@ export namespace Schemas {
       edges: ServiceEdge[];
       /** Traces sampled to build the map. */
       trace_count: number;
-      /** The environment the map was built for. */
-      environment: string;
+      /**
+         * The environment filter the map was built for: null for every environment, empty for spans with no environment.
+         * @nullable
+         */
+      environment: string | null;
       /** Start of the window used. */
       date_from: string;
       /** End of the window used. */
@@ -116386,10 +116698,13 @@ export namespace Schemas {
     export interface ServicesHealthResponse {
       /** One row per service, worst status first. */
       results: ServiceHealth[];
-      /** Environments seen in the window. */
-      environments: string[];
-      /** The environment the rows were computed for. */
-      environment: string;
+      /** Environments seen in the window. Null stands for spans that set no environment. */
+      environments: (string | null)[];
+      /**
+         * The environment filter the rows were computed for: null for every environment, empty for spans with no environment.
+         * @nullable
+         */
+      environment: string | null;
       /** Start of the window used. */
       date_from: string;
       /** End of the window used. */
@@ -117324,6 +117639,15 @@ export namespace Schemas {
       status: SignalReportReingestionStatusStatusEnum;
       /** Report being re-ingested. */
       report_id: string;
+    }
+
+    export interface SignalReportRepositoryUpdate {
+      /**
+         * Repository the report's work targets, in 'owner/repo' format (case-insensitive). It must be a repository the project's GitHub integration can reach. Later implementation runs use it.
+         * @minLength 1
+         * @maxLength 140
+         */
+      repository: string;
     }
 
     export interface SignalReportSearchHit {
@@ -129222,6 +129546,18 @@ export namespace Schemas {
          * @items.maximum 2147483647
          */
       insight_ids?: number[];
+      /**
+         * IDs of the saved trends insights that are the release's metrics, at most 5. The first is the primary metric, the rest are secondary. Replaces the current list.
+         * @maxItems 5
+         * @items.minimum 1
+         * @items.maximum 2147483647
+         */
+      metric_insight_ids?: number[];
+      /**
+         * Targets for the release's metrics, at most one per metric. Each insight_id must be one of the metric_insight_ids. Replaces the current goals.
+         * @maxItems 5
+         */
+      metric_goals?: MetricGoal[];
     }
 
     export interface ZendeskImportError {
@@ -130383,8 +130719,10 @@ export namespace Schemas {
        * * `p95` - p95
        * * `rate` - rate
        * * `increase` - increase
-       * * `histogram_quantile` - histogram_quantile */
-      aggregation?: AggregationEnum | null;
+       * * `histogram_quantile` - histogram_quantile
+       * * `count_rate` - count_rate
+       * * `count_increase` - count_increase */
+      aggregation?: MetricAnomalyAggregationEnum | null;
       /**
          * Quantile for histogram_quantile. Defaults to 0.95.
          * @minimum 0
@@ -130652,7 +130990,9 @@ export namespace Schemas {
        * * `p95` - p95
        * * `rate` - rate
        * * `increase` - increase
-       * * `histogram_quantile` - histogram_quantile */
+       * * `histogram_quantile` - histogram_quantile
+       * * `count_rate` - count_rate
+       * * `count_increase` - count_increase */
       aggregation?: MetricQueryAggregationEnum;
       /** Counter-aware transform applied to each series before the aggregation: 'rate' (per-second) or 'increase'. Combine with 'none' to get one rate line per series. Do not combine with the 'rate' or 'increase' aggregations.
        *
@@ -130666,6 +131006,12 @@ export namespace Schemas {
          * @nullable
          */
       quantile?: number | null;
+      /**
+         * Apdex threshold T in milliseconds for 'posthog.derived.spans.apdex': a request is satisfied at or under T and tolerating up to 4T. Defaults to 500. Ignored for other metrics.
+         * @minimum 0.001
+         * @nullable
+         */
+      apdexThresholdMs?: number | null;
       /** Label predicates ANDed together for this clause. */
       filters?: _MetricFilter[];
       /** Labels to split this clause into separate series by. */
@@ -130782,7 +131128,7 @@ export namespace Schemas {
        * * `exponential_histogram` - exponential_histogram
        * * `summary` - summary */
       metricType?: OtelMetricTypeEnum | null;
-      /** Defaults to 'sum'. Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.
+      /** Defaults to 'sum'. Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'count_rate' (per-second) and 'count_increase' are 'rate' and 'increase' over a histogram's or summary's observation count instead of its running sum, so they chart requests per second from a latency histogram; they take no 'rangeFunction'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.
        *
        * * `none` - none
        * * `sum` - sum
@@ -130793,7 +131139,9 @@ export namespace Schemas {
        * * `p95` - p95
        * * `rate` - rate
        * * `increase` - increase
-       * * `histogram_quantile` - histogram_quantile */
+       * * `histogram_quantile` - histogram_quantile
+       * * `count_rate` - count_rate
+       * * `count_increase` - count_increase */
       aggregation?: MetricQueryAggregationEnum;
       /** Counter-aware transform applied to each series before the aggregation: 'rate' (per-second) or 'increase'. Combine with 'none' to get one rate line per series. Do not combine with the 'rate' or 'increase' aggregations.
        *
@@ -130807,6 +131155,12 @@ export namespace Schemas {
          * @nullable
          */
       quantile?: number | null;
+      /**
+         * Apdex threshold T in milliseconds for 'posthog.derived.spans.apdex': a request is satisfied at or under T and tolerating up to 4T. Defaults to 500. Ignored for other metrics.
+         * @minimum 0.001
+         * @nullable
+         */
+      apdexThresholdMs?: number | null;
       /** Label predicates ANDed together. Rows must satisfy every filter. */
       filters?: _MetricFilter[];
       /** Labels to split the result into separate series by. Series share one time grid and are capped at the 100 largest. */
@@ -131054,6 +131408,23 @@ export namespace Schemas {
     export type _SpanResourceAttributes = {[key: string]: string};
 
     /**
+     * Event attributes. Keys are whatever the instrumentation set.
+     */
+    export type _SpanEventAttributes = {[key: string]: string};
+
+    export interface _SpanEvent {
+      /** Event name, for example `exception`. */
+      name: string;
+      /**
+         * When the event occurred. Null when the SDK did not set a time.
+         * @nullable
+         */
+      timestamp: string | null;
+      /** Event attributes. Keys are whatever the instrumentation set. */
+      attributes: _SpanEventAttributes;
+    }
+
+    /**
      * One span row as the query and trace actions return it.
      *
      * The runner assembles these from HogQL result columns by position, so the key set is fixed even
@@ -131095,23 +131466,8 @@ export namespace Schemas {
       attributes: _SpanAttributes;
       /** Resource attributes of the emitting service. Keys are whatever the instrumentation set. */
       resource_attributes: _SpanResourceAttributes;
-    }
-
-    /**
-     * Event attributes. Keys are whatever the instrumentation set.
-     */
-    export type _SpanEventAttributes = {[key: string]: string};
-
-    export interface _SpanEvent {
-      /** Event name, for example `exception`. */
-      name: string;
-      /**
-         * When the event occurred. Null when the SDK did not set a time.
-         * @nullable
-         */
-      timestamp: string | null;
-      /** Event attributes. Keys are whatever the instrumentation set. */
-      attributes: _SpanEventAttributes;
+      /** OpenTelemetry span events, earliest first. The trace action returns them, and list queries only with `includeEvents`. Omitted when `excludeAttributes` is true. */
+      events?: _SpanEvent[];
     }
 
     /**
@@ -131358,7 +131714,7 @@ export namespace Schemas {
     export type _TraceSpanResourceAttributes = {[key: string]: string};
 
     /**
-     * A span in a single trace. The trace action adds self time and span events, which the list does not return.
+     * A span in a single trace. The trace action adds self time, which the list does not return.
      */
     export interface _TraceSpan {
       /** Span's own UUID. */
@@ -131395,10 +131751,10 @@ export namespace Schemas {
       attributes: _TraceSpanAttributes;
       /** Resource attributes of the emitting service. Keys are whatever the instrumentation set. */
       resource_attributes: _TraceSpanResourceAttributes;
+      /** OpenTelemetry span events, earliest first. The trace action returns them, and list queries only with `includeEvents`. Omitted when `excludeAttributes` is true. */
+      events?: _SpanEvent[];
       /** Span duration minus the time spent in its children, in nanoseconds. */
       self_time_nano: number;
-      /** OpenTelemetry span events, earliest first. Omitted when `excludeAttributes` is true. */
-      events?: _SpanEvent[];
     }
 
     /**
@@ -131868,6 +132224,8 @@ export namespace Schemas {
       prefetchSpans?: number;
       /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
       excludeAttributes?: boolean;
+      /** Include each span's OpenTelemetry events, such as recorded exceptions. The events are large, so keep `limit` small. Ignored when `excludeAttributes` is true. Defaults to false. */
+      includeEvents?: boolean;
     }
 
     export interface _TracingQueryRequest {
@@ -135239,6 +135597,28 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type ApmDependenciesListParams = {
+    /**
+     * Start of the window, ISO 8601. Defaults to one hour before date_to.
+     */
+    date_from?: string;
+    /**
+     * End of the window, ISO 8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Environment to list, as resolved from span resource attributes. Omit it for every environment. Pass an empty value for spans that set no environment.
+     * @maxLength 200
+     */
+    environment?: string;
+    /**
+     * Only edges where this service is the caller or the callee.
+     * @minLength 1
+     * @maxLength 400
+     */
+    service?: string;
+    };
+
     export type ApmEndpointsListParams = {
     /**
      * Start of the window, ISO 8601. Defaults to one hour before date_to.
@@ -135249,8 +135629,7 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
-     * Environment to list, as resolved from span resource attributes. Defaults to 'default'.
-     * @minLength 1
+     * Environment to list, as resolved from span resource attributes. Omit it for every environment. Pass an empty value for spans that set no environment.
      * @maxLength 200
      */
     environment?: string;
@@ -135272,8 +135651,7 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
-     * Environment to list, as resolved from span resource attributes. Defaults to 'default'.
-     * @minLength 1
+     * Environment to list, as resolved from span resource attributes. Omit it for every environment. Pass an empty value for spans that set no environment.
      * @maxLength 200
      */
     environment?: string;
@@ -135289,8 +135667,7 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
-     * Environment to list, as resolved from span resource attributes. Defaults to 'default'.
-     * @minLength 1
+     * Environment to list, as resolved from span resource attributes. Omit it for every environment. Pass an empty value for spans that set no environment.
      * @maxLength 200
      */
     environment?: string;
@@ -139920,7 +140297,7 @@ export namespace Schemas {
      */
     repository?: string;
     /**
-     * Text to match against existing issue titles or identifiers in the provider. GitHub matches titles as an exact phrase. Leave blank for recent issues.
+     * Text to match against existing issue titles or identifiers in the provider. GitHub matches titles as an exact phrase and returns issues only, not pull requests. Leave blank for recent issues.
      */
     search?: string;
     };
@@ -145948,6 +146325,11 @@ export namespace Schemas {
      */
     cursor?: string;
     /**
+     * Only releases that link this feature flag.
+     * @minimum 1
+     */
+    feature_flag_id?: number;
+    /**
      * How many releases to return, at most 100.
      * @minimum 1
      * @maximum 100
@@ -145971,6 +146353,14 @@ export namespace Schemas {
      * @maxLength 200
      */
     search?: string;
+    };
+
+    export type ReleasesFlagSuggestionsRetrieveParams = {
+    /**
+     * ID of the feature flag to find releases for.
+     * @minimum 1
+     */
+    feature_flag_id: number;
     };
 
     export type SandboxCustomImagesListParams = {
