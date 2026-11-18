@@ -14,6 +14,7 @@ import posthoganalytics
 
 from posthog.event_usage import AnalyticsProps, groups
 from posthog.integrations import IntegrationManager, IntegrationRecord
+from posthog.models.user import User
 from posthog.paging import Page, PageRequest
 from posthog.queryset_paging import select_page
 
@@ -202,21 +203,24 @@ def query_new_error_issues(period_start: datetime, period_end: datetime) -> Quer
     )
 
 
-def get_issue(issue_id: UUID, team_id: int, *, with_tags: bool = False) -> contracts.ErrorTrackingIssue:
+def get_issue(issue_id: UUID, team_id: int, *, with_tags_for: User | None = None) -> contracts.ErrorTrackingIssue:
+    """The issue, with the tags that `with_tags_for` can see when it is given."""
     issue = logic.get_issue(issue_id=issue_id, team_id=team_id)
-    definitions = issue_tag_enabled.enabled_issue_tag_definitions(team_id) if with_tags else ()
+    definitions = (
+        issue_tag_enabled.enabled_issue_tag_definitions(team_id, with_tags_for) if with_tags_for is not None else ()
+    )
     if not definitions:
         return _to_issue(issue)
     tags = issue_tag_reader.tags_by_issue(team_id, [issue.id], definitions).get(str(issue.id), [])
     return _to_issue(issue, tags=tags)
 
 
-def list_issue_tag_definitions(team_id: int) -> list[contracts.ErrorTrackingIssueTagDefinition]:
+def list_issue_tag_definitions(team_id: int, user: User) -> list[contracts.ErrorTrackingIssueTagDefinition]:
     return [
         contracts.ErrorTrackingIssueTagDefinition(
             key=definition.key, label=definition.label, description=definition.description
         )
-        for definition in issue_tag_enabled.enabled_issue_tag_definitions(team_id)
+        for definition in issue_tag_enabled.enabled_issue_tag_definitions(team_id, user)
     ]
 
 

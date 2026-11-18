@@ -4,8 +4,10 @@ import random
 import typing
 import asyncio
 import datetime as dt
+import contextlib
 import collections
 import dataclasses
+from collections.abc import Iterator
 
 from django.conf import settings
 from django.db import transaction
@@ -14,6 +16,7 @@ import pyarrow as pa
 import deltalake
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
+from opentelemetry import trace
 from pyarrow.lib import concat_batches
 from structlog.contextvars import bind_contextvars
 from structlog.types import FilteringBoundLogger
@@ -92,6 +95,7 @@ from products.warehouse_sources.backend.facade.pipelines import CDPProducer
 from products.warehouse_sources.backend.facade.temporal import AccountPropertyRowSink, PersonPropertyRowSink
 
 LOGGER = get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 MB_100_IN_BYTES = 100 * 1000 * 1000
 
@@ -174,6 +178,7 @@ def _plan_prompt_jev(
     return planned
 
 
+@tracer.start_as_current_span("materialize_view.describe")
 async def _describe_columns(
     printed: str,
     query_parameters: dict[str, typing.Any],
@@ -637,6 +642,19 @@ async def _write_empty_parquet_for_zero_rows(table_uri: str, schema: pa.Schema, 
     return file_uri
 
 
+@contextlib.contextmanager
+def _span_kept_out_of_context(name: str) -> Iterator[trace.Span]:
+    span = tracer.start_span(name)
+    try:
+        yield span
+    except Exception as error:
+        span.record_exception(error)
+        span.set_status(trace.Status(trace.StatusCode.ERROR, f"{type(error).__name__}: {error}"))
+        raise
+    finally:
+        span.end()
+
+
 async def hogql_table(
     query: str,
     team: Team,
@@ -688,14 +706,15 @@ async def hogql_table(
         )
 
     factory = bounded_resolver_factory_for_view(view_name)
-    prepared_hogql_query = await database_sync_to_async_pool(prepare_ast_for_printing)(
-        query_node,
-        context=context,
-        dialect="clickhouse",
-        settings=settings,
-        stack=[],
-        resolver_factory=factory,
-    )
+    with tracer.start_as_current_span("materialize_view.prepare_describe_query"):
+        prepared_hogql_query = await database_sync_to_async_pool(prepare_ast_for_printing)(
+            query_node,
+            context=context,
+            dialect="clickhouse",
+            settings=settings,
+            stack=[],
+            resolver_factory=factory,
+        )
     if prepared_hogql_query is None:
         raise EmptyHogQLResponseColumnsError()
 
@@ -808,14 +827,15 @@ async def hogql_table(
 
     # each prepare pass owns its deadline clock, so the DESCRIBE round trip above is not charged
     # to view resolution
-    arrow_prepared_hogql_query = await database_sync_to_async_pool(prepare_ast_for_printing)(
-        query_node,
-        context=context,
-        dialect="clickhouse",
-        stack=[],
-        settings=settings,
-        resolver_factory=bounded_resolver_factory_for_view(view_name),
-    )
+    with tracer.start_as_current_span("materialize_view.prepare_arrow_query"):
+        arrow_prepared_hogql_query = await database_sync_to_async_pool(prepare_ast_for_printing)(
+            query_node,
+            context=context,
+            dialect="clickhouse",
+            stack=[],
+            settings=settings,
+            resolver_factory=bounded_resolver_factory_for_view(view_name),
+        )
 
     if arrow_prepared_hogql_query is None:
         raise EmptyHogQLResponseColumnsError()
@@ -842,7 +862,7 @@ async def hogql_table(
             nonlocal arrow_schema
             arrow_schema = schema
 
-        with tags_context(**context.read_tags()):
+        with tags_context(**context.read_tags()), _span_kept_out_of_context("materialize_view.clickhouse_stream"):
             async for batch in client.astream_query_as_arrow(
                 arrow_printed,
                 query_parameters=context.values,
@@ -1035,6 +1055,10 @@ def _reason_to_record(job: DataModelingJob, plan: WritePlan) -> str | None:
     return plan.reason
 
 
+def _batch_span(name: str, batch: pa.RecordBatch) -> contextlib.AbstractContextManager[trace.Span]:
+    return tracer.start_as_current_span(name, attributes={"rows": batch.num_rows, "bytes": batch.nbytes})
+
+
 async def _materialize_fully(
     objects: MatviewInputObjects,
     plan: WritePlan,
@@ -1091,26 +1115,27 @@ async def _materialize_fully(
                 await asyncio.to_thread(tracker.check, batch)
             await _stage_person_property_batch(person_property_sink, batch_index, batch, fatal=False)
             batch_index += 1
-            if delta_table is None:
-                pa_schema = batch.schema
-                await asyncio.to_thread(
-                    deltalake.write_deltalake,
-                    table_or_uri=table_uri,
-                    data=batch,
-                    mode="overwrite",
-                    schema_mode="overwrite",
-                    storage_options=storage_options,
-                )
-                delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
-            else:
-                await asyncio.to_thread(
-                    deltalake.write_deltalake,
-                    table_or_uri=delta_table,
-                    data=batch,
-                    mode="append",
-                    schema_mode="merge",
-                    storage_options=storage_options,
-                )
+            with _batch_span("materialize_view.write_batch", batch):
+                if delta_table is None:
+                    pa_schema = batch.schema
+                    await asyncio.to_thread(
+                        deltalake.write_deltalake,
+                        table_or_uri=table_uri,
+                        data=batch,
+                        mode="overwrite",
+                        schema_mode="overwrite",
+                        storage_options=storage_options,
+                    )
+                    delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
+                else:
+                    await asyncio.to_thread(
+                        deltalake.write_deltalake,
+                        table_or_uri=delta_table,
+                        data=batch,
+                        mode="append",
+                        schema_mode="merge",
+                        storage_options=storage_options,
+                    )
             # Staged only once the batch is committed: a run that announces rows it then fails to write
             # cannot take the announcement back.
             await cdp_sink.stage(batch)
@@ -1127,7 +1152,7 @@ async def _materialize_fully(
     file_uris: list[str] = []
     if delta_table is not None:
         await logger.ainfo("Compacting delta table")
-        await asyncio.to_thread(delta_table.optimize.compact)
+        await _compact(delta_table)
         await _vacuum(delta_table, logger)
         file_uris = delta_table.file_uris()
         if not file_uris and row_count == 0 and pa_schema is not None:
@@ -1202,14 +1227,15 @@ async def _materialize_incrementally(
             await _stage_person_property_batch(person_property_sink, batch_index, batch, fatal=True)
             batch_index += 1
 
-            stats = await asyncio.to_thread(
-                upsert_batch,
-                table_uri,
-                storage_options,
-                batch,
-                config.unique_key,
-                commit_metadata={"posthog_job_id": str(objects.job.id)},
-            )
+            with _batch_span("materialize_view.upsert_batch", batch):
+                stats = await asyncio.to_thread(
+                    upsert_batch,
+                    table_uri,
+                    storage_options,
+                    batch,
+                    config.unique_key,
+                    commit_metadata={"posthog_job_id": str(objects.job.id)},
+                )
             await logger.ainfo("Upserted batch into delta table", **upsert_stats_fields(stats))
             await cdp_sink.stage(batch)
 
@@ -1250,7 +1276,7 @@ async def _materialize_incrementally(
     file_uris = delta_table.file_uris()
     if len(file_uris) > INCREMENTAL_COMPACT_FILE_THRESHOLD:
         await logger.ainfo(f"Compacting delta table ({len(file_uris)} files)")
-        await asyncio.to_thread(delta_table.optimize.compact)
+        await _compact(delta_table)
     await _vacuum(delta_table, logger)
 
     # Re-listed after maintenance: compaction rewrites files, so the pre-compaction list would
@@ -1258,6 +1284,12 @@ async def _materialize_incrementally(
     return row_count, delta_table.file_uris()
 
 
+@tracer.start_as_current_span("materialize_view.compact")
+async def _compact(delta_table: deltalake.DeltaTable) -> None:
+    await asyncio.to_thread(delta_table.optimize.compact)
+
+
+@tracer.start_as_current_span("materialize_view.vacuum")
 async def _vacuum(delta_table: deltalake.DeltaTable, logger: FilteringBoundLogger) -> None:
     """Full vacuum, not the delta-rs 1.x default of lite.
 
@@ -1329,6 +1361,8 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     objects = await _get_matview_input_objects(inputs)
     bind_data_modeling_log_context(inputs.team_id, objects.saved_query.id)
     tag_queries(materialized_saved_query_id=str(objects.saved_query.id))
+    activity_span = trace.get_current_span()
+    activity_span.set_attributes({"team_id": inputs.team_id, "saved_query_id": str(objects.saved_query.id)})
     await logger.ainfo(f"Starting materialization for node {objects.node.name}")
 
     table_uri = _build_model_table_uri(objects.team.pk, objects.saved_query.id.hex, objects.saved_query.storage_name)
@@ -1353,6 +1387,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     objects.job.run_mode = (
         DataModelingJob.RunMode.INCREMENTAL if plan.incremental else DataModelingJob.RunMode.FULL_REFRESH
     )
+    activity_span.set_attribute("incremental", plan.incremental)
     objects.job.full_refresh_reason = _reason_to_record(objects.job, plan)
     await database_sync_to_async_pool(objects.job.save)()
 
@@ -1419,6 +1454,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                 await cdp_sink.discard()
                 raise
 
+            activity_span.set_attribute("rows_materialized", row_count)
             await logger.ainfo(f"Materialized node {objects.node.name} with {row_count} rows")
         quality_audit = await database_sync_to_async_pool(data_quality_facade.quality_audit_mode)(
             inputs.team_id, str(objects.saved_query.id)

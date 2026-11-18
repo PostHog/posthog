@@ -18,7 +18,7 @@ flag for every team, and builds the agent skills bundle.
 ## Test egress identity
 
 Run `go -C products/tasks/services/egress-proxy test -race ./...` from the repository root.
-See the [egress README](../../products/tasks/services/egress-proxy/README.md) for behavior and limits.
+See the [egress README](../../products/tasks/services/egress-proxy/README.md) for local and Temporal cloud probes, behavior and limits.
 
 ## GitHub App
 
