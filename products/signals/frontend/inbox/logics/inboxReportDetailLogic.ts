@@ -80,6 +80,7 @@ import {
 } from '../components/detail/reviewerDisplay'
 import {
     captureInboxReportAction,
+    captureInboxReportDecisionChanged,
     captureInboxReportFeedback,
     captureInboxReportFeedbackNote,
     InboxReportActionSurface,
@@ -91,6 +92,7 @@ import { EnrichedReviewer, ReviewerRemoval, SignalReport, SignalReportArtefact, 
 import { ChartPlacements, resolveChartPlacements } from '../utils/chartPlacement'
 import { implementationClaimDisabledReason } from '../utils/reportActions'
 import { isReportClaimable, reportClaimant, requestReportClaim, teammateClaimHolder } from '../utils/reportClaim'
+import { ReportDecisionAttributions, reportDecisionAttributions } from '../utils/reportDecisions'
 import { reportPullRequests, primaryReportPullRequest, type ReportPullRequest } from '../utils/reportPullRequests'
 import { withInboxWriteTimeout } from '../utils/writeTimeout'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
@@ -345,6 +347,7 @@ export interface inboxReportDetailLogicValues {
     chartsById: Map<string, ReportChartApi>
     claimSaving: boolean
     currentUserGithubLogin: string | null
+    decisionAttributions: ReportDecisionAttributions | null
     detailTab: ReportDetailTab
     diffArtefactId: string | null
     displayReviewers: EnrichedReviewer[] | null
@@ -827,6 +830,7 @@ export interface inboxReportDetailLogicMeta {
         trailingCharts: (reportCharts: ReportChartApi[], chartPlacements: ChartPlacements) => ReportChartApi[]
         priorityExplanation: (reportArtefacts: SignalReportArtefact[] | null) => string | null
         actionabilityExplanation: (reportArtefacts: SignalReportArtefact[] | null) => string | null
+        decisionAttributions: (reportArtefacts: SignalReportArtefact[] | null) => ReportDecisionAttributions | null
         displayReviewers: (
             reportReviewers: EnrichedReviewer[] | null,
             optimisticReviewers: EnrichedReviewer[] | null,
@@ -1612,6 +1616,11 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             (reportArtefacts: SignalReportArtefact[] | null): string | null =>
                 latestJudgmentExplanation(reportArtefacts, 'actionability_judgment'),
         ],
+        decisionAttributions: [
+            (s) => [s.reportArtefacts],
+            (reportArtefacts: SignalReportArtefact[] | null): ReportDecisionAttributions | null =>
+                reportArtefacts === null ? null : reportDecisionAttributions(reportArtefacts),
+        ],
         // The reviewer list to render: optimistic override (if any) wins over the artefact-derived list,
         // then the current user is pinned to the top. Mirrors desktop `displayReviewers`.
         displayReviewers: [
@@ -1790,6 +1799,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             if (!teamId || !currentReport || values.prioritySaving || currentReport.priority === priority) {
                 return
             }
+            const previousAttribution = values.decisionAttributions?.priority ?? null
             actions.setPrioritySaving(true)
             let updated: SignalReportApi
             try {
@@ -1804,6 +1814,14 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 }
                 return
             }
+            captureInboxReportDecisionChanged({
+                report: currentReport,
+                decision: 'priority',
+                previousValue: currentReport.priority ?? null,
+                newValue: priority,
+                previousSetBy: previousAttribution ? (previousAttribution.person ? 'person' : 'agent') : null,
+                surface: 'detail_pane',
+            })
             inboxBulkActionsLogic.findMounted()?.actions.reportStateChanged()
             if (!inboxReportDetailLogic.isMounted(props)) {
                 return

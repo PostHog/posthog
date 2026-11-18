@@ -30,6 +30,7 @@ import { CatalogUsageSection } from './CatalogUsageSection'
 import { dataCatalogAttentionLogic } from './dataCatalogAttentionLogic'
 import { DataCatalogTab, dataCatalogSceneLogic } from './dataCatalogSceneLogic'
 import { CatalogDataQualitySection } from './dataQuality/CatalogDataQualitySection'
+import { CatalogGovernanceSection } from './governance/CatalogGovernanceSection'
 import { CatalogMetricsSection } from './metrics/CatalogMetricsSection'
 import { CatalogRelationshipsSection } from './relationships/CatalogRelationshipsSection'
 import { CatalogSuggestionsBinding } from './suggestions/CatalogSuggestionsBinding'
@@ -45,7 +46,14 @@ const OVERFLOW_BREAKPOINTS: { showTab: string; hideMoreButton: string }[] = [
     { showTab: 'hidden @xl:flex', hideMoreButton: '@xl:hidden' },
     { showTab: 'hidden @2xl:flex', hideMoreButton: '@2xl:hidden' },
     { showTab: 'hidden @3xl:flex', hideMoreButton: '@3xl:hidden' },
+    { showTab: 'hidden @4xl:flex', hideMoreButton: '@4xl:hidden' },
 ]
+// A section past the last breakpoint stays in the More menu at every width.
+const ALWAYS_IN_MORE = { showTab: 'hidden', hideMoreButton: '' }
+
+function overflowBreakpoint(index: number): { showTab: string; hideMoreButton: string } {
+    return OVERFLOW_BREAKPOINTS[index] ?? ALWAYS_IN_MORE
+}
 
 const SECTION_LABELS: Record<DataCatalogTab, string> = {
     overview: 'Overview',
@@ -57,9 +65,10 @@ const SECTION_LABELS: Record<DataCatalogTab, string> = {
     certifications: 'Certifications',
     usage: 'Usage',
     suggestions: 'Suggestions',
+    governance: 'Governance',
 }
 
-const WAREHOUSE_SECTIONS: DataCatalogTab[] = ['tables', 'lineage', 'data-quality', 'usage', 'suggestions']
+const WAREHOUSE_SECTIONS: DataCatalogTab[] = ['tables', 'lineage', 'data-quality', 'usage', 'suggestions', 'governance']
 
 const FAILURE_SECTIONS: DataCatalogTab[] = ['overview', 'data-quality']
 
@@ -72,6 +81,7 @@ const SECTION_CONTENT: Partial<Record<DataCatalogTab, () => JSX.Element>> = {
     'data-quality': CatalogDataQualitySection,
     usage: CatalogUsageSection,
     suggestions: CatalogSuggestionsSection,
+    governance: CatalogGovernanceSection,
 }
 
 function SectionCount({ tab, count }: { tab: DataCatalogTab; count: number | undefined }): JSX.Element | null {
@@ -141,7 +151,7 @@ export function DataCatalogSections(): JSX.Element {
                                 <TabsTrigger
                                     key={tab}
                                     value={tab}
-                                    className={tab === activeTab ? undefined : OVERFLOW_BREAKPOINTS[index]?.showTab}
+                                    className={tab === activeTab ? undefined : overflowBreakpoint(index).showTab}
                                     data-attr={`data-catalog-section-${tab}`}
                                 >
                                     {SECTION_LABELS[tab]}
@@ -157,7 +167,9 @@ export function DataCatalogSections(): JSX.Element {
                                         <Button
                                             variant="default"
                                             size="sm"
-                                            className={OVERFLOW_BREAKPOINTS[lastInactiveMoreIndex]?.hideMoreButton}
+                                            className={
+                                                overflowBreakpoint(lastInactiveMoreIndex).hideMoreButton || undefined
+                                            }
                                             data-attr="data-catalog-section-more"
                                         />
                                     }
