@@ -78,7 +78,11 @@ import {
 } from 'products/data_warehouse/frontend/shared/logics/connectionSelectorLogic'
 import { joinsDataLogic } from 'products/data_warehouse/frontend/shared/logics/joinsDataLogic'
 import { viewLinkLogic } from 'products/data_warehouse/frontend/shared/logics/viewLinkLogic'
-import { groupModelsByNamespace } from 'products/data_warehouse/frontend/shared/modelNamespaceTree'
+import {
+    byLabel,
+    groupModelsByNamespace,
+    withoutModelsRoot,
+} from 'products/data_warehouse/frontend/shared/modelNamespaceTree'
 import {
     getSidebarPropertyDefinitionTarget,
     SidebarPropertyDefinitionTarget,
@@ -1629,20 +1633,22 @@ const withoutViewsFromOtherEngines = (nodes: TreeDataItem[]): TreeDataItem[] =>
 
 const flattenViewNodes = (nodes: TreeDataItem[], flattenedViews: TreeDataItem[], connectionId: string): void => {
     nodes.forEach((node) => {
-        if (node.record?.type === 'view-table' || (isSavedViewNode(node) && isSavedViewInScope(node, connectionId))) {
+        if (node.record?.type === 'view-table') {
             flattenedViews.push(node)
             return
         }
 
-        if (node.record?.type === 'folder' && node.record?.folderType === 'view-folder') {
-            flattenViewNodes(node.children ?? [], flattenedViews, connectionId)
+        if (isSavedViewNode(node) && isSavedViewInScope(node, connectionId)) {
+            // A flat list loses the groups, so a model shows its full listed name again.
+            flattenedViews.push({ ...node, displayName: undefined })
+            return
         }
 
-        if (node.record?.type === 'model-namespace') {
-            // A flat list loses the group, so the model shows its full listed name again.
-            const groupedViews: TreeDataItem[] = []
-            flattenViewNodes(node.children ?? [], groupedViews, connectionId)
-            flattenedViews.push(...groupedViews.map((view) => ({ ...view, displayName: undefined })))
+        if (
+            (node.record?.type === 'folder' && node.record?.folderType === 'view-folder') ||
+            node.record?.type === 'model-namespace'
+        ) {
+            flattenViewNodes(node.children ?? [], flattenedViews, connectionId)
         }
     })
 }
@@ -3364,7 +3370,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     )
                     if (view.folder_id) {
                         const currentChildren = viewChildrenByFolderId.get(view.folder_id) ?? []
-                        currentChildren.push(viewNode)
+                        currentChildren.push(withoutModelsRoot(viewNode))
                         viewChildrenByFolderId.set(view.folder_id, currentChildren)
                     } else {
                         unfiledViewNodes.push(viewNode)
@@ -3654,18 +3660,18 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                         )
                         if (view.folder_id) {
                             const folderChildren = viewChildrenByFolderId.get(view.folder_id) ?? []
-                            folderChildren.push(viewNode)
+                            folderChildren.push(withoutModelsRoot(viewNode))
                             viewChildrenByFolderId.set(view.folder_id, folderChildren)
                         } else {
                             unfiledViewNodes.push(viewNode)
                         }
                     })
-                    // A model the user filed into a folder stays there; the namespace groups only unfiled models.
+                    // A model the user filed into a folder stays there, flat; the namespace groups only unfiled models.
                     viewsChildren.push(...groupModelsByNamespace(unfiledViewNodes, false).items)
 
                     dataWarehouseSavedQueryFolders.forEach((folder) => {
                         const folderChildren = viewChildrenByFolderId.get(folder.id) ?? []
-                        folderChildren.sort((a, b) => a.name.localeCompare(b.name))
+                        folderChildren.sort(byLabel)
                         viewsChildren.push(createViewFolderNode(folder, folderChildren))
                     })
 
@@ -3684,7 +3690,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     })
                 }
 
-                viewsChildren.sort((a, b) => a.name.localeCompare(b.name))
+                viewsChildren.sort(byLabel)
                 managedViewsChildren.sort((a, b) => a.name.localeCompare(b.name))
 
                 // Managed views come from the same schema request as sources, so they're missing for
