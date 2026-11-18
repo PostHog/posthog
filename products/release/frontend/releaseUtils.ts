@@ -77,12 +77,9 @@ export interface ReleaseSuggestion {
 
 export const releaseSourceRecord = (releaseId: string): string => `release:${releaseId}`
 
-export type ReleaseSpanTone = 'default' | 'info' | 'warning' | 'success'
-
 export interface ReleaseSpan {
     key: string
     kind: 'flag' | 'early_access' | 'experiment' | 'experiment_done' | 'survey'
-    tone?: ReleaseSpanTone
     from: string
     to: string
     ongoing?: boolean
@@ -154,8 +151,18 @@ export const STAGE_TONE: Record<ReleaseStage, 'default' | 'info' | 'warning' | '
     ended: 'default',
 }
 
-export const STAGE_COLOR_VARS =
-    '[--release-flag:#1d4aff] [--release-experiment:#c0339a] [--release-early-access:#a87400] [--release-released:#1f7a4a] [--release-survey:#0e7490] dark:[--release-survey:#22b8cf] dark:[--release-flag:#6b8bff] dark:[--release-experiment:#e45bb8] dark:[--release-early-access:#e8ac10] dark:[--release-released:#3fb878]'
+export const STAGE_COLOR_VARS = [
+    '[--release-flag:var(--color-product-feature-flags-light)]',
+    '[--release-experiment:var(--color-product-experiments-light)]',
+    '[--release-early-access:var(--color-product-early-access-features-light)]',
+    '[--release-survey:var(--color-product-surveys-light)]',
+    '[--release-released:#1f7a4a]',
+    'dark:[--release-flag:var(--color-product-feature-flags-dark)]',
+    'dark:[--release-experiment:var(--color-product-experiments-dark)]',
+    'dark:[--release-early-access:var(--color-product-early-access-features-dark)]',
+    'dark:[--release-survey:var(--color-product-surveys-dark)]',
+    'dark:[--release-released:#3fb878]',
+].join(' ')
 
 export const STAGE_COLOR: Record<ReleaseStage, string> = {
     planned: 'var(--muted-foreground)',
@@ -1087,23 +1094,22 @@ function experimentSpan(experiment: ExperimentBasicApi, today: dayjs.Dayjs, end:
     }
 }
 
-function flagLook(facts: ReleaseFacts): Pick<ReleaseSpan, 'label' | 'tone' | 'href'> {
+function flagLook(facts: ReleaseFacts): Pick<ReleaseSpan, 'label' | 'href'> {
     const { flags, audiences, released, ended } = facts
     const more = flags.length > 1 ? ` +${flags.length - 1}` : ''
     const href = urls.featureFlag(flags[0].id)
     if (ended) {
-        return { label: `Archived${more}`, tone: 'default', href }
+        return { label: `Archived${more}`, href }
     }
     if (released) {
-        return { label: `Everyone${more}`, tone: 'success', href }
+        return { label: `Everyone${more}`, href }
     }
     if (!flags[0].active) {
-        return { label: `${flags[0].key} off${more}`, tone: 'default', href }
+        return { label: `${flags[0].key} off${more}`, href }
     }
     const percent = audiences[0]?.percent
     return {
         label: `${flags[0].key} ${percent === null || percent === undefined ? '' : `${percent}%`}${more}`.trim(),
-        tone: 'default',
         href,
     }
 }

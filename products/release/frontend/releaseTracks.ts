@@ -25,15 +25,8 @@ export const SPAN_LOOK: Record<ReleaseSpan['kind'], { top: number; height: numbe
     flag: { top: 30, height: 14, color: STAGE_COLOR.flag },
     early_access: { top: 4, height: 14, color: STAGE_COLOR.early_access },
     experiment: { top: 4, height: 14, color: STAGE_COLOR.experiment },
-    experiment_done: { top: 4, height: 14, color: STAGE_COLOR.ended },
+    experiment_done: { top: 4, height: 14, color: STAGE_COLOR.experiment },
     survey: { top: 4, height: 14, color: 'var(--release-survey)' },
-}
-
-export const TONE_COLOR: Record<NonNullable<ReleaseSpan['tone']>, string> = {
-    default: STAGE_COLOR.ended,
-    info: STAGE_COLOR.experiment,
-    warning: STAGE_COLOR.early_access,
-    success: STAGE_COLOR.released,
 }
 
 export interface Scale {
@@ -54,9 +47,7 @@ export function x(date: string, scale: Scale): number {
 
 export function spanWidth(span: ReleaseSpan, scale: Scale): number {
     const left = x(span.from, scale)
-    return span.ongoing
-        ? scale.days * scale.day - left
-        : Math.max(x(span.to, scale) + scale.day / 2 - left, scale.day)
+    return span.ongoing ? scale.days * scale.day - left : Math.max(x(span.to, scale) + scale.day / 2 - left, scale.day)
 }
 
 const MIN_SEGMENT_WIDTH = 4
@@ -260,7 +251,6 @@ export function buildTrack(
                 to: dayjs().toISOString(),
                 ongoing: !flag.archived,
                 label: flag.active ? 'Live' : 'Off',
-                tone: flag.active ? undefined : 'default',
                 href: urls.featureFlag(flag.id),
             },
             href: urls.featureFlag(flag.id),
@@ -364,7 +354,6 @@ export function mergeOverlapping(spans: ReleaseSpan[]): ReleaseSpan[] {
         previous.ongoing = previous.ongoing || span.ongoing
         if (span.kind === 'experiment') {
             previous.kind = 'experiment'
-            previous.tone = span.tone
         }
         previous.label = span.kind.startsWith('experiment')
             ? `${previous.count} experiments`
