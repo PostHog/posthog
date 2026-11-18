@@ -72,15 +72,14 @@ class TestExternalAccountThrottles(SimpleTestCase):
         request = Request(
             APIRequestFactory().generic(
                 method, "/api/customer_analytics/external/account", HTTP_AUTHORIZATION=f"Bearer {token}"
-            )
+            ),
+            authenticators=[],
         )
-        request.user = AnonymousUser()
-        request.auth = None
-        request._authenticator = None
         if credential == "psak":
             authentication = ProjectSecretAPIKeyAuthentication()
             authentication.project_secret_api_key = ProjectSecretAPIKey(team_id=1)
-            request._authenticator = authentication
+            self.enterContext(patch.object(authentication, "authenticate", return_value=(AnonymousUser(), None)))
+            request.authenticators = [authentication]
         return request
 
     @parameterized.expand(
