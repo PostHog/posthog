@@ -77,44 +77,38 @@ def run_trino_compile_check(
         "$process_person_profile": False,
     }
     results = dict(results or {})
-    with ph_scoped_capture(event_region=get_instance_region()) as capture:
+    pending: list[str] = []
+    try:
+        with ph_scoped_capture(event_region=get_instance_region()) as capture:
 
-        def emit(event: str, properties: dict[str, Any]) -> None:
-            capture(distinct_id=run_id, event=event, properties={**run_properties, **properties})
+            def emit(event: str, properties: dict[str, Any]) -> None:
+                capture(distinct_id=run_id, event=event, properties={**run_properties, **properties})
 
-        def emit_completed(properties: dict[str, Any]) -> None:
-            emit(COMPLETED_EVENT, _completed_properties(results, batch_index, properties))
+            if not is_control_plane_configured():
+                logger.error("trino_compile_check_hogtower_not_configured", run_id=run_id, team_id=team_id)
+                emit(COMPLETED_EVENT, _completed_properties(results, batch_index, {"error": HOGTOWER_NOT_CONFIGURED}))
+                return
 
-        if not is_control_plane_configured():
-            logger.error("trino_compile_check_hogtower_not_configured", run_id=run_id, team_id=team_id)
-            emit_completed({"error": HOGTOWER_NOT_CONFIGURED})
-            return
-
-        if batch_index == 0:
-            saved_query_ids = trino_compile_check_saved_query_ids(team_id, saved_query_ids=saved_query_ids, limit=limit)
-        pending = list(saved_query_ids or ())
-        batch, remaining = pending[:BATCH_SIZE], pending[BATCH_SIZE:]
-        try:
-            for row in check_trino_compile(team, saved_query_ids=batch, explain=explain):
+            if batch_index == 0:
+                saved_query_ids = trino_compile_check_saved_query_ids(
+                    team_id, saved_query_ids=saved_query_ids, limit=limit
+                )
+            pending = list(saved_query_ids or ())
+            for row in check_trino_compile(team, saved_query_ids=pending[:BATCH_SIZE], explain=explain):
                 results[row.saved_query_id] = row.error_code
                 emit(RESULT_EVENT, row.to_json())
-        except Exception as error:
-            logger.exception("trino_compile_check_run_failed", run_id=run_id, team_id=team_id, batch_index=batch_index)
-            emit_completed({"error": type(error).__name__, "message": str(error)[:300]})
-            raise
-        if not remaining:
-            emit_completed({})
-            return
+            if len(pending) <= BATCH_SIZE:
+                emit(COMPLETED_EVENT, _completed_properties(results, batch_index, {}))
+                return
 
-    # The next batch is enqueued after the capture block has flushed this batch's rows. A worker that dies
-    # before this call loses no rows, because the broker delivers this batch again.
-    try:
+        # The next batch is enqueued after the capture block has flushed this batch's rows. A worker that dies
+        # before this call loses no rows, because the broker delivers this batch again.
         run_trino_compile_check_task.apply_async(
             kwargs={
                 "team_id": team_id,
                 "run_id": run_id,
                 "explain": explain,
-                "saved_query_ids": remaining,
+                "saved_query_ids": pending[BATCH_SIZE:],
                 "batch_index": batch_index + 1,
                 "results": results,
             },
@@ -122,20 +116,17 @@ def run_trino_compile_check(
             retry_policy=HAND_OFF_RETRY_POLICY,
         )
     except Exception as error:
-        # Celery acks a task that raises, so no later task checks the remaining ids.
-        logger.exception("trino_compile_check_hand_off_failed", run_id=run_id, team_id=team_id, batch_index=batch_index)
+        # One handler covers the checks, the flush on exit of the capture block and the hand-off. Celery acks a
+        # task that raises, so without this event no later task checks the unchecked ids. A soft time limit that
+        # lands in the flush at the end of the last batch can add an error event next to the normal one.
+        logger.exception("trino_compile_check_run_failed", run_id=run_id, team_id=team_id, batch_index=batch_index)
+        unchecked = sum(saved_query_id not in results for saved_query_id in pending)
+        failure = {"error": type(error).__name__, "message": str(error)[:300], "unchecked": unchecked}
         with ph_scoped_capture(event_region=get_instance_region()) as capture:
             capture(
                 distinct_id=run_id,
                 event=COMPLETED_EVENT,
-                properties={
-                    **run_properties,
-                    **_completed_properties(
-                        results,
-                        batch_index,
-                        {"error": type(error).__name__, "message": str(error)[:300], "unchecked": len(remaining)},
-                    ),
-                },
+                properties={**run_properties, **_completed_properties(results, batch_index, failure)},
             )
         raise
 
