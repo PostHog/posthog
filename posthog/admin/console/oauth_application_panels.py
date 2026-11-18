@@ -11,6 +11,7 @@ from django.urls import reverse
 from posthog.admin.console.panels import Fact, Operation, OperationHandler, Owner, Panel, ReasonForm, Tone
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import console
+from posthog.admin.console.tools import Link
 from posthog.api.oauth.provisioning_review import decide_partner, partner_provisioning_status
 from posthog.models.oauth import OAuthApplication, revoke_application_sessions
 from posthog.models.oauth_provisioning import (
@@ -285,19 +286,20 @@ class OAuthApplicationOverviewPanel(Panel):
 DECISION_OPERATION_KEYS = ("accept", "block")
 
 
-def decision_operation_links(app: OAuthApplication) -> list[tuple[str, str]]:
-    """The accept and block operations the app's page offers right now, as (label, url) pairs."""
+def decision_operation_links(app: OAuthApplication) -> list[Link]:
+    """Links to the accept and block operations the app's page offers right now, the first one primary."""
     panel = OAuthApplicationProvisioningPanel()
+    decisions = [operation for operation in panel.operations(app) if operation.key in DECISION_OPERATION_KEYS]
     return [
-        (
-            operation.label,
-            reverse(
+        Link(
+            label=operation.label,
+            href=reverse(
                 RECORD_TYPES[panel.record].operation_url_name,
                 kwargs={"pk": app.pk, "panel_key": panel.key, "operation_key": operation.key},
             ),
+            primary=index == 0,
         )
-        for operation in panel.operations(app)
-        if operation.key in DECISION_OPERATION_KEYS
+        for index, operation in enumerate(decisions)
     ]
 
 

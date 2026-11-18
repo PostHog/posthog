@@ -248,15 +248,7 @@ class OAuthApplicationsTool(ConsoleTool):
         return Page(
             blocks=(
                 summary,
-                Links(
-                    items=(
-                        *(
-                            Link(label=label, href=url, primary=index == 0)
-                            for index, (label, url) in enumerate(decisions)
-                        ),
-                        Link(label="Open the app", href=app_url, primary=not decisions),
-                    )
-                ),
+                Links(items=(*decisions, Link(label="Open the app", href=app_url, primary=not decisions))),
                 Stats(
                     items=(
                         Stat(label="Status", value=_status_cell(review).text, tone=_status_cell(review).tone),
