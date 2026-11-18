@@ -124,12 +124,23 @@ describe('todayRecentsLogic', () => {
         logic.mount()
         const setActive = (sceneLogic.actions as any).setActiveSceneLogic
 
-        setActive(sceneShowing({ type: 'release', id: 'r1', name: 'Launch', href: '/releases/r1' }))
+        const release = { type: 'release' as const, id: 'r1', name: 'Launch', href: '/releases/r1' }
+        setActive(sceneShowing(release))
 
         expect(logic.values.releaseRecents.map(({ id, name }) => ({ id, name }))).toEqual([
             { id: 'r1', name: 'Launch' },
         ])
         expect(logic.values.monitorRecents).toEqual([])
+
+        const firstViewedAt = logic.values.releaseRecents[0].viewedAt
+        const now = jest.spyOn(Date, 'now').mockReturnValue(firstViewedAt + 1000)
+        try {
+            setActive(sceneShowing(null))
+            setActive(sceneShowing(release))
+            expect(logic.values.releaseRecents[0].viewedAt).toBe(firstViewedAt + 1000)
+        } finally {
+            now.mockRestore()
+        }
     })
 
     it('stores a recent, newest first, and lists the rows by name', () => {

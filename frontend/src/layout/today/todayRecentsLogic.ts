@@ -97,8 +97,15 @@ export const todayRecentsLogic = kea<todayRecentsLogicType>([
             [] as StoredReleaseRecent[],
             TODAY_USER_PERSIST_OPTIONS,
             {
-                addRecent: (state, { recent }) =>
-                    recent.type === 'release' ? addTodayRecent(state, { ...recent, viewedAt: Date.now() }) : state,
+                addRecent: (state, { recent }) => {
+                    if (recent.type !== 'release') {
+                        return state
+                    }
+                    const updated = { ...recent, viewedAt: Date.now() }
+                    return state[0]?.href === recent.href && state[0].name === recent.name
+                        ? [updated, ...state.slice(1)]
+                        : addTodayRecent(state, updated)
+                },
             },
         ],
     }),

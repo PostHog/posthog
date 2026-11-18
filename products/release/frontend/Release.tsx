@@ -127,7 +127,7 @@ function ReleaseContent({ id }: ReleaseSceneProps): JSX.Element {
                 name={row.name}
                 nameAction={
                     <SidebarPinButton
-                        target={{ type: 'release', ref: row.id, name: row.name, href: urls.release(row.id) }}
+                        target={{ type: 'release', ref: row.id, name: 'Release', href: urls.release(row.id) }}
                         dataAttr="release-title-pin"
                     />
                 }

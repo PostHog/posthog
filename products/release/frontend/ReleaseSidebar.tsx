@@ -8,7 +8,7 @@ import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { escapePath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
+import { escapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { SidebarPinButton } from '~/layout/today/sidebar/SidebarPinButton'
 import { sidebarPinsLogic } from '~/layout/today/sidebar/sidebarPinsLogic'
 import { SidebarRow } from '~/layout/today/sidebar/SidebarRow'
@@ -20,14 +20,10 @@ import { recentItemsModel } from '~/models/recentItemsModel'
 import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-general'
 
 import { releaseLogic } from './releaseLogic'
-import { STAGE_COLOR_VARS } from './releaseUtils'
+import { releaseSidebarEntryName, STAGE_COLOR_VARS } from './releaseUtils'
 
 const RELEASE_TYPES = ['feature_flag', 'experiment', 'early_access_feature', 'release']
 const RECENTS_LIMIT = 6
-
-function entryName(entry: FileSystemEntry): string {
-    return splitPath(entry.path).pop() || entry.path
-}
 
 export function ReleaseSidebar(): JSX.Element {
     const { rows, flagCount, experimentCount, earlyAccessCount, dataLoading } = useValues(releaseLogic)
@@ -94,10 +90,12 @@ export function ReleaseSidebar(): JSX.Element {
         },
     ].filter((item) => matches(item.label))
 
-    const pinned = shortcutData.filter(
-        (entry) => !!entry.ref && RELEASE_TYPES.includes(entry.type ?? '') && matches(entryName(entry))
-    )
     const releaseRowsById = new Map(rows.map((row) => [row.id, row]))
+    const entryName = (entry: FileSystemEntry): string => releaseSidebarEntryName(entry, releaseRowsById) ?? ''
+    const pinned = shortcutData.filter(
+        (entry) =>
+            !!entry.ref && RELEASE_TYPES.includes(entry.type ?? '') && !!entryName(entry) && matches(entryName(entry))
+    )
     const releaseItems: FileSystemEntry[] = releaseRecents.flatMap((recent) => {
         const row = releaseRowsById.get(recent.id)
         return row
@@ -147,7 +145,12 @@ export function ReleaseSidebar(): JSX.Element {
             active={!!entry.href && path === removeProjectIdIfPresent(entry.href)}
             action={
                 <SidebarPinButton
-                    target={{ type: entry.type ?? '', ref: entry.ref, name: entryName(entry), href: entry.href }}
+                    target={{
+                        type: entry.type ?? '',
+                        ref: entry.ref,
+                        name: entry.type === 'release' ? 'Release' : entryName(entry),
+                        href: entry.href,
+                    }}
                     dataAttr={`release-sidebar-${kind}-pin`}
                 />
             }
