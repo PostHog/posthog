@@ -5,6 +5,7 @@ import { LemonButton, LemonTable, LemonTableColumn, LemonTag, Link } from '@post
 
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { urls } from 'scenes/urls'
 
 import { ExternalDataDestinationApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
@@ -50,13 +51,13 @@ export function WarehouseDestinationsTable({
             sorter: (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true }),
             render: (_, destination) => (
                 <div className="flex flex-col items-start">
-                    {/* The managed warehouse row has nothing to edit, so its name stays text. */}
+                    {/* The managed warehouse has no delivery health of its own, so its name stays text. */}
                     {destination.is_posthog_warehouse ? (
                         <span className="font-semibold">{destination.name}</span>
                     ) : (
                         <Link
                             className="font-semibold"
-                            onClick={() => onEdit(destination)}
+                            to={urls.warehouseDestination(destination.id)}
                             data-attr="warehouse-destination-scene-open"
                         >
                             {destination.name}

@@ -84,6 +84,7 @@ class TestAgentEgressRegistry(TestCase):
         assert looked_up is not None
         self.assertEqual(repeated.lease_expires_at, registration.lease_expires_at)
         self.assertEqual(repeated.actor_epoch, registration.actor_epoch)
+        self.assertEqual(repeated.created_at, registration.created_at)
         self.assertEqual(looked_up.lease_expires_at, registration.lease_expires_at)
 
         renewed = self.registry.renew(team_id=self.team.id, run_id=self.task_run.id, execution_id=self.execution_id)
@@ -139,8 +140,14 @@ class TestAgentEgressRegistry(TestCase):
         assert previous is not None
         self.assertEqual(previous.execution_id, self.execution_id)
         self.assertEqual(previous.actor_epoch, 1)
+        previous_revoked_at = previous.revoked_at
         replacement_id = uuid4()
         replacement = self.register(execution_id=replacement_id, previous_execution_id=previous.execution_id)
+        previous.refresh_from_db()
+        self.assertEqual(previous.revoked_at, previous_revoked_at if state == "revoked" else timezone.now())
+        self.assertEqual(previous.revoked_by, "unknown" if state == "revoked" else "tasks-worker")
+        self.assertEqual(previous.revocation_reason, "requested" if state == "revoked" else "replaced")
+        self.assertEqual(replacement.created_at, timezone.now())
         self.assertEqual(replacement.actor_epoch, previous.actor_epoch + 1)
         self.assertEqual(self.registry.latest(team_id=self.team.id, run_id=self.task_run.id), replacement)
         self.assertEqual(
@@ -167,6 +174,31 @@ class TestAgentEgressRegistry(TestCase):
         self.assertEqual(
             self.registry.lookup(team_id=self.team.id, run_id=self.task_run.id, execution_id=replacement_id),
             replacement,
+        )
+
+    def test_revocation_retries_preserve_original_audit_metadata(self) -> None:
+        registration = self.register()
+        self.clock.shift(timedelta(seconds=5))
+        revoked_at = timezone.now()
+        self.assertTrue(
+            self.registry.revoke(
+                team_id=self.team.id,
+                run_id=self.task_run.id,
+                execution_id=self.execution_id,
+                revoked_by="egress-workflow",
+                reason="cancelled",
+            )
+        )
+        self.clock.shift(timedelta(seconds=5))
+        self.assertFalse(
+            self.registry.revoke(team_id=self.team.id, run_id=self.task_run.id, execution_id=self.execution_id)
+        )
+        registration.refresh_from_db()
+        self.assertEqual(registration.revoked_at, revoked_at)
+        self.assertEqual(registration.revoked_by, "egress-workflow")
+        self.assertEqual(registration.revocation_reason, "cancelled")
+        self.assertIsNone(
+            self.registry.lookup(team_id=self.team.id, run_id=self.task_run.id, execution_id=self.execution_id)
         )
 
     def test_initial_registration_cannot_restart_a_revoked_run(self) -> None:

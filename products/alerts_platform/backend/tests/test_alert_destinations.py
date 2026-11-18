@@ -276,6 +276,15 @@ class TestSourceDestinations(BaseTest):
 
         assert list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration.id) == ()
 
+    def test_a_row_behind_edited_hog_functions_does_not_block_its_old_address(self) -> None:
+        hog_function_ids = self._hog_functions(SLACK)
+        self._record(SLACK, hog_function_ids)
+        self.groups[0] = AlertDestinationGroup(hog_function_ids=hog_function_ids, data=EDITED_SLACK, fully_enabled=True)
+
+        added = self._record(SLACK, ())
+
+        assert added.data == SLACK
+
     def test_the_list_keeps_groups_no_row_copies_and_rows_whose_hog_functions_are_gone(self) -> None:
         older = self._hog_functions(WEBHOOK)
         retired = (uuid4(),)

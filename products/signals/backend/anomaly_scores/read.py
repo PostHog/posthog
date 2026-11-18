@@ -113,6 +113,7 @@ FROM ({_LATEST_BUCKETS})
 WHERE score IS NOT NULL AND series_key IN {{series_keys}}
 ORDER BY insight_id, series_key, bucket_start DESC
 LIMIT {{limit}} BY insight_id, series_key
+LIMIT {{total_limit}}
 """
 
 _SCORED_DAYS_QUERY = """
@@ -223,6 +224,8 @@ class _RankKey:
 
     # 0 for every series unless the newest flag sorts first.
     negative_recency: float
+    # 0 for every series unless the anomaly rate sorts first.
+    negative_rate: float
     negative_lift: float
     negative_flagged_buckets: int
     negative_last_flagged: float
@@ -475,6 +478,8 @@ def series_points(
             ),
             "series_keys": ast.Tuple(exprs=[ast.Constant(value=key) for key in sorted({key for _, key in series})]),
             "limit": ast.Constant(value=MAX_SERIES_POINTS),
+            # Without a limit of its own, the query gets the default HogQL row cap, and most series lose their points.
+            "total_limit": ast.Constant(value=MAX_SERIES_POINTS * len(series)),
         },
         ch_user=ClickHouseUser.DEFAULT,
     )
@@ -545,11 +550,13 @@ def rank_series(
     prior: float,
     importance: Mapping[int, SeriesImportance],
     recent_first: bool = False,
+    rate_first: bool = False,
 ) -> list[SeriesSummary]:
     """Most anomalous first, using only measures that compare across series and intervals.
 
     Rate lift first, then flagged buckets, then the newest flag, then the insight's importance.
     With ``recent_first``, the newest flag sorts first, and a series without a flag sorts last.
+    With ``rate_first``, the anomaly rate in the range sorts first, as a person reads it off a row.
     """
     unknown = SeriesImportance(on_dashboard=False, viewers=0)
 
@@ -559,6 +566,7 @@ def rank_series(
         insight_importance = importance.get(summary.insight_id, unknown)
         return _RankKey(
             negative_recency=negative_last_flagged if recent_first else 0.0,
+            negative_rate=-(summary.anomaly_rate or 0.0) if rate_first else 0.0,
             negative_lift=-rate_lift(summary, prior),
             negative_flagged_buckets=-summary.flagged_buckets,
             negative_last_flagged=negative_last_flagged,

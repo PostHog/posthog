@@ -98,7 +98,6 @@ describe('replayScannerLogic', () => {
                 scanner_type: 'monitor',
                 scanner_config: { prompt: '' },
                 sampling_rate: 0.2,
-                sampling_mode: 'balanced',
             })
         })
 
@@ -256,7 +255,7 @@ describe('replayScannerLogic', () => {
                     query: null,
                     free_only: freeOnly,
                     credit_limit: freeOnly ? null : 4000,
-                    ...(solved ? { sampling_mode: 'balanced', sampling_rate: 0.5 } : {}),
+                    ...(solved ? { sampling_rate: 0.5 } : {}),
                 },
             ])
             router.actions.push(urls.replayVisionScannerGoal('new'))
