@@ -8,12 +8,18 @@ import json
 import uuid
 from collections import Counter, defaultdict
 from collections.abc import Iterable
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlsplit
 
+from django.db import transaction
 from django.db.models import Q
+from django.utils import timezone
 
 import structlog
+
+from posthog.models.user import User
+from posthog.models.user_integration import slack_link_fits, slack_link_for
 
 from products.mcp_store.backend.agents import (
     BuiltInAgentKey,
@@ -41,11 +47,14 @@ from products.mcp_store.backend.gateway import (
     agent_grant_owner_label,
     agent_grant_proxy_path,
     installation_for_agent_access,
+    link_installation_to_gateway,
     reachable_agent_grants,
+    server_disabled_reason,
 )
 from products.mcp_store.backend.models import (
     MCPAuthType,
     MCPGatewayServer,
+    MCPMemberAutoConnectOptOut,
     MCPMemberServerRevocation,
     MCPServerInstallation,
     MCPServerInstallationTool,
@@ -60,6 +69,7 @@ from products.mcp_store.backend.policy import (
     legacy_state_for_caller,
 )
 from products.mcp_store.backend.proxy import record_tool_call_audit, resolve_call_decision, validate_installation_auth
+from products.mcp_store.backend.tasks import sync_installation_tools_task
 from products.mcp_store.backend.tools import (
     ToolCallError,
     ToolsFetchError,
@@ -223,7 +233,7 @@ def _is_oauth_ready(installation: MCPServerInstallation) -> bool:
     sensitive = installation.sensitive_configuration or {}
     if sensitive.get("needs_reauth"):
         return False
-    if not sensitive.get("access_token"):
+    if not installation.upstream_access_token():
         return False
     return True
 
@@ -238,13 +248,43 @@ def _to_info(installation: MCPServerInstallation, team_id: int) -> ActiveInstall
     )
 
 
+@dataclass(frozen=True)
+class _AgentRunMounts:
+    mounts: list[tuple[MCPServiceAccountServerAccess, MCPServerInstallation]]
+    unmounted: list[UnmountedInstallation]
+
+
+def _agent_unmounted(
+    server: MCPGatewayServer, scope: str, reason: UnmountedInstallationReason
+) -> UnmountedInstallation:
+    return UnmountedInstallation(id=str(server.id), name=server.name, scope=scope, reason=reason)
+
+
+def _selected_servers_without_grants(
+    team_id: int, allowed: set[str], granted_server_ids: set[str]
+) -> list[UnmountedInstallation]:
+    missing: list[uuid.UUID] = []
+    for server_id in sorted(allowed - granted_server_ids):
+        try:
+            missing.append(uuid.UUID(server_id))
+        except ValueError:
+            continue
+    if not missing:
+        return []
+    servers = MCPGatewayServer.objects.for_team(team_id).filter(id__in=missing).order_by("name", "id")
+    return [
+        _agent_unmounted(server, "team", "not_shared" if server.is_team_enabled else "server_disabled")
+        for server in servers
+    ]
+
+
 def _mounts_for_agent_run(
     team_id: int,
     agent_account: MCPServiceAccount,
     credential_owner_id: int | None,
     allowed_gateway_server_ids: list[str] | None = None,
-) -> list[tuple[MCPServiceAccountServerAccess, MCPServerInstallation]]:
-    """The (grant, credential) pairs this run mounts.
+) -> _AgentRunMounts:
+    """The (grant, credential) pairs this run mounts, and the servers it reached but could not mount.
 
     Health resolution runs before per-server precedence, not after. A grant only
     becomes a candidate once its credential still resolves, is enabled, sits on a
@@ -267,33 +307,56 @@ def _mounts_for_agent_run(
     servers (a scout's per-scout selection). It gates every grant regardless of
     scope, so a run that passes it mounts exactly the selected servers and
     nothing else. None leaves mounts unfiltered; an empty list mounts nothing.
+
+    A server is reported unmounted only when none of its grants survived, keyed
+    by the gateway server rather than one credential, since any one working
+    grant gives the run that server's tools. A selected server the run reaches
+    no grant for at all is reported too, so a step that names a connector never
+    runs without it silently.
     """
     allowed = {str(server_id) for server_id in allowed_gateway_server_ids or []}
     rows = (
         MCPServiceAccountServerAccess.objects.for_team(team_id)
         .filter(service_account=agent_account)
         .filter(reachable_agent_grants(team_id, credential_owner_id))
-        .select_related("installation__template", "installation__gateway_server", "user")
+        .select_related(
+            "gateway_server",
+            "installation__template",
+            "installation__gateway_server",
+            "installation__linked_user_integration",
+            "user",
+        )
         .order_by("created_at", "id")
     )
 
     healthy_by_server: dict[uuid.UUID, list[tuple[MCPServiceAccountServerAccess, MCPServerInstallation]]] = defaultdict(
         list
     )
+    dropped_by_server: dict[uuid.UUID, UnmountedInstallation] = {}
+    granted_server_ids: set[str] = set()
     for access in rows:
         if allowed_gateway_server_ids is not None and str(access.gateway_server_id) not in allowed:
+            continue
+        granted_server_ids.add(str(access.gateway_server_id))
+        # The admin kill switch overrides grants: a server turned off for the
+        # team is withheld from agents too.
+        if not access.gateway_server.is_team_enabled:
+            dropped_by_server[access.gateway_server_id] = _agent_unmounted(
+                access.gateway_server, access.scope, "server_disabled"
+            )
             continue
         # Same resolution the gateway proxy and the API serializers use, so a
         # grant whose credential drifted off its team, server, or owner is
         # dropped here too instead of being mounted into the sandbox.
         installation = installation_for_agent_access(access)
-        if installation is None or not installation.is_enabled:
-            continue
-        # The admin kill switch overrides grants: a server turned off for the
-        # team is withheld from agents too.
-        if installation.gateway_server is None or not installation.gateway_server.is_team_enabled:
-            continue
-        if not _is_oauth_ready(installation):
+        if installation is None or not installation.is_enabled or not _is_oauth_ready(installation):
+            owns_grant = credential_owner_id is not None and access.user_id == credential_owner_id
+            if owns_grant or access.gateway_server_id not in dropped_by_server:
+                dropped_by_server[access.gateway_server_id] = _agent_unmounted(
+                    access.gateway_server,
+                    access.scope,
+                    "needs_reconnect" if owns_grant else "teammate_needs_reconnect",
+                )
             continue
         healthy_by_server[access.gateway_server_id].append((access, installation))
 
@@ -305,7 +368,10 @@ def _mounts_for_agent_run(
             else []
         )
         mounts.extend(own or server_mounts)
-    return mounts
+    unmounted = [entry for server_id, entry in dropped_by_server.items() if server_id not in healthy_by_server]
+    if allowed_gateway_server_ids is not None:
+        unmounted.extend(_selected_servers_without_grants(team_id, allowed, granted_server_ids))
+    return _AgentRunMounts(mounts=mounts, unmounted=unmounted)
 
 
 def _agent_installation_infos(
@@ -355,7 +421,7 @@ def get_active_installations(team_id: int, user_id: int, *, include_shared: bool
             .filter(scope_filter)
             .filter(Q(gateway_server__isnull=True) | Q(gateway_server__is_team_enabled=True))
             .exclude(gateway_server__member_revocations__user_id=user_id)
-            .select_related("template")
+            .select_related("template", "linked_user_integration")
         )
     except Exception as e:
         logger.warning("Error fetching MCP installations", error=str(e), team_id=team_id)
@@ -381,6 +447,92 @@ def _connects_from_a_link(template: MCPServerTemplate) -> bool:
     if template.auth_type != MCPAuthType.OAUTH:
         return False
     return bool(template.oauth_credentials_source or (template.oauth_credentials or {}).get("client_id"))
+
+
+SLACK_MCP_URL = "https://mcp.slack.com/mcp"
+
+
+def _connectable_slack_template(team_id: int, user_id: int | None) -> MCPServerTemplate | None:
+    """The Slack MCP template that a token from PostHog's own Slack app can connect: on PostHog's app, available to
+    the team, turned on for it, not revoked for this member, and not removed by them before. The dev template runs
+    on another app, so it never qualifies."""
+    template = (
+        MCPServerTemplate.available_for_team(team_id)
+        .filter(url=SLACK_MCP_URL, oauth_credentials_source="slack_app")
+        .first()
+    )
+    if template is None or server_disabled_reason(team_id, template.url) is not None:
+        return None
+    if user_id is None:
+        return template
+    revoked = MCPMemberServerRevocation.objects.for_team(team_id).filter(
+        gateway_server__url=template.url, user_id=user_id
+    )
+    opted_out = MCPMemberAutoConnectOptOut.objects.for_team(team_id).filter(url=template.url, user_id=user_id)
+    return None if revoked.exists() or opted_out.exists() else template
+
+
+def slack_mcp_user_scopes(team_id: int, user_id: int | None) -> tuple[str, ...]:
+    """The exact user scopes a Slack account link asks for, so its token can connect the member's Slack MCP and holds
+    nothing the server may not read. Empty when the team cannot use the Slack MCP."""
+    template = _connectable_slack_template(team_id, user_id)
+    return tuple(template.oauth_scope_allowlist or ()) if template is not None else ()
+
+
+# The token keys of an installation that holds its own token. A linked installation has none of them.
+_OWN_TOKEN_KEYS = ("access_token", "refresh_token", "token_retrieved_at", "expires_in", "needs_reauth")
+
+
+def connect_slack_mcp_from_slack_link(team_id: int, user: User, *, slack_link_id: str) -> bool:
+    """Connect the member's Slack MCP through their Slack account link, so they skip a second Slack consent screen.
+    The installation points at the link and keeps no copy of its token, so an unlink also ends the access. A member
+    who removed a linked Slack MCP is not connected again, a working connection stays as it is, and one the member
+    turned off stays off. Returns whether the member is connected."""
+    template = _connectable_slack_template(team_id, user.id)
+    if template is None:
+        return False
+    link = slack_link_for(slack_link_id, user_id=user.id)
+    if link is None:
+        return False
+    if not slack_link_fits(link, template.oauth_scope_allowlist or ()):
+        return False
+    with transaction.atomic():
+        installation, _ = MCPServerInstallation.objects.get_or_create(
+            team_id=team_id,
+            user=user,
+            url=template.url,
+            scope="personal",
+            defaults={
+                "template": template,
+                "display_name": template.name,
+                "description": template.description,
+                "auth_type": template.auth_type,
+            },
+        )
+        if installation.is_enabled and _is_oauth_ready(installation):
+            return True
+        sensitive = {
+            key: value
+            for key, value in (installation.sensitive_configuration or {}).items()
+            if key not in _OWN_TOKEN_KEYS
+        }
+        installation.template = template
+        installation.linked_user_integration = link
+        installation.connected_from_link_at = timezone.now()
+        installation.sensitive_configuration = sensitive
+        installation.save(
+            update_fields=[
+                "template",
+                "linked_user_integration",
+                "connected_from_link_at",
+                "sensitive_configuration",
+                "updated_at",
+            ]
+        )
+        link_installation_to_gateway(installation, created_by=user)
+    transaction.on_commit(lambda: sync_installation_tools_task.delay(str(installation.id)))
+    # A server the member turned off gets its access back but stays off until they turn it on.
+    return installation.is_enabled
 
 
 def team_tools_not_connected(team_id: int, user_id: int) -> list[UnconnectedTeamTool]:
@@ -438,6 +590,7 @@ def get_installations_for_sandbox(
 
 def _member_unmounted_reason(
     installation: MCPServerInstallation,
+    user_id: int | None,
     revoked_gateway_server_ids: set[uuid.UUID],
     allowed_gateway_server_ids: set[str] | None,
     allowed_installation_ids: set[str] | None,
@@ -456,7 +609,7 @@ def _member_unmounted_reason(
     elif gateway_server_id is not None and gateway_server_id in revoked_gateway_server_ids:
         health_failure = "revoked"
     elif not _is_oauth_ready(installation):
-        health_failure = "needs_reconnect"
+        health_failure = "needs_reconnect" if installation.user_id == user_id else "teammate_needs_reconnect"
     # Healthy unselected installations stay in play until the personal-copy dedup has run.
     if (
         health_failure is not None
@@ -522,9 +675,10 @@ def resolve_installations_for_sandbox(
     binds on both paths: passing ``[]`` mounts no MCP Store servers at all, and
     passing ``None`` leaves the mounts unnarrowed.
 
-    ``unmounted`` lists the enabled member-path installations the run reached but
-    left out, with the reason, so a run can tell its user why a connection is
-    missing. The agent path reports none.
+    ``unmounted`` lists what the run reached but left out, with the reason, so a
+    run can tell its user why a connection is missing. The member path lists
+    enabled installations; the agent path lists gateway servers, see
+    ``_mounts_for_agent_run``.
     """
     allowed_installations = (
         {str(installation_id) for installation_id in allowed_installation_ids}
@@ -568,9 +722,11 @@ def resolve_installations_for_sandbox(
                         task_origin=task_origin,
                     )
                 else:
-                    agent_mounts = _mounts_for_agent_run(
+                    agent_run = _mounts_for_agent_run(
                         team_id, agent_account, credential_owner_id, allowed_gateway_server_ids
                     )
+                    agent_mounts = agent_run.mounts
+                    unmounted.extend(agent_run.unmounted)
         else:
             # list() evaluates the lazy querysets here so DB errors hit this handler.
             candidates = list(base_queryset.filter(scope="shared"))
@@ -595,7 +751,7 @@ def resolve_installations_for_sandbox(
             )
             for candidate in candidates:
                 reason = _member_unmounted_reason(
-                    candidate, revoked_gateway_server_ids, allowed_servers, allowed_installations
+                    candidate, user_id, revoked_gateway_server_ids, allowed_servers, allowed_installations
                 )
                 if reason is None:
                     installations.append(candidate)
@@ -742,7 +898,7 @@ def member_installation_for_host(team_id: int, user_id: int, server_host: str) -
     candidates = (
         MCPServerInstallation.objects.filter(team_id=team_id, is_enabled=True, url__icontains=host)
         .filter(Q(user_id=user_id, scope="personal") | Q(scope="shared"))
-        .select_related("gateway_server")
+        .select_related("gateway_server", "template", "linked_user_integration")
         .order_by("created_at")
     )
     matching = [installation for installation in candidates if _installation_host(installation.url) == host]

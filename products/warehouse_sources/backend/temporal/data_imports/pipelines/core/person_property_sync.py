@@ -32,13 +32,14 @@ from collections.abc import Awaitable, Callable, Iterator
 from datetime import date, datetime, time
 from decimal import Decimal
 from time import perf_counter
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 from django.conf import settings
 
 import structlog
 import pyarrow.parquet as pq
 from confluent_kafka import KafkaException
+from temporalio import activity
 from temporalio.exceptions import ActivityError, ApplicationError, CancelledError
 
 from posthog.dataclasses import frozen
@@ -72,6 +73,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.per
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_phase_timer import (
     PhaseTimer,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_run_log import (
+    PersonPropertyRunLog,
+    run_entities,
 )
 
 if TYPE_CHECKING:
@@ -632,6 +637,7 @@ class _RunContext:
     team_uuid: str
     run_token: str
     timer: PhaseTimer
+    run_log: PersonPropertyRunLog
     on_progress: ProgressCallback | None = None
 
 
@@ -766,6 +772,7 @@ async def _close_source(run: _RunContext, state: _SourceState) -> PerSourceResul
         state.prior = {}
         # Fold this run's chunk files, and any left by an earlier run that was stopped part way, into
         # one ``{run_token}.parquet`` so the folder stays at about one file per source.
+        run.run_log.saving_progress()
         with run.timer.phase("compaction"):
             await _write_snapshot_hashes(
                 run.team_id,
@@ -808,8 +815,11 @@ def _run_context(
     binding: WarehouseBinding,
     run_token: str,
     timer: PhaseTimer,
+    sources: list[PersonPropertySyncSource],
     on_progress: ProgressCallback | None,
 ) -> _RunContext:
+    has_groups = any(source.target == _GROUP_TARGET for source in sources)
+    has_people = any(source.target != _GROUP_TARGET for source in sources)
     return _RunContext(
         team_id=team_id,
         project_id=team.project_id,
@@ -818,7 +828,17 @@ def _run_context(
         team_uuid=str(team.uuid),
         run_token=run_token,
         timer=timer,
+        run_log=PersonPropertyRunLog(team_id, binding, run_entities(has_people=has_people, has_groups=has_groups)),
         on_progress=on_progress,
+    )
+
+
+def _log_run_progress(run: _RunContext, rows_read: int, results: list[PerSourceResult]) -> None:
+    run.run_log.progress(
+        rows_read=rows_read,
+        changed=sum(ps.changed for ps in results),
+        existing=sum(ps.existing for ps in results),
+        produced=sum(ps.produced for ps in results),
     )
 
 
@@ -897,7 +917,7 @@ async def run_person_property_sync(
     team = await database_sync_to_async(Team.objects.get, thread_sensitive=False)(id=team_id)
     file_keys = await _list_staged_files(team_id, binding, job_id)
     result.sources = len(sources)
-    run = _run_context(team_id, team, binding, job_id, timer, on_progress)
+    run = _run_context(team_id, team, binding, job_id, timer, sources, on_progress)
 
     completed = False
     try:
@@ -919,6 +939,7 @@ async def run_person_property_sync(
                 bundles = list(read.bundles_by_source.pop(str(source.source_id)).items())
                 _accumulate(result, await _process_source_bundles(run, source, bundles, read.rows_read))
                 del bundles
+            _log_run_progress(run, read.rows_read, result.per_source)
             logger.info(
                 "person-property sync: batch timing",
                 team_id=team_id,
@@ -934,6 +955,7 @@ async def run_person_property_sync(
         # Raise before the staged rows are cleared, so the retry can read them again.
         _raise_if_undelivered(result)
         await _clear_staged(team_id, binding, job_id)
+        run.run_log.finished(result.produced)
         completed = True
         return result
     finally:
@@ -1106,7 +1128,7 @@ async def run_person_property_backfill(
 
     timer = PhaseTimer("backfill")
     team = await database_sync_to_async(Team.objects.get, thread_sensitive=False)(id=team_id)
-    run = _run_context(team_id, team, binding, BACKFILL_RUN_TOKEN, timer, on_progress)
+    run = _run_context(team_id, team, binding, BACKFILL_RUN_TOKEN, timer, sources, on_progress)
     states: list[_SourceState] = []
     completed = False
     try:
@@ -1139,6 +1161,7 @@ async def _backfill_table(
     # snapshots load, so the pass's id map is freed before they take memory.
     repeated: dict[str, dict[str, int]] = {}
     if active:
+        run.run_log.finding_latest_rows()
         with timer.phase("read_key_pass"):
             repeated = await asyncio.to_thread(_last_row_of_repeated_keys, delta, active)
     for source in active:
@@ -1166,6 +1189,7 @@ async def _backfill_table(
             state.result.rows_read = result.rows_read
             await _sync_bundles(run, state, bundles)
         del bundles_per_source
+        _log_run_progress(run, result.rows_read, [state.result for state in states])
         logger.info(
             "person-property backfill: batch timing",
             team_id=team_id,
@@ -1197,20 +1221,17 @@ async def _backfill_table(
         # Nothing this source can match on, so every later stage is a no-op. Surfaced as a failed
         # run because the mapping stays broken until someone changes it — a completed run would
         # clear the source's last error and read as a healthy sync that happened to write nothing.
-        _accumulate(
-            result,
-            PerSourceResult(
-                source_id=source_id,
-                rows_read=result.rows_read,
-                error=(
-                    f"Key column '{source.key_column}' is not a column of the synced table, so no rows "
-                    "could be matched. It may have been renamed or dropped upstream, or it may be a "
-                    "query-time SQL expression rather than a synced column."
-                ),
-            ),
+        error = (
+            f"Key column '{source.key_column}' is not a column of the synced table, so no rows "
+            "could be matched. It may have been renamed or dropped upstream, or it may be a "
+            "query-time SQL expression rather than a synced column."
         )
+        run.run_log.failed(error)
+        _accumulate(result, PerSourceResult(source_id=source_id, rows_read=result.rows_read, error=error))
 
     _raise_if_undelivered(result)
+    if not any(ps.error for ps in result.per_source):
+        run.run_log.finished(result.produced)
 
 
 # --- run recording (persisted history) ---------------------------------------------------
@@ -1228,6 +1249,8 @@ def _record(
     ps: PerSourceResult,
     error: str | None,
     count_failure: bool = True,
+    workflow_id: str | None = None,
+    workflow_run_id: str | None = None,
 ) -> None:
     record_person_property_sync_run(
         PersonPropertySyncRunRecord(
@@ -1247,8 +1270,23 @@ def _record(
             skipped_missing_person=ps.skipped_missing_person,
             error=error,
             count_failure=count_failure,
+            workflow_id=workflow_id,
+            workflow_run_id=workflow_run_id,
         )
     )
+
+
+class _TemporalRunIds(TypedDict, total=False):
+    workflow_id: str | None
+    workflow_run_id: str | None
+
+
+def _temporal_run_ids() -> _TemporalRunIds:
+    """The workflow and run ids of the activity this runs in, to keep on the run row. Empty outside an activity."""
+    if not activity.in_activity():
+        return {}
+    info = activity.info()
+    return {"workflow_id": info.workflow_id, "workflow_run_id": info.workflow_run_id}
 
 
 def progress_recorder(*, team_id: int, binding: WarehouseBinding, job_id: str | None, trigger: str) -> ProgressCallback:
@@ -1307,6 +1345,7 @@ async def record_started_runs(
                 finished_at="",
                 ps=PerSourceResult(source_id=str(source.source_id)),
                 error=None,
+                **_temporal_run_ids(),
             )
     except Exception as e:
         logger.exception(
@@ -1345,6 +1384,7 @@ async def record_completed_runs(
                 finished_at=finished_at,
                 ps=ps,
                 error=ps.error,
+                **_temporal_run_ids(),
             )
     except Exception as e:
         logger.exception(
@@ -1388,6 +1428,7 @@ async def record_failed_runs(
                 ps=PerSourceResult(source_id=str(source.source_id)),
                 error=error,
                 count_failure=count_failure,
+                **_temporal_run_ids(),
             )
     except Exception as e:
         logger.exception(

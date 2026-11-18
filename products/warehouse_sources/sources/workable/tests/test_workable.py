@@ -243,28 +243,75 @@ class TestValidateCredentials:
             validate_credentials("evil.com/", "tok")
 
 
-class TestEmployees:
+class TestOffsetEndpoints:
     @parameterized.expand(
         [
             # A server-side cap below PAGE_SIZE must move the offset by the rows returned, not the limit.
-            ("capped_page_size_stops_at_total", {"totalCount": 4}, ["0", "2"]),
+            ("employees_capped_page_size_stops_at_total", "employees", {"totalCount": 4}, ["0", "2"]),
             # Without a total, the walk ends on the first empty page.
-            ("missing_total_stops_on_empty_page", {}, ["0", "2", "4"]),
+            ("employees_missing_total_stops_on_empty_page", "employees", {}, ["0", "2", "4"]),
+            # Time entries carry the total under `total_count`, not `totalCount`.
+            ("time_entries_stops_at_total_count", "time_entries", {"total_count": 4}, ["0", "2"]),
+            ("time_entries_ignores_camel_case_total", "time_entries", {"totalCount": 4}, ["0", "2", "4"]),
         ]
     )
-    def test_offset_walk(self, _name: str, total: dict[str, Any], expected_offsets: list[str]) -> None:
+    def test_offset_walk(self, _name: str, endpoint: str, total: dict[str, Any], expected_offsets: list[str]) -> None:
+        data_key = WORKABLE_ENDPOINTS[endpoint].data_key
+        assert data_key is not None
         pages = [
-            _response({**total, "employees": [{"id": "e1"}, {"id": "e2"}]}),
-            _response({**total, "employees": [{"id": "e3"}, {"id": "e4"}]}),
-            _response({**total, "employees": []}),
+            _response({**total, data_key: [{"id": "e1"}, {"id": "e2"}]}),
+            _response({**total, data_key: [{"id": "e3"}, {"id": "e4"}]}),
+            _response({**total, data_key: []}),
         ]
 
-        result = _driver().run("employees", pages[: len(expected_offsets)])
+        result = _driver().run(endpoint, pages[: len(expected_offsets)])
 
         assert result.raised is None
         assert [r["id"] for r in result.rows] == ["e1", "e2", "e3", "e4"]
         assert result.params("offset") == expected_offsets
         assert set(result.params("limit")) == {"100"}
+
+
+class TestRequisitions:
+    def test_follows_paging_next_without_a_time_filter(self) -> None:
+        second = "https://www.workable.com/spi/v3/accounts/acme/requisitions?limit=100&since_id=r2"
+        result = _driver().run(
+            "requisitions",
+            [
+                _response(_page([{"id": "r1", "code": "REQ101"}], "requisitions", second)),
+                _response(_page([{"id": "r2", "code": "REQ102"}], "requisitions")),
+            ],
+            should_use_incremental_field=True,
+            incremental_field="updated_at",
+            db_incremental_field_last_value=datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        assert [r["code"] for r in result.rows] == ["REQ101", "REQ102"]
+        assert result.urls[1] == second
+        assert all(r.param("updated_after") is None for r in result.requests)
+        assert result.saved_states == [WorkableResumeConfig(next_url=second)]
+
+
+class TestDisqualificationReasons:
+    @parameterized.expand(
+        [
+            ("bare_array", lambda rows: rows),
+            ("wrapped", lambda rows: {"disqualification_reasons": rows}),
+        ]
+    )
+    def test_reads_rows_from_either_body_shape(self, _name: str, wrap: Any) -> None:
+        rows = [
+            {"id": "q1", "description": "Not qualified", "candidate_withdrew": False, "position": 0},
+            {"id": "q2", "description": "Took another offer", "candidate_withdrew": True, "position": 1},
+        ]
+
+        result = _driver().run("disqualification_reasons", [ScriptedResponse(json=wrap(rows))])
+
+        assert result.raised is None
+        assert result.rows == rows
+        assert result.paths == ["/spi/v3/disqualification_reasons"]
+        assert result.requests[0].query == {}
 
 
 class TestDepartments:

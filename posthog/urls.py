@@ -22,6 +22,7 @@ from posthog.api import (
     uploaded_media,
     user,
 )
+from posthog.api.cli_catalog import cli_catalog
 from posthog.api.github_callback.views import github_oauth_callback, github_setup_callback
 from posthog.api.integration_connect import integration_connect_redirect
 from posthog.api.livestream import LivestreamAuthorizationView
@@ -31,9 +32,10 @@ from posthog.api.scim import views as scim_views
 from posthog.api.sdk_health import sdk_health
 from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
 from posthog.ee_urls import ee_urlpatterns
-from posthog.frontend_views import app_context, home, home_with_region_redirect
+from posthog.frontend_views import app_context, device_approval_page, home, home_with_region_redirect
 from posthog.ingress.github.provider import build_github_provider
 from posthog.ingress.linear.provider import build_linear_provider
+from posthog.ingress.slack.provider import PROVISIONING_REVIEW_INTERACTIVITY_APP, build_slack_interactivity_provider
 from posthog.ingress.views import build_webhook_view
 from posthog.mobile_app_links import android_asset_links, apple_app_site_association
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
@@ -79,6 +81,7 @@ from products.slack_app.backend.views import (
 from products.streamlit_apps.backend.presentation.bridge_views import StreamlitBridgeView
 from products.surveys.backend.api.survey import public_survey_page
 from products.tasks.backend.facade.agent_proxy import agent_proxy_callback
+from products.tasks.backend.presentation.views.agent_egress import AgentEgressRegistrationView
 from products.tasks.backend.presentation.views.artifact_preview import task_artifact_preview
 from products.tasks.backend.presentation.views.gateway_generation_requests import gateway_generation_request
 from products.warehouse_sources.backend.presentation.views.public_source_configs import PublicSourceConfigViewSet
@@ -169,6 +172,31 @@ urlpatterns = [
         name="scim_resource_types",
     ),
     path("scim/v2/<str:scim_slug>/Schemas", csrf_exempt(scim_views.SCIMSchemasView.as_view()), name="scim_schemas"),
+    # Same SCIM resources without the tenant slug in the path: the bearer token alone identifies the
+    # IdP config. Both shapes are supported permanently; the slugged URLs stay the canonical ones.
+    path("scim/v2/Users", csrf_exempt(scim_views.SCIMUsersView.as_view()), name="scim_users_token"),
+    path(
+        "scim/v2/Users/<int:user_id>",
+        csrf_exempt(scim_views.SCIMUserDetailView.as_view()),
+        name="scim_user_detail_token",
+    ),
+    path("scim/v2/Groups", csrf_exempt(scim_views.SCIMGroupsView.as_view()), name="scim_groups_token"),
+    path(
+        "scim/v2/Groups/<uuid:group_id>",
+        csrf_exempt(scim_views.SCIMGroupDetailView.as_view()),
+        name="scim_group_detail_token",
+    ),
+    path(
+        "scim/v2/ServiceProviderConfig",
+        csrf_exempt(scim_views.SCIMServiceProviderConfigView.as_view()),
+        name="scim_service_provider_config_token",
+    ),
+    path(
+        "scim/v2/ResourceTypes",
+        csrf_exempt(scim_views.SCIMResourceTypesView.as_view()),
+        name="scim_resource_types_token",
+    ),
+    path("scim/v2/Schemas", csrf_exempt(scim_views.SCIMSchemasView.as_view()), name="scim_schemas_token"),
     # api
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/alerts/github", github.SecretAlert.as_view()),
@@ -176,6 +204,7 @@ urlpatterns = [
     *signals_user_urlpatterns,
     path("api/projects/<int:team_id>/messaging/customerio/webhook/", csrf_exempt(CustomerIOWebhookView.as_view())),
     path("api/sdk_health/", sdk_health),
+    path("api/cli/catalog.json", cli_catalog),
     # Conversations serves its widget and channel API from backend/api/, which its routes module
     # may not import (import-linter contract "routes must only import presentation"), so the mount
     # stays here until those views move into presentation/.
@@ -277,7 +306,20 @@ urlpatterns = [
         "api/projects/<str:team_id>/internal/hog_flows/batch_jobs/<str:batch_job_id>/status",
         csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"put": "internal_update_batch_job_status"})),
     ),
+    path(
+        "api/projects/<str:team_id>/internal/hog_flows/batch_jobs/<str:batch_job_id>/audience_snapshot",
+        csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"post": "internal_batch_job_audience_snapshot"})),
+    ),
+    path(
+        "api/projects/<str:team_id>/internal/hog_flows/batch_jobs/<str:batch_job_id>/audience_page",
+        csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"post": "internal_batch_job_audience_page"})),
+    ),
     *signals_internal_urlpatterns,
+    path(
+        "api/projects/<int:team_id>/internal/agent_egress/runs/<uuid:run_id>/executions/<uuid:execution_id>",
+        AgentEgressRegistrationView.as_view(),
+        name="agent-egress-registration",
+    ),
     # Ticket route for the CDP worker's workflow actions (auth: scoped service JWT)
     path(
         "api/projects/<str:team_id>/internal/conversations/tickets/<uuid:ticket_id>",
@@ -370,6 +412,15 @@ urlpatterns = [
     opt_slash_path("webhooks/github", github_app_webhook),
     # Linear App webhook. It stays in core for the same reason: the Linear integration is shared.
     opt_slash_path("webhooks/linear", build_webhook_view(build_linear_provider("posthog"))),
+    opt_slash_path(
+        "webhooks/provisioning-reviews/slack/interactivity",
+        build_webhook_view(
+            build_slack_interactivity_provider(
+                secret_getter=lambda: settings.PROVISIONING_REVIEW_SLACK_SIGNING_SECRET,
+                app=PROVISIONING_REVIEW_INTERACTIVITY_APP,
+            )
+        ),
+    ),
     # Message preferences
     path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
     opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),
@@ -415,5 +466,6 @@ urlpatterns = [
     # OAuth redirect target when logging the local frontend into a remote cloud region;
     # the SPA handles the code→token exchange client-side, so it must load without auth.
     re_path(r"^oauth/callback", home),
+    opt_slash_path("device", device_approval_page),
     re_path(r"^.*", home_with_region_redirect),
 ]

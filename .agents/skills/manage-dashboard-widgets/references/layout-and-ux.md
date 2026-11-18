@@ -17,7 +17,7 @@ DASHBOARD_WIDGET_CATALOG[].defaultLayout     ← you edit this
         ↓
 tileLayouts.ts :: calculateLayouts()         ← reads catalog per tile.widget.widget_type
         ↓
-react-grid-layout minW / minH on each item   ← enforced while resizing in edit mode
+react-grid-layout minW / minH on each item   ← enforced while resizing a tile
 ```
 
 - Grid is **12 columns** wide (`w` / `minW` are column counts).
@@ -72,7 +72,7 @@ If a new widget type omits `minH`, users can only shrink to **4 rows**, not 3. A
 1. Edit `defaultLayout.minH` / `minW` in `widget_types/catalog.ts` for the `widget_type`.
 2. Extend `products/dashboards/frontend/tileLayouts.test.ts` — parameterized case with `expectedMinH` / `expectedMinW` for that `widget_type` (see `error_tracking_list` / `session_replay_list` examples).
 3. Run `hogli test products/dashboards/frontend/tileLayouts.test.ts`.
-4. Manually resize the tile in dashboard **edit mode** to confirm the floor.
+4. Manually resize the tile on a dashboard you can edit (desktop width) to confirm the floor.
 5. Optional: add a `MinimumSize` story — frame height `minH * 80` px, limit demo data so content fits.
 
 ### Storybook vs dashboard

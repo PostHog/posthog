@@ -1,24 +1,31 @@
 import { LemonTable } from '@posthog/lemon-ui'
 
-import { FeedbackScoreRow } from '../types'
+import type { TraceFeedbackScoreApi } from '../../../generated/api.schemas'
+import { FeedbackStepContext } from '../types'
 import { FeedbackStepLink } from './FeedbackStepLink'
 import { scrollIntoNearest } from './scrollIntoNearest'
 import { ShortTimestamp } from './ShortTimestamp'
 
 export interface FeedbackScoresTableProps {
-    scores: FeedbackScoreRow[]
+    scores: TraceFeedbackScoreApi[]
+    steps: FeedbackStepContext
     onSelectStep: (nodeId: string) => void
     /** The row to bring into view, the first one of the step the mode was opened from. */
     scrollTargetId: string | null
 }
 
-export function FeedbackScoresTable({ scores, onSelectStep, scrollTargetId }: FeedbackScoresTableProps): JSX.Element {
+export function FeedbackScoresTable({
+    scores,
+    steps,
+    onSelectStep,
+    scrollTargetId,
+}: FeedbackScoresTableProps): JSX.Element {
     return (
-        <LemonTable<FeedbackScoreRow>
+        <LemonTable<TraceFeedbackScoreApi>
             dataSource={scores}
             rowKey="id"
             size="small"
-            rowStatus={(row) => (row.focused ? 'highlighted' : null)}
+            rowStatus={(row) => (row.nodeId === steps.focusNodeId ? 'highlighted' : null)}
             onRow={(row) => (row.id === scrollTargetId ? { ref: scrollIntoNearest } : {})}
             columns={[
                 {
@@ -38,7 +45,9 @@ export function FeedbackScoresTable({ scores, onSelectStep, scrollTargetId }: Fe
                 {
                     title: 'Step',
                     key: 'step',
-                    render: (_, row) => <FeedbackStepLink step={row.step} onSelectStep={onSelectStep} />,
+                    render: (_, row) => (
+                        <FeedbackStepLink nodeId={row.nodeId} steps={steps} onSelectStep={onSelectStep} />
+                    ),
                 },
                 {
                     title: 'Time',

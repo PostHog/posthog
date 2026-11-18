@@ -174,12 +174,12 @@ class OpsgeniePaginator(BasePaginator):
             self._has_next_page = True
 
 
-def _flatten_team_member(row: dict[str, Any]) -> dict[str, Any]:
+def _flatten_user(row: dict[str, Any]) -> dict[str, Any]:
     user = row.get("user") or {}
     return {**row, "user_id": user.get("id"), "username": user.get("username")}
 
 
-_CHILD_ROW_MAPS = {"team_members": _flatten_team_member}
+_CHILD_ROW_MAPS = {"team_members": _flatten_user, "alert_recipients": _flatten_user}
 
 
 def validate_credentials(
@@ -267,7 +267,8 @@ def opsgenie_source(
                     params["query"] = f"createdAt >= {start_ms}"
         paginator = OpsgeniePaginator(limit=PAGE_SIZE, supports_search_window=config.supports_search_window)
     else:
-        # teams, schedules, escalations, integrations return their full collection at once.
+        # teams, schedules, escalations, integrations, heartbeats and maintenance return their full
+        # collection at once.
         paginator = SinglePagePaginator()
 
     rest_config: RESTAPIConfig = {
@@ -279,9 +280,9 @@ def opsgenie_source(
                 "endpoint": {
                     "path": config.path,
                     "params": params,
-                    # Opsgenie wraps every collection under `data`; a missing key is treated as an
-                    # empty page (matching the previous `data.get("data", [])`), not a hard error.
-                    "data_selector": "data",
+                    # Opsgenie wraps every collection under `data` (heartbeats one level deeper); a
+                    # missing key is treated as an empty page, not a hard error.
+                    "data_selector": config.data_selector,
                 },
             }
         ],

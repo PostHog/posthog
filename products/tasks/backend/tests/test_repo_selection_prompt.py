@@ -14,6 +14,7 @@ from posthog.models.integration import GitHubIntegration
 from posthog.models.repo_routing_rule import RepoRoutingRule
 
 from products.tasks.backend.facade.profiles import get_task_profile
+from products.tasks.backend.logic.repo_selection.activity import RepositoryFigures, load_candidate_figures
 from products.tasks.backend.logic.repo_selection.agent import (
     RepoSelectionRejectedError,
     RepoSelectionUsageLimitError,
@@ -87,6 +88,92 @@ def test_prompt_labels_candidate_visibility() -> None:
     assert "3. `acme/c` (visibility unknown)" in prompt
     assert "**Source privacy.**" in prompt
     assert "source privacy rule" in prompt
+
+
+def test_prompt_orders_candidates_by_activity_and_marks_same_tree_copies() -> None:
+    figures = {
+        "acme/app": RepositoryFigures(
+            file_count=54321,
+            tree_truncated=True,
+            tree_hash="t1",
+            recent_author_count=40,
+            merged_pull_request_count=73210,
+            commits_last_30_days=8012,
+            top_extensions=("py", "ts"),
+        ),
+        # A mirror copies the commits and their authors, so only merged pull requests tell it apart.
+        "acme/app-mirror": RepositoryFigures(
+            file_count=54321,
+            tree_truncated=True,
+            tree_hash="t1",
+            recent_author_count=41,
+            merged_pull_request_count=0,
+            commits_last_30_days=8012,
+            top_extensions=("py", "ts"),
+        ),
+        "acme/kudos": RepositoryFigures(
+            file_count=5712,
+            tree_hash="t2",
+            commits_last_30_days=4400,
+            recent_author_count=1,
+            merged_pull_request_count=440,
+        ),
+        # Old authors in the sample do not make a repository with no recent commit active.
+        "acme/stale": RepositoryFigures(
+            file_count=1, tree_hash="t3", commits_last_30_days=0, recent_author_count=9, merged_pull_request_count=4
+        ),
+    }
+
+    prompt = _build_repo_selection_prompt(
+        "ctx",
+        ["acme/aardvark", "acme/app", "acme/app-mirror", "acme/kudos", "acme/stale"],
+        visibility={"acme/app": False},
+        figures=figures,
+    )
+
+    lines = [line for line in prompt.splitlines() if line[:1].isdigit() and ". `acme/" in line]
+    assert lines == [
+        "1. `acme/app` (public; 54,000+ files: py, ts; ~8,000 commits in 30 days by 25+ people; ~73,000 merged PRs)",
+        "2. `acme/app-mirror` (visibility unknown; 54,000+ files: py, ts; ~8,000 commits in 30 days by 25+ people; "
+        "0 merged PRs; same files as `acme/app`)",
+        "3. `acme/kudos` (visibility unknown; ~5,700 files; ~4,400 commits in 30 days by 1 person; ~440 merged PRs)",
+        "4. `acme/stale` (visibility unknown; 1 file; 0 commits in 30 days; 4 merged PRs)",
+        "5. `acme/aardvark` (visibility unknown)",
+    ]
+
+
+@pytest.mark.django_db
+def test_load_candidate_figures_enqueues_one_refresh_and_survives_enqueue_failure(team) -> None:
+    integration = Integration.objects.create(team=team, kind="github", config={"installation_id": "1"})
+    github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
+    integration.repository_cache_entries.create(
+        team=team, full_name="acme/a", default_branch="main", default_branch_sha="s", merged_pull_request_count=3
+    )
+    integration.repository_cache_entries.create(
+        team=team,
+        full_name="acme/b",
+        default_branch="main",
+        default_branch_sha="s",
+        file_count=1,
+        activity_updated_at=timezone.now(),
+    )
+    task = "products.tasks.backend.tasks.tasks.refresh_repository_activity.delay"
+
+    with patch(task) as delay:
+        first = load_candidate_figures(github, team.id, ["acme/a", "acme/b"])
+        load_candidate_figures(github, team.id, ["acme/a", "acme/b"])
+    other = Integration.objects.create(team=team, kind="github", config={"installation_id": "2"})
+    other.repository_cache_entries.create(team=team, full_name="acme/c", default_branch="main", default_branch_sha="s")
+    with patch(task, side_effect=ConnectionError("broker down")) as failing:
+        survived = load_candidate_figures(
+            GitHubIntegration(other, source="test", priority=Priority.CRITICAL), team.id, ["acme/c"]
+        )
+
+    delay.assert_called_once_with(team_id=team.id, integration_id=integration.id)
+    assert first["acme/a"].merged_pull_request_count == 3
+    assert set(first) == {"acme/a", "acme/b"}
+    failing.assert_called_once()
+    assert set(survived) == {"acme/c"}
 
 
 def test_prompt_text_caps_over_long_legacy_rules() -> None:

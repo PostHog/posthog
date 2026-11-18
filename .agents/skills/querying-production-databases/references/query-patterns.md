@@ -3,6 +3,8 @@
 Run the ClickHouse queries with `sendRawQuery: true` on the `Production` connection (or its EU match).
 Run the Postgres queries in HogQL mode on the Postgres connection.
 Replace each `<placeholder>` before you run a query.
+Before a query that returns one team's or organization's data, run the opt-out check in the SKILL.md section "AI data processing opt-out".
+Cross-team queries return metadata only. To read the `query` text of a row, run "One query by id" after its team passes the check.
 
 ## ClickHouse: the query log
 
@@ -11,7 +13,7 @@ Prefer it over `system.query_log`, which on the ops connection covers one node o
 The archive has typed columns in place of `log_comment`: `team_id`, `lc_workload`, `lc_kind`, `lc_access_method`, `lc_query_type`, `lc_product`, and more.
 Read the full list with `SELECT name, type FROM system.columns WHERE database = 'posthog' AND table = 'query_log_archive'`.
 Filter `event_date` as well as `event_time`, because the table is partitioned by date.
-For a full slow-query report, use the patterns in [`generating-clickhouse-query-performance-reports`](../../generating-clickhouse-query-performance-reports/references/query-patterns.md). They run here unchanged.
+For a full slow-query report, use the patterns in [`generating-clickhouse-query-performance-reports`](../../generating-clickhouse-query-performance-reports/references/query-patterns.md). They run here, but their query text and property columns are customer content: drop those columns from cross-team queries, or run the opt-out check for each team first.
 
 A slow query is `query_duration_ms > 30000`, or one of these exception codes:
 
@@ -31,8 +33,7 @@ SELECT
     formatReadableSize(memory_usage) AS memory,
     formatReadableSize(read_bytes) AS read_bytes,
     exception_code,
-    lc_query_type,
-    substring(query, 1, 200) AS query_preview
+    lc_query_type
 FROM posthog.query_log_archive
 WHERE event_date >= yesterday()
     AND event_time > now() - INTERVAL 1 DAY
@@ -68,8 +69,20 @@ Widen the window one step at a time. A week of the whole archive is a heavy scan
 
 ### One query by id
 
+First read the team, with no customer content:
+
 ```sql
-SELECT event_time, query_duration_ms, read_rows, read_bytes, memory_usage, exception, query
+SELECT team_id
+FROM posthog.query_log_archive
+WHERE event_date = '<YYYY-MM-DD>'
+    AND query_id = '<query id>'
+LIMIT 1
+```
+
+Run the opt-out check for that team. Then read the full row:
+
+```sql
+SELECT team_id, event_time, query_duration_ms, read_rows, read_bytes, memory_usage, exception, query
 FROM posthog.query_log_archive
 WHERE event_date = '<YYYY-MM-DD>'
     AND query_id = '<query id>'

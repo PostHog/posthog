@@ -45,11 +45,11 @@ class SwarmiaSource(ResumableSource[SwarmiaSourceConfig, SwarmiaResumeConfig]):
             label="Swarmia",
             releaseStatus=ReleaseStatus.GA,
             keywords=["dora", "engineering metrics", "developer productivity"],
-            caption="""Enter your Swarmia API token to pull your engineering metrics reports (pull requests, DORA, investment balance, software capitalization, and effort) into the PostHog Data warehouse.
+            caption="""Enter your Swarmia API token to pull your engineering metrics reports (pull requests, code metrics, DORA, AI adoption, investment balance, software capitalization, and effort) and your teams into the PostHog Data warehouse.
 
 You can create an API token in your Swarmia workspace under **Settings** → **API tokens**.
 
-Some reports (investment balance, software capitalization, effort) map to Swarmia features that may not be enabled on every plan — tables your token can't access are flagged in the table picker.
+Some reports (investment balance, software capitalization, effort) map to Swarmia features that may not be enabled on every plan — tables your token can't access are flagged in the table picker. The teams table needs a token with the **Teams** scope.
 """,
             iconPath="/static/services/swarmia.png",
             docsUrl="https://posthog.com/docs/cdp/sources/swarmia",

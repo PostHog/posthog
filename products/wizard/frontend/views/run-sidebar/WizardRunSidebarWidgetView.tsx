@@ -6,7 +6,7 @@ import { LemonButton, LemonCard } from '@posthog/lemon-ui'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { urls } from 'scenes/urls'
 
-import type { WizardRunApi, WizardRunTaskApi } from '../../generated/api.schemas'
+import type { WizardDetectedWarehouseSourceApi, WizardRunApi, WizardRunTaskApi } from '../../generated/api.schemas'
 import { WizardRunSidebarPanel } from './components/WizardRunSidebarPanel'
 import { WizardRunSidebarSummary } from './components/WizardRunSidebarSummary'
 
@@ -15,6 +15,8 @@ export interface WizardRunSidebarWidgetViewProps {
     tasksByRunId?: Record<string, readonly WizardRunTaskApi[]>
     onStateClick?: () => void
     onDismissRuns: (runIds: string[]) => void
+    detectedSources?: WizardDetectedWarehouseSourceApi[]
+    onDetectedSourceClick?: (sourceType: string) => void
     initialHovered?: boolean
     initialMenuOpen?: boolean
 }
@@ -24,6 +26,8 @@ export function WizardRunSidebarWidgetView({
     tasksByRunId = {},
     onStateClick,
     onDismissRuns,
+    detectedSources = [],
+    onDetectedSourceClick,
     initialHovered = false,
     initialMenuOpen = false,
 }: WizardRunSidebarWidgetViewProps): JSX.Element | null {
@@ -35,6 +39,8 @@ export function WizardRunSidebarWidgetView({
     }
 
     const multiple = runs.length > 1
+    // One run with nothing else to show links straight to it; otherwise the card opens the panel.
+    const opensPanel = multiple || detectedSources.length > 0
     const dismissRuns = (runIds: string[]): void => {
         onDismissRuns(runIds)
         if (runs.every((run) => runIds.includes(run.id))) {
@@ -60,6 +66,8 @@ export function WizardRunSidebarWidgetView({
                     tasksByRunId={tasksByRunId}
                     onDismissRuns={dismissRuns}
                     onNavigate={() => setMenuOpen(false)}
+                    detectedSources={detectedSources}
+                    onDetectedSourceClick={onDetectedSourceClick}
                 />
             }
         >
@@ -71,15 +79,15 @@ export function WizardRunSidebarWidgetView({
                     fullWidth
                     className="min-w-0 flex-1"
                     sideIcon={null}
-                    to={!multiple ? `${urls.wizardRuns()}?run=${encodeURIComponent(currentRun.id)}` : undefined}
+                    to={!opensPanel ? `${urls.wizardRuns()}?run=${encodeURIComponent(currentRun.id)}` : undefined}
                     onClick={() => {
                         onStateClick?.()
-                        if (multiple) {
+                        if (opensPanel) {
                             setMenuOpen((open) => !open)
                         }
                     }}
-                    aria-expanded={multiple ? menuOpen : undefined}
-                    aria-haspopup={multiple ? 'dialog' : undefined}
+                    aria-expanded={opensPanel ? menuOpen : undefined}
+                    aria-haspopup={opensPanel ? 'dialog' : undefined}
                     data-attr="wizard-run-sidebar-widget"
                 >
                     <WizardRunSidebarSummary

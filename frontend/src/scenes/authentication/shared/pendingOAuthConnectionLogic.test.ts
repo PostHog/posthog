@@ -34,8 +34,15 @@ describe('pendingOAuthConnectionLogic', () => {
                 clientId: CLIENT_ID,
                 logoUri: 'https://claude.example.com/logo.png',
                 redirectHost: 'claude.example.com',
+                flow: 'authorize',
             },
         })
+    })
+
+    it('reads the device flow marker the device approval page set', () => {
+        setCookie(encoded({ client_name: 'hog', client_id: CLIENT_ID, flow: 'device' }))
+
+        expect(readPendingOAuthConnection()?.flow).toBe('device')
     })
 
     it.each([
@@ -57,6 +64,7 @@ describe('pendingOAuthConnectionLogic', () => {
             clientId: 'cursor',
             logoUri: null,
             redirectHost: null,
+            flow: 'authorize',
         })
     })
 })

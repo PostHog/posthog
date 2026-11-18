@@ -9,9 +9,10 @@ from django.db import transaction
 
 from posthog.models import Team
 
+from products.signals.backend.daily_limit import check_daily_report_admission
 from products.signals.backend.quota import SelfDrivingAdmission, prepare_self_driving_admission
 from products.signals.backend.trial.funding import TrialFunding, direct_report_funding, signal_funding
-from products.signals.backend.trial.policy import TrialRefused
+from products.signals.backend.trial.policy import TrialPolicy, TrialRefused
 from products.tasks.backend.facade.api import get_task_run
 
 report_trial_context: ContextVar[tuple[int, str] | None] = ContextVar("report_trial_context", default=None)
@@ -83,7 +84,11 @@ def requires_trial_accounting(team_id: int, signal_id: str | None = None) -> boo
     if parent is not None and parent.funding == "operator":
         return False
     parent = signal_funding(team_id, signal_id) or parent
-    return prepare_self_driving_admission(team, parent=parent).trial_accounting_required
+    return (
+        parent.grant_id is not None
+        if parent is not None
+        else prepare_self_driving_admission(team).trial_accounting_required
+    )
 
 
 def implementation_requires_trial_opt_in(team_id: int, report_id: str) -> bool:
@@ -96,7 +101,7 @@ def implementation_requires_trial_opt_in(team_id: int, report_id: str) -> bool:
 def report_pass_admission(
     *, team: Team, report_id: str, operation_key: str, signal_id: str | None = None, operator_rerun: bool = False
 ) -> SelfDrivingAdmission:
-    from products.signals.backend.models import SignalReport  # noqa: PLC0415 -- model registration cycle
+    from products.signals.backend.models import SignalReport, SignalSpend  # noqa: PLC0415 -- model registration cycle
 
     report = (
         SignalReport.objects.filter(team_id=team.id, id=report_id)
@@ -112,13 +117,40 @@ def report_pass_admission(
     elif report is not None and report["billing_exempt_reason"]:
         parent = TrialFunding(funding="existing")
     else:
-        parent = signal_funding(team.id, signal_id, for_report=True) if previous is None else None
-        if parent is not None and parent.funding == "existing":
-            from products.signals.backend.free_trial import (  # noqa: PLC0415 -- legacy gate reads report funding
-                self_driving_free_trial_enabled,
+        receipt = (
+            SignalSpend.objects.for_team(team.id)
+            .filter(
+                signal_id=signal_id,
+                kind=SignalSpend.Kind.AD_HOC,
+                finalization_requested_at__isnull=True,
+                finalized_at__isnull=True,
             )
+            .only("trial_grant_id", "billing_exempt")
+            .first()
+        )
+        parent = None
+        if receipt is not None:
+            # An open receipt means accepted work, regardless of billing exemption.
+            # Exempt signals retain the customer report's funding; they cannot make it free.
+            grant_id = receipt.trial_grant_id
+            if receipt.billing_exempt and grant_id is None:
+                if previous is not None and previous.funding != "operator":
+                    parent = previous
+                else:
+                    grant = TrialPolicy(team).active_grant()
+                    grant_id = grant.id if grant else None
+            if parent is None and grant_id is not None:
+                parent = TrialFunding(funding="trial", grant_id=grant_id)
+            if parent is None:
+                from products.signals.backend.free_trial import (  # noqa: PLC0415 -- legacy gate reads report funding
+                    self_driving_free_trial_enabled,
+                )
 
-            parent = replace(parent, implementation_allowed=not self_driving_free_trial_enabled(team))
+                parent = TrialFunding(
+                    funding="existing", implementation_allowed=not self_driving_free_trial_enabled(team)
+                )
+    if parent is None:
+        check_daily_report_admission(team, report_id=report_id)
     return prepare_self_driving_admission(team, parent=parent)
 
 

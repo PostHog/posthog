@@ -1,6 +1,7 @@
 from .fragments import (
     COUNT_FRAGMENT,
     CUSTOMER_FRAGMENT,
+    CUSTOMER_VISIT_FRAGMENT,
     ID_NAME_CREATED_UPDATED_FRAGMENT,
     ID_NAME_FRAGMENT,
     KV_FRAGMENT,
@@ -90,6 +91,13 @@ query PaginatedOrders($pageSize: Int!, $cursor: String, $query: String) {{
             currentTotalWeight
             customAttributes {KV_FRAGMENT}
             customer {CUSTOMER_FRAGMENT}
+            customerJourneySummary {{
+                customerOrderIndex
+                daysToConversion
+                firstVisit {CUSTOMER_VISIT_FRAGMENT}
+                lastVisit {CUSTOMER_VISIT_FRAGMENT}
+                ready
+            }}
             customerLocale
             discountApplications(first: 250) {{
                 nodes {{

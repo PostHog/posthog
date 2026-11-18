@@ -157,8 +157,7 @@ class JiraIntegration:
 
     def refresh_access_token(self) -> None:
         """Refresh the Atlassian access token using the refresh token"""
-        oauth_integration = oauth.OauthIntegration(self.integration)
-        oauth_integration.refresh_access_token()
+        self.integration = model.integration_model(oauth.OauthIntegration(self.integration).refresh_access_token())
 
     def _ensure_token_valid(self) -> None:
         """Proactively refresh token if it's close to expiring to avoid intermittent 401s"""

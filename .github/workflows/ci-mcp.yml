@@ -545,7 +545,7 @@ jobs:
                   # The history fetch + base-ref fetch above ensure the
                   # full ancestry needed to find the divergence point is available.
                   if [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
-                      # Only restore an exact migration/routing match on the hourly lane.
+                      # Compute the exact migration/routing key from the hourly checkout.
                       # A rerun can use an older checkout than the latest master dump.
                       MERGE_BASE=$(git rev-parse HEAD)
                   else
@@ -570,6 +570,10 @@ jobs:
                       exit 0
                   fi
                   echo "key=posthog-schema-master-${MERGE_BASE}" >> "$GITHUB_OUTPUT"
+                  # Old workflow revisions lack the validator, so they must keep exact restores.
+                  if [ "$GITHUB_EVENT_NAME" = "schedule" ] && [ -f .github/scripts/master_schema_cache.py ]; then
+                      echo "snapshot_prefix_key=posthog-schema-master-" >> "$GITHUB_OUTPUT"
+                  fi
                   # Last-resort restore prefix: matches the newest saved dump of any
                   # migration set, for the window where both exact keys miss. Gated on
                   # checkout age (a day) because a re-run of an old run keeps its original
@@ -596,6 +600,7 @@ jobs:
                   fi
 
             - name: Restore schema cache from master
+              id: schema-cache
               if: ${{ steps.schema-key.outputs.key != '' }}
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
@@ -609,6 +614,16 @@ jobs:
                   restore-keys: |
                       ${{ steps.schema-key.outputs.key }}
                       ${{ steps.schema-key.outputs.prefix_key }}
+                      ${{ steps.schema-key.outputs.snapshot_prefix_key }}
+
+            - name: Validate hourly fallback schema
+              if: github.event_name == 'schedule' && steps.schema-cache.outputs.cache-matched-key != '' && steps.schema-cache.outputs.cache-matched-key != steps.schema-key.outputs.migrations_key && steps.schema-cache.outputs.cache-matched-key != steps.schema-key.outputs.key
+              env:
+                  CACHED_KEY: ${{ steps.schema-cache.outputs.cache-matched-key }}
+              run: >-
+                  python .github/scripts/master_schema_cache.py
+                  --repository . --epoch "$SCHEMA_CACHE_EPOCH"
+                  validate --dump schema.sql.gz --cache-key "$CACHED_KEY"
 
             - name: Prime posthog from cached schema
               # No-op on cache miss; manage.py migrate below falls back to a full migrate.

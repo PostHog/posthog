@@ -332,13 +332,18 @@ class TestPostHogCallback:
             patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
             patch(
                 "llm_gateway.callbacks.posthog.get_posthog_properties",
-                return_value={"llm_gateway_request_id": "spoofed", "$ai_span_id": "collapsed"},
+                return_value={
+                    "llm_gateway_request_id": "spoofed",
+                    "$ai_span_id": "collapsed",
+                    "$update_person_last_seen_at": True,
+                },
             ),
         ):
             await getattr(callback, event_method)(kwargs, None, 0.0, 1.0, end_user_id=None)
 
         properties = mock_client.capture.call_args.kwargs["properties"]
         assert properties["llm_gateway_request_id"] == "req-abc-123"
+        assert properties["$update_person_last_seen_at"] is False
         assert properties["$ai_span_id"] != "collapsed"
         assert _is_uuid(properties["$ai_span_id"])
 

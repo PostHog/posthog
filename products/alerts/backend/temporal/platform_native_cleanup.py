@@ -1,4 +1,4 @@
-"""Deletes an insight's alerts with no insight row after the insight is deleted, retrying each one."""
+"""Deletes the platform's alerts on an insight after the insight is deleted, retrying each one."""
 
 import asyncio
 import datetime as dt

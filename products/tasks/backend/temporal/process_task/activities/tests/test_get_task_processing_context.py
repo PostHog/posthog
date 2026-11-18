@@ -1,4 +1,6 @@
+from pathlib import Path
 from typing import Any
+from uuid import UUID, uuid4
 
 import pytest
 from unittest.mock import call, patch
@@ -8,6 +10,7 @@ from django.test import override_settings
 
 from asgiref.sync import async_to_sync
 from posthoganalytics.types import FlagsAndPayloads
+from structlog.testing import capture_logs
 from temporalio.testing import ActivityEnvironment
 
 from posthog.models import OrganizationMembership, User
@@ -36,14 +39,23 @@ from products.tasks.backend.constants import (
 )
 from products.tasks.backend.exceptions import ProcessTaskFatalError, TaskInvalidStateError, TaskRunNotReadyError
 from products.tasks.backend.facade.profiles import get_task_profile
+from products.tasks.backend.logic.services.agent_egress_probe import AgentEgressProbeConfig
 from products.tasks.backend.logic.services.agent_instructions import AgentInstructionsStore
-from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, SandboxEnvironment, Task, TaskRun
+from products.tasks.backend.models import (
+    TASK_OWNERSHIP_VERSION_STATE_KEY,
+    SandboxCustomImage,
+    SandboxEnvironment,
+    Task,
+    TaskRun,
+)
 from products.tasks.backend.temporal.process_task.activities import provision_sandbox
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
+    CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY,
     RUN_FEATURE_FLAG_KEYS,
     GetTaskProcessingContextInput,
     TaskProcessingContext,
     VmSandboxDecision,
+    _agent_egress_observation_config,
     _ensure_subscription_allowed,
     _fetch_run_flags,
     _is_agent_shadow_enabled,
@@ -84,6 +96,83 @@ async def _run_context(
     activity_environment: ActivityEnvironment, input_data: GetTaskProcessingContextInput
 ) -> TaskProcessingContext:
     return await activity_environment.run(get_task_processing_context, input_data)
+
+
+def _write_observation_config(directory: Path, *, team_id: int, run_id: str) -> str:
+    path = directory / "observation.json"
+    path.write_text(
+        AgentEgressProbeConfig(
+            team_id=team_id,
+            run_id=UUID(run_id),
+            endpoint="https://run-a.egress.example.com",
+            relay_image_id="im-example",
+            server_ca_file=directory / "server.pem",
+            client_ca_file=directory / "client.pem",
+            client_ca_key_file=directory / "client-key.pem",
+        ).model_dump_json()
+    )
+    return str(path)
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "enabled",
+        "disabled",
+        "production",
+        "provider",
+        "resumed",
+        "snapshot",
+        "local",
+        "interactive",
+        "hogland",
+        "gvisor",
+        "restricted",
+        "team",
+        "run",
+    ],
+)
+def test_egress_observation_requires_an_explicit_eligible_development_run(case: str, tmp_path: Path) -> None:
+    context = TaskProcessingContext(
+        task_id=str(uuid4()),
+        run_id=str(uuid4()),
+        team_id=1,
+        team_uuid=str(uuid4()),
+        organization_id=str(uuid4()),
+        github_integration_id=None,
+        repository=None,
+        distinct_id="egress-observation",
+        environment="cloud",
+        use_modal_vm_sandbox=True,
+    )
+    path = _write_observation_config(tmp_path, team_id=context.team_id, run_id=context.run_id)
+    if case == "snapshot":
+        context.state = {"same_run_resume": True, "snapshot_external_id": "snapshot-example"}
+    elif case == "local":
+        context.environment = "local"
+    elif case == "interactive":
+        context.state = {"mode": "interactive"}
+    elif case == "hogland":
+        context.sandbox_backend = "hogland"
+    elif case == "gvisor":
+        context.use_modal_vm_sandbox = False
+    elif case == "restricted":
+        context.allowed_domains = []
+    elif case == "team":
+        context.team_id += 1
+    elif case == "run":
+        context.run_id = str(uuid4())
+    if case not in {"enabled", "team", "run"}:
+        Path(path).unlink()
+    with override_settings(
+        DEBUG=case != "production",
+        SANDBOX_PROVIDER="modal" if case == "provider" else "MODAL_DOCKER",
+        AGENT_EGRESS_PROBE_CONFIG_DIR=str(tmp_path),
+        AGENT_EGRESS_OBSERVATION_CONFIG="" if case == "disabled" else path,
+    ):
+        assert _agent_egress_observation_config(context, resumed=case == "resumed") == (
+            path if case == "enabled" else None
+        )
 
 
 @pytest.mark.parametrize(
@@ -726,7 +815,12 @@ class TestGetTaskProcessingContextActivity:
         assert result.allowed_domains == []
 
     @pytest.mark.django_db(transaction=True)
-    def test_get_task_processing_context_keeps_full_access_unrestricted(self, activity_environment, test_task):
+    @pytest.mark.parametrize(
+        "configuration", ["disabled", "valid", "missing", "unconfigured_directory", "malformed", "outside_directory"]
+    )
+    def test_get_task_processing_context_keeps_full_access_unrestricted(
+        self, activity_environment, test_task, tmp_path: Path, configuration: str
+    ) -> None:
         sandbox_environment = SandboxEnvironment.objects.create(
             team=test_task.team,
             created_by=test_task.created_by,
@@ -736,11 +830,58 @@ class TestGetTaskProcessingContextActivity:
         )
         task_run = test_task.create_run(extra_state={"sandbox_environment_id": str(sandbox_environment.id)})
 
-        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
-        result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+        directory = tmp_path / "approved"
+        directory.mkdir()
+        path = _write_observation_config(
+            tmp_path if configuration == "outside_directory" else directory,
+            team_id=task_run.team_id,
+            run_id=str(task_run.id),
+        )
+        marker = "synthetic-observation-private-material"
+        if configuration == "missing":
+            Path(path).unlink()
+        elif configuration == "malformed":
+            Path(path).write_text('{"unexpected":"' + marker + '",')
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id), launches_agent=True)
+        with (
+            capture_logs() as logs,
+            override_settings(
+                DEBUG=True,
+                SANDBOX_PROVIDER="MODAL_DOCKER",
+                AGENT_EGRESS_PROBE_CONFIG_DIR="" if configuration == "unconfigured_directory" else str(directory),
+                AGENT_EGRESS_OBSERVATION_CONFIG="" if configuration == "disabled" else path,
+            ),
+            patch(
+                ALL_FLAGS_TARGET,
+                return_value=_flags(
+                    payloads={MODAL_VM_SANDBOX_FEATURE_FLAG: '{"default_base_origin_products": ["user_created"]}'}
+                ),
+            ),
+        ):
+            result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
         assert result.sandbox_environment_id == str(sandbox_environment.id)
         assert result.allowed_domains is None
+        assert result.agent_egress_observation_config == (path if configuration == "valid" else None)
+        invalid = configuration not in {"disabled", "valid"}
+        warnings = [record for record in logs if record["event"] == "agent_egress_observation_disabled"]
+        assert len(warnings) == int(invalid)
+        assert marker not in str(logs)
+        assert path not in str(logs)
+        if invalid:
+            assert warnings[0]["run_id"] == str(task_run.id)
+            assert warnings[0]["team_id"] == task_run.team_id
+            assert warnings[0]["reason"] == "invalid_configuration"
+            assert warnings[0]["log_level"] == "warning"
+            assert not warnings[0].get("exc_info")
+            repaired_path = _write_observation_config(directory, team_id=task_run.team_id, run_id=str(task_run.id))
+            with override_settings(
+                DEBUG=True,
+                SANDBOX_PROVIDER="MODAL_DOCKER",
+                AGENT_EGRESS_PROBE_CONFIG_DIR=str(directory),
+                AGENT_EGRESS_OBSERVATION_CONFIG=repaired_path,
+            ):
+                assert _agent_egress_observation_config(result, resumed=False) == repaired_path
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
@@ -824,6 +965,58 @@ class TestGetTaskProcessingContextActivity:
         org_id = str(test_task.team.organization_id)
         assert kwargs["groups"] == {"organization": org_id}
         assert kwargs["group_properties"] == {"organization": {"id": org_id}}
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "actor, expected",
+        [
+            ("creator", True),
+            ("other_member", False),
+            (None, True),
+        ],
+    )
+    def test_agent_memory_follows_only_the_task_creator(self, activity_environment, test_task, actor, expected):
+        extra_state: dict[str, Any] = {}
+        if actor is not None:
+            actor_user = (
+                test_task.created_by
+                if actor == "creator"
+                else User.objects.create_and_join(test_task.team.organization, "teammate@example.com", None)
+            )
+            extra_state = {"interaction_origin": "slack", "slack_actor_user_id": actor_user.id}
+        task_run = test_task.create_run(extra_state=extra_state)
+
+        with patch(ALL_FLAGS_TARGET, return_value=_flags({"tasks-persist-agent-memory": True})):
+            result = async_to_sync(activity_environment.run)(
+                get_task_processing_context, GetTaskProcessingContextInput(run_id=str(task_run.id))
+            )
+
+        assert result.persist_agent_memory_enabled is expected
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "origin_product, extra_state, expected",
+        [
+            (Task.OriginProduct.USER_CREATED, {}, True),
+            (Task.OriginProduct.WORKFLOW, {}, False),
+            (Task.OriginProduct.ONBOARDING, {}, False),
+            (Task.OriginProduct.HOGDESK, {}, False),
+            (Task.OriginProduct.USER_CREATED, {"agent_memory_locked": True}, False),
+        ],
+    )
+    def test_agent_memory_is_off_for_runs_any_member_can_drive(
+        self, activity_environment, test_task, origin_product, extra_state, expected
+    ):
+        test_task.origin_product = origin_product
+        test_task.save(update_fields=["origin_product"])
+        task_run = test_task.create_run(extra_state=extra_state)
+
+        with patch(ALL_FLAGS_TARGET, return_value=_flags({"tasks-persist-agent-memory": True})):
+            result = async_to_sync(activity_environment.run)(
+                get_task_processing_context, GetTaskProcessingContextInput(run_id=str(task_run.id))
+            )
+
+        assert result.persist_agent_memory_enabled is expected
 
     @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_keeps_stamped_event_ingest_off(self, activity_environment, test_task):
@@ -1371,6 +1564,88 @@ class TestGetTaskProcessingContextActivity:
 
         assert result.use_modal_vm_sandbox is True
         assert result.custom_image_name == "posthog-dev-stack"
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "image_status, modal_image_name, image_exists, vm_enabled, input_kwargs, expected_image, expected_reason",
+        [
+            (SandboxCustomImage.Status.READY, "custom:latest", True, True, {}, "custom:latest", None),
+            (SandboxCustomImage.Status.BUILDING, "custom:latest", True, True, {}, "custom:latest", None),
+            (SandboxCustomImage.Status.SCANNING, "custom:latest", True, True, {}, "custom:latest", None),
+            (SandboxCustomImage.Status.BUILDING, "", True, True, {}, None, "not_ready"),
+            (SandboxCustomImage.Status.BUILD_FAILED, "custom:latest", True, True, {}, None, "not_ready"),
+            (SandboxCustomImage.Status.READY, "custom:latest", False, True, {}, None, "unavailable"),
+            (SandboxCustomImage.Status.READY, "custom:latest", True, False, {}, None, "runtime_not_enabled"),
+            (
+                SandboxCustomImage.Status.READY,
+                "custom:latest",
+                True,
+                True,
+                {"resumed_sandbox_id": "sandbox-live"},
+                "custom:latest",
+                "stale",
+            ),
+            (
+                SandboxCustomImage.Status.READY,
+                "custom:latest",
+                False,
+                True,
+                {"resumed_sandbox_id": "sandbox-live"},
+                None,
+                "stale",
+            ),
+            (SandboxCustomImage.Status.READY, "custom:latest", False, True, {"launches_agent": False}, None, "stale"),
+        ],
+        ids=[
+            "ready",
+            "rebuilding_serves_last_build",
+            "rescanning_serves_last_build",
+            "first_build",
+            "build_failed",
+            "missing",
+            "runtime_not_enabled",
+            "continuation_keeps_reason_when_image_became_ready",
+            "continuation_keeps_reason_when_image_was_deleted",
+            "orchestrator_context_keeps_reason",
+        ],
+    )
+    def test_per_run_custom_image_resolution_records_the_fallback_reason(
+        self,
+        activity_environment,
+        test_task,
+        image_status,
+        modal_image_name,
+        image_exists,
+        vm_enabled,
+        input_kwargs,
+        expected_image,
+        expected_reason,
+    ):
+        image = SandboxCustomImage.objects.for_team(test_task.team_id).create(
+            team=test_task.team,
+            created_by=test_task.created_by,
+            name="custom",
+            status=image_status,
+            modal_image_name=modal_image_name,
+        )
+        image_id = str(image.id)
+        if not image_exists:
+            SandboxCustomImage.objects.for_team(test_task.team_id).filter(id=image.id).delete()
+        task_run = test_task.create_run(
+            extra_state={"custom_image_id": image_id, CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY: "stale"}
+        )
+        payloads = {MODAL_VM_SANDBOX_FEATURE_FLAG: '{"origin_products": ["user_created"]}'} if vm_enabled else {}
+
+        with patch(ALL_FLAGS_TARGET, return_value=_flags(payloads=payloads)):
+            result = async_to_sync(activity_environment.run)(
+                get_task_processing_context,
+                GetTaskProcessingContextInput(run_id=str(task_run.id), **{"launches_agent": True, **input_kwargs}),
+            )
+
+        task_run.refresh_from_db()
+        assert result.custom_image_name == expected_image
+        assert task_run.state.get(CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY) == expected_reason
+        assert result.state.get(CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY) == expected_reason
 
     @pytest.mark.django_db(transaction=True)
     @override_settings(HOGLAND_API_URL="https://hogland.example", HOGLAND_API_TOKEN="hog-tok")

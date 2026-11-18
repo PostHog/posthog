@@ -13,7 +13,13 @@ import type { HogFlowRevisionBasicApi } from '../generated/api.schemas'
 import { workflowLogic } from './workflowLogic'
 import { workflowRevisionsLogic } from './workflowRevisionsLogic'
 
-export function WorkflowRevisions({ id }: { id: string }): JSX.Element {
+export interface WorkflowRevisionsProps {
+    id: string
+    /** Lists versions without the restore action, for pages that must not open a draft in the workflow editor. */
+    readOnly?: boolean
+}
+
+export function WorkflowRevisions({ id, readOnly = false }: WorkflowRevisionsProps): JSX.Element {
     const logic = workflowRevisionsLogic({ id })
     const { revisions, revisionsCount, revisionsResponseLoading, restoringVersion } = useValues(logic)
     const { restoreRevision } = useActions(logic)
@@ -26,8 +32,9 @@ export function WorkflowRevisions({ id }: { id: string }): JSX.Element {
             <div>
                 <h3 className="mb-0">Versions</h3>
                 <p className="text-secondary mb-0">
-                    A version is saved each time the live workflow changes. Restore one to open it as a draft, then
-                    publish it to go live.
+                    {readOnly
+                        ? 'A version is saved each time a change goes live.'
+                        : 'A version is saved each time the live workflow changes. Restore one to open it as a draft, then publish it to go live.'}
                 </p>
             </div>
             <LemonTable<HogFlowRevisionBasicApi>
@@ -41,7 +48,11 @@ export function WorkflowRevisions({ id }: { id: string }): JSX.Element {
                         </div>
                     ) : undefined
                 }
-                emptyState="No versions yet. One is saved each time the live workflow changes."
+                emptyState={
+                    readOnly
+                        ? 'No versions yet. One is saved each time a change goes live.'
+                        : 'No versions yet. One is saved each time the live workflow changes.'
+                }
                 columns={[
                     {
                         title: 'Version',
@@ -75,6 +86,7 @@ export function WorkflowRevisions({ id }: { id: string }): JSX.Element {
                     {
                         key: 'actions',
                         width: 0,
+                        isHidden: readOnly,
                         render: (_, revision) => (
                             // The flex wrapper keeps the button at its intrinsic height instead of
                             // stretching to the (avatar-driven) row height.

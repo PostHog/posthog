@@ -1,3 +1,5 @@
+import { MOCK_SECOND_BASIC_USER } from 'lib/api.mock'
+
 import type { Meta, StoryObj } from '@storybook/react'
 import { useActions } from 'kea'
 import { HttpResponse } from 'msw'
@@ -250,6 +252,46 @@ export const StatusBlock: Story = {
     },
 }
 
+export const StatusBlockWithEditableDecisions: Story = {
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.INBOX_REPORT_EDITABLE_DECISIONS]: true },
+        testOptions: { snapshotBrowsers: [] },
+    },
+    render: function RenderStatusBlockWithEditableDecisions() {
+        const [priority, setPriority] = useState<NonNullable<SignalReport['priority']>>('P1')
+        const report = makeReport({
+            status: SignalReportStatus.READY,
+            priority,
+            repo_slug: 'example-org/web-app',
+            pull_requests: [],
+        })
+        return (
+            <Frame>
+                <div className="w-[26rem] border border-primary bg-surface-primary p-5">
+                    <ReportStatusSection
+                        report={report}
+                        onPriorityChange={setPriority}
+                        decisionAttributions={{
+                            repository: {
+                                person: null,
+                                setAt: '2026-06-09T09:00:00Z',
+                                reason: 'The stack trace points at files under src/checkout/ in this repository.',
+                                previousValue: null,
+                            },
+                            priority: {
+                                person: MOCK_SECOND_BASIC_USER,
+                                setAt: '2026-06-10T08:00:00Z',
+                                reason: null,
+                                previousValue: 'P3',
+                            },
+                        }}
+                    />
+                </div>
+            </Frame>
+        )
+    },
+}
+
 export const Report: Story = {
     render: () => (
         <Frame>
@@ -260,11 +302,32 @@ export const Report: Story = {
 
 export const ReportReadyToImplement: Story = {
     decorators: [readyToImplementMocks],
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.INBOX_REPORT_IMPLEMENT_BUTTON_POSITION]: 'control' },
+    },
     render: () => (
         <Frame>
-            <ReportDetail report={reportTabReports[0]} />
+            <ReportDetail
+                report={{
+                    ...reportTabReports[0],
+                    summary: `${reportTabReports[0].summary}\n\n## Solution\n\nValidate each recipient before the form sends the invitation request. Show a field error for an empty email address.`,
+                }}
+            />
         </Frame>
     ),
+}
+
+export const ReportImplementButtonInHeader: Story = {
+    ...ReportReadyToImplement,
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.INBOX_REPORT_IMPLEMENT_BUTTON_POSITION]: 'test' },
+        testOptions: { snapshotBrowsers: [] },
+    },
+}
+
+export const ReportViewTaskButtonInHeader: Story = {
+    ...ReportImplementButtonInHeader,
+    decorators: [],
 }
 
 export const ReportWithoutCodeAccess: Story = {
@@ -331,6 +394,7 @@ export const ReportClaimedByTeammate: Story = {
 }
 
 const NOTES_REPORT_ID = reportTabReports[0].id
+const NOTES_ROLE_ID = '0190f3a1-7d2e-7c41-9a3b-5e6f7a8b9c0d'
 
 // The active note is still listed; the retired one is gone from the list, so its entry reads inactive.
 const reportNotesMocks = mswDecorator({
@@ -352,6 +416,10 @@ const reportNotesMocks = mswDecorator({
         '/api/projects/:id/signals/scout/configs/': () => [
             200,
             [{ id: 'config-checkout', skill_name: 'signals-scout-checkout', display_name: 'Checkout watcher' }],
+        ],
+        '/api/organizations/:organization_id/roles/': () => [
+            200,
+            { results: [{ id: NOTES_ROLE_ID, name: 'Checkout team', members: [] }], count: 1 },
         ],
     },
 })
@@ -382,7 +450,9 @@ const noteArtefacts: SignalReportArtefact[] = [
     {
         id: 'artefact-note',
         type: 'note',
-        content: { note: 'Support confirmed two more customers hit this on Monday.' },
+        content: {
+            note: `Support confirmed two more customers hit this on Monday. @member:${MOCK_SECOND_BASIC_USER.id} @role:${NOTES_ROLE_ID} can you take a look?`,
+        },
         created_at: '2026-06-08T09:00:00Z',
         created_by: NOTE_AUTHOR,
         actor_kind: 'user',
@@ -399,6 +469,9 @@ const noteArtefacts: SignalReportArtefact[] = [
 
 // The notes under the report body. The agent's note stays out of the list, and the retired note reads inactive.
 export const ReportNotes: Story = {
+    parameters: {
+        featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.SIGNALS_REPORT_NOTE_MENTIONS]: true },
+    },
     decorators: [
         reportNotesMocks,
         mswDecorator({
@@ -496,6 +569,25 @@ export const ReportWithFollowUpMetricHidden: Story = {
             [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: false,
         },
     },
+}
+
+export const ReportReadyToMonitor: Story = {
+    parameters: {
+        mockDate: '2026-08-29',
+        testOptions: { snapshotBrowsers: [] },
+    },
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={makeReport({
+                    ...reportTabReports[0],
+                    title: 'Creating an API key does nothing when validation fails',
+                    metrics: reportMetricsFixture.slice(0, 1),
+                    monitoring_started_at: null,
+                })}
+            />
+        </Frame>
+    ),
 }
 
 export const ReportFollowUpPending: Story = {

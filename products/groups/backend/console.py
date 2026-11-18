@@ -10,6 +10,7 @@ from django.utils.dateparse import parse_datetime
 from posthog.admin.console.panels import Fact, Operation, Owner, Panel
 from posthog.admin.console.registry import console
 from posthog.admin.console.tools import Cell, Notice, Page, Row, Table
+from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.models.team.team import Team
 
 from products.groups.backend.facade import api
@@ -175,6 +176,7 @@ class GroupTypesPanel(Panel):
     key = "group-types"
     title = "Group types"
     owner = PRODUCT_ANALYTICS
+    operation_keys = frozenset(f"edit-{index}" for index in range(GROUP_TYPES_LIMIT))
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, Team)
@@ -220,3 +222,11 @@ class GroupTypesPanel(Panel):
             description=f"The team sees the new names in the app. {CREATED_AT_EFFECT}",
             undo_hint="To undo, edit the group type again and enter the old values. The message after saving lists them.",
         )
+
+
+for index in range(GROUP_TYPES_LIMIT):
+    console.register_moved_action(
+        old_path=f"admin/posthog/team/<int:pk>/group-type-mapping/{index}/edit/",
+        record="team",
+        target=f"group-types/edit-{index}/",
+    )

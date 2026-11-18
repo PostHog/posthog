@@ -3,6 +3,7 @@ from collections import defaultdict
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import Sum
 from django.utils import timezone
 
 from products.ai_observability.backend.models.offline_evaluations import (
@@ -12,6 +13,7 @@ from products.ai_observability.backend.models.offline_evaluations import (
     OfflineExperimentItemPayload,
     PayloadState,
 )
+from products.ai_observability.backend.retention_metrics import JsonByteLength
 
 BATCH_SIZE = 500
 MAX_BATCHES_PER_TYPE = 20
@@ -23,6 +25,8 @@ class OfflinePayloadRetention:
         self.batches = 0
         self.item_payloads_expired = 0
         self.result_payloads_expired = 0
+        self.item_payload_bytes_deleted = 0
+        self.result_payload_bytes_deleted = 0
         self.budget_exhausted = False
 
     def _expire_batch(
@@ -54,13 +58,17 @@ class OfflinePayloadRetention:
                 locked_ids = list(owners.select_for_update(skip_locked=True).values_list("id", flat=True))
                 if not locked_ids:
                     continue
-                deleted, _ = payload_model.objects.for_team(team_id).filter(pk__in=locked_ids).delete()
+                payloads = payload_model.objects.for_team(team_id).filter(pk__in=locked_ids)
+                payload_bytes = payloads.aggregate(total=Sum(JsonByteLength("data"), default=0))["total"]
+                deleted, _ = payloads.delete()
                 owners.filter(id__in=locked_ids).update(payload_state=PayloadState.EXPIRED)
             self.batches += 1
             if payload_model is OfflineExperimentItemPayload:
                 self.item_payloads_expired += deleted
+                self.item_payload_bytes_deleted += payload_bytes
             else:
                 self.result_payloads_expired += deleted
+                self.result_payload_bytes_deleted += payload_bytes
             progressed = True
         return progressed
 

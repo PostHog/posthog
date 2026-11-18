@@ -256,6 +256,14 @@ export const insightsExplanationsCreateBodyDataOneResultsItemDataMax = 5000
 
 export const insightsExplanationsCreateBodyDataOneResultsItemDaysMax = 5000
 
+export const insightsExplanationsCreateBodyDataOneStepsItemNameMax = 400
+
+export const insightsExplanationsCreateBodyDataOneStepsItemCountMin = 0
+
+export const insightsExplanationsCreateBodyDataOneBreakdownsItemMax = 400
+
+export const insightsExplanationsCreateBodyDataOneBreakdownsMax = 1000
+
 export const insightsExplanationsCreateBodyDataOneSeriesIndexMin = 0
 
 export const insightsExplanationsCreateBodyDataOneInsightNameMax = 400
@@ -294,13 +302,17 @@ export const InsightsExplanationsCreateBody = /* @__PURE__ */ zod.object({
     data: zod
         .object({
             shape: zod
-                .enum(['time_series'])
-                .describe('\* `time_series` - Time series')
+                .enum(['time_series', 'funnel_steps'])
+                .describe('\* `time_series` - Time series\n\* `funnel_steps` - Funnel steps')
                 .default(insightsExplanationsCreateBodyDataOneShapeDefault)
                 .describe(
-                    'What the explanation walks through, whichever insight drew the chart. A funnel over time is a time series too.\n\n\* `time_series` - Time series'
+                    'What the explanation walks through, whichever insight drew the chart. A funnel over time is a time series too.\n\n\* `time_series` - Time series\n\* `funnel_steps` - Funnel steps'
                 ),
-            query: zod.record(zod.string(), zod.unknown()).describe('The insight query the explanation follows.'),
+            query: zod
+                .record(zod.string(), zod.unknown())
+                .describe(
+                    'The insight query the explanation follows: a TrendsQuery for a time series, a FunnelsQuery for funnel steps.'
+                ),
             results: zod
                 .array(
                     zod.object({
@@ -323,17 +335,41 @@ export const InsightsExplanationsCreateBody = /* @__PURE__ */ zod.object({
                             ),
                     })
                 )
-                .describe('Every series on the chart when it was explained.'),
+                .optional()
+                .describe('Every series on the chart when it was explained. Time series only.'),
+            steps: zod
+                .array(
+                    zod.object({
+                        name: zod
+                            .string()
+                            .max(insightsExplanationsCreateBodyDataOneStepsItemNameMax)
+                            .describe("The step's name."),
+                        count: zod
+                            .number()
+                            .min(insightsExplanationsCreateBodyDataOneStepsItemCountMin)
+                            .describe('How many reached the step.'),
+                    })
+                )
+                .optional()
+                .describe("The followed breakdown value's steps when it was explained. Funnel steps only."),
+            breakdowns: zod
+                .array(zod.string().max(insightsExplanationsCreateBodyDataOneBreakdownsItemMax))
+                .max(insightsExplanationsCreateBodyDataOneBreakdownsMax)
+                .optional()
+                .describe("Every breakdown value's label, empty when the funnel has no breakdown. Funnel steps only."),
             seriesIndex: zod
                 .number()
                 .min(insightsExplanationsCreateBodyDataOneSeriesIndexMin)
-                .describe('The index in `results` the explanation follows.'),
+                .describe('The index in `results` the explanation follows, or the index in `breakdowns` on a funnel.'),
             insightName: zod
                 .string()
                 .max(insightsExplanationsCreateBodyDataOneInsightNameMax)
                 .nullable()
                 .describe("The insight's name."),
-            lastPointInProgress: zod.boolean().describe("Whether the last point's period had not ended yet."),
+            lastPointInProgress: zod
+                .boolean()
+                .optional()
+                .describe("Whether the last point's period had not ended yet. Time series only."),
             headline: zod
                 .string()
                 .max(insightsExplanationsCreateBodyDataOneHeadlineMax)
@@ -501,6 +537,14 @@ export const insightsExplanationsUpdateBodyDataOneResultsItemDataMax = 5000
 
 export const insightsExplanationsUpdateBodyDataOneResultsItemDaysMax = 5000
 
+export const insightsExplanationsUpdateBodyDataOneStepsItemNameMax = 400
+
+export const insightsExplanationsUpdateBodyDataOneStepsItemCountMin = 0
+
+export const insightsExplanationsUpdateBodyDataOneBreakdownsItemMax = 400
+
+export const insightsExplanationsUpdateBodyDataOneBreakdownsMax = 1000
+
 export const insightsExplanationsUpdateBodyDataOneSeriesIndexMin = 0
 
 export const insightsExplanationsUpdateBodyDataOneInsightNameMax = 400
@@ -539,13 +583,17 @@ export const InsightsExplanationsUpdateBody = /* @__PURE__ */ zod.object({
     data: zod
         .object({
             shape: zod
-                .enum(['time_series'])
-                .describe('\* `time_series` - Time series')
+                .enum(['time_series', 'funnel_steps'])
+                .describe('\* `time_series` - Time series\n\* `funnel_steps` - Funnel steps')
                 .default(insightsExplanationsUpdateBodyDataOneShapeDefault)
                 .describe(
-                    'What the explanation walks through, whichever insight drew the chart. A funnel over time is a time series too.\n\n\* `time_series` - Time series'
+                    'What the explanation walks through, whichever insight drew the chart. A funnel over time is a time series too.\n\n\* `time_series` - Time series\n\* `funnel_steps` - Funnel steps'
                 ),
-            query: zod.record(zod.string(), zod.unknown()).describe('The insight query the explanation follows.'),
+            query: zod
+                .record(zod.string(), zod.unknown())
+                .describe(
+                    'The insight query the explanation follows: a TrendsQuery for a time series, a FunnelsQuery for funnel steps.'
+                ),
             results: zod
                 .array(
                     zod.object({
@@ -568,17 +616,41 @@ export const InsightsExplanationsUpdateBody = /* @__PURE__ */ zod.object({
                             ),
                     })
                 )
-                .describe('Every series on the chart when it was explained.'),
+                .optional()
+                .describe('Every series on the chart when it was explained. Time series only.'),
+            steps: zod
+                .array(
+                    zod.object({
+                        name: zod
+                            .string()
+                            .max(insightsExplanationsUpdateBodyDataOneStepsItemNameMax)
+                            .describe("The step's name."),
+                        count: zod
+                            .number()
+                            .min(insightsExplanationsUpdateBodyDataOneStepsItemCountMin)
+                            .describe('How many reached the step.'),
+                    })
+                )
+                .optional()
+                .describe("The followed breakdown value's steps when it was explained. Funnel steps only."),
+            breakdowns: zod
+                .array(zod.string().max(insightsExplanationsUpdateBodyDataOneBreakdownsItemMax))
+                .max(insightsExplanationsUpdateBodyDataOneBreakdownsMax)
+                .optional()
+                .describe("Every breakdown value's label, empty when the funnel has no breakdown. Funnel steps only."),
             seriesIndex: zod
                 .number()
                 .min(insightsExplanationsUpdateBodyDataOneSeriesIndexMin)
-                .describe('The index in `results` the explanation follows.'),
+                .describe('The index in `results` the explanation follows, or the index in `breakdowns` on a funnel.'),
             insightName: zod
                 .string()
                 .max(insightsExplanationsUpdateBodyDataOneInsightNameMax)
                 .nullable()
                 .describe("The insight's name."),
-            lastPointInProgress: zod.boolean().describe("Whether the last point's period had not ended yet."),
+            lastPointInProgress: zod
+                .boolean()
+                .optional()
+                .describe("Whether the last point's period had not ended yet. Time series only."),
             headline: zod
                 .string()
                 .max(insightsExplanationsUpdateBodyDataOneHeadlineMax)

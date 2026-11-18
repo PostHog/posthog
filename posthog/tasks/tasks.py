@@ -33,7 +33,7 @@ from posthog.metrics import pushed_metrics_registry
 from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
 from posthog.person_db_router import PersonDBRouter
 from posthog.ph_client import get_regional_ph_client
-from posthog.redis import get_client
+from posthog.redis import get_celery_broker_client, get_client
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.tasks.utils import CeleryQueue, PushGatewayTask
@@ -117,6 +117,33 @@ STALE_LOCAL_QUEUED_TASK_RUN_ERRORS_COUNTER = Counter(
     "posthog_task_run_stale_local_queued_errors_total",
     "Errors raised while marking an idle local TaskRun COMPLETED in the stale-queued cleanup sweep",
 )
+
+
+@shared_task(
+    ignore_result=True,
+    soft_time_limit=120,
+    time_limit=150,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    max_retries=3,
+)
+@skip_team_scope_audit
+def store_pinned_recording_metadata(team_id: int, session_ids: list[str]) -> None:
+    """Store start_time and retention on pinned recordings so collection counts drop them once they expire."""
+    from posthog.models import Team
+    from posthog.session_recordings.models.session_recording import SessionRecording
+    from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+
+    team = Team.objects.get(pk=team_id)
+    found = SessionReplayEvents().get_session_timestamps(session_ids, team)
+    for recording in SessionRecording.objects.filter(
+        team_id=team_id, session_id__in=list(found), start_time__isnull=True
+    ):
+        timestamps = found[recording.session_id]
+        recording.start_time = timestamps.min_timestamp
+        # Match the 30-day default ClickHouse applies to recordings with no stored retention
+        recording.retention_period_days = timestamps.retention_period_days or 30
+        recording.save(update_fields=["start_time", "retention_period_days"])
 
 
 @shared_task(ignore_result=True)
@@ -819,7 +846,7 @@ def redis_celery_queue_depth() -> None:
             )
 
             for queue in CeleryQueue:
-                llen = get_client().llen(queue.value)
+                llen = get_celery_broker_client().llen(queue.value)
                 celery_task_queue_depth_gauge.labels(queue_name=queue.value).set(llen)
 
     except:
@@ -916,6 +943,38 @@ def capture_task_run_state_metrics() -> None:
         logger.warning("capture_task_run_state_metrics_transient_db_error", exception=err)
     except Exception as err:
         logger.exception("capture_task_run_state_metrics", exception=err)
+        capture_exception(err)
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.STATS.value)
+@skip_team_scope_audit
+def capture_task_status_shadow_metrics() -> None:
+    from products.tasks.backend.facade import api as tasks_facade
+
+    try:
+        with pushed_metrics_registry("tasks_status_shadow") as registry:
+            mismatches_gauge = Gauge(
+                "posthog_tasks_status_shadow_mismatches",
+                "Tasks whose stored status differs from the status derived from their latest run.",
+                registry=registry,
+                labelnames=["stored_status", "derived_status"],
+            )
+            for row in tasks_facade.collect_task_status_mismatches():
+                mismatches_gauge.labels(stored_status=row.stored_status, derived_status=row.derived_status).set(
+                    row.count
+                )
+            repaired_gauge = Gauge(
+                "posthog_tasks_status_shadow_repaired",
+                "Tasks whose stored status was repaired from their latest run in the last pass.",
+                registry=registry,
+                labelnames=["stored_status", "derived_status"],
+            )
+            for row in tasks_facade.repair_task_status_mismatches():
+                repaired_gauge.labels(stored_status=row.stored_status, derived_status=row.derived_status).set(row.count)
+    except OperationalError as err:
+        logger.warning("capture_task_status_shadow_metrics_transient_db_error", exception=err)
+    except Exception as err:
+        logger.exception("capture_task_status_shadow_metrics", exception=err)
         capture_exception(err)
 
 

@@ -20,7 +20,7 @@ import {
 import { urls } from 'scenes/urls'
 
 import type { Breakdown, EventsNode, ExperimentMetric } from '~/queries/schema/schema-general'
-import { NodeKind, isExperimentQuantileMetric } from '~/queries/schema/schema-general'
+import { NodeKind } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 
 import {
@@ -92,21 +92,10 @@ const AddBreakdownMenuItem = ({
     )
 }
 
-const getBreakdownMenuItem = (
-    metric: ExperimentMetric,
-    experiment: Experiment,
-    onChange: (breakdown: Breakdown) => void
-): LemonMenuItem =>
-    isExperimentQuantileMetric(metric)
-        ? {
-              label: 'Add breakdown',
-              icon: <IconStack />,
-              disabledReason: "Breakdowns aren't available for percentile metrics yet",
-          }
-        : {
-              label: () => <AddBreakdownMenuItem experiment={experiment} onChange={onChange} />,
-              custom: true,
-          }
+const getBreakdownMenuItem = (experiment: Experiment, onChange: (breakdown: Breakdown) => void): LemonMenuItem => ({
+    label: () => <AddBreakdownMenuItem experiment={experiment} onChange={onChange} />,
+    custom: true,
+})
 
 export const MetricHeader = ({
     dragHandle,
@@ -283,7 +272,7 @@ export const MetricHeader = ({
                                         {
                                             items: [
                                                 canAddBreakdown &&
-                                                    getBreakdownMenuItem(metric, experiment, (breakdown) => {
+                                                    getBreakdownMenuItem(experiment, (breakdown) => {
                                                         onBreakdownChange(breakdown)
                                                         closeMenu()
                                                     }),

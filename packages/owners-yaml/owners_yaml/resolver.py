@@ -283,10 +283,10 @@ class GitRefSource:
     def __init__(self, repo_root: Path, ref: str = "HEAD") -> None:
         self._git = ["git", "-C", str(repo_root)]
         self.ref = ref
-        listing = subprocess.run(
-            [*self._git, "ls-tree", "-r", "-z", "--name-only", ref], capture_output=True, text=True, check=True
-        )
-        self.files: frozenset[str] = frozenset(path for path in listing.stdout.split("\0") if path)
+        listing = subprocess.run([*self._git, "ls-tree", "-r", "-z", ref], capture_output=True, text=True, check=True)
+        entries = (entry.split("\t", 1) for entry in listing.stdout.split("\0") if entry)
+        self._blobs = {path: mode_type_blob.split()[2] for mode_type_blob, path in entries}
+        self.files: frozenset[str] = frozenset(self._blobs)
         self._texts_by_name: dict[str, dict[str, str]] = {}
 
     def read(self, path: str) -> str | None:
@@ -302,7 +302,7 @@ class GitRefSource:
         directory, and a ``git show`` for each takes seconds on this repo."""
         batch = subprocess.run(
             [*self._git, "cat-file", "--batch"],
-            input="".join(f"{self.ref}:{path}\n" for path in paths).encode(),
+            input="".join(f"{self._blobs[path]}\n" for path in paths).encode(),
             capture_output=True,
             check=True,
         ).stdout
@@ -514,9 +514,9 @@ class OwnersResolver:
             return None
         return Addition(path=new_path, additions=self._merge(new_path).additions)
 
-    def resolve(self, path: str) -> Resolution:
+    def resolve(self, path: str, *, include_added: bool = True) -> Resolution:
         norm = normalize_path(path)
-        return self._build_resolution(norm, self._merge(norm), self._added(norm))
+        return self._build_resolution(norm, self._merge(norm), self._added(norm) if include_added else None)
 
     def _teams_registry(self) -> dict[str, TeamEntry]:
         """The root file's ``teams:`` Slack registry (team slug -> its declared channels),

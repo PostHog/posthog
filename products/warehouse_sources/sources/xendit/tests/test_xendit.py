@@ -21,6 +21,10 @@ def _response(items: list[dict[str, Any]] | None, has_more: bool, status: int = 
     return ScriptedResponse(status=status, json={"data": items or [], "has_more": has_more, "links": []})
 
 
+def _cursor_of(page: dict[str, Any]) -> str:
+    return page.get("next_cursor") or page["pagination"]["next_cursor"]
+
+
 def _driver() -> SourceDriver:
     return SourceDriver(XenditSource(), XenditSourceConfig(api_key="xnd_key"))
 
@@ -105,6 +109,43 @@ class TestPagination:
         )
 
         assert result.requests[0].param("updated[gte]") == "2026-03-04T02:58:14.000Z"
+
+    @pytest.mark.parametrize(
+        "endpoint, pages, expected_limit",
+        [
+            (
+                "disputes",
+                [
+                    {"data": [{"id": "dspt_1"}], "pagination": {"next_cursor": "dspt_1", "has_more": True}},
+                    {"data": [{"id": "dspt_2"}], "pagination": {"next_cursor": "dspt_2", "has_more": True}},
+                    {"data": [{"id": "dspt_3"}], "pagination": {"next_cursor": None, "has_more": False}},
+                ],
+                "100",
+            ),
+            (
+                "bill_payment_products",
+                [
+                    {"data": [{"id": "PLN_20K"}], "limit": 50, "next_cursor": "c1=="},
+                    {"data": [{"id": "PLN_50K"}], "limit": 50, "next_cursor": "c2=="},
+                    {"data": [{"id": "PLN_100K"}], "limit": 50, "next_cursor": ""},
+                ],
+                "50",
+            ),
+        ],
+    )
+    def test_body_cursor_walks_to_the_terminal_page(
+        self, endpoint: str, pages: list[dict[str, Any]], expected_limit: str
+    ) -> None:
+        result = _driver().run(endpoint, [ScriptedResponse(status=200, json=page) for page in pages])
+
+        assert len(result.rows) == 3
+        assert len(result.requests) == 3
+        assert [request.param("cursor") for request in result.requests] == [
+            None,
+            *[_cursor_of(page) for page in pages[:-1]],
+        ]
+        assert all(request.param("after_id") is None for request in result.requests)
+        assert result.requests[0].param("limit") == expected_limit
 
     def test_forbidden_response_raises(self) -> None:
         result = _driver().run("transactions", [_response(None, has_more=False, status=403)])

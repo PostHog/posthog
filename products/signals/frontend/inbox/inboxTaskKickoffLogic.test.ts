@@ -17,7 +17,8 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { SidePanelTab } from '~/types'
 
-import { runStreamLogic, taskRunDefaultsLogic } from 'products/posthog_ai/frontend/api/logics'
+import { taskRunDefaultsLogic } from 'products/posthog_ai/frontend/api/launch'
+import { runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
 import type { SignalReportCheckApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { makeReport } from './__mocks__/inboxMocks'
@@ -27,10 +28,12 @@ import {
     FIX_CI_REQUEST,
     MERGE_PR_REQUEST,
     REPORT_AI_PANEL_ID,
+    RESOLVE_CONFLICTS_REQUEST,
     buildCreatePrReportPrompt,
     buildDiscussReportPrompt,
     inboxTaskKickoffLogic,
 } from './inboxTaskKickoffLogic'
+import { reportGithubAccessLogic } from './logics/reportGithubAccessLogic'
 import { selfDrivingTrialLogic } from './logics/selfDrivingTrialLogic'
 import { SignalReportStatus } from './types'
 
@@ -178,6 +181,34 @@ describe('inboxTaskKickoffLogic', () => {
             logic.actions.openReportDiscussion(makeReport({ id: 'other-report' }), 'https://example.com/other')
             expect(logic.values.reportDiscussionDraft).toBe('')
             expect(logic.values.reportDiscussionIntent).toBeNull()
+        })
+
+        it.each([false, true])('shows the repository error without a picker (access mounted: %s)', async (mounted) => {
+            const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
+            const reportWithoutRepository = { ...report, repo_slug: null }
+            const access = reportGithubAccessLogic({ report: reportWithoutRepository })
+            const unmount = mounted ? access.mount() : undefined
+            useMocks({
+                post: {
+                    '/api/projects/:team/tasks/': () => [
+                        400,
+                        {
+                            code: 'report_implementation_repository_unresolved',
+                            detail: 'Select a repository to continue.',
+                        },
+                    ],
+                },
+            })
+            try {
+                await expectLogic(logic, () =>
+                    logic.actions.createPrFromReport(reportWithoutRepository)
+                ).toFinishAllListeners()
+                expect(toast).toHaveBeenCalledWith('Select a repository to continue.')
+                expect(startedRuns).toHaveLength(0)
+            } finally {
+                unmount?.()
+                toast.mockRestore()
+            }
         })
 
         it.each(['implementation', 'discussion'] as const)(
@@ -365,6 +396,91 @@ describe('inboxTaskKickoffLogic', () => {
 
             expect(warmRequests).toHaveLength(0)
             expect(createdTasks[0]).not.toHaveProperty('branch')
+        })
+
+        it('lets the backend resolve a report with no saved repository', async () => {
+            await expectLogic(logic, () =>
+                logic.actions.createPrFromReport({ ...report, repo_slug: null })
+            ).toFinishAllListeners()
+
+            expect(createdTasks).toHaveLength(1)
+            expect(createdTasks[0]).not.toHaveProperty('repository')
+            expect(startedRuns).toHaveLength(1)
+            expect(logic.values.isCreatingPr).toBe(false)
+        })
+
+        it.each([
+            ['report_implementation_repository_unresolved', true],
+            ['invalid_input', false],
+            ['permission_denied', false],
+        ])('offers repository recovery only for an unresolved repository (%s)', async (code, expected) => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/integrations/': {
+                        results: [{ id: 1, kind: 'github', installation_status: 'connected' }],
+                        next: null,
+                    },
+                },
+            })
+            const reportWithoutRepository = { ...report, repo_slug: null }
+            const access = reportGithubAccessLogic({ report: reportWithoutRepository })
+            const unmount = access.mount()
+            try {
+                await waitFor(() => expect(access.values.loading).toBe(false))
+                useMocks({
+                    post: {
+                        '/api/projects/:team/tasks/': () => [
+                            400,
+                            { type: 'validation_error', code, attr: 'repository', detail: 'The request failed.' },
+                        ],
+                    },
+                })
+                await expectLogic(logic, () =>
+                    logic.actions.createPrFromReport(reportWithoutRepository)
+                ).toFinishAllListeners()
+
+                expect(access.values.repositoryRequired).toBe(expected)
+                expect(startedRuns).toHaveLength(0)
+                expect(logic.values.isCreatingPr).toBe(false)
+                expect(logic.values.activeCreation).toBeNull()
+            } finally {
+                unmount()
+            }
+        })
+
+        it.each([201, 503])('saves the repository before task creation (status %i)', async (status) => {
+            const selections: Record<string, unknown>[] = []
+            useMocks({
+                post: {
+                    '/api/projects/:team/signals/reports/:id/artefacts/': async ({ request }) => {
+                        expect(createdTasks).toHaveLength(0)
+                        selections.push((await request.json()) as Record<string, unknown>)
+                        return [status, status === 201 ? { id: 'selection-1' } : { detail: 'Try again.' }]
+                    },
+                },
+            })
+            await expectLogic(logic, () =>
+                logic.actions.createPrFromReport({ ...report, repo_slug: null }, 'Keep the API', 'example/app')
+            ).toFinishAllListeners()
+
+            expect(selections).toEqual([
+                {
+                    artefact_type: 'repo_selection',
+                    content: {
+                        repository: 'example/app',
+                        reason: 'Selected by the user for implementation.',
+                        research_context: null,
+                        autostart_eligible: false,
+                    },
+                },
+            ])
+            expect(createdTasks).toHaveLength(status === 201 ? 1 : 0)
+            expect(startedRuns).toHaveLength(status === 201 ? 1 : 0)
+            if (status === 201) {
+                expect(createdTasks[0]).not.toHaveProperty('repository')
+                expect(createdTasks[0].signal_report_task_relationship).toBe('implementation')
+            }
+            expect(logic.values.isCreatingPr).toBe(false)
         })
 
         it('reuses the warm run on submit instead of starting a second run', async () => {
@@ -797,10 +913,19 @@ describe('inboxTaskKickoffLogic', () => {
         })
 
         it.each([
-            ['an open PR that needs review', 'open', true],
-            ['a draft PR', 'draft', true],
-            ['a PR that merged meanwhile', 'merged', false],
-        ] as const)('frames a fix CI request on a report with %s', (_name, state, fixes) => {
+            ['fix CI', 'an open PR that needs review', 'open', FIX_CI_REQUEST, 'fix_ci', true],
+            ['fix CI', 'a draft PR', 'draft', FIX_CI_REQUEST, 'fix_ci', true],
+            ['fix CI', 'a PR that merged meanwhile', 'merged', FIX_CI_REQUEST, 'fix_ci', false],
+            ['resolve conflicts', 'an open PR', 'open', RESOLVE_CONFLICTS_REQUEST, 'resolve_conflicts', true],
+            [
+                'resolve conflicts',
+                'a PR that merged meanwhile',
+                'merged',
+                RESOLVE_CONFLICTS_REQUEST,
+                'resolve_conflicts',
+                false,
+            ],
+        ] as const)('frames a %s request on a report with %s', (_kind, _name, state, request, intent, fixes) => {
             const prompt = buildDiscussReportPrompt(
                 makeReport({
                     status: SignalReportStatus.IN_PROGRESS,
@@ -819,10 +944,10 @@ describe('inboxTaskKickoffLogic', () => {
                     ],
                 }),
                 url,
-                FIX_CI_REQUEST,
-                'fix_ci'
+                request,
+                intent
             )
-            expect(prompt).toContain(FIX_CI_REQUEST)
+            expect(prompt).toContain(request)
             expect(prompt.includes('Do not merge the pull request, do not add it to a merge queue')).toBe(fixes)
             expect(prompt.includes('Answer this question')).toBe(!fixes)
             expect(prompt).not.toContain('inbox-reports-set-state')
@@ -975,8 +1100,8 @@ describe('inboxTaskKickoffLogic', () => {
             expect(prompt).toContain('inbox-reports-set-state')
             expect(prompt).toContain('fixed_outside_posthog')
             expect(prompt).toContain('suppressed')
-            // Suppressing leaves the claim standing, so the run has to drop it itself.
-            expect(prompt).toContain('then release your claim')
+            // Suppressing releases the claim, so the run must not try to release it again.
+            expect(prompt).toContain('Suppressing the report also releases its claim')
             // The claim is taken once, at task creation, so a rerun starts unclaimed.
             expect(prompt).toContain('claim it again first')
             // Resolving through the state API closes the report's open PR, so the run must not report

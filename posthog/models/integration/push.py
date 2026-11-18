@@ -12,11 +12,11 @@ from google.auth.transport.requests import Request as GoogleRequest
 from google.oauth2 import service_account
 from rest_framework.exceptions import ValidationError
 
-from posthog.integrations.contracts import IntegrationRecord
+from posthog.integrations.contracts import IntegrationPatch, IntegrationRecord
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 
-from . import model, refresh_tracking
+from . import model, refresh_tracking, row_writes
 from .google_cloud import InvalidGoogleTokenUriError, require_google_token_uri
 
 logger = structlog.get_logger(__name__)
@@ -138,7 +138,7 @@ class FirebaseIntegration:
         created_by: User | None = None,
         push_identity_verification: str | None = None,
         push_identity_public_keys: list[str] | None = None,
-    ) -> "model.Integration":
+    ) -> IntegrationRecord:
         scope = "https://www.googleapis.com/auth/firebase.messaging"
 
         key_info["token_uri"] = require_google_token_uri(key_info.get("token_uri"))
@@ -155,30 +155,23 @@ class FirebaseIntegration:
 
         # Atomic so `preserved_push_config`'s row lock is held through the upsert that follows it.
         with transaction.atomic():
-            integration, created = model.Integration.objects.update_or_create(
-                team_id=team_id,
-                kind="firebase",
-                integration_id=project_id,
-                defaults={
-                    "config": {
-                        **preserved_push_config(
-                            team_id, "firebase", project_id, push_identity_verification, push_identity_public_keys
-                        ),
-                        "project_id": project_id,
-                        "expires_in": credentials.expiry.timestamp() - int(time.time()),
-                        "refreshed_at": int(time.time()),
-                    },
-                    "sensitive_config": {
-                        "key_info": key_info,
-                        "access_token": credentials.token,
-                    },
-                    "created_by": created_by,
+            integration, _ = row_writes.creator_accessor("firebase").upsert(
+                team_id,
+                project_id,
+                config={
+                    **preserved_push_config(
+                        team_id, "firebase", project_id, push_identity_verification, push_identity_public_keys
+                    ),
+                    "project_id": project_id,
+                    "expires_in": credentials.expiry.timestamp() - int(time.time()),
+                    "refreshed_at": int(time.time()),
                 },
+                sensitive_config={
+                    "key_info": key_info,
+                    "access_token": credentials.token,
+                },
+                created_by_id=created_by.id if created_by else None,
             )
-
-        if integration.errors:
-            integration.errors = ""
-            integration.save()
 
         return integration
 
@@ -198,33 +191,39 @@ class FirebaseIntegration:
 
     def refresh_access_token(self) -> None:
         scope = "https://www.googleapis.com/auth/firebase.messaging"
-        key_info = self.integration.sensitive_config.get("key_info", {})
+        key_info = dict(self.integration.sensitive_config.get("key_info", {}))
 
         try:
             key_info["token_uri"] = require_google_token_uri(key_info.get("token_uri"))
         except InvalidGoogleTokenUriError:
-            refresh_tracking.record_refresh_failure(
+            failure, _ = refresh_tracking.refresh_failure_patch(
                 self.integration, reason=refresh_tracking.REFRESH_FAILURE_REASON_INVALID_TOKEN_URI
             )
-            self.integration.save(update_fields=["config"])
+            self._store(failure)
             raise
         credentials = service_account.Credentials.from_service_account_info(key_info, scopes=[scope])
 
         try:
             credentials.refresh(GoogleRequest())
         except Exception:
-            refresh_tracking.record_refresh_failure(self.integration)
-            self.integration.save(update_fields=["config"])
+            failure, _ = refresh_tracking.refresh_failure_patch(self.integration)
+            self._store(failure)
             raise ValidationError("Failed to authenticate with provided Firebase service account key")
 
-        refresh_tracking.record_refresh_success(self.integration)
-        self.integration.config["expires_in"] = credentials.expiry.timestamp() - int(time.time())
-        self.integration.config["refreshed_at"] = int(time.time())
-        self.integration.sensitive_config["access_token"] = credentials.token
-        self.integration.save()
+        refreshed = IntegrationPatch(
+            config_patch={
+                "expires_in": credentials.expiry.timestamp() - int(time.time()),
+                "refreshed_at": int(time.time()),
+            },
+            sensitive_config_patch={"key_info": key_info, "access_token": credentials.token},
+        )
+        self._store(row_writes.merged_patch(refresh_tracking.REFRESH_SUCCESS_PATCH, refreshed))
         reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
 
         logger.info(f"Refreshed access token for FirebaseIntegration {self.integration.id}")
+
+    def _store(self, patch: IntegrationPatch) -> None:
+        self.integration = model.integration_model(row_writes.update_row(self.integration, patch))
 
     def get_access_token(self) -> str:
         if self.access_token_expired():
@@ -296,7 +295,7 @@ class ApplePushIntegration:
         environment: str = "production",
         push_identity_verification: str | None = None,
         push_identity_public_keys: list[str] | None = None,
-    ) -> "model.Integration":
+    ) -> IntegrationRecord:
         # The posted config is untyped JSON, so a field can arrive as any type. Stripping a number
         # below raises, which the endpoint answers with a server error rather than a validation one.
         if not all(
@@ -325,33 +324,26 @@ class ApplePushIntegration:
         integration_id = apns_integration_id(team_id_apple, bundle_id, environment)
         # Atomic so `preserved_push_config`'s row lock is held through the upsert that follows it.
         with transaction.atomic():
-            integration, created = model.Integration.objects.update_or_create(
-                team_id=team_id,
-                kind="apns",
-                integration_id=integration_id,
-                defaults={
-                    "config": {
-                        **preserved_push_config(
-                            team_id, "apns", integration_id, push_identity_verification, push_identity_public_keys
-                        ),
-                        "team_id": team_id_apple,
-                        "bundle_id": bundle_id,
-                        "key_id": key_id,
-                        "environment": environment,
-                    },
-                    "sensitive_config": {
-                        "signing_key": signing_key,
-                    },
-                },
+            config = {
+                **preserved_push_config(
+                    team_id, "apns", integration_id, push_identity_verification, push_identity_public_keys
+                ),
+                "team_id": team_id_apple,
+                "bundle_id": bundle_id,
+                "key_id": key_id,
+                "environment": environment,
+            }
+            accessor = row_writes.creator_accessor("apns")
+            # A reconnect keeps the creator of the row. The advisory lock of `preserved_push_config`
+            # stops a concurrent setup from creating the row after this check.
+            new_row = not accessor.exists(team_id, external_id=integration_id)
+            integration, _ = accessor.upsert(
+                team_id,
+                integration_id,
+                config=config,
+                sensitive_config={"signing_key": signing_key},
+                created_by_id=created_by.id if created_by and new_row else None,
             )
-
-        if created and created_by is not None:
-            integration.created_by = created_by
-            integration.save(update_fields=["created_by"])
-
-        if integration.errors:
-            integration.errors = ""
-            integration.save(update_fields=["errors"])
 
         return integration
 

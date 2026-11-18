@@ -5,16 +5,18 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.helpers.oauth_pending_connection import PendingOAuthConnection
+from posthog.helpers.oauth_pending_connection import PendingOAuthConnection, PendingOAuthFlow
 
 
 class TestPendingOAuthConnectionCookieValue(SimpleTestCase):
-    def test_round_trip_keeps_every_field(self):
+    @parameterized.expand([(flow.value, flow) for flow in PendingOAuthFlow])
+    def test_round_trip_keeps_every_field(self, _name, flow):
         connection = PendingOAuthConnection(
             client_name="Claude &amp; Co",
             client_id="https://claude.example.com/.well-known/oauth-client",
             logo_uri="https://claude.example.com/logo.png",
             redirect_host="claude.example.com",
+            flow=flow,
         )
 
         self.assertEqual(PendingOAuthConnection.from_cookie_value(connection.to_cookie_value()), connection)
