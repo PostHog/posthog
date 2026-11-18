@@ -429,7 +429,7 @@ def test_a_code_check_is_kept_only_when_it_gives_the_review_labels(
 ) -> None:
     card, rendering = _card_and_rendering()
 
-    code = judge_calibration.check_code(replace(card, code_check=code_check), rendering, deadline=None)
+    code = judge_calibration.check_code(replace(card, code_check=code_check), rendering, [], deadline=None)
 
     if kept is None:
         assert code is None
@@ -439,11 +439,36 @@ def test_a_code_check_is_kept_only_when_it_gives_the_review_labels(
     assert (code.failed, code.of) == counts
 
 
+def test_a_code_check_counts_its_rate_on_the_day_beyond_the_calls_the_review_read() -> None:
+    card, rendering = _card_and_rendering()
+    card = replace(card, code_check="return not match(output, '^Reply [0-4]$')")
+    read = next(iter(rendering.calls.values())).row
+
+    def call(uuid: str, call_type: str, reply: str) -> ReviewCallRow:
+        return ReviewCallRow(
+            event_uuid=uuid, trace_id=uuid, call_type=call_type, input=read.input, output=json.dumps(reply)
+        )
+
+    day = [
+        read,
+        call("d1", SUPPORT.key, "Reply 1"),
+        call("d2", SUPPORT.key, "Reply 9"),
+        call("d3", "prompt_name:other", "Reply 2"),
+    ]
+
+    review_only = judge_calibration.check_code(card, rendering, [], deadline=None)
+    with_day = judge_calibration.check_code(card, rendering, day, deadline=None)
+
+    assert review_only is not None and with_day is not None
+    assert (with_day.failed, with_day.of) == (review_only.failed + 1, review_only.of + 2)
+    assert with_day.calibration == review_only.calibration
+
+
 def test_a_code_check_never_starts_a_call_that_could_run_past_the_deadline() -> None:
     card, rendering = _card_and_rendering()
     card = replace(card, code_check="return true")
 
-    assert judge_calibration.check_code(card, rendering, deadline=time.monotonic() + 5) is None
+    assert judge_calibration.check_code(card, rendering, [], deadline=time.monotonic() + 5) is None
 
 
 def test_the_vm_refuses_functions_outside_the_set_when_the_source_check_misses_one() -> None:
@@ -451,4 +476,4 @@ def test_the_vm_refuses_functions_outside_the_set_when_the_source_check_misses_o
     card = replace(card, code_check="return not match(replaceAll(output, 'x', 'y'), '^Reply [0-4]$')")
 
     with patch.object(judge_calibration._OutsideCodeCheckSet, "visit"):
-        assert judge_calibration.check_code(card, rendering, deadline=None) is None
+        assert judge_calibration.check_code(card, rendering, [], deadline=None) is None

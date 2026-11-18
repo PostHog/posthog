@@ -420,7 +420,7 @@ def measured(card: ReviewCard, calibration: Calibration) -> ReviewCard:
 class CodeCheck:
     source: str
     calibration: Calibration
-    # The code's fails on every rendered call of the card's call types, out of the calls it passed or failed.
+    # The code's fails on the day's calls of the card's call types, out of the calls it passed or failed.
     failed: int
     of: int
     # Calls whose data the code could not handle. Each one counts against the code in `calibration`.
@@ -537,11 +537,13 @@ def _code_verdict(bytecode: list[Any], row: ReviewCallRow) -> Verdict | None:
     return "pass" if result["verdict"] else "fail"
 
 
-def check_code(card: ReviewCard, rendering: Rendering, deadline: float | None) -> CodeCheck | None:
-    """The card's code check run on every rendered call of its call types and compared with the review's labels, or
-    None when it does not compile, steps outside the allowed functions and operators, hits an error the runtime
-    would disable it over, or could run past `deadline`, a time.monotonic() value. An error on a call's data counts
-    as the opposite of the label."""
+def check_code(
+    card: ReviewCard, rendering: Rendering, day: Sequence[ReviewCallRow], deadline: float | None
+) -> CodeCheck | None:
+    """The card's code check compared with the review's labels on the rendered calls, and counted on `day`, a wider
+    sample of the day's calls. None when it does not compile, steps outside the allowed functions and operators,
+    hits an error the runtime would disable it over, or could run past `deadline`, a time.monotonic() value, before
+    it has checked the labelled calls. An error on a call's data counts as the opposite of the label."""
     source = call_review.code_check_source(card.code_check)
     try:
         # compile_hog logs a syntax error as an error in our code. The parse catches the review's syntax errors first,
@@ -571,7 +573,18 @@ def check_code(card: ReviewCard, rendering: Rendering, deadline: float | None) -
     labelled: list[Verdict | None] = [
         verdicts.get(number) or ("pass" if card.labels[number] == "fail" else "fail") for number in numbers
     ]
-    decided = [verdict for verdict in verdicts.values() if verdict in ("pass", "fail")]
+    counted = {rendering.calls[number].row.event_uuid: verdict for number, verdict in verdicts.items()}
+    for row in day:
+        if row.call_type not in keys or row.event_uuid in counted:
+            continue
+        # The labelled calls already decide whether the card is kept, so running out of time only stops the count.
+        if deadline is not None and time.monotonic() + HOG_EVAL_TIMEOUT.total_seconds() > deadline:
+            break
+        try:
+            counted[row.event_uuid] = _code_verdict(bytecode, row)
+        except _TerminalHogError:
+            return None
+    decided = [verdict for verdict in counted.values() if verdict in ("pass", "fail")]
     return CodeCheck(
         source=source,
         calibration=calibrate(card, numbers, labelled),
