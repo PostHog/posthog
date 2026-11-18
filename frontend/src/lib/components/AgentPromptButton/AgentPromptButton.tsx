@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useState } from 'react'
 
 import { IconChevronDown, IconCopy, IconLogomark, IconSparkles } from '@posthog/icons'
@@ -80,11 +81,15 @@ export interface AgentPromptButtonProps {
     excludeAgentKeys?: AgentPromptDestination[]
     /** `destination` names the agent on the main button ("Open in Cursor") instead of the prompt ("Open Fix prompt"). */
     labelMode?: 'action' | 'destination'
+    /** Fixed text for the main button in place of `labelMode`; the tooltip still names what a click runs. */
+    label?: string
     /** Extra classes for the dropdown menu, e.g. a higher z-index when the button sits inside a toast. */
     menuClassName?: string
     onOpenChange?: (open: boolean) => void
     size?: AgentPromptButtonSize
     variant?: NonNullable<QuillButtonProps['variant']>
+    /** Keeps the quill buttons' own borders, so an `outline` button matches the outline buttons beside it. */
+    bordered?: boolean
     /** `lemon` renders a LemonButton with a side menu, to sit beside other Lemon buttons. `size` and `variant` apply to `quill` only. */
     appearance?: 'quill' | 'lemon'
     /** LemonButton type for the `lemon` appearance. */
@@ -295,10 +300,12 @@ export function AgentPromptButton({
     pinnedAgentKey,
     excludeAgentKeys,
     labelMode = 'action',
+    label,
     menuClassName,
     onOpenChange,
     size = 'default',
     variant = 'default',
+    bordered = false,
     appearance = 'quill',
     lemonType = 'secondary',
     defaultOpen = false,
@@ -316,9 +323,7 @@ export function AgentPromptButton({
     const { todayRailEnabled } = useValues(todayShellLogic)
     const { currentProjectId } = useValues(projectLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
-    const availableAgents = AGENTS.filter(
-        (agent) => !(todayRailEnabled && agent.key === 'posthog-ai') && !excludeAgentKeys?.includes(agent.key)
-    )
+    const availableAgents = AGENTS.filter((agent) => !excludeAgentKeys?.includes(agent.key))
     // The Lemon menu renders its overlay directly, so it wires LemonMenu's arrow-key focus handling itself.
     const lemonKeyboard = useKeyboardNavigation<HTMLButtonElement>(
         (actions.length > 1 ? actions.length : 0) + availableAgents.length
@@ -331,10 +336,11 @@ export function AgentPromptButton({
     const activeAction = actions.find((a) => a.key === rememberedActionKeys[actionSetKey]) ?? actions[0]
     const activeAgent =
         availableAgents.find((a) => a.key === (pinnedAgentKey ?? rememberedAgentKey)) ?? availableAgents[0]
-    const buttonLabel =
+    const comboLabel =
         labelMode === 'destination' && activeAgent.key !== 'clipboard'
             ? `Open in ${activeAgent.name}`
             : `${activeAgent.verb} ${activeAction.label}`
+    const buttonLabel = label ?? comboLabel
 
     const selectAction = (actionKey: string): void => {
         rememberAction(actionSetKey, actionKey)
@@ -346,6 +352,11 @@ export function AgentPromptButton({
         onRun?.({ actionKey, agentKey })
         const agent = availableAgents.find((a) => a.key === agentKey)
         if (!agent) {
+            return
+        }
+        // The rail gives PostHog AI its own home under Spaces, so the chat opens there in this tab, not a new one.
+        if (agentKey === 'posthog-ai' && todayRailEnabled) {
+            router.actions.push(urls.ai(undefined, prompt))
             return
         }
         agent.open(prompt, { actionLabel: action.label, repository })
@@ -376,7 +387,7 @@ export function AgentPromptButton({
                     icon={<AgentLogo logo={activeAgent.logo} logoClassName={activeAgent.logoClassName} />}
                     onClick={handleMainClick}
                     data-attr={dataAttr}
-                    title={`Run: ${buttonLabel}`}
+                    title={`Run: ${comboLabel}`}
                     sideAction={{
                         'aria-label': actions.length > 1 ? 'Choose prompt and agent' : 'Open prompt in an agent',
                         dropdown: {
@@ -430,10 +441,10 @@ export function AgentPromptButton({
                 <QuillButton
                     variant={variant}
                     size={size}
-                    className="border-0"
+                    className={bordered ? undefined : 'border-0'}
                     onClick={handleMainClick}
                     data-attr={dataAttr}
-                    title={`Run: ${buttonLabel}`}
+                    title={`Run: ${comboLabel}`}
                 >
                     <AgentLogo logo={activeAgent.logo} logoClassName={activeAgent.logoClassName} />
                     <span className="truncate max-w-64">{buttonLabel}</span>
@@ -443,7 +454,7 @@ export function AgentPromptButton({
                     <QuillButton
                         variant={variant}
                         size={ICON_SIZE[size]}
-                        className="border-0"
+                        className={bordered ? undefined : 'border-0'}
                         aria-label={actions.length > 1 ? 'Choose prompt and agent' : 'Open prompt in an agent'}
                     >
                         <IconChevronDown className="size-4 text-current" />
