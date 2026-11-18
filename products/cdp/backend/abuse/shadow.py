@@ -11,6 +11,7 @@ from django.db import transaction
 from django.db.models import F, Q, QuerySet
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+from django.utils.crypto import salted_hmac
 
 import structlog
 import posthoganalytics
@@ -51,6 +52,7 @@ CLASSIFIED_TYPES = frozenset({HogFunctionType.DESTINATION, HogFunctionType.TRANS
 # runs. Its inputs are still evaluated first.
 _LEGACY_PLUGIN_PREFIX = "plugin-"
 _HASH_TTL_SECONDS = 30 * 24 * 60 * 60
+_SCORED_DIGEST_SALT = "cdp.abuse.scored_digest"
 _BACKFILL_RUN_TTL_SECONDS = 14 * 24 * 60 * 60
 
 
@@ -63,6 +65,8 @@ class Trigger(StrEnum):
 @frozen
 class ScoredHogFunction:
     content_hash: str
+    # What the hash cache keeps. It covers secret inputs too, so changing one alone scores the function again.
+    scored_digest: str
     code_modified_from_template: bool | None
     verdict: AbuseVerdict | None
     failure: FailureReason | None
@@ -252,10 +256,11 @@ def classify_if_due(hog_function: HogFunction) -> None:
     if not is_scorable(hog_function) or not runs_customer_code(hog_function) or not shadow_enabled(hog_function.team):
         return
     content = content_of(hog_function, hog_function.template)
-    if cache.get(_hash_key(str(hog_function.id))) == content_hash(content):
+    rules_content = _with_secret_inputs(hog_function, content)
+    if cache.get(_hash_key(str(hog_function.id))) == _scored_digest(rules_content):
         metrics.CLASSIFICATIONS.labels(hog_function.type, "none", "skipped_unchanged").inc()
         return
-    report(hog_function, _score(hog_function, content), trigger=Trigger.SAVE)
+    report(hog_function, _score(hog_function, content, rules_content), trigger=Trigger.SAVE)
 
 
 def classify_for_backfill(hog_function: HogFunction, run_id: str) -> None:
@@ -270,10 +275,13 @@ def classify_for_backfill(hog_function: HogFunction, run_id: str) -> None:
 
 
 def score(hog_function: HogFunction) -> ScoredHogFunction:
-    return _score(hog_function, content_of(hog_function, hog_function.template))
+    content = content_of(hog_function, hog_function.template)
+    return _score(hog_function, content, _with_secret_inputs(hog_function, content))
 
 
-def _score(hog_function: HogFunction, content: HogFunctionContent) -> ScoredHogFunction:
+def _score(
+    hog_function: HogFunction, content: HogFunctionContent, rules_content: HogFunctionContent
+) -> ScoredHogFunction:
     verdict: AbuseVerdict | None = None
     failure: FailureReason | None = None
     try:
@@ -282,10 +290,11 @@ def _score(hog_function: HogFunction, content: HogFunctionContent) -> ScoredHogF
         failure = error.reason
     return ScoredHogFunction(
         content_hash=content_hash(content),
+        scored_digest=_scored_digest(rules_content),
         code_modified_from_template=content.code_modified_from_template,
         verdict=verdict,
         failure=failure,
-        rule_hits=rules.matched_rules(_with_secret_inputs(hog_function, content)),
+        rule_hits=rules.matched_rules(rules_content),
     )
 
 
@@ -294,11 +303,23 @@ def _with_secret_inputs(hog_function: HogFunction, content: HogFunctionContent) 
     rules read it, here in the worker, so the values never reach Jev, the content hash or the event."""
     config = comparable_content(
         {
-            "inputs": {**(hog_function.inputs or {}), **(hog_function.encrypted_inputs or {})},
+            "inputs": {**(hog_function.inputs or {}), **_decrypted_secret_inputs(hog_function)},
             "mappings": hog_function.mappings,
         }
     )
     return replace(content, inputs=config["inputs"] or {}, mappings=config["mappings"] or [])
+
+
+def _decrypted_secret_inputs(hog_function: HogFunction) -> dict[str, Any]:
+    # The field returns the ciphertext as a string when its key is unavailable, and the public inputs still score.
+    secret_inputs = hog_function.encrypted_inputs
+    return secret_inputs if isinstance(secret_inputs, dict) else {}
+
+
+def _scored_digest(rules_content: HogFunctionContent) -> str:
+    """Keyed with the secret key, so the cache never holds a hash that a guessed secret value could be tested
+    against."""
+    return salted_hmac(_SCORED_DIGEST_SALT, content_hash(rules_content), algorithm="sha256").hexdigest()
 
 
 def report(
@@ -340,7 +361,7 @@ def report(
         },
     )
     # Only a delivered verdict is remembered, so a failed classification or capture runs again on the next save.
-    cache.set(_hash_key(str(hog_function.id)), scored.content_hash, _HASH_TTL_SECONDS)
+    cache.set(_hash_key(str(hog_function.id)), scored.scored_digest, _HASH_TTL_SECONDS)
 
 
 def _capture(hog_function: HogFunction, scored: ScoredHogFunction, outcome: dict[str, object]) -> None:
