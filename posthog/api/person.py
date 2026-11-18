@@ -1187,6 +1187,18 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not distinct_ids and not ids:
             raise ValidationError("You need to specify either distinct_ids or ids")
 
+        if is_authenticated_via_project_secret_api_key(request):
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team_id,
+                user=None,
+                item_id=None,
+                scope="Person",
+                activity="bulk_delete_requested",
+                detail=Detail(),
+                was_impersonated=False,
+            )
+
         if allow_queued and settings.PERSON_BULK_DELETE_ASYNC:
             return self._queue_bulk_delete_persons(
                 request,

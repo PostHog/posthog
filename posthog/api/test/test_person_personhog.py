@@ -8,8 +8,10 @@ from posthog.test.base import APIBaseTest
 from unittest import mock
 
 from django.core.cache import cache
+from django.core.signing import TimestampSigner
 from django.test import override_settings
 
+from loginas import settings as loginas_settings
 from parameterized import parameterized
 from rest_framework import status
 
@@ -419,6 +421,7 @@ class TestBulkDeletePersons(PersonhogTestMixin, APIBaseTest):
             )
 
         assert result.status_code == 202, result.json()
+        assert ActivityLog.objects.filter(team_id=self.team.pk, activity="bulk_delete_requested").count() == 1
         data = result.json()
         assert data["persons_found"] == 1
         assert data["persons_deleted"] == int(not queued and not keep_person)
@@ -444,6 +447,32 @@ class TestBulkDeletePersons(PersonhogTestMixin, APIBaseTest):
         assert payload.team_id == self.team.pk
         assert payload.distinct_ids == ["delete-me"]
         assert payload.config.deleted_by == "system"
+
+    @parameterized.expand([(False, False), (True, False), (False, True), (True, True)])
+    def test_psak_bulk_delete_records_request_without_matching_persons(self, queued: bool, impersonated: bool) -> None:
+        self._authenticate_psak()
+        key = ProjectSecretAPIKey.objects.get(team=self.team)
+        if impersonated:
+            session = self.client.session
+            session[loginas_settings.USER_SESSION_FLAG] = TimestampSigner().sign(str(self.user.pk))
+            session.save()
+
+        with override_settings(PERSON_BULK_DELETE_ASYNC=queued):
+            result = self.client.post(
+                f"/api/projects/{self.team.pk}/persons/bulk_delete/",
+                {"distinct_ids": ["missing-person"]},
+                format="json",
+            )
+
+        assert result.status_code == 202, result.json()
+        log = ActivityLog.objects.get(team_id=self.team.pk, scope="Person", activity="bulk_delete_requested")
+        assert log.user_id is None
+        assert log.credential_type == "project_secret_key"
+        assert log.credential_id == key.id
+        assert log.ip_address == "127.0.0.1"
+        assert log.was_impersonated is False
+        assert log.organization_id == self.organization.pk
+        assert not ActivityLog.objects.filter(team_id=self.team.pk, activity="deleted").exists()
 
     @parameterized.expand([("missing_scope",), ("other_project",), ("no_auth",)])
     def test_psak_bulk_delete_rejects_unauthorized_requests(self, case: str) -> None:
