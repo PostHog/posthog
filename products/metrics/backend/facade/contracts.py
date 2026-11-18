@@ -143,7 +143,7 @@ class MetricQueryClause:
         if self.aggregation.is_raw and self.group_by:
             raise ValueError("group_by needs an aggregation; without one every series stays separate")
         if self.range_function is not None and self.aggregation.is_counter_function:
-            raise ValueError("range_function cannot combine with the legacy rate or increase aggregation")
+            raise ValueError(f"range_function cannot combine with the {self.aggregation} aggregation")
         if self.aggregation.needs_quantile:
             if self.quantile is None:
                 raise ValueError(f"{self.aggregation} requires a quantile")

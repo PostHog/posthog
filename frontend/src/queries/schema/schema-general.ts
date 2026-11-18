@@ -5472,6 +5472,10 @@ export type MetricsAggregation =
     | 'rate'
     | 'increase'
     | 'histogram_quantile'
+    /** Rate of a histogram's or summary's observation count, not its running sum: requests per second from a latency histogram */
+    | 'count_rate'
+    /** Increase of a histogram's or summary's observation count per bucket */
+    | 'count_increase'
 
 /** Counter-aware transform applied to each series before any aggregation */
 export type MetricsRangeFunction = 'rate' | 'increase'
