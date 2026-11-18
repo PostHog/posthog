@@ -899,6 +899,7 @@ def test_prepare_launch_resolves_the_run_policy_from_the_task_and_its_run(
 
     policy = json.loads(params.run_policy)
     assert (policy["finish_tool"], policy["finish_report_required"], policy["billing_product"]) == expected
+    assert policy["run_id"] == "run-id"
 
 
 @pytest.mark.parametrize(
