@@ -1,7 +1,7 @@
-import { chatFeedbackKey, chatFeedbackTargets } from './chatFeedback'
+import { chatFeedbackKey, chatReplyActions } from './chatFeedback'
 import type { SessionThreadItem } from './session/types'
 
-describe('chat feedback targets', () => {
+describe('chat reply actions', () => {
     test('rates only the last answer of a completed turn with its original run and trace', () => {
         const items: SessionThreadItem[] = [
             { kind: 'assistant', id: 'hidden-prompt', text: 'Context loaded', complete: true },
@@ -16,24 +16,48 @@ describe('chat feedback targets', () => {
             { kind: 'user', id: 'u2', text: 'Third question' },
             { kind: 'assistant', id: 'streaming', text: 'Still working', complete: false },
         ]
-        expect([...chatFeedbackTargets(items, { sessionId: 'task-1', runtime: 'sandbox' })]).toEqual([
+        expect([...chatReplyActions(items, { sessionId: 'task-1', runtime: 'sandbox' }, 'working')]).toEqual([
+            ['hidden-prompt', {}],
             [
                 'answer',
-                { sessionId: 'task-1', runtime: 'sandbox', turnIndex: 1, traceId: 'trace-2', runId: 'previous-run' },
+                {
+                    feedback: {
+                        sessionId: 'task-1',
+                        runtime: 'sandbox',
+                        turnIndex: 1,
+                        traceId: 'trace-2',
+                        runId: 'previous-run',
+                    },
+                },
             ],
         ])
     })
 
-    test('classic feedback requires a completed answer and its trace', () => {
-        const items: SessionThreadItem[] = [
-            { kind: 'assistant', id: 'complete', text: 'An answer', complete: true, traceId: 'trace-1' },
-            { kind: 'assistant', id: 'missing-trace', text: 'Old answer', complete: true },
-            { kind: 'assistant', id: 'streaming', text: 'Working', complete: false, traceId: 'trace-2' },
-        ]
-        expect([...chatFeedbackTargets(items, { sessionId: 'conversation-1', runtime: 'langgraph' })]).toEqual([
-            ['complete', { sessionId: 'conversation-1', runtime: 'langgraph', traceId: 'trace-1' }],
-        ])
-    })
+    test.each(['assistant', 'visualization'] as const)(
+        'classic %s replies end at the next user message and feedback requires a trace',
+        (kind) => {
+            const items: SessionThreadItem[] = [
+                { kind: 'user', id: 'u1', text: 'First question' },
+                { kind: 'assistant', id: 'intro', text: 'I will check', complete: true, traceId: 'trace-1' },
+                kind === 'assistant'
+                    ? { kind, id: 'complete', text: 'An answer', complete: true, traceId: 'trace-1' }
+                    : { kind, id: 'complete', query: { kind: 'TrendsQuery' }, traceId: 'trace-1' },
+                { kind: 'user', id: 'u2', text: 'Second question' },
+                { kind: 'assistant', id: 'missing-trace', text: 'Old answer', complete: true },
+                { kind: 'user', id: 'u3', text: 'Third question' },
+                { kind: 'assistant', id: 'streaming', text: 'Working', complete: false, traceId: 'trace-3' },
+            ]
+            expect([...chatReplyActions(items, { sessionId: 'conversation-1', runtime: 'langgraph' }, 'idle')]).toEqual(
+                [
+                    [
+                        'complete',
+                        { feedback: { sessionId: 'conversation-1', runtime: 'langgraph', traceId: 'trace-1' } },
+                    ],
+                    ['missing-trace', {}],
+                ]
+            )
+        }
+    )
 
     test('stored ratings stay separate by account, runtime and turn when a trace is unavailable', () => {
         const target = { sessionId: 'task-1', runtime: 'sandbox' as const, turnIndex: 0 }

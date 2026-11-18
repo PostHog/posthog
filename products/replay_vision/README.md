@@ -5,7 +5,7 @@ A sub-product of Session Replay. Users configure named **scanners** that PostHog
 ## Concepts
 
 **Scanner** — a configured probe scoped to a team.
-Carries a prompt, a scanner type (`monitor` / `classifier` / `scorer` / `summarizer`), a `RecordingsQuery` that selects matching sessions, a Gemini model (which sets the per-observation credit price), and two volume levers: `sampling_mode` (a quality pre-filter over the matched sessions) and `sampling_rate` (a random downsample applied after it).
+Carries a prompt, a scanner type (`monitor` / `classifier` / `scorer` / `summarizer`), a `RecordingsQuery` that selects matching sessions, a Gemini model (which sets the per-observation credit price), and a volume lever: `sampling_rate` (a random downsample of the matched sessions).
 Each enabled scanner has a Temporal schedule that fires every 5 minutes and sweeps for newly settled recordings past the scanner's watermark (`last_swept_at`); disabling a scanner removes its schedule, and re-enabling restarts the sweep from now rather than backfilling the gap (see **Backfill** for the explicit way to cover history).
 Every succeeded observation is embedded (the summary, or the reasoning) for downstream free-text search.
 The Search tab ranks observations by embedding distance, then a decision model rereads the query and each of the top 20 together and reorders them by how well they match. The reorder has a two-second budget, and search falls back to the embedding order when the model is slow, failing, or not configured.
@@ -58,6 +58,10 @@ Outside these scenes, the product also renders inside the session replay player:
 The experiment creation wizard offers an opt-in experiment scanner when the `experiment-scanner` feature flag is on, and offers no scanner without it. The scanner is the `experiment` type, saved off with `start_on_launch`, and the backend turns it on when the experiment launches. Its population comes from the experiment, never from its `RecordingsQuery`: the API derives the person-scoped exposure filter at scan time, the same resolution the experiment's Recordings tab uses, so the scanner watches the sessions that tab lists, including an exposure event that fires server-side or in an earlier session. The `RecordingsQuery` carries only the experiment's test-account setting, and the API rejects an `experiment_exposure` set there directly. Older wizard scanners are classifiers with `experiment_targeting` and keep working. Scanner creation runs after the experiment has been persisted and cannot roll back a successfully created experiment.
 
 The `experiment` scanner type is the way agents (Max, MCP, the `scanning-experiments-with-replay-vision` skill) scan an experiment: its experiment lives in `scanner_config`, each session's variant comes from the exposure data, variants are sampled evenly, and `GET scanners/{id}/variants/` reads the results per variant.
+
+## Cloud only
+
+Replay vision runs only on PostHog Cloud and in local development. A scan needs the AI gateway and the recording rasterizer worker, and self-hosted installs run neither. On a self-hosted install every vision endpoint returns 403 (`backend/api/cloud_only.py`), the scenes redirect to the Move to PostHog Cloud page (`cloudOnly` in `manifest.tsx`), and the player and replay list hide their vision surfaces.
 
 ## Layout
 

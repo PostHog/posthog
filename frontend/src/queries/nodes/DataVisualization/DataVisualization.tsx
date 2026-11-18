@@ -9,6 +9,7 @@ import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { createXAxisTickCallback } from '@posthog/quill-charts'
 
 import 'lib/components/Cards/InsightCard/InsightCard.scss'
+import { ChartAxisControls } from 'lib/charts/ChartAxisControls'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { getResultMenuPoint, isResultMenuContextMenu, replayAsClick } from 'lib/components/ResultMenu/resultMenuTrigger'
 import { PART_OF_WHOLE_DISPLAY_TYPES } from 'lib/constants'
@@ -36,7 +37,6 @@ import { shouldQueryBeAsync } from '~/queries/utils'
 import { ChartDisplayType, ExportContext, ExporterFormat, InsightLogicProps } from '~/types'
 
 import { alertsToThresholdGoalLines, insightAlertsLogic } from 'products/alerts/frontend/logic/insightAlertsLogic'
-import { BIChartAxisControls } from 'products/business_intelligence/frontend/BIChartAxisControls'
 import { getBIChartDateAxis } from 'products/business_intelligence/frontend/biChartDateAxis'
 import { BIChartYearLabels } from 'products/business_intelligence/frontend/BIChartYearLabels'
 import { BIComparisonSummary } from 'products/business_intelligence/frontend/BIComparisonSummary'
@@ -434,8 +434,9 @@ function DataTableVisualizationContent({
                 ? {
                       ...dateAxis,
                       tickFormatter: (value: string, index: number): string | null => {
-                          const label = aliasFormatter(value)
-                          return label !== value
+                          const rawValue = chartXData?.data[index]
+                          const label = aliasFormatter(rawValue)
+                          return label !== rawValue
                               ? label
                               : fallbackTickFormatter
                                 ? fallbackTickFormatter(value, index)
@@ -650,7 +651,7 @@ function DataTableVisualizationContent({
                 >
                     {showYearLabels && <BIChartYearLabels timezone={timezone} />}
                     {query.kind === NodeKind.BIVisualizationNode && props.editMode && props.context?.onEditBIAxis && (
-                        <BIChartAxisControls onEdit={props.context.onEditBIAxis} />
+                        <ChartAxisControls onEdit={props.context.onEditBIAxis} />
                     )}
                 </SqlChart>
             </BindLogic>
@@ -767,6 +768,29 @@ function DataTableVisualizationContent({
                 ) : null}
             </>
         )
+    } else if (
+        effectiveVisualizationType !== ChartDisplayType.ActionsTable &&
+        !responseLoading &&
+        response &&
+        'hasMore' in response &&
+        response.hasMore
+    ) {
+        const rowLimit =
+            'limit' in response && typeof response.limit === 'number'
+                ? response.limit
+                : 'results' in response && Array.isArray(response.results)
+                  ? response.results.length
+                  : null
+        component = (
+            <>
+                {rowLimit !== null ? (
+                    <LemonBanner type="warning">
+                        {`This chart shows only the first ${rowLimit.toLocaleString()} rows. Add a LIMIT to the query to include more rows.`}
+                    </LemonBanner>
+                ) : null}
+                {component}
+            </>
+        )
     }
 
     if (props.embedded) {
@@ -842,7 +866,7 @@ function DataTableVisualizationContent({
                 {!readOnly && showResultControls && (
                     <>
                         <LemonDivider className="my-0" />
-                        <div className="flex items-center gap-2 flex-wrap px-2">
+                        <div className="DataVisualization__controls flex items-center gap-2 flex-wrap px-2">
                             <div className="flex gap-2 items-center">
                                 <Reload size={controlSize} />
                                 <ElapsedTime />

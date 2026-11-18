@@ -366,7 +366,7 @@ class PlatformAlertDeliveryHold(TeamScopedRootMixin, UUIDModel):
 
 
 class AlertDestination(TeamScopedRootMixin, UUIDModel):
-    """Where an alert sends, for an alert whose `destinations_owner` is the platform.
+    """Where an alert sends, beside any HogFunctions it has.
 
     One row is one destination a person sees on the alert's page. It sends through the platform's
     transport for its type.
@@ -389,6 +389,50 @@ class AlertDestination(TeamScopedRootMixin, UUIDModel):
 
     # The HogFunctions this replaced, so an id issued before the move still finds the destination.
     legacy_hog_function_ids = ArrayField(models.UUIDField(), default=list, blank=True)
+    # A webhook whose receiver got its source's legacy body from the HogFunctions this replaced keeps
+    # that body, whatever the team's webhook body flags say.
+    keeps_legacy_webhook_body = models.BooleanField(default=False, db_default=False)
 
     class Meta:
         db_table = "alerts_platformalertdestination"
+
+
+class AlertReceiver(TeamScopedRootMixin, UUIDModel):
+    """A named destination that routes send to, for every alert they match rather than one alert."""
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    name = models.CharField(max_length=255)
+    type = models.CharField(max_length=32, choices=DestinationType.choices)
+    config = EncryptedJSONStringField(default=dict)
+    enabled = models.BooleanField(default=True, db_default=True)
+
+    class Meta:
+        db_table = "alerts_platformalertreceiver"
+        constraints = [models.UniqueConstraint(fields=["team", "name"], name="alert_receiver_unique_name")]
+
+
+class AlertRoute(TeamScopedRootMixin, UUIDModel):
+    """Which alerts a receiver hears, by the labels on the alert's configuration.
+
+    Routes are read in `position` order. Every matching route sends, unless one with `continue_matching`
+    off stops the routes after it.
+    """
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    receiver = models.ForeignKey(AlertReceiver, on_delete=models.CASCADE, related_name="routes")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    # `[{"label": ..., "op": "=", "value": ...}]`, all of which must hold. An empty list matches every alert.
+    matchers = models.JSONField(default=list, db_default=[])
+    event_kinds = ArrayField(models.CharField(max_length=16), default=list)
+    position = models.PositiveIntegerField(default=0, db_default=0)
+    continue_matching = models.BooleanField(default=True, db_default=True)
+    enabled = models.BooleanField(default=True, db_default=True)
+
+    class Meta:
+        db_table = "alerts_platformalertroute"
+        indexes = [models.Index(fields=["team", "position"], name="alert_route_team_position_idx")]

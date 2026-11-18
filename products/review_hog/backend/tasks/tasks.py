@@ -29,6 +29,7 @@ def process_authored_pr_event(
     github_repo_id: int | None = None,
     draft: bool = False,
     skip_agent_review: bool = False,
+    action: str | None = None,
 ) -> None:
     AuthoredPRReview(
         installation_id=installation_id,
@@ -39,6 +40,7 @@ def process_authored_pr_event(
         github_repo_id=github_repo_id,
         draft=draft,
         skip_agent_review=skip_agent_review,
+        action=action,
     ).start()
 
 

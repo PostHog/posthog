@@ -12,6 +12,7 @@ class TestDuckgresDataImportsTableNameForVersion:
             ("bigquery", "BigQuery", None, "daily_stats", "bigquery_daily_stats"),
             ("google_ads", "GoogleAds", None, "video", "googleads_video"),
             ("tiktok_ads", "TikTokAds", "prod__us", "ad_report", "tiktokads_prod_us_ad_report"),
+            ("exactly_max_length", "S3", "a" * 25, "b" * 34, f"s3_{'a' * 25}_{'b' * 34}"),
         ]
     )
     def test_source_keys_are_stable_without_camel_case_splitting(
@@ -25,14 +26,22 @@ class TestDuckgresDataImportsTableNameForVersion:
             == "tik_tok_ads_ad_report"
         )
 
-    def test_long_names_have_stable_collision_resistant_suffixes(self) -> None:
-        first = duckgres_data_imports_table_name_for_version("Postgres", None, "a" * 90, "legacy_batch_v1")
-        second = duckgres_data_imports_table_name_for_version("Postgres", None, "a" * 89 + "b", "legacy_batch_v1")
+    @parameterized.expand([("copy_v1",), ("legacy_batch_v1",)])
+    def test_long_names_sharing_a_start_stay_distinct_and_stable(self, naming_version: str) -> None:
+        prefix = "acme_analytics_production_eu_west_exports"
+        first = duckgres_data_imports_table_name_for_version(
+            "S3", prefix, "customer_subscription_events_daily", naming_version
+        )
+        second = duckgres_data_imports_table_name_for_version(
+            "S3", prefix, "customer_subscription_events_hourly", naming_version
+        )
 
-        assert len(first) == 63
-        assert len(second) == 63
+        assert len(first) <= 63
+        assert len(second) <= 63
         assert first != second
-        assert first == duckgres_data_imports_table_name_for_version("Postgres", None, "a" * 90, "legacy_batch_v1")
+        assert first == duckgres_data_imports_table_name_for_version(
+            "S3", prefix, "customer_subscription_events_daily", naming_version
+        )
 
     def test_rejects_unknown_version(self) -> None:
         with pytest.raises(ValueError, match="Unsupported Duckgres data imports table naming version"):

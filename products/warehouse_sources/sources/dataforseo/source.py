@@ -4,6 +4,7 @@ from products.warehouse_sources.sources.dataforseo._config import DataForSEOSour
 from products.warehouse_sources.sources.dataforseo.dataforseo import (
     DEFAULT_LANGUAGE_NAME,
     DEFAULT_LOCATION_NAME,
+    CredentialCheck,
     DataForSEOResumeConfig,
     dataforseo_source,
     validate_credentials as validate_dataforseo_credentials,
@@ -125,8 +126,8 @@ Note: DataForSEO bills per API request, so syncing these tables consumes account
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         invalid_credentials_message = (
-            "Your DataForSEO API credentials are invalid. Find your API login and password at "
-            "https://app.dataforseo.com/api-access, then reconnect."
+            "Your DataForSEO API credentials are invalid. Use the API password from API Access at "
+            "https://app.dataforseo.com/api-access, not your account password, then reconnect."
         )
         insufficient_funds_message = (
             "Your DataForSEO account has insufficient funds for this sync. Top up your balance at "
@@ -209,10 +210,17 @@ Note: DataForSEO bills per API request, so syncing these tables consumes account
         if keywords_error:
             return False, keywords_error
 
-        if validate_dataforseo_credentials(config.api_login, config.api_password):
+        check = validate_dataforseo_credentials(config.api_login, config.api_password)
+        if check is CredentialCheck.VALID:
             return True, None
 
-        return False, "Invalid DataForSEO API credentials"
+        if check is CredentialCheck.REJECTED:
+            return False, (
+                "DataForSEO rejected your API login or password. Use the API password from API Access "
+                "in your DataForSEO dashboard, not your account password, then reconnect."
+            )
+
+        return False, "PostHog couldn't reach DataForSEO to check your credentials. Try again in a few minutes."
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[DataForSEOResumeConfig]:
         return ResumableSourceManager[DataForSEOResumeConfig](inputs, DataForSEOResumeConfig)

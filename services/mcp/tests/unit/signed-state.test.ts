@@ -1,11 +1,8 @@
-import { describe, expect, it, type Mock, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import {
     loadSigningKeyFromEnv,
-    NonceLedger,
-    type NonceLedgerRedis,
     PayloadStash,
-    SignedStateAlreadyConsumed,
     SignedStateCodec,
     SignedStateExpired,
     SignedStateMalformed,
@@ -77,29 +74,6 @@ describe('SignedStateCodec', () => {
         await expect(b.decode(token, 'u1', 'p1')).rejects.toBeInstanceOf(SignedStateSignatureInvalid)
     })
 
-    it('secondsUntilExpiry sources the clock from the codec, not the wall clock', async () => {
-        // Inject a clock 100s before exp; assert the runtime gets 100,
-        // independent of what Date.now() reads in real wall time. This
-        // is what protects the nonce ledger from clock-skew shrinkage.
-        const { codec } = makeCodec()
-        const { claims } = await codec.encode({ sub: 'u', purpose: 'p', payload: null })
-        expect(codec.secondsUntilExpiry(claims)).toBe(300)
-    })
-
-    it('secondsUntilExpiry tracks the injected clock as it advances', async () => {
-        const { codec, advance } = makeCodec()
-        const { claims } = await codec.encode({ sub: 'u', purpose: 'p', payload: null })
-        advance(200 * 1000)
-        expect(codec.secondsUntilExpiry(claims)).toBe(100)
-    })
-
-    it('secondsUntilExpiry clamps to 1 once the token has lapsed', async () => {
-        const { codec, advance } = makeCodec()
-        const { claims } = await codec.encode({ sub: 'u', purpose: 'p', payload: null })
-        advance(1_000 * 1000) // far past exp
-        expect(codec.secondsUntilExpiry(claims)).toBe(1)
-    })
-
     it('rejects a token whose protected header typ is wrong (cross-system replay)', async () => {
         // jose pins the typ header on verify — this protects against
         // someone feeding us a token signed for a different MCP feature
@@ -136,45 +110,6 @@ describe('loadSigningKeyFromEnv', () => {
         const longKey = 'a'.repeat(32)
         const key = loadSigningKeyFromEnv({ MCP_SIGNED_STATE_KEY: longKey })
         expect(key.toString()).toBe(longKey)
-    })
-})
-
-describe('NonceLedger', () => {
-    function makeRedis(): { redis: { set: Mock<NonceLedgerRedis['set']> }; store: Map<string, string> } {
-        const store = new Map<string, string>()
-        const redis = {
-            set: vi.fn(async (key: string, value: string, ..._args: (string | number)[]) => {
-                const argv = _args.map((a) => (typeof a === 'string' ? a.toUpperCase() : a))
-                const nx = argv.includes('NX')
-                if (nx && store.has(key)) {
-                    return null
-                }
-                store.set(key, value)
-                return 'OK'
-            }),
-        }
-        return { redis, store }
-    }
-
-    it('consumes a fresh nonce successfully', async () => {
-        const { redis } = makeRedis()
-        const ledger = new NonceLedger(redis)
-        await expect(ledger.consume('nonce-1', 300)).resolves.toBeUndefined()
-    })
-
-    it('rejects a second consume of the same nonce', async () => {
-        const { redis } = makeRedis()
-        const ledger = new NonceLedger(redis)
-        await ledger.consume('nonce-1', 300)
-        await expect(ledger.consume('nonce-1', 300)).rejects.toBeInstanceOf(SignedStateAlreadyConsumed)
-    })
-
-    it('uses NX + EX so abandoned nonces self-clean', async () => {
-        const { redis } = makeRedis()
-        const ledger = new NonceLedger(redis)
-        await ledger.consume('nonce-1', 300)
-        const args = redis.set.mock.calls[0]!
-        expect(args).toEqual(['mcp:signed-state:nonce:nonce-1', '1', 'EX', 300, 'NX'])
     })
 })
 

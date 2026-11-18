@@ -25,8 +25,10 @@ import { type NotableSession } from '../mcpDashboardOverviewLogic'
 import { mcpSessionUrl, mcpSessionsUrl } from '../sessionUrls'
 import { CardError } from './Card'
 import { DESTRUCTIVE_ERROR_RATE_PCT, formatDuration, truncateSessionId } from './formatters'
+import { SkeletonLine } from './SkeletonLine'
 
 const WARNING_ERROR_PCT = 1
+const SKELETON_REASON_WIDTHS = ['60%', '80%', '40%']
 
 function statusVariant(errorRatePct: number): 'destructive' | 'warning' | 'success' {
     if (errorRatePct >= DESTRUCTIVE_ERROR_RATE_PCT) {
@@ -69,16 +71,29 @@ function SessionRows({
     }
     if (loading && sessions.length === 0) {
         return (
-            <TableBody>
-                <TableRow>
-                    <TableCell colSpan={5}>
-                        <div className="space-y-2 py-1">
-                            {Array.from({ length: 4 }).map((_, i) => (
-                                <Skeleton key={i} className="h-3.5 w-full" />
-                            ))}
-                        </div>
-                    </TableCell>
-                </TableRow>
+            <TableBody aria-busy>
+                {SKELETON_REASON_WIDTHS.map((reasonWidth, i) => (
+                    <TableRow key={i}>
+                        <TableCell>
+                            <SkeletonLine className="w-[65px]" />
+                        </TableCell>
+                        <TableCell align="right">
+                            <SkeletonLine className="ml-auto w-6" />
+                        </TableCell>
+                        <TableCell align="right">
+                            <SkeletonLine className="ml-auto w-12" />
+                        </TableCell>
+                        <TableCell>
+                            {/* Inline like the status badge, so it sits on the text baseline and sets the same row height. */}
+                            <Skeleton className="inline-flex h-4 w-[70px] items-center rounded-full py-0.5 text-[10px]">
+                                <span>&nbsp;</span>
+                            </Skeleton>
+                        </TableCell>
+                        <TableCell expand>
+                            <SkeletonLine style={{ width: reasonWidth }} />
+                        </TableCell>
+                    </TableRow>
+                ))}
             </TableBody>
         )
     }
@@ -133,7 +148,7 @@ export function NotableSessionsTable({
 }): JSX.Element {
     const { searchParams } = useValues(router)
     return (
-        <Card size="sm" className="gap-0">
+        <Card size="sm" className="gap-0 self-start">
             <CardHeader className="border-b border-border pb-3">
                 <CardTitle>Sessions flagged for review</CardTitle>
             </CardHeader>

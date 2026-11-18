@@ -103,26 +103,40 @@ def _reject_pure_compilation(error: Exception, *, feature_code: str) -> None:
     raise error
 
 
+@frozen
+class TrinoTargetReadiness:
+    catalog_name: str | None = None
+    # The control plane gave no answer, so the target can still be ready.
+    lookup_failed: bool = False
+
+
+_NOT_READY = TrinoTargetReadiness()
+
+
 def get_ready_trino_catalog_name(organization_id: str) -> str | None:
     """Return the control-plane-owned catalog only after its Trino target is ready."""
+    return get_trino_target_readiness(organization_id).catalog_name
+
+
+def get_trino_target_readiness(organization_id: str) -> TrinoTargetReadiness:
     from products.managed_warehouse.backend.presentation.views import _request  # noqa: PLC0415
 
     response = _request("GET", organization_id, "/trino", require_enabled=False)
     readiness_logger = logger.bind(organization_id=str(organization_id), status_code=response.status_code)
     if not status.is_success(response.status_code):
         readiness_logger.warning("trino_target_not_ready", reason="http_error")
-        return None
+        return TrinoTargetReadiness(lookup_failed=status.is_server_error(response.status_code))
     if not isinstance(response.data, dict):
         readiness_logger.warning(
             "trino_target_not_ready", reason="invalid_response", response_type=type(response.data).__name__
         )
-        return None
+        return _NOT_READY
     enabled = response.data.get("enabled")
     if not isinstance(enabled, bool):
         readiness_logger.warning(
             "trino_target_not_ready", reason="invalid_enabled", enabled_type=type(enabled).__name__
         )
-        return None
+        return _NOT_READY
     if not enabled:
         readiness_logger.info(
             "trino_target_not_ready",
@@ -130,14 +144,14 @@ def get_ready_trino_catalog_name(organization_id: str) -> str | None:
             enabled=enabled,
             enabled_type=type(enabled).__name__,
         )
-        return None
+        return _NOT_READY
 
     trino_status = response.data.get("status")
     if not isinstance(trino_status, dict):
         readiness_logger.warning(
             "trino_target_not_ready", reason="invalid_status", status_type=type(trino_status).__name__
         )
-        return None
+        return _NOT_READY
     state = trino_status.get("state")
     if state != "ready":
         readiness_logger.info(
@@ -146,7 +160,7 @@ def get_ready_trino_catalog_name(organization_id: str) -> str | None:
             state=state[:128] if isinstance(state, str) else None,
             state_type=type(state).__name__,
         )
-        return None
+        return _NOT_READY
     response_org = trino_status.get("org")
     if response_org is not None and str(response_org) != str(organization_id):
         readiness_logger.warning(
@@ -156,15 +170,15 @@ def get_ready_trino_catalog_name(organization_id: str) -> str | None:
             response_organization_id=response_org[:128] if isinstance(response_org, str) else None,
             response_organization_id_type=type(response_org).__name__,
         )
-        return None
+        return _NOT_READY
 
     catalog_name = trino_status.get("trino_catalog_name") or trino_status.get("catalog")
     if not isinstance(catalog_name, str) or not catalog_name.strip():
         readiness_logger.warning(
             "trino_target_not_ready", reason="invalid_catalog", catalog_type=type(catalog_name).__name__
         )
-        return None
-    return catalog_name.strip()
+        return _NOT_READY
+    return TrinoTargetReadiness(catalog_name=catalog_name.strip())
 
 
 def prepare_hogql_to_trino_compiler(
@@ -451,7 +465,7 @@ def compile_hogql_to_trino_sql(
         output = prepared
         while isinstance(output, ast.SelectSetQuery):
             output = output.initial_select_query
-        needs_row_type_probe = any(_may_hold_anonymous_row(column, trino_context) for column in output.select)
+        needs_row_type_probe = any(_needs_output_type_probe(column, trino_context) for column in output.select)
         return preserve_output_names(prepared) if preserve_clickhouse_output_names else prepared
 
     trino_sql, _ = prepare_and_print_ast(
@@ -488,12 +502,32 @@ def compile_hogql_to_trino_sql(
     )
 
 
-def _may_hold_anonymous_row(column: Any, context: Any) -> bool:
-    """Whether the resolved type of an output column is, or contains, a tuple or an unknown type."""
+_BOOLEAN_TRINO_FUNCTIONS = frozenset({"jsonhas", "multisearchanycaseinsensitive"})
+
+
+def _calls_boolean_function(expression: Any) -> bool:
+    """Whether the expression calls a function that HogQL types as an integer and Trino returns as a boolean."""
+    from posthog.hogql.visitor import TraversingVisitor  # noqa: PLC0415 -- keeps compiler imports off Django startup
+
+    class _Finder(TraversingVisitor):
+        found = False
+
+        def visit_call(self, node: Any) -> None:
+            if node.name.lower() in _BOOLEAN_TRINO_FUNCTIONS:
+                self.found = True
+            super().visit_call(node)
+
+    finder = _Finder()
+    finder.visit(expression)
+    return finder.found
+
+
+def _needs_output_type_probe(column: Any, context: Any) -> bool:
+    """Whether the resolved type of an output column is, or contains, a tuple, a boolean or an unknown type."""
     from posthog.hogql import ast  # noqa: PLC0415 -- keeps compiler imports off Django startup
 
     def check(constant_type: ast.ConstantType) -> bool:
-        if isinstance(constant_type, ast.TupleType | ast.UnknownType):
+        if isinstance(constant_type, ast.TupleType | ast.BooleanType | ast.UnknownType):
             return True
         if isinstance(constant_type, ast.ArrayType):
             return check(constant_type.item_type)
@@ -506,6 +540,9 @@ def _may_hold_anonymous_row(column: Any, context: Any) -> bool:
     if column.type is None:
         return True
     try:
+        # HogQL types these calls as integers, but the Trino printer emits a boolean for them.
+        if _calls_boolean_function(column):
+            return True
         return check(column.type.resolve_constant_type(context))
     except Exception:  # noqa: BLE001 -- a type that cannot be resolved is probed, which is always safe
         return True

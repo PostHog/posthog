@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
 
 import { IconExpand45, IconExternal } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
@@ -7,32 +6,29 @@ import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import { LemonModal } from 'lib/lemon-ui/LemonModal/LemonModal'
 import { urls } from 'scenes/urls'
 
-import { DataModelingJobStatus, DataModelingNode } from '~/types'
+import { DataModelingNode } from '~/types'
 
 import { LineageGraph } from '../lineage/LineageGraph'
-import { LineageGraphNode, nodesWithHubs } from '../lineage/lineageHiddenNodes'
 import { lineageNodeUrl } from '../lineage/lineageNodeUrl'
 import { LineageTypeFilter } from '../lineage/LineageTypeFilter'
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 
-function nodeLineageUrl(node: DataModelingNode): string {
+export function nodeLineageUrl(node: DataModelingNode): string {
     return lineageNodeUrl(node, 'lineage')
 }
 
 // Without a cap, a two-node graph scales up to fill the panel and the cards look oversized
-const LINEAGE_FIT_VIEW_OPTIONS = { maxZoom: 1 }
+export const LINEAGE_FIT_VIEW_OPTIONS = { maxZoom: 1 }
 
 export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
     const {
         lineageGraph,
         lineageGraphLoading,
         lineageGraphError,
-        effectiveLastRunAt,
-        effectiveLastRunStatus,
+        lineageNodes: nodes,
         lineageModalOpen,
         lineageNodePositions,
         lineageTypeFilter,
-        lineageVisibleNodeIds,
         lineageHiddenNodeBridging,
         node,
     } = useValues(nodeDetailSceneLogic({ id }))
@@ -45,22 +41,6 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
         setLineageTypeFilter,
     } = useActions(nodeDetailSceneLogic({ id }))
 
-    // The current node's freshest status/run come from its materialization jobs, not the graph payload
-    const nodes = useMemo((): LineageGraphNode[] => {
-        if (!lineageGraph) {
-            return []
-        }
-        const hubNodeIds = lineageHiddenNodeBridging?.hubNodeIds ?? new Set<string>()
-        return nodesWithHubs(lineageGraph.nodes, lineageVisibleNodeIds, hubNodeIds).map((node) =>
-            node.id === lineageGraph.currentNodeId
-                ? {
-                      ...node,
-                      last_run_at: effectiveLastRunAt ?? node.last_run_at,
-                      last_run_status: (effectiveLastRunStatus as DataModelingJobStatus) ?? node.last_run_status,
-                  }
-                : node
-        )
-    }, [lineageGraph, lineageVisibleNodeIds, lineageHiddenNodeBridging, effectiveLastRunAt, effectiveLastRunStatus])
     const edges = lineageHiddenNodeBridging?.edges ?? []
 
     if (!lineageGraphLoading && lineageGraphError) {

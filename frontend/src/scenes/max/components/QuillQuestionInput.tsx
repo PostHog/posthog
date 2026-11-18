@@ -153,7 +153,7 @@ export const QuillQuestionInput = React.forwardRef<HTMLDivElement, QuillQuestion
     const groupRef = useRef<HTMLDivElement>(null)
     const internalTextAreaRef = useRef<HTMLTextAreaElement>(null)
     const resolvedTextAreaRef = textAreaRef ?? internalTextAreaRef
-    const { showContextUI } = useValues(maxThreadLogic)
+    const { showContextUI, contextDisabledReason } = useValues(maxThreadLogic)
     const {
         inputValue,
         handleQuestionChange,
@@ -383,7 +383,7 @@ export const QuillQuestionInput = React.forwardRef<HTMLDivElement, QuillQuestion
                                                 </Button>
                                             </>
                                         )}
-                                        <QuillContextPicker />
+                                        <QuillContextPicker disabledReason={contextDisabledReason} />
                                         <QuillModeSelector />
                                     </>
                                 ) : undefined

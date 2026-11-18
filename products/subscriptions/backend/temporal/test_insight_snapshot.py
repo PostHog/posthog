@@ -129,3 +129,28 @@ def test_event_snapshot_accepts_a_nullable_source(source: dict | None) -> None:
         )
 
     assert snapshot["query_date_range"] == {"date_from": "-24h", "date_to": "now"}
+
+
+@pytest.mark.parametrize(
+    "query,expected",
+    [
+        ({"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "interval": "week"}}, "week"),
+        ({"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}}, "day"),
+        ({"kind": "InsightVizNode", "source": {"kind": "StickinessQuery", "interval": "day"}}, None),
+    ],
+)
+def test_snapshot_records_the_effective_interval_of_time_series(query: dict, expected: str | None) -> None:
+    insight = MagicMock(id=1, short_id="sample", name="Signups", description="")
+    insight.get_effective_query.return_value = query
+    with (
+        patch("products.subscriptions.backend.temporal.insight_snapshot._default_query_hash", return_value="hash"),
+        patch(
+            "products.subscriptions.backend.temporal.insight_snapshot._execute_and_serialize_insight_query",
+            return_value={"query_results": {"result": []}},
+        ),
+    ):
+        snapshot = build_insight_delivery_snapshot(
+            insight=insight, team=MagicMock(), dashboard=None, tile=None, user=None
+        )
+
+    assert snapshot.get("interval") == expected

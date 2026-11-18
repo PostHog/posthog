@@ -85,6 +85,7 @@ def to_dict(query: BaseModel) -> dict:
                     if key
                     not in [
                         "showLegend",
+                        "showSummaryOnDashboards",
                         "showPercentStackView",
                         "stackBreakdownValues",
                         "showValuesOnSeries",

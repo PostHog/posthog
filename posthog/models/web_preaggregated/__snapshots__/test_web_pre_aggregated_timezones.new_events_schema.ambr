@@ -8,7 +8,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`)))) AS breakdown_value,
+            CAST(nullIf(toString(events.properties.`$browser`), ''), 'Nullable(String)') AS breakdown_value,
             if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), events.properties.`$session_id`, NULL) AS session_id,
             any(if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events_json AS events
@@ -32,7 +32,7 @@
                     allow_experimental_object_type=1,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_group_by=23622320128,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     optimize_rewrite_aggregate_function_with_if=0,
@@ -52,7 +52,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`)))) AS breakdown_value,
+            CAST(nullIf(toString(events.properties.`$browser`), ''), 'Nullable(String)') AS breakdown_value,
             if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), events.properties.`$session_id`, NULL) AS session_id,
             any(if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events_json AS events
@@ -76,7 +76,7 @@
                     allow_experimental_object_type=1,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_group_by=23622320128,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     optimize_rewrite_aggregate_function_with_if=0,
@@ -96,7 +96,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`)))) AS breakdown_value,
+            CAST(nullIf(toString(events.properties.`$browser`), ''), 'Nullable(String)') AS breakdown_value,
             if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), events.properties.`$session_id`, NULL) AS session_id,
             any(if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events_json AS events
@@ -120,7 +120,7 @@
                     allow_experimental_object_type=1,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_group_by=23622320128,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     optimize_rewrite_aggregate_function_with_if=0,
@@ -140,7 +140,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`)))) AS breakdown_value,
+            CAST(nullIf(toString(events.properties.`$browser`), ''), 'Nullable(String)') AS breakdown_value,
             if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), events.properties.`$session_id`, NULL) AS session_id,
             any(if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events_json AS events
@@ -164,7 +164,7 @@
                     allow_experimental_object_type=1,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_group_by=23622320128,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     optimize_rewrite_aggregate_function_with_if=0,
@@ -184,7 +184,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`)))) AS breakdown_value,
+            CAST(nullIf(toString(events.properties.`$browser`), ''), 'Nullable(String)') AS breakdown_value,
             if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), events.properties.`$session_id`, NULL) AS session_id,
             any(if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events_json AS events
@@ -208,7 +208,7 @@
                     allow_experimental_object_type=1,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_group_by=23622320128,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     optimize_rewrite_aggregate_function_with_if=0,
@@ -228,7 +228,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`)))) AS breakdown_value,
+            CAST(nullIf(toString(events.properties.`$browser`), ''), 'Nullable(String)') AS breakdown_value,
             if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), events.properties.`$session_id`, NULL) AS session_id,
             any(if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events_json AS events
@@ -252,7 +252,7 @@
                     allow_experimental_object_type=1,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_group_by=23622320128,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     optimize_rewrite_aggregate_function_with_if=0,
@@ -272,7 +272,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`)))) AS breakdown_value,
+            CAST(nullIf(toString(events.properties.`$browser`), ''), 'Nullable(String)') AS breakdown_value,
             if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), events.properties.`$session_id`, NULL) AS session_id,
             any(if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events_json AS events
@@ -296,7 +296,7 @@
                     allow_experimental_object_type=1,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_group_by=23622320128,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     optimize_rewrite_aggregate_function_with_if=0,
@@ -316,7 +316,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`)))) AS breakdown_value,
+            CAST(nullIf(toString(events.properties.`$browser`), ''), 'Nullable(String)') AS breakdown_value,
             if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), events.properties.`$session_id`, NULL) AS session_id,
             any(if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events_json AS events
@@ -340,7 +340,7 @@
                     allow_experimental_object_type=1,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_group_by=23622320128,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     optimize_rewrite_aggregate_function_with_if=0,
@@ -360,7 +360,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`)))) AS breakdown_value,
+            CAST(nullIf(toString(events.properties.`$browser`), ''), 'Nullable(String)') AS breakdown_value,
             if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), events.properties.`$session_id`, NULL) AS session_id,
             any(if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events_json AS events
@@ -384,7 +384,7 @@
                     allow_experimental_object_type=1,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_group_by=23622320128,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     optimize_rewrite_aggregate_function_with_if=0,
@@ -404,7 +404,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`)))) AS breakdown_value,
+            CAST(nullIf(toString(events.properties.`$browser`), ''), 'Nullable(String)') AS breakdown_value,
             if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), events.properties.`$session_id`, NULL) AS session_id,
             any(if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events_json AS events
@@ -428,7 +428,7 @@
                     allow_experimental_object_type=1,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_group_by=23622320128,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     optimize_rewrite_aggregate_function_with_if=0,
@@ -448,7 +448,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`)))) AS breakdown_value,
+            CAST(nullIf(toString(events.properties.`$browser`), ''), 'Nullable(String)') AS breakdown_value,
             if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), events.properties.`$session_id`, NULL) AS session_id,
             any(if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events_json AS events
@@ -472,7 +472,7 @@
                     allow_experimental_object_type=1,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_group_by=23622320128,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     optimize_rewrite_aggregate_function_with_if=0,
@@ -492,7 +492,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`)))) AS breakdown_value,
+            CAST(nullIf(toString(events.properties.`$browser`), ''), 'Nullable(String)') AS breakdown_value,
             if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), events.properties.`$session_id`, NULL) AS session_id,
             any(if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events_json AS events
@@ -516,7 +516,7 @@
                     allow_experimental_object_type=1,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_group_by=23622320128,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     optimize_rewrite_aggregate_function_with_if=0,
@@ -536,7 +536,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`)))) AS breakdown_value,
+            CAST(nullIf(toString(events.properties.`$browser`), ''), 'Nullable(String)') AS breakdown_value,
             if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), events.properties.`$session_id`, NULL) AS session_id,
             any(if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events_json AS events
@@ -560,7 +560,7 @@
                     allow_experimental_object_type=1,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_group_by=23622320128,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     optimize_rewrite_aggregate_function_with_if=0,
@@ -580,7 +580,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`)))) AS breakdown_value,
+            CAST(nullIf(toString(events.properties.`$browser`), ''), 'Nullable(String)') AS breakdown_value,
             if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), events.properties.`$session_id`, NULL) AS session_id,
             any(if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events_json AS events
@@ -604,7 +604,7 @@
                     allow_experimental_object_type=1,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_group_by=23622320128,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     optimize_rewrite_aggregate_function_with_if=0,
@@ -624,7 +624,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`)))) AS breakdown_value,
+            CAST(nullIf(toString(events.properties.`$browser`), ''), 'Nullable(String)') AS breakdown_value,
             if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), events.properties.`$session_id`, NULL) AS session_id,
             any(if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events_json AS events
@@ -648,7 +648,7 @@
                     allow_experimental_object_type=1,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_group_by=23622320128,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     optimize_rewrite_aggregate_function_with_if=0,

@@ -935,6 +935,7 @@ export const tracingSpansQueryCreateBodyQueryOneOffsetMin = 0
 export const tracingSpansQueryCreateBodyQueryOneRootSpansDefault = true
 export const tracingSpansQueryCreateBodyQueryOneFlatSpansDefault = false
 export const tracingSpansQueryCreateBodyQueryOneExcludeAttributesDefault = false
+export const tracingSpansQueryCreateBodyQueryOneIncludeEventsDefault = false
 
 export const TracingSpansQueryCreateBody = /* @__PURE__ */ zod.object({
     query: zod
@@ -1054,6 +1055,12 @@ export const TracingSpansQueryCreateBody = /* @__PURE__ */ zod.object({
                 .default(tracingSpansQueryCreateBodyQueryOneExcludeAttributesDefault)
                 .describe(
                     'Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false.'
+                ),
+            includeEvents: zod
+                .boolean()
+                .default(tracingSpansQueryCreateBodyQueryOneIncludeEventsDefault)
+                .describe(
+                    "Include each span's OpenTelemetry events, such as recorded exceptions. The events are large, so keep `limit` small. Ignored when `excludeAttributes` is true. Defaults to false."
                 ),
         })
         .describe('The tracing spans query to execute.'),
@@ -1266,6 +1273,10 @@ export const TracingSpansSymbolStatsCreateBody = /* @__PURE__ */ zod.object({
 export const tracingSpansTraceCreateBodyExcludeAttributesDefault = false
 export const tracingSpansTraceCreateBodyOffsetMin = 0
 
+export const tracingSpansTraceCreateBodySummaryDefault = false
+export const tracingSpansTraceCreateBodySummaryLimitDefault = 10
+export const tracingSpansTraceCreateBodySummaryLimitMax = 50
+
 export const TracingSpansTraceCreateBody = /* @__PURE__ */ zod.object({
     dateRange: zod
         .object({
@@ -1295,6 +1306,18 @@ export const TracingSpansTraceCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Pagination offset into the trace's spans (ordered by start time ascending). Each page returns up to 2000 spans; pass the response's `nextOffset` to load the next page. Defaults to 0."
         ),
+    summary: zod
+        .boolean()
+        .default(tracingSpansTraceCreateBodySummaryDefault)
+        .describe(
+            'Return a compact digest of the trace in `summary` instead of every span (`results` comes back empty): duration, root span, span\/service\/error counts, the top spans by self time, the critical path from the root, span names that repeat (N+1 queries), and error spans with their message. Covers the first 2000 spans; `summary.truncated` is true when the trace has more. Ignores `offset` and `excludeAttributes`.'
+        ),
+    summaryLimit: zod
+        .number()
+        .min(1)
+        .max(tracingSpansTraceCreateBodySummaryLimitMax)
+        .default(tracingSpansTraceCreateBodySummaryLimitDefault)
+        .describe('With `summary`, how many entries each summary list keeps (1-50). Defaults to 10.'),
 })
 
 export const tracingSpansTreeCreateBodyQueryOneCompareFilterOneCompareDefault = false

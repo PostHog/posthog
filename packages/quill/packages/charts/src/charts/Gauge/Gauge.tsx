@@ -114,7 +114,7 @@ const TOOLTIP_ANCHOR = 0.72
 
 export function Gauge({ onError, ...rest }: GaugeProps): React.ReactElement {
     return (
-        <ChartErrorBoundary onError={onError}>
+        <ChartErrorBoundary onError={onError} resetKey={rest.value}>
             <GaugeInner {...rest} />
         </ChartErrorBoundary>
     )

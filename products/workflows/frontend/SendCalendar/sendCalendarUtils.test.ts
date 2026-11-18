@@ -50,6 +50,7 @@ describe('sendCalendarUtils', () => {
     const COHORT_FILTER = { key: 'id', type: 'cohort', value: 21 }
     const EMAIL_IS_SET = { key: 'email', type: 'person', operator: 'is_set', value: 'is_set' }
     const COHORT_EXCLUSION = { key: 'id', type: 'cohort', operator: 'not_in', value: 22 }
+    const COHORT_NEGATION = { key: 'id', type: 'cohort', operator: 'in', negation: true, value: 22 }
 
     it.each([
         [
@@ -60,6 +61,11 @@ describe('sendCalendarUtils', () => {
         [
             'a broadcast that leaves out a cohort',
             { trigger_type: 'batch', audience_properties: [COHORT_FILTER, COHORT_EXCLUSION] },
+            { cohortIds: [21], filters: [COHORT_EXCLUSION], accounts: false, address: null },
+        ],
+        [
+            'a broadcast that leaves out a cohort with negation',
+            { trigger_type: 'batch', audience_properties: [COHORT_FILTER, COHORT_NEGATION] },
             { cohortIds: [21], filters: [COHORT_EXCLUSION], accounts: false, address: null },
         ],
         [
@@ -291,6 +297,24 @@ describe('sendCalendarUtils', () => {
             ['2026-09-01T00:00:00.000Z', '2026-12-02T00:00:00.000Z'],
             ['2026-12-02T00:00:00.000Z', '2026-12-31T00:00:00.000Z'],
         ])
+    })
+
+    test.each([
+        ['crosses the end of daylight saving time', '2026-09-15 00:00', '2026-12-16 00:00', 2],
+        ['crosses the start of daylight saving time and is shorter than a piece', '2027-02-01', '2027-05-04 00:30', 1],
+    ])('splits a Denver range that %s into pieces the endpoint accepts', (_, start, end, expectedPieces) => {
+        const range = { start: dayjs.tz(start, 'America/Denver'), end: dayjs.tz(end, 'America/Denver') }
+        const pieces = splitRange(range, 92)
+
+        const starts = pieces.map((piece) => piece.start.valueOf())
+        const ends = pieces.map((piece) => piece.end.valueOf())
+        const hours = pieces.map((piece) => (piece.end.valueOf() - piece.start.valueOf()) / 3_600_000)
+
+        expect(pieces).toHaveLength(expectedPieces)
+        expect(starts).toEqual([range.start.valueOf(), ...ends.slice(0, -1)])
+        expect(ends[ends.length - 1]).toBe(range.end.valueOf())
+        expect(Math.min(...hours)).toBeGreaterThan(0)
+        expect(Math.max(...hours)).toBeLessThanOrEqual(92 * 24)
     })
 
     it('joins the runs of a flow that two range pieces returned', () => {

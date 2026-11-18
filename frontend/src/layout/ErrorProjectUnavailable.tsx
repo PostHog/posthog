@@ -1,9 +1,8 @@
 import { useValues } from 'kea'
 import { useState } from 'react'
 
-import { Link } from '@posthog/lemon-ui'
-
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { Link } from 'lib/lemon-ui/Link'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'

@@ -1,28 +1,37 @@
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 from uuid import UUID
 
+from django.db import transaction
 from django.db.models import Count, QuerySet
 from django.utils import timezone
 
 from urllib3.util.retry import Retry
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.facade.contracts import (
+    MigrationConnectionUpload,
     WarehouseMigrationBulkSkip,
     WarehouseMigrationBusyError,
+    WarehouseMigrationHasVendorKeyError,
     WarehouseMigrationItemClaimedError,
     WarehouseMigrationKeyRejectedError,
     WarehouseMigrationUnknownItemsError,
+    WarehouseMigrationUploadedError,
     WarehouseMigrationVendorUnreachableError,
 )
+from products.warehouse_sources.backend.migration.crawl import plan_snapshot, save_plan
 from products.warehouse_sources.backend.migration.fivetran.client import (
     FivetranAPIError,
     FivetranAuthError,
     FivetranClient,
     FivetranCredentials,
 )
+from products.warehouse_sources.backend.migration.fivetran.snapshot import merge_upload
+from products.warehouse_sources.backend.migration.types import VendorSnapshot
 from products.warehouse_sources.backend.models.warehouse_migration import WarehouseMigration, WarehouseMigrationItem
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.crawl_warehouse_migration import (
     new_crawl_workflow_id,
@@ -64,7 +73,8 @@ def list_items(
     if not migration_exists(team_id=team_id, migration_id=migration_id):
         return None
     items = WarehouseMigrationItem.objects.for_team(team_id).filter(migration_id=migration_id)
-    return list(items.order_by("verdict", "name", "id")[offset : offset + limit]), items.count()
+    page = items.select_related("created_by").order_by("verdict", "name", "id")[offset : offset + limit]
+    return list(page), items.count()
 
 
 def create_migration(*, team_id: int, user_id: int, provider: str, api_key: str, api_secret: str) -> WarehouseMigration:
@@ -88,8 +98,59 @@ def create_migration(*, team_id: int, user_id: int, provider: str, api_key: str,
     return migration
 
 
+def start_upload(*, team_id: int, user_id: int, provider: str) -> WarehouseMigration:
+    """A migration that an agent fills by uploading what it read from the vendor. PostHog gets no vendor key."""
+    return WarehouseMigration.objects.for_team(team_id).create(
+        team_id=team_id, created_by_id=user_id, provider=provider, status=WarehouseMigration.Status.READY
+    )
+
+
+@frozen
+class UploadResult:
+    items: list[WarehouseMigrationItem]
+    errors: tuple[str, ...]
+
+
+def upload_connections(
+    *,
+    team_id: int,
+    migration_id: UUID,
+    account: Mapping[str, Any] | None,
+    destinations: Sequence[Mapping[str, Any]],
+    connections: Sequence[MigrationConnectionUpload],
+) -> UploadResult | None:
+    """Plan the uploaded connections and merge them into the migration. Other items stay as they are."""
+    with transaction.atomic():
+        # Locked so two uploads cannot overwrite each other's snapshot.
+        migration = (
+            WarehouseMigration.objects.for_team(team_id)
+            .select_for_update(of=("self",))
+            .select_related("created_by")
+            .filter(id=migration_id)
+            .first()
+        )
+        if migration is None:
+            return None
+        if migration.credentials:
+            raise WarehouseMigrationHasVendorKeyError()
+        previous = VendorSnapshot.from_json(migration.snapshot) if migration.snapshot else None
+        upload = merge_upload(previous, account=account, destinations=destinations, connections=connections)
+        planned = plan_snapshot(migration, upload.snapshot, connection_ids=upload.connection_ids)
+        save_plan(migration, upload.snapshot, planned, replace_all=False)
+    items = WarehouseMigrationItem.objects.for_team(team_id).filter(
+        migration_id=migration_id, vendor_connection_id__in=upload.connection_ids
+    )
+    return UploadResult(items=list(items.order_by("verdict", "name")), errors=upload.errors)
+
+
 def refresh_migration(*, team_id: int, migration_id: UUID) -> WarehouseMigration | None:
     migrations = WarehouseMigration.objects.for_team(team_id).filter(id=migration_id)
+    migration = migrations.first()
+    if migration is None:
+        return None
+    # Checked before the claim below, which would otherwise leave an uploaded migration `pending` for good.
+    if not migration.credentials:
+        raise WarehouseMigrationUploadedError()
     # Conditional, so two refreshes cannot both start a crawl and the second terminate the first.
     claimed = migrations.exclude(
         status__in=(WarehouseMigration.Status.PENDING, WarehouseMigration.Status.CRAWLING)

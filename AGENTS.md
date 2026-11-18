@@ -11,7 +11,7 @@
 ## Commands
 
 - Environment:
-  - This is a full dev environment with `node`, `pnpm`, a package mirror and `apt`. A missing `node_modules`, browser binary or flox means setup has not run yet (`pnpm install`, `npx playwright install --with-deps chromium`), not that running things is impossible — install it and continue. Report "can't run" only for a specific, nameable failure (no network, no `apt`, out of memory), alongside whatever fallback you took.
+  - Check which environment is available before installing dependencies or starting services. A local checkout is not necessarily a full Linux dev environment. When the host lacks Docker or database services, or the user's instructions require remote services, read [setting-up-devbox](.agents/skills/setting-up-devbox/SKILL.md) and run service-backed validation on a devbox for the current worktree. Follow the cloud sandbox guide when `POSTHOG_TASK_RUN_ID` is set. Missing local services alone do not justify leaving validation unfinished; report the specific failure in the selected environment and the fallback attempted.
   - Visual and UX work is not confirmed by reading the code. Render the affected surface (the running app, or Storybook via a headless browser) and compare before and after. Worth the setup cost. A story written only for this check is scratch: keep it out of the commit.
   - Use flox when available — prefer `flox activate -- bash -c "<command>"` if commands fail
     - Never use `flox activate` in interactive sessions (it hangs if you try)
@@ -237,9 +237,10 @@ ALWAYS invoke the matching skill **first** — do not skip it, and do not attemp
 - `/organizing-conversations-code` — adding, moving, renaming, or reviewing files under `products/conversations/`
 - `/integrating-with-posthog-ai` — making a product surface work with PostHog AI: injecting scene context or custom instructions, reacting to the agent's tool calls, or rendering your product's tool cards in a thread
 - `/sending-notifications` — adding notification support
-- `/extending-the-admin-console` — adding or changing a panel, staff action or tool in a `console.py`, or moving a Django admin action into PostHog Admin
+- `/extending-the-admin-console` — adding or changing a panel, staff action or tool in a `console.py`, adding a Django admin action, or moving one into PostHog Admin
 - `/routing-outbound-api-calls` — adding or changing Python code that calls a third-party HTTP API, or changing any domain under `posthog/egress/` (budget, lanes, identity, metrics, headers)
 - `/authenticating-to-clickhouse` — adding a service, sidecar, or container that connects to ClickHouse, adding a `ClickHouseUser`, or building or changing a ClickHouse pool or client by hand; it must stay token-aware (a native pool carries the credential provider, an HTTP client resolves the token per call) or it silently uses the static password
+- `/building-on-capture-v1` — sending events to capture from PostHog code, changing `rust/capture/src/v1/`, or adding a per-event option or a property that capture or ingestion must read
 - `/writing-clickhouse-queries` — adding or changing a ClickHouse call site (`sync_execute`, `execute_hogql_query`, a `QueryRunner`), including the `Workload` it passes
 - `/adding-activity-logging` — adding activity logging (the audit trail) to a model, writing or changing a `model_activity_signal` receiver or an activity describer, auditing which write paths of a model are logged, or debugging a change that is missing from the activity log
 - `/adding-inbound-webhooks` — adding a webhook endpoint for a third party that sends to PostHog, adding a consumer for a provider that already has an endpoint, or migrating a verifier the `inbound-webhooks-go-through-ingress` rule flags

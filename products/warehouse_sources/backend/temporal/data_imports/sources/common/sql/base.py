@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, Any, Generic
 
 import structlog
 
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, persist_schema_metadata
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ConfigType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
@@ -35,11 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.incremental import (
     build_incremental_fields,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.metadata import (
-    extract_available_column_names,
-    sql_schema_metadata,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import prune_enabled_columns
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.metadata import sql_schema_metadata
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 
 if TYPE_CHECKING:
@@ -197,24 +193,14 @@ def reconcile_source_schema_metadata(
             source_schema=source_schema.source_schema,
             source_table_name=source_schema.source_table_name,
         )
-        existing_config: dict[str, Any] = dict(row.sync_type_config) if isinstance(row.sync_type_config, dict) else {}
-        existing_config["schema_metadata"] = new_metadata
-
-        available_names = extract_available_column_names(new_metadata)
-        pruned = prune_enabled_columns(row.enabled_columns, available_names)
-        update_fields = ["sync_type_config", "updated_at"]
-        if pruned.removed:
+        removed_columns = persist_schema_metadata(row, schema_metadata=new_metadata)
+        if removed_columns:
             log.info(
                 "sql_source.reconcile_schema_metadata.pruned_enabled_columns",
                 source_id=str(source.id),
                 schema_id=str(row.id),
                 schema_name=row.name,
-                removed_columns=pruned.removed,
+                removed_columns=removed_columns,
             )
-            row.enabled_columns = pruned.kept
-            update_fields.append("enabled_columns")
-
-        row.sync_type_config = existing_config
-        row.save(update_fields=update_fields)
 
     return []

@@ -47,6 +47,7 @@ WORKTREE_AUTO_SOURCES = (
     "orca",
     "conductor",
     "worktrunk",
+    "paseo",
     "other",
 )
 WORKTREE_PROVIDERS = ("coder", "hogland")

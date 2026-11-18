@@ -17,7 +17,8 @@ from django.db.models.functions import Coalesce
 from django.urls import URLResolver, get_resolver
 
 from posthog.exceptions_capture import capture_exception
-from posthog.scopes import INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
+from posthog.scopes.exposure import INTERNAL_API_SCOPE_OBJECTS
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -33,6 +34,8 @@ class _ResourceDisplayModel:
 # resource, since ENTITY_MAP is consulted first and the entry goes dead. A resource in neither place
 # and with no derivable name field is left out of the picker and falls back to the raw id.
 _MODELS_NOT_IN_ENTITY_MAP: dict[str, _ResourceDisplayModel] = {
+    # Search reads actions through the actions facade, and the actions viewset has no queryset to derive a model from.
+    "action": _ResourceDisplayModel(app_label="actions", model_name="action", name_field="name"),
     "evaluation": _ResourceDisplayModel(app_label="ai_observability", model_name="evaluation", name_field="name"),
     "warehouse_view": _ResourceDisplayModel(
         app_label="data_modeling", model_name="datawarehousesavedquery", name_field="name"

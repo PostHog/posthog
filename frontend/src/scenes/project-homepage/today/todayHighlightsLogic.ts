@@ -28,6 +28,9 @@ import type {
     PulseSlotApi,
 } from 'products/today/frontend/generated/api.schemas'
 
+import { type ProductNumberKind, productNumberKind } from './todayPulseProductNumbers'
+
+export const HIGHLIGHTS_FIRST_POLL_MS = 400
 export const HIGHLIGHTS_POLL_MS = 2_000
 const MAX_HIDDEN_PULSE_NUMBERS = 50
 const HIGHLIGHTS_WAIT_MS = 2_000
@@ -44,7 +47,6 @@ interface PulseLoad {
     startedAt: number
     firstCardAt: number | null
     firstResponseAt: number | null
-    loadingMode: 'progressive' | 'complete' | null
     firstNumberAt: number | null
     requestCount: number
     responseCount: number
@@ -93,7 +95,6 @@ function capturePulseLoad(
         first_card_duration_ms: load.firstCardAt === null ? null : Math.round(load.firstCardAt - load.startedAt),
         first_response_duration_ms:
             load.firstResponseAt === null ? null : Math.round(load.firstResponseAt - load.startedAt),
-        loading_mode: load.loadingMode,
         first_number_duration_ms: load.firstNumberAt === null ? null : Math.round(load.firstNumberAt - load.startedAt),
         request_count: load.requestCount,
         response_count: load.responseCount,
@@ -140,19 +141,6 @@ export interface PulsePlace {
 export interface PulsePlacement {
     slots: PulseSlotApi[]
     places: PulsePlace[]
-}
-
-export function pulseSlotsOf(highlights: HighlightsApi | null): PulseSlotApi[] {
-    return (
-        highlights?.pulse_slots ??
-        (highlights?.pulse ?? []).map((metric) => ({
-            key: metric.key,
-            name: metric.name,
-            url: metric.url,
-            interval: metric.interval,
-            status: 'ready',
-        }))
-    )
 }
 
 function needsStandIn(place: PulsePlace, present: boolean, isHidden: (key: string) => boolean): boolean {
@@ -210,8 +198,8 @@ export function placePulseSlots(
     return { slots: shown, places: nextPlaces }
 }
 
-function pulseKind(key: string): 'insight' | 'key_metric' {
-    return key.startsWith('insight:') ? 'insight' : 'key_metric'
+function pulseKind(key: string): 'insight' | 'key_metric' | ProductNumberKind {
+    return key.startsWith('insight:') ? 'insight' : (productNumberKind(key) ?? 'key_metric')
 }
 
 function hiddenHighlightKey(projectId: number | string, key: string): string {
@@ -328,7 +316,7 @@ export interface todayHighlightsLogicActions {
         pulseInsightResults: PulsePinApi[]
         payload?: string
     }
-    loadPulsePins: () => any
+    loadPulsePins: (_: void) => void
     loadPulsePinsFailure: (
         error: string,
         errorObject?: any
@@ -338,10 +326,10 @@ export interface todayHighlightsLogicActions {
     }
     loadPulsePinsSuccess: (
         pulsePins: PulsePinApi[],
-        payload?: any
+        payload?: void
     ) => {
         pulsePins: PulsePinApi[]
-        payload?: any
+        payload?: void
     }
     loadPulseRecentInsights: (_: any) => any
     loadPulseRecentInsightsFailure: (
@@ -562,41 +550,30 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
         pulsePins: [
             [] as PulsePinApi[],
             {
-                loadPulsePins: async (): Promise<PulsePinApi[]> => {
+                loadPulsePins: async (_: void, breakpoint): Promise<PulsePinApi[]> => {
                     const edits = cache.pinEdits ?? 0
                     const hiddenEdits = cache.hiddenEdits
-                    try {
-                        const { pins, hidden = [] } = await todayPulsePinsRetrieve(String(values.currentProjectId))
-                        if (cache.hiddenEdits === hiddenEdits) {
-                            actions.setPulseHidden([...hidden])
-                        }
-                        return (cache.pinEdits ?? 0) === edits ? pins : values.pulsePins
-                    } catch (error) {
-                        if (error instanceof ApiError && error.status === 404) {
-                            return []
-                        }
-                        throw error
+                    const projectId = String(values.currentProjectId)
+                    const { pins, hidden = [] } = await todayPulsePinsRetrieve(projectId)
+                    breakpoint()
+                    if (cache.hiddenEdits === hiddenEdits) {
+                        actions.setPulseHidden([...hidden])
                     }
+                    return (cache.pinEdits ?? 0) === edits ? pins : values.pulsePins
                 },
             },
         ],
         highlights: [
             null as HighlightsApi | null,
             {
-                loadHighlights: async (refresh: boolean = false): Promise<HighlightsApi | null> => {
+                loadHighlights: async (refresh: boolean = false, breakpoint): Promise<HighlightsApi | null> => {
                     if (values.currentProjectId === null) {
                         return null
                     }
-                    try {
-                        return refresh
-                            ? await todayHighlightsRetrieve(String(values.currentProjectId), { refresh: true })
-                            : await todayHighlightsRetrieve(String(values.currentProjectId))
-                    } catch (error) {
-                        if (error instanceof ApiError && error.status === 404) {
-                            return null
-                        }
-                        throw error
-                    }
+                    const projectId = String(values.currentProjectId)
+                    const highlights = await todayHighlightsRetrieve(projectId, refresh ? { refresh: true } : undefined)
+                    breakpoint()
+                    return highlights
                 },
             },
         ],
@@ -706,7 +683,7 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                 if (!pulsePinsSettled) {
                     return { slots: [], places: pulsePlaces }
                 }
-                const slots = pulseSlotsOf(highlights)
+                const slots = highlights?.pulse_slots ?? []
                 const pinnedKeys = new Set(pulsePins.map((pin) => pin.key))
                 const pinned = pulsePins
                     .slice(0, PULSE_TILES)
@@ -819,7 +796,6 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                 startedAt: performance.now(),
                 firstCardAt: null,
                 firstResponseAt: null,
-                loadingMode: null,
                 firstNumberAt: null,
                 requestCount: values.highlightsLoading ? 1 : 0,
                 responseCount: 0,
@@ -865,7 +841,7 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
             cache.disposables.add(
                 () => {
                     const timer = window.setTimeout(() => {
-                        if (!load.finished) {
+                        if (!load.finished && !load.wasHidden) {
                             capturePulseLoad('today pulse load slow', load)
                         }
                     }, PULSE_SLOW_MS)
@@ -1052,8 +1028,11 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
             actions.forgetLocalPulseHidden([hidden.key])
             posthog.capture('today pulse metric unhidden', { kind: pulseKind(hidden.key), source: 'editor' })
         },
-        loadPulsePinsFailure: () => {
-            if ((cache.pinsLoadRetries ?? 0) >= PINS_LOAD_RETRIES) {
+        loadPulsePinsFailure: ({ errorObject }) => {
+            if (
+                (errorObject instanceof ApiError && errorObject.status === 404) ||
+                (cache.pinsLoadRetries ?? 0) >= PINS_LOAD_RETRIES
+            ) {
                 actions.pulsePinsLoadGaveUp()
                 return
             }
@@ -1153,7 +1132,6 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
             const load = cache.pulseLoad as PulseLoad | undefined
             if (load && !load.finished) {
                 load.firstResponseAt ??= performance.now()
-                load.loadingMode = highlights?.pulse_slots == null ? 'complete' : 'progressive'
                 load.responseCount += 1
                 load.initialStatus ??= highlights?.status ?? null
             }
@@ -1162,12 +1140,16 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
             }
             actions.setPulsePlaces(values.pulsePlacement.places)
             if (highlights.status === 'computing') {
+                const polls: number = cache.highlightsPolls ?? 0
+                cache.highlightsPolls = polls + 1
+                const delay = Math.min(HIGHLIGHTS_FIRST_POLL_MS * 2 ** polls, HIGHLIGHTS_POLL_MS)
                 cache.disposables.add(() => {
-                    const poll = window.setTimeout(() => actions.loadHighlights(), HIGHLIGHTS_POLL_MS)
+                    const poll = window.setTimeout(() => actions.loadHighlights(), delay)
                     return () => clearTimeout(poll)
                 }, 'highlightsPoll')
                 return
             }
+            cache.highlightsPolls = 0
             if (cache.highlightsLoadedCaptured) {
                 return
             }

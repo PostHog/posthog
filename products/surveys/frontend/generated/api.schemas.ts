@@ -2471,6 +2471,67 @@ export interface SurveyResponsesListApi {
 }
 
 /**
+ * * `unavailable` - unavailable
+ * * `rendering` - rendering
+ * * `ready` - ready
+ */
+export type SnapshotStatusEnumApi = (typeof SnapshotStatusEnumApi)[keyof typeof SnapshotStatusEnumApi]
+
+export const SnapshotStatusEnumApi = {
+    Unavailable: 'unavailable',
+    Rendering: 'rendering',
+    Ready: 'ready',
+} as const
+
+export interface SiteStyleApi {
+    /** Hex color of the page surface behind its main content. */
+    background_color: string
+    /** Hex color of the page's main text. */
+    text_color: string
+    /**
+     * Hex background color of the page's most prominent button. Null when none was found.
+     * @nullable
+     */
+    button_color: string | null
+    /**
+     * Hex text color of that button. Null when no button was found.
+     * @nullable
+     */
+    button_text_color: string | null
+    /**
+     * Corner radius of that button in CSS pixels. Null when no button was found.
+     * @nullable
+     */
+    button_border_radius: number | null
+}
+
+export interface SiteSnapshotApi {
+    /** `ready` when the snapshot image can be loaded, `rendering` while it is being created, `unavailable` when no recent session recording matches the survey or the user cannot view recordings.
+     *
+     * * `unavailable` - unavailable
+     * * `rendering` - rendering
+     * * `ready` - ready */
+    status: SnapshotStatusEnumApi
+    /**
+     * ID of the exported image. Load it from the exports content endpoint once the status is `ready`.
+     * @nullable
+     */
+    exported_asset_id: number | null
+    /**
+     * URL of the page the snapshot shows. Null when the status is `unavailable`.
+     * @nullable
+     */
+    page_url: string | null
+    /**
+     * Width in CSS pixels of the browser window the snapshot was recorded in, to draw it at its real scale.
+     * @nullable
+     */
+    viewport_width: number | null
+    /** Colors read from the snapshot's page, to suggest a survey appearance that matches the site. Null until the snapshot is ready, or when the page's colors could not be read. */
+    site_style: SiteStyleApi | null
+}
+
+/**
  * Event counts keyed by event name (survey shown, survey dismissed, survey sent).
  */
 export type SurveyStatsResponseApiStats = { [key: string]: unknown }
@@ -2652,6 +2713,53 @@ export type SurveysResponsesListParams = {
      */
     until?: string
 }
+
+export type SurveysSiteSnapshotRetrieveParams = {
+    /**
+     * Which viewport to show. Desktop picks a page viewed in a window at least 1024px wide, mobile one at most 767px wide.
+     *
+     * * `desktop` - Desktop
+     * * `mobile` - Mobile
+     * @minLength 1
+     */
+    device: SurveysSiteSnapshotRetrieveDevice
+    /**
+     * URL condition to use instead of the survey's saved one, for an editor with unsaved targeting. Empty means every page. Leave out to use the saved targeting.
+     */
+    url?: string
+    /**
+     * How `url` matches a page URL. Defaults to `icontains`. Ignored without `url`.
+     *
+     * * `regex` - regex
+     * * `not_regex` - not_regex
+     * * `exact` - exact
+     * * `is_not` - is_not
+     * * `icontains` - icontains
+     * * `not_icontains` - not_icontains
+     * @minLength 1
+     */
+    url_match_type?: SurveysSiteSnapshotRetrieveUrlMatchType
+}
+
+export type SurveysSiteSnapshotRetrieveDevice =
+    (typeof SurveysSiteSnapshotRetrieveDevice)[keyof typeof SurveysSiteSnapshotRetrieveDevice]
+
+export const SurveysSiteSnapshotRetrieveDevice = {
+    Desktop: 'desktop',
+    Mobile: 'mobile',
+} as const
+
+export type SurveysSiteSnapshotRetrieveUrlMatchType =
+    (typeof SurveysSiteSnapshotRetrieveUrlMatchType)[keyof typeof SurveysSiteSnapshotRetrieveUrlMatchType]
+
+export const SurveysSiteSnapshotRetrieveUrlMatchType = {
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+    Exact: 'exact',
+    IsNot: 'is_not',
+    Icontains: 'icontains',
+    NotIcontains: 'not_icontains',
+} as const
 
 export type SurveysStatsRetrieveParams = {
     /**

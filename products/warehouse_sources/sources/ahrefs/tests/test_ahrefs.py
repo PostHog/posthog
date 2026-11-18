@@ -413,7 +413,7 @@ def test_page_sample_cap(count: int) -> None:
 def test_exhausted_units_keep_the_schema_enabled(status: int, body: object) -> None:
     answer = ScriptedResponse(status=status, json=body)
     with scripted_network([answer]) as network:
-        valid, error = validate_credentials("test-key")
+        valid, error = validate_credentials("test-key", "123")
     assert valid is False
     assert error is not None and "API units are exhausted" in error
     assert len(network.requests_log) == 1
@@ -432,20 +432,48 @@ def test_exhausted_units_keep_the_schema_enabled(status: int, body: object) -> N
 
 
 def test_free_credential_probe(send: MagicMock) -> None:
-    send.return_value = response({"limits_and_usage": {"subscription": "Lite", "units_usage_api_key": 0}})
-    assert validate_credentials("test-key") == (True, None)
-    send.assert_called_once()
-    request = send.call_args.args[0]
-    assert request.headers["Authorization"] == "Bearer test-key"
-    assert request.url == "https://api.ahrefs.com/v3/subscription-info/limits-and-usage?output=json"
-    assert send.call_args.kwargs["timeout"] == (10, 60)
+    send.side_effect = [
+        response({"limits_and_usage": {"subscription": "Lite", "units_usage_api_key": 0}}),
+        response({"healthscores": [{"project_id": 123, "target_url": "example.com"}]}),
+    ]
+    assert validate_credentials("test-key", "123") == (True, None)
+    assert [call.args[0].url for call in send.call_args_list] == [
+        "https://api.ahrefs.com/v3/subscription-info/limits-and-usage?output=json",
+        "https://api.ahrefs.com/v3/site-audit/projects?output=json&project_id=123",
+    ]
+    assert all(call.args[0].headers["Authorization"] == "Bearer test-key" for call in send.call_args_list)
+    assert all(call.kwargs["timeout"] == (10, 60) for call in send.call_args_list)
+
+
+@pytest.mark.parametrize(
+    ("status", "body", "expected"),
+    [
+        (403, {"error": "Forbidden"}, "Ahrefs denied access"),
+        (401, {"error": "Unauthorized"}, "Ahrefs authentication failed"),
+        (403, {"error": "API units limit exceeded"}, "API units are exhausted"),
+    ],
+)
+def test_project_probe_rejects_key_without_project_access(status: int, body: object, expected: str) -> None:
+    with scripted_network(
+        [
+            ScriptedResponse(json={"limits_and_usage": {"subscription": "Lite"}}),
+            ScriptedResponse(status=status, json=body),
+        ]
+    ) as network:
+        valid, error = validate_credentials("test-key", "123")
+    assert valid is False
+    assert error is not None and expected in error
+    assert [request.path for request in network.requests_log] == [
+        "/v3/subscription-info/limits-and-usage",
+        "/v3/site-audit/projects",
+    ]
 
 
 @pytest.mark.parametrize("status", [429, 500, 503])
 def test_transient_probe_failure_is_not_invalid_credentials(status: int) -> None:
     with scripted_network(always(ScriptedResponse(status=status, json={"error": "Try later"}))) as network:
         with pytest.raises(RESTClientRetryableError):
-            validate_credentials("test-key")
+            validate_credentials("test-key", "123")
     assert network.requests_log
     assert all(request.path == "/v3/subscription-info/limits-and-usage" for request in network.requests_log)
 
@@ -453,7 +481,7 @@ def test_transient_probe_failure_is_not_invalid_credentials(status: int) -> None
 def test_unrecognized_probe_error_propagates() -> None:
     with scripted_network([ScriptedResponse(status=400, json={"error": "Invalid request"})]) as network:
         with pytest.raises(HTTPError):
-            validate_credentials("test-key")
+            validate_credentials("test-key", "123")
     assert len(network.requests_log) == 1
 
 
@@ -463,7 +491,7 @@ def test_missing_response_envelope_fails(probe: bool) -> None:
     if probe:
         with scripted_network([answer]) as network:
             with pytest.raises(ValueError, match="matched nothing"):
-                validate_credentials("test-key")
+                validate_credentials("test-key", "123")
         assert len(network.requests_log) == 1
     else:
         result = SourceDriver(AhrefsSource(), AhrefsSourceConfig(api_key="test-key", project_id="123")).run(

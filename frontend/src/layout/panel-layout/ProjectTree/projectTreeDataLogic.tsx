@@ -15,7 +15,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getEntryAccessDisabledReason, getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { withTimeout } from 'lib/utils/async'
-import { isFileSystemImportFlagEnabled } from 'lib/utils/fileSystemImportFlags'
+import { isFileSystemImportShown } from 'lib/utils/fileSystemImportFlags'
 import { getCurrentTeamIdOrNone, getCurrentUserIdOrNone } from 'lib/utils/getAppContext'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { capitalizeFirstLetter, humanList, identifierToHuman, pluralize } from 'lib/utils/strings'
@@ -31,6 +31,8 @@ import {
     getDefaultTreeNew,
     getDefaultTreePersons,
     getDefaultTreeProducts,
+    hiddenProductHrefs,
+    isHiddenProductShortcut,
     withProductShortcutHref,
 } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { RecentResults, SearchResults, projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
@@ -49,6 +51,7 @@ import {
     refTypeParams,
     reparentPath,
     shortcutFromEntry,
+    shortcutTelemetryName,
     sortFilesAndFolders,
     splitPath,
 } from '~/layout/panel-layout/ProjectTree/utils'
@@ -1112,7 +1115,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     if (created) {
                         posthog.capture('navbar starred item added', {
                             item_type: shortcutItem.type ?? 'unknown',
-                            item_name: shortcutItem.path,
+                            item_name: shortcutTelemetryName(shortcutItem.type, shortcutItem.path),
                         })
                     }
                     lemonToast.success(successMessage ?? 'Added to starred')
@@ -1140,7 +1143,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     await api.fileSystemShortcuts.delete(id)
                     posthog.capture('navbar starred item removed', {
                         item_type: shortcut?.type ?? 'unknown',
-                        item_name: shortcut?.path ?? 'unknown',
+                        item_name: shortcutTelemetryName(shortcut?.type, shortcut?.path ?? 'unknown'),
                     })
                     lemonToast.success(successMessage ?? 'Removed from starred')
                     return values.shortcutData.filter((s) => s.id !== id)
@@ -1633,22 +1636,14 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
             ): ((searchTerm: string, onlyFolders: boolean) => TreeDataItem[]) => {
                 // Hide a starred product while its flag is off, but keep the star so it comes back with the flag.
-                const productIsEnabled = (product: FileSystemImport): boolean =>
-                    !product.flag || !!(featureFlags as Record<string, boolean>)[product.flag]
-                const products = getDefaultTreeProducts()
-                const enabledProductHrefs = new Set(products.filter(productIsEnabled).map((product) => product.href))
-                const hiddenProductHrefs = new Set(
-                    products
-                        .filter((product) => product.href && !enabledProductHrefs.has(product.href))
-                        .map((product) => product.href)
-                )
+                const hiddenHrefs = hiddenProductHrefs(featureFlags)
                 return function getStaticItems(searchTerm: string, onlyFolders: boolean): TreeDataItem[] {
                     const newShortcutData = []
                     for (const shortcut of shortcutData.filter(
                         (shortcut) =>
                             // only remove shortcuts that are group view shortcuts when CRM iteration one is enabled
                             !(featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE] && isGroupViewShortcut(shortcut)) &&
-                            !(shortcut.type !== 'folder' && !shortcut.ref && hiddenProductHrefs.has(shortcut.href))
+                            !isHiddenProductShortcut(shortcut, hiddenHrefs)
                     )) {
                         const shortcutTreeItem = convertFileSystemEntryToTreeDataItem({
                             root: 'shortcuts://',
@@ -1733,7 +1728,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     convertFileSystemEntryToTreeDataItem({
                         root: protocol,
                         imports: imports
-                            .filter((f) => isFileSystemImportFlagEnabled(f, featureFlags))
+                            .filter((f) => isFileSystemImportShown(f, featureFlags))
                             .map((i) => ({
                                 ...i,
                                 protocol,

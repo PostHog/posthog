@@ -48,23 +48,16 @@ def direct_report_funding_snapshot(team_id: int) -> dict[str, str | int] | None:
     return context[1].as_dict() if context is not None and context[0] == team_id else None
 
 
-def signal_funding(team_id: int, signal_id: str | None, *, for_report: bool = False) -> TrialFunding | None:
+def signal_funding(team_id: int, signal_id: str | None) -> TrialFunding | None:
     from products.signals.backend.models import SignalSpend  # noqa: PLC0415 -- model registration cycle
 
     if signal_id is None:
         return None
-    snapshot = (
-        SignalSpend.objects.for_team(team_id)
-        .filter(signal_id=signal_id, kind=SignalSpend.Kind.AD_HOC)
-        .values("trial_grant_id", "billing_exempt")
-        .first()
-    )
+    receipts = SignalSpend.objects.for_team(team_id).filter(signal_id=signal_id, kind=SignalSpend.Kind.AD_HOC)
+    snapshot = receipts.values("trial_grant_id").first()
     if snapshot is None:
         return None
     grant_id = snapshot["trial_grant_id"]
-    # A free signal can join a customer report without changing that report's funding.
-    if for_report and snapshot["billing_exempt"] and grant_id is None:
-        return None
     return TrialFunding(funding="trial", grant_id=grant_id) if grant_id else TrialFunding(funding="existing")
 
 

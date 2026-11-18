@@ -27,7 +27,7 @@ from products.mcp_analytics.backend.facade.contracts import IntentGenerationUnav
 
 logger = structlog.get_logger(__name__)
 
-SESSION_INTENT_MODEL = "gpt-4.1-mini"
+SESSION_INTENT_MODEL = "gpt-6-luna"
 MAX_INTENTS = 500
 # Fallback scan bound for the session-detail queries (tool calls + intents) — a single $session_id
 # isn't in the events sort key, so without a timestamp bound the scan covers the team's full
@@ -117,8 +117,8 @@ def summarize_intents(intents: list[str], team: Team) -> str:
     try:
         response = client.chat.completions.create(
             model=SESSION_INTENT_MODEL,
-            temperature=0,
-            max_tokens=90,
+            reasoning_effort="low",
+            max_completion_tokens=1024,
             timeout=30,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},

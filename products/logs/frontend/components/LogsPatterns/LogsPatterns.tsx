@@ -225,6 +225,18 @@ export function LogsPatterns({ id }: { id: string }): JSX.Element {
         if (!sampled) {
             return humanFriendlyNumber(estimated)
         }
+        if (patternsResponse.source === 'stored_patterns') {
+            if (estimated === sampleCount) {
+                return humanFriendlyNumber(estimated)
+            }
+            return (
+                <Tooltip
+                    title={`Estimated from ${humanFriendlyNumber(sampleCount)} sampled lines of this JSON pattern`}
+                >
+                    <span>~{humanFriendlyLargeNumber(estimated)}</span>
+                </Tooltip>
+            )
+        }
         return (
             <Tooltip
                 title={`${humanFriendlyNumber(sampleCount)} of the ${humanFriendlyNumber(
@@ -365,25 +377,32 @@ export function LogsPatterns({ id }: { id: string }): JSX.Element {
                 !patternsResponseLoading &&
                 !patternsError && (
                     <LemonBanner type="info" className="m-2" data-attr="logs-patterns-source-info">
-                        Using stored patterns v{patternsResponse.pattern_version}, grouped with Drain3. Counts are
-                        exact. {humanFriendlyLargeNumber(patternsResponse.represented_count ?? 0)} of{' '}
+                        Using stored patterns v{patternsResponse.pattern_version}, grouped with Drain3.{' '}
+                        {sampled
+                            ? 'JSON patterns split by their message field have estimated counts; the rest are exact.'
+                            : 'Counts are exact.'}{' '}
+                        {humanFriendlyLargeNumber(patternsResponse.represented_count ?? 0)} of{' '}
                         {humanFriendlyLargeNumber(total_count)} matching lines appear in these groups;{' '}
                         {humanFriendlyLargeNumber(patternsResponse.remainder_count ?? 0)} remain outside them.
                     </LemonBanner>
                 )}
-            {!compareEnabled && sampled && !patternsResponseLoading && !patternsError && (
-                <LemonBanner type="info" className="m-2" data-attr="logs-patterns-sample-info">
-                    Patterns are mined from a representative sample of {humanFriendlyNumber(scanned_count)} lines out of
-                    the {humanFriendlyLargeNumber(total_count)} matching your filters
-                    {sample_coverage_pct < 100
-                        ? `, drawn from evenly-spaced time slices covering ${sample_coverage_pct.toFixed(
-                              1
-                          )}% of the window`
-                        : ''}
-                    . Counts are estimates for the full window — hover a count for the underlying sample figure. Narrow
-                    your filters (a service, a severity, or a shorter time range) to sharpen the sample.
-                </LemonBanner>
-            )}
+            {!compareEnabled &&
+                sampled &&
+                patternsResponse.source !== 'stored_patterns' &&
+                !patternsResponseLoading &&
+                !patternsError && (
+                    <LemonBanner type="info" className="m-2" data-attr="logs-patterns-sample-info">
+                        Patterns are mined from a representative sample of {humanFriendlyNumber(scanned_count)} lines
+                        out of the {humanFriendlyLargeNumber(total_count)} matching your filters
+                        {sample_coverage_pct < 100
+                            ? `, drawn from evenly-spaced time slices covering ${sample_coverage_pct.toFixed(
+                                  1
+                              )}% of the window`
+                            : ''}
+                        . Counts are estimates for the full window — hover a count for the underlying sample figure.
+                        Narrow your filters (a service, a severity, or a shorter time range) to sharpen the sample.
+                    </LemonBanner>
+                )}
             {compareEnabled &&
                 diffResponse &&
                 !diffResponseLoading &&

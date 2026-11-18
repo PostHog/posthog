@@ -19,11 +19,8 @@ from products.warehouse_sources.sources.upstash.settings import (
     UPSTASH_API_BASE_URL,
     UPSTASH_ENDPOINTS,
     UpstashEndpointConfig,
+    UpstashFanOutParent,
 )
-
-# Internal parent resource that lists every Redis database id, used to drive the per-database stats
-# fan-out. Named distinctly from the public `redis_databases` endpoint so the two never collide.
-_DATABASES_PARENT = "redis_databases_parent"
 
 # Shared with the source's 401 entry in `get_non_retryable_errors` so a rejected credential reads
 # the same whether it surfaces during setup or during a sync.
@@ -73,14 +70,18 @@ def _strip_sensitive(sensitive_fields: frozenset[str]) -> Callable[[dict[str, An
 
 
 def _build_client(email: str, api_key: str, config: UpstashEndpointConfig) -> ClientConfig:
+    carries_secrets = bool(config.sensitive_fields) or (
+        config.fan_out_parent is not None and config.fan_out_parent.carries_secrets
+    )
     client: ClientConfig = {
         "base_url": config.base_url,
         # Framework auth so the credential is redacted from logs and raised error messages; only the
         # base64 Authorization header carries it, never the URL.
         "auth": {"type": "http_basic", "username": email, "password": api_key},
-        # Endpoints whose responses carry secrets are kept out of HTTP sample capture (the generic
-        # scrubber does not redact fields named `token`). One session is reused across the requests.
-        "session": make_tracked_session(capture=not bool(config.sensitive_fields), redact_values=(api_key,)),
+        # Endpoints whose responses (or fan-out parent listings) carry secrets are kept out of HTTP
+        # sample capture (the generic scrubber does not redact fields named `token`). One session is
+        # reused across the requests.
+        "session": make_tracked_session(capture=not carries_secrets, redact_values=(api_key,)),
     }
     return client
 
@@ -113,39 +114,44 @@ def _list_source(
 
 
 def _fan_out_source(
-    endpoint: str, config: UpstashEndpointConfig, client: ClientConfig, team_id: int, job_id: str
+    endpoint: str,
+    config: UpstashEndpointConfig,
+    parent: UpstashFanOutParent,
+    client: ClientConfig,
+    team_id: int,
+    job_id: str,
 ) -> Resource:
-    """Fan out the per-database stats endpoint over every Redis database id.
+    """Fan out a per-entity endpoint (stats, team members) over every id in the parent listing.
 
-    The stats object itself carries no id, so the parent database_id is injected into each stats row
-    to make the primary key unique table-wide. A database deleted between enumeration and its stats
-    fetch 404s; skip it rather than failing the whole sync.
+    Stats objects carry no id of their own, so the parent id is stamped onto each child row to make the
+    primary key unique table-wide. An entity deleted between enumeration and its child fetch 404s;
+    skip it rather than failing the whole sync.
     """
+    id_field = parent.id_field
     rest_config: RESTAPIConfig = {
         "client": client,
         "resource_defaults": {},
         "resources": [
             {
-                "name": _DATABASES_PARENT,
+                "name": parent.name,
                 "endpoint": {
-                    "path": "/redis/databases",
+                    "path": parent.path,
                     "paginator": SinglePagePaginator(),
                     "data_selector_required": True,
                 },
             },
             {
                 "name": endpoint,
-                # Stamp the parent id onto each stats row (renamed to a bare `database_id` below).
-                "include_from_parent": ["database_id"],
+                "include_from_parent": [id_field],
                 "endpoint": {
-                    # config.path is "/redis/stats/{database_id}" — a single-entity path, so the
-                    # framework auto-selects the whole body ("$") as the one stats row per database.
                     "path": config.path,
                     "params": {
-                        "database_id": {"type": "resolve", "resource": _DATABASES_PARENT, "field": "database_id"},
+                        id_field: {"type": "resolve", "resource": parent.name, "field": id_field},
                     },
-                    # A database removed between enumeration and its stats fetch 404s: skip it. Any
-                    # other error status still fails loud via the framework's default raise_for_status.
+                    "paginator": SinglePagePaginator(),
+                    # "$" yields an array body as its rows and a single stats object as one row.
+                    "data_selector": "$",
+                    # Any other error status still fails loud via the framework's default raise_for_status.
                     "response_actions": [{"status_code": 404, "action": "ignore"}],
                 },
             },
@@ -153,9 +159,9 @@ def _fan_out_source(
     }
     resources = rest_api_resources(rest_config, team_id, job_id, db_incremental_field_last_value=None)
     child = next(resource for resource in resources if resource.name == endpoint)
-    # include_from_parent stamps the id under `_<parent>_database_id`; rename it to the bare
-    # `database_id` the row (and its primary key) expects, reproducing `{**stats, "database_id": id}`.
-    child.add_map(rename_parent_fields(_DATABASES_PARENT, {"database_id": "database_id"}))
+    # include_from_parent stamps the id under `_<parent>_<id_field>`; rename it to the column the row
+    # (and its primary key) expects.
+    child.add_map(rename_parent_fields(parent.name, {id_field: config.parent_id_column or id_field}))
     return child
 
 
@@ -169,8 +175,8 @@ def upstash_source(
     config = UPSTASH_ENDPOINTS[endpoint]
     client = _build_client(email, api_key, config)
 
-    if config.fan_out_over_databases:
-        resource = _fan_out_source(endpoint, config, client, team_id, job_id)
+    if config.fan_out_parent is not None:
+        resource = _fan_out_source(endpoint, config, config.fan_out_parent, client, team_id, job_id)
     else:
         resource = _list_source(endpoint, config, client, team_id, job_id)
 

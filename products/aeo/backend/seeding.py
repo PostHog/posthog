@@ -41,6 +41,8 @@ class PromptCandidate:
     topic: str = ""
     rank: float = 0
     evidence: dict[str, Any] = field(default_factory=dict)
+    # Only a new prompt takes this. A prompt that already exists keeps its own state.
+    active: bool = True
 
 
 def normalize_prompt(text: str) -> str:
@@ -101,7 +103,7 @@ def upsert_prompts(team: Team, candidates: list[PromptCandidate]) -> dict[str, i
             topic=normalize_prompt(candidate.topic)[:PROMPT_TOPIC_MAX_LENGTH],
             rank=candidate.rank,
             evidence=candidate.evidence,
-            active=True,
+            active=candidate.active,
             updated_at=now,
         )
     with team_scope(team_id), transaction.atomic():

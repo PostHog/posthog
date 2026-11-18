@@ -66,7 +66,8 @@ class TestPrivacyTaskScheduling(SimpleTestCase):
 class TestLLMGatewayQuotaReconcileScheduling(SimpleTestCase):
     def test_the_reconcile_runs_every_15_minutes(self) -> None:
         sender = MagicMock()
-        setup_periodic_tasks(sender)
+        with self.settings(CLOUD_DEPLOYMENT="US"):
+            setup_periodic_tasks(sender)
         calls = [
             call
             for call in sender.add_periodic_task.call_args_list
@@ -76,6 +77,28 @@ class TestLLMGatewayQuotaReconcileScheduling(SimpleTestCase):
         schedule, signature = calls[0].args
         self.assertEqual(schedule.minute, {7, 22, 37, 52})
         self.assertEqual(signature.task, reconcile_llm_gateway_quota_projection.name)
+
+
+class TestHobbySchedule(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("hobby", None, {"10 sec heartbeat": 60, "query performance heartbeat": 20}),
+            ("cloud", "US", {"10 sec heartbeat": 10, "query performance heartbeat": 20}),
+        ]
+    )
+    def test_hobby_keeps_slower_heartbeats(self, _name: str, deployment: str | None, expected: dict[str, int]) -> None:
+        sender = MagicMock()
+        with self.settings(CLOUD_DEPLOYMENT=deployment, DEBUG=False):
+            setup_periodic_tasks(sender)
+        scheduled = {call.kwargs.get("name"): call.args[0] for call in sender.add_periodic_task.call_args_list}
+        self.assertEqual(
+            {
+                name: scheduled[name]
+                for name in ("10 sec heartbeat", "query performance heartbeat")
+                if name in scheduled
+            },
+            expected,
+        )
 
 
 class TestInstanceSpreadMinute(SimpleTestCase):

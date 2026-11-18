@@ -8,9 +8,7 @@ from posthog.llm.gateway_client import build_openai_client, resolve_ai_gateway_c
 
 logger = structlog.get_logger(__name__)
 
-# gpt-4.1-mini, not the gpt-4.1 that log explanation uses — a rule name is a much smaller job than
-# summarising a log line, and this fires on every filter edit.
-SUGGESTION_MODEL = "gpt-4.1-mini"
+SUGGESTION_MODEL = "gpt-6-luna"
 SUGGESTION_TIMEOUT = 15
 MAX_PROMPT_CHARS = 2000
 MAX_NAME_CHARS = 60
@@ -85,8 +83,8 @@ def suggest_retention_rule_name(
         )
         response = client.chat.completions.create(
             model=SUGGESTION_MODEL,
-            temperature=0.2,
-            max_tokens=32,
+            reasoning_effort="low",
+            max_completion_tokens=1024,
             timeout=SUGGESTION_TIMEOUT,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT.format(record_plural=record_plural)},

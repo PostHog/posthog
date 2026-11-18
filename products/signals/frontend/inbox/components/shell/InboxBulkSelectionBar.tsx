@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { hasOpenImplementationPr } from '@posthog/agent-contracts/signal-report-state'
 import { IconCheckCircle, IconHide, IconLeave, IconPerson, IconX } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
@@ -8,7 +9,7 @@ import { userLogic } from 'scenes/userLogic'
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
-import { canUnassignMe, hasOpenImplementationPr } from '../../utils/reportActions'
+import { canUnassignMe } from '../../utils/reportActions'
 import { isReportClaimable } from '../../utils/reportClaim'
 import { reviewerRemovalReasonOptions } from '../../utils/reviewerRemovalReasons'
 import { openDismissReportDialog } from './DismissReportDialog'
@@ -45,103 +46,108 @@ export function InboxBulkSelectionBar({ reports }: { reports: SignalReport[] }):
         .map((report) => report.id)
 
     return (
-        <div className="flex items-center justify-between gap-3 flex-wrap rounded border border-accent bg-accent-highlight-secondary px-3 py-2">
-            <div className="flex items-center gap-2 min-w-0">
-                <span className="font-medium text-sm shrink-0">{selectedCount} selected</span>
-                <span className="text-xs text-muted">Shift-click range · Click to toggle · Esc to clear</span>
-            </div>
+        // The accent fill is translucent, so the opaque wrapper stops cards showing through while pinned.
+        // It overhangs the sides to also cover the ring that selected cards draw outside their box.
+        // z-20 keeps it above the z-10 PR badges on report cards that scroll underneath.
+        <div className="sticky top-0 z-20 -mx-1 -my-2 bg-primary px-1 py-2">
+            <div className="flex items-center justify-between gap-3 flex-wrap rounded border border-accent bg-accent-highlight-secondary px-3 py-2">
+                <div className="flex items-center gap-2 min-w-0">
+                    <span className="font-medium text-sm shrink-0">{selectedCount} selected</span>
+                    <span className="text-xs text-muted">Shift-click range · Click to toggle · Esc to clear</span>
+                </div>
 
-            <div className="flex items-center gap-2 flex-wrap">
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconPerson />}
-                    loading={isClaiming}
-                    disabledReason={
-                        busy
-                            ? 'Working…'
-                            : claimableIds.length === 0
-                              ? 'None of the selected reports can be claimed'
-                              : undefined
-                    }
-                    onClick={() => bulkClaim(claimableIds)}
-                    data-attr="inbox-bulk-claim"
-                >
-                    Claim
-                </LemonButton>
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconCheckCircle />}
-                    loading={isResolving}
-                    disabledReason={busy ? 'Working…' : undefined}
-                    onClick={() =>
-                        openResolveReportDialog({
-                            selectedCount,
-                            hasOpenPr,
-                            isMonitoring,
-                            onConfirm: ({ reason, note }) => bulkResolve(reason, note),
-                        })
-                    }
-                    data-attr="inbox-bulk-resolve"
-                >
-                    Resolve
-                </LemonButton>
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconHide />}
-                    loading={isDismissing}
-                    disabledReason={busy ? 'Working…' : undefined}
-                    onClick={() =>
-                        openDismissReportDialog({
-                            selectedCount,
-                            hasOpenPr,
-                            onConfirm: (dismissal) => bulkDismiss(dismissal),
-                        })
-                    }
-                    data-attr="inbox-bulk-dismiss"
-                >
-                    Dismiss
-                </LemonButton>
-                <LemonMenu
-                    placement="top-end"
-                    items={[
-                        {
-                            title: 'Remove yourself',
-                            items: reviewerRemovalReasonOptions(true).map((option) => ({
-                                label: option.label,
-                                onClick: () => bulkUnassignMe(unassignableIds, option.value),
-                            })),
-                        },
-                        { items: [{ label: 'Without a reason', onClick: () => bulkUnassignMe(unassignableIds) }] },
-                    ]}
-                >
+                <div className="flex items-center gap-2 flex-wrap">
                     <LemonButton
                         type="secondary"
                         size="small"
-                        icon={<IconLeave />}
-                        loading={isUnassigning}
+                        icon={<IconPerson />}
+                        loading={isClaiming}
                         disabledReason={
                             busy
                                 ? 'Working…'
-                                : unassignableIds.length === 0
-                                  ? "You're not a reviewer on any selected report"
+                                : claimableIds.length === 0
+                                  ? 'None of the selected reports can be claimed'
                                   : undefined
                         }
-                        data-attr="inbox-bulk-unassign-me"
+                        onClick={() => bulkClaim(claimableIds)}
+                        data-attr="inbox-bulk-claim"
                     >
-                        Unassign me
+                        Claim
                     </LemonButton>
-                </LemonMenu>
-                <LemonButton
-                    type="tertiary"
-                    size="small"
-                    icon={<IconX />}
-                    tooltip="Clear selection"
-                    aria-label="Clear selection"
-                    onClick={clearSelection}
-                />
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconCheckCircle />}
+                        loading={isResolving}
+                        disabledReason={busy ? 'Working…' : undefined}
+                        onClick={() =>
+                            openResolveReportDialog({
+                                selectedCount,
+                                hasOpenPr,
+                                isMonitoring,
+                                onConfirm: ({ reason, note }) => bulkResolve(reason, note),
+                            })
+                        }
+                        data-attr="inbox-bulk-resolve"
+                    >
+                        Resolve
+                    </LemonButton>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconHide />}
+                        loading={isDismissing}
+                        disabledReason={busy ? 'Working…' : undefined}
+                        onClick={() =>
+                            openDismissReportDialog({
+                                selectedCount,
+                                hasOpenPr,
+                                onConfirm: (dismissal) => bulkDismiss(dismissal),
+                            })
+                        }
+                        data-attr="inbox-bulk-dismiss"
+                    >
+                        Dismiss
+                    </LemonButton>
+                    <LemonMenu
+                        placement="top-end"
+                        items={[
+                            {
+                                title: 'Remove yourself',
+                                items: reviewerRemovalReasonOptions(true).map((option) => ({
+                                    label: option.label,
+                                    onClick: () => bulkUnassignMe(unassignableIds, option.value),
+                                })),
+                            },
+                            { items: [{ label: 'Without a reason', onClick: () => bulkUnassignMe(unassignableIds) }] },
+                        ]}
+                    >
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconLeave />}
+                            loading={isUnassigning}
+                            disabledReason={
+                                busy
+                                    ? 'Working…'
+                                    : unassignableIds.length === 0
+                                      ? "You're not a reviewer on any selected report"
+                                      : undefined
+                            }
+                            data-attr="inbox-bulk-unassign-me"
+                        >
+                            Unassign me
+                        </LemonButton>
+                    </LemonMenu>
+                    <LemonButton
+                        type="tertiary"
+                        size="small"
+                        icon={<IconX />}
+                        tooltip="Clear selection"
+                        aria-label="Clear selection"
+                        onClick={clearSelection}
+                    />
+                </div>
             </div>
         </div>
     )

@@ -179,6 +179,42 @@ const errorTrackingExternalReferencesCreate = (): ToolBase<
     },
 })
 
+const ErrorTrackingExternalReferencesLinkSchema = () => {
+    const ErrorTrackingExternalReferencesLinkIssueCreateBody =
+        orvalSchemas.ErrorTrackingExternalReferencesLinkIssueCreateBody()
+    return ErrorTrackingExternalReferencesLinkIssueCreateBody
+}
+
+const errorTrackingExternalReferencesLink = (): ToolBase<
+    ReturnType<typeof ErrorTrackingExternalReferencesLinkSchema>,
+    Schemas.ErrorTrackingExternalReferenceResult
+> => ({
+    name: 'error-tracking-external-references-link',
+    schema: ErrorTrackingExternalReferencesLinkSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ErrorTrackingExternalReferencesLinkSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.integration_id !== undefined) {
+            body['integration_id'] = params.integration_id
+        }
+        if (params.issue !== undefined) {
+            body['issue'] = params.issue
+        }
+        if (params.external_context !== undefined) {
+            body['external_context'] = params.external_context
+        }
+        const result = await context.api.request<Schemas.ErrorTrackingExternalReferenceResult>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/external_references/link_issue/`,
+            body,
+        })
+        return result
+    },
+})
+
 const ErrorTrackingGroupingRulesCreateSchema = () => {
     const ErrorTrackingGroupingRulesCreateBody = orvalSchemas.ErrorTrackingGroupingRulesCreateBody()
     return ErrorTrackingGroupingRulesCreateBody
@@ -390,6 +426,65 @@ const errorTrackingIssuesSplitCreate = (): ToolBase<
     },
 })
 
+const ErrorTrackingIssuesTagDefinitionsRetrieveSchema = () => z.object({})
+
+const errorTrackingIssuesTagDefinitionsRetrieve = (): ToolBase<
+    ReturnType<typeof ErrorTrackingIssuesTagDefinitionsRetrieveSchema>,
+    Schemas.ErrorTrackingIssueTagDefinitionsResponse
+> => ({
+    name: 'error-tracking-issues-tag-definitions-retrieve',
+    schema: ErrorTrackingIssuesTagDefinitionsRetrieveSchema(),
+    handler: async (
+        context: Context,
+        _params: z.infer<ReturnType<typeof ErrorTrackingIssuesTagDefinitionsRetrieveSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ErrorTrackingIssueTagDefinitionsResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/issues/tag_definitions/`,
+        })
+        return result
+    },
+})
+
+const ErrorTrackingIssuesTagPartialUpdateSchema = () => {
+    const ErrorTrackingIssuesTagPartialUpdateBody = orvalSchemas.ErrorTrackingIssuesTagPartialUpdateBody()
+    const ErrorTrackingIssuesTagPartialUpdateParams = orvalSchemas.ErrorTrackingIssuesTagPartialUpdateParams()
+    return ErrorTrackingIssuesTagPartialUpdateParams.omit({ project_id: true })
+        .extend(ErrorTrackingIssuesTagPartialUpdateBody.shape)
+        .extend({
+            key: ErrorTrackingIssuesTagPartialUpdateBody.shape['key'].nonoptional(),
+            applied: ErrorTrackingIssuesTagPartialUpdateBody.shape['applied'].nonoptional(),
+        })
+}
+
+const errorTrackingIssuesTagPartialUpdate = (): ToolBase<
+    ReturnType<typeof ErrorTrackingIssuesTagPartialUpdateSchema>,
+    Schemas.ErrorTrackingIssueTagCorrection
+> => ({
+    name: 'error-tracking-issues-tag-partial-update',
+    schema: ErrorTrackingIssuesTagPartialUpdateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ErrorTrackingIssuesTagPartialUpdateSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.key !== undefined) {
+            body['key'] = params.key
+        }
+        if (params.applied !== undefined) {
+            body['applied'] = params.applied
+        }
+        const result = await context.api.request<Schemas.ErrorTrackingIssueTagCorrection>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/issues/${encodeURIComponent(String(params.id))}/tag/`,
+            body,
+        })
+        return result
+    },
+})
+
 const ErrorTrackingRecommendationsListSchema = () => {
     const ErrorTrackingRecommendationsListQueryParams = orvalSchemas.ErrorTrackingRecommendationsListQueryParams()
     return ErrorTrackingRecommendationsListQueryParams
@@ -466,6 +561,9 @@ const errorTrackingSettingsUpdate = (): ToolBase<
         }
         if (params.ingestion_enabled !== undefined) {
             body['ingestion_enabled'] = params.ingestion_enabled
+        }
+        if (params.ai_issue_summaries_enabled !== undefined) {
+            body['ai_issue_summaries_enabled'] = params.ai_issue_summaries_enabled
         }
         const result = await context.api.request<Schemas.ErrorTrackingSettings>({
             method: 'PATCH',
@@ -974,6 +1072,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'error-tracking-bypass-rules-list': errorTrackingBypassRulesList,
     'error-tracking-bypass-rules-update': errorTrackingBypassRulesUpdate,
     'error-tracking-external-references-create': errorTrackingExternalReferencesCreate,
+    'error-tracking-external-references-link': errorTrackingExternalReferencesLink,
     'error-tracking-grouping-rules-create': errorTrackingGroupingRulesCreate,
     'error-tracking-grouping-rules-list': errorTrackingGroupingRulesList,
     'error-tracking-grouping-rules-update': errorTrackingGroupingRulesUpdate,
@@ -981,6 +1080,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'error-tracking-issues-merge-create': errorTrackingIssuesMergeCreate,
     'error-tracking-issues-partial-update': errorTrackingIssuesPartialUpdate,
     'error-tracking-issues-split-create': errorTrackingIssuesSplitCreate,
+    'error-tracking-issues-tag-definitions-retrieve': errorTrackingIssuesTagDefinitionsRetrieve,
+    'error-tracking-issues-tag-partial-update': errorTrackingIssuesTagPartialUpdate,
     'error-tracking-recommendations-list': errorTrackingRecommendationsList,
     'error-tracking-settings-get': errorTrackingSettingsGet,
     'error-tracking-settings-update': errorTrackingSettingsUpdate,

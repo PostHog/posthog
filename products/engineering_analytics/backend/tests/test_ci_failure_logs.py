@@ -36,8 +36,7 @@ def _run(run_id: int) -> WorkflowRunDetail:
     )
 
 
-# Rows mimic the logs query output, ordered by (run_id, job_id, seq):
-# (run_id, job_id, conclusion, branch, orig_total, orig_line, body)
+# Each row is (run_id, job_id, conclusion, branch, orig_total, orig_line, body), as the logs query returns it.
 def _query(rows, runs):
     curated = mock.Mock()
     curated.run.return_value = SimpleNamespace(results=[(*row, "") if len(row) == 7 else row for row in rows])
@@ -46,9 +45,6 @@ def _query(rows, runs):
 
 
 def test_groups_by_job_and_anchors_each_line_to_its_original_position():
-    # The whole point of the endpoint: failures grouped per job, each line keeping its 1-based original
-    # line number (markers → None), so an agent can locate the failure in the full log. A regression in
-    # grouping, the orig_line/orig_total mapping, or the marker handling would surface here.
     rows = [
         ("100", "9", "failure", "main", "5000", "1", "first"),
         ("100", "9", "failure", "main", "5000", "", "... 4810 lines omitted ..."),
@@ -72,8 +68,6 @@ def test_groups_by_job_and_anchors_each_line_to_its_original_position():
 
 
 def test_no_attributed_runs_short_circuits_without_querying_logs():
-    # A fork PR (no pull_requests association) or a PR with no CI resolves to zero runs — return
-    # unavailable and never touch the logs cluster, rather than running an empty IN () query.
     result, curated = _query(rows=[], runs=[])
     assert (result.runs_attributed, result.logs_available, result.jobs) == (0, False, [])
     curated.run.assert_not_called()
@@ -92,7 +86,6 @@ def test_colliding_engine_job_ids_keep_failure_lines_separate():
 
 
 def test_per_job_lines_are_capped(monkeypatch):
-    # One noisy job must not blow the per-job cap; the excess is dropped and truncated flags it.
     monkeypatch.setattr(module, "_PER_JOB_CAP", 2)
     rows = [("100", "9", "failure", "main", "9", str(i + 1), f"line{i}") for i in range(5)]
     result, _ = _query(rows, [_run(100)])
@@ -104,26 +97,24 @@ def test_per_job_lines_are_capped(monkeypatch):
 
 
 def test_overall_cap_flags_the_clipped_tail_job(monkeypatch):
-    # When the overall cap clips mid-job, that tail job's lines are an undercount, not a complete log —
-    # it must read truncated so a consumer isn't misled into thinking it has the whole failure.
     monkeypatch.setattr(module, "_LINE_CAP", 3)
     rows = [
         ("200", "9", "failure", "main", "10", "1", "a1"),
         ("200", "9", "failure", "main", "10", "2", "a2"),
-        ("100", "8", "failure", "main", "10", "1", "b1"),  # only line of job 8 that survives the cap
-        ("100", "8", "failure", "main", "10", "2", "b2"),  # dropped by the overall cap
+        ("100", "8", "failure", "main", "10", "1", "b1"),
+        ("100", "8", "failure", "main", "10", "2", "b2"),
     ]
     result, _ = _query(rows, [_run(200), _run(100)])
 
     assert result.truncated is True
     assert [job.job_id for job in result.jobs] == [9, 8]
-    assert result.jobs[0].truncated is False  # job 9 is whole, within the cap
-    assert result.jobs[-1].truncated is True  # job 8 was clipped by the overall cap
+    assert result.jobs[0].truncated is False
+    assert result.jobs[-1].truncated is True
 
 
 class TestRunFailureLogsOverClickHouse(ClickhouseTestMixin, BaseTest):
     def _failure_log(self, *, body: str, seq: int, ci_engine: str | None) -> dict[str, Any]:
-        # attributes_map_str keys carry the "__str" suffix the logs table strips for the queryable map.
+        # The logs table strips the "__str" key suffix to build the queryable `attributes` map.
         attributes = {
             "repo__str": "o/r",
             "run_id__str": "100",
@@ -149,7 +140,6 @@ class TestRunFailureLogsOverClickHouse(ClickhouseTestMixin, BaseTest):
             team=self.team,
             tables=GitHubTables(pull_requests="unused", workflow_runs="unused", workflow_jobs=None, repository="o/r"),
         )
-        # The run lookups read the warehouse; this test covers only the logs read.
         with (
             mock.patch.object(module, "query_workflow_run", return_value=_run(100)),
             mock.patch.object(module, "_legacy_run_ids", return_value=["100"]),

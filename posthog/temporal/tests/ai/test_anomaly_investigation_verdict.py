@@ -52,6 +52,7 @@ class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
             template_id="template-slack",
             enabled=True,
             filters={
+                "source": "internal-events",
                 "events": [{"id": "$insight_alert_firing", "type": "events"}],
                 "properties": [{"key": "alert_id", "value": str(self.alert.id), "operator": "exact", "type": "event"}],
             },

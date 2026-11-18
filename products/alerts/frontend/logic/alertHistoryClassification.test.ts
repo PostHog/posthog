@@ -20,12 +20,19 @@ describe('checkWouldFireUnderCurrentConfiguration', () => {
     const firedCheck = check({ detector_type: 'llm', kind: 'drop', rationale: 'Dropped.' }, AlertState.FIRING)
     // An older AI check carries a stored confidence score, but its own state still decides.
     const olderCheck = check({ verdict_is_anomaly: true, confidence: 0.9 })
+    const forecastCheck = check(
+        { detector_type: 'forecast', expected: 10, lower: 5, upper: 15, actual: 40, side: 'above' },
+        AlertState.FIRING
+    )
     it.each<[string, AlertCheck, any, boolean | null | undefined]>([
         ['fired AI check under the AI detector', firedCheck, { type: DetectorType.LLM }, true],
         ['older AI check under the AI detector', olderCheck, { type: DetectorType.LLM }, false],
         ['AI check under a statistical detector', olderCheck, { type: DetectorType.ZSCORE, threshold: 0.5 }, null],
         ['statistical check under a statistical detector', check(null), { type: DetectorType.ZSCORE }, undefined],
         ['statistical check under the AI detector', check(null), { type: DetectorType.LLM }, null],
+        ['fired forecast check under the forecast detector', forecastCheck, { type: DetectorType.FORECAST }, true],
+        ['forecast check under a statistical detector', forecastCheck, { type: DetectorType.ZSCORE }, null],
+        ['statistical check under the forecast detector', check(null), { type: DetectorType.FORECAST }, null],
     ])('%s', (_name, alertCheck, detectorConfig, expected) => {
         expect(checkWouldFireUnderCurrentConfiguration(alertCheck, detectorConfig)).toBe(expected)
     })

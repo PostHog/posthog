@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
-import { Skeleton } from '@posthog/quill-primitives'
+import { LemonButton } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill-primitives'
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -16,17 +17,32 @@ import { McpDateFilter } from '../components/McpDateFilter'
 import { McpSharedFilters } from '../components/McpSharedFilters'
 import { ActivityChart } from '../dashboard/ActivityChart'
 import { Card } from '../dashboard/Card'
+import { ChartSkeleton } from '../dashboard/ChartSkeleton'
 import { formatMsAsSeconds } from '../dashboard/formatters'
 import { HarnessBarChart } from '../dashboard/HarnessBarChart'
 import { KpiTiles } from '../dashboard/KpiTiles'
 import { ModelBarChart } from '../dashboard/ModelBarChart'
 import { NotableSessionsTable } from '../dashboard/NotableSessionsTable'
 import { ToolErrorRateChart } from '../dashboard/ToolErrorRateChart'
-import { mcpDashboardOverviewLogic, rankedToolsEmptyMessage, rankToolsByErrorRate } from '../mcpDashboardOverviewLogic'
+import { ToolLatencyChart } from '../dashboard/ToolLatencyChart'
+import { MCP_ANALYTICS_DASHBOARD_FEEDBACK_PROMPT } from '../feedback/constants'
+import { MCPAnalyticsFeedbackPrompt } from '../feedback/MCPAnalyticsFeedbackPrompt'
+import { MCPAnalyticsFirstLook } from '../firstLook/MCPAnalyticsFirstLook'
+import { mcpToolQualityUrlWithDates } from '../mcpAnalyticsToolQualityLogic'
+import {
+    mcpDashboardOverviewLogic,
+    rankedToolsEmptyMessage,
+    rankToolsByErrorRate,
+    rankToolsByP95,
+    slowestToolsEmptyMessage,
+} from '../mcpDashboardOverviewLogic'
 import { FacetShareCard } from './FacetShareCard'
 import { LabScoreboard } from './LabScoreboard'
+import { LEADERBOARD_SECTION_IDS } from './leaderboardSections'
+import { LeaderboardSectionsMenu } from './LeaderboardSectionsMenu'
 import { harnessErrorRateRows } from './leaderboardShares'
 import { type FacetKey, mcpLeaderboardHomeLogic } from './mcpLeaderboardHomeLogic'
+import { mcpLeaderboardSectionsLogic } from './mcpLeaderboardSectionsLogic'
 import { Section } from './Section'
 import { ShareOverTimeChart } from './ShareOverTimeChart'
 import { TrendLineCard } from './TrendLineCard'
@@ -43,7 +59,6 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
         dailyActivity,
         harnessRows,
         headlineKpis,
-        periodTotals,
         intentClusterCount,
         kpiIncompleteTail,
         activityIncompleteTail,
@@ -51,6 +66,8 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
         toolRows,
         failedLoads,
         loadingSections,
+        canShowFeedback,
+        feedbackContextKey,
     } = useValues(mcpDashboardOverviewLogic)
     const { setDateFilter, reloadAll, markFilterInteraction, openToolReport, loadSections } =
         useActions(mcpDashboardOverviewLogic)
@@ -69,6 +86,8 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
         reliabilitySeries,
     } = useValues(mcpLeaderboardHomeLogic)
     const { setScoreboardMetric } = useActions(mcpLeaderboardHomeLogic)
+    const { hiddenSections } = useValues(mcpLeaderboardSectionsLogic)
+    const { showAllSections } = useActions(mcpLeaderboardSectionsLogic)
     const { timezone } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const theme = useChartTheme()
@@ -109,6 +128,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                 dataAttrPrefix="mcp-dashboard"
                 onRefresh={reloadAll}
                 refreshing={dashboardLoading}
+                trailingControls={<LeaderboardSectionsMenu />}
             >
                 <McpDateFilter
                     dateFrom={dateFilter.dateFrom}
@@ -120,11 +140,32 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                     dataAttr="mcp-dashboard-date-filter"
                 />
             </McpSharedFilters>
+            <MCPAnalyticsFeedbackPrompt
+                contextKey={feedbackContextKey}
+                eligible={canShowFeedback}
+                prompt={MCP_ANALYTICS_DASHBOARD_FEEDBACK_PROMPT}
+            />
+            <MCPAnalyticsFirstLook />
+            {hiddenSections.length === LEADERBOARD_SECTION_IDS.length && (
+                <div
+                    className="flex flex-col items-start gap-2"
+                    data-attr="mcp-dashboard-all-sections-hidden"
+                    data-quill
+                >
+                    <p className="mb-0">All sections are hidden.</p>
+                    <Button
+                        variant="outline"
+                        onClick={showAllSections}
+                        data-attr="mcp-dashboard-empty-show-all-sections"
+                    >
+                        Show all sections
+                    </Button>
+                </div>
+            )}
 
-            <Section title="Key metrics">
+            <Section id="key-metrics">
                 <KpiTiles
                     kpis={headlineKpis}
-                    users={periodTotals.users}
                     intentClusterCount={intentClusterCount}
                     kpisLoading={!!loadingSections.kpis}
                     usersLoading={!!loadingSections.periodTotals}
@@ -149,7 +190,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                 />
             </Section>
 
-            <Section title="Models">
+            <Section id="models">
                 <LabScoreboard
                     shares={scoreboardShares}
                     loading={
@@ -177,7 +218,9 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                     />
                     {leaderboardModelRows.length === 0 && (loadingFacet('model') || loadingSections.modelRows) ? (
                         <Card title="Share of calls by model" className="min-w-0">
-                            <Skeleton className="h-48 w-full" />
+                            <div className="flex min-h-48 flex-col">
+                                <ChartSkeleton kind="shares" />
+                            </div>
                         </Card>
                     ) : (
                         <ModelBarChart
@@ -213,7 +256,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                 </TwoColumns>
             </Section>
 
-            <Section title="Protocol">
+            <Section id="protocol">
                 <ShareOverTimeChart
                     title="Protocol version share of calls over time"
                     labels={dailyActivity.labels}
@@ -227,7 +270,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                 />
             </Section>
 
-            <Section title="What agents do">
+            <Section id="agents">
                 <FacetShareCard
                     title="Most called tools"
                     rows={facets.tool}
@@ -237,7 +280,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                 />
             </Section>
 
-            <Section title="Reliability">
+            <Section id="reliability">
                 <TwoColumns>
                     <TrendLineCard
                         title="Error rate"
@@ -274,12 +317,29 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         theme={theme}
                         onToolClick={openToolReport}
                     />
-                    <FacetShareCard
-                        title="Why calls fail"
-                        rows={facets.errorType}
-                        loading={loadingFacet('errorType')}
-                        failed={failedFacet('errorType')}
+                    <ToolLatencyChart
+                        rows={rankToolsByP95(toolRows)}
+                        emptyMessage={slowestToolsEmptyMessage(toolRows)}
+                        loading={!!loadingSections.toolRows}
+                        failed={failedLoads.toolRows}
+                        onRetry={() => loadSections([MCPDashboardSection.ToolRows])}
                         theme={theme}
+                        onToolClick={openToolReport}
+                        action={
+                            // Negative margin keeps the header as tall as a title-only header.
+                            <LemonButton
+                                className="-my-1"
+                                type="secondary"
+                                size="xsmall"
+                                to={mcpToolQualityUrlWithDates(dateFilter, null, {
+                                    column: 'p95_duration_ms',
+                                    direction: 'DESC',
+                                })}
+                                data-attr="mcp-dashboard-slowest-tools-view-all"
+                            >
+                                View all tools
+                            </LemonButton>
+                        }
                     />
                 </TwoColumns>
                 <TwoColumns>
@@ -292,13 +352,24 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         title="Error rate by harness"
                         emptyMessage="No harness data in this date range. Try a wider range."
                     />
+                    <FacetShareCard
+                        title="Why calls fail"
+                        rows={facets.errorType}
+                        loading={loadingFacet('errorType')}
+                        failed={failedFacet('errorType')}
+                        theme={theme}
+                        maxVisibleRows={8}
+                    />
+                </TwoColumns>
+                {/* The card's self-start would shrink it to its content width in this flex column. */}
+                <div className="min-w-0">
                     <NotableSessionsTable
                         sessions={notableSessions}
                         loading={!!loadingSections.sessionRows}
                         failed={failedLoads.sessionRows}
                         onRetry={() => loadSections([MCPDashboardSection.SessionRows])}
                     />
-                </TwoColumns>
+                </div>
             </Section>
         </div>
     )

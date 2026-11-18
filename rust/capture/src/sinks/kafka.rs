@@ -725,6 +725,7 @@ mod tests {
             timestamp,
             is_cookieless_mode: false,
             historical_migration: false,
+            options: None,
         };
 
         let metadata = ProcessedEventMetadata {
@@ -780,6 +781,7 @@ mod tests {
             timestamp,
             is_cookieless_mode: false,
             historical_migration: false,
+            options: None,
         };
 
         let big_event = ProcessedEvent {
@@ -813,6 +815,7 @@ mod tests {
                 timestamp,
                 is_cookieless_mode: false,
                 historical_migration: false,
+                options: None,
             },
             metadata: metadata.clone(),
         };
@@ -898,6 +901,7 @@ mod tests {
             dlq_step: None,
             dlq_timestamp: None,
             content_encoding: None,
+            legacy_property_splice: None,
         };
 
         let owned_headers: OwnedHeaders = headers_historical.into();
@@ -920,6 +924,7 @@ mod tests {
             dlq_step: None,
             dlq_timestamp: None,
             content_encoding: None,
+            legacy_property_splice: None,
         };
 
         let owned_headers: OwnedHeaders = headers_main.into();
@@ -949,6 +954,7 @@ mod tests {
             dlq_step: None,
             dlq_timestamp: None,
             content_encoding: None,
+            legacy_property_splice: None,
         };
 
         let owned_headers: OwnedHeaders = headers.into();
@@ -981,6 +987,7 @@ mod tests {
             dlq_step: Some("test step".to_string()),
             dlq_timestamp: Some(dlq_timestamp.clone()),
             content_encoding: None,
+            legacy_property_splice: None,
         };
 
         let owned_headers: OwnedHeaders = headers.into();
@@ -1061,6 +1068,7 @@ mod tests {
                 timestamp,
                 is_cookieless_mode: false,
                 historical_migration: false,
+                options: None,
             };
 
             let metadata = ProcessedEventMetadata {
@@ -3249,6 +3257,7 @@ mod tests {
                     dlq_step: None,
                     dlq_timestamp: None,
                     content_encoding: None,
+                    legacy_property_splice: None,
                 },
             }
         }

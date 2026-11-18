@@ -1465,6 +1465,10 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                             "ready_at": serializers.DateTimeField(
                                 allow_null=True, help_text="When Trino became ready for the organization"
                             ),
+                            "hoglake": serializers.BooleanField(
+                                help_text="Whether the organization's Trino catalog is backed by hoglake. "
+                                "Hoglake credentials reach nothing otherwise."
+                            ),
                             "connection": inline_serializer(
                                 "WarehouseTrinoConnection",
                                 fields={

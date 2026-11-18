@@ -75,10 +75,7 @@ describe('DashboardFilterBar', () => {
     ): ReturnType<typeof dashboardLogic.build> {
         const logic = dashboardLogic({ id: dashboard.id, dashboard, placement })
         logic.mount()
-        logic.actions.setDashboardEditing(
-            { filters: true, layout: dashboardModeSource === DashboardEventSource.SceneCommonButtons },
-            dashboardModeSource
-        )
+        logic.actions.setDashboardEditing(true, dashboardModeSource)
 
         render(
             <BindLogic logic={dashboardLogic} props={{ id: dashboard.id, dashboard, placement }}>
@@ -89,7 +86,7 @@ describe('DashboardFilterBar', () => {
         return logic
     }
 
-    it('shows editable filter controls while editing the layout', () => {
+    it('shows editable filter controls', () => {
         const logic = renderFilterBar(DashboardEventSource.SceneCommonButtons)
 
         expect(document.querySelector('[data-attr="date-filter"]')).toBeInTheDocument()
@@ -259,7 +256,7 @@ describe('DashboardFilterBar', () => {
         logic.unmount()
     })
 
-    it('shows a separate save action for unsaved filters while editing the layout', async () => {
+    it('shows a separate save action for unsaved filters', async () => {
         const logic = renderFilterBar(DashboardEventSource.SceneCommonButtons)
 
         await expectLogic(logic, () => {
@@ -268,51 +265,6 @@ describe('DashboardFilterBar', () => {
 
         expect(document.querySelector('[data-attr="dashboard-filters-unsaved"]')).toBeInTheDocument()
         expect(document.querySelector('[data-attr="dashboard-save-filters"]')).toBeInTheDocument()
-
-        logic.unmount()
-    })
-
-    it('keeps unsaved filter actions visible after cancelling layout editing', async () => {
-        const logic = renderFilterBar(DashboardEventSource.SceneCommonButtons)
-
-        await expectLogic(logic, () => {
-            logic.actions.setDates('-7d', null)
-        }).toFinishAllListeners()
-
-        await expectLogic(logic, () => {
-            logic.actions.cancelLayoutEdit()
-        }).toFinishAllListeners()
-
-        expect(document.querySelector('[data-attr="dashboard-filters-unsaved"]')).toBeInTheDocument()
-        expect(document.querySelector('[data-attr="dashboard-save-filters"]')).toBeInTheDocument()
-
-        logic.unmount()
-    })
-
-    it('keeps edited URL overrides as unsaved after cancelling layout editing', async () => {
-        router.actions.push('/', {
-            [SEARCH_PARAM_FILTERS_KEY]: JSON.stringify({ date_from: '-7d' }),
-        })
-        const logic = dashboardLogic({ id: MOCK_DASHBOARD.id, dashboard: MOCK_DASHBOARD })
-        logic.mount()
-
-        render(
-            <BindLogic logic={dashboardLogic} props={{ id: MOCK_DASHBOARD.id, dashboard: MOCK_DASHBOARD }}>
-                <DashboardFilterBar />
-            </BindLogic>
-        )
-
-        await expectLogic(logic, () => {
-            logic.actions.setDashboardEditing({ filters: true, layout: false }, DashboardEventSource.DashboardFilters)
-            logic.actions.setDates('-30d', null)
-        }).toFinishAllListeners()
-
-        await expectLogic(logic, () => {
-            logic.actions.setDashboardEditing({ filters: true, layout: true }, DashboardEventSource.SceneCommonButtons)
-            logic.actions.cancelLayoutEdit()
-        }).toFinishAllListeners()
-
-        expect(document.querySelector('[data-attr="dashboard-filters-unsaved"]')).toBeInTheDocument()
 
         logic.unmount()
     })
@@ -323,7 +275,7 @@ describe('DashboardFilterBar', () => {
         })
         const logic = dashboardLogic({ id: MOCK_DASHBOARD.id, dashboard: MOCK_DASHBOARD })
         logic.mount()
-        logic.actions.setDashboardEditing(null, DashboardEventSource.DashboardFilters)
+        logic.actions.setDashboardEditing(false, DashboardEventSource.DashboardFilters)
 
         await expectLogic(logic).toFinishAllListeners()
 

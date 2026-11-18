@@ -135,7 +135,17 @@ from products.warehouse_sources.backend.types import (
     IncrementalSyncBlockedReason,
 )
 
+from ee.billing.quota_limiting import (
+    QuotaLimitingCaches,
+    QuotaResource,
+    add_limited_team_tokens,
+    remove_limited_team_tokens,
+)
+
 BUCKET_NAME = "test-pipeline"
+IS_TEAM_LIMITED = (
+    "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.check_billing_limits.is_team_limited"
+)
 SESSION = aioboto3.Session()
 create_test_client = functools.partial(SESSION.client, endpoint_url=settings.OBJECT_STORAGE_ENDPOINT)
 
@@ -912,15 +922,7 @@ async def test_sql_database_missing_incremental_values(team, postgres_config, po
         schema_name="test_table",
         table_name="postgres_test_table",
         source_type="Postgres",
-        job_inputs={
-            "host": postgres_config["host"],
-            "port": postgres_config["port"],
-            "database": postgres_config["database"],
-            "user": postgres_config["user"],
-            "password": postgres_config["password"],
-            "schema": postgres_config["schema"],
-            "ssh_tunnel_enabled": "False",
-        },
+        job_inputs=_postgres_job_inputs(postgres_config),
         mock_data_response=[],
         sync_type=ExternalDataSchemaSyncType.INCREMENTAL,
         sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
@@ -954,15 +956,7 @@ async def test_sql_database_incremental_initial_value(team, postgres_config, pos
         schema_name="test_table",
         table_name="postgres_test_table",
         source_type="Postgres",
-        job_inputs={
-            "host": postgres_config["host"],
-            "port": postgres_config["port"],
-            "database": postgres_config["database"],
-            "user": postgres_config["user"],
-            "password": postgres_config["password"],
-            "schema": postgres_config["schema"],
-            "ssh_tunnel_enabled": "False",
-        },
+        job_inputs=_postgres_job_inputs(postgres_config),
         mock_data_response=[],
         sync_type=ExternalDataSchemaSyncType.INCREMENTAL,
         sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
@@ -979,9 +973,7 @@ async def test_sql_database_incremental_initial_value(team, postgres_config, pos
     assert len(res.results) == 1
 
 
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_billing_limits(team, stripe_customer, mock_stripe_client):
+async def _create_stripe_customer_schema(team: Team) -> tuple[str, ExternalDataSchema, ExternalDataWorkflowInputs]:
     with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
         source = await sync_to_async(ExternalDataSource.objects.create)(
             source_id=uuid.uuid4(),
@@ -990,10 +982,7 @@ async def test_billing_limits(team, stripe_customer, mock_stripe_client):
             team=team,
             status="running",
             source_type="Stripe",
-            job_inputs={
-                "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-                "stripe_account_id": "acct_id",
-            },
+            job_inputs=_STRIPE_JOB_INPUTS,
         )
 
     schema = await sync_to_async(ExternalDataSchema.objects.create)(
@@ -1004,19 +993,29 @@ async def test_billing_limits(team, stripe_customer, mock_stripe_client):
         sync_type_config={},
     )
 
-    workflow_id = str(uuid.uuid4())
     inputs = ExternalDataWorkflowInputs(
         team_id=team.id,
         external_data_source_id=source.pk,
         external_data_schema_id=schema.id,
     )
+    return str(uuid.uuid4()), schema, inputs
 
-    with mock.patch(
-        "ee.billing.quota_limiting.list_limited_team_attributes",
-    ) as mock_list_limited_team_attributes:
-        mock_list_limited_team_attributes.return_value = [team.api_token]
 
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_billing_limits(team, stripe_customer, mock_stripe_client):
+    workflow_id, schema, inputs = await _create_stripe_customer_schema(team)
+
+    limited_until = int(timezone.now().timestamp()) + 3600
+    add_limited_team_tokens(
+        QuotaResource.ROWS_SYNCED, {team.api_token: limited_until}, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+    )
+    try:
         await _execute_run(workflow_id, inputs, stripe_customer["data"])
+    finally:
+        remove_limited_team_tokens(
+            QuotaResource.ROWS_SYNCED, [team.api_token], QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
 
     job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.get)(team_id=team.id, schema_id=schema.pk)
 
@@ -1029,40 +1028,9 @@ async def test_billing_limits(team, stripe_customer, mock_stripe_client):
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_create_external_job_failure(team, stripe_customer, mock_stripe_client):
-    with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
-        source = await sync_to_async(ExternalDataSource.objects.create)(
-            source_id=uuid.uuid4(),
-            connection_id=uuid.uuid4(),
-            destination_id=uuid.uuid4(),
-            team=team,
-            status="running",
-            source_type="Stripe",
-            job_inputs={
-                "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-                "stripe_account_id": "acct_id",
-            },
-        )
+    workflow_id, schema, inputs = await _create_stripe_customer_schema(team)
 
-    schema = await sync_to_async(ExternalDataSchema.objects.create)(
-        name="Customer",
-        team_id=team.pk,
-        source_id=source.pk,
-        sync_type=ExternalDataSchemaSyncType.FULL_REFRESH,
-        sync_type_config={},
-    )
-
-    workflow_id = str(uuid.uuid4())
-    inputs = ExternalDataWorkflowInputs(
-        team_id=team.id,
-        external_data_source_id=source.pk,
-        external_data_schema_id=schema.id,
-    )
-
-    with mock.patch(
-        "ee.billing.quota_limiting.list_limited_team_attributes",
-    ) as mock_list_limited_team_attributes:
-        mock_list_limited_team_attributes.side_effect = Exception("Ruhoh!")
-
+    with mock.patch(IS_TEAM_LIMITED, side_effect=Exception("Ruhoh!")):
         with pytest.raises(Exception):
             await _execute_run(workflow_id, inputs, stripe_customer["data"])
 
@@ -1162,13 +1130,9 @@ async def test_non_retryable_error(team, zendesk_brands):
     )
 
     with (
-        mock.patch(
-            "ee.billing.quota_limiting.list_limited_team_attributes",
-        ) as mock_list_limited_team_attributes,
+        mock.patch(IS_TEAM_LIMITED, side_effect=Exception("404 Client Error: Not Found for url")),
         mock.patch.object(posthoganalytics, "capture") as capture_mock,
     ):
-        mock_list_limited_team_attributes.side_effect = Exception("404 Client Error: Not Found for url")
-
         with pytest.raises(Exception):
             await _execute_run(workflow_id, inputs, zendesk_brands["brands"])
 
@@ -1187,45 +1151,14 @@ async def test_non_retryable_error(team, zendesk_brands):
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_non_retryable_error_with_special_characters(team, stripe_customer, mock_stripe_client):
-    with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
-        source = await sync_to_async(ExternalDataSource.objects.create)(
-            source_id=uuid.uuid4(),
-            connection_id=uuid.uuid4(),
-            destination_id=uuid.uuid4(),
-            team=team,
-            status="running",
-            source_type="Stripe",
-            job_inputs={
-                "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-                "stripe_account_id": "acct_id",
-            },
-        )
-
-    schema = await sync_to_async(ExternalDataSchema.objects.create)(
-        name="Customer",
-        team_id=team.pk,
-        source_id=source.pk,
-        sync_type=ExternalDataSchemaSyncType.FULL_REFRESH,
-        sync_type_config={},
-    )
-
-    workflow_id = str(uuid.uuid4())
-    inputs = ExternalDataWorkflowInputs(
-        team_id=team.id,
-        external_data_source_id=source.pk,
-        external_data_schema_id=schema.id,
-    )
+    workflow_id, schema, inputs = await _create_stripe_customer_schema(team)
 
     with (
         mock.patch(
-            "ee.billing.quota_limiting.list_limited_team_attributes",
-        ) as mock_list_limited_team_attributes,
+            IS_TEAM_LIMITED, side_effect=Exception("401 Client Error:\nUnauthorized for url: https://api.stripe.com")
+        ),
         mock.patch.object(posthoganalytics, "capture") as capture_mock,
     ):
-        mock_list_limited_team_attributes.side_effect = Exception(
-            "401 Client Error:\nUnauthorized for url: https://api.stripe.com"
-        )
-
         with pytest.raises(Exception):
             await _execute_run(workflow_id, inputs, stripe_customer["data"])
 

@@ -4,6 +4,8 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from posthog.hogql.errors import QueryError
 
 from posthog.caching.warming import (
@@ -17,6 +19,7 @@ from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models import User
 from posthog.query_cache.freshness_index import update_target_age
+from posthog.query_cache.read_history import record_read
 from posthog.scheduling.jitter import deterministic_offset
 
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
@@ -134,6 +137,25 @@ class TestWarming(APIBaseTest):
             (3456, 7890),
         ]
         self.assertEqual(insights, expected_results)
+
+    @parameterized.expand([("read_on_one_day", 1, []), ("read_on_two_days", 2, [(2345, None), (3456, 7890)])])
+    @patch("posthog.caching.warming.get_stale_insights")
+    def test_time_of_day_rule_keeps_insights_read_at_this_time_on_enough_days(
+        self, _name: str, days_with_a_read: int, expected: list[tuple[int, int | None]], mock_get_stale_insights
+    ):
+        mock_get_stale_insights.return_value = ["2345:", "3456:7890"]
+        for days_ago in range(1, days_with_a_read + 1):
+            for insight_id, dashboard_id in [(2345, None), (3456, 7890)]:
+                record_read(
+                    team_id=self.team.pk,
+                    insight_id=insight_id,
+                    dashboard_id=dashboard_id,
+                    at=datetime.now(UTC) - timedelta(days=days_ago),
+                )
+
+        insights = list(insights_to_keep_fresh(self.team, read_at_this_time_only=True))
+
+        self.assertEqual(insights, expected)
 
 
 class TestScheduleWarmingForTeamsTask(APIBaseTest):

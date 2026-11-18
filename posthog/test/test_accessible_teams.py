@@ -4,6 +4,9 @@ from typing import cast
 import pytest
 from posthog.test.base import BaseTest
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from parameterized import parameterized
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
@@ -133,6 +136,17 @@ class TestAccessibleTeams(BaseTest):
         request = self._request(credential_organization_ids=[str(self.organization.id)])
         with pytest.raises(CredentialScopeDenied):
             AccessibleTeams.for_request(request, None)
+
+    def test_for_user_queries_do_not_grow_with_the_team_count(self) -> None:
+        more_team_ids = [Team.objects.create(organization=self.organization, name=f"Team {i}").id for i in range(3)]
+        AccessibleTeams.for_user(self.user, [self.team.id])
+
+        with CaptureQueriesContext(connection) as two_teams:
+            AccessibleTeams.for_user(self.user, [self.team.id, self.open_team.id])
+        with CaptureQueriesContext(connection) as five_teams:
+            AccessibleTeams.for_user(self.user, [self.team.id, self.open_team.id, *more_team_ids])
+
+        assert len(five_teams.captured_queries) == len(two_teams.captured_queries)
 
     def test_direct_construction_raises(self) -> None:
         with pytest.raises(TypeError):

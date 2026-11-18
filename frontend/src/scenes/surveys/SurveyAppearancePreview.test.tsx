@@ -9,7 +9,6 @@ import { SurveyPosition, SurveyQuestionType, SurveyType } from '~/types'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 
 jest.mock('posthog-js/dist/surveys-preview', () => ({
-    renderFeedbackWidgetPreview: jest.fn(),
     renderSurveysPreview: jest.fn(),
 }))
 
@@ -41,6 +40,8 @@ describe('SurveyAppearancePreview', () => {
 
     beforeEach(() => {
         mockRenderSurveysPreview.mockClear()
+        // jsdom has no CSS.supports, which color sanitizing calls.
+        global.CSS = { supports: () => false } as unknown as typeof CSS
     })
 
     it('renders previews inside a bounded container and passes the same container to the renderer', () => {
@@ -71,6 +72,26 @@ describe('SurveyAppearancePreview', () => {
         expect(renderedPreview.style.maxWidth).toBe('100%')
         expect(renderedPreview.style.minWidth).toBe('min(300px, 100%)')
         expect(renderedPreview.style.boxSizing).toBe('border-box')
+    })
+
+    // posthog-js spreads the appearance over its defaults, so a color key that is present but unset erases the
+    // default, and the preview draws a transparent survey.
+    it.each([
+        ['no colors stored', {}, undefined],
+        ['an empty color', { backgroundColor: '' }, undefined],
+        ['a set color', { backgroundColor: '#ff0000' }, '#ff0000'],
+    ])('hands the renderer a background color only when one is set (%s)', (_name, colors, expected) => {
+        render(
+            <SurveyAppearancePreview
+                survey={{ ...survey, appearance: { ...survey.appearance, ...colors } }}
+                previewPageIndex={0}
+            />
+        )
+
+        const { appearance } = mockRenderSurveysPreview.mock.calls[0][0].survey
+        expect(Object.prototype.hasOwnProperty.call(appearance, 'backgroundColor')).toBe(expected !== undefined)
+        expect(appearance.backgroundColor).toBe(expected)
+        expect(Object.values(appearance)).not.toContain(undefined)
     })
 
     it('uses explicit position styles when provided', () => {

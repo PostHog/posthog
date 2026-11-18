@@ -1,7 +1,9 @@
-from collections.abc import Callable
+import dataclasses
+from collections.abc import Callable, Collection
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from posthog.models import Team, User
@@ -17,6 +19,7 @@ from products.warehouse_sources.backend.migration.fivetran.planner import (
     with_unique_prefixes,
 )
 from products.warehouse_sources.backend.migration.fivetran.snapshot import SnapshotStoppedError, fetch_snapshot
+from products.warehouse_sources.backend.migration.types import VendorSnapshot
 from products.warehouse_sources.backend.models.warehouse_migration import WarehouseMigration, WarehouseMigrationItem
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -56,26 +59,57 @@ def crawl_migration(
         snapshot = fetch_snapshot(FivetranClient(FivetranCredentials(**migration.credentials)), keep_going=own.exists)
     except SnapshotStoppedError:
         return 0
-    team = Team.objects.only("organization_id").get(id=team_id)
-    planned = plan_items(
+    planned = plan_snapshot(migration, snapshot, catalog=catalog)
+    with transaction.atomic():
+        locked = own.select_for_update().first()
+        if locked is None or locked.status != WarehouseMigration.Status.CRAWLING:
+            # Deleted, replaced by a newer crawl, or already marked failed.
+            return 0
+        save_plan(locked, snapshot, planned)
+    return len(planned)
+
+
+def plan_snapshot(
+    migration: WarehouseMigration,
+    snapshot: VendorSnapshot,
+    *,
+    catalog: CatalogLookup = migration_catalog,
+    connection_ids: Collection[str] | None = None,
+) -> tuple[PlannedItem, ...]:
+    """Plan the snapshot's connections, or only `connection_ids`. Prefixes are made unique when they are saved."""
+    if connection_ids is not None:
+        batch = set(connection_ids)
+        snapshot = dataclasses.replace(
+            snapshot, connections=tuple(connection for connection in snapshot.connections if connection.id in batch)
+        )
+    team = Team.objects.only("organization_id").get(id=migration.team_id)
+    return plan_items(
         snapshot,
         catalog,
         source_capabilities,
         flag_enabled=_flag_checker(team, migration.created_by),
         unique_prefixes=False,
     )
-    with transaction.atomic():
-        locked = own.select_for_update().first()
-        if locked is None or locked.status != WarehouseMigration.Status.CRAWLING:
-            # Deleted, replaced by a newer crawl, or already marked failed.
-            return 0
-        _save_items(locked, planned)
-        locked.snapshot = snapshot.to_json()
-        locked.account_name = snapshot.account_name or ""
-        locked.crawled_at = timezone.now()
-        locked.status = WarehouseMigration.Status.READY
-        locked.save(update_fields=["snapshot", "account_name", "crawled_at", "status", "updated_at"])
-    return len(planned)
+
+
+def save_plan(
+    migration: WarehouseMigration,
+    snapshot: VendorSnapshot,
+    planned: tuple[PlannedItem, ...],
+    *,
+    replace_all: bool = True,
+) -> None:
+    """Store the snapshot and its planned items. The caller holds the migration row lock.
+
+    With `replace_all`, items for connections no longer planned are deleted. Without it, as for an upload, only the
+    planned connections change. Either way, items an apply claimed or finished, or the user skipped, stay.
+    """
+    _save_items(migration, planned, delete_missing=replace_all)
+    migration.snapshot = snapshot.to_json()
+    migration.account_name = snapshot.account_name or ""
+    migration.crawled_at = timezone.now()
+    migration.status = WarehouseMigration.Status.READY
+    migration.save(update_fields=["snapshot", "account_name", "crawled_at", "status", "updated_at"])
 
 
 def _flag_checker(team: Team, user: User | None) -> Callable[[str], bool]:
@@ -105,16 +139,24 @@ def mark_migration_failed(*, team_id: int, migration_id: UUID, workflow_id: str,
     )
 
 
-def _save_items(migration: WarehouseMigration, planned: tuple[PlannedItem, ...]) -> None:
+def _save_items(migration: WarehouseMigration, planned: tuple[PlannedItem, ...], *, delete_missing: bool) -> None:
     items = WarehouseMigrationItem.objects.for_team(migration.team_id).filter(migration=migration)
+    planned_ids = {plan.vendor_connection_id for plan in planned}
+    # Without deletes, only the planned items are read, so a small upload stays small on a large migration.
+    touched = items if delete_missing else items.filter(vendor_connection_id__in=planned_ids)
     # Locked so an apply cannot claim an item between this read and the save below.
-    existing = {item.vendor_connection_id: item for item in items.select_for_update()}
+    existing = {item.vendor_connection_id: item for item in touched.select_for_update()}
     kept = {connection_id for connection_id, item in existing.items() if item.status in _KEEP_ON_REFRESH}
-    # A refreshed connection must not take the prefix of a source an item has or is creating.
+    # A refreshed connection must not take the prefix of a source an item has or is creating. An upload also keeps
+    # each item outside its batch, except skipped ones, with the prefix its earlier plan gave it.
+    taken = Q(status__in=_HAS_SOURCE)
+    if not delete_missing:
+        taken |= ~Q(vendor_connection_id__in=planned_ids) & ~Q(status=WarehouseMigrationItem.Status.SKIPPED)
     reserved = {
-        (ExternalDataSourceType(item.proposal["source_type"]), item.proposal["prefix"])
-        for item in existing.values()
-        if item.status in _HAS_SOURCE and item.proposal
+        (ExternalDataSourceType(source_type), prefix)
+        for source_type, prefix in items.filter(taken, proposal__isnull=False).values_list(
+            "proposal__source_type", "proposal__prefix"
+        )
     }
     replanned = with_unique_prefixes([plan for plan in planned if plan.vendor_connection_id not in kept], reserved)
 
@@ -137,5 +179,6 @@ def _save_items(migration: WarehouseMigration, planned: tuple[PlannedItem, ...])
         item.error = ""
         item.save(update_fields=None if is_new else [*_REPLANNED_FIELDS, "updated_at"])
 
-    planned_ids = {plan.vendor_connection_id for plan in planned}
+    if not delete_missing:
+        return
     items.exclude(vendor_connection_id__in=planned_ids).exclude(status__in=_KEEP_ON_REFRESH).delete()

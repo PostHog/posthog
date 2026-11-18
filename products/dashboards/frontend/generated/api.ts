@@ -18,14 +18,17 @@ import type {
     CopyDashboardTemplateApi,
     CopyDashboardTileRequestApi,
     CreateTextTileRequestApi,
+    DashboardActivitySummaryApi,
     DashboardApi,
     DashboardBulkDeleteRequestApi,
     DashboardBulkDeleteResponseApi,
+    DashboardQuerySharingEventApi,
     DashboardSubscribeNudgeResponseApi,
     DashboardTemplateApi,
     DashboardTemplatesListParams,
     DashboardTileApi,
     DashboardTileBasicApi,
+    DashboardsActivitySummaryRetrieveParams,
     DashboardsAddInsightCreateParams,
     DashboardsBulkUpdateTagsCreateParams,
     DashboardsCopyGroupCreateParams,
@@ -44,6 +47,7 @@ import type {
     DashboardsRetrieveParams,
     DashboardsRunInsightsRetrieveParams,
     DashboardsRunWidgetsRetrieveParams,
+    DashboardsStreamQueryResultsRetrieveParams,
     DashboardsStreamTilesRetrieveParams,
     DashboardsSubscribeNudgeCreateParams,
     DashboardsUpdateParams,
@@ -413,6 +417,41 @@ export const dashboardsDestroy = async (
     })
 }
 
+export const getDashboardsActivitySummaryRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: DashboardsActivitySummaryRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/activity_summary/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/activity_summary/`
+}
+
+/**
+ * Signals for judging whether a dashboard is still in use: its last logged change and recent human views in the app. Auto refreshes, API reads and subscriptions are not views.
+ */
+export const dashboardsActivitySummaryRetrieve = async (
+    projectId: string,
+    id: number,
+    params?: DashboardsActivitySummaryRetrieveParams,
+    options?: RequestInit
+): Promise<DashboardActivitySummaryApi> => {
+    return apiMutator<DashboardActivitySummaryApi>(getDashboardsActivitySummaryRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getDashboardsAddInsightCreateUrl = (
     projectId: string,
     id: number,
@@ -776,6 +815,44 @@ export const dashboardsRunWidgetsRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getDashboardsStreamQueryResultsRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params: DashboardsStreamQueryResultsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/stream_query_results/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/stream_query_results/`
+}
+
+/**
+ * Experimentally refresh insight tiles. Each SSE data frame contains one event of the response schema.
+ */
+export const dashboardsStreamQueryResultsRetrieve = async (
+    projectId: string,
+    id: number,
+    params: DashboardsStreamQueryResultsRetrieveParams,
+    options?: RequestInit
+): Promise<DashboardQuerySharingEventApi> => {
+    return apiMutator<DashboardQuerySharingEventApi>(
+        getDashboardsStreamQueryResultsRetrieveUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getDashboardsStreamTilesRetrieveUrl = (
