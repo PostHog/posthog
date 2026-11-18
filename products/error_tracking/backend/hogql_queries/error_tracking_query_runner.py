@@ -104,7 +104,7 @@ class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQue
 
     @cached_property
     def _enabled_tag_definitions(self) -> tuple[IssueTagDefinition, ...]:
-        return enabled_issue_tag_definitions(self.team.pk)
+        return enabled_issue_tag_definitions(self.team.pk, self.user)
 
     @cached_property
     def _issue_tag_filter(self) -> ErrorTrackingIssueTagFilter | None:

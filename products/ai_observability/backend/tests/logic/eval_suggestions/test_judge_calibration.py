@@ -439,6 +439,33 @@ def test_a_code_check_is_kept_only_when_it_gives_the_review_labels(
     assert (code.failed, code.of) == counts
 
 
+def test_a_kept_code_check_counts_its_rate_on_the_day_beyond_the_calls_the_review_read() -> None:
+    card, rendering = _card_and_rendering()
+    card = replace(card, code_check="return not match(output, '^Reply [0-4]$')")
+    read = next(iter(rendering.calls.values())).row
+
+    def call(uuid: str, call_type: str, reply: str) -> ReviewCallRow:
+        return ReviewCallRow(
+            event_uuid=uuid, trace_id=uuid, call_type=call_type, input=read.input, output=json.dumps(reply)
+        )
+
+    day = [
+        read,
+        call("d1", SUPPORT.key, "Reply 1"),
+        call("d2", SUPPORT.key, "Reply 9"),
+        call("d3", "prompt_name:other", "Reply 2"),
+    ]
+    code = judge_calibration.check_code(card, rendering, deadline=None)
+    assert code is not None
+
+    widened = judge_calibration.counted_on_day(card, code, rendering, day, deadline=None)
+    out_of_time = judge_calibration.counted_on_day(card, code, rendering, day, deadline=time.monotonic())
+
+    assert widened is not None and (widened.failed, widened.of) == (code.failed + 1, code.of + 2)
+    assert widened.calibration == code.calibration
+    assert out_of_time == code
+
+
 def test_a_code_check_never_starts_a_call_that_could_run_past_the_deadline() -> None:
     card, rendering = _card_and_rendering()
     card = replace(card, code_check="return true")
