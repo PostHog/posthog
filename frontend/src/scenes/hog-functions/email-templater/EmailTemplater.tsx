@@ -430,7 +430,7 @@ export function NativeEmailIntegrationChoice({
                     </LemonButton>
                 )}
             </div>
-            {sandboxHint && <span className="px-2 pb-1 text-xs text-muted">{sandboxHint}</span>}
+            {sandboxHint && <div className="px-2 pb-1 text-xs text-muted">{sandboxHint}</div>}
             {stoppedWarning && <span className="px-2 pb-1 text-xs text-danger">{stoppedWarning}</span>}
             {overridesVisible && (
                 <>

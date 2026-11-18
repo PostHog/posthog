@@ -76,7 +76,14 @@ from products.signals.backend.activity_summary.render import (
     RenderLimits,
     is_plumbing_route,
 )
-from products.signals.backend.activity_summary.summaries import DEFAULT_MODEL, MAX_ATTEMPTS, MODEL_PRICES, cost_usd
+from products.signals.backend.activity_summary.summaries import (
+    DEFAULT_VARIANT,
+    MAX_ATTEMPTS,
+    MODEL_PRICES,
+    SummaryVariant,
+    billed_tiers,
+    cost_usd,
+)
 from products.signals.backend.models import (
     UserActivitySummary,
     UserActivitySummaryQueueCursor,
@@ -202,14 +209,20 @@ def max_input_chars(limits: RenderLimits = DEFAULT_LIMITS) -> int:
     )
 
 
-def max_update_cost_usd(limits: RenderLimits = DEFAULT_LIMITS, model: str = DEFAULT_MODEL) -> float:
-    """The most one update can cost: every attempt with the largest input and output."""
-    bound = cost_usd(
-        MAX_ATTEMPTS * max_input_chars(limits) // _BOUND_CHARS_PER_TOKEN,
-        MAX_ATTEMPTS * limits.max_completion_tokens,
-        MODEL_PRICES.get(model),
-    )
-    return _UNPRICED_UPDATE_COST_USD if bound is None else bound
+def max_update_cost_usd(limits: RenderLimits = DEFAULT_LIMITS, variant: SummaryVariant = DEFAULT_VARIANT) -> float:
+    """The most one update can cost: every attempt with the largest input and output, on the most expensive tier
+    that can answer the variant. A flex variant can fall back to the standard tier."""
+    bounds = [
+        cost_usd(
+            MAX_ATTEMPTS * max_input_chars(limits) // _BOUND_CHARS_PER_TOKEN,
+            MAX_ATTEMPTS * limits.max_completion_tokens,
+            MODEL_PRICES.get(SummaryVariant(model=variant.model, service_tier=tier)),
+        )
+        for tier in billed_tiers(variant)
+    ]
+    if any(bound is None for bound in bounds):
+        return _UNPRICED_UPDATE_COST_USD
+    return max(bound for bound in bounds if bound is not None)
 
 
 def daily_usage(now: datetime.datetime) -> DailyUsage:
@@ -217,8 +230,9 @@ def daily_usage(now: datetime.datetime) -> DailyUsage:
 
     One row holds the latest update of a pair, so an earlier update of the same pair in the same 24
     hours is not counted. With the minimum update interval that happens only after a failure.
-    A row without a cost counts as the most one update can cost under the largest limits the flag allows,
-    because the row can come from a tick with larger limits than now. So missing usage cannot pass the cap.
+    A row without a cost counts as the most one update can cost under the largest limits the flag allows and the most
+    expensive priced variant, because the row can come from a tick with larger limits or another model split than now.
+    So missing usage cannot pass the cap.
     An update that raised before it called the model is not counted, unless the row holds an earlier paid update.
     """
     rows = (
@@ -233,7 +247,8 @@ def daily_usage(now: datetime.datetime) -> DailyUsage:
     )
     return DailyUsage(
         updates=rows["updates"],
-        cost_usd=(rows["cost"] or 0.0) + rows["unpriced"] * max_update_cost_usd(MAX_LIMITS),
+        cost_usd=(rows["cost"] or 0.0)
+        + rows["unpriced"] * max(max_update_cost_usd(MAX_LIMITS, variant) for variant in MODEL_PRICES),
     )
 
 

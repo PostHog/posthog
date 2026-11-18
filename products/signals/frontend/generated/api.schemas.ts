@@ -626,12 +626,14 @@ export const AnomalyGroupByEnumApi = {
 /**
  * * `unusual` - Unusual
  * * `recent` - Recent
+ * * `rate` - Rate
  */
 export type AnomalyOrderEnumApi = (typeof AnomalyOrderEnumApi)[keyof typeof AnomalyOrderEnumApi]
 
 export const AnomalyOrderEnumApi = {
     Unusual: 'unusual',
     Recent: 'recent',
+    Rate: 'rate',
 } as const
 
 export interface AnomalyFlaggedPointApi {
@@ -647,6 +649,16 @@ export interface AnomalyFlaggedPointApi {
      * @nullable
      */
     score: number | null
+}
+
+export interface AnomalyDashboardApi {
+    /** The numeric id of the dashboard. */
+    id: number
+    /**
+     * The name of the dashboard. Null when it has none.
+     * @nullable
+     */
+    name: string | null
 }
 
 export interface AnomalySeriesPointApi {
@@ -728,6 +740,8 @@ export interface AnomalySeriesApi {
     last_flagged_bucket: string | null
     /** Up to 5 flagged buckets in the range, newest first. */
     flagged_points: AnomalyFlaggedPointApi[]
+    /** The dashboards the insight sits on that the caller may view, oldest tile first. Empty when none. */
+    dashboards: AnomalyDashboardApi[]
     /** Only with `include_points`. The newest 400 scored buckets of the series in the range, oldest first. A bucket that was not scored, or only has a warm-up row, has no point: it is unknown, not 0. Fewer points than `scored_buckets` means the cap left older buckets out. */
     points?: AnomalySeriesPointApi[]
 }
@@ -816,7 +830,8 @@ export interface AnomalySearchResponseApi {
     /** The applied order.
      *
      * * `unusual` - Unusual
-     * * `recent` - Recent */
+     * * `recent` - Recent
+     * * `rate` - Rate */
     order: AnomalyOrderEnumApi
     /** One row per series, in the requested `order`. Empty unless `group_by` is `series`. */
     series: AnomalySeriesApi[]
@@ -911,6 +926,21 @@ export interface SignalTeamConfigApi {
      */
     implementation_instructions?: string
     /**
+     * ID of a project-shared custom sandbox image that scout runs without their own image start from. Null uses the standard image. Only a project admin with editor access to skills can set it. An image that is missing or not ready at run time falls back to the standard image.
+     * @nullable
+     */
+    scout_custom_image_id?: string | null
+    /**
+     * ID of a project-shared custom sandbox image that report research and monitoring assessment runs start from. Null uses the standard image. Only a project admin can change it. An image that is missing or not ready at run time falls back to the standard image.
+     * @nullable
+     */
+    research_custom_image_id?: string | null
+    /**
+     * ID of a project-shared custom sandbox image that report implementation runs start from. Null uses the standard image. Only a project admin can change it. An image that is missing or not ready at run time falls back to the standard image.
+     * @nullable
+     */
+    implementation_custom_image_id?: string | null
+    /**
      * Connected GitHub, GitLab, Linear, or Jira integration that self-driving opens a tracker issue in for each pull request it makes. Null turns tracker issues off, which is the default.
      * @nullable
      */
@@ -957,6 +987,69 @@ export interface SignalTeamConfigApi {
     readonly updated_at: string
 }
 
+/**
+ * * `not_started` - Not started
+ * * `in_progress` - In progress
+ * * `active` - Active
+ * * `paused` - Paused
+ * * `ai_disabled` - AI data processing disabled
+ */
+export type InboxSetupStateEnumApi = (typeof InboxSetupStateEnumApi)[keyof typeof InboxSetupStateEnumApi]
+
+export const InboxSetupStateEnumApi = {
+    NotStarted: 'not_started',
+    InProgress: 'in_progress',
+    Active: 'active',
+    Paused: 'paused',
+    AiDisabled: 'ai_disabled',
+} as const
+
+/**
+ * * `pending` - Pending
+ * * `running` - Running
+ * * `no_data` - No data
+ * * `report_created` - Report created
+ * * `insufficient_data` - Insufficient data
+ * * `no_actionable_finding` - No actionable finding
+ * * `incomplete` - Incomplete
+ */
+export type FirstReportStatusEnumApi = (typeof FirstReportStatusEnumApi)[keyof typeof FirstReportStatusEnumApi]
+
+export const FirstReportStatusEnumApi = {
+    Pending: 'pending',
+    Running: 'running',
+    NoData: 'no_data',
+    ReportCreated: 'report_created',
+    InsufficientData: 'insufficient_data',
+    NoActionableFinding: 'no_actionable_finding',
+    Incomplete: 'incomplete',
+} as const
+
+export interface InboxStatusApi {
+    /** Current project setup state.
+     *
+     * * `not_started` - Not started
+     * * `in_progress` - In progress
+     * * `active` - Active
+     * * `paused` - Paused
+     * * `ai_disabled` - AI data processing disabled */
+    setup_state: InboxSetupStateEnumApi
+    /** Whether a report has surfaced in this project, including reports already handled or assigned to someone else. */
+    has_report_history: boolean
+    /** First investigation outcome, when known and the project has no report history. Does not expose scout run details.
+     *
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `no_data` - No data
+     * * `report_created` - Report created
+     * * `insufficient_data` - Insufficient data
+     * * `no_actionable_finding` - No actionable finding
+     * * `incomplete` - Incomplete */
+    first_report_status: FirstReportStatusEnumApi | null
+    /** Whether the user has inbox and scout configuration access on the web. Integration and organization settings may require additional permissions. */
+    can_configure: boolean
+}
+
 export interface InboxSummaryPullRequestApi {
     /** GitHub repository in owner/name format. */
     repository: string
@@ -995,27 +1088,6 @@ export interface InboxSummaryApi {
      */
     people: InboxSummaryPersonApi[] | null
 }
-
-/**
- * * `pending` - Pending
- * * `running` - Running
- * * `no_data` - No data
- * * `report_created` - Report created
- * * `insufficient_data` - Insufficient data
- * * `no_actionable_finding` - No actionable finding
- * * `incomplete` - Incomplete
- */
-export type FirstReportStatusEnumApi = (typeof FirstReportStatusEnumApi)[keyof typeof FirstReportStatusEnumApi]
-
-export const FirstReportStatusEnumApi = {
-    Pending: 'pending',
-    Running: 'running',
-    NoData: 'no_data',
-    ReportCreated: 'report_created',
-    InsufficientData: 'insufficient_data',
-    NoActionableFinding: 'no_actionable_finding',
-    Incomplete: 'incomplete',
-} as const
 
 export interface FirstReportStateApi {
     /** Scout run ID for inspecting the investigation through the scout API. */
@@ -1280,6 +1352,8 @@ export const InboxOnboardingSetupModeEnumApi = {
  * * `sentinelone` - SentinelOne
  * * `jfrog_xray` - JFrog Xray
  * * `dynatrace_security` - Dynatrace Application Security
+ * * `app_store_connect` - App Store Connect
+ * * `sentry_feedback` - Sentry user feedback
  */
 export type SignalSourceProductEnumApi = (typeof SignalSourceProductEnumApi)[keyof typeof SignalSourceProductEnumApi]
 
@@ -1440,6 +1514,8 @@ export const SignalSourceProductEnumApi = {
     Sentinelone: 'sentinelone',
     JfrogXray: 'jfrog_xray',
     DynatraceSecurity: 'dynatrace_security',
+    AppStoreConnect: 'app_store_connect',
+    SentryFeedback: 'sentry_feedback',
 } as const
 
 /**
@@ -1650,7 +1726,9 @@ export interface InboxOnboardingSourceApi {
      * * `aws_macie` - AWS Macie
      * * `sentinelone` - SentinelOne
      * * `jfrog_xray` - JFrog Xray
-     * * `dynatrace_security` - Dynatrace Application Security */
+     * * `dynatrace_security` - Dynatrace Application Security
+     * * `app_store_connect` - App Store Connect
+     * * `sentry_feedback` - Sentry user feedback */
     source_product: SignalSourceProductEnumApi
     /** Signal type selected during setup.
      *
@@ -4614,6 +4692,8 @@ export interface SignalReportLeaveReviewersApi {
  * * `sentinelone` - sentinelone
  * * `jfrog_xray` - jfrog_xray
  * * `dynatrace_security` - dynatrace_security
+ * * `app_store_connect` - app_store_connect
+ * * `sentry_feedback` - sentry_feedback
  */
 export type SignalSourceProductApi = (typeof SignalSourceProductApi)[keyof typeof SignalSourceProductApi]
 
@@ -4774,6 +4854,8 @@ export const SignalSourceProductApi = {
     Sentinelone: 'sentinelone',
     JfrogXray: 'jfrog_xray',
     DynatraceSecurity: 'dynatrace_security',
+    AppStoreConnect: 'app_store_connect',
+    SentryFeedback: 'sentry_feedback',
 } as const
 
 /**
@@ -5919,6 +6001,19 @@ export interface CursorIssueSignalExtraApi {
     timestamp: string | null
 }
 
+export interface AppStoreConnectReviewSignalExtraApi {
+    app_id: string | null
+    rating: string | null
+    territory: string | null
+    created_date: string | null
+}
+
+export interface SentryFeedbackSignalExtraApi {
+    project_slug: string | null
+    event_id: string | null
+    date_created: string | null
+}
+
 export interface SonarcloudScannerFindingSignalExtraApi {
     severity: string | null
     type: string | null
@@ -6429,6 +6524,8 @@ export type SignalExtraApi =
     | AzureApplicationInsightsIssueSignalExtraApi
     | AppsignalIssueSignalExtraApi
     | CursorIssueSignalExtraApi
+    | AppStoreConnectReviewSignalExtraApi
+    | SentryFeedbackSignalExtraApi
     | SonarcloudScannerFindingSignalExtraApi
     | CheckmarxScannerFindingSignalExtraApi
     | VeracodeScannerFindingSignalExtraApi
@@ -6677,7 +6774,9 @@ export interface SignalNodeApi {
      * * `aws_macie` - aws_macie
      * * `sentinelone` - sentinelone
      * * `jfrog_xray` - jfrog_xray
-     * * `dynatrace_security` - dynatrace_security */
+     * * `dynatrace_security` - dynatrace_security
+     * * `app_store_connect` - app_store_connect
+     * * `sentry_feedback` - sentry_feedback */
     source_product: SignalSourceProductApi
     /** Signal type within the source product.
      *
@@ -8223,6 +8322,11 @@ export interface SignalScoutConfigOptionsApi {
      */
     model?: string | null
     /**
+     * ID of a project-shared custom sandbox image this scout's runs start from. Null uses the project's default scout image, or the standard image when no default is set. Only the scout's author or a project admin can change it. Setting an image requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access), since the image can supply agent instructions. An image that is missing or not ready at run time falls back to the standard image.
+     * @nullable
+     */
+    custom_image_id?: string | null
+    /**
      * Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.
      * @maxItems 10
      */
@@ -8580,6 +8684,11 @@ export interface SignalScoutConfigApi {
      */
     readonly model: string | null
     /**
+     * ID of a project-shared custom sandbox image this scout's runs start from. Null uses the project's default scout image, or the standard image when no default is set. Only the scout's author or a project admin can change it. Setting an image requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access), since the image can supply agent instructions. An image that is missing or not ready at run time falls back to the standard image.
+     * @nullable
+     */
+    readonly custom_image_id: string | null
+    /**
      * MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run.
      * @maxItems 100
      */
@@ -8733,6 +8842,11 @@ export interface SignalScoutConfigCreateApi {
      * @nullable
      */
     model?: string | null
+    /**
+     * ID of a project-shared custom sandbox image this scout's runs start from. Null uses the project's default scout image, or the standard image when no default is set. Only the scout's author or a project admin can change it. Setting an image requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access), since the image can supply agent instructions. An image that is missing or not ready at run time falls back to the standard image.
+     * @nullable
+     */
+    custom_image_id?: string | null
     /**
      * Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.
      * @maxItems 10
@@ -8897,6 +9011,11 @@ export interface PatchedSignalScoutConfigUpdateApi {
      * @nullable
      */
     model?: string | null
+    /**
+     * ID of a project-shared custom sandbox image this scout's runs start from. Null uses the project's default scout image, or the standard image when no default is set. Only the scout's author or a project admin can change it. Setting an image requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access), since the image can supply agent instructions. An image that is missing or not ready at run time falls back to the standard image.
+     * @nullable
+     */
+    custom_image_id?: string | null
     /** Exempt this scout from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet. */
     auto_pause_exempt?: boolean
     /**
@@ -12227,6 +12346,177 @@ export interface AlertPatternPreviewResponseApi {
     has_more: boolean
 }
 
+/**
+ * * `string` - string
+ * * `integer` - integer
+ * * `number` - number
+ * * `boolean` - boolean
+ * * `datetime` - datetime
+ * * `array<string>` - array<string>
+ * * `array<integer>` - array<integer>
+ * * `array<number>` - array<number>
+ * * `array<boolean>` - array<boolean>
+ */
+export type SignalFilterFieldTypeEnumApi =
+    (typeof SignalFilterFieldTypeEnumApi)[keyof typeof SignalFilterFieldTypeEnumApi]
+
+export const SignalFilterFieldTypeEnumApi = {
+    String: 'string',
+    Integer: 'integer',
+    Number: 'number',
+    Boolean: 'boolean',
+    Datetime: 'datetime',
+    ArrayString: 'array<string>',
+    ArrayInteger: 'array<integer>',
+    ArrayNumber: 'array<number>',
+    ArrayBoolean: 'array<boolean>',
+} as const
+
+export interface SourceFilterCatalogFieldApi {
+    /** Name to use for this field in a filter expression. */
+    name: string
+    /** Type of the field's value. Compare it with values of the same type.
+     *
+     * * `string` - string
+     * * `integer` - integer
+     * * `number` - number
+     * * `boolean` - boolean
+     * * `datetime` - datetime
+     * * `array<string>` - array<string>
+     * * `array<integer>` - array<integer>
+     * * `array<number>` - array<number>
+     * * `array<boolean>` - array<boolean> */
+    type: SignalFilterFieldTypeEnumApi
+    /** What the field holds, and its value when the record has none (null, or an empty array). */
+    description: string
+}
+
+export interface SourceFilterCatalogApi {
+    /** Source product the filter applies to, for example `linear`. */
+    source_product: string
+    /** Source type the filter applies to, for example `issue`. */
+    source_type: string
+    /** Catalog version a filter saved now is pinned to. A saved filter keeps the meaning of its version. */
+    catalog_version: number
+    /** Fields a filter expression can use. */
+    filter_fields: SourceFilterCatalogFieldApi[]
+    /** Example expressions that are valid for this source. */
+    starter_expressions: string[]
+}
+
+export interface SourceFilterCatalogListApi {
+    /** One entry per source whose filter this project can set. A source that is missing does not take a filter. */
+    results: SourceFilterCatalogApi[]
+}
+
+export interface SourceFilterPreviewRequestApi {
+    /**
+     * Source product of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.
+     * @maxLength 100
+     */
+    source_product: string
+    /**
+     * Source type of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.
+     * @maxLength 100
+     */
+    source_type: string
+    /**
+     * Filter expression to try, as it would be saved in `config.hogql_filter`: a boolean expression over the fields `inbox-source-filter-catalogs-list` returns, for example `project_name = 'Core' AND assignee_id IS NULL`. An empty expression lets every record through.
+     * @maxLength 16384
+     */
+    expression: string
+}
+
+/**
+ * * `ok` - ok
+ * * `invalid_expression` - invalid_expression
+ * * `not_connected` - not_connected
+ * * `not_synced` - not_synced
+ * * `access_denied` - access_denied
+ * * `incompatible_table` - incompatible_table
+ * * `query_failed` - query_failed
+ */
+export type SourceFilterPreviewStatusEnumApi =
+    (typeof SourceFilterPreviewStatusEnumApi)[keyof typeof SourceFilterPreviewStatusEnumApi]
+
+export const SourceFilterPreviewStatusEnumApi = {
+    Ok: 'ok',
+    InvalidExpression: 'invalid_expression',
+    NotConnected: 'not_connected',
+    NotSynced: 'not_synced',
+    AccessDenied: 'access_denied',
+    IncompatibleTable: 'incompatible_table',
+    QueryFailed: 'query_failed',
+} as const
+
+/**
+ * Each catalog field's value for this record. A malformed value reads as null, or an empty array.
+ */
+export type SourceFilterPreviewRecordApiFieldValues = { [key: string]: string | number | string[] | null }
+
+export interface SourceFilterPreviewRecordApi {
+    /** The record's id in the source. */
+    id: string
+    /**
+     * Short identifier people use for the record.
+     * @nullable
+     */
+    identifier: string | null
+    /**
+     * The record's title.
+     * @nullable
+     */
+    title: string | null
+    /**
+     * Link to the record in the source.
+     * @nullable
+     */
+    url: string | null
+    /**
+     * When the record was created, as emission reads it.
+     * @nullable
+     */
+    created_at: string | null
+    /** True when a field the expression uses holds a value that cannot be read, so the record never passes. */
+    malformed: boolean
+    /** Each catalog field's value for this record. A malformed value reads as null, or an empty array. */
+    field_values: SourceFilterPreviewRecordApiFieldValues
+}
+
+export interface SourceFilterPreviewResponseApi {
+    /** `ok` when the counts and records are filled in. `invalid_expression` when the expression cannot be saved. `not_connected` when the project has no syncing import for the source. `not_synced` when the import has not finished a first sync. `access_denied` when you cannot read the source's warehouse table. `incompatible_table` when the table does not have the columns the filter fields read. `query_failed` when the preview query did not run.
+     *
+     * * `ok` - ok
+     * * `invalid_expression` - invalid_expression
+     * * `not_connected` - not_connected
+     * * `not_synced` - not_synced
+     * * `access_denied` - access_denied
+     * * `incompatible_table` - incompatible_table
+     * * `query_failed` - query_failed */
+    status: SourceFilterPreviewStatusEnumApi
+    /**
+     * Why the status is not `ok`, when there is a reason.
+     * @nullable
+     */
+    error: string | null
+    /** Catalog version the expression was checked against. */
+    catalog_version: number
+    /** The preview reads records created in this many past days. */
+    lookback_days: number
+    /** Records in the window that emission would read before the filter. 0 unless `status` is `ok`. */
+    total_count: number
+    /** Records in the window that pass the filter. */
+    passing_count: number
+    /** Records in the window that the filter excludes. */
+    excluded_count: number
+    /** Excluded records that hold a value the filter cannot read. Included in `excluded_count`. */
+    malformed_count: number
+    /** The newest records that pass the filter, at most 10. */
+    passing: SourceFilterPreviewRecordApi[]
+    /** The newest records that the filter excludes, at most 10. */
+    excluded: SourceFilterPreviewRecordApi[]
+}
+
 export interface SourceSpendApi {
     /** Product that emitted the signals. */
     source_product: string
@@ -12811,10 +13101,11 @@ export type SignalsAnomaliesSearchRetrieveParams = {
      */
     only_flagged?: boolean
     /**
-     * `unusual` puts the series that flagged most above its usual rate first. `recent` puts the newest flagged bucket first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.
+     * `unusual` puts the series that flagged most above its usual rate first. `recent` puts the newest flagged bucket first, then sorts as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.
      *
      * * `unusual` - Unusual
      * * `recent` - Recent
+     * * `rate` - Rate
      * @minLength 1
      */
     order?: SignalsAnomaliesSearchRetrieveOrder
@@ -12849,6 +13140,7 @@ export type SignalsAnomaliesSearchRetrieveOrder =
 export const SignalsAnomaliesSearchRetrieveOrder = {
     Unusual: 'unusual',
     Recent: 'recent',
+    Rate: 'rate',
 } as const
 
 export type SignalsProcessingListParams = {

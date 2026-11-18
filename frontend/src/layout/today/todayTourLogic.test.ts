@@ -1,13 +1,14 @@
 import { navSwitchLogic } from 'lib/components/NavSwitch/navSwitchLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 import { initKeaTests } from '~/test/init'
 
-import { TODAY_TOUR_STEPS, todayTourLogic } from './todayTourLogic'
+import { todayTourLogic, tourStepsForFlags } from './todayTourLogic'
 
 type TourLogic = ReturnType<typeof todayTourLogic.build>
 
 const clickDoneOnLastStep = (logic: TourLogic): void => {
-    TODAY_TOUR_STEPS.forEach(() => logic.actions.nextTourStep())
+    logic.values.tour?.steps.forEach(() => logic.actions.nextTourStep())
 }
 
 const closeTourEarly = (logic: TourLogic): void => {
@@ -51,5 +52,25 @@ describe('todayTourLogic', () => {
 
         expect(tourLogic.values.tourCompleted).toBe(true)
         expect(tourLogic.values.tourJustCompleted).toBe(false)
+    })
+
+    test('a started tour keeps the steps for the panes its flags show', () => {
+        expect(tourLogic.values.tour?.steps.map((step) => step.pane)).toEqual([
+            'home',
+            'analytics',
+            'people',
+            'products',
+            'settings',
+        ])
+    })
+
+    test.each([
+        { flags: {}, panes: ['home', 'analytics', 'people', 'products', 'settings'] },
+        {
+            flags: { [FEATURE_FLAGS.RELEASES_AREA]: true, [FEATURE_FLAGS.MONITOR_AREA]: true },
+            panes: ['home', 'analytics', 'people', 'release', 'monitor', 'products', 'settings'],
+        },
+    ])('the tour visits only the panes the flags show: $panes', ({ flags, panes }) => {
+        expect(tourStepsForFlags(flags).map((step) => step.pane)).toEqual(panes)
     })
 })

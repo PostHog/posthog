@@ -1582,6 +1582,62 @@ class TestPropertyTypes(BaseTest):
         assert "parseDateTime64BestEffortOrNull" not in overridden, overridden
         assert "toDateTime" not in overridden, overridden
 
+    @parameterized.expand(
+        [
+            ("equals", "properties.event_time_prop = ''"),
+            ("not_equals", "properties.event_time_prop != ''"),
+            ("reversed_equals", "'' = properties.event_time_prop"),
+            ("reversed_not_equals", "'' != properties.event_time_prop"),
+        ]
+    )
+    def test_datetime_property_compared_to_empty_string_uses_strings(self, _name: str, comparison: str) -> None:
+        PropertyDefinition.objects.get_or_create(
+            team=self.team,
+            type=PropertyDefinition.Type.EVENT,
+            name="event_time_prop",
+            defaults={"property_type": "DateTime"},
+        )
+
+        printed = self._print_select(f"select count() from events where {comparison}")
+
+        assert "parseDateTime64BestEffortOrNull" not in printed, printed
+
+    def test_datetime_group_property_compared_to_empty_string_uses_strings(self) -> None:
+        PropertyDefinition.objects.get_or_create(
+            team=self.team,
+            type=PropertyDefinition.Type.GROUP,
+            group_type_index=0,
+            name="group_event_time_prop",
+            defaults={"property_type": "DateTime"},
+        )
+
+        printed = self._print_select("select count() from events where group_0.properties.group_event_time_prop != ''")
+
+        assert "parseDateTime64BestEffortOrNull" not in printed, printed
+        assert "toString(" in printed, printed
+
+    @parameterized.expand(
+        [
+            ("iso_date", "properties.event_time_prop = '2024-01-01'"),
+            ("non_iso_timestamp", "properties.event_time_prop = '2024-01-01 0:00:00'"),
+            ("non_iso_timestamp_not_equals", "properties.event_time_prop != '2024-01-01 0:00:00'"),
+            ("function_argument", "formatDateTime(properties.event_time_prop, '%Y') = ''"),
+        ]
+    )
+    def test_datetime_property_keeps_conversion_unless_compared_to_empty_string(
+        self, _name: str, comparison: str
+    ) -> None:
+        PropertyDefinition.objects.get_or_create(
+            team=self.team,
+            type=PropertyDefinition.Type.EVENT,
+            name="event_time_prop",
+            defaults={"property_type": "DateTime"},
+        )
+
+        printed = self._print_select(f"select count() from events where {comparison}")
+
+        assert "parseDateTime64BestEffortOrNull" in printed, printed
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_property_types_person_raw(self):
         printed = self._print_select(

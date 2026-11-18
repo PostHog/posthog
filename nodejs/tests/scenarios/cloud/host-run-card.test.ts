@@ -42,6 +42,7 @@ run="$state/${RUNNER_RUN_ID}"
 mkdir -p "$run" "$state/edge-ca"
 printf '%s' "$SCENARIO_POOLER_URLS" >"$state/pooler-urls"
 echo '{"phase":"drive"}' >"$run/result.json"
+echo 'hogli up exited 1' >"$state/hogli.log"
 echo 'private key' >"$state/edge-ca/ca.key"
 [ -z "\${FAKE_CARD_BLOCKS_COPY:-}" ] || touch "$SCENARIO_HOST_ROOT/evidence/run"
 if [ -n "\${FAKE_CARD_HANGS:-}" ]; then
@@ -124,6 +125,9 @@ describe('host-run-card.sh', () => {
         expect(existsSync(s3('host/started'))).toBe(true)
         expect(parseJSON(readFileSync(s3('host/done'), 'utf8'))).toMatchObject({ exitCode, uploaded })
         expect(existsSync(s3(`evidence/run/${RUNNER_RUN_ID}/result.json`))).toBe(uploaded)
+        expect(existsSync(s3('evidence/hogli.log')) && readFileSync(s3('evidence/hogli.log'), 'utf8')).toBe(
+            uploaded && 'hogli up exited 1\n'
+        )
         expect(existsSync(s3('evidence/run/edge-ca'))).toBe(false)
     })
 

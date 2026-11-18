@@ -113,7 +113,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     run_gateway_env_vars,
 )
 
-from .get_task_processing_context import TaskProcessingContext
+from .get_task_processing_context import CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY, TaskProcessingContext
 from .persist_agent_memory import MemoryEventIdentity, restore_agent_memory_into_sandbox
 
 logger = logging.getLogger(__name__)
@@ -170,6 +170,7 @@ class CreateSandboxForRepositoryOutput:
     jwt_kid: str | None = None
     ttl_expires_at: str | None = None
     dev_stack_preview_sized: bool = False
+    custom_image_fallback_reason: str | None = None
 
 
 @frozen
@@ -191,6 +192,7 @@ class GetSandboxForRepositoryOutput:
     agent_invoke_ms: int | None = None
     dev_stack_preview_sized: bool = False
     agent_shadow_launched: bool = False
+    custom_image_fallback_reason: str | None = None
 
 
 @dataclass
@@ -1066,6 +1068,20 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
             sandbox,
             compare_with_pin=_pin_governs_sandbox_agent(ctx, config, used_snapshot=actual_used_snapshot),
         )
+        custom_image_fallback_reason: str | None = None
+        if (
+            config.custom_image_name
+            and (ctx.state or {}).get("custom_image_id")
+            and not (ctx.state or {}).get(CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY)
+            and (sandbox.config.image_fallback or "").endswith("-> base image")
+        ):
+            custom_image_fallback_reason = "boot_failed"
+            try:
+                TaskRun.update_state_atomic(
+                    ctx.run_id, updates={CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY: custom_image_fallback_reason}
+                )
+            except Exception:
+                logger.warning("Failed to persist custom image fallback reason", extra={"run_id": ctx.run_id})
         try:
             if config.outbound_domain_allowlist is not None:
                 log_with_activity_context("Modal sandbox created with network policy requested", run_id=ctx.run_id)
@@ -1156,6 +1172,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
             ttl_expires_at=(sandbox_created_at + timedelta(seconds=sandbox.config.ttl_seconds)).isoformat(),
             jwt_kid=jwt_kid,
             dev_stack_preview_sized=ctx.dev_stack_preview_enabled,
+            custom_image_fallback_reason=custom_image_fallback_reason,
         )
 
 
