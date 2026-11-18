@@ -31,15 +31,15 @@ The core refuses anything outside this class, and a refusal lifts nothing.
 
 The revert proof shows that a pull request is a clean revert of one commit on the default branch, and holds nothing else.
 Any author may open the pull request, because the proof is about the content.
-The head branch must be in this repository.
+The head branch must be in this repository, and the author must have pushed the head, so nobody can put a revert onto another author's pull request, such as a bot's.
 
 `revert-proof-trigger.yml` runs its job only when the pull request title starts with `Revert`.
-`revert-proof.yml` then runs three jobs, with the same permissions as the dependency lane:
+`revert-proof.yml` then runs four jobs, with the same permissions as the dependency lane:
 
 - `identify` finds the open pull request at the head and its merge base through the API. It reads the `This reverts commit <sha>.` lines of the pull request's own commits. No such line means nothing to attest. Two or more different commits are refused.
 - `identify` also checks the reverted commit. It must be an ancestor of the merge base, and a merged pull request must have landed it on the default branch as its merge commit. That pull request must be merged no more than 30 days before the proof runs.
 - `prove` fetches the merge base, the head, the reverted commit and its parent without a credential. It refuses a reverted commit that is a merge commit, a root commit, or a revert itself. It then runs `git merge-tree --write-tree --merge-base=<reverted> <merge base> <parent>`, which is the merge that `git revert` does. A conflict is refused. The result tree must equal the head tree.
-- `publish` posts the `Revert proof` check. The proof names each file that the revert changes.
+- `conclude` decides the `Revert proof` check run, without a token, and `publish` posts it. The proof names each file that the revert changes.
 
 A merge of the default branch into the pull request is allowed, because the tree comparison proves the content.
 git reads no `.gitattributes` for the merge, so a file in the pull request cannot select a merge driver such as `union` that hides a conflict.

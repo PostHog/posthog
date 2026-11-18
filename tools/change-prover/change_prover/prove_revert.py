@@ -33,7 +33,7 @@ class RevertIdentified:
 def identify(request: IdentifyRequest, github: GitHub, now: datetime) -> RevertIdentified | None:
     """The pull request to prove at the requested head, or None when no open pull request has it.
 
-    The reverted commit must be an ancestor of the merge base, which puts it on the default
+    The PR author must have pushed the head. The reverted commit must be an ancestor of the merge base, which puts it on the default
     branch. Its merge time comes from the pull request that landed it, because GitHub sets that
     time, and an author can set a commit time to any value.
     """
@@ -42,6 +42,9 @@ def identify(request: IdentifyRequest, github: GitHub, now: datetime) -> RevertI
     if pr is None:
         return None
     identity.check_head_repository(pr, request.repository)
+    # A push by anyone but the author would let a writer put a revert onto another author's PR,
+    # such as a bot's, and borrow that author's standing with stamphog.
+    identity.check_pusher(pr, github.pusher_id(pr["head"]["ref"], head))
     compared = github.get(f"compare/{base_branch}...{head}?per_page={PAGE_SIZE}")
     merge_base = compared["merge_base_commit"]["sha"]
     reverted = revert.reverted_commit(revert.listed_messages(compared))

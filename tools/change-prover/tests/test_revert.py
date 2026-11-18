@@ -128,11 +128,13 @@ class Repo:
 class RepoGitHub(prover.GitHub):
     """Answers the API calls the revert lane makes from a real repository."""
 
-    def __init__(self, repo: Repo, head: str, merged_days: int) -> None:
+    def __init__(self, repo: Repo, head: str, merged_days: int, pusher: int) -> None:
         super().__init__(REPOSITORY, "token")
-        self.repo, self.head, self.merged_days = repo, head, merged_days
+        self.repo, self.head, self.merged_days, self.pusher = repo, head, merged_days, pusher
 
     def get(self, path: str) -> Any:
+        if path.startswith("activity?"):
+            return [{"after": self.head, "actor": {"id": self.pusher}}]
         if path.startswith(f"commits/{self.head}/pulls"):
             head = {"sha": self.head, "ref": "pr", "repo": {"full_name": REPOSITORY}}
             return [{"number": 7, "state": "open", "user": {"id": 1}, "base": {"ref": "master"}, "head": head}]
@@ -211,22 +213,28 @@ def revert_with_master_merged_in(repo: Repo, shas: dict[str, str]) -> str:
 
 
 @pytest.mark.parametrize(
-    ("build", "merged_days", "expected"),
+    ("build", "merged_days", "pusher", "expected"),
     [
-        (clean_revert, 1, ["a.txt"]),
-        (revert_after_master_moved, 1, ["a.txt"]),
-        (revert_with_master_merged_in, 1, ["a.txt"]),
-        (revert_with_an_extra_change, 1, "differs from a clean revert"),
-        (conflicting_revert, 1, "does not revert cleanly"),
-        (reverted_merge_commit, 1, "is a merge commit"),
-        (revert_of_a_revert, 1, "itself a revert"),
-        (two_reverted_commits, 1, "reverts 2 commits"),
-        (clean_revert, 31, "more than 30 days ago"),
-        (no_revert_line, 1, None),
+        (clean_revert, 1, 1, ["a.txt"]),
+        (revert_after_master_moved, 1, 1, ["a.txt"]),
+        (revert_with_master_merged_in, 1, 1, ["a.txt"]),
+        (revert_with_an_extra_change, 1, 1, "differs from a clean revert"),
+        (conflicting_revert, 1, 1, "does not revert cleanly"),
+        (reverted_merge_commit, 1, 1, "is a merge commit"),
+        (revert_of_a_revert, 1, 1, "itself a revert"),
+        (two_reverted_commits, 1, 1, "reverts 2 commits"),
+        (clean_revert, 31, 1, "more than 30 days ago"),
+        (no_revert_line, 1, 1, None),
+        # Someone else pushed the revert onto the author's branch, for example onto a Renovate PR.
+        (clean_revert, 1, 42, "not pushed by the pull request author"),
     ],
 )
 def test_the_revert_proof_on_a_real_repository(
-    tmp_path: Path, build: Callable[[Repo, dict[str, str]], str], merged_days: int, expected: list[str] | str | None
+    tmp_path: Path,
+    build: Callable[[Repo, dict[str, str]], str],
+    merged_days: int,
+    pusher: int,
+    expected: list[str] | str | None,
 ) -> None:
     upstream = Repo(tmp_path / "upstream")
     issuer = upstream.commit(
@@ -242,7 +250,7 @@ def test_the_revert_proof_on_a_real_repository(
 
     def proof() -> prover.Proof | None:
         request = prover.IdentifyRequest(REPOSITORY, "master", head)
-        found = prove_revert.identify(request, RepoGitHub(upstream, head, merged_days), NOW)
+        found = prove_revert.identify(request, RepoGitHub(upstream, head, merged_days, pusher), NOW)
         assert found is not None
         if found.reverted is None:
             return None

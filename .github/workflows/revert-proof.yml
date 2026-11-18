@@ -100,10 +100,11 @@ jobs:
               run: uv run --frozen --project tools/change-prover python -I tools/change-prover/change_prover/__main__.py revert-prove
 
     # The `revert-conclude` command in change_prover/core/conclusion.py decides the check run and
-    # whether the run fails.
-    # hogli-lint: not-a-required-gate — posts the Revert proof check through the API, and its own job check gates nothing
-    publish:
-        name: Publish the Revert proof check
+    # whether the run fails. It runs here, with no environment and no token, so the job that holds
+    # the App key installs and runs nothing but `gh`. `publish` checks every job's result.
+    # hogli-lint: not-a-required-gate — decides the check run that `publish` posts
+    conclude:
+        name: Decide the Revert proof check
         needs: [identify, prove]
         # Most pull requests skip the trigger job, so the run posts no check for them. stamphog
         # waits only for a check that a policy entry names, on a pull request that entry covers.
@@ -111,7 +112,9 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         permissions: {}
-        environment: dependency-proof
+        outputs:
+            check_run: ${{ steps.conclude.outputs.check_run }}
+            unproved: ${{ steps.conclude.outputs.unproved }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -125,18 +128,9 @@ jobs:
               with:
                   enable-cache: false
 
-            # The dependency proof App publishes every lane of the change prover.
-            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-              id: app-token
-              with:
-                  client-id: ${{ vars.DEPENDENCY_PROOF_APP_ID }}
-                  private-key: ${{ secrets.DEPENDENCY_PROOF_APP_PRIVATE_KEY }}
-                  permission-checks: write
-
-            - name: Create the check run
+            - name: Decide the check run
+              id: conclude
               env:
-                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
-                  REPOSITORY: ${{ github.repository }}
                   HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
                   WORKFLOW_SHA: ${{ github.sha }}
                   RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -151,17 +145,52 @@ jobs:
                   PROVE_REFUSED: ${{ needs.prove.outputs.refused }}
               run: |
                   set -euo pipefail
-
-                  # `revert-conclude` prints the check run, and exits 1 when the revert went
-                  # unproved. Empty output means the command itself broke, so nothing is posted.
-                  # It runs without the App token, which only `gh` needs.
+                  # `revert-conclude` prints the check run, and exits 1 when the revert went unproved.
                   unproved=0
-                  check_run="$(env -u GH_TOKEN uv run --frozen --project tools/change-prover \
+                  check_run="$(uv run --frozen --project tools/change-prover \
                       python -I tools/change-prover/change_prover/__main__.py revert-conclude)" || unproved=$?
-                  if [[ -z "$check_run" ]]; then
+                  {
+                      echo "unproved=$unproved"
+                      echo "check_run<<CHECK_RUN_JSON_EOF"
+                      echo "$check_run"
+                      echo "CHECK_RUN_JSON_EOF"
+                  } >> "$GITHUB_OUTPUT"
+
+    # hogli-lint: not-a-required-gate — posts the Revert proof check through the API, and its own job check gates nothing
+    publish:
+        name: Publish the Revert proof check
+        needs: [identify, prove, conclude]
+        if: ${{ !cancelled() && github.repository == 'PostHog/posthog' && github.event.workflow_run.conclusion == 'success' }}
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions: {}
+        environment: dependency-proof
+        steps:
+            # The dependency proof App publishes every lane of the change prover.
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: app-token
+              with:
+                  client-id: ${{ vars.DEPENDENCY_PROOF_APP_ID }}
+                  private-key: ${{ secrets.DEPENDENCY_PROOF_APP_PRIVATE_KEY }}
+                  permission-checks: write
+
+            - name: Create the check run
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  REPOSITORY: ${{ github.repository }}
+                  CHECK_RUN: ${{ needs.conclude.outputs.check_run }}
+                  UNPROVED: ${{ needs.conclude.outputs.unproved }}
+                  IDENTIFY_RESULT: ${{ needs.identify.result }}
+                  PROVE_RESULT: ${{ needs.prove.result }}
+                  CONCLUDE_RESULT: ${{ needs.conclude.result }}
+              run: |
+                  set -euo pipefail
+
+                  # An empty check run means `revert-conclude` itself broke, so nothing is posted.
+                  if [[ -z "$CHECK_RUN" ]]; then
                       exit 1
                   fi
-                  gh api --method POST "repos/$REPOSITORY/check-runs" --input - <<< "$check_run" > /dev/null
+                  gh api --method POST "repos/$REPOSITORY/check-runs" --input - <<< "$CHECK_RUN" > /dev/null
 
                   if [[ "$IDENTIFY_RESULT" != "success" ]]; then
                       exit 1
@@ -169,4 +198,7 @@ jobs:
                   if [[ "$PROVE_RESULT" != "success" && "$PROVE_RESULT" != "skipped" ]]; then
                       exit 1
                   fi
-                  exit "$unproved"
+                  if [[ "$CONCLUDE_RESULT" != "success" && "$CONCLUDE_RESULT" != "skipped" ]]; then
+                      exit 1
+                  fi
+                  exit "${UNPROVED:-1}"
