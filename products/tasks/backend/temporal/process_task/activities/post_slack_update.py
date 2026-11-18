@@ -284,6 +284,8 @@ def _post_pr_opened_notification_once(
         pr_url=pr_url,
     )
     if _is_pr_opened_notified(task_run, pr_url) or already_delivered:
+        if already_delivered and task_run.task.slack_notified_pr_url != pr_url:
+            task_run.task.mark_slack_pr_notified(pr_url)
         # Skip the repost but still clear any lingering progress marker.
         handler.delete_progress()
         return

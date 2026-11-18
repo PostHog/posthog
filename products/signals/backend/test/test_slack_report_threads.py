@@ -28,6 +28,7 @@ from products.signals.backend.task_run_artefacts import record_implementation_ta
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.tasks.backend.facade.api import accept_github_pull_request, set_task_run_output, update_task_run
 from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.tasks.tasks import notify_slack_thread_pr_closed
 
 
 @pytest.fixture
@@ -431,7 +432,20 @@ def test_pr_notification_does_not_reach_an_invalid_target(team, boundary: str) -
 @pytest.mark.django_db
 @pytest.mark.parametrize("destination", ["dm", "personal_channel"])
 @pytest.mark.parametrize(
-    "recipient", ["active", "saved", "removed", "guest", "unknown", "changed_email", "no_inbox", "inactive", "shared"]
+    "recipient",
+    [
+        "active",
+        "saved",
+        "removed",
+        "guest",
+        "unknown",
+        "changed_email",
+        "no_inbox",
+        "inactive",
+        "shared",
+        "mobile_pickup",
+        "unmapped_mobile_pickup",
+    ],
 )
 def test_pr_notification_rechecks_personal_recipient(team, recipient: str, destination: str) -> None:
     report = _report(team)
@@ -445,6 +459,34 @@ def test_pr_notification_rechecks_personal_recipient(team, recipient: str, desti
     task = Task.objects.create(
         team=team, title="Implement report", description="Fix the issue", repository="example/repo"
     )
+    if recipient in {"mobile_pickup", "unmapped_mobile_pickup"}:
+        task.state = {"mobile_push_user_ids": [user.id]}
+        task.save(update_fields=["state"])
+        run = TaskRun.objects.create(
+            task=task,
+            team=team,
+            state={"slack_actor_user_id": user.id, "slack_actor_slack_user_id": "UREVIEWER"},
+            output={
+                "pr_url": "https://github.com/example/repo/pull/43",
+                "pr_urls": ["https://github.com/example/repo/pull/43", "https://github.com/example/repo/pull/42"],
+            },
+        )
+        if recipient == "mobile_pickup":
+            SlackThreadTaskMapping.objects.create(
+                team=team,
+                integration=integration,
+                slack_workspace_id="T123",
+                channel="DREVIEWER" if destination == "dm" else "CPERSONAL",
+                thread_ts="1700000000.000100",
+                task=task,
+                task_run=run,
+                mentioning_slack_user_id="UREVIEWER",
+                conversation_type=(
+                    SlackThreadTaskMapping.ConversationType.IM
+                    if destination == "dm"
+                    else SlackThreadTaskMapping.ConversationType.PUBLIC_CHANNEL
+                ),
+            )
     record_implementation_task(team_id=team.id, report_id=str(report.id), task_id=str(task.id))
     record_report_slack_thread(
         team_id=team.id,
@@ -496,8 +538,8 @@ def test_pr_notification_rechecks_personal_recipient(team, recipient: str, desti
             },
             throw=True,
         )
-        delivered = recipient in {"active", "saved", "shared"} or (
-            recipient == "guest" and destination == "personal_channel"
+        delivered = recipient in {"active", "saved", "shared", "unmapped_mobile_pickup"} or (
+            recipient in {"guest", "mobile_pickup"} and destination == "personal_channel"
         )
         assert slack.client.chat_postMessage.call_count == int(delivered)
 
@@ -691,3 +733,14 @@ def test_late_report_thread_keeps_mapped_delivery_once(
             posts = report_slack.return_value.client.chat_postMessage.call_args_list
             assert sorted(call.kwargs["channel"] for call in posts) == ["COTHER", "CTEAM"]
             assert all(secondary in call.kwargs["text"] for call in posts)
+            previous_jobs = len(queued.call_args_list)
+            with django_capture_on_commit_callbacks(execute=True):
+                update_task_run(run.id, task.id, team.id, validated_data={"output": {"pr_url": secondary}})
+            for job in queued.call_args_list[previous_jobs:]:
+                deliver_implementation_pr_notifications.apply(kwargs=job.kwargs, throw=True)
+            assert report_slack.return_value.client.chat_postMessage.call_count == 2
+            assert mapped_slack.return_value.client.chat_postMessage.call_count == 1
+            notify_slack_thread_pr_closed(str(run.id), secondary, merged=mapped_before_recovery)
+            close_posts = mapped_slack.return_value.client.chat_postMessage.call_args_list
+            assert len(close_posts) == 2
+            assert secondary in str(close_posts[-1].kwargs["blocks"])

@@ -32,7 +32,7 @@ from products.signals.backend.assignment_flags import assignment_side_effects_al
 from products.signals.backend.models import SignalReport, SignalReportSlackThread, SignalReportTask, SignalTeamConfig
 from products.signals.backend.report_access import may_read_reports
 from products.signals.backend.slack_notification_targets import is_slack_member_target
-from products.slack_app.backend.facade.api import slack_thread_is_mapped_to_task
+from products.slack_app.backend.facade.api import slack_task_notifications_muted, slack_thread_is_mapped_to_task
 
 logger = logging.getLogger(__name__)
 MAX_IMPLEMENTATION_PR_NOTIFICATIONS = 50
@@ -172,6 +172,14 @@ def _deliver_implementation_pr_to_thread(
         slack_workspace_id=thread.slack_workspace_id,
         channel=thread.channel,
         thread_ts=thread.thread_ts,
+    ):
+        return False
+    if slack_task_notifications_muted(
+        integration_id=integration.id,
+        channel=thread.channel,
+        thread_ts=thread.thread_ts,
+        slack_user_id=None,
+        private_only=True,
     ):
         return False
     if not assignment_side_effects_allowed(team_id=team.id, report_id=str(thread.report_id)):

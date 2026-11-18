@@ -62,6 +62,9 @@ from products.slack_app.backend.services.public_channel_catalog import public_ch
 from products.slack_app.backend.services.slack_auth import invalidate_auth_state
 from products.slack_app.backend.services.slack_scopes import SLACK_CANVAS_SCOPE, SLACK_FILE_SCOPE, has_scopes
 from products.slack_app.backend.services.slack_user_info import invalidate_workspace_bot_user_id
+from products.slack_app.backend.services.task_notifications import (
+    task_slack_notifications_muted as slack_task_notifications_muted,
+)
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration, with_teams
 
 if TYPE_CHECKING:
@@ -93,6 +96,7 @@ __all__ = [
     "slack_artifact_delivery_state_updates",
     "slack_channel_is_approved",
     "slack_thread_is_mapped_to_task",
+    "slack_task_notifications_muted",
     "slack_followup_invite",
     "slack_followup_invite_text",
     "slack_report_implementation_button",
