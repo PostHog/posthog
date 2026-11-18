@@ -432,6 +432,8 @@ type PersistedAuth = Pick<
     | 'projects'
     | 'projectId'
     | 'projectName'
+    | 'signedOutReason'
+    | 'expiredAccountKey'
     | 'accounts'
     | 'activeAccountKey'
     | 'freshLoginNext'
@@ -1161,6 +1163,8 @@ export const useAuthStore = create<AuthState>()(
                 projects: state.projects,
                 projectId: state.projectId,
                 projectName: state.projectName,
+                signedOutReason: state.signedOutReason,
+                expiredAccountKey: state.expiredAccountKey,
                 accounts: state.accounts,
                 activeAccountKey: state.activeAccountKey,
                 freshLoginNext: state.freshLoginNext,

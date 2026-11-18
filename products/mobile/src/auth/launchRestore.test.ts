@@ -1,5 +1,7 @@
 import { AppState, type AppStateStatus } from 'react-native'
 
+import { sessionEndedAccount } from '@/features/accounts/accountLabel'
+
 import type * as AuthStore from './authStore'
 
 const mockSecureItems = new Map<string, string>()
@@ -58,6 +60,7 @@ const KEYS = {
 const SLOT = (key: string): string => `posthog_mobile_session.${key}`
 
 const sent: string[] = []
+let mockRefuseRefresh = false
 
 function json(body: unknown): Response {
     return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
@@ -81,6 +84,9 @@ function me(user: string): Response {
 async function answer(url: string, init?: RequestInit): Promise<Response> {
     const body = typeof init?.body === 'string' ? init.body : ''
     sent.push(`${new URL(url).pathname} ${body}`)
+    if (url.endsWith('/oauth/token') && mockRefuseRefresh) {
+        return new Response(JSON.stringify({ error: 'invalid_grant' }), { status: 400 })
+    }
     if (url.endsWith('/oauth/token')) {
         return json({ access_token: 'ada-access-new', refresh_token: 'ada-refresh-new', expires_in: 604800 })
     }
@@ -162,6 +168,7 @@ describe('launch restore', () => {
         mockAsyncItems.clear()
         mockPromptOptions.length = 0
         sent.length = 0
+        mockRefuseRefresh = false
         globalThis.fetch = jest.fn(answer) as unknown as typeof fetch
         // Loading expo installs its own fetch as the global one, so its mock answers too.
         ;(jest.requireMock('expo/fetch') as { fetch: jest.Mock }).fetch.mockImplementation(answer)
@@ -216,6 +223,30 @@ describe('launch restore', () => {
             tokens: { refreshToken: 'ada-refresh-new' },
         })
         expect(sent.filter((request) => request.startsWith('/oauth/revoke'))).toEqual([])
+    })
+
+    test('a relaunch after the active session expired still names the expired account and keeps the others usable', async () => {
+        storeSlot('ada')
+        storeSlot('bob')
+        mockSecureItems.set(
+            'posthog_mobile_accounts',
+            JSON.stringify({ version: 1, active: KEYS.ada, keys: [KEYS.ada, KEYS.bob] })
+        )
+        persistAuth({ accounts: [storedAccount('ada'), storedAccount('bob')], activeAccountKey: KEYS.ada })
+        const first = launch().auth
+        await first.useAuthStore.getState().restore()
+        mockRefuseRefresh = true
+        await first.refreshAccessToken().catch(() => undefined)
+        await until(() => first.useAuthStore.getState().status === 'signed_out')
+
+        const { auth } = launch()
+        await auth.useAuthStore.getState().restore()
+
+        const state = auth.useAuthStore.getState()
+        expect(sessionEndedAccount(state)?.key).toBe(KEYS.ada)
+        expect(state).toMatchObject({ status: 'signed_out', signedOutReason: 'expired' })
+        expect(state.accounts.find((account) => account.key === KEYS.bob)?.needsSignIn).toBe(false)
+        expect(state.unreadableAccountKeys).toEqual([])
     })
 
     test('a removal that failed before is finished at launch instead of restoring the account', async () => {
