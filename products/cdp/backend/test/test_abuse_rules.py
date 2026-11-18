@@ -213,6 +213,21 @@ class TestAbuseRules(SimpleTestCase):
                 (Rule.INTERNAL_FUNCTION,),
             ),
             (
+                "local_helper_named_like_an_internal_function",
+                content(hog="fun sendEmail(text) {\n  return text\n}\nfetch(inputs.url, {'body': sendEmail('hi')})"),
+                (),
+            ),
+            (
+                "internal_function_called_before_a_local_of_that_name",
+                content(hog="sendEmail({'to': inputs.to})\nlet sendEmail := 1"),
+                (Rule.INTERNAL_FUNCTION,),
+            ),
+            (
+                "internal_function_named_as_a_local_in_another_scope",
+                content(hog="fun helper() {\n  let postHogCreateTask := 1\n}\npostHogCreateTask({})"),
+                (Rule.INTERNAL_FUNCTION,),
+            ),
+            (
                 "internal_function_name_in_a_string",
                 content(hog="print('postHogCreateTask runs in workflows')\nfetch(inputs.url)"),
                 (),
@@ -310,6 +325,9 @@ class TestAbuseRules(SimpleTestCase):
                     ("an_escaped_quote", '{{ "a\\"b" | concat: (1..20000) | size }}'),
                     ("a_quote_in_an_inline_comment", "{% # ' %}{{ (1..20000) | size }}"),
                     ("a_raw_block_with_a_loose_end_tag", "{% raw %}x{% endraw ignored %}{{ (1..20000) | size }}"),
+                    ("html_encoded_quotes", "{{ (&quot;1&quot;..&quot;20000&quot;) | size }}"),
+                    ("encoded_spaces", "{{%20(1%20..%2020000)%20|%20size%20}}"),
+                    ("unicode_escapes", "{{ ('1'..'\\u0032\\u0030\\u0030\\u0030\\u0030') | size }}"),
                 ]
             ),
             *(
@@ -319,6 +337,7 @@ class TestAbuseRules(SimpleTestCase):
                     ("in_an_inline_comment", "{% # {{ (1..20000) | size }} %}"),
                     ("in_a_comment_block", "{% comment %}{{ (1..20000) | size }}{% endcomment %}"),
                     ("in_a_raw_block", "{%- raw -%}{% for i in (1..20000) %}{% endfor %}{% endraw %}"),
+                    ("in_a_raw_block_with_trimmed_tags", "{%raw-%}{{ (1..20000) | size }}{%endraw%}"),
                     ("after_an_unclosed_quote", "{{ 'Hi }}{{ (1..20000) | size }}"),
                 ]
             ),

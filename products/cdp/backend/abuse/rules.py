@@ -8,6 +8,7 @@ import json
 import math
 import ipaddress
 from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from enum import StrEnum
 from urllib.parse import unquote, urlsplit
 
@@ -107,10 +108,14 @@ _LIQUID_BLOCK_ENDS = {
     "raw": re.compile(r"\{%-?\s*endraw\b"),
 }
 _LIQUID_BOUND = rf"""([+-]?\d++(?:\.(?!\.)\d*+)?|{_LIQUID_STRING_PATTERN})"""
-# A quoted string is matched first so that a range written inside one is skipped as text.
-_LIQUID_STRING_OR_RANGE = re.compile(
-    rf"""{_LIQUID_STRING_PATTERN}|\(\s*+{_LIQUID_BOUND}\s*+\.\.\s*+{_LIQUID_BOUND}\s*+\)""", re.DOTALL
-)
+_LIQUID_RANGE = re.compile(rf"""\(\s*+{_LIQUID_BOUND}\s*+\.\.\s*+{_LIQUID_BOUND}\s*+\)""", re.DOTALL)
+_LIQUID_STRING_OR_PAREN = re.compile(r"['\"(]")
+_LIQUID_STRING_ESCAPE = re.compile(r"\\(?:u([0-9a-fA-F]{0,4})|([0-7]{1,3})|(.))", re.DOTALL)
+_LIQUID_ESCAPED_CHARS = {"b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t", "v": "\v"}
+# `LiquidRenderer` in `nodejs/src/cdp/utils/liquid.ts` decodes these inside each tag before LiquidJS reads it.
+_DECODED_ENTITIES = (("&lt;", "<"), ("&gt;", ">"), ("&quot;", '"'), ("&#x27;", "'"), ("&amp;", "&"))
+_DECODED_TAG_CLOSERS = {"{": "}}", "%": "%}"}
+_QUOTE_OR_ENCODED_SPACE = re.compile(r"['\"]|%20")
 _JS_DECIMAL = re.compile(r"[+-]?(?:\d++(?:\.\d*+)?|\.\d++)(?:e[+-]?\d++)?", re.IGNORECASE)
 _JS_PREFIXED_INTEGER = re.compile(r"0x[0-9a-f]++|0o[0-7]++|0b[01]++", re.IGNORECASE)
 _JS_INFINITY = {"Infinity": math.inf, "+Infinity": math.inf, "-Infinity": -math.inf}
@@ -149,13 +154,53 @@ def _hog_code_rules(hog: str) -> set[Rule]:
 
 
 class _HogCodeVisitor(TraversingVisitor):
+    """Tracks the names in scope in source order, as the bytecode compiler does, because a call to a declared name
+    runs the local and never reaches the async function registry."""
+
     def __init__(self) -> None:
         super().__init__()
         self.matched: set[Rule] = set()
+        self._scopes: list[set[str]] = [set()]
+
+    def _calls_internal_function(self, name: str) -> bool:
+        return name in INTERNAL_FUNCTIONS and not any(name in scope for scope in self._scopes)
+
+    @contextmanager
+    def _scope(self, names: Iterable[str] = ()) -> Iterator[None]:
+        self._scopes.append(set(names))
+        try:
+            yield
+        finally:
+            self._scopes.pop()
+
+    def visit_block(self, node: ast.Block) -> None:
+        with self._scope():
+            super().visit_block(node)
+
+    def visit_function(self, node: ast.Function) -> None:
+        self._scopes[-1].add(node.name)
+        with self._scope(node.params):
+            super().visit_function(node)
+
+    def visit_lambda(self, node: ast.Lambda) -> None:
+        with self._scope(node.args):
+            super().visit_lambda(node)
+
+    def visit_for_in_statement(self, node: ast.ForInStatement) -> None:
+        with self._scope([node.valueVar, *([node.keyVar] if node.keyVar else [])]):
+            super().visit_for_in_statement(node)
+
+    def visit_for_statement(self, node: ast.ForStatement) -> None:
+        with self._scope():
+            super().visit_for_statement(node)
+
+    def visit_variable_declaration(self, node: ast.VariableDeclaration) -> None:
+        super().visit_variable_declaration(node)
+        self._scopes[-1].add(node.name)
 
     def visit_call(self, node: ast.Call) -> None:
         super().visit_call(node)
-        if node.name in INTERNAL_FUNCTIONS:
+        if self._calls_internal_function(node.name):
             self.matched.add(Rule.INTERNAL_FUNCTION)
         elif node.name == "range" and _hog_range_size(node.args) > MAX_RANGE_SIZE:
             self.matched.add(Rule.HUGE_RANGE)
@@ -165,7 +210,7 @@ class _HogCodeVisitor(TraversingVisitor):
     def visit_field(self, node: ast.Field) -> None:
         # `let run := postHogCreateTask` followed by `run()` reaches the same handler as a direct call.
         super().visit_field(node)
-        if len(node.chain) == 1 and str(node.chain[0]) in INTERNAL_FUNCTIONS:
+        if len(node.chain) == 1 and self._calls_internal_function(str(node.chain[0])):
             self.matched.add(Rule.INTERNAL_FUNCTION)
 
 
@@ -206,15 +251,75 @@ def _liquid_templates(content: HogFunctionContent) -> Iterator[str]:
 
 
 def _has_huge_liquid_range(template: str) -> bool:
-    for tag in _liquid_tags(template):
-        for match in _LIQUID_STRING_OR_RANGE.finditer(tag):
-            if match.group(1) is None:
-                continue
-            low, high = (_liquid_number(bound) for bound in match.groups())
+    for tag in _liquid_tags(_decode_liquid_tags(template)):
+        for low, high in map(_liquid_number_pair, _liquid_ranges(tag)):
             # LiquidJS builds the list from `low` while the value stays below `high + 1`.
             if high - low + 1 > MAX_RANGE_SIZE:
                 return True
     return False
+
+
+def _liquid_ranges(tag: str) -> Iterator[tuple[str, str]]:
+    """The bounds of each range literal in a tag, skipping quoted strings. An unterminated string ends the scan,
+    because LiquidJS cannot parse the tag, and that keeps a failed string from being scanned again."""
+    position = 0
+    while (stop := _LIQUID_STRING_OR_PAREN.search(tag, position)) is not None:
+        if stop.group() == "(":
+            literal = _LIQUID_RANGE.match(tag, stop.start())
+            position = stop.end() if literal is None else literal.end()
+            if literal is not None:
+                yield literal.group(1), literal.group(2)
+            continue
+        string = _LIQUID_STRING.match(tag, stop.start())
+        if string is None:
+            return
+        position = string.end()
+
+
+def _decode_liquid_tags(template: str) -> str:
+    """A port of `decodeLiquidTags` in `nodejs/src/cdp/utils/liquid.ts`, which runs before LiquidJS parses."""
+    out: list[str] = []
+    cursor = 0
+    exhausted: set[str] = set()
+    while (start := template.find("{", cursor)) != -1:
+        closer = _DECODED_TAG_CLOSERS.get(template[start + 1 : start + 2])
+        end = template.find(closer, start + 2) if closer is not None and closer not in exhausted else -1
+        if end == -1:
+            if closer is not None:
+                exhausted.add(closer)
+            out.append(template[cursor : start + 1])
+            cursor = start + 1
+            continue
+        out.append(template[cursor:start] + _decode_encoded_spaces(_decode_entities(template[start : end + 2])))
+        cursor = end + 2
+    out.append(template[cursor:])
+    return "".join(out)
+
+
+def _decode_entities(tag: str) -> str:
+    for entity, char in _DECODED_ENTITIES:
+        tag = tag.replace(entity, char)
+    return tag
+
+
+def _decode_encoded_spaces(tag: str) -> str:
+    """Every `%20` outside a quoted string becomes a space."""
+    if "%20" not in tag:
+        return tag
+    out: list[str] = []
+    position = 0
+    while (stop := _QUOTE_OR_ENCODED_SPACE.search(tag, position)) is not None:
+        out.append(tag[position : stop.start()])
+        if stop.group() == "%20":
+            out.append(" ")
+            position = stop.end()
+            continue
+        string = _LIQUID_STRING.match(tag, stop.start())
+        string_end = len(tag) if string is None else string.end()
+        out.append(tag[stop.start() : string_end])
+        position = string_end
+    out.append(tag[position:])
+    return "".join(out)
 
 
 def _liquid_tags(template: str) -> Iterator[str]:
@@ -228,7 +333,7 @@ def _liquid_tags(template: str) -> Iterator[str]:
             return
         tag = template[opener.end() : end]
         position = end + 2
-        words = tag.lstrip("-").split(maxsplit=1)
+        words = tag.strip().strip("-").split(maxsplit=1)
         name = words[0] if words else ""
         if name.startswith("#"):
             continue
@@ -260,8 +365,27 @@ def _output_tag_end(template: str, start: int) -> int:
     return -1
 
 
+def _liquid_number_pair(bounds: tuple[str, str]) -> tuple[float, float]:
+    low, high = bounds
+    return _liquid_number(low), _liquid_number(high)
+
+
 def _liquid_number(bound: str) -> float:
-    return _js_number(bound[1:-1] if bound[0] in "'\"" else bound)
+    return _js_number(_liquid_string_value(bound) if bound[0] in "'\"" else bound)
+
+
+def _liquid_string_value(literal: str) -> str:
+    """The value of a quoted string, with escapes decoded as LiquidJS's `parseStringLiteral` decodes them."""
+    return _LIQUID_STRING_ESCAPE.sub(_decoded_escape, literal[1:-1])
+
+
+def _decoded_escape(escape: re.Match[str]) -> str:
+    hex_digits, octal_digits, char = escape.groups()
+    if hex_digits is not None:
+        return chr(int(hex_digits, 16)) if hex_digits else "\0"
+    if octal_digits is not None:
+        return chr(int(octal_digits, 8))
+    return _LIQUID_ESCAPED_CHARS.get(char, char)
 
 
 def _js_number(text: str) -> float:
