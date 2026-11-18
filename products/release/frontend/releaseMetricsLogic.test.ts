@@ -13,11 +13,17 @@ describe('metricFromResult', () => {
             expected: { value: 42, values: [3, 5], labels: ['a', 'b'] },
         },
         {
+            name: 'a metric display uses its summary, not the last point',
+            result: [{ data: [10, 20, 30], days: ['a', 'b', 'c'], count: 60 }],
+            query: { source: { trendsFilter: { display: 'Metric', metricSummary: 'total' } } },
+            expected: { value: 60, values: [10, 20, 30], labels: ['a', 'b', 'c'] },
+        },
+        {
             name: 'a result that is not a trend has no value',
             result: { results: [] },
             expected: { value: null, values: [], labels: [] },
         },
-    ])('$name', ({ result, expected }) => {
-        expect(metricFromResult(result)).toEqual(expected)
+    ])('$name', ({ result, query, expected }) => {
+        expect(metricFromResult(result, query)).toEqual(expected)
     })
 })

@@ -155,7 +155,10 @@ export interface WriteReleaseApi {
      * @items.maximum 2147483647
      */
     metric_insight_ids?: number[]
-    /** Targets for the release's metrics, at most one per metric. Each insight_id must be one of the metric_insight_ids. Replaces the current goals. */
+    /**
+     * Targets for the release's metrics, at most one per metric. Each insight_id must be one of the metric_insight_ids. Replaces the current goals.
+     * @maxItems 5
+     */
     metric_goals?: MetricGoalApi[]
 }
 
@@ -203,7 +206,10 @@ export interface PatchedUpdateReleaseApi {
      * @items.maximum 2147483647
      */
     metric_insight_ids?: number[]
-    /** Targets for the release's metrics, at most one per metric. Each insight_id must be one of the metric_insight_ids. Replaces the current goals. */
+    /**
+     * Targets for the release's metrics, at most one per metric. Each insight_id must be one of the metric_insight_ids. Replaces the current goals.
+     * @maxItems 5
+     */
     metric_goals?: MetricGoalApi[]
 }
 

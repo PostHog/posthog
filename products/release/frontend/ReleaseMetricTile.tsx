@@ -48,6 +48,7 @@ export function ReleaseMetricTile({
     const { metrics } = useValues(releaseMetricsLogic)
     const { canEditReleases } = useValues(releaseLogic)
     const { updateRelease } = useActions(releaseLogic)
+    const { loadMetrics } = useActions(releaseMetricsLogic)
     const [editingGoal, setEditingGoal] = useState(false)
     const metric = metrics[insightId]
     const ready = metric?.status === 'ready' ? metric : null
@@ -72,8 +73,16 @@ export function ReleaseMetricTile({
                         {ready.name}
                     </LinkPrimitive>
                 ) : metric?.status === 'failed' ? (
-                    <Text size="xs" variant="muted">
+                    <Text size="xs" variant="muted" className="flex items-center gap-1">
                         This metric could not load.
+                        <Button
+                            size="xs"
+                            variant="link-muted"
+                            onClick={() => loadMetrics([insightId])}
+                            data-attr="release-metric-retry"
+                        >
+                            Try again
+                        </Button>
                     </Text>
                 ) : (
                     <Skeleton className="h-3 w-32" />

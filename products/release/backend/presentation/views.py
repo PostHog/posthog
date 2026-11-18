@@ -241,6 +241,14 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound("Release not found.")
         except api.UnknownLinkedObjectsError as error:
             raise ValidationError({error.field: f"These {error.noun} do not exist in this project: {error.ids}"})
+        except api.TooManyMetricsError:
+            raise ValidationError(
+                {
+                    "metric_insight_ids": (
+                        f"A release can have up to {contracts.MAX_METRICS} metrics, including ones you cannot see."
+                    )
+                }
+            )
         return Response(ReleaseSerializer(dto).data)
 
     @validated_request(

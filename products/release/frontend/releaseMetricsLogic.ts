@@ -1,8 +1,17 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers } from 'kea'
 
+import {
+    METRIC_SUMMARY_DEFAULT,
+    type MetricSummary,
+    computeMetricSummary,
+    selectCurrentSeries,
+} from 'lib/components/Metric/metricSummary'
 import { projectLogic } from 'scenes/projectLogic'
 
+import { ChartDisplayType } from '~/types'
+
 import { insightsRetrieve } from 'products/product_analytics/frontend/generated/api'
+import type { QueryStatusApi } from 'products/product_analytics/frontend/generated/api.schemas'
 
 export type ReleaseMetric =
     | { status: 'loading' }
@@ -20,24 +29,41 @@ interface TrendSeries {
     data?: unknown
     labels?: unknown
     days?: unknown
+    count?: unknown
     aggregated_value?: unknown
+    compare_label?: string | null
+}
+
+interface MetricQuery {
+    source?: { trendsFilter?: { display?: string; metricSummary?: MetricSummary } }
 }
 
 function isNumberList(value: unknown): value is number[] {
     return Array.isArray(value) && value.every((item) => typeof item === 'number')
 }
 
+function finite(value: unknown): number | null {
+    return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
 export function metricFromResult(
-    result: unknown
+    result: unknown,
+    query?: unknown
 ): Pick<Extract<ReleaseMetric, { status: 'ready' }>, 'value' | 'values' | 'labels'> {
-    const series = (Array.isArray(result) ? result[0] : null) as TrendSeries | null
+    const series = Array.isArray(result) ? selectCurrentSeries(result as TrendSeries[]) : undefined
     if (!series) {
         return { value: null, values: [], labels: [] }
     }
     const values = isNumberList(series.data) ? series.data : []
     const days = Array.isArray(series.days) ? series.days.map(String) : []
     const labels = days.length === values.length ? days : Array.isArray(series.labels) ? series.labels.map(String) : []
-    const aggregated = typeof series.aggregated_value === 'number' ? series.aggregated_value : null
+    const aggregated = finite(series.aggregated_value)
+    const trendsFilter = (query as MetricQuery | null | undefined)?.source?.trendsFilter
+    if (trendsFilter?.display === ChartDisplayType.Metric) {
+        const total = aggregated ?? finite(series.count)
+        const summary = trendsFilter.metricSummary ?? METRIC_SUMMARY_DEFAULT
+        return { value: total === null ? null : computeMetricSummary(summary, total, values), values, labels }
+    }
     return { value: aggregated ?? values.at(-1) ?? null, values, labels }
 }
 
@@ -99,11 +125,15 @@ export const releaseMetricsLogic = kea<releaseMetricsLogicType>([
                         const insight = await insightsRetrieve(String(values.currentProjectId), insightId, {
                             refresh: 'blocking',
                         })
+                        if ((insight.query_status as QueryStatusApi | null | undefined)?.error) {
+                            actions.metricLoaded(insightId, { status: 'failed' })
+                            return
+                        }
                         actions.metricLoaded(insightId, {
                             status: 'ready',
                             name: insight.name || insight.derived_name || 'Untitled insight',
                             shortId: insight.short_id,
-                            ...metricFromResult(insight.result),
+                            ...metricFromResult(insight.result, insight.query),
                         })
                     } catch {
                         actions.metricLoaded(insightId, { status: 'failed' })

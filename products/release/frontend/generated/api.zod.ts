@@ -32,6 +32,8 @@ export const releasesCreateBodyMetricInsightIdsMax = 5
 
 export const releasesCreateBodyMetricGoalsItemInsightIdMax = 2147483647
 
+export const releasesCreateBodyMetricGoalsMax = 5
+
 export const ReleasesCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(releasesCreateBodyNameMax).describe('Name of the release.'),
     description: zod.string().optional().describe('What changes for the people who get the release.'),
@@ -83,6 +85,7 @@ export const ReleasesCreateBody = /* @__PURE__ */ zod.object({
                 value: zod.number().describe('Target value of the metric.'),
             })
         )
+        .max(releasesCreateBodyMetricGoalsMax)
         .optional()
         .describe(
             "Targets for the release's metrics, at most one per metric. Each insight_id must be one of the metric_insight_ids. Replaces the current goals."
@@ -111,6 +114,8 @@ export const releasesPartialUpdateBodyMetricInsightIdsItemMax = 2147483647
 export const releasesPartialUpdateBodyMetricInsightIdsMax = 5
 
 export const releasesPartialUpdateBodyMetricGoalsItemInsightIdMax = 2147483647
+
+export const releasesPartialUpdateBodyMetricGoalsMax = 5
 
 export const ReleasesPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(releasesPartialUpdateBodyNameMax).optional().describe('Name of the release.'),
@@ -163,6 +168,7 @@ export const ReleasesPartialUpdateBody = /* @__PURE__ */ zod.object({
                 value: zod.number().describe('Target value of the metric.'),
             })
         )
+        .max(releasesPartialUpdateBodyMetricGoalsMax)
         .optional()
         .describe(
             "Targets for the release's metrics, at most one per metric. Each insight_id must be one of the metric_insight_ids. Replaces the current goals."

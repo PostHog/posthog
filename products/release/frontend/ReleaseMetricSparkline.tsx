@@ -1,12 +1,6 @@
 import { useMemo } from 'react'
 
-import {
-    AnomalyPointsLayer,
-    LineChart,
-    type LineChartConfig,
-    ReferenceLine,
-    type Series,
-} from '@posthog/quill-charts'
+import { AnomalyPointsLayer, LineChart, type LineChartConfig, ReferenceLine, type Series } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 

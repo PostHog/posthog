@@ -252,8 +252,8 @@ class WriteReleaseSerializer(serializers.Serializer):
         ),
     )
 
-    metric_goals = MetricGoalSerializer(
-        many=True,
+    metric_goals = serializers.ListField(
+        child=MetricGoalSerializer(),
         required=False,
         max_length=MAX_METRICS,
         help_text=(

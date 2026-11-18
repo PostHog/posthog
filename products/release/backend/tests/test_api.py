@@ -255,14 +255,20 @@ class TestReleaseAPI(APIBaseTest):
         release_id = self.client.post(
             self._url(), {"name": "Checkout", "metric_insight_ids": [primary, hidden, secondary]}, format="json"
         ).json()["id"]
+        extra = [self._linked_object("insight", f"Metric {index}")[0] for index in range(3)]
         self._restrict_as_admin(hidden_path)
         self.client.force_login(self._create_user("member@example.com"))
 
         member_view = self.client.get(self._url()).json()["results"][0]
         self.client.patch(self._url(f"{release_id}/"), {"metric_insight_ids": [secondary, primary]}, format="json")
+        over_cap = self.client.patch(
+            self._url(f"{release_id}/"), {"metric_insight_ids": [secondary, primary, *extra]}, format="json"
+        )
         stored = Release.objects.unscoped().get(id=release_id).metric_insight_ids
 
         assert member_view["metric_insight_ids"] == [primary, secondary]
+        assert over_cap.status_code == status.HTTP_400_BAD_REQUEST
+        assert "metric_insight_ids" in over_cap.json()["attr"]
         assert stored == [secondary, primary, hidden]
 
     @parameterized.expand(

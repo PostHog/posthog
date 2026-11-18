@@ -102,7 +102,15 @@ def _goals_for_metrics(goals: list[dict[str, Any]], metric_ids: list[int]) -> li
 
 
 def update_release(team_id: int, release_id: UUID, changes: dict) -> Release:
-    release = get_release(team_id, release_id)
+    with transaction.atomic():
+        release = Release.objects.select_for_update().filter(team_id=team_id, id=release_id).first()
+        if release is None:
+            raise ReleaseNotFoundError(release_id)
+        _apply_changes(release, changes)
+    return get_release(team_id, release_id)
+
+
+def _apply_changes(release: Release, changes: dict) -> None:
     if "name" in changes:
         changes = {**changes, "auto_named": False}
     if "metric_insight_ids" in changes or "metric_goals" in changes:
@@ -116,7 +124,6 @@ def update_release(team_id: int, release_id: UUID, changes: dict) -> Release:
     for field, value in changes.items():
         setattr(release, field, value)
     release.save(update_fields=[*changes.keys(), "updated_at"])
-    return get_release(team_id, release_id)
 
 
 LINKED_NOUNS = {

@@ -31,6 +31,7 @@ if TYPE_CHECKING:
 
 ReleaseNotFoundError = contracts.ReleaseNotFoundError
 UnknownLinkedObjectsError = contracts.UnknownLinkedObjectsError
+TooManyMetricsError = contracts.TooManyMetricsError
 InvalidMergeError = contracts.InvalidMergeError
 ImportFlag = contracts.ImportFlag
 
@@ -262,6 +263,8 @@ def update(team_id: int, release_id: UUID, changes: dict[str, Any], lookups: Lin
                 changes[field] = _checked(
                     field, noun, list(changes[field]), list(getattr(current, field)), getattr(lookups, noun)
                 )
+        if len(changes.get("metric_insight_ids", [])) > contracts.MAX_METRICS:
+            raise contracts.TooManyMetricsError()
         if "metric_goals" in changes:
             changes["metric_goals"] = _checked_goals(
                 list(changes["metric_goals"]),
