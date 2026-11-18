@@ -1190,10 +1190,10 @@ Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocor
 - [x] `Cost and usage with resources (GetCostAndUsageWithResources, POST /)` — attributes spend to individual resources for cost allocation and investigation (high)
 - [x] `Reservation coverage (GetReservationCoverage, POST /)` — measures eligible usage covered by Reserved Instances, which utilization totals cannot establish (high)
 - [x] `Savings Plans coverage (GetSavingsPlansCoverage, POST /)` — measures eligible spend covered by Savings Plans and the remaining on-demand exposure (high)
-- [ ] `Savings Plans utilization details (GetSavingsPlansUtilizationDetails, POST /)` — shows utilization, savings, commitments, and attributes for each Savings Plan (medium)
-- [ ] `Cost forecast (GetCostForecast, POST /)` — supports budget planning with predicted spend and confidence intervals (medium)
-- [ ] `Rightsizing recommendations (GetRightsizingRecommendation, POST /)` — identifies idle or oversized EC2 instances and estimates savings (medium)
-- [ ] `Reservation purchase recommendations (GetReservationPurchaseRecommendation, POST /)` — quantifies potential savings and recommended Reserved Instance purchases by service (medium)
+- [x] `Savings Plans utilization details (GetSavingsPlansUtilizationDetails, POST /)` — shows utilization, savings, commitments, and attributes for each Savings Plan (medium)
+- [x] `Cost forecast (GetCostForecast, POST /)` — supports budget planning with predicted spend and confidence intervals (medium)
+- [x] `Rightsizing recommendations (GetRightsizingRecommendation, POST /)` — identifies idle or oversized EC2 instances and estimates savings (medium)
+- [x] `Reservation purchase recommendations (GetReservationPurchaseRecommendation, POST /)` — quantifies potential savings and recommended Reserved Instance purchases by service (medium)
 - [ ] `Savings Plans purchase recommendations (GetSavingsPlansPurchaseRecommendation, POST /)` — quantifies recommended commitments and potential savings for future Savings Plans purchases (medium)
 
 Note: Compared the official botocore operation model with the static table map and extraction code. JSON RPC reads use POST / with X-Amz-Target; current tables group costs by service and account. Resource costs need opt-in and expose a short history; Savings Plans recommendations require prior generation. Tag administration was excluded; current utilization tables contain totals rather than individual plan performance.
