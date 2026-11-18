@@ -1,0 +1,68 @@
+name: Mock app smoke
+
+# Builds the app with mocked API responses (pnpm --filter=@posthog/frontend preview:mock-app) and runs the
+# Playwright specs in playwright/mock-app/ against it in Chromium and WebKit. Nothing in it needs a backend,
+# so the job installs no Python, docker or database.
+
+on:
+    pull_request:
+        types: [opened, synchronize, reopened, ready_for_review]
+        paths:
+            - '.github/workflows/ci-mock-app.yml'
+            - 'frontend/**'
+            - 'products/**'
+            - 'services/mcp/src/ui-apps/**'
+            - 'common/storybook/.storybook/**'
+            - 'common/hogvm/typescript/**'
+            - 'packages/**'
+            - 'docs/onboarding/**'
+            - 'posthog/templates/replay_player_frame/**'
+            - 'playwright/mock-app/**'
+            - 'playwright/mock-app.config.ts'
+            - 'playwright/package.json'
+            - 'pnpm-lock.yaml'
+    workflow_dispatch:
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+    contents: read
+
+jobs:
+    smoke:
+        name: Mock app smoke
+        runs-on: depot-ubuntu-24.04-4
+        timeout-minutes: 30
+        steps:
+            # Not sparse: the build follows the app's whole import graph, which reaches files in product
+            # backends (SQL and Markdown loaded as text), docs and services.
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter=@posthog/playwright... install --frozen-lockfile
+
+            - name: Prepare frontend
+              run: bin/turbo --filter=@posthog/frontend prepare
+
+            - name: Install Playwright browsers
+              run: pnpm --filter=@posthog/playwright exec playwright install --with-deps chromium webkit
+
+            # The config's web server builds the mock app and serves the build.
+            - name: Run the smoke specs
+              env:
+                  CI: '1'
+              run: pnpm --filter=@posthog/playwright exec playwright test --config mock-app.config.ts
+
+            - name: Upload the Playwright report
+              if: failure()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: mock-app-playwright-report
+                  path: |
+                      playwright/playwright-report/
+                      playwright/test-results/
+                  retention-days: 14

@@ -83,6 +83,13 @@ rules:
           - '/nodejs/bin/'
           - '/rust/bin/'
       owners: team-devex
+    # The mock app is dev and CI tooling built on the frontend build scripts above.
+    - match:
+          - '/frontend/plugins/vite-mock-app.ts'
+          - '/frontend/vite.mock-app.config.mts'
+          - '/playwright/mock-app/'
+          - '/playwright/mock-app.config.ts'
+      owners: team-devex
     - match: '/bin/inject_mcp_intents.py'
       owners: mcp-analytics
     - match: '/.agents/skills/manage-dashboard-widgets/'
