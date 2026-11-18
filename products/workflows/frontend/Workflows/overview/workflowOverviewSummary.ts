@@ -55,6 +55,17 @@ export function triggerPropertyFilters(trigger: HogFlow['trigger']): any[] {
     return (trigger.filters as { properties?: any[] }).properties ?? []
 }
 
+function periodSuffix(ttlSeconds: number | null, hasPeriodPicker: boolean): string {
+    const ttlLabel =
+        ttlSeconds === null
+            ? null
+            : (TTL_OPTIONS.find((o) => o.value === ttlSeconds)?.label ?? humanFriendlyDuration(ttlSeconds))
+    if (ttlLabel) {
+        return ` per ${ttlLabel}`
+    }
+    return hasPeriodPicker ? ' ever' : ''
+}
+
 export function frequencySummary(workflow: Pick<HogFlow, 'trigger' | 'trigger_masking'>): string {
     const hash = workflow.trigger_masking?.hash ?? null
     const registered = workflow.trigger
@@ -65,19 +76,7 @@ export function frequencySummary(workflow: Pick<HogFlow, 'trigger' | 'trigger_ma
         return 'Every time the trigger fires'
     }
     const label = option ? (option.shortLabel ?? option.label) : 'Limited by a custom rule'
-    const ttlSeconds = workflow.trigger_masking?.ttl ?? null
-    const ttlLabel =
-        ttlSeconds === null
-            ? null
-            : (TTL_OPTIONS.find((o) => o.value === ttlSeconds)?.label ?? humanFriendlyDuration(ttlSeconds))
-    let base = label
-    if (!option?.fixedTtl) {
-        if (ttlLabel) {
-            base = `${label} per ${ttlLabel}`
-        } else if (option) {
-            base = `${label} ever`
-        }
-    }
+    const base = option?.fixedTtl ? label : label + periodSuffix(workflow.trigger_masking?.ttl ?? null, !!option)
     // With a threshold of N, the 1st, (N + 1)th, (2N + 1)th... matching events start a run.
     const threshold = workflow.trigger_masking?.threshold ?? null
     return threshold && threshold > 1 ? `${base}, then again every ${threshold} matching events` : base
