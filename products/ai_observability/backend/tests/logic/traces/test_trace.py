@@ -161,6 +161,11 @@ def test_person_label(_name: str, person: PersonRow | None, expected: str | None
             "e0",
         ),
         ("a trace without nodes falls back to the root", [], "trace-1"),
+        (
+            "a chain of spans deeper than the recursion limit still gives the first top-level node",
+            [{"span_id": f"s{i}", "parent_id": f"s{i - 1}" if i else None} for i in range(1_500)],
+            "e0",
+        ),
     ]
 )
 def test_default_node_id(_name: str, rows: list[dict[str, Any]], expected: str) -> None:
