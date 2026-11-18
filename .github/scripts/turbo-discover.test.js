@@ -184,6 +184,7 @@ test('only a product whose backend:test is a bare echo leaves the matrix', () =>
         task('@posthog/products-surveys', 'pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short'),
         task('@posthog/products-canvas', "echo 'building' && pytest backend/"),
         task('@posthog/products-alerts', "echo $(pytest backend/)"),
+        task('@posthog/products-logs', 'echo hi\npytest backend/'),
         task('@posthog/personhog-proto', "echo 'personhog-proto has no tests'"),
     ]
     assert.deepEqual([...testlessProducts(tasks)], ['replay'])

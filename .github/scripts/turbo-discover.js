@@ -355,7 +355,7 @@ function dropProducts(products, allProducts, names, label) {
 function testlessProducts(testTasks) {
     return new Set(
         testTasks
-            .filter((t) => isProductPackage(t.package) && /^echo\s[^;&|`$()<>]*$/.test(t.command.trim()))
+            .filter((t) => isProductPackage(t.package) && /^echo[ \t][^;&|`$()<>\n\r]*$/.test(t.command.trim()))
             .map((t) => packageToProduct(t.package))
     )
 }
