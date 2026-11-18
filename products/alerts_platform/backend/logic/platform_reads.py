@@ -17,6 +17,7 @@ from django.db.models.functions import Coalesce
 from posthog.helpers.full_text_search import build_rank
 from posthog.helpers.trigram_search import NAME_FIELD, apply_trigram_search
 
+from products.alerts_platform.backend.delivery.thread_store import LEGACY_EVENTS_PROVIDER
 from products.alerts_platform.backend.facade.contracts import (
     ControlChangeKind,
     EnabledNativeConfiguration,
@@ -46,7 +47,7 @@ from products.alerts_platform.backend.facade.enums import (
     PlatformAlertState,
 )
 from products.alerts_platform.backend.logic import platform_alert_events
-from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
+from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration, PlatformAlertThread
 
 
 def instance_view(alert: PlatformAlert, configuration: PlatformAlertConfiguration) -> PlatformAlertSnapshot:
@@ -107,6 +108,9 @@ def _configuration_view(configuration: PlatformAlertConfiguration) -> PlatformAl
     )
 
 
+_HELD = Q(legacy_configuration_id__isnull=True) | Q(owner=PlatformAlertOwner.PLATFORM)
+
+
 def _readable(team_id: int, source_kinds: Sequence[str]) -> QuerySet[PlatformAlertConfiguration]:
     """Configurations of the given kinds belonging to `team_id`, instances prefetched.
 
@@ -131,10 +135,12 @@ def list_configurations(
     legacy_configuration_id: UUID | None = None,
     configuration_ids: Collection[UUID] | None = None,
     created_by_uuid: UUID | None = None,
+    held_only: bool = False,
 ) -> PlatformAlertConfigurationPage:
     """One page of configurations, newest first, with the total behind it. With a
     `legacy_configuration_id`, only the copy of that source row. With `configuration_ids`, only those.
-    With `created_by_uuid`, only the ones that user created.
+    With `created_by_uuid`, only the ones that user created. With `held_only`, only the ones whose
+    settings the platform holds: those with no source row, and the copies it owns.
 
     The page is taken in the database rather than in the caller, so a team with many alerts
     costs one page rather than all of them. Slicing keeps the prefetch, which resolves over the
@@ -147,6 +153,8 @@ def list_configurations(
         readable = readable.filter(id__in=list(configuration_ids))
     if created_by_uuid is not None:
         readable = readable.filter(created_by__uuid=created_by_uuid)
+    if held_only:
+        readable = readable.filter(_HELD)
     return PlatformAlertConfigurationPage(
         configurations=tuple(_configuration_view(row) for row in readable[offset : offset + limit]),
         total=readable.count(),
@@ -483,10 +491,12 @@ def count_configurations(
     check_interval_minutes: int | None = None,
     exclude_id: UUID | None = None,
     source_config_contains: Mapping[str, Any] | None = None,
+    held_only: bool = False,
 ) -> int:
     """How many alerts of a kind a team has on the platform, whoever owns them. With `native_only`, only
-    the ones with no source row. With `exclude_id`, the alert an edit is checked for is left out. With
-    `source_config_contains`, only the ones whose `source_config` holds that object."""
+    the ones with no source row, and with `held_only` also the copies the platform owns. With
+    `exclude_id`, the alert an edit is checked for is left out. With `source_config_contains`, only the
+    ones whose `source_config` holds that object."""
     configurations = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
         source_kind=source_kind
     )
@@ -496,6 +506,8 @@ def count_configurations(
         configurations = configurations.filter(source_config__contains=source_config_contains)
     if native_only:
         configurations = configurations.filter(legacy_configuration_id__isnull=True)
+    if held_only:
+        configurations = configurations.filter(_HELD)
     if enabled_only:
         configurations = configurations.filter(enabled=True)
     if check_interval_minutes is not None:
@@ -547,6 +559,21 @@ def _owned_with_public_ids(team_id: int, public_ids: Collection[UUID]) -> QueryS
     """The alerts the platform owns with these public ids (`PlatformAlertConfiguration.destination_alert_id`)."""
     return PlatformAlertConfiguration.objects.for_team(team_id).filter(
         PlatformAlertConfiguration.with_destination_alert_ids(public_ids), owner=PlatformAlertOwner.PLATFORM
+    )
+
+
+def legacy_events_emitted_since(*, team_id: int, public_id: UUID, since: datetime) -> bool:
+    """Whether a delivery claimed or emitted the alert's legacy events at or after `since`."""
+    return (
+        PlatformAlertThread.objects.for_team(team_id)
+        .filter(
+            configuration__in=PlatformAlertConfiguration.objects.for_team(team_id).filter(
+                PlatformAlertConfiguration.with_destination_alert_ids([public_id])
+            ),
+            provider=LEGACY_EVENTS_PROVIDER,
+            updated_at__gte=since,
+        )
+        .exists()
     )
 
 

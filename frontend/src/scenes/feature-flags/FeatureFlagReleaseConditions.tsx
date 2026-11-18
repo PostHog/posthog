@@ -42,6 +42,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import { CohortFlagTargetingNotice } from 'products/cohorts/frontend/realtime/CohortFlagTargetingNotice'
 import { useRealtimeCohortsServing } from 'products/cohorts/frontend/realtime/useRealtimeCohortsServing'
 import { CohortConditionLink } from 'products/feature_flags/frontend/CohortConditionLink'
 import { ConditionSetSummary } from 'products/feature_flags/frontend/ConditionSetSummary'
@@ -381,6 +382,7 @@ export function FeatureFlagReleaseConditions({
                                 hideBehavioralCohorts={!realtimeCohortFlagTargeting}
                                 showCohortFlagTargeting
                             />
+                            <CohortFlagTargetingNotice properties={group.properties ?? []} className="mt-2" />
                         </div>
                     )}
                     {(!readOnly || (readOnly && (group.properties?.length || 0) > 0)) && (
