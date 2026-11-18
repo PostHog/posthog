@@ -1475,11 +1475,41 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("from", {"from": "Example <hello@example.org>"}, "`from`"),
+            ("reply_to", {"reply_to": ["help@example.com"]}, "`reply_to`"),
+            (
+                "both",
+                {"from": "hello@example.org", "reply_to": ["help@example.com"]},
+                "`from` and `reply_to`",
+            ),
+        ]
+    )
+    def test_a_sandbox_code_send_ignores_its_own_sender_and_names_what_it_ignored(
+        self, mock_post, _flag, _capture, _name, fields, named
+    ):
+        self._without_a_verified_sender(unverified_sender=False)
+        pipeline = FakeCdpApi()
+        mock_post.side_effect = pipeline.post
+
+        response = self._psak_client(["hog_flow:write"]).post(
+            self.send_email_url, self._code_send(**fields), format="json"
+        )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        (sandbox,) = self._sandbox_senders()
+        (queued,) = pipeline.queued
+        assert queued["send"]["from"] == {"integrationId": sandbox.id}
+        assert "replyTo" not in queued["send"]
+        (warning,) = response.json()["warnings"]
+        assert warning["code"] == "sandbox_sender"
+        assert f"ignored {named}" in warning["message"]
+        assert f"ignored {named}" in warning["agent_action"]
+
+    @parameterized.expand(
+        [
             ("cc", {"cc": ["copy@example.com"]}),
             ("bcc", {"bcc": "hidden@example.com"}),
-            ("reply_to", {"reply_to": ["help@example.com"]}),
             ("attachments", {"attachments": TWO_FILES}),
-            ("from", {"from": "Example <hello@example.org>"}),
         ]
     )
     def test_refuses_what_the_sandbox_sender_cannot_send_before_setting_it_up(

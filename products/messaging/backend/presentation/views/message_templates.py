@@ -593,14 +593,17 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         max_length=1024,
         help_text="Sender of the email your code rendered, as `security@example.com` or "
         "`Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from "
-        "the project's default sender, or from its only verified sender when it has no default.",
+        "the project's default sender, or from its only verified sender when it has no default. A project with no "
+        "verified sending domain sends from the PostHog test sender, which ignores this field and says so in the "
+        "response's `warnings`.",
     )
     reply_to = serializers.ListField(
         child=serializers.EmailField(validators=[validate_pipeline_address]),
         required=False,
         allow_empty=False,
         max_length=10,
-        help_text="Addresses replies to the email your code rendered go to.",
+        help_text="Addresses replies to the email your code rendered go to. The PostHog test sender ignores them and "
+        "says so in the response's `warnings`.",
     )
     cc = AddressListField(
         required=False,
@@ -902,8 +905,8 @@ SEND_RESPONSES: dict[int, ResponseDeclaration] = {
         description="A field is invalid, the template isn't transactional or its email is paused, the sender isn't "
         "verified, the recipient can't be used, the Idempotency-Key is invalid, the email is too large to send, or "
         "the project has reached its limit of template keys and the `template_key` is new. A code send from a "
-        "project with no verified sending domain goes out from the sandbox sender, which refuses `cc`, `bcc`, "
-        "`reply_to`, `attachments` and a custom `from`"
+        "project with no verified sending domain goes out from the PostHog test sender, which refuses `cc`, `bcc` "
+        "and `attachments`"
     ),
     403: OpenApiResponse(
         description="The project has no verified sending domain, and the sandbox sender isn't available for its "
