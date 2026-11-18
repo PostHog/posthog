@@ -1,7 +1,7 @@
 # Moving from posthog-cli to hog
 
 > [!NOTE]
-> This guide is a draft. hog isn't published yet. The guide moves to https://posthog.com/docs/cli/migrating when it is, and https://posthog.com/docs/cli/migrating.md serves it as markdown.
+> This guide is duplicated at https://posthog.com/docs/cli/migrating.
 
 hog is the successor to posthog-cli. It does what posthog-cli does, with new command names, `HOG_` environment variables, and output that agents can read.
 
