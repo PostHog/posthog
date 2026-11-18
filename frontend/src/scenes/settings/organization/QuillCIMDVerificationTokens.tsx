@@ -41,8 +41,12 @@ const CIMD_URL_HELP =
     'The token only verifies at this URL, so a copy published anywhere else is ignored. Must be HTTPS and include a path, and the path is case-sensitive.'
 
 export function QuillCIMDVerificationTokens({
+    hasUnboundToken,
+    tokensLiveElsewhere,
     onRevoke,
 }: {
+    hasUnboundToken: boolean
+    tokensLiveElsewhere: boolean
     onRevoke: (token: CIMDVerificationToken) => void
 }): JSX.Element {
     const {
@@ -69,8 +73,6 @@ export function QuillCIMDVerificationTokens({
         setBindUrl,
         bindToken,
     } = useActions(cimdVerificationTokensLogic)
-
-    const hasUnboundToken = tokens.some((token) => !token.cimd_url)
 
     const columns: ColumnDef<CIMDVerificationToken>[] = [
         {
@@ -172,8 +174,37 @@ export function QuillCIMDVerificationTokens({
                 for the metadata format.
             </Text>
 
+            {tokensLiveElsewhere && (
+                <Item tone="warning" size="sm">
+                    <ItemContent>
+                        <ItemDescription>
+                            Verification tokens are created in PostHog US. Create the token from your organization at{' '}
+                            <Button
+                                variant="link"
+                                size="inline"
+                                nativeButton={false}
+                                render={
+                                    <LinkPrimitive
+                                        to="https://us.posthog.com/settings/organization-cimd-verification-tokens"
+                                        target="_blank"
+                                    />
+                                }
+                            >
+                                us.posthog.com
+                            </Button>
+                            . Your metadata document carries one token for every region.
+                        </ItemDescription>
+                    </ItemContent>
+                </Item>
+            )}
+
             <div className="flex justify-end">
-                <Button variant="primary" onClick={showCreateDialog} data-attr="create-cimd-verification-token">
+                <Button
+                    variant="primary"
+                    onClick={showCreateDialog}
+                    data-attr="create-cimd-verification-token"
+                    disabledReason={tokensLiveElsewhere ? 'Create verification tokens in PostHog US' : undefined}
+                >
                     Create verification token
                 </Button>
             </div>
@@ -198,7 +229,11 @@ export function QuillCIMDVerificationTokens({
                             <IconKey />
                         </EmptyMedia>
                         <EmptyTitle>No verification tokens</EmptyTitle>
-                        <EmptyDescription>Create one to link a CIMD partner app to this organization.</EmptyDescription>
+                        <EmptyDescription>
+                            {tokensLiveElsewhere
+                                ? 'Create a token in PostHog US to link a CIMD partner app.'
+                                : 'Create one to link a CIMD partner app to this organization.'}
+                        </EmptyDescription>
                     </EmptyHeader>
                 </Empty>
             ) : (
