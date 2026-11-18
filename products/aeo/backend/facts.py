@@ -9,6 +9,10 @@ from __future__ import annotations
 
 from urllib.parse import urlparse
 
+from django.db.models import Q
+
+from posthog.models.scoping.manager import resolve_effective_team_id
+
 from products.aeo.backend.models import CHECK_FACT_TEXT_MAX_LENGTH, AEOCheckCitation, AEOCheckSearch, AEOCitationCheck
 from products.aeo.backend.rankings import registrable_domain
 
@@ -20,28 +24,34 @@ def normalize_search(query: str) -> str:
     return " ".join(query.split()).lower()
 
 
+def _host(url: str) -> str:
+    try:
+        host = (urlparse(url).hostname or "").lower()
+    except ValueError:
+        return ""
+    return host if len(host) <= 255 else ""
+
+
 def citation_rows(check: AEOCitationCheck) -> list[AEOCheckCitation]:
-    rows: list[AEOCheckCitation] = []
-    for position, url in enumerate(check.cited_urls or [], start=1):
-        if not isinstance(url, str) or not url:
-            continue
-        try:
-            host = (urlparse(url).hostname or "").lower()
-        except ValueError:
-            host = ""
-        host = host if len(host) <= 255 else ""
-        rows.append(
-            AEOCheckCitation(
-                team_id=check.team_id,
-                citation_check_id=check.id,
-                created_at=check.created_at,
-                position=position,
-                url=url[:CHECK_FACT_TEXT_MAX_LENGTH],
-                host=host,
-                domain=registrable_domain(host) if host else "",
-            )
+    urls = [url for url in check.cited_urls or [] if isinstance(url, str) and url]
+    cited = [(url, _host(url)) for url in urls]
+    # The check keeps the hosts of every citation but only its first URLs. A host cited further down
+    # gets a row without a URL, so the count of answers that cite a domain stays whole.
+    with_url = {host for _, host in cited}
+    beyond = [host.lower() for host in check.top_cited_domains or [] if isinstance(host, str) and host]
+    cited += [("", host) for host in dict.fromkeys(beyond) if host not in with_url and len(host) <= 255]
+    return [
+        AEOCheckCitation(
+            team_id=check.team_id,
+            citation_check_id=check.id,
+            created_at=check.created_at,
+            position=position,
+            url=url[:CHECK_FACT_TEXT_MAX_LENGTH],
+            host=host,
+            domain=registrable_domain(host) if host else "",
         )
-    return rows
+        for position, (url, host) in enumerate(cited, start=1)
+    ]
 
 
 def search_rows(check: AEOCitationCheck) -> list[AEOCheckSearch]:
@@ -73,16 +83,44 @@ def write_facts(checks: list[AEOCitationCheck]) -> None:
     )
 
 
+def has_checks_without_facts(team_id: int) -> bool:
+    """Whether the team has a check from before the fact rows existed. The backfill writes oldest
+    first, so the oldest check that cites anything tells."""
+    team_id = resolve_effective_team_id(team_id)
+    oldest = (
+        AEOCitationCheck.objects.for_team(team_id, canonical=True)
+        .exclude(cited_urls=[])
+        .order_by("created_at", "id")
+        .values_list("id", flat=True)
+        .first()
+    )
+    return (
+        oldest is not None
+        and not AEOCheckCitation.objects.for_team(team_id, canonical=True).filter(citation_check_id=oldest).exists()
+    )
+
+
 def backfill_facts(team_id: int) -> int:
     """Write the fact rows of every check of the team. Returns how many checks it read."""
-    checks = AEOCitationCheck.objects.for_team(team_id, canonical=True).only(
-        "id", "team_id", "created_at", "cited_urls", "search_queries"
+    # A child environment keeps its checks under its parent, as the runner writes them.
+    team_id = resolve_effective_team_id(team_id)
+    checks = (
+        AEOCitationCheck.objects.for_team(team_id, canonical=True)
+        .only("id", "team_id", "created_at", "cited_urls", "top_cited_domains", "search_queries")
+        .order_by("created_at", "id")
     )
     read = 0
-    last_id = None
+    last: AEOCitationCheck | None = None
     # Keyset pages with a database limit: behind PgBouncer, iterator() would buffer the whole result.
-    while page := list((checks.filter(id__gt=last_id) if last_id else checks).order_by("id")[:BACKFILL_BATCH_SIZE]):
-        last_id = page[-1].id
+    # They follow (created_at, id), which the team's window index serves.
+    while page := list(
+        (
+            checks.filter(Q(created_at__gt=last.created_at) | Q(created_at=last.created_at, id__gt=last.id))
+            if last
+            else checks
+        )[:BACKFILL_BATCH_SIZE]
+    ):
+        last = page[-1]
         write_facts(page)
         read += len(page)
     return read

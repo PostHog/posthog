@@ -76,7 +76,7 @@ Three narrow tables hold facts about each answer, written once and joined to the
 Each row copies `team_id` and `created_at` from its check, so a read finds the rows of a window in the table's own index.
 A read that narrows by engine, topic or the branded split joins them to `aeo_check_window_cover_idx`, which holds those columns.
 
-The cited URL and search rows are written today, and `backfill_aeo_check_facts` writes them for older checks.
+The cited URL and search rows are written today. The reconcile after a run writes them once for older checks, and `backfill_aeo_check_facts` does the same on demand.
 The reads still unpack the JSON columns until that backfill has run everywhere.
 Entity mentions are not built.
 
