@@ -79,7 +79,8 @@ def scan_gate_request(env: Mapping[str, str]) -> scan.GateRequest:
     )
 
 
-def revert_publish_inputs(env: Mapping[str, str]) -> conclusion.PublishInputs:
+def publish_inputs(env: Mapping[str, str], *, scanned: bool) -> conclusion.PublishInputs:
+    """The other jobs' results from the environment. A lane with a scan job must pass its results too."""
     return conclusion.PublishInputs(
         head_sha=env["HEAD_SHA"],
         workflow_sha=env["WORKFLOW_SHA"],
@@ -93,25 +94,8 @@ def revert_publish_inputs(env: Mapping[str, str]) -> conclusion.PublishInputs:
         prove_files=env["PROVE_FILES"],
         prove_blobs=env["PROVE_BLOBS"],
         prove_refused=env["PROVE_REFUSED"],
-    )
-
-
-def dependency_publish_inputs(env: Mapping[str, str]) -> conclusion.PublishInputs:
-    return conclusion.PublishInputs(
-        head_sha=env["HEAD_SHA"],
-        workflow_sha=env["WORKFLOW_SHA"],
-        details_url=env["RUN_URL"],
-        identify_result=env["IDENTIFY_RESULT"],
-        identify_pr=env["IDENTIFY_PR"],
-        identify_merge_base=env["IDENTIFY_MERGE_BASE"],
-        identify_eligible=env["IDENTIFY_ELIGIBLE"],
-        identify_refused=env["IDENTIFY_REFUSED"],
-        prove_result=env["PROVE_RESULT"],
-        prove_files=env["PROVE_FILES"],
-        prove_blobs=env["PROVE_BLOBS"],
-        prove_refused=env["PROVE_REFUSED"],
-        scan_result=env["SCAN_RESULT"],
-        scan_clean=env["SCAN_CLEAN"],
+        scan_result=env["SCAN_RESULT"] if scanned else None,
+        scan_clean=env["SCAN_CLEAN"] if scanned else None,
     )
 
 
@@ -200,11 +184,11 @@ def main(argv: list[str], env: Mapping[str, str]) -> int:
     if command == "prove":
         return run_step("Dependency proof", NOT_PROVED, lambda: prove_dependency(env), env)
     if command == "conclude":
-        return run_conclude(dependency_publish_inputs(env), conclusion.DEPENDENCY)
+        return run_conclude(publish_inputs(env, scanned=True), conclusion.DEPENDENCY)
     if command == "revert-identify":
         return run_step("Revert proof", NOT_REVERT_IDENTIFIED, lambda: identify_revert(env), env)
     if command == "revert-prove":
         return run_step("Revert proof", NOT_PROVED, lambda: prove_reverted(env), env)
     if command == "revert-conclude":
-        return run_conclude(revert_publish_inputs(env), conclusion.REVERT)
+        return run_conclude(publish_inputs(env, scanned=False), conclusion.REVERT)
     raise SystemExit(f"unknown command: {command}")
