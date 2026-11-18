@@ -398,6 +398,8 @@ Typed `JSONExtract` maps convert individual scalar values too, but retain keys
 and use the requested type's default for values that cannot be converted.
 `splitByChar`/`splitByString` support an optional maximum substring count with the
 ClickHouse default behavior of excluding the remaining suffix.
+`splitByString` with an empty separator returns one item per character, because Trino's `split` rejects an empty delimiter.
+ClickHouse returns one item per byte, so the results differ for text outside ASCII.
 
 `parseDateTimeBestEffort` supports ISO timestamps with explicit offsets, ordinary
 date/timestamp strings, day-abbreviated-month-two-digit-year strings, and 9–10 digit Unix-second strings. An optional timezone
