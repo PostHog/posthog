@@ -96,6 +96,9 @@ SCOPE_OBJECTS_OMITTED_FROM_PICKERS: dict[catalog.APIScopeObject, str] = {
     # Access control resources that no token check reads, so granting them to a token does nothing.
     "toolbar": "Access control resource only: no endpoint checks it as a token scope.",
     "revenue_analytics": "Access control resource only: no endpoint checks it as a token scope.",
+    # Behind the `posthog-support-agent-tickets` flag. MCP sign-in still offers it, so flagged users' agents work.
+    # Its ScopeDoc waits in products/conversations/backend/scopes.py as POSTHOG_SUPPORT_SCOPE_DOC.
+    "posthog_support": "Not launched: behind the posthog-support-agent-tickets flag.",
 }
 
 # What people see and choose in the scope pickers, the scope reference and `/oauth/scopes/`:
