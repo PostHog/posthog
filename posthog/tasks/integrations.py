@@ -175,7 +175,6 @@ UNVERIFIED_EMAIL_SENDER_LIFETIME = timedelta(days=14)
 # Each expired sender can queue one SES DeleteIdentity call, which SES accepts once per second per account, so a
 # backlog drains over several hourly runs instead of one burst that exhausts the cleanup task's retries.
 EXPIRED_EMAIL_SENDERS_PER_RUN = 10
-# A sender kept for an active workflow counts too, because each delete attempt asks every usage provider.
 CHECKED_EMAIL_SENDERS_PER_RUN = 200
 # The next run resumes after the last sender a run reached, so senders kept in use cannot hold back the rest.
 EMAIL_SENDER_EXPIRY_CURSOR_KEY = "posthog:expire_unverified_email_senders:after_id"
@@ -199,10 +198,10 @@ def expire_unverified_email_senders() -> None:
     after_id = int(cursor) if cursor else None
     expired = checked = kept_in_use = 0
     for sender in _unverified_email_senders_oldest_first(after_id):
+        # Rows come back in id order, which is creation order, so every later sender is younger too.
         if expired >= EXPIRED_EMAIL_SENDERS_PER_RUN or checked >= CHECKED_EMAIL_SENDERS_PER_RUN:
             redis_client.set(EMAIL_SENDER_EXPIRY_CURSOR_KEY, after_id, ex=EMAIL_SENDER_EXPIRY_CURSOR_TTL_SECONDS)
             break
-        # Rows come back in id order, which is creation order, so every later sender is younger too.
         if sender.created_at >= cutoff:
             redis_client.delete(EMAIL_SENDER_EXPIRY_CURSOR_KEY)
             break
@@ -227,9 +226,8 @@ def expire_unverified_email_senders() -> None:
                 )
                 IntegrationManager.email.any.delete(sender.team_id, sender.id)
         except IntegrationInUse:
-            # An active workflow that names a deleted sender fails each send with "sender not found". That error
-            # reports no send failure, and the customer can no longer fix it by verifying the domain. Keep the
-            # sender until nothing active uses it, so the failure stays an unverified-domain failure.
+            # Deleting it would turn the workflow's unverified-domain failure into "sender not found", which reports
+            # no send failure and which verifying the domain cannot fix.
             kept_in_use += 1
             continue
         if frees_identity:
