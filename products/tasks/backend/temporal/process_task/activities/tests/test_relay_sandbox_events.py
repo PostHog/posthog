@@ -1948,38 +1948,31 @@ class TestBackgroundHeartbeat:
 
         assert call("heartbeat", arg=True) in handle.signal.await_args_list
 
-    async def test_stores_a_heartbeat_while_a_tool_call_is_open(self) -> None:
+    @pytest.mark.parametrize(
+        ("open_tool_calls", "agent_status"),
+        [
+            pytest.param({"call-1"}, TaskRun.AgentStatus.BUSY, id="tool_call_open"),
+            pytest.param(set(), None, id="turn_ended_before_the_write"),
+        ],
+    )
+    async def test_liveness_recorder_marks_busy_only_while_work_is_in_flight(
+        self, open_tool_calls: set[str], agent_status: TaskRun.AgentStatus | None
+    ) -> None:
         stored: list[dict[str, object]] = []
 
         def record(run_id: object, team_id: object, **liveness: object) -> bool:
             stored.append({"run_id": run_id, "team_id": team_id, **liveness})
             return True
 
-        handle = SimpleNamespace(signal=AsyncMock())
-        stop_event = asyncio.Event()
-
         with pytest.MonkeyPatch.context() as monkeypatch:
-            monkeypatch.setattr(relay_sandbox_events_module, "HEARTBEAT_INTERVAL_SECONDS", 0.01)
-            monkeypatch.setattr(relay_sandbox_events_module.activity, "heartbeat", lambda *_args: None)
             monkeypatch.setattr(relay_sandbox_events_module.TaskRunModel, "write_liveness", staticmethod(record))
-            heartbeat = asyncio.create_task(
-                _background_heartbeat(
-                    stop_event,
-                    cast(temporalio.client.WorkflowHandle, handle),
-                    [time.monotonic()],
-                    [0.0],
-                    [False],
-                    inactivity_timeout_seconds=3600.0,
-                    open_tool_calls={"call-1"},
-                    task_run=cast(TaskRun, SimpleNamespace(id="run-1", team_id=7)),
-                )
+            recorder = relay_sandbox_events_module._LivenessRecorder(
+                cast(TaskRun, SimpleNamespace(id="run-1", team_id=7))
             )
-            await asyncio.sleep(0.05)
-            stop_event.set()
-            await heartbeat
+            await recorder.heartbeat(busy=lambda: bool(open_tool_calls))
 
-        assert stored
+        assert len(stored) == 1
         assert stored[0]["run_id"] == "run-1"
         assert stored[0]["team_id"] == 7
         assert stored[0]["heartbeat_at"] is not None
-        assert stored[0]["agent_status"] == TaskRun.AgentStatus.BUSY
+        assert stored[0]["agent_status"] == agent_status
