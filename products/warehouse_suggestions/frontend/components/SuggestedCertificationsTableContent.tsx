@@ -9,6 +9,7 @@ import { suggestionCountsText, countOf } from '../suggestionCopy'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 import { CertificationSuggestionRow } from './CertificationSuggestionRow'
 import { DeprecateSuggestionModal } from './DeprecateSuggestionModal'
+import { DismissSuggestionModal } from './DismissSuggestionModal'
 import { SuggestionsBanner } from './SuggestionsBanner'
 import { SuggestionsReviewModal } from './SuggestionsReviewModal'
 import { SuggestionsStatusNotice } from './SuggestionsStatusNotice'
@@ -69,6 +70,7 @@ export function SuggestedCertificationsTableContent(): JSX.Element | null {
                 ))}
             </SuggestionsReviewModal>
             <DeprecateSuggestionModal />
+            <DismissSuggestionModal />
         </>
     )
 }

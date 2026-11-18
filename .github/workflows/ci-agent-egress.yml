@@ -7,10 +7,12 @@ on:
         paths:
             - '.github/workflows/ci-agent-egress.yml'
             - 'products/tasks/services/egress-proxy/**'
+            - '!products/tasks/services/egress-proxy/**/*.md'
     pull_request:
         paths:
             - '.github/workflows/ci-agent-egress.yml'
             - 'products/tasks/services/egress-proxy/**'
+            - '!products/tasks/services/egress-proxy/**/*.md'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -54,3 +56,23 @@ jobs:
 
             - name: Test
               run: go test -race -count=1 ./...
+
+    images:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 15
+        defaults:
+            run:
+                shell: bash
+                working-directory: products/tasks/services/egress-proxy
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+              with:
+                  persist-credentials: false
+                  sparse-checkout: products/tasks/services/egress-proxy
+                  sparse-checkout-cone-mode: false
+            - name: Build runtime images
+              run: |
+                  docker build --build-arg COMMIT_HASH="$GITHUB_SHA" -t agent-egress-proxy .
+                  docker build --build-arg COMMIT_HASH="$GITHUB_SHA" -f Dockerfile.relay -t agent-egress-relay .
+            - name: Check runtime startup, relay transport and enrollment
+              run: bash scripts/smoke_images.sh

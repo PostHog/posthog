@@ -22,6 +22,22 @@ export interface UrlCrawlHistoryItem {
     cache?: HttpCacheMetadata
     /** When the lane last stored or refreshed the image of this reference. */
     storedAtMs?: number
+    /** Names the copy only while its `storedAtMs` equals the item's: an older pod keeps it when it stores a copy elsewhere. */
+    pack?: PackedImageLocation
+}
+
+export interface PackedImageLocation {
+    key: string
+    byteStart: number
+    byteEnd: number
+    mime: string
+    byteSize: number
+    storedAtMs: number
+}
+
+export function packOfStoredCopy(item: UrlCrawlHistoryItem | undefined): PackedImageLocation | undefined {
+    const pack = item?.pack
+    return pack && item.storedAtMs !== undefined && pack.storedAtMs === item.storedAtMs ? pack : undefined
 }
 
 export type ConfigurationFile = 'robots' | 'tdmrep'

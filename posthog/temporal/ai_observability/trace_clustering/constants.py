@@ -4,8 +4,10 @@ from datetime import timedelta
 
 from temporalio.common import RetryPolicy
 
+from products.ai_observability.backend.facade.clustering_runtime import MIN_CLUSTERING_ITEMS, TRACE_LOOKBACK_DAYS
+
 # Clustering parameters
-DEFAULT_LOOKBACK_DAYS = 7
+DEFAULT_LOOKBACK_DAYS = TRACE_LOOKBACK_DAYS
 DEFAULT_MAX_SAMPLES = 1500
 DEFAULT_MIN_K = 2
 DEFAULT_MAX_K = 10
@@ -14,7 +16,7 @@ DEFAULT_MAX_K = 10
 # lookback window (~1 week). A team qualifies for trace clustering with >= this
 # many traces, and independently for generation clustering with >= this many
 # generations.
-MIN_TRACES_FOR_CLUSTERING = 1000
+MIN_TRACES_FOR_CLUSTERING = MIN_CLUSTERING_ITEMS
 
 # Coordinator concurrency settings.
 # Each team's compute activity runs a heavy embedding scan against ClickHouse, so keep the
@@ -24,7 +26,9 @@ DEFAULT_MAX_CONCURRENT_TEAMS = 2  # Max teams to process in parallel
 
 # Workflow timeouts
 WORKFLOW_EXECUTION_TIMEOUT = timedelta(minutes=45)  # Covers all activity budgets plus orchestration overhead
-COORDINATOR_EXECUTION_TIMEOUT = timedelta(hours=12)  # Must be less than daily schedule interval to avoid blocking
+# A run that reaches this timeout skips the teams it did not start, and the next run does not backfill them.
+# The value must stay less than the daily schedule interval, so that a run ends before the next run starts.
+COORDINATOR_EXECUTION_TIMEOUT = timedelta(hours=20)
 # Temporal configuration
 WORKFLOW_NAME = "llma-trace-clustering"
 COORDINATOR_WORKFLOW_NAME = "llma-trace-clustering-coordinator"

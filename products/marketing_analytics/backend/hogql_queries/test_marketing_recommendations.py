@@ -680,6 +680,24 @@ class TestMarketingRecommendations(SimpleTestCase):
                 "ELIGIBLE",
                 1,
             ),
+            (
+                "landing_page_with_click_tags",
+                "funnel spy",
+                "Replay",
+                "https://example.com/replay?utm_source=google&gad_source=1&gclid=abc",
+            ),
+            ("same_path_with_a_different_page_parameter", "funnel spy", None, "https://example.com/replay?id=200"),
+            ("page_parameter_in_a_different_case", "funnel spy", None, "https://example.com/replay?id=ABC"),
+            (
+                "low_spend_landing_campaign_without_conversions",
+                "funnel spy",
+                "Replay",
+                "https://example.com/replay",
+                None,
+                "ELIGIBLE",
+                0,
+                40,
+            ),
             ("ranks_on_the_homepage_the_ads_link_to", "funnel spy", None, "https://example.com/"),
             ("ranks_on_a_page_no_ad_links_to", "funnel spy", None, "https://example.com/blog"),
             ("landing_page_query_without_a_converting_word", "crm spy", None, "https://example.com/replay"),
@@ -695,9 +713,16 @@ class TestMarketingRecommendations(SimpleTestCase):
         keyword: str | None = None,
         landing_status: str = "ELIGIBLE",
         landing_conversions: float = 10,
+        landing_cost: float = 1000,
     ) -> None:
         campaigns = (
-            _campaign(id="c2", name="Replay", primary_status=landing_status, conversions=landing_conversions),
+            _campaign(
+                id="c2",
+                name="Replay",
+                primary_status=landing_status,
+                conversions=landing_conversions,
+                cost=landing_cost,
+            ),
             _campaign(),
         )
         terms = (
@@ -719,7 +744,7 @@ class TestMarketingRecommendations(SimpleTestCase):
                 ad_group_id="ag2",
                 campaign_id="c2",
                 texts=(),
-                final_urls=("https://example.com/replay", "https://example.com/"),
+                final_urls=("https://example.com/replay", "https://example.com/replay?id=abc", "https://example.com/"),
             ),
         )
         inputs = replace(_inputs(campaigns, terms, organic, keywords, pages), ads=ads)

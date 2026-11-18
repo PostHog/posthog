@@ -7,6 +7,7 @@ contract check watches this file to decide whether they must retest.
 
 from __future__ import annotations
 
+import re
 import hashlib
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import asdict, field
@@ -127,8 +128,10 @@ DEFAULT_MAX_INSTANCES: Final = 100
 MAX_INSTANCES_CEILING: Final = 100
 # The largest value a Postgres `integer` column holds, which bounds every stored count and duration.
 MAX_STORED_INTEGER: Final = 2_147_483_647
-# The most recent checks an N-of-M decision can look back over.
+# The most recent checks an N-of-M decision can look back over, unless the kind sets its own.
 MAX_EVALUATION_PERIODS: Final = 10
+# The largest window any kind allows. The API publishes it, and each kind enforces its own.
+MAX_SOURCE_EVALUATION_PERIODS: Final = 1441
 
 
 @frozen
@@ -275,6 +278,8 @@ class PlatformAlertCheckInput:
     recurrence_unit: str | None = None
     anchor_time: str | None = None
     created_by_id: int | None = None
+    # The label names the team's routes match on, which a group keeps first when its labels are cut.
+    routed_label_names: frozenset[str] = frozenset()
 
     @property
     def destination_alert_id(self) -> UUID:
@@ -947,6 +952,24 @@ class EvaluationAnnouncement:
 
 
 @frozen
+class HandoffSend:
+    """One send a routing or destination edit owes a destination about a group that is firing.
+
+    A destination that gains the firing hears it now, so its later resolve has something to close. An
+    incident manager that loses it hears the resolve, so the incident does not stay open. The
+    destination is named by id and read when the send runs, so no credential travels on the payload.
+    """
+
+    grouping_key: str
+    # The firing the send concerns, which names the incident and the Slack thread.
+    episode_started_at: datetime
+    # An `AlertDestination` id, or an `AlertReceiver` id when `routed`.
+    destination_id: str
+    routed: bool
+    gained: bool
+
+
+@frozen
 class AlertDeliveryRequest:
     """Where to find what one evaluation decided, rather than a copy of it.
 
@@ -991,6 +1014,9 @@ class AlertDeliveryRequest:
     # and which of them one activity sends. The workflow sets `part`.
     parts: int = 1
     part: int = 0
+    # Set on a request for the hand-over workflow, after an edit moved firings between incident
+    # managers. It reads the rows that opened those firings, and writes no history.
+    handoff: tuple[HandoffSend, ...] = ()
 
     def to_stored(self) -> dict[str, Any]:
         return asdict(self)
@@ -1128,6 +1154,23 @@ class EnabledNativeConfiguration:
     @property
     def public_id(self) -> UUID:
         return self.legacy_configuration_id or self.id
+
+
+@frozen
+class HeldAlertSearchMatch:
+    """One alert the platform holds the settings of, as a source's search shows it: an alert with no
+    source row, or a copy the platform owns."""
+
+    public_id: UUID
+    team_id: int
+    name: str
+    enabled: bool
+    # What the source's own read gates check, such as the insight an insight alert watches.
+    source_config: dict[str, Any]
+    check_interval_minutes: int
+    snooze_until: datetime | None
+    # The full-text rank of the name, or None when the search had no query.
+    rank: float | None
 
 
 @frozen
@@ -1269,8 +1312,9 @@ class SourceAdmission(Protocol):
     """Decides whether a team may add an alert of the kind, or turn one on. The platform calls it on a
     create, where `current` is None, and on an edit that turns the alert on, and on no other edit.
 
-    `check_interval_minutes` is the alert's stored cadence on an edit, and the kind's fixed cadence on
-    a native create. It is None on a create through the source, which sets the cadence itself.
+    `check_interval_minutes` is the cadence the alert will run on: the stored one or the one an edit
+    chooses, and on a native create the one it chose or the kind's default. It is None on a create
+    through the source, which sets the cadence itself.
 
     It runs in the write's transaction, after the platform takes a lock for the team and kind, so two
     concurrent writes cannot both pass a count. It raises `PlatformAlertCreateRefused` to refuse a
@@ -1391,6 +1435,8 @@ class SourceConfigSpec:
     # A new kind names its own flag, so it opens on its own schedule while the others stay generally
     # available.
     rollout_flag: str | None = None
+    # The most recent checks an alert of the kind may look back over, up to `MAX_SOURCE_EVALUATION_PERIODS`.
+    max_evaluation_periods: int = MAX_EVALUATION_PERIODS
     # A PostHog feature flag that opens every API action on this kind in place of `platform-alerts`.
     # The source product can then release its alerts on its own flag, while `platform-alerts` keeps
     # the other kinds and the platform's own pages closed.
@@ -1488,6 +1534,7 @@ class DestinationType(LabeledStrEnum):
     WEBHOOK = "webhook", "Webhook"
     TEAMS = "teams", "Microsoft Teams"
     PAGERDUTY = "pagerduty", "PagerDuty"
+    INCIDENT_IO = "incident_io", "incident.io"
     EMAIL = "email", "Email"
     IN_APP = "in_app", "In-app notification"
 
@@ -1516,6 +1563,11 @@ class IncidentAction(StrEnum):
     RESOLVE = "resolve"
 
 
+# The ID goes into the URL path of every send, so delivery checks it again rather than trust the stored value.
+# Anchored because DRF's RegexField searches rather than matches the whole value.
+INCIDENT_IO_ALERT_SOURCE_CONFIG_ID_RE: Final = re.compile(r"\A[0-9A-Za-z]{26}\Z")
+
+
 class AlertDestinationData(TypedDict):
     type: DestinationType
     slack_workspace_id: NotRequired[int]
@@ -1528,6 +1580,9 @@ class AlertDestinationData(TypedDict):
     pagerduty_routing_key: NotRequired[str]
     pagerduty_severity: NotRequired[str]
     pagerduty_region: NotRequired[str]
+    incident_io_alert_source_config_id: NotRequired[str]
+    # Secret-bearing: reads show only its last four characters.
+    incident_io_secret: NotRequired[str]
     email_addresses: NotRequired[list[str]]
     # Users rather than addresses, so a send reaches each one's current address, and only while they have access.
     email_user_ids: NotRequired[list[int]]
@@ -1546,13 +1601,14 @@ DESTINATION_EVENT_KINDS: Final = frozenset(
 
 # Turns on team-wide receivers and routes for a team, in delivery and in the API that edits them.
 ROUTING_FLAG: Final = "platform-alerts-routing"
-# The types routed delivery sends to. It skips incident managers, and email and in-app need
-# recipients that belong to one alert.
+# The types routed delivery sends to. Email and in-app need recipients that belong to one alert.
 ROUTABLE_DESTINATION_TYPES: Final = (
     DestinationType.SLACK,
     DestinationType.WEBHOOK,
     DestinationType.TEAMS,
     DestinationType.DISCORD,
+    DestinationType.PAGERDUTY,
+    DestinationType.INCIDENT_IO,
 )
 
 
@@ -1564,6 +1620,7 @@ class NewAlertDestination:
     event_kinds: tuple[AlertEventKind, ...]
     enabled: bool = True
     legacy_hog_function_ids: tuple[UUID, ...] = ()
+    keeps_legacy_webhook_body: bool = False
 
 
 @frozen
@@ -1577,6 +1634,7 @@ class StoredAlertDestination:
     enabled: bool
     consecutive_failures: int
     legacy_hog_function_ids: tuple[UUID, ...]
+    keeps_legacy_webhook_body: bool = False
 
 
 @frozen
@@ -1593,6 +1651,9 @@ class SourceDestination:
     hog_function_ids: tuple[UUID, ...]
     data: AlertDestinationData
     enabled: bool
+    # For a row whose HogFunctions are gone, the ids it still copies. A client that recorded the
+    # destination by its HogFunction ids, such as Terraform, finds and deletes it by these.
+    retired_hog_function_ids: tuple[UUID, ...] = ()
 
 
 @frozen

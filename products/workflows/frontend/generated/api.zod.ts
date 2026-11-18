@@ -3401,6 +3401,8 @@ export const HogFlowsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod
 export const hogFlowsUserBlastRadiusCreateBodySendsEmailDefault = true
 export const hogFlowsUserBlastRadiusCreateBodyEmailSendingRateLimitOneCountMax = 1000000
 
+export const hogFlowsUserBlastRadiusCreateBodyRefreshDefault = false
+
 export const HogFlowsUserBlastRadiusCreateBody = /* @__PURE__ */ zod.object({
     filters: zod.record(zod.string(), zod.unknown()).describe('Property filters to apply'),
     group_type_index: zod.number().nullish().describe('Group type index for group-based targeting'),
@@ -3436,6 +3438,12 @@ export const HogFlowsUserBlastRadiusCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             "The workflow's email sending rate limit. A slow enough rate raises the email audience limit. The response's rate_limited field says which rates qualify."
+        ),
+    refresh: zod
+        .boolean()
+        .default(hogFlowsUserBlastRadiusCreateBodyRefreshDefault)
+        .describe(
+            'Count the audience now instead of reusing a count from the last few minutes. Set it when the count decides whether a send may go ahead.'
         ),
 })
 

@@ -1,5 +1,4 @@
 import json
-import asyncio
 from typing import Any
 
 from temporalio import activity
@@ -91,9 +90,11 @@ async def run_sentiment_eval(evaluation: dict[str, Any], event_data: dict[str, A
 
     texts = [text for _message_index, text in user_messages]
 
-    from posthog.temporal.ai_observability.sentiment.model import classify  # noqa: PLC0415 -- loads ONNX deps lazily
+    from posthog.temporal.ai_observability.sentiment.model import (  # noqa: PLC0415 -- loads ONNX deps lazily
+        classify_in_executor,
+    )
 
-    classification_results = await asyncio.to_thread(classify, texts)
+    classification_results = await classify_in_executor(texts)
     return _build_sentiment_activity_result(event_uuid, trace_id, user_messages, classification_results)
 
 
