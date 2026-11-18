@@ -95,6 +95,7 @@ class TestGetColumnsQueryTagging(BaseTest):
             tags = get_query_tags()
             captured["product"] = tags.product
             captured["feature"] = tags.feature
+            captured["query_type"] = tags.query_type
             return [("trace_id", "String")]
 
         mock_sync_execute.side_effect = _capture
@@ -108,6 +109,7 @@ class TestGetColumnsQueryTagging(BaseTest):
 
         assert captured["product"] == Product.WAREHOUSE
         assert captured["feature"] == Feature.DATA_MODELING
+        assert captured["query_type"] == "HogQLQuery"
         assert columns == {"trace_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True}}
 
 
@@ -196,6 +198,10 @@ class TestGetColumnsDescribesTheQuery(ClickhouseTestMixin, BaseTest):
             ("cte", "WITH signups AS (SELECT distinct_id, timestamp FROM events) SELECT * FROM signups"),
             ("columns_matcher", "SELECT COLUMNS('^(event|distinct_id)$') FROM events"),
             ("nested_view", "SELECT name, n FROM inner_view"),
+            (
+                "global_in_output_name_with_a_percent_sign",
+                "SELECT event IN (SELECT event FROM events WHERE event LIKE '%view%') FROM events",
+            ),
             (
                 "global_in_inside_an_output_column",
                 "SELECT countIf(event IN (SELECT key FROM groups LIMIT 5)) FROM events",
