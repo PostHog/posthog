@@ -3010,6 +3010,30 @@ class TaskRun(models.Model):
                 state.pop(key, None)
         self.state = state
 
+    @classmethod
+    def revoke_agent_egress_registrations(
+        cls,
+        run_id: str | uuid.UUID,
+        *,
+        reason: str,
+        sandbox_id: str | None = None,
+    ) -> int:
+        with transaction.atomic():
+            run = cls.objects.select_for_update().filter(id=run_id).only("id", "team_id").first()
+            if run is None:
+                return 0
+            registrations = AgentEgressRegistration.objects.for_team(run.team_id).filter(
+                task_run_id=run.id, revoked=False
+            )
+            if sandbox_id is not None:
+                registrations = registrations.filter(sandbox_id=sandbox_id)
+            return registrations.update(
+                revoked=True,
+                revoked_at=django_timezone.now(),
+                revoked_by="tasks-worker",
+                revocation_reason=reason,
+            )
+
     def prepare_for_cloud_resume(self) -> None:
         """
         Restart this cloud run from its existing log and sandbox snapshot.
@@ -3047,17 +3071,19 @@ class TaskRun(models.Model):
             prior_snapshot_mount_path=prior_snapshot_mount_path,
         )
 
-        self.save(
-            update_fields=[
-                "status",
-                "environment",
-                "queued_at",
-                "completed_at",
-                "error_message",
-                "state",
-                "updated_at",
-            ]
-        )
+        with transaction.atomic():
+            self.revoke_agent_egress_registrations(self.id, reason="cloud_resume")
+            self.save(
+                update_fields=[
+                    "status",
+                    "environment",
+                    "queued_at",
+                    "completed_at",
+                    "error_message",
+                    "state",
+                    "updated_at",
+                ]
+            )
         self.publish_stream_state_event()
 
     @classmethod
@@ -3075,7 +3101,10 @@ class TaskRun(models.Model):
         with transaction.atomic():
             locked_task_run = cls.objects.select_for_update().get(id=run_id)
             state = dict(locked_task_run.state or {})
+            previous_sandbox = (state.get("sandbox_id"), state.get("sandbox_backend", "modal"))
             mutator(state)
+            if previous_sandbox != (state.get("sandbox_id"), state.get("sandbox_backend", "modal")):
+                cls.revoke_agent_egress_registrations(run_id, reason="sandbox_changed")
             locked_task_run.state = state
             locked_task_run.save(update_fields=["state", "updated_at"])
             return state
@@ -4000,6 +4029,7 @@ class AgentEgressRegistration(models.Model):
     execution_id = models.UUIDField(unique=True, editable=False)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     task_run = models.ForeignKey(TaskRun, on_delete=models.CASCADE, related_name="egress_registrations")
+    sandbox_id = models.CharField(max_length=255, null=True)
     region = models.CharField(max_length=32)
     actor_id = models.PositiveBigIntegerField()
     actor_epoch = models.PositiveBigIntegerField()
