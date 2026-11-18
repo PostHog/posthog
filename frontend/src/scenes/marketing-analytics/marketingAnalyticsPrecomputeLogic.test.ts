@@ -78,15 +78,35 @@ describe('marketingAnalyticsPrecomputeLogic', () => {
         expect(logic.values.notReady).toBe(readyAfter === null)
     })
 
-    it('clears the banner when a dashboard hands the tile ready results without a load', async () => {
-        mockedQuery.mockResolvedValue(notReadyResponse)
+    it.each([
+        {
+            name: 'stops polling when a dashboard hands the tile ready results without a load',
+            loaded: notReadyResponse,
+            handed: readyResponse,
+            expectedRechecks: 0,
+        },
+        {
+            name: 'polls when a dashboard hands a ready tile not-ready results without a load',
+            loaded: readyResponse,
+            handed: notReadyResponse,
+            expectedRechecks: 1,
+        },
+    ])('$name', async ({ loaded, handed, expectedRechecks }) => {
+        mockedQuery.mockImplementation(async (_query, _methodOptions, refresh) => {
+            if (refresh === 'force_blocking') {
+                rechecks += 1
+                return readyResponse
+            }
+            return loaded
+        })
         const logic = mount('-30d')
         await jest.advanceTimersByTimeAsync(0)
-        expect(logic.values.notReady).toBe(true)
+        expect(logic.values.notReady).toBe(loaded === notReadyResponse)
 
-        dataNodeLogic({ key: 'marketing-overview', query: aggregatedQuery('-30d') }).actions.setResponse(readyResponse)
-        await jest.advanceTimersByTimeAsync(0)
+        dataNodeLogic({ key: 'marketing-overview', query: aggregatedQuery('-30d') }).actions.setResponse(handed)
+        await jest.advanceTimersByTimeAsync(PRECOMPUTE_POLL_INTERVAL_MS)
 
+        expect(rechecks).toBe(expectedRechecks)
         expect(logic.values.notReady).toBe(false)
     })
 
