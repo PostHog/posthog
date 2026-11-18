@@ -2,11 +2,15 @@ import { useActions, useValues } from 'kea'
 
 import { IconWarning } from '@posthog/icons'
 import { LemonBadge, LemonBanner, LemonTab, LemonTabs } from '@posthog/lemon-ui'
-import { Item, ItemContent, ItemDescription, ItemMedia, ItemTitle } from '@posthog/quill'
+import { Card, CardContent, Item, ItemContent, ItemDescription, ItemMedia, ItemTitle } from '@posthog/quill'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeRequestBanner'
+import {
+    QuillExperimentImplementationDetails,
+    QuillWebExperimentImplementationDetails,
+} from 'scenes/experiments/QuillExperimentImplementationDetails'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -163,6 +167,22 @@ const MetricsTab = (): JSX.Element => {
 
 const CodeTab = (): JSX.Element => {
     const { experiment } = useValues(experimentLogic)
+    const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav && resultsRedesign) {
+        return (
+            <Card size="sm" className="mt-2">
+                <CardContent>
+                    {experiment.type === 'web' ? (
+                        <QuillWebExperimentImplementationDetails experiment={experiment} />
+                    ) : (
+                        <QuillExperimentImplementationDetails experiment={experiment} placement="code_tab" />
+                    )}
+                </CardContent>
+            </Card>
+        )
+    }
 
     return (
         <>
