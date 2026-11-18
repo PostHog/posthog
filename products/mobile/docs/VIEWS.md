@@ -82,7 +82,7 @@ The status line shows "Updating…" while a request of the screen runs, "Updated
 
 ## Date ranges
 
-A range lasts for the session, per view, in memory (`rangeStore.ts`). Range keys and queue groups carry the data scope (`demo`, or the host and project), so a range or a queued refresh from demo mode or another project never applies.
+The app remembers each dashboard, standalone insight and Web analytics range on the device (`rangeStore.ts`). Selections are scoped to the account, host and project, with separate selections for demo mode. The app restores them before screens open. Presets stay relative and custom dates stay fixed. "Reset to saved range" forgets the selection on this device.
 Overrides always send `date_to`, also as null, because the server merges filters by top-level key.
 A dashboard's saved range comes from `persisted_filters`, which a read with an override also carries, so "Reset to saved range" stays correct after the saved-range read has left the cache.
 SQL tiles without `{filters}` read without the override, because it would only change their cache key.
@@ -179,7 +179,7 @@ A pinned tab opens with `from: tab`, which never travels in a route.
 The tab routes are reached only through the bar, the start page and `openNavTarget`; deep links open the pushed screens.
 A home screen widget opens a dashboard or insight with `from=widget&family=<small|medium|large>`, which also sends `mobile_widget_opened` (`kind`, `family`).
 Build links with `src/features/views/viewRoutes.ts` (`viewHref`, `dashboardHref`, `insightHref`, `webAnalyticsHref`, `webAnalyticsListHref`, `liveHref`, `liveCountriesHref`, `chartHref`), never by hand.
-An insight opened from a tile also carries `fromDashboard` and `insightId`: it reads with `from_dashboard` and shares the dashboard's session range.
+An insight opened from a tile also carries `fromDashboard` and `insightId`: it reads with `from_dashboard` and shares the dashboard's remembered range.
 Deep links work: `posthog://views/dashboard/demo-dash-kpis`, `posthog://views/insight/demo-ins-dau`, `posthog://views/web-analytics`, `posthog://views/live`.
 
 ## View screens
@@ -245,7 +245,7 @@ On mixed dashboards, the control stays visible and tiles that ignore it keep the
 A range change reads with `blocking`, never `force_*`: the new override is a new cache key, so the screen hooks run their open path again (`trigger: range`). Each range has its own queue group, so a new range drops the queued reads of the previous one and its own reads go next.
 While the new range loads, the insight and web analytics screens keep the previous values on screen (`rangeLoading`), and dashboard tiles keep their layout.
 Dashboard rows count as visible by tile id, because a range change gives every tile a new item key while the list keeps the same rows.
-Number and Chart pins in the list keep the saved range. Ranges last for the session, per view, in memory.
+Number and Chart pins in the list display the saved range. The compare toggle lasts for the app session.
 `useViewRange` sends `mobile_date_range_changed` (`chip`, `more`, `custom`, `step`, `reset`) and `mobile_date_range_compared`. The sheet sends `mobile_date_range_sheet_opened` (`view_type`; `entry`: `button` or `accessibility`) when it opens.
 
 ## Charts beyond line and bar
@@ -314,7 +314,7 @@ The tile picker explains unsupported metric cards, logarithmic axes, 100% stacks
 `app/views/chart/[shortId].tsx` renders `FullScreenChart`. Open it with `useOpenFullScreen()`, which sends `mobile_chart_fullscreen_opened` (`entry`: `button`, `legend_more`, `rows_more` or `accessibility`; `display`: `chart`, `funnel`, `retention`, `bars` or `table`) and pushes `chartHref(shortId, queryKey)`.
 
 - Entries: the tile head button, the insight screen's caption row, the legend "+N" pill, the bar list "+N more" row, and the VoiceOver action "Open full screen".
-- `key` is the JSON cache key of the snapshot that opened the screen. Full screen therefore shows the same session range, compare and tile layers as the tile or insight. While a new range loads on the insight screen, `key` names the previous range's entry, which is the one on screen (`InsightScreenState.queryKey`). Without `key`, it reads the insight's own entry.
+- `key` is the JSON cache key of the snapshot that opened the screen. Full screen therefore shows the same date range, compare and tile layers as the tile or insight. While a new range loads on the insight screen, `key` names the previous range's entry, which is the one on screen (`InsightScreenState.queryKey`). Without `key`, it reads the insight's own entry.
 - It reads the cache only and never sends a request. A key without a cached snapshot (the app restarted, or a deep link to an insight not opened yet) shows "This chart isn't loaded" with "Go back" (`chart-fullscreen-missing`).
 - A line or bar chart fills the space, scrubs on a drag in any direction, shows every tooltip row, and lists every series as a 44 pt legend row that scrolls. Funnels, retention (all periods), bar lists (all rows) and SQL tables (up to 500 rows) show in a card.
 - Saved stacked bar charts keep their stacks in pins, tiles, insights and full screen. The value axis fits the full stack; zero values leave no bar. Full screen offers a small layout icon beside Back for multi-series bar charts. Tap it to switch between grouped and stacked bars. The choice persists on this device across visits and applies to all bar charts, including pins and dashboard tiles. Until a choice is made, each chart uses its saved layout.

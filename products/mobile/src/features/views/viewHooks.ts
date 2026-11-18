@@ -52,7 +52,15 @@ import {
     supportsCompare,
 } from './rangeOverride'
 import { rangeValues } from './rangePresets'
-import { dashboardRangeKey, insightRangeKey, useViewRange, useViewRangeStore, type ViewRange } from './rangeStore'
+import {
+    dashboardRangeKey,
+    insightRangeKey,
+    useViewCompareStore,
+    useViewRange,
+    useViewRangeScope,
+    useViewRangeStore,
+    type ViewRange,
+} from './rangeStore'
 import { viewsQueue } from './refreshQueue'
 import { type RefreshItem, useViewRefresh, type ViewRefresh } from './useViewRefresh'
 import { reportScopeError, type ViewsAccess } from './useViewsAccess'
@@ -223,11 +231,11 @@ export function useDashboardScreen(dashboardRef: string, options: ViewOpenOption
         queryKey: dashboardQueryKey(scope, dashboardRef, null),
         queryFn: skipToken,
     })
-    const rangeKey = dashboardRangeKey(context.dataScope, dashboardRef)
+    const rangeKey = dashboardRangeKey(useViewRangeScope(context.dataScope), dashboardRef)
     // The same choice and compare that `useViewRange` returns. The override comes first because the saved range can come
-    // from the override read: its snapshot outlives the saved-range snapshot when the user stays on a session range.
+    // from the override read, including on a cold start with a remembered range.
     const storedChoice = useViewRangeStore((state) => state.ranges[rangeKey] ?? null)
-    const storedCompare = useViewRangeStore((state) => state.compare[rangeKey] ?? false)
+    const storedCompare = useViewCompareStore((state) => state.compare[rangeKey] ?? false)
     const override = dashboardOverride(storedChoice, storedCompare)
     const overrideId = overrideKey(override)
     // biome-ignore lint/correctness/useExhaustiveDependencies: `overrideId` stands for `override`.
@@ -327,7 +335,7 @@ export function useTileData(tile: Pick<DashboardTileState, 'itemKey' | 'queryKey
 }
 
 export interface InsightScreenOptions extends ViewOpenOptions {
-    /** Opened from a dashboard tile: reads with `from_dashboard` and shares the dashboard's session range. */
+    /** Opened from a dashboard tile: reads with `from_dashboard` and shares the dashboard's remembered range. */
     dashboardRef?: string | null
     /** The numeric id, when the caller knows it. */
     insightId?: number | null
@@ -375,12 +383,14 @@ export function useInsightScreen(shortId: string, options: InsightScreenOptions)
             ?.compare
     )
     // From a tile the insight shares the dashboard's range, but compare stays its own: dashboards send no compare.
+    const rangeScope = useViewRangeScope(context.dataScope)
+    const insightKey = insightRangeKey(rangeScope, shortId)
     const range = useViewRange(
-        dashboardRef ? dashboardRangeKey(context.dataScope, dashboardRef) : insightRangeKey(context.dataScope, shortId),
+        dashboardRef ? dashboardRangeKey(rangeScope, dashboardRef) : insightKey,
         'insight',
         saved,
         savedCompare,
-        insightRangeKey(context.dataScope, shortId)
+        insightKey
     )
     const choiceOverride = rangeOverride(range.choice)
     // A SQL insight without `{filters}` ignores the range, so it keeps its own cache entry.
