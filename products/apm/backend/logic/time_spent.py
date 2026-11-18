@@ -10,6 +10,7 @@ span's peer attributes. Every other span's time goes to its own service.
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 from posthog.schema import HogQLQueryModifiers, PropertyGroupsMode
 
@@ -151,7 +152,7 @@ def _run(team: Team, query: ast.SelectQuery) -> list:
     ).results
 
 
-def _component_of(span: dict, has_children: bool) -> tuple[str, TimeSpentComponentKind]:
+def _component_of(span: dict[str, Any], has_children: bool) -> tuple[str, TimeSpentComponentKind]:
     if span["kind"] in (CLIENT_KIND, PRODUCER_KIND) and not has_children and span["inferred_dependency"]:
         return span["inferred_dependency"], TimeSpentComponentKind.INFERRED
     return span["service_name"], TimeSpentComponentKind.SERVICE
@@ -162,10 +163,10 @@ def attribute_time_spent(spans: list[SpanRecord], entries: list[tuple[str, str]]
 
     `entries` are (trace_id, span_id) pairs. An entry missing from `spans` counts as no request.
     """
-    children: dict[tuple[str, str], list[dict]] = defaultdict(list)
-    by_id: dict[tuple[str, str], dict] = {}
+    children: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    by_id: dict[tuple[str, str], dict[str, Any]] = {}
     for record in spans:
-        span = {
+        span: dict[str, Any] = {
             "trace_id": record.trace_id,
             "span_id": record.span_id,
             "parent_span_id": record.parent_span_id,
