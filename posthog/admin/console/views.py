@@ -575,6 +575,7 @@ def _with_query(url: str, request: HttpRequest) -> str:
 @require_safe
 def tool_page(request: HttpRequest, tool_key: str) -> HttpResponse:
     tool = _get_tool(tool_key)
+    offered = tool.operations(request)
     operations = [
         _rendered_operation(
             request,
@@ -585,7 +586,8 @@ def tool_page(request: HttpRequest, tool_key: str) -> HttpResponse:
                 request,
             ),
         )
-        for operation in tool.operations(request)
+        for operation in offered
+        if operation.listed
     ]
     return render(
         request,
@@ -593,7 +595,7 @@ def tool_page(request: HttpRequest, tool_key: str) -> HttpResponse:
         {
             **ConsoleEnvironment.context(),
             "tool": tool,
-            "page": tool.page(request).refuse_secrets("tool page"),
+            "page": tool.page(request).refuse_secrets("tool page").check_decisions(offered),
             "operations": operations,
             "query_suffix": _query_suffix(request),
         },

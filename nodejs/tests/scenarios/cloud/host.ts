@@ -1,6 +1,7 @@
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { durationMs } from '../duration'
+import { FAILOVER_RELEASE_WITHIN_MS } from '../environment/failover'
 import { EXIT_CODE } from '../runner/status'
 import { Controller } from './admission'
 import { AwsError } from './aws'
@@ -12,8 +13,10 @@ const REPO = '/opt/posthog'
 const SCRIPTS = `${REPO}/nodejs/tests/scenarios/cloud`
 const START_TIMEOUT_S = 60
 const DELIVERY_TIMEOUT_S = 60
-const STOP_TIMEOUT_S = 300
-const STOP_WAIT_MS = (STOP_TIMEOUT_S + START_TIMEOUT_S) * 1000
+// A stopped card fails the cluster back before it writes its scorecard, and the host then uploads the evidence.
+const EVIDENCE_WITHIN_MS = 5 * 60_000
+export const STOP_TIMEOUT_S = (FAILOVER_RELEASE_WITHIN_MS + EVIDENCE_WITHIN_MS) / 1000
+export const STOP_WAIT_MS = (STOP_TIMEOUT_S + START_TIMEOUT_S) * 1000
 const LIVENESS_MS = 5 * 60_000
 const PROBE_WAIT_MS = 2 * START_TIMEOUT_S * 1000
 const UNIT_GONE = new Set([3, 4])

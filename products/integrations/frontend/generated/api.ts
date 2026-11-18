@@ -50,7 +50,7 @@ import type {
     PaginatedIntegrationConfigListApi,
     PaginatedRoleExternalReferenceListApi,
     PatchedEmailSenderUpdateRequestApi,
-    PatchedOrganizationIntegrationApi,
+    PatchedEnvironmentMappingUpdateApi,
     PostHogConnectionForwardApi,
     PostHogConnectionForwardResponseApi,
     PostHogConnectionTargetApi,
@@ -98,7 +98,7 @@ export const getIntegrationsEnvironmentMappingPartialUpdateUrl = (organizationId
 export const integrationsEnvironmentMappingPartialUpdate = async (
     organizationId: string,
     id: string,
-    patchedOrganizationIntegrationApi?: NonReadonly<PatchedOrganizationIntegrationApi>,
+    patchedEnvironmentMappingUpdateApi?: PatchedEnvironmentMappingUpdateApi,
     options?: RequestInit
 ): Promise<OrganizationIntegrationApi> => {
     return apiMutator<OrganizationIntegrationApi>(
@@ -107,7 +107,7 @@ export const integrationsEnvironmentMappingPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedOrganizationIntegrationApi),
+            body: JSON.stringify(patchedEnvironmentMappingUpdateApi),
         }
     )
 }

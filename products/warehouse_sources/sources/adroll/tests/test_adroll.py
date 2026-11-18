@@ -67,6 +67,23 @@ class TestRows:
         assert result.requests[1].param("advertisables") == "ADV1"
         assert result.requests[1].param("data_format") == "entity"
 
+    @pytest.mark.parametrize(
+        "endpoint",
+        [
+            name
+            for name, config in ADROLL_ENDPOINTS.items()
+            if not config.advertisable_scoped and config.data_selector == "results"
+        ],
+    )
+    def test_unscoped_list_endpoint_makes_one_request_with_apikey(self, endpoint: str) -> None:
+        result = _driver().run(endpoint, [_page([{"eid": "E1", "name": "first"}, {"eid": "E2", "name": "second"}])])
+
+        assert result.raised is None
+        assert result.rows == [{"eid": "E1", "name": "first"}, {"eid": "E2", "name": "second"}]
+        assert result.paths == [ADROLL_ENDPOINTS[endpoint].path]
+        assert result.requests[0].param("apikey") == "cid"
+        assert result.requests[0].headers["authorization"] == "Token pat"
+
     def test_advertisables_without_eid_are_skipped(self) -> None:
         result = _driver().run("ads", [_page([{"name": "broken"}])])
 

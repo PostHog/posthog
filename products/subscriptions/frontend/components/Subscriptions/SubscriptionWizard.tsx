@@ -8,6 +8,7 @@ import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useFeatureFlagVariantKey } from '@posthog/react'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
+import { ImageSize } from 'lib/components/ImageSize/ImageSize'
 import { UsageLimitPaywall } from 'lib/components/PayGateMini/UsageLimitPaywall'
 import { NextScheduledRun, ProjectTimezoneNotice } from 'lib/components/ScheduledRunStatus'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -648,6 +649,17 @@ function SubscriptionSettingsStep({
     return (
         <div className="mt-6 flex flex-col gap-2">
             <LemonLabel>Advanced settings</LemonLabel>
+            {subscription.resource_type !== SubscriptionResourceTypes.AiPrompt && (
+                <LemonField name={['delivery_config', 'image_size']}>
+                    {({ value, onChange }) => (
+                        <ImageSize
+                            value={value}
+                            onChange={onChange}
+                            description="Applies to each insight image in this subscription. Leave a dimension blank for automatic sizing. Content fits without stretching or cropping."
+                        />
+                    )}
+                </LemonField>
+            )}
             {dataProcessingAccepted && subscription.resource_type !== SubscriptionResourceTypes.AiPrompt ? (
                 <LemonField name="summary_enabled">
                     {({ value, onChange }) => (

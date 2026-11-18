@@ -165,6 +165,9 @@ class FakeHost implements PoolerHost {
         ) {
             return Promise.reject(new Error(`password authentication failed for user "${user}"`))
         }
+        if (!(pooler.settings.ignore_startup_parameters ?? '').split(/\s*,\s*/).includes('statement_timeout')) {
+            return Promise.reject(new Error('unsupported startup parameter: statement_timeout'))
+        }
         if (pooler.databases[database] !== `host=${ENDPOINT} port=5432 dbname=cyclotron_node`) {
             return Promise.reject(new Error(`no such database: ${database}`))
         }
@@ -217,9 +220,15 @@ describe('host-pooler', () => {
     let dir: string
     let host: FakeHost
 
-    function poolOnHost(image: string, runId = RUN_ID): Promise<number> {
+    function poolOnHost(image: string, runId = RUN_ID, settings: Record<string, string> = {}): Promise<number> {
         const profile = path.join(dir, 'cloud-profile.yaml')
-        writeFileSync(profile, stringify({ ...PROFILE, pooler: { ...PROFILE.pooler, image } }))
+        writeFileSync(
+            profile,
+            stringify({
+                ...PROFILE,
+                pooler: { ...PROFILE.pooler, image, settings: { ...PROFILE.pooler.settings, ...settings } },
+            })
+        )
         return main([profile], { SCENARIO_RUN_ID: runId, SCENARIO_HOST_ROOT: dir }, host)
     }
 
@@ -253,6 +262,39 @@ describe('host-pooler', () => {
         expect(statSync(path.join(dir, 'pooler')).mode & 0o077).toBe(0)
     })
 
+    it('records one URL per replica that reaches the run cluster through that replica', async () => {
+        await expect(poolOnHost(PUBLIC_IMAGE)).resolves.toBe(0)
+
+        const urls = readFileSync(path.join(dir, 'pooler', 'urls'), 'utf8')
+            .trim()
+            .split(',')
+            .map((url) => new URL(url))
+        expect(urls.map(({ hostname, port }) => `${hostname}:${port}`)).toEqual(['127.0.0.1:6432', '127.0.0.1:6433'])
+        for (const url of urls) {
+            await expect(
+                host.select1({
+                    port: Number(url.port),
+                    user: decodeURIComponent(url.username),
+                    password: decodeURIComponent(url.password),
+                    database: url.pathname.slice(1),
+                })
+            ).resolves.toBeUndefined()
+        }
+    })
+
+    it('keeps the startup parameters a profile ignores while letting the runner log in with its statement timeout', async () => {
+        await expect(
+            poolOnHost(PUBLIC_IMAGE, RUN_ID, { ignore_startup_parameters: 'extra_float_digits' })
+        ).resolves.toBe(0)
+
+        for (const { settings } of host.poolers()) {
+            expect(settings.ignore_startup_parameters.split(/\s*,\s*/).sort()).toEqual([
+                'extra_float_digits',
+                'statement_timeout',
+            ])
+        }
+    })
+
     it('fails naming the replica that never answers and what it logged, once the readiness deadline passes', async () => {
         host.crashOutput.set(6433, 'FATAL unrecognized parameter: pool_mod')
 
@@ -282,9 +324,13 @@ describe('select1', () => {
         await (answers ? expect(answer).resolves.toBeUndefined() : expect(answer).rejects.toThrow('password'))
     })
 
-    it('gives up on a pooler that accepts the client but never answers the query', async () => {
+    it('logs in as the runner does and gives up on a pooler that accepts the client but never answers the query', async () => {
+        let startup = ''
         const stalled = createServer((socket) => {
-            socket.once('data', () => socket.write(Buffer.concat([AUTHENTICATION_OK, READY_FOR_QUERY])))
+            socket.once('data', (packet) => {
+                startup = packet.toString('latin1')
+                socket.write(Buffer.concat([AUTHENTICATION_OK, READY_FOR_QUERY]))
+            })
         })
         await new Promise<void>((resolve) => stalled.listen(0, '127.0.0.1', resolve))
         const { port } = stalled.address() as AddressInfo
@@ -293,6 +339,7 @@ describe('select1', () => {
             await expect(
                 select1({ port, user: 'posthog', password: 'posthog', database: 'test_posthog' })
             ).rejects.toThrow('Query read timeout')
+            expect(startup.split('\0')).toContain('statement_timeout')
         } finally {
             stalled.close()
         }

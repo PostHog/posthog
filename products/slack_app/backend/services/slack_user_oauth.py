@@ -41,7 +41,7 @@ from posthog.dataclasses import frozen
 from posthog.egress.slack.client import SlackWebClient as WebClient
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
-from posthog.models.user_integration import UserIntegration, slack_link_scopes
+from posthog.models.user_integration import SLACK_OPTIONAL_USER_SCOPES, UserIntegration, slack_link_scopes
 
 logger = structlog.get_logger(__name__)
 
@@ -289,8 +289,7 @@ SLACK_OAUTH_V2_AUTHORIZE_URL = "https://slack.com/oauth/v2/authorize"
 # The search scopes let the work focus read the person's recent messages with `assistant.search.context`.
 # `users:read.email` keeps the email that the OIDC link stores for support.
 SEARCH_USER_SCOPES = ("search:read.public", "search:read.users", "users:read", "users:read.email")
-# The manifest lists these under `user_optional`, so each person chooses them on the consent screen.
-OPTIONAL_SEARCH_USER_SCOPES = ("search:read.private", "search:read.im", "search:read.mpim")
+OPTIONAL_SEARCH_USER_SCOPES = tuple(sorted(SLACK_OPTIONAL_USER_SCOPES))
 
 
 class SlackUserOAuthError(Exception):

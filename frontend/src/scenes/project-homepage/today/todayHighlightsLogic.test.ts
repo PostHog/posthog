@@ -9,6 +9,7 @@ import { initKeaTests } from '~/test/init'
 import * as todayApi from 'products/today/frontend/generated/api'
 
 import {
+    HIGHLIGHTS_FIRST_POLL_MS,
     HIGHLIGHTS_POLL_MS,
     TODAY_ACCESS_RETRIES,
     TODAY_ACCESS_RETRY_MS,
@@ -343,6 +344,39 @@ describe('todayHighlightsLogic', () => {
         expect(highlightCalls).toBe(3)
     })
 
+    it('polls soon while numbers compute, backs off to the normal interval, and starts soon again after a ready answer', async () => {
+        jest.useFakeTimers()
+        const computing = makeHighlights({ status: 'computing', generated_at: null })
+        highlightResponses = [
+            [200, computing],
+            [200, computing],
+            [200, makeHighlights()],
+            [200, computing],
+        ]
+        const logic = todayHighlightsLogic()
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(0)
+        const calls: number[] = []
+        for (const wait of [HIGHLIGHTS_FIRST_POLL_MS, HIGHLIGHTS_FIRST_POLL_MS * 2, HIGHLIGHTS_POLL_MS * 3]) {
+            await jest.advanceTimersByTimeAsync(wait)
+            calls.push(highlightCalls)
+        }
+        logic.actions.loadHighlights()
+        await jest.advanceTimersByTimeAsync(0)
+        for (const wait of [
+            HIGHLIGHTS_FIRST_POLL_MS,
+            HIGHLIGHTS_FIRST_POLL_MS * 2,
+            HIGHLIGHTS_FIRST_POLL_MS * 4,
+            HIGHLIGHTS_POLL_MS,
+            HIGHLIGHTS_POLL_MS,
+        ]) {
+            await jest.advanceTimersByTimeAsync(wait)
+            calls.push(highlightCalls)
+        }
+
+        expect(calls).toEqual([2, 3, 3, 5, 6, 7, 8, 9])
+    })
+
     it('keeps a highlight hidden in another project visible here, and forgets earlier days', async () => {
         const item = makeHighlightItem()
         highlightResponses = [[200, makeHighlights({ items: [item] })]]
@@ -477,32 +511,42 @@ describe('todayHighlightsLogic', () => {
         logic.actions.pulseViewUnmounted()
     })
 
-    it('records a slow unanswered load and abandonment without stopping the request', async () => {
-        jest.useFakeTimers()
-        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
-        const api = await import('products/today/frontend/generated/api')
-        jest.spyOn(api, 'todayHighlightsRetrieve').mockImplementation(() => new Promise(() => {}))
-        const logic = todayHighlightsLogic()
-        logic.mount()
-        logic.actions.pulseViewMounted(false)
-        await jest.advanceTimersByTimeAsync(30_000)
+    it.each([
+        { hidden: false, slow: [expect.objectContaining({ duration_ms: 30_000, request_count: 1 })] },
+        { hidden: true, slow: [] },
+    ])(
+        'records a slow unanswered load only when the tab stayed visible (hidden: $hidden), and abandonment without stopping the request',
+        async ({ hidden, slow }) => {
+            jest.useFakeTimers()
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+            const api = await import('products/today/frontend/generated/api')
+            jest.spyOn(api, 'todayHighlightsRetrieve').mockImplementation(() => new Promise(() => {}))
+            const logic = todayHighlightsLogic()
+            logic.mount()
+            logic.actions.pulseViewMounted(false)
+            if (hidden) {
+                const visibility = jest.spyOn(document, 'visibilityState', 'get')
+                visibility.mockReturnValue('hidden')
+                document.dispatchEvent(new Event('visibilitychange'))
+                visibility.mockReturnValue('visible')
+                document.dispatchEvent(new Event('visibilitychange'))
+            }
+            await jest.advanceTimersByTimeAsync(30_000)
 
-        expect(logic.values.highlightsLoading).toBe(true)
-        expect(capture).toHaveBeenCalledWith(
-            'today pulse load slow',
-            expect.objectContaining({
-                duration_ms: 30_000,
-                request_count: 1,
-            })
-        )
-        logic.actions.pulseViewUnmounted()
-        await jest.advanceTimersByTimeAsync(30_000)
-        expect(capture.mock.calls.filter(([event]) => event === 'today pulse load slow')).toHaveLength(1)
-        expect(capture).toHaveBeenCalledWith(
-            'today pulse load finished',
-            expect.objectContaining({ outcome: 'abandoned' })
-        )
-    })
+            expect(logic.values.highlightsLoading).toBe(true)
+            logic.actions.pulseViewUnmounted()
+            await jest.advanceTimersByTimeAsync(30_000)
+            expect(
+                capture.mock.calls
+                    .filter(([event]) => event === 'today pulse load slow')
+                    .map(([, properties]) => properties)
+            ).toEqual(slow)
+            expect(capture).toHaveBeenCalledWith(
+                'today pulse load finished',
+                expect.objectContaining({ outcome: 'abandoned' })
+            )
+        }
+    )
 
     it('does not measure sample visits', async () => {
         const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)

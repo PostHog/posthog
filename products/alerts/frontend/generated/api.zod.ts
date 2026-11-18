@@ -43,6 +43,23 @@ export const AlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Make a destination's message editable. A destination that sends the standard message from the alerts platform gets HogFunctions with that message and stops sending from the platform. A destination that already has HogFunctions keeps them. Returns the HogFunction IDs to edit.
+ */
+export const alertsDestinationsCustomizeCreateBodyHogFunctionIdsMax = 100
+
+export const AlertsDestinationsCustomizeCreateBody = /* @__PURE__ */ zod.object({
+    destination_id: zod
+        .uuid()
+        .nullish()
+        .describe("The destination's `id` from the destinations list. Use it for a destination with no HogFunctions."),
+    hog_function_ids: zod
+        .array(zod.uuid())
+        .max(alertsDestinationsCustomizeCreateBodyHogFunctionIdsMax)
+        .optional()
+        .describe("The destination's `hog_function_ids` from the destinations list, when it has HogFunctions."),
+})
+
+/**
  * Stop sending this alert to a destination. The alert keeps its email recipients.
  */
 export const alertsDestinationsDeleteCreateBodyHogFunctionIdsMax = 100
@@ -87,6 +104,19 @@ export const AlertsDestinationsPagerdutyCreateBody = /* @__PURE__ */ zod.object(
 })
 
 /**
+ * Send a customized destination's standard message again. Its HogFunctions are deleted, with their edits, and the alerts platform sends it from then on. Only an alert the alerts platform checks can be reset.
+ */
+export const alertsDestinationsResetCreateBodyHogFunctionIdsMax = 100
+
+export const AlertsDestinationsResetCreateBody = /* @__PURE__ */ zod.object({
+    hog_function_ids: zod
+        .array(zod.uuid())
+        .min(1)
+        .max(alertsDestinationsResetCreateBodyHogFunctionIdsMax)
+        .describe('Every HogFunction of the customized destination, from the destinations list.'),
+})
+
+/**
  * Send this alert's firings to a Discord or Microsoft Teams channel, or to any webhook. The returned IDs identify the destination.
  */
 export const AlertsDestinationsWebhookCreateBody = /* @__PURE__ */ zod.object({
@@ -102,7 +132,17 @@ export const AlertsDestinationsWebhookCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Simulate a detector on an insight's historical data. No AlertCheck records are created. The AI detector makes a real model call, so that mode needs the 'alert:write' scope.
+ * Take ownership of this alert and enable it. Only organization admins can assign another member. The new owner needs access to its content. Checks run with the owner's access, so this is how an alert continues after its owner left.
+ */
+export const AlertsTakeOwnershipCreateBody = /* @__PURE__ */ zod.object({
+    user_uuid: zod
+        .uuid()
+        .optional()
+        .describe("New owner's user UUID. Must be an active organization member. Defaults to yourself."),
+})
+
+/**
+ * Simulate a detector on an insight's historical data. No AlertCheck records are created. The AI and forecast detectors make real model calls, so those modes need the 'alert:write' scope. The forecast detector scores every point with a one-step forecast from the points before it.
  */
 export const AlertsSimulateCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())

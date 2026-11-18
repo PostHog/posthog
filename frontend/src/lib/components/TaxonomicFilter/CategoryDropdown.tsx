@@ -19,10 +19,12 @@ export function CategoryDropdown({
     eventName,
     onAfterChange,
     joinedToInput = false,
+    compact = false,
 }: {
     eventName?: string
     onAfterChange?: () => void
     joinedToInput?: boolean
+    compact?: boolean
 }): JSX.Element | null {
     const [menuVisible, setMenuVisible] = useState(false)
     const { activeTab, taxonomicGroups, taxonomicGroupTypes, categoryGroupTypes } = useValues(taxonomicFilterLogic)
@@ -95,28 +97,35 @@ export function CategoryDropdown({
             placement="bottom-start"
             className={CLICK_OUTSIDE_BLOCK_CLASS}
         >
-            {renderTrigger(activeLabel, joinedToInput, categoryRailPinned)}
+            {renderTrigger(activeLabel, joinedToInput, categoryRailPinned, compact)}
         </LemonMenu>
     )
 }
 
-function renderTrigger(activeLabel: string, joinedToInput: boolean, categoryRailPinned: boolean): JSX.Element {
+function renderTrigger(
+    activeLabel: string,
+    joinedToInput: boolean,
+    categoryRailPinned: boolean,
+    compact: boolean
+): JSX.Element {
     return (
         <LemonButton
             type={joinedToInput ? 'tertiary' : 'secondary'}
             size="xsmall"
             truncate={joinedToInput}
-            sideIcon={<IconChevronDown />}
+            icon={compact ? <IconChevronDown /> : undefined}
+            sideIcon={compact ? undefined : <IconChevronDown />}
             // This shipped selector is used by external tests and autocapture.
             data-attr="taxonomic-category-dropdown-trigger-pill"
             aria-label={`Current category: ${activeLabel}. Click to change.`}
             className={clsx(
                 CLICK_OUTSIDE_BLOCK_CLASS,
                 joinedToInput && 'TaxonomicFilter__category-dropdown',
+                compact && '!min-w-0',
                 categoryRailPinned && 'hidden @max-[32rem]:inline-flex'
             )}
         >
-            {activeLabel}
+            {!compact && activeLabel}
         </LemonButton>
     )
 }

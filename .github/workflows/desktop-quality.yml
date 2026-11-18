@@ -28,7 +28,7 @@ jobs:
     changes:
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
-        if: github.event_name != 'merge_group' && inputs.run-suite == ''
+        if: github.event_name != 'push' && github.event_name != 'merge_group' && inputs.run-suite == ''
         permissions:
             contents: read
             pull-requests: read
