@@ -387,7 +387,25 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
     @parameterized.expand(
         [
             ("adds_a_name_a_changed_file_reads", _NEW_URL, {"posthog/consumer.py": "settings.NEW_URL\n"}, False),
+            (
+                "adds_a_name_with_a_type_cast",
+                _BASE_SETTINGS + 'NEW_URL = get_from_env("NEW_URL", 1, type_cast=int)\n',
+                {"posthog/consumer.py": "settings.NEW_URL\n"},
+                False,
+            ),
             ("comment_only", _BASE_SETTINGS + "# A note.\n", {}, False),
+            (
+                "passes_a_callback_that_mutates_an_existing_setting",
+                _BASE_SETTINGS + "NEW_URL = min([{}], key=EXISTING.update)\n",
+                {"posthog/consumer.py": "settings.NEW_URL\n"},
+                True,
+            ),
+            (
+                "adds_a_django_setting_in_a_new_namespace",
+                _BASE_SETTINGS + "PREPEND_WWW = True\n",
+                {"posthog/consumer.py": "settings.PREPEND_WWW\n"},
+                True,
+            ),
             ("adds_a_name_nothing_reads", _NEW_URL, {}, True),
             (
                 "adds_a_name_an_unchanged_file_reads",

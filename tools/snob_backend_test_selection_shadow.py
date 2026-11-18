@@ -140,6 +140,59 @@ REPO_CHECKS_ONLY_PATHS = (
     REPO_INVARIANTS_DIR,
     "posthog/temporal/workflow_catalog.json",
 )
+INERT_TYPE_CASTS = frozenset({"bool", "float", "int", "json.loads", "list", "str", "str_to_bool", "str_to_int_set"})
+_INERT_EXPRESSION_NODES = (
+    ast.Constant,
+    ast.Name,
+    ast.List,
+    ast.Tuple,
+    ast.Set,
+    ast.Dict,
+    ast.BinOp,
+    ast.UnaryOp,
+    ast.BoolOp,
+    ast.Compare,
+    ast.IfExp,
+    ast.JoinedStr,
+    ast.FormattedValue,
+    ast.Subscript,
+    ast.Slice,
+)
+DJANGO_GLOBAL_SETTINGS = frozenset(
+    """
+    ABSOLUTE_URL_OVERRIDES ADMINS ALLOWED_HOSTS APPEND_SLASH AUTHENTICATION_BACKENDS
+    AUTH_PASSWORD_VALIDATORS AUTH_USER_MODEL CACHES CACHE_MIDDLEWARE_ALIAS CACHE_MIDDLEWARE_KEY_PREFIX
+    CACHE_MIDDLEWARE_SECONDS CSRF_COOKIE_AGE CSRF_COOKIE_DOMAIN CSRF_COOKIE_HTTPONLY CSRF_COOKIE_NAME
+    CSRF_COOKIE_PATH CSRF_COOKIE_SAMESITE CSRF_COOKIE_SECURE CSRF_FAILURE_VIEW CSRF_HEADER_NAME
+    CSRF_TRUSTED_ORIGINS CSRF_USE_SESSIONS DATABASES DATABASE_ROUTERS DATA_UPLOAD_MAX_MEMORY_SIZE
+    DATA_UPLOAD_MAX_NUMBER_FIELDS DATA_UPLOAD_MAX_NUMBER_FILES DATETIME_FORMAT DATETIME_INPUT_FORMATS
+    DATE_FORMAT DATE_INPUT_FORMATS DEBUG DEBUG_PROPAGATE_EXCEPTIONS DECIMAL_SEPARATOR DEFAULT_AUTO_FIELD
+    DEFAULT_CHARSET DEFAULT_EXCEPTION_REPORTER DEFAULT_EXCEPTION_REPORTER_FILTER DEFAULT_FROM_EMAIL
+    DEFAULT_INDEX_TABLESPACE DEFAULT_TABLESPACE DISALLOWED_USER_AGENTS EMAIL_BACKEND EMAIL_HOST
+    EMAIL_HOST_PASSWORD EMAIL_HOST_USER EMAIL_PORT EMAIL_SSL_CERTFILE EMAIL_SSL_KEYFILE
+    EMAIL_SUBJECT_PREFIX EMAIL_TIMEOUT EMAIL_USE_LOCALTIME EMAIL_USE_SSL EMAIL_USE_TLS
+    FILE_UPLOAD_DIRECTORY_PERMISSIONS FILE_UPLOAD_HANDLERS FILE_UPLOAD_MAX_MEMORY_SIZE
+    FILE_UPLOAD_PERMISSIONS FILE_UPLOAD_TEMP_DIR FIRST_DAY_OF_WEEK FIXTURE_DIRS FORCE_SCRIPT_NAME
+    FORMAT_MODULE_PATH FORMS_URLFIELD_ASSUME_HTTPS FORM_RENDERER IGNORABLE_404_URLS INSTALLED_APPS
+    INTERNAL_IPS LANGUAGES LANGUAGES_BIDI LANGUAGE_CODE LANGUAGE_COOKIE_AGE LANGUAGE_COOKIE_DOMAIN
+    LANGUAGE_COOKIE_HTTPONLY LANGUAGE_COOKIE_NAME LANGUAGE_COOKIE_PATH LANGUAGE_COOKIE_SAMESITE
+    LANGUAGE_COOKIE_SECURE LOCALE_PATHS LOGGING LOGGING_CONFIG LOGIN_REDIRECT_URL LOGIN_URL
+    LOGOUT_REDIRECT_URL MANAGERS MEDIA_ROOT MEDIA_URL MESSAGE_STORAGE MIDDLEWARE MIGRATION_MODULES
+    MONTH_DAY_FORMAT NUMBER_GROUPING PASSWORD_HASHERS PASSWORD_RESET_TIMEOUT PREPEND_WWW SECRET_KEY
+    SECRET_KEY_FALLBACKS SECURE_CONTENT_TYPE_NOSNIFF SECURE_CROSS_ORIGIN_OPENER_POLICY SECURE_CSP
+    SECURE_CSP_REPORT_ONLY SECURE_HSTS_INCLUDE_SUBDOMAINS SECURE_HSTS_PRELOAD SECURE_HSTS_SECONDS
+    SECURE_PROXY_SSL_HEADER SECURE_REDIRECT_EXEMPT SECURE_REFERRER_POLICY SECURE_SSL_HOST
+    SECURE_SSL_REDIRECT SERVER_EMAIL SESSION_CACHE_ALIAS SESSION_COOKIE_AGE SESSION_COOKIE_DOMAIN
+    SESSION_COOKIE_HTTPONLY SESSION_COOKIE_NAME SESSION_COOKIE_PATH SESSION_COOKIE_SAMESITE
+    SESSION_COOKIE_SECURE SESSION_ENGINE SESSION_EXPIRE_AT_BROWSER_CLOSE SESSION_FILE_PATH
+    SESSION_SAVE_EVERY_REQUEST SESSION_SERIALIZER SHORT_DATETIME_FORMAT SHORT_DATE_FORMAT
+    SIGNED_COOKIE_LEGACY_SALT_FALLBACK SIGNING_BACKEND SILENCED_SYSTEM_CHECKS STATICFILES_DIRS
+    STATICFILES_FINDERS STATIC_ROOT STATIC_URL STORAGES TASKS TEMPLATES TEST_NON_SERIALIZED_APPS
+    TEST_RUNNER THOUSAND_SEPARATOR TIME_FORMAT TIME_INPUT_FORMATS TIME_ZONE URLIZE_ASSUME_HTTPS
+    USE_BLANK_CHOICE_DASH USE_I18N USE_THOUSAND_SEPARATOR USE_TZ USE_X_FORWARDED_HOST
+    USE_X_FORWARDED_PORT WSGI_APPLICATION X_FRAME_OPTIONS YEAR_MONTH_FORMAT
+    """.split()
+)
 
 # Patterns that indicate "broad API tests needed" but not full suite.
 # These are Django infrastructure files reached through settings/framework
@@ -536,14 +589,39 @@ def _inert_assignment_name(statement: ast.stmt) -> str | None:
         target = statement.target
     else:
         return None
-    if not isinstance(target, ast.Name):
+    if not isinstance(target, ast.Name) or target.id in DJANGO_GLOBAL_SETTINGS:
         return None
-    for node in ast.walk(statement):
-        if isinstance(node, (ast.NamedExpr, ast.Await, ast.Yield, ast.YieldFrom)):
-            return None
-        if isinstance(node, ast.Call) and ast.unparse(node.func) not in INERT_SETTINGS_CALLS:
-            return None
+    if not _is_inert_expression(statement.value):
+        return None
+    if isinstance(statement, ast.AnnAssign) and not _is_inert_expression(statement.annotation):
+        return None
     return target.id
+
+
+def _is_inert_keyword(keyword: ast.keyword) -> bool:
+    if keyword.arg is None or keyword.arg == "key":
+        return False
+    if keyword.arg == "type_cast":
+        return ast.unparse(keyword.value) in INERT_TYPE_CASTS
+    return _is_inert_expression(keyword.value)
+
+
+def _is_inert_expression(node: ast.expr) -> bool:
+    if isinstance(node, ast.Call):
+        return (
+            ast.unparse(node.func) in INERT_SETTINGS_CALLS
+            and all(not isinstance(arg, ast.Starred) and _is_inert_expression(arg) for arg in node.args)
+            and all(_is_inert_keyword(keyword) for keyword in node.keywords)
+        )
+    if isinstance(node, ast.Name):
+        return isinstance(node.ctx, ast.Load)
+    if not isinstance(node, _INERT_EXPRESSION_NODES):
+        return False
+    return all(
+        isinstance(child, (ast.expr_context, ast.operator, ast.unaryop, ast.boolop, ast.cmpop))
+        or (isinstance(child, ast.expr) and _is_inert_expression(child))
+        for child in ast.iter_child_nodes(node)
+    )
 
 
 def _added_settings_names(path: str, base_ref: str) -> list[str] | None:
