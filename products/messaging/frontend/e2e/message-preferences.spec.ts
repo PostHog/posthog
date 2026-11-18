@@ -9,7 +9,7 @@ interface PreferencesPage {
     path: string
     productNewsId: string
     eventInvitesId: string
-    storedPreferences: (categoryKey?: string) => Promise<Record<string, string> | undefined>
+    storedPreferences: () => Promise<Record<string, string> | undefined>
 }
 
 async function createPreferencesPage(page: Page, playwrightSetup: PlaywrightSetup): Promise<PreferencesPage> {
@@ -41,12 +41,12 @@ async function createPreferencesPage(page: Page, playwrightSetup: PlaywrightSetu
     expect(linkResponse.ok()).toBe(true)
     const path = new URL((await linkResponse.json()).preferences_url).pathname
 
-    // The opt-out list only returns a recipient who opted out of the given category, or of all
-    // marketing when no category is given
-    const storedPreferences = async (categoryKey?: string): Promise<Record<string, string> | undefined> => {
+    // The opt-out list only returns recipients who opted out of the given topic. The test turns
+    // Event invites off first and keeps it off, so this list returns the recipient's full row.
+    const storedPreferences = async (): Promise<Record<string, string> | undefined> => {
         const response = await page.request.get(`${api}/messaging_preferences/opt_outs/`, {
             headers,
-            params: { search: RECIPIENT, ...(categoryKey ? { category_key: categoryKey } : {}) },
+            params: { search: RECIPIENT, category_key: 'event_invites' },
         })
         expect(response.ok()).toBe(true)
         return (await response.json()).results[0]?.preferences
@@ -78,7 +78,7 @@ test.describe('Message preferences page', () => {
             await eventInvites.click()
             await expect(status(eventInvitesId)).toHaveText('Not subscribed')
             await expect
-                .poll(() => storedPreferences('event_invites'))
+                .poll(() => storedPreferences())
                 .toEqual({ $all: 'OPTED_IN', [productNewsId]: 'OPTED_IN', [eventInvitesId]: 'OPTED_OUT' })
 
             await test.step('all marketing off greys out every topic and keeps the topic choices', async () => {
@@ -117,7 +117,7 @@ test.describe('Message preferences page', () => {
                 await expect(eventInvites).toBeEnabled()
                 await expect(status(eventInvitesId)).toHaveText('Not subscribed')
                 await expect
-                    .poll(() => storedPreferences('event_invites'))
+                    .poll(() => storedPreferences())
                     .toEqual({ $all: 'OPTED_IN', [productNewsId]: 'OPTED_IN', [eventInvitesId]: 'OPTED_OUT' })
             })
 
@@ -189,7 +189,7 @@ test.describe('Message preferences page', () => {
                 await expect(productNews).toBeEnabled()
                 await expect(status(productNewsId)).toHaveText('Not subscribed')
                 await expect
-                    .poll(() => storedPreferences('product_news'))
+                    .poll(() => storedPreferences())
                     .toEqual({ $all: 'OPTED_IN', [productNewsId]: 'OPTED_OUT', [eventInvitesId]: 'OPTED_OUT' })
             })
         } finally {
