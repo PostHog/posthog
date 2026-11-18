@@ -41,10 +41,10 @@ const slackLaunchOptionsSchema = z.object({
 });
 
 export function isSlackLaunch(
-  originProduct: string | undefined,
+  interactionOrigin: string | undefined,
   launchOptions: Record<string, unknown>,
 ): boolean {
-  if (originProduct === SLACK_ORIGIN) {
+  if (interactionOrigin === SLACK_ORIGIN) {
     return true;
   }
   return Object.entries(launchOptions).some(
@@ -71,7 +71,7 @@ export function slackProduct(): AgentProduct {
     launchOptionsSchema: slackLaunchOptionsSchema,
     configureSession({ launch, services }) {
       const { launchOptions } = launch;
-      const slackOrigin = launch.originProduct === SLACK_ORIGIN;
+      const slackOrigin = launch.interactionOrigin === SLACK_ORIGIN;
       const slackReply = slackOrigin || launchOptions.slack_reply_context;
       const promptOptions: SlackPromptOptions = {
         slackArtifactDelivery: launchOptions.slack_artifact_delivery,

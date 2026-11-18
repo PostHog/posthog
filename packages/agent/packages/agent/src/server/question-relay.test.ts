@@ -211,7 +211,7 @@ describe("Question relay", () => {
         await server.openProductSession({
           taskId: "test-task-id",
           runId: "test-run-id",
-          originProduct: "slack",
+          interactionOrigin: "slack",
           launchOptions: {},
         });
       });

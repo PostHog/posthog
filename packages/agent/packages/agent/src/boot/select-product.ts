@@ -8,10 +8,10 @@ import type { AgentProduct, ProductLaunchConfiguration } from "../sdk/product";
 export function selectProduct(
   launch: ProductLaunchConfiguration,
 ): AgentProduct | undefined {
-  if (launch.originProduct === SIGNAL_REPORT_ORIGIN) {
+  if (launch.interactionOrigin === SIGNAL_REPORT_ORIGIN) {
     return signalReportProduct();
   }
-  if (isSlackLaunch(launch.originProduct, launch.launchOptions)) {
+  if (isSlackLaunch(launch.interactionOrigin, launch.launchOptions)) {
     return slackProduct();
   }
   return undefined;
