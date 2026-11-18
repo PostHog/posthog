@@ -1,17 +1,26 @@
+import { normalizeSpeed } from './feedModel'
 import { HOLD_PULL, holdRateFor, playbackRate, pullHold, releaseHold, startHold } from './holdLock'
 
-describe('hold and pull-down lock', () => {
+describe('speeds, hold and pull-down lock', () => {
     test.each([
         [0.5, 2],
         [1, 2],
         [1.5, 2],
         [2, 4],
-        [3, 4],
         [4, null],
-        [16, null],
     ])('a hold at speed %s plays at %s', (speed, rate) => {
         expect(holdRateFor(speed)).toBe(rate)
         expect(startHold(speed, null)?.rate ?? null).toBe(rate)
+    })
+
+    test.each([
+        [3, 2],
+        [8, 4],
+        [16, 4],
+        [1.5, 1.5],
+        ['fast', 1],
+    ])('a stored speed of %s becomes %s', (stored, speed) => {
+        expect(normalizeSpeed(stored)).toBe(speed)
     })
 
     test.each([

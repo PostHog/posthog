@@ -63,13 +63,17 @@ export function FeedScrubber({
     const scrubbing = useSharedValue(false)
     const scrubAt = useSharedValue(start)
     const snapped = useSharedValue(-1)
-    const range = useSharedValue({ start, end })
+    const rangeStart = useSharedValue(start)
+    const rangeEnd = useSharedValue(end)
+    // Switching between a moment and the full recording grows or shrinks the range in place.
+    const range = useDerivedValue(() => ({ start: rangeStart.value, end: rangeEnd.value }))
     const tickSeconds = useSharedValue<number[]>([])
     const [label, setLabel] = useState<string | null>(null)
 
     useEffect(() => {
-        range.value = { start, end }
-    }, [start, end, range])
+        rangeStart.value = withTiming(start, { duration: 260 })
+        rangeEnd.value = withTiming(end, { duration: 260 })
+    }, [start, end, rangeStart, rangeEnd])
     useEffect(() => {
         tickSeconds.value = ticks.map((tick) => tick.seconds)
     }, [ticks, tickSeconds])

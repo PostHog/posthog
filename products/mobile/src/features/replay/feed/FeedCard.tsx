@@ -44,7 +44,16 @@ import {
     trackFeedSpeedUnlocked,
 } from './feedAnalytics'
 import { armHold, beginHold, finishHold, holdHaptic, holdPull, useFeedHold } from './feedHoldStore'
-import type { FeedEvent, FeedItem, FeedSettings, FeedSource, FeedTimeline, FeedUnit, Moment } from './feedModel'
+import {
+    type FeedEvent,
+    type FeedItem,
+    type FeedSettings,
+    type FeedSource,
+    type FeedTimeline,
+    type FeedUnit,
+    MOMENT_WINDOW,
+    type Moment,
+} from './feedModel'
 import type { FeedPlayer, PoolPlayer } from './feedPlayer'
 import { feedColors, feedTextShadow, type TickKind, tickColors } from './feedStyle'
 import { HOLD_PULL, playbackRate } from './holdLock'
@@ -58,6 +67,7 @@ import type { PoolSource } from './usePlayerPool'
 export const DWELL_MS = 1500
 const EMPTY_TIMELINE: FeedTimeline = { events: [], browser: null, os: null, viewport: null }
 const JUMP_SECONDS = 10
+const RANGE_TOGGLE_HEIGHT = 30
 
 export interface FeedCardHandle {
     seekToSession: (seconds: number) => void
@@ -88,7 +98,7 @@ interface FeedCardProps {
     onSpeed: () => void
     onShare: (item: FeedItem, seconds: number) => void
     onChat: (item: FeedItem) => void
-    onInfo: (item: FeedItem, timeline: FeedTimeline | null) => void
+    onInfo: (item: FeedItem, timeline: FeedTimeline | null, seconds: number) => void
     onOpenWeb: (item: FeedItem, seconds: number) => void
     onRecheck: () => void
     registerHandle: (index: number, handle: FeedCardHandle | null) => void
@@ -164,8 +174,8 @@ function FeedCardBody({
     const { sessionId, durationSeconds } = recording
     const timeline = useFeedTimeline(item, near)
     const moments = useMemo(
-        () => feedMoments(timeline ?? EMPTY_TIMELINE, summary, durationSeconds, settings, source),
-        [timeline, summary, durationSeconds, settings, source]
+        () => feedMoments(timeline ?? EMPTY_TIMELINE, summary, durationSeconds, MOMENT_WINDOW, source),
+        [timeline, summary, durationSeconds, source]
     )
     const [momentIndex, setMomentIndex] = useState(0)
     // Full recording plays this card's whole recording while the feed keeps playing moments.
@@ -175,7 +185,7 @@ function FeedCardBody({
     const moment = moments[safeIndex] as Moment
     const domain =
         unit === 'moment' ? { start: moment.startSeconds, end: moment.endSeconds } : { start: 0, end: durationSeconds }
-    const startSeconds = unit === 'moment' ? moment.startSeconds : sessionStartSeconds(moments, summary, settings)
+    const startSeconds = unit === 'moment' ? moment.startSeconds : sessionStartSeconds(moments, summary, MOMENT_WINDOW)
 
     // Each card listens to its own two jobs only, so one render's progress does not re-render every card.
     const fullJob = useRenderQueue((state) => state.jobs[`${sessionId}:full`])
@@ -267,12 +277,8 @@ function FeedCardBody({
     const portrait = aspect < 1
     // A phone session fills the card, or with "Whole screen" sits between the chrome and the caption so nothing
     // covers its own header and tab bar. A desktop page is letterboxed a little above the middle.
-    const framed = portrait && settings.phoneFit === 'whole'
-    const bleed = portrait && !framed
+    const framed = portrait
     const frame = (() => {
-        if (bleed) {
-            return { top: 0, height, left: 0, width }
-        }
         if (framed) {
             const top = insets.top + 54
             const frameHeight = Math.max(200, height - top - (Math.max(insets.bottom - 8, 10) + 52) - 132)
@@ -831,7 +837,8 @@ function FeedCardBody({
     const advance = useCallback((): void => onAdvance(index), [onAdvance, index])
 
     const scrubberBottom = Math.max(insets.bottom - 8, 10)
-    const captionBottom = scrubberBottom + 40
+    const showRangeToggle = feedUnit === 'moment' && moment.kind !== 'start'
+    const captionBottom = scrubberBottom + 40 + (showRangeToggle ? RANGE_TOGGLE_HEIGHT + 8 : 0)
     const flag = countryFlag(recording.countryCode)
     const ago = recording.startedAt ? formatRelativeAgo(recording.startedAt, new Date()) : null
     const anchorColor =
@@ -858,12 +865,12 @@ function FeedCardBody({
             trackFeedLoadFailed({ sessionId, message: webError })
         }
     }, [webError, sessionId])
-    const dotsTop = bleed ? null : frame.top + frame.height + 12
+    const dotsTop = frame.top + frame.height + 12
 
     return (
         <View style={[styles.card, { width, height }]} testID={`feed-card-${index}`}>
             <Animated.View style={[StyleSheet.absoluteFill, stageStyle]}>
-                {!bleed && posterUri ? (
+                {posterUri ? (
                     <Image
                         source={{ uri: posterUri }}
                         style={StyleSheet.absoluteFill}
@@ -872,7 +879,7 @@ function FeedCardBody({
                         accessibilityIgnoresInvertColors
                     />
                 ) : null}
-                {!bleed ? <View style={[StyleSheet.absoluteFill, styles.ambientDim]} /> : null}
+                <View style={[StyleSheet.absoluteFill, styles.ambientDim]} />
                 <View
                     style={[
                         styles.frame,
@@ -886,7 +893,7 @@ function FeedCardBody({
                             player={video}
                             style={StyleSheet.absoluteFill}
                             nativeControls={false}
-                            contentFit={bleed ? 'cover' : 'contain'}
+                            contentFit="contain"
                             allowsPictureInPicture={false}
                             onFirstFrameRender={() => setFirstFrame(true)}
                             testID={active ? 'feed-video' : undefined}
@@ -897,7 +904,7 @@ function FeedCardBody({
                             <Image
                                 source={{ uri: posterUri }}
                                 style={StyleSheet.absoluteFill}
-                                resizeMode={bleed ? 'cover' : 'contain'}
+                                resizeMode="contain"
                                 accessibilityIgnoresInvertColors
                             />
                         ) : (
@@ -928,10 +935,7 @@ function FeedCardBody({
             </GestureDetector>
 
             {webPlayer && webError ? (
-                <View
-                    style={[styles.ladder, { top: frame.top, height: bleed ? height * 0.62 : frame.height }]}
-                    pointerEvents="box-none"
-                >
+                <View style={[styles.ladder, { top: frame.top, height: frame.height }]} pointerEvents="box-none">
                     <View style={styles.errorPanel} testID={active ? 'feed-load-error' : undefined}>
                         <WarningIcon size={22} color={feedColors.text} />
                         <Text style={styles.errorTitle}>Could not load this recording</Text>
@@ -962,10 +966,7 @@ function FeedCardBody({
             ) : null}
 
             {ladder ? (
-                <View
-                    style={[styles.ladder, { top: frame.top, height: bleed ? height * 0.62 : frame.height }]}
-                    pointerEvents="box-none"
-                >
+                <View style={[styles.ladder, { top: frame.top, height: frame.height }]} pointerEvents="box-none">
                     <RenderLadder
                         state={ladder}
                         onPlay={() => requestRender('tap')}
@@ -990,11 +991,7 @@ function FeedCardBody({
 
             {showDots ? (
                 <Animated.View
-                    style={[
-                        styles.dots,
-                        dotsTop === null ? { bottom: captionBottom + 132 } : { top: dotsTop },
-                        chromeStyle,
-                    ]}
+                    style={[styles.dots, { top: dotsTop }, chromeStyle]}
                     pointerEvents="none"
                     testID="feed-moment-dots"
                 >
@@ -1024,13 +1021,10 @@ function FeedCardBody({
                 pointerEvents={chromeHidden ? 'none' : 'box-none'}
             >
                 <FeedRail
-                    showFull={feedUnit === 'moment' && hasMoment}
-                    fullOn={fullOn}
                     speed={playbackRate(settings.speed, holdNow, lock)}
                     speedOn={holding || lock !== null}
                     locked={lock !== null}
                     speedOnly={holding}
-                    onFull={toggleFull}
                     onSpeed={onSpeed}
                     onChat={() => onChat(item)}
                     onShare={() => onShare(item, Math.max(0, Math.floor(position.value)))}
@@ -1042,7 +1036,7 @@ function FeedCardBody({
                 pointerEvents={chromeHidden ? 'none' : 'box-none'}
             >
                 <Pressable
-                    onPress={() => onInfo(item, timeline)}
+                    onPress={() => onInfo(item, timeline, position.value)}
                     accessibilityRole="button"
                     accessibilityLabel={`${itemTitle(item)}. Opens Info`}
                     testID={active ? 'feed-caption' : undefined}
@@ -1071,6 +1065,37 @@ function FeedCardBody({
                     </View>
                 </Pressable>
             </Animated.View>
+
+            {showRangeToggle ? (
+                <Animated.View
+                    style={[styles.rangeToggle, { bottom: scrubberBottom + 40 }, chromeStyle]}
+                    pointerEvents={chromeHidden ? 'none' : 'box-none'}
+                >
+                    {(['moment', 'full'] as const).map((option) => {
+                        const selected = (option === 'full') === fullOn
+                        return (
+                            <Pressable
+                                key={option}
+                                onPress={() => {
+                                    if (!selected) {
+                                        toggleFull()
+                                    }
+                                }}
+                                accessibilityRole="radio"
+                                accessibilityState={{ selected }}
+                                accessibilityLabel={option === 'full' ? 'Full recording' : 'Moment'}
+                                hitSlop={{ top: 8, bottom: 8 }}
+                                style={[styles.rangeSegment, selected && styles.rangeSegmentOn]}
+                                testID={active ? `feed-range-${option}` : undefined}
+                            >
+                                <Text style={[styles.rangeText, selected && styles.rangeTextOn]}>
+                                    {option === 'full' ? 'Full recording' : 'Moment'}
+                                </Text>
+                            </Pressable>
+                        )
+                    })}
+                </Animated.View>
+            ) : null}
 
             <View style={[styles.scrubber, { bottom: scrubberBottom }]} pointerEvents="box-none">
                 <FeedScrubber
@@ -1353,6 +1378,33 @@ const useStyles = createStyles(() => ({
         position: 'absolute',
         left: 16,
         right: 16,
+    },
+    rangeToggle: {
+        position: 'absolute',
+        left: 16,
+        height: RANGE_TOGGLE_HEIGHT,
+        flexDirection: 'row',
+        padding: 2,
+        borderRadius: RANGE_TOGGLE_HEIGHT / 2,
+        backgroundColor: feedColors.glass,
+        borderWidth: 1,
+        borderColor: feedColors.glassBorder,
+    },
+    rangeSegment: {
+        paddingHorizontal: 12,
+        borderRadius: RANGE_TOGGLE_HEIGHT / 2,
+        justifyContent: 'center',
+    },
+    rangeSegmentOn: {
+        backgroundColor: feedColors.text,
+    },
+    rangeText: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: feedColors.text,
+    },
+    rangeTextOn: {
+        color: feedColors.stage,
     },
     upNext: {
         position: 'absolute',

@@ -136,7 +136,7 @@ export function UpNextCard({ next, countdown, onPlay, onCancel, onReplay }: UpNe
             ) : (
                 <>
                     <Text style={styles.title}>You're caught up</Text>
-                    <Text style={styles.meta}>Pull down on the first session to check for new ones.</Text>
+                    <Text style={styles.meta}>Pull down on the first recording to check for new ones.</Text>
                     <View style={styles.actions}>
                         <Pressable44 onPress={onReplay} accessibilityLabel="Replay" style={styles.pill}>
                             <RefreshIcon size={16} color={feedColors.text} />

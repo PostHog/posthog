@@ -22,7 +22,8 @@ import { trackFullReplayOpened, trackSessionChatOpened } from '../replayAnalytic
 import { sessionWebUrl } from '../replayLinks'
 import { formatOffset } from '../sessionAdapters'
 import { FeedCard, type FeedCardHandle, itemTitle } from './FeedCard'
-import { FeedInfoSheet, FeedSettingsSheet, FeedShareSheet, FeedSourceSheet, SOURCE_LABELS } from './FeedSheets'
+import { FeedInfoSheet, FeedSettingsSheet, FeedShareSheet, SOURCE_LABELS } from './FeedSheets'
+import { FeedSourcesPage } from './FeedSourcesPage'
 import { hasReadyVideo } from './feedAdapters'
 import {
     trackFeedAutoAdvanced,
@@ -31,6 +32,7 @@ import {
     trackFeedOpened,
     trackFeedShared,
     trackFeedSourceChanged,
+    trackFeedSourcesOpened,
     trackFeedSpeedUnlocked,
     trackFeedUnitChanged,
 } from './feedAnalytics'
@@ -84,23 +86,10 @@ function FeedContent(): ReactElement {
     const router = useRouter()
     const insets = useScreenInsets()
     const { mode, access, scope } = useReplayContext()
-    const {
-        unit,
-        source,
-        speed,
-        autoplayNext,
-        startAt,
-        leadInSeconds,
-        momentSeconds,
-        phoneFit,
-        skipInactivity,
-        hidden,
-        set,
-        hide,
-    } = useFeedSettings()
+    const { unit, source, speed, autoplayNext, skipInactivity, hidden, set, hide } = useFeedSettings()
     const settings = useMemo(
-        (): FeedSettings => ({ speed, autoplayNext, startAt, leadInSeconds, momentSeconds, phoneFit, skipInactivity }),
-        [speed, autoplayNext, startAt, leadInSeconds, momentSeconds, phoneFit, skipInactivity]
+        (): FeedSettings => ({ speed, autoplayNext, skipInactivity }),
+        [speed, autoplayNext, skipInactivity]
     )
     const feed = useFeed(source)
     const items = useMemo(() => {
@@ -249,9 +238,22 @@ function FeedContent(): ReactElement {
     ).current
 
     const [sourceOpen, setSourceOpen] = useState(false)
+    // A recording picked in Sources plays first: the feed moves to it once its page has loaded.
+    const [startWith, setStartWith] = useState<string | null>(null)
+    useEffect(() => {
+        if (!startWith || !items || !size) {
+            return
+        }
+        const index = items.findIndex((item) => item.recording.sessionId === startWith)
+        setStartWith(null)
+        if (index >= 0) {
+            listRef.current?.scrollToOffset({ offset: index * size.height, animated: false })
+            setCurrent(index)
+        }
+    }, [startWith, items, size])
     const [settingsOpen, setSettingsOpen] = useState(false)
     const [share, setShare] = useState<{ item: FeedItem; seconds: number } | null>(null)
-    const [info, setInfo] = useState<{ item: FeedItem; timeline: FeedTimeline | null } | null>(null)
+    const [info, setInfo] = useState<{ item: FeedItem; timeline: FeedTimeline | null; seconds: number } | null>(null)
 
     const changeSource = (next: FeedSource): void => {
         if (next === source) {
@@ -333,9 +335,9 @@ function FeedContent(): ReactElement {
         const timer = setTimeout(() => setCopied(null), 1800)
         return () => clearTimeout(timer)
     }, [copied])
-    const openInfo = useCallback((item: FeedItem, timeline: FeedTimeline | null): void => {
+    const openInfo = useCallback((item: FeedItem, timeline: FeedTimeline | null, seconds: number): void => {
         trackFeedInfoOpened(item.recording.sessionId)
-        setInfo({ item, timeline })
+        setInfo({ item, timeline, seconds })
     }, [])
 
     const { refresh } = feed
@@ -386,7 +388,7 @@ function FeedContent(): ReactElement {
     if (mode === 'demo') {
         body = (
             <FeedState
-                title="Sessions aren't in the demo"
+                title="Recordings aren't in the demo"
                 message="Sign in to your PostHog project to see its recordings."
             />
         )
@@ -469,7 +471,10 @@ function FeedContent(): ReactElement {
                     <ChevronLeftIcon size={22} color={feedColors.text} />
                 </Pressable44>
                 <Pressable44
-                    onPress={() => setSourceOpen(true)}
+                    onPress={() => {
+                        trackFeedSourcesOpened(source)
+                        setSourceOpen(true)
+                    }}
                     accessibilityLabel={`Source: ${sourceLabel}. Choose what the feed plays`}
                     style={styles.sourcePill}
                     pressedStyle={styles.pressed}
@@ -488,10 +493,16 @@ function FeedContent(): ReactElement {
                     <Text style={styles.chipText}>{copied.text}</Text>
                 </View>
             ) : null}
-            <FeedSourceSheet
+            <FeedSourcesPage
                 visible={sourceOpen}
-                source={source}
-                onSelect={changeSource}
+                playing={source}
+                onPlay={(next, sessionId) => {
+                    setSourceOpen(false)
+                    if (next !== source) {
+                        changeSource(next)
+                    }
+                    setStartWith(sessionId)
+                }}
                 onClose={() => setSourceOpen(false)}
             />
             <FeedSettingsSheet
@@ -499,7 +510,6 @@ function FeedContent(): ReactElement {
                 settings={settings}
                 unit={unit}
                 lock={lock}
-                showsExportCost={!WEB_PLAYER}
                 onChange={changeSettings}
                 onUnit={changeUnit}
                 onUnlock={() => {
@@ -533,6 +543,7 @@ function FeedContent(): ReactElement {
                 visible={info !== null}
                 item={info?.item ?? null}
                 timeline={info?.timeline ?? null}
+                nowSeconds={info?.seconds ?? 0}
                 onSeek={(seconds) => handles.current.get(current)?.seekToSession(seconds)}
                 onOpenWeb={info && webUrlFor(info.item, 0) ? () => openWeb(info.item, 0) : null}
                 onNotInterested={() => {

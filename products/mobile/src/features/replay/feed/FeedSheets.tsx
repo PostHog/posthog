@@ -1,18 +1,13 @@
-import { type ReactElement, type ReactNode, useMemo } from 'react'
-import { Image, ScrollView, Switch, Text, View } from 'react-native'
+import { type ReactElement, type ReactNode, useEffect, useMemo, useRef } from 'react'
+import { Image, type LayoutChangeEvent, ScrollView, type ScrollViewInstance, Switch, Text, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 
 import { BottomSheet } from '@/ui/BottomSheet'
 import { CopyIcon } from '@/ui/icons/CopyIcon'
-import { ErrorTriangleIcon } from '@/ui/icons/ErrorTriangleIcon'
 import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
 import { EyeOffIcon } from '@/ui/icons/EyeOffIcon'
-import { FlagIcon } from '@/ui/icons/FlagIcon'
 import { LockIcon } from '@/ui/icons/LockIcon'
-import { RecordingIcon } from '@/ui/icons/RecordingIcon'
-import { SparklesIcon } from '@/ui/icons/SparklesIcon'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
-import { OptionCard, type OptionCardItem } from '@/ui/OptionCard'
 import { Pressable44 } from '@/ui/Pressable44'
 import { SegmentedPill } from '@/ui/SegmentedPill'
 import { createStyles, useColors } from '@/ui/theme'
@@ -29,8 +24,6 @@ import {
     type FeedSource,
     type FeedTimeline,
     type FeedUnit,
-    LEAD_IN_PRESETS,
-    MOMENT_LENGTH_PRESETS,
     SPEED_PRESETS,
 } from './feedModel'
 import { tickColors } from './feedStyle'
@@ -43,57 +36,20 @@ export const SOURCE_LABELS: Record<FeedSource, string> = {
     newest: 'Newest',
 }
 
-const SOURCE_OPTIONS: readonly OptionCardItem<FeedSource>[] = [
-    { key: 'highlights', label: 'Highlights', description: 'Ranked by Replay Vision', Icon: SparklesIcon },
-    { key: 'rage', label: 'Rage clicks', description: 'Recordings with a rage click', Icon: FlagIcon },
-    { key: 'errors', label: 'Errors', description: 'Recordings with an exception', Icon: ErrorTriangleIcon },
-    { key: 'newest', label: 'Newest', description: 'Finished recordings, newest first', Icon: RecordingIcon },
-]
-
-interface SourceSheetProps {
-    visible: boolean
-    source: FeedSource
-    onSelect: (source: FeedSource) => void
-    onClose: () => void
-}
-
-export function FeedSourceSheet({ visible, source, onSelect, onClose }: SourceSheetProps): ReactElement | null {
-    const styles = useStyles()
-    return (
-        <BottomSheet visible={visible} onClose={onClose} accessibilityLabel="Sources" testID="feed-source-sheet">
-            <Text style={styles.sheetTitle}>Sources</Text>
-            <Text style={styles.sheetLead}>Choose what the feed plays.</Text>
-            <OptionCard
-                options={SOURCE_OPTIONS}
-                selected={source}
-                onSelect={(key) => {
-                    onSelect(key)
-                    onClose()
-                }}
-                testIDPrefix="feed-source"
-            />
-        </BottomSheet>
-    )
-}
-
 interface SettingsSheetProps {
     visible: boolean
     settings: FeedSettings
     unit: FeedUnit
     lock: HoldLock | null
-    /** The MP4 player renders exports, so only it shows what a render costs. */
-    showsExportCost: boolean
     onChange: (patch: Partial<FeedSettings>) => void
     onUnit: (unit: FeedUnit) => void
     onUnlock: () => void
     onClose: () => void
 }
 
-function holdHint(speed: number): string {
+function holdHint(speed: number): string | null {
     const rate = holdRateFor(speed)
-    return rate === null
-        ? 'Hold has no effect at 4x or faster.'
-        : `Hold the video for ${rate}x. Pull down while you hold to lock it.`
+    return rate === null ? null : `Hold the video for ${rate}x. Pull down while you hold to lock it.`
 }
 
 export function FeedSettingsSheet({
@@ -101,7 +57,6 @@ export function FeedSettingsSheet({
     settings,
     unit,
     lock,
-    showsExportCost,
     onChange,
     onUnit,
     onUnlock,
@@ -109,178 +64,114 @@ export function FeedSettingsSheet({
 }: SettingsSheetProps): ReactElement | null {
     const styles = useStyles()
     const colors = useColors()
-    const { height } = useSceneDimensions()
-    const scroll = useMemo(() => Gesture.Native(), [])
+    const hint = holdHint(settings.speed)
     return (
-        <BottomSheet
-            visible={visible}
-            onClose={onClose}
-            scrollGesture={scroll}
-            accessibilityLabel="Playback"
-            testID="feed-settings-sheet"
-        >
-            <GestureDetector gesture={scroll}>
-                <ScrollView style={{ maxHeight: height * 0.72 }} contentContainerStyle={styles.infoContent}>
-                    <Text style={styles.sheetTitle}>Playback</Text>
-                    <Section label="Feed plays">
-                        <SegmentedPill
-                            height={40}
-                            segments={(['moment', 'session'] as const).map((option) => ({
-                                key: option,
-                                accessibilityLabel: option === 'moment' ? 'Moments' : 'Whole recordings',
-                                accessibilityRole: 'radio',
-                                selected: unit === option,
-                                onPress: () => onUnit(option),
-                                testID: `feed-plays-${option}`,
-                                children: (
-                                    <Text style={styles.segmentText}>
-                                        {option === 'moment' ? 'Moments' : 'Whole recordings'}
-                                    </Text>
-                                ),
-                            }))}
-                        />
-                        <Text style={styles.hint}>
-                            A moment is a short window around a problem or the key moment. Full recording on a card
-                            plays that whole recording.
-                        </Text>
-                    </Section>
-                    <Section label="Speed">
-                        {lock ? (
-                            <View style={styles.lockRow} testID="feed-lock-row">
-                                <LockIcon size={iconSizes.inline} color={colors.secondary} />
-                                <Text
-                                    style={styles.lockText}
-                                >{`Locked at ${lock.rate}x. Long press and pull down to unlock.`}</Text>
-                                <Pressable44
-                                    onPress={onUnlock}
-                                    accessibilityLabel="Unlock"
-                                    style={styles.unlockButton}
-                                    pressedBackground={colors.pressed}
-                                    testID="feed-unlock"
-                                >
-                                    <Text style={styles.unlockText}>Unlock</Text>
-                                </Pressable44>
-                            </View>
-                        ) : null}
-                        <SegmentedPill
-                            height={40}
-                            segments={SPEED_PRESETS.map((speed) => ({
-                                key: String(speed),
-                                accessibilityLabel: `${speed} times`,
-                                accessibilityRole: 'radio',
-                                selected: settings.speed === speed,
-                                onPress: () => onChange({ speed }),
-                                testID: `feed-speed-${speed}`,
-                                children: <Text style={styles.segmentText}>{speedLabel(speed)}</Text>,
-                            }))}
-                        />
-                        <Text style={styles.hint}>{holdHint(settings.speed)}</Text>
-                    </Section>
-                    <View style={styles.switchRow}>
-                        <View style={styles.switchText}>
-                            <Text style={styles.rowLabel}>Autoplay next</Text>
-                            <Text style={styles.hint}>When one ends, the next starts after 3 seconds.</Text>
-                        </View>
-                        <Switch
-                            value={settings.autoplayNext}
-                            onValueChange={(autoplayNext) => onChange({ autoplayNext })}
-                            trackColor={{ true: colors.switchOn, false: colors.switchOff }}
-                            thumbColor={colors.white}
-                            accessibilityLabel="Autoplay next"
-                            testID="feed-autoplay"
-                        />
+        <BottomSheet visible={visible} onClose={onClose} accessibilityLabel="Playback" testID="feed-settings-sheet">
+            <Text style={styles.sheetTitle}>Playback</Text>
+            <Section label="Feed plays">
+                <SegmentedPill
+                    height={40}
+                    segments={(['moment', 'session'] as const).map((option) => ({
+                        key: option,
+                        accessibilityLabel: option === 'moment' ? 'Moments' : 'Whole recordings',
+                        accessibilityRole: 'radio',
+                        selected: unit === option,
+                        onPress: () => onUnit(option),
+                        testID: `feed-plays-${option}`,
+                        children: (
+                            <Text style={styles.segmentText}>
+                                {option === 'moment' ? 'Moments' : 'Whole recordings'}
+                            </Text>
+                        ),
+                    }))}
+                />
+            </Section>
+            <Section label="Speed">
+                {lock ? (
+                    <View style={styles.lockRow} testID="feed-lock-row">
+                        <LockIcon size={iconSizes.inline} color={colors.secondary} />
+                        <Text style={styles.lockText}>{`Locked at ${lock.rate}x`}</Text>
+                        <Pressable44
+                            onPress={onUnlock}
+                            accessibilityLabel="Unlock"
+                            style={styles.unlockButton}
+                            pressedBackground={colors.pressed}
+                            testID="feed-unlock"
+                        >
+                            <Text style={styles.unlockText}>Unlock</Text>
+                        </Pressable44>
                     </View>
-                    <Section label="A whole recording starts at">
-                        <SegmentedPill
-                            height={40}
-                            segments={(['key', 'beginning'] as const).map((startAt) => ({
-                                key: startAt,
-                                accessibilityLabel: startAt === 'key' ? 'Key moment' : 'Beginning',
-                                accessibilityRole: 'radio',
-                                selected: settings.startAt === startAt,
-                                onPress: () => onChange({ startAt }),
-                                children: (
-                                    <Text style={styles.segmentText}>
-                                        {startAt === 'key' ? 'Key moment' : 'Beginning'}
-                                    </Text>
-                                ),
-                            }))}
-                        />
-                    </Section>
-                    <Section label="Lead-in before a moment">
-                        <SegmentedPill
-                            height={40}
-                            segments={LEAD_IN_PRESETS.map((leadInSeconds) => ({
-                                key: String(leadInSeconds),
-                                accessibilityLabel: `${leadInSeconds} seconds`,
-                                accessibilityRole: 'radio',
-                                selected: settings.leadInSeconds === leadInSeconds,
-                                onPress: () => onChange({ leadInSeconds }),
-                                children: <Text style={styles.segmentText}>{`${leadInSeconds} s`}</Text>,
-                            }))}
-                        />
-                    </Section>
-                    <Section label="Moment length">
-                        <SegmentedPill
-                            height={40}
-                            segments={MOMENT_LENGTH_PRESETS.map((momentSeconds) => ({
-                                key: String(momentSeconds),
-                                accessibilityLabel: `${momentSeconds} seconds`,
-                                accessibilityRole: 'radio',
-                                selected: settings.momentSeconds === momentSeconds,
-                                onPress: () => onChange({ momentSeconds }),
-                                children: <Text style={styles.segmentText}>{`${momentSeconds} s`}</Text>,
-                            }))}
-                        />
-                    </Section>
-                    <Section label="Phone recordings">
-                        <SegmentedPill
-                            height={40}
-                            segments={(['fill', 'whole'] as const).map((phoneFit) => ({
-                                key: phoneFit,
-                                accessibilityLabel: phoneFit === 'fill' ? 'Fill the screen' : 'Whole screen',
-                                accessibilityRole: 'radio',
-                                selected: settings.phoneFit === phoneFit,
-                                onPress: () => onChange({ phoneFit }),
-                                testID: `feed-phone-fit-${phoneFit}`,
-                                children: (
-                                    <Text style={styles.segmentText}>
-                                        {phoneFit === 'fill' ? 'Fill' : 'Whole screen'}
-                                    </Text>
-                                ),
-                            }))}
-                        />
-                    </Section>
-                    <View style={styles.switchRow}>
-                        <View style={styles.switchText}>
-                            <Text style={styles.rowLabel}>Skip inactivity</Text>
-                            <Text style={styles.hint}>Jumps over stretches where nothing happens.</Text>
-                        </View>
-                        <Switch
-                            value={settings.skipInactivity}
-                            onValueChange={(skipInactivity) => onChange({ skipInactivity })}
-                            trackColor={{ true: colors.switchOn, false: colors.switchOff }}
-                            thumbColor={colors.white}
-                            accessibilityLabel="Skip inactivity"
-                            testID="feed-skip-inactivity"
-                        />
-                    </View>
-                    {showsExportCost ? (
-                        <Text style={styles.footnote}>
-                            Videos are prepared on the server when you stay on a session or press Play. Each one counts
-                            toward your team's monthly video limit.
-                        </Text>
-                    ) : null}
-                </ScrollView>
-            </GestureDetector>
+                ) : null}
+                <SegmentedPill
+                    height={40}
+                    segments={SPEED_PRESETS.map((speed) => ({
+                        key: String(speed),
+                        accessibilityLabel: `${speed} times`,
+                        accessibilityRole: 'radio',
+                        selected: settings.speed === speed,
+                        onPress: () => onChange({ speed }),
+                        testID: `feed-speed-${speed}`,
+                        children: <Text style={styles.segmentText}>{speedLabel(speed)}</Text>,
+                    }))}
+                />
+                {hint ? <Text style={styles.hint}>{hint}</Text> : null}
+            </Section>
+            <SwitchRow
+                label="Skip inactivity"
+                value={settings.skipInactivity}
+                onChange={(skipInactivity) => onChange({ skipInactivity })}
+                testID="feed-skip-inactivity"
+            />
+            <SwitchRow
+                label="Autoplay next"
+                value={settings.autoplayNext}
+                onChange={(autoplayNext) => onChange({ autoplayNext })}
+                testID="feed-autoplay"
+            />
         </BottomSheet>
     )
 }
 
-function Section({ label, children }: { label: string; children: ReactNode }): ReactElement {
+function SwitchRow({
+    label,
+    value,
+    onChange,
+    testID,
+}: {
+    label: string
+    value: boolean
+    onChange: (value: boolean) => void
+    testID: string
+}): ReactElement {
+    const styles = useStyles()
+    const colors = useColors()
+    return (
+        <View style={styles.switchRow}>
+            <Text style={[styles.rowLabel, styles.switchText]}>{label}</Text>
+            <Switch
+                value={value}
+                onValueChange={onChange}
+                trackColor={{ true: colors.switchOn, false: colors.switchOff }}
+                thumbColor={colors.white}
+                accessibilityLabel={label}
+                testID={testID}
+            />
+        </View>
+    )
+}
+
+function Section({
+    label,
+    children,
+    onLayout,
+}: {
+    label: string
+    children: ReactNode
+    onLayout?: (event: LayoutChangeEvent) => void
+}): ReactElement {
     const styles = useStyles()
     return (
-        <View style={styles.section}>
+        <View style={styles.section} onLayout={onLayout}>
             <Text style={styles.sectionLabel}>{label}</Text>
             {children}
         </View>
@@ -291,6 +182,8 @@ interface InfoSheetProps {
     visible: boolean
     item: FeedItem | null
     timeline: FeedTimeline | null
+    /** Where playback was when Info opened: the event list opens scrolled to the event at or before it. */
+    nowSeconds: number
     onSeek: (seconds: number) => void
     onOpenWeb: (() => void) | null
     onNotInterested: () => void
@@ -309,6 +202,7 @@ export function FeedInfoSheet({
     visible,
     item,
     timeline,
+    nowSeconds,
     onSeek,
     onOpenWeb,
     onNotInterested,
@@ -320,6 +214,28 @@ export function FeedInfoSheet({
     const scroll = useMemo(() => Gesture.Native(), [])
     const summary = item?.summary ?? null
     const events = (timeline?.events ?? []).filter((event) => INFO_EVENT_KINDS.has(event.kind))
+    const currentIndex = events.reduce((found, event, index) => (event.seconds <= nowSeconds + 0.5 ? index : found), -1)
+    const scrollRef = useRef<ScrollViewInstance>(null)
+    const layout = useRef<{ section: number | null; group: number | null; rows: Map<number, number> }>({
+        section: null,
+        group: null,
+        rows: new Map(),
+    })
+    const scrolled = useRef(false)
+    const scrollToCurrent = (): void => {
+        const { section, group, rows } = layout.current
+        const row = rows.get(currentIndex)
+        if (scrolled.current || currentIndex < 0 || section === null || group === null || row === undefined) {
+            return
+        }
+        scrolled.current = true
+        scrollRef.current?.scrollTo({ y: Math.max(0, section + group + row - 96), animated: false })
+    }
+    useEffect(() => {
+        if (!visible) {
+            scrolled.current = false
+        }
+    }, [visible])
     const seek = (seconds: number): void => {
         onSeek(seconds)
         onClose()
@@ -333,7 +249,11 @@ export function FeedInfoSheet({
             testID="feed-info-sheet"
         >
             <GestureDetector gesture={scroll}>
-                <ScrollView style={{ maxHeight: height * 0.64 }} contentContainerStyle={styles.infoContent}>
+                <ScrollView
+                    ref={scrollRef}
+                    style={{ maxHeight: height * 0.64 }}
+                    contentContainerStyle={styles.infoContent}
+                >
                     <Text style={styles.sheetTitle}>Recording</Text>
                     <Text style={styles.infoPerson} numberOfLines={1}>
                         {item ? item.recording.personLabel : ''}
@@ -372,8 +292,20 @@ export function FeedInfoSheet({
                             </View>
                         </Section>
                     ) : null}
-                    <Section label={`Events · ${events.length}`}>
-                        <View style={styles.group}>
+                    <Section
+                        label={`Events · ${events.length}`}
+                        onLayout={(event) => {
+                            layout.current.section = event.nativeEvent.layout.y
+                            scrollToCurrent()
+                        }}
+                    >
+                        <View
+                            style={styles.group}
+                            onLayout={(event) => {
+                                layout.current.group = event.nativeEvent.layout.y
+                                scrollToCurrent()
+                            }}
+                        >
                             {events.length === 0 ? (
                                 <Text style={[styles.hint, styles.emptyEvents]}>Loading events…</Text>
                             ) : (
@@ -384,7 +316,16 @@ export function FeedInfoSheet({
                                         accessibilityLabel={`${event.label}, at ${formatOffset(event.seconds * 1000)}`}
                                         pressedBackground={colors.pressed}
                                         hitSlop={0}
-                                        style={[styles.eventRow, position > 0 && styles.rowDivider]}
+                                        style={[
+                                            styles.eventRow,
+                                            position > 0 && styles.rowDivider,
+                                            position === currentIndex && styles.eventRowCurrent,
+                                        ]}
+                                        accessibilityState={{ selected: position === currentIndex }}
+                                        onLayout={(layoutEvent) => {
+                                            layout.current.rows.set(position, layoutEvent.nativeEvent.layout.y)
+                                            scrollToCurrent()
+                                        }}
                                         testID={`feed-info-event-${position}`}
                                     >
                                         <Text style={styles.time}>{formatOffset(event.seconds * 1000)}</Text>
@@ -709,6 +650,11 @@ const useStyles = createStyles(({ colors }) => ({
         gap: 10,
         paddingVertical: 11,
         paddingHorizontal: 12,
+    },
+    eventRowCurrent: {
+        backgroundColor: colors.pressed,
+        borderLeftWidth: 3,
+        borderLeftColor: colors.orange,
     },
     eventLabel: {
         ...type.bodySmall,

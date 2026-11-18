@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 
-import { FEED_SOURCES, type FeedSettings, type FeedSource, type FeedUnit } from './feedModel'
+import { FEED_SOURCES, type FeedSettings, type FeedSource, type FeedUnit, normalizeSpeed } from './feedModel'
 
 /** Not interested hides a recording on this device. The list keeps the newest ids only. */
 const HIDDEN_LIMIT = 500
@@ -21,10 +21,6 @@ interface FeedSettingsState extends StoredFeedSettings {
 const DEFAULTS: StoredFeedSettings = {
     speed: 1,
     autoplayNext: true,
-    startAt: 'key',
-    leadInSeconds: 5,
-    momentSeconds: 20,
-    phoneFit: 'whole',
     skipInactivity: true,
     unit: 'moment',
     source: 'newest',
@@ -53,7 +49,11 @@ export const useFeedSettings = create<FeedSettingsState>()(
                         : {}
                 return {
                     ...current,
-                    ...stored,
+                    speed: stored.speed === undefined ? current.speed : normalizeSpeed(stored.speed),
+                    autoplayNext: typeof stored.autoplayNext === 'boolean' ? stored.autoplayNext : current.autoplayNext,
+                    skipInactivity:
+                        typeof stored.skipInactivity === 'boolean' ? stored.skipInactivity : current.skipInactivity,
+                    unit: stored.unit === 'session' || stored.unit === 'moment' ? stored.unit : current.unit,
                     source: stored.source && FEED_SOURCES.includes(stored.source) ? stored.source : current.source,
                     hidden: Array.isArray(stored.hidden) ? stored.hidden : current.hidden,
                 }

@@ -3,7 +3,6 @@ import { Text, View } from 'react-native'
 import Animated, { useAnimatedStyle, withTiming } from 'react-native-reanimated'
 
 import { ChatBubbleIcon } from '@/ui/icons/ChatBubbleIcon'
-import { ExpandIcon } from '@/ui/icons/ExpandIcon'
 import { LockIcon } from '@/ui/icons/LockIcon'
 import { ShareIcon } from '@/ui/icons/ShareIcon'
 import type { IconProps } from '@/ui/icons/types'
@@ -13,16 +12,12 @@ import { createStyles } from '@/ui/theme'
 import { feedColors, feedTextShadow } from './feedStyle'
 
 interface FeedRailProps {
-    /** Only when the feed plays moments and this recording has one. */
-    showFull: boolean
-    fullOn: boolean
     /** The rate playing now: a hold's or a lock's when one is on, else the set speed. */
     speed: number
     speedOn: boolean
     locked: boolean
     /** A hold fades every button but Speed, which shows the hold's rate. */
     speedOnly: boolean
-    onFull: () => void
     onSpeed: () => void
     onChat: () => void
     onShare: () => void
@@ -32,18 +27,7 @@ export function speedLabel(speed: number): string {
     return `${speed}x`
 }
 
-export function FeedRail({
-    showFull,
-    fullOn,
-    speed,
-    speedOn,
-    locked,
-    speedOnly,
-    onFull,
-    onSpeed,
-    onChat,
-    onShare,
-}: FeedRailProps): ReactElement {
+export function FeedRail({ speed, speedOn, locked, speedOnly, onSpeed, onChat, onShare }: FeedRailProps): ReactElement {
     const styles = useStyles()
     const label = speedLabel(speed)
     const others = useAnimatedStyle(
@@ -52,17 +36,6 @@ export function FeedRail({
     )
     return (
         <View style={styles.rail} pointerEvents="box-none">
-            {showFull ? (
-                <Animated.View style={others}>
-                    <RailButton
-                        label={fullOn ? 'Moment' : 'Full recording'}
-                        Icon={ExpandIcon}
-                        on={fullOn}
-                        onPress={onFull}
-                        testID="feed-full"
-                    />
-                </Animated.View>
-            ) : null}
             <RailButton
                 label="Speed"
                 accessibilityLabel={locked ? `Speed, locked at ${label}` : `Speed, ${label}`}

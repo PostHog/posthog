@@ -9,7 +9,7 @@ import { truncate } from '@/model/adapters/text'
 
 import type { SessionSummary } from '../replayModel'
 import { formatOffset } from '../sessionAdapters'
-import type { FeedEvent, FeedEventKind, FeedSettings, FeedSource, FeedTimeline, Moment, MomentKind } from './feedModel'
+import type { FeedEvent, FeedEventKind, FeedSource, FeedTimeline, Moment, MomentKind, MomentWindow } from './feedModel'
 
 function text(value: unknown): string | null {
     return typeof value === 'string' && value.trim() ? value.trim() : null
@@ -218,7 +218,7 @@ export function feedMoments(
     timeline: FeedTimeline,
     summary: SessionSummary | null,
     durationSeconds: number,
-    settings: Pick<FeedSettings, 'leadInSeconds' | 'momentSeconds'>,
+    settings: MomentWindow,
     source: FeedSource
 ): Moment[] {
     const anchors = anchorsFor(timeline, summary, source)
@@ -256,14 +256,12 @@ export function feedMoments(
     })
 }
 
+/** A whole recording starts a lead-in before its key moment, or its first problem, else at the beginning. */
 export function sessionStartSeconds(
     moments: readonly Moment[],
     summary: SessionSummary | null,
-    settings: Pick<FeedSettings, 'startAt' | 'leadInSeconds'>
+    settings: MomentWindow
 ): number {
-    if (settings.startAt === 'beginning') {
-        return 0
-    }
     const key = summary?.keyMomentMs
     const anchor =
         typeof key === 'number' ? key / 1000 : moments.find((moment) => moment.kind !== 'start')?.anchorSeconds

@@ -47,13 +47,26 @@ export interface FeedItem {
 export interface FeedSettings {
     speed: number
     autoplayNext: boolean
-    startAt: 'key' | 'beginning'
-    leadInSeconds: number
-    momentSeconds: number
-    phoneFit: 'fill' | 'whole'
     skipInactivity: boolean
 }
 
-export const SPEED_PRESETS: readonly number[] = [0.5, 1, 1.5, 2, 3, 4, 8, 16]
-export const LEAD_IN_PRESETS: readonly number[] = [3, 5, 10]
-export const MOMENT_LENGTH_PRESETS: readonly number[] = [15, 20, 30, 45]
+export const SPEED_PRESETS: readonly number[] = [0.5, 1, 1.5, 2, 4]
+
+/** A stored speed from before the shorter list maps to the nearest one that is still offered. */
+export function normalizeSpeed(speed: unknown): number {
+    if (typeof speed !== 'number' || !Number.isFinite(speed)) {
+        return 1
+    }
+    if (SPEED_PRESETS.includes(speed)) {
+        return speed
+    }
+    return speed >= 4 ? 4 : speed >= 2 ? 2 : 1
+}
+
+/** How a moment is cut around its anchor: the lead-in plays first, and the moment lasts this long. */
+export interface MomentWindow {
+    leadInSeconds: number
+    momentSeconds: number
+}
+
+export const MOMENT_WINDOW: MomentWindow = { leadInSeconds: 5, momentSeconds: 20 }
