@@ -179,9 +179,9 @@ const WIZARD_RUN_ERROR_CATALOG: Record<string, WizardRunErrorDetails> = {
         resolution: 'Wait a few minutes, then run the program again.',
     },
     PHW_AGENT_API_ERROR: {
-        title: 'The setup agent lost access to a required service',
-        description: 'An API request failed while the program was running.',
-        resolution: 'Wait a few minutes, then run the program again.',
+        title: 'The connection to the AI service dropped',
+        description: 'The setup agent lost its connection to the AI service while the program was running.',
+        resolution: 'Run the program again.',
     },
     PHW_AGENT_YARA_VIOLATION: {
         title: 'A security check stopped the run',

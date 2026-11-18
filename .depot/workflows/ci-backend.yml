@@ -1649,15 +1649,15 @@ jobs:
               run: ./bin/hogli lint:migration-deletions < "$RUNNER_TEMP/deleted-migration-paths.txt"
             - name: Bootstrap scaffold product
               run: ./bin/hogli product:bootstrap spline_reticulator --non-interactive
-            - name: Lint product structure
-              env:
-                  CROSSINGS_LEDGER_BASE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
-              run: ./bin/hogli product:lint --all
             # Distributed owners.yaml tree: schema, product.yaml/owners.yaml
             # conflicts, dead rule globs, coverage (warn-only). No --live, so no
             # secrets — fork PRs get validated too (the --live slug check runs in
             # the fork-gated validate-product-yamls job instead).
             - parallel:
+                  - name: Lint product structure
+                    env:
+                        CROSSINGS_LEDGER_BASE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
+                    run: ./bin/hogli product:lint --all
                   - name: Lint owners.yaml files
                     run: ./bin/hogli owners:lint
                   - name: Check version specifiers
@@ -1689,7 +1689,7 @@ jobs:
                   - name: Run repo invariants (whole-repo pytest guards)
                     run: |
                         if [ -d posthog/test/repo_invariants ]; then
-                            pytest -p no:cacheprovider posthog/test/repo_invariants
+                            pytest -n 2 --dist=loadfile -p no:cacheprovider posthog/test/repo_invariants
                         else
                             pytest -p no:cacheprovider posthog/test/test_startup_import_budget.py posthog/test/test_dataclass_defaults.py
                         fi
