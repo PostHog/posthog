@@ -498,7 +498,7 @@ def earlier_review_cards(team: Team) -> list[EarlierCard]:
             dedupe_key=dedupe_key,
             status=status,
             title=str(draft.get("name", "")),
-            checks=str(draft.get("description", "")),
+            rule=str(draft.get("description", "")),
         )
         for dedupe_key, status, draft, _ in sorted(rows, key=lambda row: row[3], reverse=True)
     ]
