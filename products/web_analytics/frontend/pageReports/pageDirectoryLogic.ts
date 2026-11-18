@@ -508,7 +508,7 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
         hasServerLogs: [
             (s) => [s.siteCrawlTotals],
             (siteCrawlTotals: WebPageDirectorySiteTotals | null): boolean | null =>
-                siteCrawlTotals ? siteCrawlTotals.serverLogs > 0 : null,
+                siteCrawlTotals ? (siteCrawlTotals.serverLogs ?? 0) > 0 : null,
         ],
         rows: [
             (s) => [s.driverRows, s.metricRows],
@@ -687,7 +687,7 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
                 const crawls = WebPageDirectoryMetric.AiCrawls
                 if (
                     siteCrawlTotals &&
-                    siteCrawlTotals.serverLogs > 0 &&
+                    (siteCrawlTotals.serverLogs ?? 0) > 0 &&
                     pageKeys.length > 0 &&
                     values.visibleMetrics.includes(crawls) &&
                     SORT_METRIC[values.sortBy] !== crawls &&

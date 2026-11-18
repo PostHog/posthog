@@ -275,7 +275,7 @@ export interface pageReportDetailLogicActions {
             bounceRate: number | null | undefined
             conversions?: WebPageDirectoryValue | undefined
             googleSearch?: WebPageDirectoryValue | undefined
-            serverLogs: number
+            serverLogs?: number | undefined
             timeOnPageP90: number | null | undefined
             visitors?: WebPageDirectoryValue | undefined
         } | null,
@@ -289,7 +289,7 @@ export interface pageReportDetailLogicActions {
             bounceRate: number | null | undefined
             conversions?: WebPageDirectoryValue | undefined
             googleSearch?: WebPageDirectoryValue | undefined
-            serverLogs: number
+            serverLogs?: number | undefined
             timeOnPageP90: number | null | undefined
             visitors?: WebPageDirectoryValue | undefined
         } | null

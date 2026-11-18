@@ -532,7 +532,7 @@ class WebPageDirectoryQueryRunner(WebAnalyticsQueryRunner[WebPageDirectoryQueryR
         for metric in site_metrics:
             if query := self._metric_select(metric, grouped=False, page_keys=None):
                 queries[f"site_{metric.value}"] = (metric, query)
-        if self.query.includeSiteTotals:
+        if WebPageDirectoryMetric.AI_CRAWLS in site_metrics:
             queries["server_logs"] = (None, self._server_log_query())
         query_results = self._run_concurrently(queries)
 
@@ -549,8 +549,9 @@ class WebPageDirectoryQueryRunner(WebAnalyticsQueryRunner[WebPageDirectoryQueryR
         job_ids = self.dimensional_builder.job_ids if self.dimensional_builder else None
         site_totals: Optional[WebPageDirectorySiteTotals] = None
         if self.query.includeSiteTotals:
-            server_logs = query_results["server_logs"]
-            totals: dict[str, Any] = {"serverLogs": int(server_logs[0][0]) if server_logs else 0}
+            totals: dict[str, Any] = {}
+            if (server_logs := query_results.get("server_logs")) is not None:
+                totals["serverLogs"] = int(server_logs[0][0]) if server_logs else 0
             for metric in site_metrics:
                 site_rows = query_results.get(f"site_{metric.value}")
                 self._apply(totals, metric, _metric_values(site_rows[0]) if site_rows else None)

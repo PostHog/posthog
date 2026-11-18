@@ -1,6 +1,8 @@
 from posthog.hogql import ast
 from posthog.hogql.visitor import CloningVisitor
 
+# The pre-aggregated tables store these columns as String, not Nullable(String), so a missing value is ''.
+# An "is not set" filter compiles to `= NULL`, which matches no row there, so we compare with '' instead.
 EMPTY_WHEN_UNSET_COLUMNS = frozenset({"host", "pathname", "entry_pathname", "end_pathname"})
 
 
