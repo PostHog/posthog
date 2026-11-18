@@ -1,5 +1,11 @@
 # posthog-cli
 
+## 0.20.1 — 2026-11-18
+
+### Patch changes
+
+- [64886c46414](https://github.com/PostHog/posthog/commit/64886c464147779d82a3d430586660374836c5a4) Send the CLI's usage and error telemetry with posthog-rs 1.x, which uses PostHog's v1 capture API — Thanks @eli-r-ph!
+
 ## 0.20.0 — 2026-11-12
 
 ### Minor changes
