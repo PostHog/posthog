@@ -191,7 +191,7 @@ With cascades on, the catalog promotes a referencing cohort to `Stage2Composable
 A reference reached only through negation never blocks promotion.
 A missing referenced cohort reads as "not a member", and negated that is "true".
 That answer is wrong for anyone who really is in the untracked cohort.
-"Email is set and not in cohort X", with X static or not realtime, matches every person with an email, including X's real members.
+"Email is set and not in cohort X", with X static, not realtime, or off, matches every person with an email, including X's real members.
 
 ### How a cascade flows
 
@@ -236,7 +236,7 @@ Cycles are also removed at catalog build, where any cohort in a reference cycle 
 
 ## Stage 2 garbage collection
 
-When a cohort is deleted, stops being realtime, or becomes excluded, its Stage 2 rows are useless.
+When a cohort is deleted, stops being realtime, is turned off, or becomes excluded, its Stage 2 rows are useless.
 Once an hour each worker scans a bounded slice of its Stage 2 rows and deletes rows whose cohort no longer registers membership in the current catalog.
 It resumes from a cursor, so large partitions are covered over several runs.
 

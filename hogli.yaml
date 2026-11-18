@@ -819,6 +819,10 @@ tests:
     verify:
         click: hogli_commands.verify_layers:verify
         description: Run the cheapest checks that cover your diff (lint, typecheck, nearest tests), then name the next potential layer
+    verify:gate:
+        click: hogli_commands.verify_stamp:verify_gate
+        description: Check that a commit matches the last `hogli verify --changed` run (used by the commit-msg hook)
+        untracked: true
     test:python:
         cmd: pytest
         description: Run Python test suite
@@ -1190,6 +1194,9 @@ utilities:
     worktrees:clean:
         click: hogli_commands.worktrees:worktrees_clean
         description: Clear out unused Claude Code / Codex / PostHog Desktop / phw worktrees by age
+    watch:
+        click: hogli_commands.watch:watch
+        description: Background housekeeping (daily worktree cleanup, ClickHouse idle stop); --ensure clickhouse starts it on demand
     pr:upload-image:
         click: hogli_commands.upload_image:upload_image
         description: Attach screenshot(s) to the PR description, or upload to PostHog/pr-assets and print markdown

@@ -109,11 +109,13 @@ type Metrics struct {
 
 // Snapshot is a point-in-time view of a process suitable for serialization.
 type Snapshot struct {
-	Name     string `json:"process"`
-	Status   string `json:"status"`
-	PID      int    `json:"pid"`
-	Ready    bool   `json:"ready"`
-	ExitCode *int   `json:"exit_code"`
+	Name   string `json:"process"`
+	Status string `json:"status"`
+	PID    int    `json:"pid"`
+	Ready  bool   `json:"ready"`
+	// Without a ready pattern a process counts as ready as soon as it runs.
+	HasReadyCheck bool `json:"has_ready_check"`
+	ExitCode      *int `json:"exit_code"`
 
 	StartedAt        time.Time  `json:"started_at"`
 	ReadyAt          *time.Time `json:"ready_at,omitempty"`
@@ -386,9 +388,10 @@ func (p *Process) LastSnapshot() Snapshot {
 	defer p.mu.Unlock()
 
 	snap := Snapshot{
-		Name:   p.Name,
-		Status: p.status.String(),
-		Ready:  p.status == StatusRunning,
+		Name:          p.Name,
+		Status:        p.status.String(),
+		Ready:         p.status == StatusRunning,
+		HasReadyCheck: p.readyPattern != nil,
 	}
 	if p.cmd != nil && p.cmd.Process != nil {
 		snap.ExitCode = p.exitCode

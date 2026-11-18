@@ -1,5 +1,5 @@
 from datetime import UTC, datetime, timedelta
-from uuid import NAMESPACE_URL, uuid5
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -11,6 +11,7 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import ProjectSecretAPIKey, Team
 from posthog.models.instance_setting import override_instance_config
@@ -18,7 +19,8 @@ from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_secret
 from posthog.uuidt import UUIDT
 
-from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_DATA_TABLE
+from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_DATA_TABLE, EMAIL_STATUS_EVENTS_TABLE
+from products.messaging.backend.services.transactional_email_status import message_created_at
 
 # The read only compares versions, so these ranks must keep the writer's order but not its values. A status only
 # moves forward, and a later status of the same rank wins by its time.
@@ -137,12 +139,18 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
             "reason": reason,
         }
 
-    def test_reports_a_keyed_send_whose_id_holds_no_time(self, _flag):
+    @parameterized.expand(
+        [
+            ("project_path", "/api/projects/{team_id}/messaging/emails/{message_id}/"),
+            ("key_scoped_path", "/api/messaging/emails/{message_id}/"),
+        ]
+    )
+    def test_reports_a_keyed_send_whose_id_holds_no_time(self, _flag, _name, path):
         # A keyed send's id is a name-based UUID, so only its stored rows say when it was queued.
         self.message_id = str(uuid5(NAMESPACE_URL, "a-key"))
         self._status_rows([("queued", 0, ""), ("sent", 2, "")])
 
-        response = self.client.get(self._url(self.message_id))
+        response = self.client.get(path.format(team_id=self.team.id, message_id=self.message_id))
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {
@@ -165,6 +173,18 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["status"] == "sent"
+
+    @override_settings(CLICKHOUSE_EVENTS_ONLINE_HOST="events-cluster.invalid")
+    def test_finds_when_a_keyed_send_was_queued_for_a_page_when_the_project_reads_the_native_events_table(self, _flag):
+        self.message_id = str(uuid5(NAMESPACE_URL, "a-key"))
+        self._status_rows([("queued", 0, "")])
+
+        with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", str(self.team.pk)):
+            queued = message_created_at(
+                self.team.pk, UUID(self.message_id), Workload.ONLINE, lag_fallback_table=EMAIL_STATUS_EVENTS_TABLE
+            )
+
+        assert queued == self.queued_at
 
     @parameterized.expand(
         [

@@ -2266,6 +2266,18 @@
                                     ],
                                     "description": "What counts as unusual or interesting for this metric, in your own words. Optional."
                                 },
+                                "model": {
+                                    "anyOf": [
+                                        {
+                                            "enum": ["claude-haiku-5-5", "gpt-6-luna"],
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "The model that judges each check: claude-haiku-5-5 or gpt-6-luna. Optional. When it is not set, the alert uses claude-haiku-5-5."
+                                },
                                 "type": {
                                     "default": "llm",
                                     "enum": ["llm"],

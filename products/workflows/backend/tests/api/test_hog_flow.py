@@ -29,7 +29,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 from posthog.test.fixtures import create_app_metric2
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
@@ -76,9 +76,12 @@ from products.workflows.backend.presentation.views.hog_flow import (
     HogFlowActionSerializer,
     _should_validate_strictly,
     mint_audience_confirm_token,
+    set_workflow_enabled,
 )
 from products.workflows.backend.services.workflow_test_runs import workflow_test_run_context
 from products.workflows.backend.tests.api.test_workflow_data_suggestions import _push_function_template
+
+from common.hogvm.python.execute import execute_bytecode
 
 _AUDIENCE_CONDITION = {"key": "email", "type": "person", "value": "x", "operator": "icontains"}
 _WIDER_AUDIENCE_CONDITION = {"key": "email", "type": "person", "value": "@", "operator": "icontains"}
@@ -2547,6 +2550,127 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "is a static cohort" in response.json()["detail"]
 
+    @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)
+    def test_hog_flow_conditional_branch_saves_a_grouped_condition_with_a_nested_cohort(self, _mock_flag):
+        cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
+        grouped_properties = {
+            "type": "OR",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        {"key": "plan", "value": "pro", "operator": "exact", "type": "person"},
+                        {"key": "country", "value": "US", "operator": "exact", "type": "person"},
+                    ],
+                },
+                {"type": "AND", "values": [{"key": "id", "type": "cohort", "value": cohort.id}]},
+            ],
+        }
+        hog_flow = self._hog_flow_with_condition_filters("conditional_branch", {"properties": grouped_properties})
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+        assert response.status_code == 201, response.json()
+        filters = response.json()["actions"][1]["config"]["conditions"][0]["filters"]
+        assert filters["properties"] == grouped_properties
+        in_cohort = {"inCohort": lambda cohort_id, cohort_ids: cohort_id in cohort_ids}
+        routes = {
+            name: execute_bytecode(
+                filters["bytecode"], {"person": {"properties": properties}, "cohort_ids": cohort_ids}, in_cohort
+            ).result
+            for name, properties, cohort_ids in [
+                ("matches_the_and_group", {"plan": "pro", "country": "US"}, []),
+                ("only_in_the_cohort", {"plan": "free", "country": "US"}, [cohort.id]),
+                ("matches_neither", {"plan": "pro", "country": "DE"}, []),
+            ]
+        }
+        assert routes == {"matches_the_and_group": True, "only_in_the_cohort": True, "matches_neither": False}
+
+    def test_hog_flow_conditional_branch_filter_groups_follow_the_flag_and_keep_stored_conditions(self):
+        def plan(value: str) -> dict[str, str]:
+            return {"key": "plan", "value": value, "operator": "exact", "type": "person"}
+
+        grouped = {
+            "type": "OR",
+            "values": [{"type": "AND", "values": [plan("pro")]}, {"type": "AND", "values": [plan("enterprise")]}],
+        }
+        hog_flow = self._hog_flow_with_condition_filters("conditional_branch", {"properties": grouped})
+        flag = "products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false"
+
+        with patch(flag, return_value=False):
+            refused = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+            refused_web_draft = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "status": "draft"}
+            )
+        assert refused.status_code == 400, refused.json()
+        assert "Filter groups in branch conditions aren't available" in refused.json()["detail"]
+        assert refused_web_draft.status_code == 400, refused_web_draft.json()
+
+        with patch(flag, return_value=True):
+            created = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert created.status_code == 201, created.json()
+        flow_id = created.json()["id"]
+        stored_actions = created.json()["actions"]
+
+        with patch(flag, return_value=False):
+            resave = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"name": "renamed", "actions": stored_actions}
+            )
+            assert resave.status_code == 200, resave.json()
+
+            edited_actions = deepcopy(stored_actions)
+            other_grouped = {**grouped, "type": "AND"}
+            edited_actions[1]["config"]["conditions"].append({"filters": {"properties": other_grouped}})
+            new_adoption = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"actions": edited_actions}
+            )
+            assert new_adoption.status_code == 400, new_adoption.json()
+            assert "Filter groups in branch conditions aren't available" in new_adoption.json()["detail"]
+
+            # A Canvas resume revalidates the stored actions with no request to read the flag from.
+            workflow_id = UUID(flow_id)
+            set_workflow_enabled(team_id=self.team.id, user_id=self.user.id, workflow_id=workflow_id, enabled=False)
+            resumed = set_workflow_enabled(
+                team_id=self.team.id, user_id=self.user.id, workflow_id=workflow_id, enabled=True
+            )
+            assert resumed == "active"
+
+    @parameterized.expand(
+        [
+            ("static_cohort", "is a static cohort"),
+            ("behavioral_filter", "Behavioral (performed event) filters can't be evaluated"),
+        ]
+    )
+    @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)
+    def test_hog_flow_conditional_branch_rejects_an_unsupported_filter_nested_in_a_group(
+        self, leaf_kind, expected_detail, _mock_flag
+    ):
+        nested_leaf: dict[str, Any] = (
+            {"key": "id", "type": "cohort", "value": Cohort.objects.create(team=self.team, is_static=True).id}
+            if leaf_kind == "static_cohort"
+            else {
+                "key": "$pageview",
+                "event_type": "events",
+                "time_value": 2,
+                "time_interval": "week",
+                "value": "performed_event",
+                "type": "behavioral",
+            }
+        )
+        grouped_properties = {
+            "type": "OR",
+            "values": [
+                {"type": "AND", "values": [{"key": "plan", "value": "pro", "operator": "exact", "type": "person"}]},
+                {"type": "AND", "values": [nested_leaf]},
+            ],
+        }
+        hog_flow = self._hog_flow_with_condition_filters("conditional_branch", {"properties": grouped_properties})
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+        assert response.status_code == 400, response.json()
+        assert expected_detail in response.json()["detail"]
+
     def test_hog_flow_conditional_branch_rejects_cohort_filters_without_flag(self):
         cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         hog_flow = self._hog_flow_with_condition_filters(
@@ -2808,6 +2932,49 @@ class TestHogFlowAPI(APIBaseTest):
             ("filters_is_a_string", "not-a-dict"),
             ("action_id_not_an_integer", {"actions": [{"id": "not-an-integer", "type": "actions"}]}),
             ("action_entry_not_a_dict", {"actions": ["bogus"]}),
+            ("group_with_unknown_logic", {"properties": {"type": "XOR", "values": []}}),
+            ("group_values_not_a_list", {"properties": {"type": "OR", "values": "bogus"}}),
+            ("group_leaf_not_a_dict", {"properties": {"type": "OR", "values": ["bogus"]}}),
+            (
+                "filter_directly_in_the_outer_group",
+                {"properties": {"type": "OR", "values": [{"key": "plan", "value": "pro", "type": "person"}]}},
+            ),
+            (
+                "group_nested_three_levels_deep",
+                {"properties": {"type": "OR", "values": [{"type": "AND", "values": [{"type": "OR", "values": []}]}]}},
+            ),
+            (
+                "empty_value_filter_in_an_or_group",
+                {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [{"key": "plan", "value": "pro", "operator": "exact", "type": "person"}],
+                            },
+                            {
+                                "type": "AND",
+                                "values": [{"key": "country", "value": [], "operator": "exact", "type": "person"}],
+                            },
+                        ],
+                    }
+                },
+            ),
+            (
+                "incomplete_filter_in_an_or_group",
+                {
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "OR",
+                                "values": [{"key": "plan", "value": "pro", "operator": "exact", "type": "person"}, {}],
+                            }
+                        ],
+                    }
+                },
+            ),
         ]
     )
     @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)
@@ -5414,6 +5581,20 @@ class TestHogFlowAPI(APIBaseTest):
         assert body["total"] == 10
         assert "limit" in body
         assert body["limit"] > 0
+
+    @parameterized.expand([("preview_reuses_recent_count", False, 4), ("refresh_counts_again", True, 5)])
+    def test_hog_flow_user_blast_radius_refresh_skips_recent_count(self, _name, refresh, expected_affected):
+        url = f"/api/projects/{self.team.id}/hog_flows/user_blast_radius"
+        filters = {"properties": [{"key": "subscribed", "value": "true", "type": "person", "operator": "exact"}]}
+        with patch(
+            "products.workflows.backend.services.blast_radius.get_person_audience_count_v2",
+            side_effect=[BlastRadiusResult(affected=4, total=10), BlastRadiusResult(affected=5, total=10)],
+        ):
+            self.client.post(url, {"filters": filters}, format="json")
+            response = self.client.post(url, {"filters": filters, "refresh": refresh}, format="json")
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["affected"] == expected_affected
 
     def test_hog_flow_user_blast_radius_routes_by_audience_kind(self):
         with (

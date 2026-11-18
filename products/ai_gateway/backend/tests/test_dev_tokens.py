@@ -26,6 +26,8 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization
 from posthog.models.user import User
 
+from products.ai_gateway.backend.facade.api import sweep_ineligible_dev_token_owners
+from products.ai_gateway.backend.logic import live_token_hashes
 from products.ai_gateway.backend.models import DevGatewayToken
 
 _POST = "products.ai_gateway.backend.logic.requests.post"
@@ -476,6 +478,289 @@ class TestDevTokens(_DevGatewaySettings):
         with patch(_POST) as post:
             response = self.client.post(f"{URL}cli_exchange/", {"code": code, "code_verifier": VERIFIER})
         assert response.status_code == 403
+        post.assert_not_called()
+
+    def _old_token(
+        self, *, days_ago: int, expires_in_days: float, spent: str | None, cap: str = "40"
+    ) -> DevGatewayToken:
+        """`spent` set means the token was revoked after spending that much."""
+        row = self._rows().create(
+            team=self.team,
+            user=self.user,
+            client="web",
+            cap_usd=Decimal(cap),
+            token_hash="d" * 64,
+            expires_at=timezone.now() + timedelta(days=expires_in_days),
+            revoked_at=timezone.now() if spent is not None else None,
+            spent_usd=Decimal(spent) if spent is not None else None,
+        )
+        self._rows(pk=row.pk).update(created_at=timezone.now() - timedelta(days=days_ago))
+        return self._rows(pk=row.pk).get()
+
+    @parameterized.expand(
+        [
+            ("live", None, 5, "40.00"),
+            ("revoked_before_expiry", "30", 5, "30.00"),
+            ("expired", None, -1, None),
+            ("revoked_and_expired", "30", -1, None),
+        ]
+    )
+    def test_token_older_than_a_day_counts_until_it_expires(self, _name, spent, expires_in_days, used):
+        row = self._old_token(days_ago=2, expires_in_days=expires_in_days, spent=spent)
+
+        with patch(_POST, return_value=_response(200, {"tokens": []})):
+            body = self.client.get(f"{URL}usage/").json()
+        with patch(_POST) as post:
+            refused = self.client.post(URL, {"cap_usd": "25"})
+
+        counts = used is not None
+        assert ([t["id"] for t in body["tokens"]] == [str(row.id)]) is counts
+        assert body["used_usd"] == (used or "0.00")
+        assert (refused.status_code == 429) is counts
+        if counts:
+            post.assert_not_called()
+
+    @parameterized.expand([("live", None), ("revoked", "50")])
+    def test_refusal_frees_budget_when_an_old_token_expires(self, _name, spent):
+        row = self._old_token(days_ago=2, expires_in_days=5, spent=spent, cap="50")
+
+        with patch(_POST) as post:
+            response = self.client.post(URL)
+
+        assert response.status_code == 429
+        post.assert_not_called()
+        detail = response.json()["detail"]
+        assert f"{row.expires_at:%Y-%m-%d %H:%M} UTC" in detail
+        assert ("Revoke a live token" in detail) is (spent is None)
+
+    @override_settings(DEV_GATEWAY_DAILY_CAP_USD="1000")
+    def test_mint_sends_the_cap_and_lifetime_the_user_picked(self):
+        with patch(_POST, return_value=_minted()) as post:
+            response = self.client.post(URL, {"cap_usd": "1000", "ttl_seconds": 604800})
+
+        assert response.status_code == 201, response.json()
+        assert post.call_args.kwargs["json"]["cap_usd"] == "1000.00"
+        assert post.call_args.kwargs["json"]["ttl_seconds"] == 604800
+        assert self._rows(user=self.user).get().cap_usd == Decimal("1000")
+
+    @parameterized.expand(
+        [
+            ("cap_below_minimum", {"cap_usd": "4.99"}, "cap_usd"),
+            ("cap_above_maximum", {"cap_usd": "1000.01"}, "cap_usd"),
+            ("ttl_below_minimum", {"ttl_seconds": 3599}, "ttl_seconds"),
+            ("ttl_above_a_week", {"ttl_seconds": 604801}, "ttl_seconds"),
+        ]
+    )
+    @override_settings(DEV_GATEWAY_DAILY_CAP_USD="5000")
+    def test_out_of_range_request_never_reaches_the_gateway(self, _name, body, field):
+        with patch(_POST) as post:
+            response = self.client.post(URL, body)
+
+        assert response.status_code == 400
+        assert response.json()["code"] == "invalid_request"
+        assert response.json()["detail"].startswith(f"{field} must be between")
+        post.assert_not_called()
+        assert not self._rows(user=self.user).exists()
+
+    def test_picked_cap_over_the_budget_left_is_refused(self):
+        self._spent_token("30", hours_ago=1)
+
+        with patch(_POST) as post:
+            response = self.client.post(URL, {"cap_usd": "25"})
+
+        assert response.status_code == 429
+        assert response.json()["detail"] == ("cap_usd is 25.00, but $20.00 of your $50.00 limit is left.")
+        post.assert_not_called()
+
+    def test_usage_reports_the_bounds_a_user_can_pick(self):
+        with override_settings(DEV_GATEWAY_TOKEN_MAX_CAP_USD="1000", DEV_GATEWAY_TOKEN_MAX_TTL_SECONDS=604800):
+            body = self.client.get(f"{URL}usage/").json()
+
+        assert (body["token_cap_min_usd"], body["token_cap_usd"], body["default_cap_usd"]) == (
+            "5.00",
+            "1000.00",
+            "25.00",
+        )
+        assert (body["ttl_min_seconds"], body["ttl_seconds"], body["ttl_max_seconds"]) == (3600, 28800, 604800)
+
+    def test_cli_token_gets_the_cap_and_lifetime_approved_in_the_browser(self):
+        self.client.force_login(self.user)
+        code = self.client.post(
+            f"{URL}cli_authorize/", {"code_challenge": CHALLENGE, "cap_usd": "10", "ttl_seconds": 86400}
+        ).json()["code"]
+        self.client.logout()
+
+        with patch(_POST, return_value=_minted()) as post:
+            response = self.client.post(f"{URL}cli_exchange/", {"code": code, "code_verifier": VERIFIER})
+
+        assert response.status_code == 201, response.json()
+        assert (post.call_args.kwargs["json"]["cap_usd"], post.call_args.kwargs["json"]["ttl_seconds"]) == (
+            "10.00",
+            86400,
+        )
+
+    def test_cli_authorize_refuses_an_out_of_range_request(self):
+        response = self.client.post(f"{URL}cli_authorize/", {"code_challenge": CHALLENGE, "ttl_seconds": 604801})
+
+        assert response.status_code == 400
+        assert response.json()["detail"].startswith("ttl_seconds must be between")
+
+    @override_settings(DEV_GATEWAY_TOKEN_MAX_CAP_USD="10", DEV_GATEWAY_TOKEN_MAX_TTL_SECONDS=3600)
+    def test_lowered_maxima_also_bound_requests_that_pick_nothing(self):
+        with patch(_POST, return_value=_minted()) as post:
+            assert self.client.post(URL).status_code == 201
+
+        assert (post.call_args.kwargs["json"]["cap_usd"], post.call_args.kwargs["json"]["ttl_seconds"]) == ("10", 3600)
+
+    def _live_token(self) -> DevGatewayToken:
+        return self._rows().create(
+            team=self.team,
+            user=self.user,
+            client="web",
+            cap_usd=Decimal("25"),
+            token_hash="e" * 64,
+            expires_at=timezone.now() + timedelta(days=3),
+        )
+
+    @parameterized.expand([("deactivated", "is_active"), ("lost_staff", "is_staff")])
+    def test_losing_eligibility_revokes_live_tokens(self, _name, field):
+        row = self._live_token()
+
+        with (
+            self.settings(CELERY_TASK_ALWAYS_EAGER=True),
+            patch(_POST, return_value=_revoked("unused", "20")) as post,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            setattr(self.user, field, False)
+            self.user.save()
+
+        assert post.call_args.args[0] == "https://ai-gateway.test/v1/tokens/revoke"
+        assert post.call_args.kwargs["json"] == {"token_hashes": [row.token_hash]}
+        assert self._rows(pk=row.pk).get().revoked_at is not None
+        entry = ActivityLog.objects.get(scope="DevGatewayToken", item_id=str(row.id), activity="revoked")
+        assert entry.user_id is None
+
+    def test_revoke_is_queued_only_after_the_deactivation_is_written(self):
+        self._live_token()
+        seen_active: list[bool] = []
+
+        def record(user_id):
+            seen_active.append(User.objects.filter(pk=user_id).values_list("is_active", flat=True).get())
+
+        # Runs on_commit callbacks at once, as autocommit does outside a transaction.
+        with (
+            patch("products.ai_gateway.backend.receivers.transaction.on_commit", lambda func, robust=False: func()),
+            patch("products.ai_gateway.backend.tasks.tasks.revoke_dev_tokens_for_ineligible_owner.delay", record),
+        ):
+            self.user.is_active = False
+            self.user.save()
+
+        assert seen_active == [False]
+
+    def test_mint_that_lands_after_deactivation_is_revoked_and_refused(self):
+        def gateway(url, **kwargs):
+            if url.endswith("/v1/tokens"):
+                User.objects.filter(pk=self.user.pk).update(is_active=False)
+                return _minted("phe_late")
+            return _revoked("phe_late", "25")
+
+        with patch(_POST, side_effect=gateway) as post:
+            response = self.client.post(URL)
+
+        assert response.status_code == 403
+        assert response.json()["code"] == "not_staff"
+        assert post.call_args.args[0] == "https://ai-gateway.test/v1/tokens/revoke"
+        assert self._rows(user=self.user).get().revoked_at is not None
+
+    def test_deleting_a_user_revokes_their_live_tokens_by_hash(self):
+        row = self._live_token()
+
+        with (
+            self.settings(CELERY_TASK_ALWAYS_EAGER=True),
+            patch(_POST, return_value=_response(200, {"revoked_count": 1})) as post,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            self.user.delete()
+
+        assert post.call_args.args[0] == "https://ai-gateway.test/v1/tokens/revoke"
+        assert post.call_args.kwargs["json"] == {"token_hashes": [row.token_hash]}
+
+    def test_sweep_revokes_owners_who_no_longer_qualify(self):
+        moved = User.objects.create_and_join(self.organization, "moved@posthog.com", None, is_staff=True)
+        moved_row = self._rows().create(
+            team=self.team,
+            user=moved,
+            client="web",
+            cap_usd=Decimal("25"),
+            token_hash="f" * 64,
+            expires_at=timezone.now() + timedelta(days=3),
+        )
+        kept_row = self._live_token()
+        User.objects.filter(pk=moved.pk).update(email="moved@example.com")
+
+        with patch(_POST, return_value=_revoked("unused", "25")) as post:
+            assert sweep_ineligible_dev_token_owners() == 1
+
+        assert post.call_args.kwargs["json"] == {"token_hashes": [moved_row.token_hash]}
+        assert self._rows(pk=moved_row.pk).get().revoked_at is not None
+        assert self._rows(pk=kept_row.pk).get().revoked_at is None
+
+    @override_settings(DEV_GATEWAY_URL="", DEV_GATEWAY_MINT_KEY="", DEV_GATEWAY_TEAM_ID=0)
+    def test_deleting_a_user_on_an_unconfigured_instance_still_works(self):
+        user_id = self.user.pk
+
+        with patch(_POST) as post, self.captureOnCommitCallbacks(execute=True):
+            self.user.delete()
+
+        assert not User.objects.filter(pk=user_id).exists()
+        post.assert_not_called()
+
+    @override_settings(DEV_GATEWAY_URL="", DEV_GATEWAY_MINT_KEY="", DEV_GATEWAY_TEAM_ID=0)
+    def test_unconfigured_instance_has_no_token_hashes_and_refuses_revoke(self):
+        assert live_token_hashes(self.user.pk) == []
+
+        response = self.client.post(f"{URL}revoke/", {})
+
+        assert response.status_code == 503
+        assert response.json()["code"] == "unconfigured"
+
+    def test_a_failing_hash_lookup_does_not_abort_the_user_delete(self):
+        user_id = self.user.pk
+
+        with patch("products.ai_gateway.backend.logic.live_token_hashes", side_effect=RuntimeError("boom")):
+            self.user.delete()
+
+        assert not User.objects.filter(pk=user_id).exists()
+
+    def test_a_broker_failure_does_not_fail_the_deactivation(self):
+        self._live_token()
+
+        with (
+            patch(
+                "products.ai_gateway.backend.tasks.tasks.revoke_dev_tokens_for_ineligible_owner.delay",
+                side_effect=ConnectionError("broker down"),
+            ),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            self.user.is_active = False
+            self.user.save()
+
+        assert User.objects.filter(pk=self.user.pk, is_active=False).exists()
+
+    def test_saves_that_keep_eligibility_or_were_never_eligible_revoke_nothing(self):
+        self._live_token()
+        customer = User.objects.create_and_join(self.organization, "someone@example.com", None)
+
+        with (
+            self.settings(CELERY_TASK_ALWAYS_EAGER=True),
+            patch(_POST) as post,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            self.user.first_name = "Renamed"
+            self.user.save()
+            customer.is_active = False
+            customer.save()
+
         post.assert_not_called()
 
     def test_cli_authorize_needs_a_session(self):

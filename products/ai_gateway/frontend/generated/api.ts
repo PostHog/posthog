@@ -14,6 +14,7 @@ import type {
     CliExchangeApi,
     DevTeamUsageApi,
     DevTokenApi,
+    DevTokenCreateApi,
     DevTokenRevokeApi,
     DevTokenRevokedApi,
     DevTokenStatusRequestApi,
@@ -28,10 +29,15 @@ export const getAiGatewayDevTokensCreateUrl = () => {
 /**
  * @summary Create a developer mode token attributed to you
  */
-export const aiGatewayDevTokensCreate = async (options?: RequestInit): Promise<MintedDevTokenApi> => {
+export const aiGatewayDevTokensCreate = async (
+    devTokenCreateApi?: DevTokenCreateApi,
+    options?: RequestInit
+): Promise<MintedDevTokenApi> => {
     return apiMutator<MintedDevTokenApi>(getAiGatewayDevTokensCreateUrl(), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(devTokenCreateApi),
     })
 }
 

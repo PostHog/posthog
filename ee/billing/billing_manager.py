@@ -31,7 +31,7 @@ from posthog.models import Organization
 from posthog.models.events_plan_deletion import apply_events_retention_change
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
-from posthog.models.organization_provisioning import get_billing_lock_partner
+from posthog.models.organization_provisioning import get_billing_lock_partner, record_partner_paid
 from posthog.models.team.event_retention import (
     billed_events_retention_months,
     has_standard_retention,
@@ -61,6 +61,8 @@ BILLING_PROVIDER_WEBHOOK_SIGNATURE_HEADER = "X-PostHog-Billing-Provider-Signatur
 BILLING_PROVIDER_WEBHOOK_TIMESTAMP_HEADER = "X-PostHog-Billing-Provider-Timestamp"
 BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION = "sha256"
 BILLING_TIMESERIES_REQUEST_TIMEOUT = (5, 30)
+# The unpaid invoice banner lists invoices on page load, so a stalled billing service must not hold a worker.
+BILLING_INVOICES_REQUEST_TIMEOUT = (5, 15)
 # An export covers every project rather than the chart's top few, so it reads more and is
 # allowed longer. The person is waiting for a file, which tolerates a longer wait than a chart.
 BILLING_EXPORT_REQUEST_TIMEOUT = (5, 120)
@@ -800,6 +802,10 @@ class BillingManager:
             organization.customer_id = data["customer_id"]
             org_modified = True
 
+        # Billing's word on whether a partner pays decides the billing lock once customer_id is set.
+        if "paid_by_partner" in data:
+            record_partner_paid(organization.id, bool(data["paid_by_partner"]), computed_at)
+
         should_update_org_billing_quotas = False
 
         usage_summary = cast(dict, data.get("usage_summary"))
@@ -1094,6 +1100,7 @@ class BillingManager:
             f"{BILLING_SERVICE_URL}/api/billing/get_invoices",
             params={"status": status},
             headers=self.get_auth_headers(organization),
+            timeout=BILLING_INVOICES_REQUEST_TIMEOUT,
         )
 
         handle_billing_service_error(res)
@@ -1246,7 +1253,7 @@ class BillingManager:
 
         Raises:
             ValueError: If billing_provider is specified but the organization doesn't have the integration
-            BillingManagedByPartnerError: If a partner pays for the organization and it has no Stripe customer
+            BillingManagedByPartnerError: If a partner pays for the organization
         """
         raise_if_billing_managed_by_partner(organization)
 

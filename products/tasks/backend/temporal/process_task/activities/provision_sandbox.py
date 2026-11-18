@@ -113,7 +113,8 @@ from products.tasks.backend.temporal.process_task.utils import (
     run_gateway_env_vars,
 )
 
-from .get_task_processing_context import TaskProcessingContext
+from .get_task_processing_context import CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY, TaskProcessingContext
+from .persist_agent_memory import MemoryEventIdentity, restore_agent_memory_into_sandbox
 
 logger = logging.getLogger(__name__)
 SANDBOX_CREATION_CANCELLATION_WAIT_SECONDS = 10
@@ -169,6 +170,7 @@ class CreateSandboxForRepositoryOutput:
     jwt_kid: str | None = None
     ttl_expires_at: str | None = None
     dev_stack_preview_sized: bool = False
+    custom_image_fallback_reason: str | None = None
 
 
 @frozen
@@ -190,6 +192,7 @@ class GetSandboxForRepositoryOutput:
     agent_invoke_ms: int | None = None
     dev_stack_preview_sized: bool = False
     agent_shadow_launched: bool = False
+    custom_image_fallback_reason: str | None = None
 
 
 @dataclass
@@ -640,9 +643,6 @@ def _build_environment_variables(
     # a script that a resume snapshot could control. It's blocked (constants.py) so a
     # user-supplied env var can't add it here.
 
-    if settings.SANDBOX_LLM_GATEWAY_URL:
-        environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
-
     environment_variables.update(run_gateway_env_vars(ctx, task))
     environment_variables.update(mcp_exec_skills_env_vars(ctx))
 
@@ -770,7 +770,11 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         # drop a custom base image or a non-default template. Resume snapshots were taken from
         # this task's own sandbox.
         snapshot_integration_id = _repository_snapshot_integration_id(ctx, has_repo=has_repo)
-        if snapshot_integration_id is not None and sandbox_template == SandboxTemplate.DEFAULT_BASE:
+        if (
+            snapshot_integration_id is not None
+            and sandbox_template == SandboxTemplate.DEFAULT_BASE
+            and not ctx.agent_egress_observation_config
+        ):
             with StepTimer(
                 "snapshot_lookup",
                 origin_product=ctx.origin_product,
@@ -988,6 +992,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
             snapshot_source=prepared.snapshot_source,
             metadata=_build_sandbox_tags(ctx, prepared, use_vm_sandbox),
             vm_runtime=use_vm_sandbox,
+            agent_egress_observation=bool(ctx.agent_egress_observation_config),
             use_hotplug_golden=ctx.use_hogland_hotplug_golden,
             **resource_overrides,
         )
@@ -1065,6 +1070,20 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
             sandbox,
             compare_with_pin=_pin_governs_sandbox_agent(ctx, config, used_snapshot=actual_used_snapshot),
         )
+        custom_image_fallback_reason: str | None = None
+        if (
+            config.custom_image_name
+            and (ctx.state or {}).get("custom_image_id")
+            and not (ctx.state or {}).get(CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY)
+            and (sandbox.config.image_fallback or "").endswith("-> base image")
+        ):
+            custom_image_fallback_reason = "boot_failed"
+            try:
+                TaskRun.update_state_atomic(
+                    ctx.run_id, updates={CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY: custom_image_fallback_reason}
+                )
+            except Exception:
+                logger.warning("Failed to persist custom image fallback reason", extra={"run_id": ctx.run_id})
         try:
             if config.outbound_domain_allowlist is not None:
                 log_with_activity_context("Modal sandbox created with network policy requested", run_id=ctx.run_id)
@@ -1129,6 +1148,20 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
                 TaskRun.clear_sandbox_connection_state_atomic(ctx.run_id, sandbox.id)
             raise
 
+        # Every agent-server launch path runs after this activity returns, so the agent cannot
+        # observe or race a half-written memory directory.
+        if ctx.persist_agent_memory_enabled and ctx.task_created_by_id is not None:
+            with StepTimer("agent_memory_restore"):
+                restore_agent_memory_into_sandbox(
+                    sandbox,
+                    run_id=ctx.run_id,
+                    team_id=ctx.team_id,
+                    user_id=ctx.task_created_by_id,
+                    identity=MemoryEventIdentity(
+                        distinct_id=ctx.distinct_id, organization_id=ctx.organization_id, team_uuid=ctx.team_uuid
+                    ),
+                )
+
         log_with_activity_context(f"Sandbox provisioned: {sandbox.id}", run_id=ctx.run_id)
         activity.logger.info(f"Created sandbox {sandbox.id} (used_snapshot={actual_used_snapshot})")
 
@@ -1141,6 +1174,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
             ttl_expires_at=(sandbox_created_at + timedelta(seconds=sandbox.config.ttl_seconds)).isoformat(),
             jwt_kid=jwt_kid,
             dev_stack_preview_sized=ctx.dev_stack_preview_enabled,
+            custom_image_fallback_reason=custom_image_fallback_reason,
         )
 
 
