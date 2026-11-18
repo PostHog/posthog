@@ -124,6 +124,22 @@ describe('KafkaProducerRegistryBuilder', () => {
         ).rejects.toThrow('connection refused')
     })
 
+    it('registerLazy builds while its broker is down, fails produces, and connects on a later one', async () => {
+        const produce = jest.fn().mockResolvedValue(undefined)
+        jest.mocked(KafkaProducerWrapper.createWithConfig)
+            .mockRejectedValueOnce(new Error('broker transport failure'))
+            .mockRejectedValueOnce(new Error('broker transport failure'))
+            .mockResolvedValue({ produce } as unknown as KafkaProducerWrapper)
+        const config = { BROKER_LIST: 'msk:9094', LINGER_MS: '5' }
+        const message = { topic: 't', value: Buffer.from('v'), key: null }
+
+        const registry = await new KafkaProducerRegistryBuilder(undefined).registerLazy('MSK', configMap).build(config)
+
+        await expect(registry.getProducer('MSK').produce(message)).rejects.toThrow('broker transport failure')
+        await registry.getProducer('MSK').produce(message)
+        expect(produce).toHaveBeenCalledWith(message)
+    })
+
     it('buildBlackhole connects to no broker, and its producers discard messages and pass the checks', async () => {
         kafkaProducerMessagesDiscardedCounter.reset()
 

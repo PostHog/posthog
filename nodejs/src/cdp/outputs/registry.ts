@@ -63,7 +63,7 @@ export function createCdpOutputsRegistry() {
         })
         .register(CDP_INTAKE_DLQ_OUTPUT, {
             topicKey: 'CDP_INTAKE_DLQ_TOPIC',
-            producerKey: 'CDP_INTAKE_PRODUCER',
+            producerKey: 'CDP_INTAKE_DLQ_PRODUCER',
         })
         .register(CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT, {
             topicKey: 'CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC',

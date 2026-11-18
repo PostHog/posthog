@@ -224,6 +224,8 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC: string
     CDP_INTAKE_DLQ_TOPIC: string
     CDP_INTAKE_PRODUCER: CdpProducerName
+    // An intake consumer's dead letters, on the cluster it reads from.
+    CDP_INTAKE_DLQ_PRODUCER: CdpProducerName
     // Teams whose routes produce accepted runs to the intake topics: a list of team ids, or `*`. Shadow still inserts
     // each run itself and only measures the produce. Async answers on the broker's ack. Async wins over shadow.
     CDP_INTAKE_KAFKA_SHADOW_TEAMS: string
@@ -540,6 +542,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC: KAFKA_CDP_INTAKE_WORKFLOW_WEBHOOK,
         CDP_INTAKE_DLQ_TOPIC: KAFKA_CDP_INTAKE_DLQ,
         CDP_INTAKE_PRODUCER: WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER,
+        CDP_INTAKE_DLQ_PRODUCER: WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER,
         CDP_INTAKE_KAFKA_SHADOW_TEAMS: '',
         CDP_INTAKE_KAFKA_ASYNC_TEAMS: '',
         CDP_INTAKE_MSK_PRODUCER: MSK_CDP_INTAKE_PRODUCER,
