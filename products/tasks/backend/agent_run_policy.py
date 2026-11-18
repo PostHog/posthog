@@ -1,8 +1,11 @@
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from posthog.dataclasses import frozen
 
 from products.tasks.backend.facade.profiles import AgentPolicy, EndsRun
+
+if TYPE_CHECKING:
+    from products.tasks.backend.models import Task
 
 WEB_CLIENT_PROVENANCE = "posthog_web"
 
@@ -45,3 +48,9 @@ def resolve_agent_run_policy(policy: AgentPolicy, run_state: dict[str, Any] | No
         thread_link=policy.pr_thread_link,
         default_client_provenance=WEB_CLIENT_PROVENANCE if policy.web_client_by_default else None,
     )
+
+
+def task_agent_run_policy(task: "Task", run_state: dict[str, Any] | None) -> AgentRunPolicy:
+    profile = task.stored_profile
+    policy = profile.agent_policy if profile is not None else agent_policy_for_origin(task.origin_product)
+    return resolve_agent_run_policy(policy, run_state)

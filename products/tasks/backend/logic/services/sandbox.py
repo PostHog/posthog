@@ -498,9 +498,11 @@ def build_agent_runtime_env_prefix(
     benjamin_enabled: bool = False,
     pi_acp_conversation: bool = False,
     unset_bedrock: bool = False,
+    run_policy: str | None = None,
 ) -> str:
     env_vars = {
         "POSTHOG_CODE_INTERACTION_ORIGIN": interaction_origin,
+        "POSTHOG_TASK_RUN_POLICY": run_policy,
         "POSTHOG_AGENT_RUNTIME": agent_runtime,
         "POSTHOG_SANDBOX_ID": sandbox_id,
         "POSTHOG_SANDBOX_RUNTIME": sandbox_runtime,
@@ -867,6 +869,7 @@ class SandboxBase(ABC):
         codex_run_token: str | None = None,
         sandbox_runtime: str | None = None,
         before_launch: Callable[[], None] | None = None,
+        run_policy: str | None = None,
     ) -> int | None:
         """Start the agent-server HTTP server in the sandbox.
 
