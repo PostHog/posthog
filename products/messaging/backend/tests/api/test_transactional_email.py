@@ -643,6 +643,7 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.json()["code"] == expected_code
         setup_url = f"{settings.SITE_URL}/project/{self.team.id}/workflows/channels/email/new"
         assert (setup_url in response.json()["detail"]) == pipeline_code.startswith("sandbox_")
+        assert ("PostHog test sender" in response.json()["detail"]) == pipeline_code.startswith("sandbox_")
 
     @parameterized.expand(
         [
@@ -1325,7 +1326,7 @@ class TestTransactionalEmail(APIBaseTest):
             "warnings": [{"code": "sandbox_sender", "message": ANY, "setup_url": setup_url, "agent_action": ANY}],
         }
         (warning,) = response.json()["warnings"]
-        assert "members of your organization" in warning["message"]
+        assert "PostHog test sender only sends to members of your organization" in warning["message"]
         assert setup_url in warning["agent_action"]
 
     @parameterized.expand(
