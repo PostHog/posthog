@@ -100,6 +100,11 @@ export const SettingsEnvironmentCustomization: Story = { args: { sectionId: 'env
 
 export const SettingsEnvironmentAutocapture: Story = { args: { sectionId: 'environment-autocapture' } }
 
+export const SettingsEnvironmentAutocaptureQuill: Story = {
+    args: { sectionId: 'environment-autocapture' },
+    parameters: { featureFlags: [...STORYBOOK_FEATURE_FLAGS, FEATURE_FLAGS.TODAY_RAIL_NAV] },
+}
+
 export const SettingsEnvironmentHeatmaps: Story = { args: { sectionId: 'environment-heatmaps' } }
 
 export const SettingsEnvironmentHeatmapsScreenshotCookie: Story = {
@@ -128,6 +133,11 @@ export const SettingsEnvironmentHeatmapsScreenshotCookie: Story = {
 }
 
 export const SettingsEnvironmentProductAnalytics: Story = { args: { sectionId: 'environment-product-analytics' } }
+
+export const SettingsEnvironmentProductAnalyticsQuill: Story = {
+    args: { sectionId: 'environment-product-analytics' },
+    parameters: { featureFlags: [...STORYBOOK_FEATURE_FLAGS, FEATURE_FLAGS.TODAY_RAIL_NAV] },
+}
 
 export const SettingsEnvironmentRevenueAnalytics: Story = { args: { sectionId: 'environment-revenue-analytics' } }
 

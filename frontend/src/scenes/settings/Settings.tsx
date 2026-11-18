@@ -13,6 +13,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { SupportedPlatforms } from 'lib/components/SupportedPlatforms/SupportedPlatforms'
 import { TimeSensitiveAuthenticationArea } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import {
@@ -42,6 +43,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
+import { QuillSettingHeading } from './components/QuillSettingHeading'
 import { SettingSectionUnavailable } from './components/SettingSectionUnavailable'
 import { SearchResult, settingsLogic } from './settingsLogic'
 import { settingsNavTree } from './settingsNavTree'
@@ -396,6 +398,7 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
     } = useValues(settingsLogic(props))
     const { selectSetting } = useActions(settingsLogic(props))
     const { user } = useValues(userLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const settingsInSidebar = !!selectedSetting && !!props.sectionId
 
@@ -406,7 +409,19 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
             {settings.length ? (
                 settings.map((x, index) => (
                     <div key={`${x.id}-${index}`} className="relative last:mb-4">
-                        {!settingsInSidebar && x.title && (
+                        {todayRailNav && (
+                            <QuillSettingHeading
+                                setting={x}
+                                showTitle={!settingsInSidebar}
+                                linkTo={
+                                    props.logicKey === 'settingsScene'
+                                        ? urls.settings(selectedSectionId ?? selectedLevel, x.id)
+                                        : undefined
+                                }
+                                onLinkClick={() => selectSetting(x.id)}
+                            />
+                        )}
+                        {!todayRailNav && !settingsInSidebar && x.title && (
                             <h2
                                 id={x.id}
                                 className="flex gap-2 items-center text-base font-semibold mb-0 scroll-mt-[calc(var(--scene-layout-header-height)+var(--spacing)*4)]"
@@ -426,7 +441,7 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
                                 {x.platformSupport && <SupportedPlatforms config={x.platformSupport} />}
                             </h2>
                         )}
-                        {x.description && (
+                        {!todayRailNav && x.description && (
                             <p className="max-w-160 text-sm text-secondary mb-4">
                                 {x.description}
                                 {x.docsUrl && (
