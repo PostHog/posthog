@@ -12,8 +12,8 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="signalreportslackthread",
-            name="recipient_user_id",
-            field=models.IntegerField(blank=True, null=True),
+            name="recipient_user_ids",
+            field=django.contrib.postgres.fields.ArrayField(base_field=models.IntegerField(), blank=True, null=True),
         ),
         migrations.AddField(
             model_name="signalreportslackthread",

@@ -746,11 +746,7 @@ def _deliver_route_notification(
                 thread_ts=str(thread_ts),
                 kind=SignalReportSlackThread.Kind.INBOX_NOTIFICATION,
                 target=channel_id,
-                recipient_user_id=(
-                    route.users[0].id
-                    if route.is_direct_message and not route.is_team_channel and len(route.users) == 1
-                    else None
-                ),
+                recipient_user_ids=[] if route.is_team_channel else [user.id for user in route.users],
             )
             _post_state_buttons_followup(
                 slack, report, route, channel=str(posted_channel or channel_id), thread_ts=str(thread_ts)

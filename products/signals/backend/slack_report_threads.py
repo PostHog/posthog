@@ -15,7 +15,7 @@ from collections.abc import Sequence
 from uuid import NAMESPACE_URL, uuid5
 
 from django.db import IntegrityError, transaction
-from django.db.models import Func, Q, Value
+from django.db.models import Func, Value
 
 from celery.exceptions import SoftTimeLimitExceeded
 from slack_sdk.errors import SlackApiError
@@ -25,12 +25,14 @@ from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models import Team, User
 from posthog.models.integration import SlackIntegration
 from posthog.models.user_integration import UserIntegration
+from posthog.slack.formatting import channel_id_from_target
 
 from products.signals.backend.artefact_schemas import SIGNALS_PRODUCT, TASK_RUN_TYPE_IMPLEMENTATION
 from products.signals.backend.assignment_flags import assignment_side_effects_allowed
-from products.signals.backend.models import SignalReport, SignalReportSlackThread, SignalReportTask
+from products.signals.backend.models import SignalReport, SignalReportSlackThread, SignalReportTask, SignalTeamConfig
 from products.signals.backend.report_access import may_read_reports
 from products.signals.backend.slack_notification_targets import is_slack_member_target
+from products.slack_app.backend.facade.api import slack_thread_is_mapped_to_task
 
 logger = logging.getLogger(__name__)
 MAX_IMPLEMENTATION_PR_NOTIFICATIONS = 50
@@ -58,20 +60,46 @@ def _notification_retry_after(error: Exception) -> int | None:
     return int(wait) if wait.isdigit() else 0
 
 
+def _legacy_channel_is_project_destination(thread: SignalReportSlackThread, team: Team) -> bool:
+    if thread.kind in {SignalReportSlackThread.Kind.SCOUT_REPORT, SignalReportSlackThread.Kind.SCOUT_REPORT_NOTE}:
+        return True
+    config = SignalTeamConfig.objects.filter(team_id=team.id).first()
+    if config is None or not config.default_slack_notification_channel:
+        return False
+    if channel_id_from_target(config.default_slack_notification_channel) != thread.channel:
+        return False
+    bound_id = config.default_slack_notification_integration_id
+    integrations = IntegrationManager.slack.any
+    integration = (
+        integrations.get_many(team.id, [bound_id]).get(bound_id) if bound_id is not None else integrations.find(team.id)
+    )
+    return integration is not None and integration.id == thread.integration_id
+
+
 def _thread_recipient_can_receive_pr(slack: SlackIntegration, thread: SignalReportSlackThread, team: Team) -> bool:
     target = thread.target or ""
-    if not is_slack_member_target(target):
-        return not thread.channel.startswith(("D", "U", "W"))
-    member = slack.get_user_by_id(target)
-    if member is None:
-        return False
-    linked_users = UserIntegration.objects.filter(
-        kind=UserIntegration.IntegrationKind.SLACK,
-        integration_id=target,
-        config__slack_team_id=thread.slack_workspace_id,
-    ).values("user_id")
-    identity = Q(id=thread.recipient_user_id) if thread.recipient_user_id is not None else Q(id__in=linked_users)
-    user_uuids = [str(uuid) for uuid in User.objects.filter(identity, is_active=True).values_list("uuid", flat=True)]
+    recipient_ids = thread.recipient_user_ids
+    if is_slack_member_target(target):
+        if slack.get_user_by_id(target) is None:
+            return False
+        if not recipient_ids:
+            recipient_ids = list(
+                UserIntegration.objects.filter(
+                    kind=UserIntegration.IntegrationKind.SLACK,
+                    integration_id=target,
+                    config__slack_team_id=thread.slack_workspace_id,
+                ).values_list("user_id", flat=True)
+            )
+    else:
+        if thread.channel.startswith(("D", "U", "W")):
+            return False
+        if recipient_ids is None:
+            return _legacy_channel_is_project_destination(thread, team)
+        if not recipient_ids:
+            return True
+    user_uuids = [
+        str(uuid) for uuid in User.objects.filter(id__in=recipient_ids, is_active=True).values_list("uuid", flat=True)
+    ]
     if not user_uuids:
         return False
     return any(may_read_reports(user=user, team=team) for user in team.all_users_with_access(user_uuids=user_uuids))
@@ -126,9 +154,17 @@ def _implementation_report_ids(*, team_id: int, task_id: str) -> list[str]:
 
 
 def _deliver_implementation_pr_to_thread(
-    *, team: Team, thread: SignalReportSlackThread, integration: IntegrationRecord, pr_url: str
+    *, team: Team, task_id: str, thread: SignalReportSlackThread, integration: IntegrationRecord, pr_url: str
 ) -> bool:
     if integration.integration_id != thread.slack_workspace_id:
+        return False
+    if slack_thread_is_mapped_to_task(
+        team_id=team.id,
+        task_id=task_id,
+        slack_workspace_id=thread.slack_workspace_id,
+        channel=thread.channel,
+        thread_ts=thread.thread_ts,
+    ):
         return False
     if not assignment_side_effects_allowed(team_id=team.id, report_id=str(thread.report_id)):
         return False
@@ -172,7 +208,7 @@ def dispatch_implementation_pr_notifications(*, team_id: int, task_id: str, pr_u
             continue
         try:
             sent += _deliver_implementation_pr_to_thread(
-                team=team, thread=thread, integration=integration, pr_url=pr_url
+                team=team, task_id=task_id, thread=thread, integration=integration, pr_url=pr_url
             )
         except SoftTimeLimitExceeded:
             raise
@@ -222,7 +258,7 @@ def record_report_slack_thread(
     thread_ts: str,
     kind: SignalReportSlackThread.Kind,
     target: str | None = None,
-    recipient_user_id: int | None = None,
+    recipient_user_ids: list[int] | None = None,
 ) -> None:
     """Record that `thread_ts` in `channel` is a notification thread for this report."""
     try:
@@ -236,7 +272,7 @@ def record_report_slack_thread(
                 "integration_id": integration_id,
                 "kind": kind,
                 "target": target,
-                "recipient_user_id": recipient_user_id,
+                "recipient_user_ids": recipient_user_ids,
             },
         )
         if created:

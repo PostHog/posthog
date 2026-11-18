@@ -55,7 +55,7 @@ from products.slack_app.backend.logic.progress_phases import (
 from products.slack_app.backend.logic.reply_suggestions import (
     report_implementation_button as slack_report_implementation_button,
 )
-from products.slack_app.backend.models import SlackChannel
+from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
 from products.slack_app.backend.services.followup_invite import build_followup_invite, build_followup_invite_text
 from products.slack_app.backend.services.public_channel_catalog import public_channel_options
 from products.slack_app.backend.services.slack_auth import invalidate_auth_state
@@ -91,6 +91,7 @@ __all__ = [
     "record_slack_feature_used",
     "slack_artifact_delivery_state_updates",
     "slack_channel_is_approved",
+    "slack_thread_is_mapped_to_task",
     "slack_followup_invite",
     "slack_followup_invite_text",
     "slack_report_implementation_button",
@@ -100,6 +101,19 @@ __all__ = [
 logger = structlog.get_logger(__name__)
 
 _SLACK_CANVAS_FILE_ADAPTER_SCOPES = frozenset({SLACK_CANVAS_SCOPE, SLACK_FILE_SCOPE})
+
+
+def slack_thread_is_mapped_to_task(
+    *, team_id: int, task_id: str, slack_workspace_id: str, channel: str, thread_ts: str
+) -> bool:
+    return SlackThreadTaskMapping.objects.filter(
+        team_id=team_id,
+        task_id=task_id,
+        task__team_id=team_id,
+        slack_workspace_id=slack_workspace_id,
+        channel=channel,
+        thread_ts=thread_ts,
+    ).exists()
 
 
 def _slack_workspace_id(team_id: int, integration_id: int) -> str | None:
