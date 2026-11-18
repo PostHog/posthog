@@ -7,7 +7,7 @@ bypasses the facade, so the viewer, MCP tools, and insights all share one
 query path.
 """
 
-from contextlib import nullcontext
+from contextlib import AbstractContextManager, nullcontext
 from functools import cached_property, partial
 from typing import TYPE_CHECKING, Optional, cast
 
@@ -237,6 +237,11 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
             self._load_all_options(dashboard_id)
         except ValueError as exc:
             raise ExposedHogQLError(str(exc)) from exc
+        if self._query_lane(dashboard_id) == QueryLane.TELEMETRY:
+            # The telemetry slots don't cover the events cluster, so resolve an `all` range here and the run reads its
+            # earliest event from cache.
+            with self._earliest_event_slot(dashboard_id):
+                metrics_query_date_range(self.team, self.query.dateRange).date_from()
         return super()._call_with_rate_limits(dashboard_id=dashboard_id)
 
     def _query_lane(self, dashboard_id: int | None) -> QueryLane:
@@ -245,6 +250,12 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
         if dashboard_id is not None and self._dashboard_v2_enabled and not self._reads_derived_metrics:
             return QueryLane.TELEMETRY
         return QueryLane.ANALYTICS
+
+    def _earliest_event_slot(self, dashboard_id: int | None) -> AbstractContextManager[None]:
+        # `all` looks up the earliest event on the events cluster, so it takes the analytics slots.
+        if self.query.dateRange and self.query.dateRange.date_from == "all":
+            return query_concurrency_slots(self.team, dashboard_id=dashboard_id, query_lane=QueryLane.ANALYTICS)
+        return nullcontext()
 
     @cached_property
     def _reads_derived_metrics(self) -> bool:
@@ -274,12 +285,7 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
                     query_lane=self._query_lane(dashboard_id),
                 )
                 date_range = metrics_query_date_range(self.team, self.query.dateRange)
-                # `all` looks up the earliest event on the events cluster, so it takes the analytics slots.
-                earliest_event_slot = partial(
-                    query_concurrency_slots, self.team, dashboard_id=dashboard_id, query_lane=QueryLane.ANALYTICS
-                )
-                is_all = self.query.dateRange and self.query.dateRange.date_from == "all"
-                with earliest_event_slot() if is_all else nullcontext():
+                with self._earliest_event_slot(dashboard_id):
                     date_from, date_to = date_range.date_from(), date_range.date_to()
                 variables = fill_all_values(
                     team=self.team,

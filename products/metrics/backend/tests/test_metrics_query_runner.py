@@ -152,6 +152,7 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 True,
                 "posthog.derived.spans.requests",
             ),
+            ("flag_on_all_time_tile_rejected_by_org_lane", True, 1, "org", True, None, "all"),
         ]
     )
     @patch("posthog.clickhouse.client.limit.TEST", False)
@@ -163,6 +164,7 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         full_lane: str,
         rejected: bool,
         metric_name: str | None = None,
+        date_from: str | None = None,
     ) -> None:
         limiter = get_app_org_rate_limiter() if full_lane == "org" else get_app_dashboard_queries_rate_limiter()
         for i in range(limiter.max_concurrency):
@@ -170,7 +172,15 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             assert slot is not None
             self.addCleanup(limiter.release, slot)
         clauses = [MetricsQueryClause(name="a", metricName=metric_name, aggregation="sum")] if metric_name else []
-        runner = MetricsQueryRunner(query=MetricsQuery(clauses=clauses, language="sql", sql="SELECT 1"), team=self.team)
+        runner = MetricsQueryRunner(
+            query=MetricsQuery(
+                clauses=clauses,
+                language="sql",
+                sql="SELECT 1",
+                dateRange=DateRange(date_from=date_from) if date_from else None,
+            ),
+            team=self.team,
+        )
 
         with (
             patch(
