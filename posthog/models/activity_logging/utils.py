@@ -62,8 +62,9 @@ DeclaredCredentialType = Literal[
     "cross_region_signature",
 ]
 # `log_activity` writes `unattributed` for a row in a request where no authentication class recorded
-# a credential, so no class may declare it.
-CredentialType = Literal[DeclaredCredentialType, "unattributed"]
+# a credential, so no class may declare it. `team_secret_token` is retired (#63111): nothing records
+# it anymore, but stored rows still carry it, so the API schema must keep declaring the value.
+CredentialType = Literal[DeclaredCredentialType, "unattributed", "team_secret_token"]
 CREDENTIAL_TYPE_CHOICES: tuple[CredentialType, ...] = get_args(CredentialType)
 # The credential types whose `credential_id` customers can read. Each id names a login session or a
 # key that the customer can look up and revoke through the PostHog API. Never add `service_jwt`: its

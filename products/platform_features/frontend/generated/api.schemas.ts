@@ -981,6 +981,7 @@ export interface WelcomeResponseApi {
  * * `webhook` - webhook
  * * `cross_region_signature` - cross_region_signature
  * * `unattributed` - unattributed
+ * * `team_secret_token` - team_secret_token
  */
 export type ActivityLogCredentialTypeEnumApi =
     (typeof ActivityLogCredentialTypeEnumApi)[keyof typeof ActivityLogCredentialTypeEnumApi]
@@ -1007,6 +1008,7 @@ export const ActivityLogCredentialTypeEnumApi = {
     Webhook: 'webhook',
     CrossRegionSignature: 'cross_region_signature',
     Unattributed: 'unattributed',
+    TeamSecretToken: 'team_secret_token',
 } as const
 
 export interface ActivityLogApi {
@@ -1055,7 +1057,8 @@ export interface ActivityLogApi {
      * * `export_renderer` - export_renderer
      * * `webhook` - webhook
      * * `cross_region_signature` - cross_region_signature
-     * * `unattributed` - unattributed */
+     * * `unattributed` - unattributed
+     * * `team_secret_token` - team_secret_token */
     readonly credential_type: ActivityLogCredentialTypeEnumApi | null
     /**
      * Id of the credential that authenticated the change: the login session id for 'session', or the key id for 'personal_api_key' and 'project_secret_key'. Null for every other credential type and for impersonated changes.

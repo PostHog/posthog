@@ -6746,6 +6746,7 @@ export namespace Schemas {
      * * `webhook` - webhook
      * * `cross_region_signature` - cross_region_signature
      * * `unattributed` - unattributed
+     * * `team_secret_token` - team_secret_token
      */
     export type ActivityLogCredentialTypeEnum = typeof ActivityLogCredentialTypeEnum[keyof typeof ActivityLogCredentialTypeEnum];
 
@@ -6772,6 +6773,7 @@ export namespace Schemas {
       Webhook: 'webhook',
       CrossRegionSignature: 'cross_region_signature',
       Unattributed: 'unattributed',
+      TeamSecretToken: 'team_secret_token',
     } as const;
 
     export interface ActivityLog {
@@ -6820,7 +6822,8 @@ export namespace Schemas {
        * * `export_renderer` - export_renderer
        * * `webhook` - webhook
        * * `cross_region_signature` - cross_region_signature
-       * * `unattributed` - unattributed */
+       * * `unattributed` - unattributed
+       * * `team_secret_token` - team_secret_token */
       readonly credential_type: ActivityLogCredentialTypeEnum | null;
       /**
          * Id of the credential that authenticated the change: the login session id for 'session', or the key id for 'personal_api_key' and 'project_secret_key'. Null for every other credential type and for impersonated changes.

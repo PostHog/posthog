@@ -2,13 +2,10 @@ import { identifierToHuman } from 'lib/utils/strings'
 
 import type { ActivityLogCredentialTypeEnumApi } from 'products/platform_features/frontend/generated/api.schemas'
 
-// Credential types the API no longer issues but that stored activity log rows still carry.
-const RETIRED_CREDENTIAL_TYPE_LABELS: Record<string, string> = {
-    team_secret_token: 'Legacy secret key',
-}
-
 const CREDENTIAL_TYPE_LABELS: Record<ActivityLogCredentialTypeEnumApi, string> = {
     session: 'Session',
+    // Retired (#63111); stored activity log rows still carry it.
+    team_secret_token: 'Legacy secret key',
     personal_api_key: 'Personal API key',
     oauth: 'OAuth app',
     project_secret_key: 'Project secret API key',
@@ -33,9 +30,5 @@ const CREDENTIAL_TYPE_LABELS: Record<ActivityLogCredentialTypeEnumApi, string> =
 
 export function credentialTypeLabel(credentialType: ActivityLogCredentialTypeEnumApi): string {
     // A cached frontend bundle can receive a type that a newer backend added after the bundle was built.
-    return (
-        CREDENTIAL_TYPE_LABELS[credentialType] ??
-        RETIRED_CREDENTIAL_TYPE_LABELS[credentialType] ??
-        identifierToHuman(credentialType)
-    )
+    return CREDENTIAL_TYPE_LABELS[credentialType] ?? identifierToHuman(credentialType)
 }
