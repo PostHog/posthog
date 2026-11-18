@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonInput, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInput, LemonTable, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -25,6 +25,12 @@ export const MetricsSummaryTable = (): JSX.Element => {
                     data-attr="metrics-summary-filter"
                 />
             </div>
+            {metricsFailed ? (
+                // Outside the table: a failed search can leave earlier rows on screen, which hides the empty state.
+                <LemonBanner type="error" action={{ children: 'Try again', onClick: () => loadMetrics() }}>
+                    Couldn't load metrics.
+                </LemonBanner>
+            ) : null}
             <LemonTable
                 dataSource={filteredMetrics}
                 loading={metricsLoading && metrics.length === 0}
@@ -32,18 +38,11 @@ export const MetricsSummaryTable = (): JSX.Element => {
                 pagination={{ pageSize: 50 }}
                 defaultSorting={{ columnKey: 'series_count', order: -1 }}
                 emptyState={
-                    metricsFailed ? (
-                        <div className="flex flex-col items-center gap-2">
-                            <span>Couldn't load metrics.</span>
-                            <LemonButton type="secondary" size="small" onClick={() => loadMetrics()}>
-                                Try again
-                            </LemonButton>
-                        </div>
-                    ) : search ? (
-                        'No metrics match this filter.'
-                    ) : (
-                        'No metrics have arrived in the last 24 hours.'
-                    )
+                    metricsFailed
+                        ? "Couldn't load metrics."
+                        : search
+                          ? 'No metrics match this filter.'
+                          : 'No metrics have arrived in the last 24 hours.'
                 }
                 footer={
                     catalogTruncated && metrics.length >= SUMMARY_LIMIT ? (
