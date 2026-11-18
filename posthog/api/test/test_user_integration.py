@@ -52,7 +52,11 @@ from posthog.models.user_integration import (
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.tasks.backend.facade.access import DesktopAccessDecision, PostHogAIAccessDecision
+from products.tasks.backend.facade.access import (
+    DesktopAccessDecision,
+    DesktopAccessResolutionError,
+    PostHogAIAccessDecision,
+)
 
 
 def _authorization(gh_id: int = 99, gh_login: str = "octocat") -> GitHubUserAuthorization:
@@ -2126,18 +2130,31 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
         )
 
     @parameterized.expand(
-        [(decision, desktop) for decision in PostHogAIAccessDecision for desktop in DesktopAccessDecision]
+        [(decision, desktop) for decision in PostHogAIAccessDecision for desktop in [*DesktopAccessDecision, None]]
     )
     def test_connect_follows_product_access(
-        self, decision: PostHogAIAccessDecision, desktop: DesktopAccessDecision
+        self, decision: PostHogAIAccessDecision, desktop: DesktopAccessDecision | None
     ) -> None:
         self.access_decision.return_value = decision
-        self.desktop_access_decision.return_value = desktop
-        allowed = decision.allowed or desktop.allowed
+        if desktop is None:
+            self.desktop_access_decision.side_effect = DesktopAccessResolutionError("unavailable")
+        else:
+            self.desktop_access_decision.return_value = desktop
+        allowed = decision.allowed or (desktop is not None and desktop.allowed)
+        expected_status = (
+            status.HTTP_200_OK
+            if allowed
+            else status.HTTP_503_SERVICE_UNAVAILABLE
+            if desktop is None
+            else status.HTTP_404_NOT_FOUND
+        )
 
         response = self._connect()
 
-        assert response.status_code == (status.HTTP_200_OK if allowed else status.HTTP_404_NOT_FOUND)
+        assert response.status_code == expected_status
+        if expected_status == status.HTTP_503_SERVICE_UNAVAILABLE:
+            assert response.json()["code"] == "desktop_access_unavailable"
+            assert "Try again" in response.json()["detail"]
         assert UserIntegration.objects.filter(user=self.user, kind="codex").exists() is allowed
 
     def test_connect_is_throttled_per_user(self):

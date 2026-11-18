@@ -15,7 +15,11 @@ from posthog.models.integration.codex import (
 from posthog.models.user import User
 from posthog.oauth_provenance import is_sandbox_oauth_request
 
-from products.tasks.backend.facade.access import get_desktop_access_decision, get_posthog_ai_access_decision
+from products.tasks.backend.facade.access import (
+    DesktopAccessResolutionError,
+    get_desktop_access_decision,
+    get_posthog_ai_access_decision,
+)
 
 
 class UserCodexAuthTokensSerializer(serializers.Serializer):
@@ -67,6 +71,12 @@ class OpenAIUnavailable(exceptions.APIException):
     default_code = "openai_unavailable"
 
 
+class DesktopAccessUnavailable(exceptions.APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "desktop_access_unavailable"
+    default_detail = "We couldn't verify PostHog Desktop access. Try again."
+
+
 def serialize_codex_integration(integration: CodexUserIntegration | None) -> dict[str, str | None]:
     if integration is None:
         return {"status": STATUS_NOT_CONNECTED, "plan_type": None, "email": None, "connected_at": None}
@@ -85,10 +95,15 @@ def ensure_not_sandbox_request(request: Request) -> None:
 
 def ensure_codex_connect_enabled(user: User) -> None:
     organization = user.current_organization
-    if organization is None or not (
-        get_posthog_ai_access_decision(user, organization).allowed
-        or get_desktop_access_decision(user, organization).allowed
-    ):
+    if organization is None:
+        raise exceptions.NotFound()
+    if get_posthog_ai_access_decision(user, organization).allowed:
+        return
+    try:
+        desktop_access = get_desktop_access_decision(user, organization)
+    except DesktopAccessResolutionError as error:
+        raise DesktopAccessUnavailable() from error
+    if not desktop_access.allowed:
         raise exceptions.NotFound()
 
 
