@@ -11,6 +11,7 @@ makes that safe.
 """
 
 import os
+import ast
 import inspect
 from pathlib import Path
 from typing import Any
@@ -52,6 +53,37 @@ def _tuning_modules_in_tree() -> set[str]:
 
 
 class TestActivityLogConfigOwnership(SimpleTestCase):
+    def test_the_registry_contains_only_imports_and_modules(self) -> None:
+        registry_path = REPO_ROOT / "posthog/models/activity_logging/activity_log_config_registry.py"
+        tree = ast.parse(registry_path.read_text(), filename=str(registry_path))
+        statements = tree.body[1:] if ast.get_docstring(tree) is not None else tree.body
+        assignments = 0
+
+        for statement in statements:
+            with self.subTest(line=statement.lineno):
+                if isinstance(statement, (ast.Import, ast.ImportFrom)):
+                    continue
+
+                assert isinstance(statement, (ast.Assign, ast.AnnAssign)), (
+                    f"{registry_path}:{statement.lineno}: only imports and the MODULES assignment are allowed. "
+                    "Put logic in activity_log.py so its owners review it."
+                )
+                targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
+                assert len(targets) == 1 and isinstance(targets[0], ast.Name) and targets[0].id == "MODULES", (
+                    f"{registry_path}:{statement.lineno}: MODULES must be the only assignment target."
+                )
+                assert isinstance(statement.value, ast.Tuple) and all(
+                    isinstance(element, ast.Name) for element in statement.value.elts
+                ), f"{registry_path}:{statement.lineno}: MODULES must be a tuple of imported module names."
+                if isinstance(statement, ast.AnnAssign):
+                    assert all(
+                        isinstance(node, (ast.Name, ast.Subscript, ast.Tuple, ast.Constant, ast.Load))
+                        for node in ast.walk(statement.annotation)
+                    ), f"{registry_path}:{statement.lineno}: the MODULES annotation must not contain logic."
+                assignments += 1
+
+        assert assignments == 1, f"{registry_path}: expected exactly one MODULES assignment, found {assignments}."
+
     def test_every_config_module_in_the_tree_is_registered(self) -> None:
         registered = {_repo_path(module) for module in activity_log_config_registry.MODULES}
         in_tree = _tuning_modules_in_tree()
