@@ -155,7 +155,8 @@ from products.warehouse_sources.backend.facade.temporal import (
 # When adding modules to a queue, also add their paths to that fleet's filter: the
 # check_temporal_worker_changes step of .github/workflows/container-images-cd.yml, or
 # .github/shared-image-releases.yaml for fleets published through their own channel
-_task_queue_specs = [
+# Core's lists mix workflow and activity types that mypy cannot join, so each side stays loosely typed here.
+_task_queue_specs: list[tuple[str, typing.Any, typing.Any]] = [
     (
         settings.GENERAL_PURPOSE_TASK_QUEUE,
         PROXY_SERVICE_WORKFLOWS
