@@ -72,6 +72,7 @@ utility = true
 [[modules]]
 path = "ee"
 depends_on = [
+    "products.authorization",
     # Facade-only: a Slack subscription asks whether the bot can answer a follow-up on its report.
     "products.slack_app",
     "products.cohorts",

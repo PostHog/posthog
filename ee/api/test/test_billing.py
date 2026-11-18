@@ -980,7 +980,7 @@ class TestBillingAPI(APILicensedTest):
 
     @patch("ee.billing.billing_manager.BillingManager.get_billing")
     @patch("ee.billing.billing_manager.BillingManager.update_billing")
-    @patch("ee.billing.grants.posthog_feature_flag_enabled")
+    @patch("posthog.permissions.posthog_feature_flag_enabled")
     def test_patch_sends_todays_usage_when_enabled(self, mock_feature_enabled, mock_update_billing, mock_get_billing):
         mock_feature_enabled.side_effect = lambda key, *_args, **_kwargs: key == BILLING_LIMIT_TODAYS_USAGE_FLAG
         self.organization_membership.level = OrganizationMembership.Level.OWNER
@@ -1013,7 +1013,7 @@ class TestBillingAPI(APILicensedTest):
 
     @patch("ee.billing.billing_manager.BillingManager.get_billing")
     @patch("ee.billing.billing_manager.BillingManager.update_billing")
-    @patch("ee.billing.grants.posthog_feature_flag_enabled", return_value=False)
+    @patch("posthog.permissions.posthog_feature_flag_enabled", return_value=False)
     def test_patch_does_not_send_todays_usage_when_disabled(
         self, _mock_feature_enabled, mock_update_billing, mock_get_billing
     ):
@@ -1158,7 +1158,7 @@ class TestActivateBillingAPI(APILicensedTest):
             ("activate/authorize/status", "authorize_status"),
         ]
     )
-    @patch("ee.billing.grants.posthog_feature_flag_enabled", return_value=False)
+    @patch("posthog.permissions.posthog_feature_flag_enabled", return_value=False)
     def test_payment_targets_explicit_organization_after_current_team_changes(
         self, action: str, manager_method: str, _flag: MagicMock
     ) -> None:
@@ -1206,7 +1206,7 @@ class TestActivateBillingAPI(APILicensedTest):
         self.organization_membership.level = level
         self.organization_membership.save()
         with (
-            patch("ee.billing.grants.posthog_feature_flag_enabled", return_value=owner_only),
+            patch("posthog.permissions.posthog_feature_flag_enabled", return_value=owner_only),
             patch.object(BillingManager, manager_method, return_value={"success": True}) as manager,
         ):
             response = self.client.post(
@@ -1261,7 +1261,7 @@ class TestActivateBillingAPI(APILicensedTest):
             ("activate/authorize/status", "authorize_status"),
         ]
     )
-    @patch("ee.billing.grants.posthog_feature_flag_enabled", return_value=False)
+    @patch("posthog.permissions.posthog_feature_flag_enabled", return_value=False)
     def test_payment_preserves_token_access_restrictions(
         self, action: str, manager_method: str, _flag: MagicMock
     ) -> None:
@@ -1307,7 +1307,7 @@ class TestActivateBillingAPI(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         manager.assert_not_called()
 
-    @patch("ee.billing.grants.posthog_feature_flag_enabled", return_value=False)
+    @patch("posthog.permissions.posthog_feature_flag_enabled", return_value=False)
     def test_explicit_billing_refresh_enforces_token_organization_scope(self, _flag: MagicMock) -> None:
         organization = Organization.objects.create(name="Other permitted organization")
         OrganizationMembership.objects.create(
@@ -1943,7 +1943,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
             ),
         ]
     )
-    @patch("ee.billing.grants.posthog_feature_flag_enabled", return_value=False)
+    @patch("posthog.permissions.posthog_feature_flag_enabled", return_value=False)
     def test_billing_read_scope_actions_still_require_billing_access(
         self, action_name, method_name, url, data, manager_method_path, _mock_feature_enabled
     ):
@@ -2237,7 +2237,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     @parameterized.expand([("usage", "get_usage_data"), ("spend", "get_spend_data")])
-    @patch("ee.billing.grants.posthog_feature_flag_enabled")
+    @patch("posthog.permissions.posthog_feature_flag_enabled")
     def test_member_billing_read_personal_api_key_can_read_usage_and_spend_when_flag_allows(
         self, endpoint: str, manager_method: str, mock_feature_enabled: MagicMock
     ):
@@ -2263,7 +2263,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
 
     @parameterized.expand([("personal",), ("oauth",)])
     @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
-    @patch("ee.billing.grants.posthog_feature_flag_enabled")
+    @patch("posthog.permissions.posthog_feature_flag_enabled")
     def test_member_token_scope_limits_injected_team_ids(
         self, token_type: str, mock_feature_enabled: MagicMock, mock_get_usage_data: MagicMock
     ):
@@ -2289,7 +2289,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
 
     @parameterized.expand([("personal",), ("oauth",)])
     @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
-    @patch("ee.billing.grants.posthog_feature_flag_enabled")
+    @patch("posthog.permissions.posthog_feature_flag_enabled")
     def test_member_token_scope_rejects_requested_team_outside_token_scope(
         self, token_type: str, mock_feature_enabled: MagicMock, mock_get_usage_data: MagicMock
     ):
@@ -2334,7 +2334,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         self.assertEqual(mock_get_billing.call_args.args[0], self.organization)
 
     @patch("ee.billing.billing_manager.BillingManager.get_billing")
-    @patch("ee.billing.grants.posthog_feature_flag_enabled")
+    @patch("posthog.permissions.posthog_feature_flag_enabled")
     def test_list_rejects_billing_read_personal_api_key_for_member(self, mock_feature_enabled, mock_get_billing):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
@@ -2350,7 +2350,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         mock_get_billing.assert_not_called()
 
     @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
-    @patch("ee.billing.grants.posthog_feature_flag_enabled", return_value=True)
+    @patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True)
     def test_owner_only_billing_rejects_admin_personal_api_key_usage_access(
         self, _mock_feature_enabled, mock_get_usage_data
     ):
@@ -2367,7 +2367,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         mock_get_usage_data.assert_not_called()
 
     @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
-    @patch("ee.billing.grants.posthog_feature_flag_enabled", return_value=True)
+    @patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True)
     def test_owner_only_billing_rejects_admin_usage_access(self, _mock_feature_enabled, mock_get_usage_data):
         mock_get_usage_data.return_value = self.MOCK_USAGE_DATA
 
@@ -2377,7 +2377,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         mock_get_usage_data.assert_not_called()
 
     @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
-    @patch("ee.billing.grants.posthog_feature_flag_enabled", return_value=False)
+    @patch("posthog.permissions.posthog_feature_flag_enabled", return_value=False)
     def test_admin_usage_access_allowed_when_owner_only_billing_is_off(self, mock_feature_enabled, mock_get_usage_data):
         mock_get_usage_data.return_value = self.MOCK_USAGE_DATA
 
@@ -2392,7 +2392,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         )
 
     @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
-    @patch("ee.billing.grants.posthog_feature_flag_enabled", return_value=None)
+    @patch("posthog.permissions.posthog_feature_flag_enabled", return_value=None)
     def test_owner_only_billing_rejects_admin_usage_access_when_flag_is_unknown(
         self, _mock_feature_enabled, mock_get_usage_data
     ):
@@ -2401,9 +2401,9 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         mock_get_usage_data.assert_not_called()
 
-    @patch("ee.billing.grants.capture_exception")
+    @patch("products.authorization.backend.logic.billing.capture_exception")
     @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
-    @patch("ee.billing.grants.posthog_feature_flag_enabled", side_effect=Exception("flag lookup failed"))
+    @patch("posthog.permissions.posthog_feature_flag_enabled", side_effect=Exception("flag lookup failed"))
     def test_owner_only_billing_rejects_admin_usage_access_when_flag_check_raises(
         self, _mock_feature_enabled, mock_get_usage_data, mock_capture_exception
     ):
@@ -2414,7 +2414,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         mock_capture_exception.assert_called_once()
 
     @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
-    @patch("ee.billing.grants.posthog_feature_flag_enabled")
+    @patch("posthog.permissions.posthog_feature_flag_enabled")
     def test_owner_only_billing_rejects_admin_usage_access_without_distinct_id(
         self, mock_feature_enabled, mock_get_usage_data
     ):
@@ -2428,7 +2428,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         mock_feature_enabled.assert_not_called()
 
     @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
-    @patch("ee.billing.grants.posthog_feature_flag_enabled", return_value=True)
+    @patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True)
     def test_owner_only_billing_allows_owner_usage_access(self, _mock_feature_enabled, mock_get_usage_data):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
@@ -2440,7 +2440,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         mock_get_usage_data.assert_called_once()
 
     @patch("ee.billing.billing_manager.BillingManager.update_billing")
-    @patch("ee.billing.grants.posthog_feature_flag_enabled", return_value=True)
+    @patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True)
     def test_owner_only_billing_rejects_admin_limit_update(self, _mock_feature_enabled, mock_update_billing):
         response = self.client.patch(
             "/api/billing//",
@@ -2489,7 +2489,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
     )
     @patch("ee.billing.billing_manager.BillingManager.get_spend_data")
     @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
-    @patch("ee.billing.grants.posthog_feature_flag_enabled")
+    @patch("posthog.permissions.posthog_feature_flag_enabled")
     def test_member_access_gated_by_flags(
         self,
         endpoint: str,
@@ -2519,9 +2519,9 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
             expected_data = self.MOCK_USAGE_DATA if endpoint == "usage" else self.MOCK_SPEND_DATA
             self.assertEqual(response.json(), expected_data)
 
-    @patch("ee.billing.grants.capture_exception")
+    @patch("products.authorization.backend.logic.billing.capture_exception")
     @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
-    @patch("ee.billing.grants.posthog_feature_flag_enabled")
+    @patch("posthog.permissions.posthog_feature_flag_enabled")
     def test_member_access_denies_when_member_flag_check_raises(
         self,
         mock_feature_enabled: MagicMock,
@@ -2558,7 +2558,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
     )
     @patch("ee.billing.billing_manager.BillingManager.get_spend_data")
     @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
-    @patch("ee.billing.grants.posthog_feature_flag_enabled")
+    @patch("posthog.permissions.posthog_feature_flag_enabled")
     def test_admin_and_owner_access_gated_only_by_owner_only_billing(
         self,
         endpoint: str,
@@ -2648,7 +2648,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
     @parameterized.expand([("usage",), ("spend",)])
     @patch("ee.billing.billing_manager.BillingManager.get_spend_data")
     @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
-    @patch("ee.billing.grants.posthog_feature_flag_enabled")
+    @patch("posthog.permissions.posthog_feature_flag_enabled")
     def test_member_team_ids_intersected_with_accessible_teams(
         self,
         endpoint: str,
@@ -2672,7 +2672,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         self.assertNotIn("teams_map", passed_params)
 
     @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
-    @patch("ee.billing.grants.posthog_feature_flag_enabled")
+    @patch("posthog.permissions.posthog_feature_flag_enabled")
     def test_member_without_team_ids_gets_accessible_teams_injected(
         self, mock_flag_eval: MagicMock, mock_get_usage_data: MagicMock
     ):
@@ -2692,7 +2692,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
     @parameterized.expand([("usage",), ("spend",)])
     @patch("ee.billing.billing_manager.BillingManager.get_spend_data")
     @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
-    @patch("ee.billing.grants.posthog_feature_flag_enabled")
+    @patch("posthog.permissions.posthog_feature_flag_enabled")
     def test_member_requesting_only_inaccessible_teams_gets_403(
         self,
         endpoint: str,
@@ -2712,7 +2712,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         mock_get_spend_data.assert_not_called()
 
     @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
-    @patch("ee.billing.grants.posthog_feature_flag_enabled")
+    @patch("posthog.permissions.posthog_feature_flag_enabled")
     def test_member_with_zero_accessible_teams_never_calls_billing(
         self, mock_flag_eval: MagicMock, mock_get_usage_data: MagicMock
     ):
@@ -2729,7 +2729,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         mock_get_usage_data.assert_not_called()
 
     @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
-    @patch("ee.billing.grants.posthog_feature_flag_enabled")
+    @patch("posthog.permissions.posthog_feature_flag_enabled")
     def test_member_chart_response_options_are_scoped(self, mock_flag_eval: MagicMock, mock_get_usage_data: MagicMock):
         """Billing still lists every project's id on the chart response for older callers; a
         member gets only theirs there too."""
@@ -2773,7 +2773,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         self.assertEqual(response.json()["total_count"], 48000)
 
     @patch("ee.billing.billing_manager.BillingManager.get_usage_csv")
-    @patch("ee.billing.grants.posthog_feature_flag_enabled")
+    @patch("posthog.permissions.posthog_feature_flag_enabled")
     def test_an_export_carries_only_the_projects_the_member_may_export(
         self, mock_flag_eval: MagicMock, mock_get_usage_csv: MagicMock
     ):
@@ -2802,7 +2802,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         self.assertEqual(passed, [self.team.pk])
 
     @patch("ee.billing.billing_manager.BillingManager.get_usage_csv")
-    @patch("ee.billing.grants.posthog_feature_flag_enabled")
+    @patch("posthog.permissions.posthog_feature_flag_enabled")
     def test_an_export_is_refused_when_the_member_may_export_none_of_the_projects(
         self, mock_flag_eval: MagicMock, mock_get_usage_csv: MagicMock
     ):
@@ -2823,7 +2823,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         mock_get_usage_csv.assert_not_called()
 
     @patch("ee.billing.billing_manager.BillingManager.get_usage_team_options")
-    @patch("ee.billing.grants.posthog_feature_flag_enabled")
+    @patch("posthog.permissions.posthog_feature_flag_enabled")
     def test_member_team_options_are_scoped(self, mock_flag_eval: MagicMock, mock_get_team_options: MagicMock):
         """The project filter's options load on their own, scoped like the charts: a member sees
         only their projects, not a private one and not a deleted one."""
@@ -2836,7 +2836,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         self.assertEqual(response.json(), {"team_id_options": [self.team.pk]})
 
     @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
-    @patch("ee.billing.grants.posthog_feature_flag_enabled")
+    @patch("posthog.permissions.posthog_feature_flag_enabled")
     def test_member_scoping_does_not_depend_on_user_teams_first_org(
         self, mock_flag_eval: MagicMock, mock_get_usage_data: MagicMock
     ):
@@ -2860,7 +2860,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
 
     @parameterized.expand([("not-json",), ('["a"]',)])
     @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
-    @patch("ee.billing.grants.posthog_feature_flag_enabled")
+    @patch("posthog.permissions.posthog_feature_flag_enabled")
     def test_member_malformed_team_ids_returns_400(
         self, raw_team_ids: str, mock_flag_eval: MagicMock, mock_get_usage_data: MagicMock
     ):

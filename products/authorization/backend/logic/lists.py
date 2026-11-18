@@ -41,6 +41,8 @@ def list_objects(
 ) -> ObjectIds:
     if context is not None and context != Context():
         raise NotImplementedError("The current access rules read no request context.")
+    if resource.type == ResourceType.BILLING and resource.organization_id is not None:
+        raise NotImplementedError("Billing lists require evaluating per-user billing flags.")
     if limit is not None and limit < 1:
         raise ValueError("`limit` must be positive.")
     if resource.type != ResourceType.ORGANIZATION and action not in READ_ACTIONS:

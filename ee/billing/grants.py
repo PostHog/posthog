@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Optional
 
+from posthog import permissions
 from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, OrganizationMembership, Team, User
@@ -21,11 +22,13 @@ from posthog.permissions import (
     get_authenticator_scoped_team_ids,
     get_authenticator_scopes,
     get_authenticator_user_credential,
-    posthog_feature_flag_enabled,
 )
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 
 BILLING_READ_SCOPE = "billing:read"
 BILLING_WRITE_SCOPE = "billing:write"
@@ -38,46 +41,13 @@ BILLING_LIMIT_TODAYS_USAGE_FLAG = "billing-limit-todays-usage"
 BILLING_LIMIT_TODAYS_USAGE_KEYS = ("posthog_code_credits",)
 
 
-def _owner_only_billing_enabled(user: User, organization: Organization) -> Optional[bool]:
-    if not user.distinct_id:
-        return None
-
-    try:
-        return posthog_feature_flag_enabled(
-            OWNER_ONLY_BILLING_FLAG,
-            str(user.distinct_id),
-            organization_id=organization.id,
-        )
-    except Exception as e:
-        capture_exception(e, {"organization_id": organization.id, "flag": OWNER_ONLY_BILLING_FLAG})
-        return None
-
-
-def _member_billing_usage_spend_read_access_enabled(user: User, organization: Organization) -> bool:
-    if not user.distinct_id:
-        return False
-
-    try:
-        return (
-            posthog_feature_flag_enabled(
-                MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG,
-                str(user.distinct_id),
-                organization_id=organization.id,
-            )
-            is True
-        )
-    except Exception as e:
-        capture_exception(e, {"organization_id": organization.id, "flag": MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG})
-        return False
-
-
 def _billing_limit_todays_usage_enabled(user: User, organization: Organization) -> bool:
     if not user.distinct_id:
         return False
 
     try:
         return (
-            posthog_feature_flag_enabled(
+            permissions.posthog_feature_flag_enabled(
                 BILLING_LIMIT_TODAYS_USAGE_FLAG,
                 str(user.distinct_id),
                 organization_id=organization.id,
@@ -133,17 +103,13 @@ def _role_name(level: int) -> str:
     return "member"
 
 
-def _entitlement_for_role(user: User, organization: Organization, level: int) -> BillingEntitlement:
-    """The access level the role and the two organization flags add up to, the way the flags gate
-    the app today. Owners always get full access. Admins get full access unless owner-only billing
-    is on, and an unknown flag state counts as on. Members get the usage read level when the member
-    read flag is on and owner-only billing is confirmed off."""
-    if level >= OrganizationMembership.Level.OWNER:
+def _entitlement_for_role(user: User, organization: Organization) -> BillingEntitlement:
+    resource = Resource(type=ResourceType.BILLING, organization_id=organization.id)
+    subject = Subject(user_id=user.pk)
+    actions = authorization.permissions(resource=resource, subject=subject)
+    if Action.VIEW in actions:
         return BillingEntitlement.FULL_ACCESS
-    owner_only_off = _owner_only_billing_enabled(user, organization) is False
-    if level >= OrganizationMembership.Level.ADMIN:
-        return BillingEntitlement.FULL_ACCESS if owner_only_off else BillingEntitlement.MEMBER
-    if owner_only_off and _member_billing_usage_spend_read_access_enabled(user, organization):
+    if Action.VIEW_USAGE in actions:
         return BillingEntitlement.USAGE_READ
     return BillingEntitlement.MEMBER
 
@@ -246,7 +212,7 @@ def effective_billing_grants(
     scope = _billing_scope_from_credential(get_authenticator_scopes(authenticator))
     if BILLING_READ_SCOPE not in scope:
         return EffectiveBillingGrants(sub=sub, roles=roles, distinct_id=distinct_id)
-    entitlement = _entitlement_for_role(user, organization, membership.effective_level)
+    entitlement = _entitlement_for_role(user, organization)
     projects, anything = _projects_for_credential(organization, authenticator)
     if not anything:
         return EffectiveBillingGrants(sub=sub, roles=roles, scope=scope, distinct_id=distinct_id)
