@@ -40,7 +40,6 @@ async function createPreferencesPage(page: Page, playwrightSetup: PlaywrightSetu
     expect(linkResponse.ok()).toBe(true)
     const path = new URL((await linkResponse.json()).preferences_url).pathname
 
-    // The opt-out lists are the API's read of what the page stored for the recipient
     const storedPreferences = async (categoryKey?: string): Promise<Record<string, string> | undefined> => {
         const response = await page.request.get(`${api}/messaging_preferences/opt_outs/`, {
             headers,
@@ -69,7 +68,7 @@ test.describe('Message preferences page', () => {
         const eventInvites = recipientPage.getByRole('checkbox', { name: 'Event invites' })
         const allMarketing = recipientPage.getByRole('checkbox', { name: 'All marketing communications' })
         const offNote = recipientPage.getByText('These topics are off because all marketing communications are off.')
-        const status = (id: string): ReturnType<Page['locator']> => recipientPage.locator(`[data-status-for="${id}"]`)
+        const status = (id: string): ReturnType<Page['getByTestId']> => recipientPage.getByTestId(`${id}-status`)
 
         try {
             await recipientPage.goto(path)
@@ -113,6 +112,7 @@ test.describe('Message preferences page', () => {
                 await expect(productNews).toBeEnabled()
                 await expect(eventInvites).not.toBeChecked()
                 await expect(eventInvites).toBeEnabled()
+                await expect(status(eventInvitesId)).toHaveText('Not subscribed')
                 await expect
                     .poll(() => storedPreferences('event_invites'))
                     .toEqual({ $all: 'OPTED_IN', [productNewsId]: 'OPTED_IN', [eventInvitesId]: 'OPTED_OUT' })
@@ -130,6 +130,37 @@ test.describe('Message preferences page', () => {
                 await expect(offNote).toBeHidden()
                 await expect(productNews).toBeChecked()
                 await expect(productNews).toBeEnabled()
+            })
+
+            await test.step('all marketing off during a pending topic save posts the new topic choice', async () => {
+                let releaseTopicSave = (): void => {}
+                let markTopicSaveHeld = (): void => {}
+                const topicSaveHeld = new Promise<void>((held) => {
+                    markTopicSaveHeld = held
+                })
+                await recipientPage.route(
+                    '**/messaging-preferences/update*',
+                    async (route) => {
+                        await new Promise<void>((release) => {
+                            releaseTopicSave = release
+                            markTopicSaveHeld()
+                        })
+                        await route.continue()
+                    },
+                    { times: 1 }
+                )
+                await productNews.click()
+                await topicSaveHeld
+                await expect(status(productNewsId)).toHaveText('Saving…')
+
+                const allOffSave = recipientPage.waitForRequest('**/messaging-preferences/update*')
+                await allMarketing.click()
+                const allOffBody = (await allOffSave).postData()
+                expect(allOffBody).toContain(`${productNewsId}:false`)
+                expect(allOffBody).not.toContain(`${productNewsId}:true`)
+
+                releaseTopicSave()
+                await expect(status(productNewsId)).toHaveText('Not subscribed')
             })
         } finally {
             await recipientContext.close()

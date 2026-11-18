@@ -99,11 +99,9 @@
                     })
                 }
 
-                // A topic shows off while all marketing is off, but keeps its saved choice for when it comes back on
+                // A topic shows off while all marketing is off, so it posts the recipient's choice, not what it shows
                 function submittedChoice(toggle) {
-                    return toggle.hasAttribute('data-topic') && !allMarketingToggle.checked
-                        ? toggle.dataset.savedStatus !== 'OPTED_OUT'
-                        : toggle.checked
+                    return toggle.hasAttribute('data-topic') ? toggle.dataset.savedStatus !== 'OPTED_OUT' : toggle.checked
                 }
 
                 function showToast(message, isError) {
@@ -153,14 +151,15 @@
                         }
 
                         toggles.forEach(t => { t.defaultChecked = t.checked })
-                        if (changedToggle.hasAttribute('data-topic')) {
-                            changedToggle.dataset.savedStatus = changedToggle.checked ? 'OPTED_IN' : 'OPTED_OUT'
-                        }
                         showStatus(changedToggle)
                         showToast('Preferences updated successfully', false)
                     } catch (error) {
                         // Revert the toggle on failure
-                        changedToggle.checked = !changedToggle.checked
+                        if (changedToggle.hasAttribute('data-topic')) {
+                            changedToggle.dataset.savedStatus = changedToggle.dataset.savedStatus === 'OPTED_OUT' ? 'OPTED_IN' : 'OPTED_OUT'
+                        } else {
+                            changedToggle.checked = !changedToggle.checked
+                        }
                         showTopicsForAllMarketing()
                         showStatus(changedToggle)
                         showToast(error.message || 'Failed to update preferences', true)
@@ -173,6 +172,7 @@
                         card.style.transform = 'scale(1.02)'
                         setTimeout(() => { card.style.transform = 'scale(1)' }, 200)
 
+                        if (this.hasAttribute('data-topic')) this.dataset.savedStatus = this.checked ? 'OPTED_IN' : 'OPTED_OUT'
                         if (this === allMarketingToggle) showTopicsForAllMarketing()
                         savePreferences(this)
                     })

@@ -19,10 +19,12 @@
             </div>
             {% if is_topic and all_marketing_opted_out or category.status == "OPTED_OUT" %}
                 <span class="text-xs font-medium mt-1 text-right text-gray-500"
-                      data-status-for="{{ category.id }}">Not subscribed</span>
+                      data-status-for="{{ category.id }}"
+                      data-attr="{{ category.id }}-status">Not subscribed</span>
             {% else %}
                 <span class="text-xs font-medium mt-1 text-right text-green-700"
-                      data-status-for="{{ category.id }}">Subscribed</span>
+                      data-status-for="{{ category.id }}"
+                      data-attr="{{ category.id }}-status">Subscribed</span>
             {% endif %}
         </div>
     </div>
