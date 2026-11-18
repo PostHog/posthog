@@ -21,7 +21,7 @@ export const TRIGGER_GROUPS_MIN_SDK_VERSION = '1.369.0'
 
 /** Minimum mobile SDK versions that understand trigger groups. Older mobile SDKs use the legacy settings. */
 export const TRIGGER_GROUPS_MIN_MOBILE_SDK_VERSIONS = {
-    ios: '3.96.0',
+    ios: '3.99.0',
     android: '3.78.0',
     reactNative: 'TBD',
     flutter: 'TBD',
