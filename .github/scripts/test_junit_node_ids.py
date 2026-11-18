@@ -113,18 +113,24 @@ def test_failed_ids_match_the_ids_pytest_records_as_failed(suite: Suite) -> None
     assert "pkg/test_broken.py" in suite.pytest_failed_ids
 
 
-def test_missing_lists_only_expected_ids_that_did_not_run(suite: Suite, tmp_path: Path) -> None:
+def test_unpassed_lists_only_expected_ids_that_did_not_pass(suite: Suite, tmp_path: Path) -> None:
     expected = tmp_path / "expected.txt"
     expected.write_text(
+        "pkg/sub/test_mod.py::TestOuter::test_passes\n"
         "pkg/sub/test_mod.py::TestOuter::TestInner::test_nested_fails\n"
+        "pkg/sub/test_mod.py::test_skipped\n"
         "pkg/sub/test_mod.py::TestOuter::test_never_ran\n"
         "pkg/test_child.py\n"
     )
 
-    result = run_script("--rootdir", str(suite.root), "missing", "--expected", str(expected), str(suite.report))
+    result = run_script("--rootdir", str(suite.root), "unpassed", "--expected", str(expected), str(suite.report))
 
     assert result.returncode == 1
-    assert result.stdout.splitlines() == ["pkg/sub/test_mod.py::TestOuter::test_never_ran"]
+    assert result.stdout.splitlines() == [
+        "pkg/sub/test_mod.py::TestOuter::TestInner::test_nested_fails",
+        "pkg/sub/test_mod.py::test_skipped",
+        "pkg/sub/test_mod.py::TestOuter::test_never_ran",
+    ]
 
 
 def test_a_testcase_with_no_module_on_disk_fails_loudly(tmp_path: Path) -> None:

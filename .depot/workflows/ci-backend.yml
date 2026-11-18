@@ -1538,9 +1538,9 @@ jobs:
                       echo "::error::The rerun of the failures the quarantine masked did not pass, so the shard treats them as a real break. The rerun output above shows which test or setup step failed."
                       exit 1
                   fi
-                  # A package script that accepts pytest's exit code 5 passes when --lf selects nothing, so check that every masked failure ran.
-                  if ! python .github/scripts/junit_node_ids.py missing --expected "$rerun_dir/failed.txt" "${rerun_reports[@]}"; then
-                      echo "::error::The rerun did not run the masked failures listed above, so it cannot clear them."
+                  # A package script that accepts pytest's exit code 5 passes when --lf selects nothing, and a test that skips exits 0, so check that every masked failure passed.
+                  if ! python .github/scripts/junit_node_ids.py unpassed --expected "$rerun_dir/failed.txt" "${rerun_reports[@]}"; then
+                      echo "::error::The rerun did not pass the masked failures listed above. A test that skips or never runs does not clear its failure."
                       exit 1
                   fi
 
@@ -4123,8 +4123,8 @@ jobs:
                   SEGMENT: ${{ matrix.segment }}
                   CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
                   CORE_PERSON_ON_EVENTS_V2_ENABLED: ${{ !matrix.person-on-events && !matrix.compat && 'true' || 'false' }}
-                  TEMPORAL_MODAL_TOKEN_ID: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_ID || '' }}
-                  TEMPORAL_MODAL_TOKEN_SECRET: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_SECRET || '' }}
+                  TEMPORAL_MODAL_TOKEN_ID: ${{ matrix.segment == 'Temporal' && needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_ID || '' }}
+                  TEMPORAL_MODAL_TOKEN_SECRET: ${{ matrix.segment == 'Temporal' && needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_SECRET || '' }}
               run: |
                   unset GITHUB_TOKEN # reserved var injected by Depot CI; can't override via env: (see workflow env note)
                   # Each segment's test step sets different variables, so export only the ones that segment's step sets.
@@ -4140,6 +4140,7 @@ jobs:
                       export MODAL_TOKEN_ID="$TEMPORAL_MODAL_TOKEN_ID"
                       export MODAL_TOKEN_SECRET="$TEMPORAL_MODAL_TOKEN_SECRET"
                   fi
+                  unset TEMPORAL_MODAL_TOKEN_ID TEMPORAL_MODAL_TOKEN_SECRET
                   rerun_dir="$RUNNER_TEMP/quarantine-rerun"
                   mkdir -p "$rerun_dir"
                   if ! python .github/scripts/junit_node_ids.py failed "$report" > "$rerun_dir/failed.txt"; then
@@ -4165,8 +4166,8 @@ jobs:
                       echo "::error::The rerun of the failures the quarantine masked did not pass, so the shard treats them as a real break. The rerun output above shows which test or setup step failed."
                       exit 1
                   fi
-                  if ! python .github/scripts/junit_node_ids.py missing --expected "$rerun_dir/failed.txt" "$rerun_dir/junit.xml"; then
-                      echo "::error::The rerun did not run the masked failures listed above, so it cannot clear them."
+                  if ! python .github/scripts/junit_node_ids.py unpassed --expected "$rerun_dir/failed.txt" "$rerun_dir/junit.xml"; then
+                      echo "::error::The rerun did not pass the masked failures listed above. A test that skips or never runs does not clear its failure."
                       exit 1
                   fi
 
