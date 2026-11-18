@@ -97,7 +97,7 @@ class TestWorkflowEmailLog(ClickhouseTestMixin, APIBaseTest):
                 self._email_event(event, run_id, "welcome", sent_at + timedelta(minutes=1), distinct_id=f"person-{i}")
         flush_persons_and_events()
 
-        body = self.client.get(self._url(), {"workflow_id": self.workflow_id, "limit": 50}).json()
+        body = self.client.get(self._url(), {"workflow_id": self.workflow_id, "limit": "50"}).json()
 
         assert len(body["results"]) == 40
         assert all((s["status"], s["opened"], s["clicked"]) == ("delivered", True, True) for s in body["results"])
