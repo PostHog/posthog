@@ -62,11 +62,9 @@ class TestDependenciesAPI(ClickhouseTestMixin, APIBaseTest):
                     status_code=2,
                     attributes={"server.address": "payments.example.com", "http.request.method": "POST"},
                 )
-            # Names a service that sends spans, so it is not an inferred dependency.
             w.span(
                 "api", name="GET web", kind=3, env="prod", trace=trace, parent=api, attributes={"peer.service": "web"}
             )
-        # Another environment adds nothing to prod.
         root = w.span("eu-web", name="GET /", env="staging", trace=10)
         w.span("eu-web", name="query", kind=3, env="staging", trace=10, parent=root, attributes={"db.system": "redis"})
         w.insert()
