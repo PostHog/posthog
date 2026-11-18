@@ -506,19 +506,19 @@ tools:
         title: Patch a workflow step's email
         description: >
             Surgically edit the email inside one function_email or email_sandbox step - the fastest path for copy tweaks
-            and design changes on a workflow email. A PostHog test sender step (email_sandbox) sends from the PostHog test sender
-            to verified members of the organization only, so its email_patch takes subject, preheader, text and to.
-            Switch a step's sender with sender: 'sandbox' (set up for the project on first use; settings the PostHog test
-            sender can't keep are refused unless you clear them or confirm with the user and send
-            drop_own_sender_settings: true), or sender: 'own' with email_patch.from.integrationId to move a PostHog test sender step
-            to a verified sender. Use operations (the same design ops as workflows-patch-email-template, addressing
-            blocks by id from the step's config.inputs.email.value.design) to edit the design, and email_patch to change
-            subject, preheader, text, or recipients. After design ops the HTML is re-rendered server-side, so the sent
-            email always matches the design. Edits apply atomically: an invalid batch changes nothing. On an active
-            workflow or one disabled while active, edits stage a draft (composing with any staged graph edits) and
-            nothing reaches real people until workflows-publish. The updated workflow is returned without step inputs;
-            read one back with workflows-get. Prefer this over workflows-patch-graph update_action for email content -
-            it's smaller to send and keeps design and HTML in sync. For library templates use
+            and design changes on a workflow email. A PostHog test sender step (email_sandbox) sends from the PostHog
+            test sender to verified members of the organization only, so its email_patch takes subject, preheader, text
+            and to. Switch a step's sender with sender: 'sandbox' (set up for the project on first use; settings the
+            PostHog test sender can't keep are refused unless you clear them or confirm with the user and send
+            drop_own_sender_settings: true), or sender: 'own' with email_patch.from.integrationId to move a PostHog test
+            sender step to a verified sender. Use operations (the same design ops as workflows-patch-email-template,
+            addressing blocks by id from the step's config.inputs.email.value.design) to edit the design, and
+            email_patch to change subject, preheader, text, or recipients. After design ops the HTML is re-rendered
+            server-side, so the sent email always matches the design. Edits apply atomically: an invalid batch changes
+            nothing. On an active workflow or one disabled while active, edits stage a draft (composing with any staged
+            graph edits) and nothing reaches real people until workflows-publish. The updated workflow is returned
+            without step inputs; read one back with workflows-get. Prefer this over workflows-patch-graph update_action
+            for email content - it's smaller to send and keeps design and HTML in sync. For library templates use
             workflows-patch-email-template instead.
         response:
             exclude:
