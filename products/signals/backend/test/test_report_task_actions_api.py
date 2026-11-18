@@ -708,6 +708,11 @@ class TestScoutReportActionsAPI(_ReportActionFixtures):
             str(self.scout_run.id),
         )
         assert capture.call_args.args[2]["scout_skill_name"] == SCOUT_SKILL
+        started_state = TaskRun.objects.get(id=response.json()["run_id"]).state
+        assert (started_state["agent_parent_task_id"], started_state["agent_parent_run_id"]) == (
+            str(self.scout_run.task_run.task_id),
+            str(self.scout_run.task_run_id),
+        )
 
     @parameterized.expand(
         [

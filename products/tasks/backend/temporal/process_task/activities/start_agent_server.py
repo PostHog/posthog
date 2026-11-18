@@ -525,7 +525,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         origin_product=task.origin_product,
         exclude_tools=mcp_exclude_tools_for_task(task, ctx.state),
     )
-    include_personal = include_personal_mcp_for_task(task)
+    include_personal = include_personal_mcp_for_task(task, ctx.state)
     user_mcp = get_user_mcp_server_configs(
         token=access_token,
         team_id=ctx.team_id,

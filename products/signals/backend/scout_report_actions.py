@@ -9,10 +9,12 @@ both that run and the scout's current config hold the action. The run's grant is
 dispatch (`runner._create_run_row`), so a grant widened mid-run does not reach a run already going,
 and the config is read again under its row lock when the start is admitted, so a revoke takes
 effect at once. The task a scout action starts is a report discussion, not a scout run, so it
-cannot start another action: chains stop at one level.
+cannot start another action. Its run also records the scout's run as its parent, so the tasks API
+refuses a run start from its sandbox too: chains stop at one level.
 
-The started run is an inbox discussion that acts as the scout's acting user with that person's full
-posture, wider than the scout's own. Whoever can steer the scout (its skill, its run notes, event
+The started run is an inbox discussion that acts as the scout's acting user with that person's
+posture, wider than the scout's own, except that tasks gives a run with a parent none of that
+person's personal MCP servers. Whoever can steer the scout (its skill, its run notes, event
 text reaching a workflow-triggered run) must not choose what that run does, so only a fixed-prompt
 action is grantable and a scout cannot send its own message with it.
 """
@@ -53,6 +55,8 @@ class ScoutReportActionGrant:
     skill_name: str
     scout_run_id: str
     config_id: str
+    task_id: str
+    task_run_id: str
 
 
 @frozen
@@ -128,7 +132,12 @@ def resolve_scout_report_action_grant(
     if not _holds(run, run.scout_config, kind):
         return _not_granted(kind)
     return ScoutReportActionGrant(
-        team_id=team_id, skill_name=run.skill_name, scout_run_id=str(run.id), config_id=str(run.scout_config.id)
+        team_id=team_id,
+        skill_name=run.skill_name,
+        scout_run_id=str(run.id),
+        config_id=str(run.scout_config.id),
+        task_id=str(sandbox_task_id),
+        task_run_id=str(latest.id),
     )
 
 
