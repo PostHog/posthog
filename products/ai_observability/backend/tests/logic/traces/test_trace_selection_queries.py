@@ -35,6 +35,7 @@ from products.ai_observability.backend.logic.traces.trace_selection_queries impo
     SelectionCounts,
     load_selection_page,
 )
+from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 T0 = datetime(2026, 9, 1, 10, 0, 0, 123456, tzinfo=UTC)
 CASES_PATH = Path(__file__).parents[4] / "shared" / "trace_selection_cases.json"
@@ -266,6 +267,22 @@ class TestTraceSelectionQueries(ClickhouseTestMixin, BaseTest):
 
         assert page.positions == (TracePosition(trace_id=trace_id, first_timestamp=T0),)
 
+    def test_trace_ids_stay_text_when_the_project_types_them_as_numbers(self) -> None:
+        PropertyDefinition.objects.create(
+            team=self.team, name="$ai_trace_id", property_type="Numeric", type=PropertyDefinition.Type.EVENT
+        )
+        seed(
+            self.team,
+            [
+                {"event": "$ai_generation", "trace_id": "001", "minutes": 1},
+                {"event": "$ai_generation", "trace_id": "1", "minutes": 0},
+            ],
+        )
+
+        page = load_selection_page(self.team, self.user, self._selection(), after=None, limit=10)
+
+        assert [position.trace_id for position in page.positions] == ["001", "1"]
+
     @parameterized.expand([("listing", None), ("searching", "invoice")])
     def test_another_teams_traces_never_select(self, _name: str, search: str | None) -> None:
         other_team = Team.objects.create(organization=Organization.objects.create(name="Other organization"))
@@ -379,6 +396,21 @@ class TestTraceSelectionQueries(ClickhouseTestMixin, BaseTest):
         assert [(tags.get("name"), tags.get("product")) for tags in comments if tags.get("name")] == [
             (SELECTION_QUERY_NAME, "llm_analytics")
         ]
+
+    def test_a_read_past_its_deadline_fails_instead_of_returning_partial_counts(self) -> None:
+        selection_queries: list[str] = []
+
+        def record_query(execute: Any, query: str, *args: Any, **kwargs: Any) -> Any:
+            tags = json.loads((kwargs.get("settings") or {}).get("log_comment", "{}"))
+            if tags.get("name") == SELECTION_QUERY_NAME:
+                selection_queries.append(query)
+            return execute(query, *args, **kwargs)
+
+        with patch_clickhouse_client_execute(record_query):
+            load_selection_page(self.team, self.user, self._selection(), after=None, limit=10)
+
+        [selection_query] = selection_queries
+        assert "timeout_overflow_mode='throw'" in selection_query
 
 
 def test_a_filter_hogql_cannot_express_is_a_selection_error() -> None:
