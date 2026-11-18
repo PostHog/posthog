@@ -1325,14 +1325,9 @@ export const VariantsSourceEnumApi = {
 } as const
 
 /**
- * What a read of `scope` can actually return, which is wider than what a write accepts.
- *
- * A scope the mirror derived from an older store carries no `variants` when that store watched
- * every variant: both older shapes could leave the variant unset, and `as_stored()` drops a None.
- * Writes still require it, so only the response schema is widened; the backfill that gives every
- * row an explicit variant list retires this difference.
+ * An experiment scope: the sessions of people exposed to an experiment, labeled by variant.
  */
-export interface ScannerExperimentScopeReadApi {
+export interface ScannerExperimentScopeApi {
     /** The kind of scope. Only `experiment` exists today.
      *
      * * `experiment` - Experiment */
@@ -1343,7 +1338,7 @@ export interface ScannerExperimentScopeReadApi {
      */
     experiment_id: number
     /**
-     * Every variant the scanner watches. Absent only on a scanner still carrying a scope derived from the older targeting shapes, which could mean every variant.
+     * Every variant the scanner watches, named explicitly. Read them from the experiment first, because a variant added to the experiment later is not watched until it is added here. Absent only on a scope carried over from the older targeting shapes, which watches every variant.
      * @items.maxLength 400
      */
     variants?: string[]
@@ -1459,7 +1454,7 @@ export interface ReplayScannerApi {
     /** The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed. */
     experiment_targeting?: ScannerExperimentTargetingApi | null
     /** Which sessions the scanner watches beyond its filters, and the label it gives each one. Null watches every session the filters match. Set null to remove the scope. */
-    scope?: ScannerExperimentScopeReadApi | null
+    scope?: ScannerExperimentScopeApi | null
     /**
      * What this scanner's scope watches, for a reader that cannot see the experiment.
      * @nullable
@@ -1630,7 +1625,7 @@ export interface PatchedReplayScannerApi {
     /** The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed. */
     experiment_targeting?: ScannerExperimentTargetingApi | null
     /** Which sessions the scanner watches beyond its filters, and the label it gives each one. Null watches every session the filters match. Set null to remove the scope. */
-    scope?: ScannerExperimentScopeReadApi | null
+    scope?: ScannerExperimentScopeApi | null
     /**
      * What this scanner's scope watches, for a reader that cannot see the experiment.
      * @nullable
