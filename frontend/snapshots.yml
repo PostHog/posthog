@@ -8458,6 +8458,10 @@ snapshots:
         hash: v1.k794b7964.59b8f97869e2af6005fd50a335c7d6189103ff2ee0f50be917b02645604c4922.kIaaiDLmegMdqwDAR0yoj7fW_an0HvU66lfpPOBf-8M
     products-tasks-infrastructure-admin--unavailable--light:
         hash: v1.k794b7964.fbc2e918d784ee04989182e3b4bcfc3a8e82f8f6bf27f302abc982a5a4746b92.h3BLRLPGmxB13P5VaDK0va6GXPy1KfNbyoAWIgpjHAY
+    products-tracing-operationstable--alert-presets-menu--dark:
+        hash: v1.k794b7964.a66468a06541ba3db2ce6891fb08749797b536583020387dd52dbcf465f338a1.tJsIQ-lu7qp0rGLVjVjekR0ojvg_PYd6cVEMNwnq64M
+    products-tracing-operationstable--alert-presets-menu--light:
+        hash: v1.k794b7964.4a41f16afe0c8703c6c0a9a3be31ff5e3eccc1ad77165ec7cd32122c68efe5c6.fU3NsKX9ab50yO4tm8K7R_xZwAMbqPqDo5fMlNgyPo4
     products-tracing-operationstable--default--dark:
         hash: v1.k794b7964.58421fb9485687230fc55051bb13eeefff6fec4dbc8cc0eeb9a9a9f3f39a30cd.QacFiUZLBgSAOZZnr3OoUeIP2e-0gBXYobLZf-MTcMM
     products-tracing-operationstable--default--light:
