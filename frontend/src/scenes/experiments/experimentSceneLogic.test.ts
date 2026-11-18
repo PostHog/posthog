@@ -287,13 +287,13 @@ describe('experimentSceneLogic', () => {
                 true,
             ],
             [
-                'staff impersonating',
-                { superpowersEnabled: false, isImpersonated: true, healthFindingsEnabled: true },
+                'staff impersonating a customer without the flag',
+                { superpowersEnabled: false, isImpersonated: true, healthFindingsEnabled: false },
                 true,
             ],
             [
                 'staff without the flag',
-                { superpowersEnabled: true, isImpersonated: true, healthFindingsEnabled: false },
+                { superpowersEnabled: true, isImpersonated: false, healthFindingsEnabled: false },
                 false,
             ],
             [

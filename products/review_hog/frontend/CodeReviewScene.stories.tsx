@@ -53,7 +53,7 @@ const defaultSettings: ReviewUserSettingsApi = {
     urgency_threshold: 'consider',
     celebrate_clean_reviews: true,
     review_inbox_prs: false,
-    stamphog_review_inbox_prs: false,
+    approval_review_inbox_prs: false,
     sources: {
         default_review_mode: 'default',
         review_drafts: 'default',
@@ -61,10 +61,10 @@ const defaultSettings: ReviewUserSettingsApi = {
         urgency_threshold: 'default',
         celebrate_clean_reviews: 'default',
         review_inbox_prs: 'default',
-        stamphog_review_inbox_prs: 'default',
+        approval_review_inbox_prs: 'default',
     },
     project_defaults: { urgency_threshold: 'consider', celebrate_clean_reviews: true },
-    stamphog_connected: false,
+    approval_connected: false,
 }
 
 function completedReview(overrides: Partial<ReviewRecentReviewApi>): ReviewRecentReviewApi {
@@ -177,6 +177,7 @@ const REVIEW_TOTAL = 61
 
 function finding(overrides: Partial<ReviewFindingApi>): ReviewFindingApi {
     return {
+        issue_key: '1-retry-loop',
         title: 'Retry loop never gives up on a permanent error',
         file: 'posthog/tasks/exports.py',
         lines: [{ start: 42, end: 58 }],
@@ -187,6 +188,7 @@ function finding(overrides: Partial<ReviewFindingApi>): ReviewFindingApi {
         source_perspective: 'review-hog-perspective-logic-correctness',
         validator_category: 'bug',
         validator_note: 'The handler catches every `HTTPError`, including 4xx, so the retry path is reachable.',
+        outcome: null,
         ...overrides,
     }
 }
@@ -431,6 +433,7 @@ interface StoryRepositoryRow {
     id: string
     selected: boolean
     flash_for: AutomaticFlashForEnumApi | null
+    review_drafts: boolean
     people: ReviewRepositoryPersonApi[]
 }
 
@@ -480,15 +483,17 @@ function initialRows(): Record<string, StoryRepositoryRow> {
             id: 'repo-web',
             selected: true,
             flash_for: 'everyone',
+            review_drafts: true,
             people: [person(MOCK_SECOND_BASIC_USER, 'excepted'), person(VIEWER, 'excepted')],
         },
         'example-org/api': {
             id: 'repo-api',
             selected: true,
             flash_for: 'listed',
+            review_drafts: false,
             people: [person(MOCK_SECOND_BASIC_USER, 'listed'), person(ADA, 'listed')],
         },
-        'example-org/docs': { id: 'repo-docs', selected: true, flash_for: null, people: [] },
+        'example-org/docs': { id: 'repo-docs', selected: true, flash_for: null, review_drafts: true, people: [] },
     }
 }
 
@@ -541,6 +546,7 @@ function overviewEntry(name: string): ReviewRepositoryOverviewEntryApi {
         selected: row?.selected ?? false,
         repository_id: row?.id ?? null,
         exception: own && row?.flash_for ? { flash_for: row.flash_for, people: row.people } : null,
+        review_drafts: own && !!row?.review_drafts,
         my_choice: own ? (choice?.mode ?? null) : null,
         my_choice_id: own ? (choice?.id ?? null) : null,
         my_result: own && choice ? { flash: choice.mode === 'flash', reason: 'own_repository_choice' } : base,
@@ -560,14 +566,16 @@ function saveRepository(write: ReviewRepositoryWriteApi): void {
         id: `repo-new-${storyState.nextId++}`,
         selected: false,
         flash_for: null,
+        review_drafts: false,
         people: [],
     }
     const next = {
         ...current,
         selected: write.selected ?? current.selected,
         flash_for: write.flash_for !== undefined ? write.flash_for : current.flash_for,
+        review_drafts: write.review_drafts ?? current.review_drafts,
     }
-    if (!next.selected && next.flash_for === null) {
+    if (!next.selected && next.flash_for === null && !next.review_drafts) {
         delete storyState.rows[write.full_name]
         return
     }
@@ -630,9 +638,9 @@ const meta: Meta<typeof CodeReviewScene> = {
                         { ...MOCK_DEFAULT_USER, is_staff: context.parameters.isStaff ?? false },
                     ],
                     '/api/users/@me/github_login/': { github_login: 'example-dev' },
-                    '/api/projects/:team_id/review_hog/settings/': () => [200, storyState.settings],
-                    '/api/projects/:team_id/review_hog/project_settings/': () => [200, storyState.project],
-                    '/api/projects/:team_id/review_hog/repositories/': () => [
+                    '/api/projects/:team_id/code_review/settings/': () => [200, storyState.settings],
+                    '/api/projects/:team_id/code_review/project_settings/': () => [200, storyState.project],
+                    '/api/projects/:team_id/code_review/repositories/': () => [
                         200,
                         Object.entries(storyState.rows).map(([full_name, row]) => ({
                             ...row,
@@ -643,18 +651,19 @@ const meta: Meta<typeof CodeReviewScene> = {
                             created_at: '2026-09-20T10:00:00Z',
                         })),
                     ],
-                    '/api/projects/:team_id/review_hog/repository_overview/': ({ request }) => {
+                    '/api/projects/:team_id/code_review/repository_overview/': ({ request }) => {
                         const params = new URL(request.url).searchParams
                         const search = params.get('search')?.toLowerCase() ?? ''
                         const view = params.get('view') ?? 'all'
                         const offset = Number(params.get('offset') ?? 0)
                         const limit = Number(params.get('limit') ?? 50)
                         const matching = REPOSITORY_NAMES.filter((name) => name.includes(search)).map(overviewEntry)
-                        // Same rule as the server: this project's settings apply with no exception and no own choice.
+                        // Same rule as the server: this project's settings apply with no exception, no draft reviews and no own choice.
                         const follows = (entry: ReviewRepositoryOverviewEntryApi): boolean =>
                             entry.owner === 'this_project' &&
                             entry.in_project &&
                             entry.exception === null &&
+                            !entry.review_drafts &&
                             entry.my_choice === null
                         const entries = matching.filter(
                             (entry) =>
@@ -689,7 +698,7 @@ const meta: Meta<typeof CodeReviewScene> = {
                         count: members.length,
                     },
                     // Before `reviews/:id/`, which would otherwise take `table` for a review id.
-                    '/api/projects/:team_id/review_hog/reviews/table/': ({ request }) => {
+                    '/api/projects/:team_id/code_review/reviews/table/': ({ request }) => {
                         // A running row keeps its spinner, so only the story that shows it opts in.
                         const rows = context.parameters.withRunningReview ? [runningReview, ...reviewRows] : reviewRows
                         const running = new URL(request.url).searchParams.get('status') === 'running'
@@ -702,27 +711,27 @@ const meta: Meta<typeof CodeReviewScene> = {
                             },
                         ]
                     },
-                    '/api/projects/:team_id/review_hog/reviews/perspective_stats/': perspectiveStats,
-                    '/api/projects/:team_id/review_hog/reviews/:id/': ({ params }) => {
+                    '/api/projects/:team_id/code_review/reviews/perspective_stats/': perspectiveStats,
+                    '/api/projects/:team_id/code_review/reviews/:id/': ({ params }) => {
                         const detail = reviewDetails[String(params.id)]
                         return detail ? [200, detail] : [404, { detail: 'Review not found.' }]
                     },
-                    '/api/projects/:team_id/review_hog/perspectives/': perspectives,
-                    '/api/projects/:team_id/review_hog/blind_spots/': [
+                    '/api/projects/:team_id/code_review/perspectives/': perspectives,
+                    '/api/projects/:team_id/code_review/blind_spots/': [
                         singleSkill(
                             'review-hog-blind-spots-general',
                             'One more pass over each chunk for what every perspective missed.',
                             true
                         ),
                     ],
-                    '/api/projects/:team_id/review_hog/validators/': [
+                    '/api/projects/:team_id/code_review/validators/': [
                         singleSkill(
                             'review-hog-validation-default',
                             'Drops speculative, noisy and low-value findings before they reach the PR.',
                             true
                         ),
                     ],
-                    '/api/projects/:team_id/review_hog/resolution/': [
+                    '/api/projects/:team_id/code_review/resolution/': [
                         singleSkill(
                             'review-hog-resolution-default',
                             'Fixes what is worth it and safe, and replies to every thread.',
@@ -736,7 +745,7 @@ const meta: Meta<typeof CodeReviewScene> = {
                     ],
                 },
                 post: {
-                    '/api/projects/:team_id/review_hog/repositories/': async ({ request }) => {
+                    '/api/projects/:team_id/code_review/repositories/': async ({ request }) => {
                         const write = (await request.json()) as ReviewRepositoryWriteApi
                         saveRepository(write)
                         const row = storyState.rows[write.full_name]
@@ -757,7 +766,7 @@ const meta: Meta<typeof CodeReviewScene> = {
                             },
                         ]
                     },
-                    '/api/projects/:team_id/review_hog/repositories/:id/people/': async ({ request, params }) => {
+                    '/api/projects/:team_id/code_review/repositories/:id/people/': async ({ request, params }) => {
                         const { user_id, kind } = (await request.json()) as ReviewRepositoryPersonRequestApi
                         const member = members.find((m) => m.user.id === user_id)
                         const found = rowById(String(params.id))
@@ -767,7 +776,7 @@ const meta: Meta<typeof CodeReviewScene> = {
                         found[1].people = [...found[1].people, person(member.user, kind)]
                         return [201, {}]
                     },
-                    '/api/projects/:team_id/review_hog/project_settings/people/': async ({ request }) => {
+                    '/api/projects/:team_id/code_review/project_settings/people/': async ({ request }) => {
                         const { user_id, kind } = (await request.json()) as ReviewRepositoryPersonRequestApi
                         const member = members.find((m) => m.user.id === user_id)
                         if (member) {
@@ -778,7 +787,7 @@ const meta: Meta<typeof CodeReviewScene> = {
                         }
                         return [201, storyState.project]
                     },
-                    '/api/projects/:team_id/review_hog/repository_choices/': async ({ request }) => {
+                    '/api/projects/:team_id/code_review/repository_choices/': async ({ request }) => {
                         const write = (await request.json()) as ReviewRepositoryChoiceWriteApi
                         if ((write.mode === 'flash') === inherited(write.full_name).flash) {
                             delete storyState.choices[write.full_name]
@@ -792,17 +801,17 @@ const meta: Meta<typeof CodeReviewScene> = {
                     },
                 },
                 patch: {
-                    '/api/projects/:team_id/review_hog/settings/': async ({ request }) => {
+                    '/api/projects/:team_id/code_review/settings/': async ({ request }) => {
                         const update = (await request.json()) as PatchedReviewUserSettingsApi
                         storyState.settings = { ...storyState.settings, ...update }
                         return [200, storyState.settings]
                     },
-                    '/api/projects/:team_id/review_hog/project_settings/': async ({ request }) => {
+                    '/api/projects/:team_id/code_review/project_settings/': async ({ request }) => {
                         const update = (await request.json()) as PatchedReviewProjectSettingsApi
                         storyState.project = { ...storyState.project, ...update }
                         return [200, storyState.project]
                     },
-                    '/api/projects/:team_id/review_hog/installation_claims/:id/': async ({ request }) => {
+                    '/api/projects/:team_id/code_review/installation_claims/:id/': async ({ request }) => {
                         const { scope } = (await request.json()) as { scope: ReviewInstallationClaimScopeEnumApi }
                         const [installation] = storyState.project.installations
                         storyState.project = { ...storyState.project, installations: [{ ...installation, scope }] }
@@ -810,7 +819,7 @@ const meta: Meta<typeof CodeReviewScene> = {
                     },
                 },
                 delete: {
-                    '/api/projects/:team_id/review_hog/repository_choices/:id/': ({ params }) => {
+                    '/api/projects/:team_id/code_review/repository_choices/:id/': ({ params }) => {
                         const name = Object.keys(storyState.choices).find(
                             (key) => storyState.choices[key].id === params.id
                         )
@@ -819,14 +828,14 @@ const meta: Meta<typeof CodeReviewScene> = {
                         }
                         return [204]
                     },
-                    '/api/projects/:team_id/review_hog/repositories/:id/people/:personId/': ({ params }) => {
+                    '/api/projects/:team_id/code_review/repositories/:id/people/:personId/': ({ params }) => {
                         const found = rowById(String(params.id))
                         if (found) {
                             found[1].people = found[1].people.filter((entry) => entry.id !== params.personId)
                         }
                         return [200, {}]
                     },
-                    '/api/projects/:team_id/review_hog/project_settings/people/:personId/': ({ params }) => {
+                    '/api/projects/:team_id/code_review/project_settings/people/:personId/': ({ params }) => {
                         storyState.project = {
                             ...storyState.project,
                             people: storyState.project.people.filter((entry) => entry.id !== params.personId),
@@ -898,13 +907,14 @@ export const SettingsForMember: Story = {
             )
         ).toBeVisible()
         await expect(await canvas.findByText('example-org/web')).toBeVisible()
-        await expect(canvas.queryByText('Include in project')).not.toBeInTheDocument()
+        await expect(canvas.getAllByText('Include in project').length).toBeGreaterThan(0)
+        await expect(canvas.queryByText('Remove from project')).not.toBeInTheDocument()
         await expect(canvas.queryByLabelText('Add exception for example-org/docs')).not.toBeInTheDocument()
     },
 }
 
 export const SavedInboxOptIns: Story = {
-    parameters: { savedSettings: { review_inbox_prs: true, stamphog_review_inbox_prs: true }, tab: 'settings' },
+    parameters: { savedSettings: { review_inbox_prs: true, approval_review_inbox_prs: true }, tab: 'settings' },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         const inboxLabel = 'Review my Inbox PRs'

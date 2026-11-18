@@ -10,12 +10,12 @@ import { JSONContent, RichContentEditorType } from 'lib/components/RichContentEd
 import { slackChannelId } from 'lib/integrations/slackChannel'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { isEmptyObject } from 'lib/utils/guards'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelDiscussionLogic } from '~/layout/navigation-3000/sidepanel/panels/discussion/sidePanelDiscussionLogic'
-import { CommentType } from '~/types'
+import { membersLogic } from '~/models/membersLogic'
+import { ActivityScope, CommentType } from '~/types'
 import type { OrganizationMemberType, UserType } from '~/types'
 
 import { commentsSendToSlackCreate } from 'products/platform_features/frontend/generated/api'
@@ -69,6 +69,7 @@ export interface commentsLogicValues {
     commentContexts: Record<string, string>
     comments: CommentType[] | null
     commentsInitialLoading: boolean
+    commentsLoadFailed: boolean
     commentsLoading: boolean
     commentsWithReplies: CommentWithRepliesType[]
     composerDrafts: Record<string, JSONContent | null>
@@ -92,6 +93,7 @@ export interface commentsLogicValues {
     replyingCommentId: string | null
     richContentEditor: RichContentEditorType | null
     selectedCommentId: string | null
+    sendToSlackDisabledReasonFor: (comment: CommentType) => string | null
     sortedComments: CommentType[]
     threadExpansion: Record<string, boolean>
 }
@@ -370,6 +372,9 @@ export interface commentsLogicMeta {
         ) => JSONContent | null
         isMyComment: (user: UserType | null) => (comment: CommentType) => boolean
         disabledReasonFor: (user: UserType | null) => (comment: CommentType) => string | null
+        sendToSlackDisabledReasonFor: (
+            isMyComment: (comment: CommentType) => boolean
+        ) => (comment: CommentType) => string | null
     }
 }
 
@@ -428,6 +433,15 @@ export const commentsLogic = kea<commentsLogicType>([
         setComposerSlackChannel: (channel: string | null) => ({ channel }),
     }),
     reducers({
+        // `comments` stays null after a failed first load, the same as before any load, so the failure needs its own flag.
+        commentsLoadFailed: [
+            false,
+            {
+                loadComments: () => false,
+                loadCommentsSuccess: () => false,
+                loadCommentsFailure: () => true,
+            },
+        ],
         composerSendToSlack: [
             false,
             {
@@ -1001,6 +1015,16 @@ export const commentsLogic = kea<commentsLogicType>([
             (user: null | import('~/types').UserType) => {
                 return (comment: CommentType): string | null =>
                     comment.created_by?.uuid === user?.uuid ? null : 'You can only delete your own comments'
+            },
+        ],
+
+        sendToSlackDisabledReasonFor: [
+            (s) => [s.isMyComment],
+            (isMyComment: (comment: CommentType) => boolean) => {
+                return (comment: CommentType): string | null =>
+                    comment.scope === ActivityScope.TICKET && !isMyComment(comment)
+                        ? 'Only the person who started this discussion can send it to Slack'
+                        : null
             },
         ],
     }),

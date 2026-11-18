@@ -17,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.file_parsing import (
     FILE_MODIFIED_AT_COLUMN,
     FILE_PATH_COLUMN,
-    uses_brotli_compression,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.config import (
     CsvOptions,
@@ -38,6 +37,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     FILE_ROW_NUMBER_COLUMN,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.settings import (
+    COPY_CHUNK_BYTES,
     CSV_BLOCK_SIZE_BYTES,
     JSONL_CHUNK_BYTES,
     JSONL_CHUNK_ROWS,
@@ -45,12 +45,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     MAX_RECORD_BYTES,
     MAX_UNPACKED_PARQUET_BYTES,
     PARQUET_BATCH_ROWS,
+    SPOOL_MEMORY_BYTES,
 )
 
 TSV_SUFFIXES = (".tsv", ".tsv.gz")
 UTF8_BOM = b"\xef\xbb\xbf"
-SPOOL_MEMORY_BYTES = 8 * 1024 * 1024
-COPY_CHUNK_BYTES = 1024 * 1024
 
 
 class _PrefixedStream(io.RawIOBase):
@@ -323,11 +322,6 @@ def iter_parquet_tables(
 ) -> Iterator[pa.Table]:
     try:
         parquet_file = pq.ParquetFile(stream)
-        if uses_brotli_compression(parquet_file.metadata):
-            raise ObjectStorageError(
-                f"{FILE_PARSE_ERROR} '{file_path}' as Parquet: Brotli compression isn't supported. "
-                "Write the file with Snappy, Gzip, or Zstd compression instead."
-            )
         yielded = False
         for batch in parquet_file.iter_batches(batch_size=batch_rows, use_threads=False):
             if batch.num_rows:
@@ -337,6 +331,15 @@ def iter_parquet_tables(
             # A file with no rows still carries a schema, which the pipeline needs to create the table.
             yield parquet_file.schema_arrow.empty_table()
     except pa.ArrowInvalid as e:
+        raise ObjectStorageError(f"{FILE_PARSE_ERROR} '{file_path}' as Parquet: {e}") from e
+    except OSError as e:
+        # pyarrow's own Parquet decoder raises a bare OSError (pyarrow.ArrowIOError is an alias for
+        # it) for a corrupt or malformed file, e.g. a data page whose block structure fails its
+        # internal validation. A failure reading the underlying stream keeps its own specific
+        # OSError subclass (ConnectionError, TimeoutError, ...) instead, so only the exact base
+        # type means the file itself is bad rather than a transient read.
+        if type(e) is not OSError:
+            raise
         raise ObjectStorageError(f"{FILE_PARSE_ERROR} '{file_path}' as Parquet: {e}") from e
 
 
@@ -364,7 +367,7 @@ def _iter_gzipped_parquet(stream: IO[bytes], stored: StoredObject) -> Iterator[p
     """Parquet readers seek to the footer, which a gzip stream can't, so the file is unpacked to disk first."""
     with tempfile.SpooledTemporaryFile(max_size=SPOOL_MEMORY_BYTES) as unpacked:
         try:
-            with gzip.GzipFile(fileobj=stream) as compressed:
+            with gzip.GzipFile(fileobj=stream, mode="rb") as compressed:
                 unpacked_bytes = 0
                 while chunk := compressed.read(COPY_CHUNK_BYTES):
                     unpacked_bytes += len(chunk)
@@ -394,7 +397,12 @@ def iter_file_tables(
         else:
             tables = iter_parquet_tables(stream, stored.path)
     else:
-        binary = cast(IO[bytes], gzip.GzipFile(fileobj=stream)) if is_compressed(stored.path) else stream
+        # fsspec files take no size in `readline`, so the bounded line reads need a standard buffered reader.
+        binary = (
+            cast(IO[bytes], gzip.GzipFile(fileobj=stream, mode="rb"))
+            if is_compressed(stored.path)
+            else cast(IO[bytes], io.BufferedReader(_PrefixedStream(b"", stream)))
+        )
         if file_format == "csv":
             delimiter = csv_options.delimiter or ("\t" if stored.path.lower().endswith(TSV_SUFFIXES) else ",")
             tables = iter_csv_tables(binary, csv_options, delimiter, stored.path, logger)

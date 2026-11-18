@@ -6,7 +6,7 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action, update_action
 from products.experiments.backend.experiment_saved_metric_service import ExperimentSavedMetricService
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -462,7 +462,8 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn(
-            "ExperimentMetric metric_type must be 'mean', 'funnel', 'ratio', or 'retention'", response.json()["detail"]
+            "ExperimentMetric metric_type must be 'mean', 'funnel', 'ratio', 'retention', or 'quantile'",
+            response.json()["detail"],
         )
 
     def test_create_saved_metric_with_experiment_metric_ratio(self):
@@ -926,10 +927,8 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
 
     def test_saved_metric_refreshes_action_names(self):
         """Test that saved metrics show current action names when actions are renamed."""
-        from products.actions.backend.models.action import Action
-
         # Create an action
-        action = Action.objects.create(team=self.team, name="Original Action Name")
+        action = create_action(team=self.team, name="Original Action Name")
 
         # Create a saved metric using the action
         response = self.client.post(
@@ -952,8 +951,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         saved_metric_id = response.json()["id"]
 
         # Rename the action
-        action.name = "Renamed Action"
-        action.save()
+        update_action(action, name="Renamed Action")
 
         # Fetch the saved metric
         response = self.client.get(f"/api/projects/{self.team.id}/experiment_saved_metrics/{saved_metric_id}/")
@@ -965,10 +963,8 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
 
     def test_saved_metric_preserves_name_for_deleted_action(self):
         """Test that saved metrics preserve old names when actions are deleted."""
-        from products.actions.backend.models.action import Action
-
         # Create an action
-        action = Action.objects.create(team=self.team, name="Action to Delete")
+        action = create_action(team=self.team, name="Action to Delete")
         action_id = action.id
 
         # Create a saved metric using the action
@@ -992,8 +988,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         saved_metric_id = response.json()["id"]
 
         # Delete the action
-        action.deleted = True
-        action.save()
+        update_action(action, deleted=True)
 
         # Fetch the saved metric
         response = self.client.get(f"/api/projects/{self.team.id}/experiment_saved_metrics/{saved_metric_id}/")
@@ -1064,7 +1059,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
     def _seed_metrics_for_event_filter(self) -> None:
         # Created via the ORM so the stored query JSON is exactly what the filter inspects. The action fires
         # on the "signup" event, so its metric is discoverable by that event — not by the action's label.
-        signup_action = Action.objects.create(team=self.team, name="Completed signup", steps_json=[{"event": "signup"}])
+        signup_action = create_action(team=self.team, name="Completed signup", steps_json=[{"event": "signup"}])
         for name, source in [
             ("Pageview mean", {"kind": "EventsNode", "event": "$pageview"}),
             ("Purchase mean", {"kind": "EventsNode", "event": "purchase"}),

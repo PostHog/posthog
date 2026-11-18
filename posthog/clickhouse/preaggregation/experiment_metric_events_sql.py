@@ -45,6 +45,13 @@ CREATE TABLE IF NOT EXISTS {table_name}
 
     -- Per-event data
     entity_id String,
+
+    -- distinct_id of the source event, the key a person-overrides lookup needs to
+    -- find this row's current person.
+    distinct_id String,
+    -- The entity's person, kept separate from entity_id so it can be rewritten after a person
+    -- merge: entity_id is in the sorting key, which ClickHouse refuses to UPDATE.
+    person_id UUID DEFAULT toUUIDOrZero(entity_id),
     timestamp DateTime64(6, 'UTC'),
     event_uuid UUID,
     session_id String,
@@ -60,7 +67,16 @@ CREATE TABLE IF NOT EXISTS {table_name}
     computed_at DateTime64(6, 'UTC') DEFAULT now(),
 
     -- TTL: rows are automatically deleted after expires_at
-    expires_at Date DEFAULT today() + INTERVAL 7 DAY
+    expires_at Date DEFAULT today() + INTERVAL 7 DAY,
+
+    -- The names the deletion sweep in posthog/dags/deletes.py matches on. Each one reads an
+    -- existing column, so the table can be a deletion target without storing anything twice.
+    -- The sweep also reads `timestamp`, which this table already has.
+    -- inserted_at is always NULL, which makes the sweep delete every row of the person. A row has
+    -- no stable insert time: each rebuild writes it again with a new computed_at, and a rebuild
+    -- between the deletion request and the sweep would otherwise keep the row.
+    uuid UUID ALIAS event_uuid,
+    inserted_at Nullable(DateTime64(6, 'UTC')) ALIAS NULL
 ) ENGINE = {engine}
 """
 

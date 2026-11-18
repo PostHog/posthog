@@ -9,6 +9,8 @@ objects the pure-direct path derives from physical rows, but from each
 
 from typing import TYPE_CHECKING
 
+from django.db.models import Q
+
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
 from posthog.hogql.database.direct_motherduck_table import DirectMotherDuckTable
 from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
@@ -48,6 +50,7 @@ from products.data_warehouse.backend.snowflake_helpers import (
     snowflake_schema_metadata_to_dwh_columns,
 )
 from products.warehouse_sources.backend.facade.hogql import hogql_fields_and_structure_for_columns
+from products.warehouse_sources.backend.facade.live_queries import is_live_query_eligible
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (
@@ -59,27 +62,33 @@ if TYPE_CHECKING:
 
 
 def eligible_direct_query_schemas(team_id: int, source_id: str) -> list[ExternalDataSchema]:
-    """The synced schema rows a dual-mode connection exposes as live virtual tables.
+    """The schema rows a dual-mode connection exposes as live virtual tables: every synced row, and
+    the unsynced rows the user turned live queries on for.
 
     Single source of truth for both the build path (``_fetch_sources``) and the serialize
     catalog, so the two selections can't drift. Excludes rows without usable ``schema_metadata``
     (e.g. discovered before metadata persistence shipped) and rows with ``row_filters`` — a
     sync-time row restriction the live direct query can't reproduce, so exposing the upstream
-    table would let a user read rows the schema was configured not to sync.
+    table would let a user read rows the schema was configured not to sync. Rows with
+    ``masked_columns`` are excluded for the same reason: a live query reads the plaintext values.
     """
     return [
         schema_row
         for schema_row in ExternalDataSchema.objects.filter(
+            Q(should_sync=True) | Q(live_query_enabled=True),
             team_id=team_id,
             source_id=source_id,
-            should_sync=True,
         )
         .exclude(deleted=True)
         # `table` is the synced S3 row backing the warehouse access-control check on the build path.
         .select_related("table")
         .order_by("name")
-        if schema_row.schema_metadata and not schema_row.row_filters
+        if is_live_query_eligible(schema_row)
     ]
+
+
+# Keep in sync with the engine branches in build_direct_table_for_schema.
+LIVE_TABLE_ENGINES = frozenset({"postgres", "mysql", "redshift", "snowflake", "clickhouse", "motherduck"})
 
 
 def build_direct_table_for_schema(schema: "ExternalDataSchema", source: "ExternalDataSource") -> DirectSQLTable | None:
@@ -91,9 +100,9 @@ def build_direct_table_for_schema(schema: "ExternalDataSchema", source: "Externa
     metadata = schema.schema_metadata
     engine = source.direct_engine
 
-    # Defense in depth for any direct caller: a row-filtered schema is already excluded from the
-    # catalog by eligible_direct_query_schemas; never build a live table that would bypass it.
-    if schema.row_filters:
+    # Defense in depth for any direct caller: a row-filtered or masked schema is already excluded
+    # from the catalog by eligible_direct_query_schemas; never build a live table that would bypass it.
+    if schema.row_filters or schema.masked_columns:
         return None
 
     if engine == "postgres":

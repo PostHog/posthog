@@ -1,3 +1,7 @@
+from unittest.mock import patch
+
+from django.db import transaction
+from django.db.models import Value
 from django.test import TestCase
 
 from posthog.models import FileSystem, Organization, Team, User
@@ -174,6 +178,19 @@ class TestFileSystemSyncMixin(TestCase):
 
         assert fs_entry is None, "Should not create file system entry for internal notebook"
         assert note.get_file_system_representation().should_delete, "Internal notebook should be set for deletion"
+
+    def test_file_system_failure_preserves_notebook_in_transaction(self):
+        def fail_file_write(**kwargs):
+            FileSystem.objects.create(team=self.team, path=Value(None), depth=0, type="notebook", ref="failed-write")
+
+        with (
+            patch("posthog.models.file_system.file_system.create_or_update_file", side_effect=fail_file_write),
+            patch("posthog.models.file_system.file_system_mixin.capture_exception"),
+            transaction.atomic(),
+        ):
+            notebook = Notebook.objects.create(team=self.team, title="Saved notebook", created_by=self.user)
+
+        self.assertTrue(Notebook.objects.filter(pk=notebook.pk).exists())
 
     def test_notebook_internal_visibility_delete_existing_entry(self):
         note = Notebook.objects.create(

@@ -44,25 +44,6 @@ test.describe('Dashboards', () => {
         await playwrightSetup.login(page, workspace!)
     })
 
-    test('Can create a new dashboard with an insight', async ({ page }) => {
-        const dashboard = new DashboardPage(page)
-        const dashboardName = randomString('dash-edit')
-        const insightName = randomString('dash-trends')
-
-        await test.step('create a saved Trends insight', async () => {
-            await createSavedTrendsInsight(page, insightName, workspace!)
-        })
-
-        await test.step('create a dashboard', async () => {
-            await dashboard.createNew(dashboardName)
-        })
-
-        await test.step('add the insight to the dashboard', async () => {
-            await dashboard.addInsightToNewDashboard(insightName)
-            await expect(dashboard.insightCards).toBeVisible()
-        })
-    })
-
     test('Editing an insight updates the dashboard tile', async ({ page }) => {
         const dashboard = new DashboardPage(page)
         const insight = new InsightPage(page)
@@ -96,7 +77,7 @@ test.describe('Dashboards', () => {
             await insight.editName(updatedName)
             await expect(insight.topBarName).toContainText(updatedName)
             await expect(insight.saveButton).toBeEnabled()
-            await insight.save()
+            await insight.save({ returnsTo: dashboardUrl })
         })
 
         await test.step('navigate to dashboard and verify the updated insight', async () => {
@@ -180,6 +161,7 @@ test.describe('Dashboards', () => {
 
         await test.step('open SQL editor and create a Number variable', async () => {
             await page.goto('/sql')
+            await expect(page.locator('.CodeEditor[data-editor-ready="true"]')).toBeVisible()
             await page.getByRole('button', { name: 'Variables' }).click()
             await page.getByRole('menuitem', { name: 'New variable' }).click()
             await page.getByRole('menuitem', { name: 'Number', exact: true }).click()
@@ -191,9 +173,6 @@ test.describe('Dashboards', () => {
 
             // Saving the variable kicks off a reload of the insightVariables list, and the
             // editor can only substitute {variables.test_number} once that list has loaded.
-            // Running the query before the reload returns sends the placeholder unresolved,
-            // the backend errors with "Global variable not found: variables", and
-            // "Save as insight" never enables. Wait for the reload before using the variable.
             const variablesReloaded = page.waitForResponse(
                 (response) =>
                     response.url().includes('/insight_variables') &&
@@ -210,21 +189,19 @@ test.describe('Dashboards', () => {
             await editor.click()
             await page.keyboard.press('ControlOrMeta+a')
             // insertText() inserts the whole string at once, so Monaco's bracket
-            // auto-close and autocomplete don't intercept the `{`/`}` mid-type and
-            // produce a malformed query that leaves "Save as insight" disabled.
+            // auto-close and autocomplete don't intercept the `{`/`}` mid-type.
             await page.keyboard.insertText('SELECT {variables.test_number}')
             await page.keyboard.press('Escape')
 
             // The editor attaches the variable to the query through a short debounce, so a
-            // fast first Run can execute before {variables.test_number} is substituted —
-            // the query then errors with "Global variable not found: variables" and leaves
-            // "Save as insight" disabled. Re-run until the variable resolves and the query
-            // succeeds (a successful run is the only thing that enables "Save as insight").
+            // fast first Run can execute before {variables.test_number} is substituted.
+            // Saving is allowed during execution, so an enabled save button cannot prove completion.
             const saveAsInsight = page.getByRole('button', { name: 'Save as insight' })
             await expect(async () => {
                 await page.getByRole('button', { name: 'Run' }).click()
-                await expect(page.locator('[data-attr=sql-editor-output-pane-empty-state]')).not.toBeVisible()
-                await expect(saveAsInsight).toBeEnabled({ timeout: 15000 })
+                await expect(saveAsInsight.getByTestId('sql-editor-save-warning')).toBeHidden({ timeout: 15000 })
+                await page.getByText('Results', { exact: true }).click()
+                await expect(page.getByRole('gridcell', { name: '5', exact: true })).toBeVisible({ timeout: 15000 })
             }).toPass({ timeout: 60000 })
             await saveAsInsight.click()
 
@@ -257,252 +234,21 @@ test.describe('Dashboards', () => {
             await expect(dashboard.variableButtons.first()).toContainText('99')
         })
     })
-
-    test('Deleting a dashboard navigates to the dashboards list', async ({ page }) => {
-        const dashboard = new DashboardPage(page)
-        const dashboardName = randomString('dash-delete')
-
-        await test.step('create a dashboard', async () => {
-            await dashboard.createNew(dashboardName)
-            await expect(page).toHaveURL(/\/dashboard\/\d+/)
-        })
-
-        await test.step('delete the dashboard', async () => {
-            await dashboard.deleteDashboard()
-        })
-
-        await test.step('verify navigation to dashboards list (not "Not found")', async () => {
-            await expect(page).toHaveURL(/\/dashboard(#panel=[a-z]+)?$/)
-            await expect(page.getByText('Not found')).not.toBeVisible()
-            // Reload so the list is rebuilt from the server, which excludes deleted
-            // dashboards. The in-memory dashboardsModel can keep a stale row visible
-            // (the list selector doesn't filter `deleted`, and an in-flight load can
-            // re-merge it after delayedDeleteDashboard prunes it), so an unscoped or
-            // even table-scoped assertion against live state is racy. Scope to the
-            // table to exclude the "deleted" toast, which also contains the name.
-            await page.reload()
-            await expect(page.getByTestId('dashboards-table')).toBeVisible()
-            await expect(page.getByTestId('dashboards-table').getByText(dashboardName)).not.toBeVisible()
-        })
-    })
-
-    test('Deleting an insight from dashboard redirects back', async ({ page }) => {
-        test.setTimeout(120_000)
-        const dashboard = new DashboardPage(page)
-        const insight = new InsightPage(page)
-        const insightName = randomString('dash-trends')
-
-        await test.step('create a saved Trends insight', async () => {
-            await createSavedTrendsInsight(page, insightName, workspace!)
-        })
-
-        await test.step('create a dashboard with an insight', async () => {
-            await dashboard.createNew()
-            await dashboard.addInsightToNewDashboard(insightName)
-            await expect(dashboard.insightCards).toBeVisible()
-        })
-
-        await test.step('open the insight from the dashboard', async () => {
-            await dashboard.openFirstTileMenu()
-            await dashboard.selectTileMenuOption('Edit')
-            await expect(page).toHaveURL(/\/insights\/.+\/edit(?:\?|$)/)
-            // Wait for the insight to fully load before interacting with the
-            // side panel — InsightPanelDangerZone only renders the delete
-            // button once the insight data is available in the store.
-            await expect(insight.saveButton).toContainText('No changes')
-        })
-
-        await test.step('open the info panel and click delete', async () => {
-            await insight.openInfoPanel()
-            await insight.clickDeleteInsight()
-            await expect(page.locator('.LemonModal').filter({ hasText: 'Delete insight?' })).toBeVisible()
-        })
-
-        await test.step('cancel the dialog and verify we stay on the insight', async () => {
-            await insight.cancelDeleteDialog()
-            await expect(page).toHaveURL(/edit/)
-        })
-
-        await test.step('click delete again and confirm', async () => {
-            await insight.clickDeleteInsight()
-            await insight.confirmDeleteDialog()
-        })
-
-        await test.step('verify redirect to the dashboard with no insight cards', async () => {
-            await expect(page).toHaveURL(/\/dashboard\//)
-            await expect(dashboard.insightCards).toHaveCount(0)
-        })
-    })
-
-    test('Creating a dashboard from a template populates tiles', async ({ page }) => {
-        const dashboard = new DashboardPage(page)
-
-        await test.step('create a dashboard from a template', async () => {
-            await dashboard.createFromTemplate()
-        })
-
-        await test.step('verify the template dashboard has tiles', async () => {
-            await expect(dashboard.insightCards.first()).toBeVisible({ timeout: 30000 })
-
-            const tileCount = await dashboard.insightCards.count()
-            expect(tileCount).toBeGreaterThan(0)
-        })
-    })
-})
-
-test.describe('Dashboard duplication', () => {
-    let workspace: PlaywrightWorkspaceSetupResult | null = null
-
-    test.beforeAll(async ({ playwrightSetup }) => {
-        workspace = await playwrightSetup.createWorkspace({
-            use_current_time: true,
-            skip_onboarding: true,
-            insight_variables: [{ name: 'Test Var', type: 'Number', default_value: 10 }],
-            insights: [
-                {
-                    name: 'Variable insight',
-                    query: {
-                        kind: 'DataVisualizationNode',
-                        source: { kind: 'HogQLQuery', query: 'SELECT {variables.test_var}' },
-                        chartSettings: {},
-                        tableSettings: {},
-                    },
-                    variable_indexes: [0],
-                },
-            ],
-            dashboards: [
-                {
-                    name: 'Duplication source',
-                    insight_indexes: [0],
-                    variable_overrides: { '0': 42 },
-                },
-            ],
-        })
-    })
-
-    test.beforeEach(async ({ page, playwrightSetup }) => {
-        await playwrightSetup.login(page, workspace!)
-    })
-
-    test('Duplicating a dashboard preserves text cards, date filter, and variables', async ({ page }) => {
-        const dashboard = new DashboardPage(page)
-        const cardText = randomString('card-text')
-        const seededDashboardId = workspace!.created_dashboards![0].id
-        let sourceDashboardUrl: string
-
-        await test.step('navigate to seeded dashboard and add a text card', async () => {
-            await page.goto(`/project/${workspace!.team_id}/dashboard/${seededDashboardId}`)
-            await expect(dashboard.insightCards).toBeVisible()
-            await dashboard.addTextCard(cardText)
-        })
-
-        await test.step('set date filter', async () => {
-            sourceDashboardUrl = page.url()
-            await dashboard.setDateFilter('Last 30 days')
-            await dashboard.saveFilters()
-        })
-
-        await test.step('duplicate the dashboard', async () => {
-            await dashboard.duplicate()
-            await expect(page).not.toHaveURL(sourceDashboardUrl)
-        })
-
-        await test.step('verify duplicated dashboard preserves text card, date filter, and variable override', async () => {
-            await expect(dashboard.textCards).toBeVisible()
-            await expect(dashboard.textCards).toContainText(cardText)
-            await expect(dashboard.dateFilter).toContainText('Last 30 days')
-            await expect(dashboard.variableButtons.first()).toContainText('42')
-        })
-    })
-})
-
-test.describe('Dashboard link variable and filter overrides', () => {
-    let workspace: PlaywrightWorkspaceSetupResult | null = null
-
-    test.beforeAll(async ({ playwrightSetup }) => {
-        workspace = await playwrightSetup.createWorkspace({
-            use_current_time: true,
-            skip_onboarding: true,
-            insight_variables: [{ name: 'Test Var', type: 'Number', default_value: 10 }],
-            insights: [
-                {
-                    name: 'Variable insight',
-                    query: {
-                        kind: 'DataVisualizationNode',
-                        source: { kind: 'HogQLQuery', query: 'SELECT {variables.test_var}' },
-                        chartSettings: {},
-                        tableSettings: {},
-                    },
-                    variable_indexes: [0],
-                },
-            ],
-            dashboards: [
-                {
-                    name: 'URL query variables seed',
-                    insight_indexes: [0],
-                    variable_overrides: { '0': 42 },
-                    filters: { date_from: '-30d' },
-                },
-            ],
-        })
-    })
-
-    test.beforeEach(async ({ page, playwrightSetup }) => {
-        await playwrightSetup.login(page, workspace!)
-    })
-
-    test('Opening a shared dashboard link applies variable and filter overrides from the URL on first load', async ({
-        page,
-    }) => {
-        const dashboard = new DashboardPage(page)
-        const seededDashboardId = workspace!.created_dashboards![0].id
-        const urlOverride = 77
-        const searchParams = new URLSearchParams()
-        searchParams.set('query_variables', JSON.stringify({ test_var: urlOverride }))
-        searchParams.set('query_filters', JSON.stringify({ date_from: '-7d' }))
-
-        await page.goto(`/project/${workspace!.team_id}/dashboard/${seededDashboardId}?${searchParams.toString()}`, {
-            waitUntil: 'domcontentloaded',
-        })
-
-        await expect(dashboard.insightCards).toBeVisible()
-        await expect(dashboard.variableButtons.first()).toContainText(String(urlOverride))
-        await expect(dashboard.dateFilter).toContainText('Last 7 days')
-    })
 })
 
 test.describe('Dashboard compact cards and inline editing', () => {
     let workspace: PlaywrightWorkspaceSetupResult | null = null
 
     test.beforeAll(async ({ playwrightSetup }) => {
-        workspace = await playwrightSetup.createWorkspace({ use_current_time: true, skip_onboarding: true })
+        workspace = await playwrightSetup.createWorkspace({
+            use_current_time: true,
+            skip_onboarding: true,
+            no_demo_data: true,
+        })
     })
 
     test.beforeEach(async ({ page, playwrightSetup }) => {
         await playwrightSetup.login(page, workspace!)
-    })
-
-    test('Edit mode button enters and exits edit mode', async ({ page }) => {
-        const dashboard = new DashboardPage(page)
-        const insightName = randomString('dash-trends')
-
-        await test.step('create a saved Trends insight', async () => {
-            await createSavedTrendsInsight(page, insightName, workspace!)
-        })
-
-        await test.step('create a dashboard with an insight', async () => {
-            await dashboard.createNew()
-            await dashboard.addInsightToNewDashboard(insightName)
-            await expect(dashboard.insightCards).toBeVisible()
-        })
-
-        await test.step('enter edit mode via the edit button', async () => {
-            await dashboard.enterEditMode()
-        })
-
-        await test.step('save and exit edit mode', async () => {
-            await dashboard.saveEditMode()
-        })
     })
 
     test('Inline editing insight title via compact card popover', async ({ page }) => {

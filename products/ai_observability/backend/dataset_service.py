@@ -8,6 +8,7 @@ from uuid import UUID
 
 from django.db import IntegrityError, connection, transaction
 from django.db.models import Max
+from django.utils import timezone
 
 import posthoganalytics
 
@@ -15,8 +16,13 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 
-from products.ai_observability.backend.dataset_limits import MAX_DATASET_ITEM_PAYLOAD_BYTES, MAX_ITEMS_PER_DATASET
+from products.ai_observability.backend.dataset_limits import (
+    MAX_DATASET_ITEM_PAYLOAD_BYTES,
+    MAX_ITEMS_PER_DATASET,
+    DatasetConflictResponseResource,
+)
 from products.ai_observability.backend.dataset_queries import latest_dataset_revision
+from products.ai_observability.backend.dataset_retention import DatasetUsage
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
 
 type JSONValue = None | bool | int | float | str | list[JSONValue] | dict[str, JSONValue]
@@ -26,12 +32,13 @@ MAX_DATASET_DESCRIPTION_LENGTH = 10_000
 MAX_DATASET_NAME_LENGTH = 400
 MAX_CLIENT_ITEM_ID_LENGTH = 255
 MAX_SOURCE_ID_LENGTH = 255
-MAX_DATASETS_PER_TEAM = 20
+MAX_DATASETS_PER_TEAM = 100
 MAX_VERSIONS_PER_ITEM = 40
+MAX_RETAINED_VERSIONS_PER_TEAM = 25_000
 
 # The flag that gates the dataset API. Its payload also carries per-project overrides of
 # `MAX_DATASETS_PER_TEAM`, so a project that asks for more datasets gets them with no deploy:
-# {"team_configs": {"<team_id>": {"max_datasets": 50}}}
+# {"team_configs": {"<team_id>": {"max_datasets": 150}}}
 DATASETS_FEATURE_FLAG = "llm-analytics-datasets"
 PAYLOAD_TEAM_CONFIGS_KEY = "team_configs"
 PAYLOAD_MAX_DATASETS_KEY = "max_datasets"
@@ -42,6 +49,14 @@ class DatasetValidationError(Exception):
         super().__init__(detail)
         self.field = field
         self.detail = detail
+
+
+class DatasetSizeLimitExceeded(DatasetValidationError):
+    def __init__(self, *, field: str, size: int, limit: int) -> None:
+        super().__init__(field, f"This field must be {limit} bytes or fewer.")
+        self.resource = "dataset_item_payload_bytes" if field == "item" else "metadata_bytes"
+        self.current_count = size
+        self.limit = limit
 
 
 class DatasetMutationConflict(Exception):
@@ -73,7 +88,7 @@ class DatasetLimitExceeded(Exception):
     def __init__(
         self,
         *,
-        resource: Literal["datasets", "dataset_items", "dataset_item_versions"],
+        resource: DatasetConflictResponseResource,
         current_count: int,
         limit: int,
         detail: str,
@@ -147,7 +162,7 @@ def _json_size(value: JSONValue | dict[str, JSONValue], *, field: str, limit: in
         raise DatasetValidationError(field, "Enter a valid JSON value.") from error
 
     if payload_size > limit:
-        raise DatasetValidationError(field, f"This field must be {limit} bytes or fewer.")
+        raise DatasetSizeLimitExceeded(field=field, size=payload_size, limit=limit)
 
 
 def _json_values_equal(left: JSONValue, right: JSONValue) -> bool:
@@ -257,7 +272,7 @@ def _lock_dataset(*, team_id: int, dataset_id: UUID) -> Dataset:
         Dataset.objects.for_team(team_id, canonical=True)
         .select_for_update(of=("self",))
         .select_related("current_revision")
-        .get(id=dataset_id)
+        .get(id=dataset_id, expired_at__isnull=True)
     )
     current_revision = dataset.current_revision
     if current_revision is None:
@@ -330,6 +345,10 @@ def _check_base_version(*, current_version: DatasetItemVersion, base_version: in
 
 
 def _create_revision(*, dataset: Dataset, created_by: User | None) -> DatasetRevision:
+    if dataset.current_revision_id is not None:
+        DatasetRevision.objects.for_team(dataset.team_id, canonical=True).filter(id=dataset.current_revision_id).update(
+            last_used_at=timezone.now()
+        )
     latest_revision_number = (
         DatasetRevision.objects.for_team(dataset.team_id, canonical=True)
         .filter(dataset_id=dataset.id)
@@ -359,6 +378,7 @@ def _create_item_version(
 
     current_count = (
         DatasetItemVersion.objects.for_team(dataset.team_id, canonical=True)
+        .using(connection.alias)
         .filter(
             dataset_id=dataset.id,
             dataset_item_id=item.id,
@@ -377,10 +397,28 @@ def _create_item_version(
             )
         )
         raise DatasetLimitExceeded(
-            resource="dataset_item_versions",
+            resource=DatasetConflictResponseResource.DATASET_ITEM_VERSIONS,
             current_count=current_count,
             limit=MAX_VERSIONS_PER_ITEM,
             detail=detail,
+        )
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"aio-dataset-versions:{dataset.team_id}"]
+        )
+    retained_versions = (
+        DatasetItemVersion.objects.for_team(dataset.team_id, canonical=True).using(connection.alias).count()
+    )
+    if retained_versions >= MAX_RETAINED_VERSIONS_PER_TEAM:
+        raise DatasetLimitExceeded(
+            resource=DatasetConflictResponseResource.PROJECT_DATASET_ITEM_VERSIONS,
+            current_count=retained_versions,
+            limit=MAX_RETAINED_VERSIONS_PER_TEAM,
+            detail=(
+                f"This project has reached its limit of {MAX_RETAINED_VERSIONS_PER_TEAM:,} retained dataset item versions. "
+                "New versions can be added after unused versions expire."
+            ),
         )
 
     revision = _create_revision(dataset=dataset, created_by=created_by)
@@ -404,7 +442,8 @@ def _create_item_version(
     item.current_version = version
     item.save(update_fields=["current_version", "updated_at"])
     dataset.current_revision = revision
-    dataset.save(update_fields=["current_revision", "updated_at"])
+    dataset.last_used_at = timezone.now()
+    dataset.save(update_fields=["current_revision", "updated_at", "last_used_at"])
     return version
 
 
@@ -459,10 +498,15 @@ def create_dataset(
     normalized_name = _validate_dataset_fields(name=name, description=description, metadata=normalized_metadata)
     with connection.cursor() as cursor:
         cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"aio-dataset-allocation:{team.id}"])
-    current_count = Dataset.objects.for_team(team.id, canonical=True).count()
+    current_count = (
+        Dataset.objects.for_team(team.id, canonical=True)
+        .using(connection.alias)
+        .filter(expired_at__isnull=True)
+        .count()
+    )
     if current_count >= max_datasets:
         raise DatasetLimitExceeded(
-            resource="datasets",
+            resource=DatasetConflictResponseResource.DATASETS,
             current_count=current_count,
             limit=max_datasets,
             detail=(
@@ -511,7 +555,8 @@ def update_dataset(
     )
 
     changed_fields: list[str] = []
-    update_fields = ["updated_at"]
+    dataset.last_used_at = timezone.now()
+    update_fields = ["updated_at", "last_used_at"]
     if not isinstance(name, _Unset):
         if dataset.name != normalized_name:
             changed_fields.append("name")
@@ -543,7 +588,8 @@ def archive_dataset(*, team_id: int, dataset_id: UUID) -> DatasetMutationResult:
     if dataset.archived:
         return DatasetMutationResult(dataset=dataset)
     dataset.archived = True
-    dataset.save(update_fields=["archived", "updated_at"])
+    dataset.last_used_at = timezone.now()
+    dataset.save(update_fields=["archived", "updated_at", "last_used_at"])
     return DatasetMutationResult(dataset=dataset, changed_fields=("archived",))
 
 
@@ -553,7 +599,8 @@ def restore_dataset(*, team_id: int, dataset_id: UUID) -> DatasetMutationResult:
     if not dataset.archived:
         return DatasetMutationResult(dataset=dataset)
     dataset.archived = False
-    dataset.save(update_fields=["archived", "updated_at"])
+    dataset.last_used_at = timezone.now()
+    dataset.save(update_fields=["archived", "updated_at", "last_used_at"])
     return DatasetMutationResult(dataset=dataset, changed_fields=("archived",))
 
 
@@ -609,6 +656,7 @@ def create_dataset_item(
                     current_item_id=existing_item.id,
                 )
             if _item_contents_equal(_DatasetItemContent.from_version(current_version), content):
+                DatasetUsage.record(dataset, dataset.current_revision)
                 return DatasetItemMutationResult(
                     item=existing_item,
                     version=current_version,
@@ -621,10 +669,15 @@ def create_dataset_item(
                 current_item_id=existing_item.id,
             )
 
-    current_count = DatasetItem.objects.for_team(dataset.team_id, canonical=True).filter(dataset=dataset).count()
+    current_count = (
+        DatasetItem.objects.for_team(dataset.team_id, canonical=True)
+        .using(connection.alias)
+        .filter(dataset=dataset)
+        .count()
+    )
     if current_count >= MAX_ITEMS_PER_DATASET:
         raise DatasetLimitExceeded(
-            resource="dataset_items",
+            resource=DatasetConflictResponseResource.DATASET_ITEMS,
             current_count=current_count,
             limit=MAX_ITEMS_PER_DATASET,
             detail=(
@@ -689,6 +742,7 @@ def update_dataset_item(
     _validate_item_content(content=next_content)
 
     if _item_contents_equal(current_content, next_content):
+        DatasetUsage.record(dataset, dataset.current_revision)
         return DatasetItemMutationResult(
             item=item,
             version=current_version,

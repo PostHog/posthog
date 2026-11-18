@@ -2,8 +2,8 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useLayoutEffect, useRef } from 'react'
 
-import { Resizer } from 'lib/components/Resizer/Resizer'
-import { resizerLogic } from 'lib/components/Resizer/resizerLogic'
+import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
+import { resizerLogic } from 'lib/lemon-ui/Resizer/resizerLogic'
 import { cn } from 'lib/utils/css-classes'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 

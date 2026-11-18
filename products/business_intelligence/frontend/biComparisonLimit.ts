@@ -1,5 +1,6 @@
+import { escapeRawPropertyAsHogQLIdentifier } from 'lib/utils/hogql'
+
 import { BIConfig } from '~/queries/schema/schema-business-intelligence'
-import { escapeRawPropertyAsHogQLIdentifier } from '~/queries/utils'
 
 export function getBIComparisonGroupLimit(config: BIConfig): number {
     // Keep room for both periods without exceeding the backend's row cap.

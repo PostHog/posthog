@@ -423,6 +423,42 @@ def test_can_patch_config(
             "Higher frequency batch exports are not enabled for this team.",
             id="Cannot update to high frequency batch exports without feature flag",
         ),
+        pytest.param(
+            {
+                "interval": "day",
+                "timezone": "Europe/Berlin",
+                "offset_day": None,
+                "offset_hour": 1,
+            },
+            {"offset_hour": 5},
+            {
+                "interval": "day",
+                "timezone": "Europe/Berlin",
+                "offset_day": None,
+                "offset_hour": 5,
+                "interval_offset": 5 * 3600,
+            },
+            None,
+            id="Patching only the offset of a daily export",
+        ),
+        pytest.param(
+            {
+                "interval": "week",
+                "timezone": "UTC",
+                "offset_day": 3,
+                "offset_hour": 2,
+            },
+            {"offset_hour": 5},
+            {
+                "interval": "week",
+                "timezone": "UTC",
+                "offset_day": 3,  # the saved day stays
+                "offset_hour": 5,
+                "interval_offset": 3 * 86400 + 5 * 3600,
+            },
+            None,
+            id="Patching only the hour offset of a weekly export",
+        ),
     ],
 )
 def test_can_patch_schedule_configuration(
@@ -1192,3 +1228,28 @@ def test_updating_legacy_postgres_batch_export_keeps_inline_credentials(
     assert response.status_code == status.HTTP_200_OK, response.json()
     updated = get_batch_export_ok(client, team.pk, batch_export.id)
     assert updated["destination"]["config"]["table_name"] == "my_new_events"
+
+
+def test_updating_redshift_batch_export_without_integration_is_rejected(
+    client: HttpClient, temporal, organization, team, user
+):
+    destination = BatchExportDestination.objects.create(
+        type=BatchExportDestination.Destination.REDSHIFT,
+        config={"database": "my-db", "host": "8.8.8.8", "schema": "public", "table_name": "my_events"},
+    )
+    batch_export = BatchExport.objects.create(
+        name="export-without-integration", team=team, destination=destination, interval="hour"
+    )
+
+    client.force_login(user)
+    response = patch_batch_export(
+        client,
+        team.pk,
+        batch_export.id,
+        {"destination": {"type": "Redshift", "config": {"table_name": "my_new_events"}}},
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert response.json()["detail"] == "Integration is required for Redshift batch exports"
+    destination.refresh_from_db()
+    assert destination.config["table_name"] == "my_events"

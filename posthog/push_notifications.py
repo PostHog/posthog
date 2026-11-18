@@ -32,21 +32,64 @@ EXPO_PUSH_API_TIMEOUT_SECONDS = 10
 EXPO_PUSH_BATCH_SIZE = 100
 
 
-MobilePushCategory = Literal["tasks", "reports", "report_updates"]
+MobilePushCategory = Literal["tasks", "loops", "reports", "report_updates"]
 
 
 def mobile_push_preference_enabled(user: User, category: MobilePushCategory) -> bool:
     preferences = user.notification_settings
     enabled = {
-        "tasks": preferences.get("mobile_push_tasks_enabled", True),
+        "tasks": preferences.get("mobile_push_chat_enabled", True),
+        "loops": preferences.get("mobile_push_loops_enabled", True),
         "reports": preferences.get("mobile_push_reports_enabled", True),
         "report_updates": preferences.get("mobile_push_report_updates_enabled", True),
     }
     return preferences.get("mobile_push_enabled", True) and enabled[category]
 
 
+def mobile_push_payload_enabled(user: User, data: dict[str, Any] | None) -> bool:
+    payload = data or {}
+    kind = payload.get("notificationKind")
+    category: MobilePushCategory = (
+        "reports"
+        if kind == "report_visible"
+        else "report_updates"
+        if payload.get("type") == "report"
+        else "loops"
+        if isinstance(kind, str) and kind.startswith("loop_")
+        else "tasks"
+    )
+    if not mobile_push_preference_enabled(user, category):
+        return False
+    if not isinstance(kind, str):
+        return True
+    if kind in {"cancelled", "report_cancelled"} and payload.get("cancelledByUserId") == user.id:
+        return False
+    preference = {
+        "awaiting": "mobile_push_chat_attention_enabled",
+        "failed": "mobile_push_chat_attention_enabled",
+        "cancelled": "mobile_push_chat_attention_enabled",
+        "report_awaiting": "mobile_push_report_attention_enabled",
+        "report_failed": "mobile_push_report_attention_enabled",
+        "report_cancelled": "mobile_push_report_attention_enabled",
+        "handoff": "mobile_push_chat_mentions_enabled",
+        "thread_message": "mobile_push_chat_mentions_enabled"
+        if payload.get("isMention") is True
+        else "mobile_push_chat_replies_enabled",
+        "completed": "mobile_push_chat_completions_enabled",
+        "turn_completed": "mobile_push_chat_completions_enabled",
+        "report_completed": "mobile_push_report_completions_enabled",
+        "report_turn_completed": "mobile_push_report_completions_enabled",
+        "pull_request_ready": "mobile_push_report_pr_ready_enabled",
+        "pr_merged": "mobile_push_chat_pr_outcomes_enabled",
+        "pr_closed": "mobile_push_chat_pr_outcomes_enabled",
+        "report_pr_merged": "mobile_push_report_pr_outcomes_enabled",
+        "report_pr_closed": "mobile_push_report_pr_outcomes_enabled",
+    }.get(kind)
+    return preference is None or user.notification_settings.get(preference, True) is True
+
+
 def mobile_push_delivery_allowed(user: User, data: dict[str, Any] | None) -> bool:
-    if not user.is_active:
+    if not user.is_active or not mobile_push_payload_enabled(user, data):
         return False
 
     # Re-read eligibility on the worker: a queued push can outlive a preference or access change.
@@ -56,12 +99,9 @@ def mobile_push_delivery_allowed(user: User, data: dict[str, Any] | None) -> boo
             "posthog-code-mobile-push", user.distinct_id or f"user_{user.id}", send_feature_flag_events=False
         ):
             return False
-        from products.access_control.backend.facade.user_access_control import (
-            UserAccessControl,  # noqa: PLC0415 — keep access control off the startup path
+        from products.signals.backend.facade.reports import (  # noqa: PLC0415 — keep signals off the startup path
+            user_may_receive_report_push,
         )
-        from products.signals.backend.models import SignalReport  # noqa: PLC0415 — keep signals off the startup path
-        from products.signals.backend.report_access import may_read_reports  # noqa: PLC0415
-        from products.signals.backend.scout_authorship import report_is_hidden_from_inbox  # noqa: PLC0415
 
         category: MobilePushCategory = (
             "reports" if payload.get("notificationKind") == "report_visible" else "report_updates"
@@ -72,25 +112,9 @@ def mobile_push_delivery_allowed(user: User, data: dict[str, Any] | None) -> boo
         report_id = payload.get("report_id")
         if not isinstance(project_id, (int, str)) or not isinstance(report_id, str):
             return False
-        report = (
-            SignalReport.objects.filter(team_id=project_id, id=report_id)
-            .exclude(status__in=[SignalReport.Status.DELETED, SignalReport.Status.SUPPRESSED])
-            .select_related("team")
-            .first()
-        )
-        return bool(
-            report
-            and not report_is_hidden_from_inbox(report.team_id, str(report.id))
-            and User.objects.filter(
-                id=user.id,
-                is_active=True,
-                organization_membership__organization_id=report.team.organization_id,
-            ).exists()
-            and UserAccessControl(user=user, team=report.team).has_project_access
-            and may_read_reports(user=user, team=report.team)
-        )
+        return user_may_receive_report_push(user=user, team_id=project_id, report_id=report_id)
 
-    if not mobile_push_preference_enabled(user, "tasks") or not payload.get("taskId"):
+    if not payload.get("taskId"):
         return False
     project_id = payload.get("projectId")
     if not isinstance(project_id, int) or not user.teams.filter(id=project_id).exists():
@@ -125,14 +149,7 @@ def send_push_to_user(
     ``DeviceNotRegistered`` are deleted for this user so we stop trying to
     deliver to dead devices.
     """
-    category: MobilePushCategory = (
-        "reports"
-        if (data or {}).get("notificationKind") == "report_visible"
-        else "report_updates"
-        if (data or {}).get("type") == "report"
-        else "tasks"
-    )
-    if not mobile_push_preference_enabled(user, category):
+    if not mobile_push_payload_enabled(user, data):
         return 0
 
     qs = UserPushToken.objects.filter(user=user)

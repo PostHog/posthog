@@ -6,7 +6,7 @@ import { DEFAULT_MARGINS, FunnelChart, ValueLabels } from '@posthog/quill-charts
 import type { FunnelChartConfig, FunnelStepClickData, TooltipContext } from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { ScrollableShadows } from 'lib/lemon-ui/ScrollableShadows/ScrollableShadows'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -49,6 +49,7 @@ const handleChartError = (error: Error, info: ErrorInfo): void => {
 
 export function FunnelStepsBarChart({
     showPersonsModal: showPersonsModalProp = true,
+    context,
 }: ChartParams): JSX.Element | null {
     const theme = useChartTheme()
     const { insightProps } = useValues(insightLogic)
@@ -116,6 +117,7 @@ export function FunnelStepsBarChart({
             <FunnelStepsBarTooltip
                 context={ctx}
                 steps={steps}
+                querySource={querySource}
                 breakdownFilter={breakdownFilter}
                 groupTypeLabel={groupTypeLabel}
                 showPersonsModal={showPersonsModal}
@@ -174,6 +176,7 @@ export function FunnelStepsBarChart({
                     {conversionChipStepIndexes.length > 0 && (
                         <StepConversionChips steps={steps} stepIndexes={conversionChipStepIndexes} />
                     )}
+                    {context?.chartOverlay}
                 </FunnelChart>
             </div>
         </ScrollableShadows>

@@ -1,10 +1,9 @@
 import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-import { isFileSystemImportFlagEnabled } from 'lib/utils/fileSystemImportFlags'
+import { isFileSystemImportShown } from 'lib/utils/fileSystemImportFlags'
 import { DEFINITIONS_TABS } from 'scenes/data-management/definitionsSceneTabsLogic'
-import { isWelcomeNavItemShown } from 'scenes/onboarding/welcome/welcomeNavItem'
 import { urls } from 'scenes/urls'
 
-import { FileSystemImport } from '~/queries/schema/schema-general'
+import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 import { ActivityTab } from '~/types'
 
 import { getDefaultTreeData, getDefaultTreeProducts } from '../../ProjectTree/defaultTree'
@@ -19,6 +18,11 @@ import {
 // These pages are tabs of Event definitions, so the sidebar lists only that entry for them.
 const DEFINITIONS_TAB_HREFS = new Set(DEFINITIONS_TABS.filter((tab) => tab.key !== 'events').map((tab) => tab.url))
 
+export const PEOPLE_AND_GROUPS_NAV: { label: string; iconType: FileSystemIconType } = {
+    label: 'People and groups',
+    iconType: 'persons',
+}
+
 export function isDefinitionsTabHref(href: string | undefined): boolean {
     return !!href && DEFINITIONS_TAB_HREFS.has(href)
 }
@@ -26,16 +30,7 @@ export function isDefinitionsTabHref(href: string | undefined): boolean {
 // Items in this category sit above Starred and All products, so they are never starred or grouped.
 export const PINNED_CATEGORY = 'Project'
 
-// Shown first, and only while the project is new on the simple onboarding arm (see `isWelcomeNavItemShown`).
-export const WELCOME_NAV_ITEM: FileSystemImport = {
-    path: 'Welcome',
-    category: PINNED_CATEGORY,
-    iconType: 'wizard',
-    href: urls.onboardingWelcome(),
-    visualOrder: -1,
-}
-
-/** Every page the Products tab can list, before feature flags and the Welcome page apply. */
+/** Every page the Products tab can list, before feature flags apply. */
 export function getNavProductPages(): FileSystemImport[] {
     return [
         {
@@ -54,9 +49,9 @@ export function getNavProductPages(): FileSystemImport[] {
         },
         {
             path: 'Persons',
-            displayLabel: 'People and groups',
+            displayLabel: PEOPLE_AND_GROUPS_NAV.label,
             category: PINNED_CATEGORY,
-            iconType: 'persons',
+            iconType: PEOPLE_AND_GROUPS_NAV.iconType,
             href: urls.persons(),
             visualOrder: 3,
         },
@@ -75,15 +70,11 @@ export function getNavProductPages(): FileSystemImport[] {
     ]
 }
 
-/** `projectCreatedAt` decides whether a new project gets the Welcome page. */
-export function getNavProductItems(featureFlags: FeatureFlagsSet, projectCreatedAt?: string): FileSystemImport[] {
-    const items = [
-        ...(isWelcomeNavItemShown(projectCreatedAt, featureFlags) ? [WELCOME_NAV_ITEM] : []),
-        ...getNavProductPages(),
-    ]
+export function getNavProductItems(featureFlags: FeatureFlagsSet): FileSystemImport[] {
+    const items = getNavProductPages()
     const destinations = new Map<string, FileSystemImport>()
     for (const item of items) {
-        if (!item.href || isDefinitionsTabHref(item.href) || !isFileSystemImportFlagEnabled(item, featureFlags)) {
+        if (!item.href || isDefinitionsTabHref(item.href) || !isFileSystemImportShown(item, featureFlags)) {
             continue
         }
         const existing = destinations.get(item.href)

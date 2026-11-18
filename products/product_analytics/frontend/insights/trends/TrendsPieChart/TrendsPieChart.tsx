@@ -6,6 +6,7 @@ import { useMemo, type ErrorInfo } from 'react'
 import { PieChart } from '@posthog/quill-charts'
 import type { PieChartConfig } from '@posthog/quill-charts'
 
+import { DonutCenterLabel } from 'lib/charts/DonutCenterLabel'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -15,7 +16,6 @@ import { trendsDataLogic } from 'products/product_analytics/frontend/insights/tr
 
 import type { TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { type TrendsPartOfWholeChartProps, useTrendsPartOfWholeChart } from '../shared/useTrendsPartOfWholeChart'
-import { DonutCenterLabel } from './DonutCenterLabel'
 
 const DONUT_INNER_RADIUS_RATIO = 0.6
 

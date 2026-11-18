@@ -5,11 +5,12 @@ import { LemonDivider } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
+import type { AttachedContextItem } from '~/layout/ai/attachedContext'
+
 import { useAttachedContext } from '../../../hooks/useAttachedContext'
 import { useForegroundStream } from '../../../hooks/useForegroundStream'
 import { useThreadSkin } from '../../../hooks/useThreadSkin'
 import type { ComposerOverride } from '../../../logics/composerOverrideLogic'
-import type { AttachedContextItem } from '../../../types/contextTypes'
 import { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM } from '../../../utils/posthogContextBlock'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { StartupRunChat } from './StartupRunChat'

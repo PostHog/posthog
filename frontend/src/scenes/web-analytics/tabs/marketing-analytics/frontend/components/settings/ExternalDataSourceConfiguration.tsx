@@ -15,7 +15,7 @@ import {
     NativeMarketingSource,
     VALID_NATIVE_MARKETING_SOURCES,
 } from '~/queries/schema/schema-general'
-import { ExternalDataSchemaStatus, ExternalDataSource, ManualLinkSourceType } from '~/types'
+import { ExternalDataSchemaStatus, ExternalDataSource } from '~/types'
 
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 import { AddIntegrationButton } from 'products/marketing_analytics/frontend/components/AddIntegrationButton'
@@ -29,12 +29,12 @@ import {
 } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import {
+    ExternalTableTypeLabel,
     MAX_ITEMS_TO_SHOW,
     NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS,
-    NonNativeMarketingSource,
-    VALID_NON_NATIVE_MARKETING_SOURCES,
-    VALID_SELF_MANAGED_MARKETING_SOURCES,
+    externalTableTypeLabel,
     findSchemaByFieldName,
+    marketingSourceDisplayLabel,
     nativeSourceDisplayLabel,
 } from '../../logic/utils'
 import { ColumnMappingModal } from './ColumnMappingModal'
@@ -46,7 +46,7 @@ type UnifiedSource = {
     id: string
     name: string
     sourceType: string
-    sourceTypeLabel: 'Native' | 'Data warehouse' | 'Self-managed'
+    sourceTypeLabel: 'Native' | ExternalTableTypeLabel
     status: SourceStatus
     statusMessage: string
     sourceUrl?: string
@@ -55,7 +55,7 @@ type UnifiedSource = {
     syncingTables?: string[]
     tablesToSync?: string[]
     nativeSource?: ExternalDataSource & { status?: string; statusMessage?: string }
-    // For non-native/self-managed
+    // For non-native and self-managed tables
     isTable?: boolean
     table?: ExternalTable
 }
@@ -115,38 +115,21 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
                 }
             }
 
-            // Check if this is a BigQuery/warehouse source
-            if (VALID_NON_NATIVE_MARKETING_SOURCES.includes(item.source_type as NonNativeMarketingSource)) {
-                return {
-                    id: `table-${item.id}`,
-                    name: item.name,
-                    sourceType: `${item.source_type} ${item.source_prefix}`,
-                    sourceTypeLabel: 'Data warehouse' as const,
-                    status: item.status || MarketingSourceStatus.Error,
-                    statusMessage: item.statusMessage || 'Unknown status',
-                    sourceUrl: item.sourceUrl,
-                    isTable: true,
-                    table: item,
-                }
+            const tableTypeLabel = externalTableTypeLabel(item.source_type)
+            if (!tableTypeLabel) {
+                return null
             }
-
-            // Check if this is a self-managed source
-            if (VALID_SELF_MANAGED_MARKETING_SOURCES.includes(item.source_type as ManualLinkSourceType)) {
-                return {
-                    id: `table-${item.id}`,
-                    name: item.name,
-                    sourceType: `${item.source_type} ${item.source_prefix}`,
-                    sourceTypeLabel: 'Self-managed' as const,
-                    status: item.status || MarketingSourceStatus.Error,
-                    statusMessage: item.statusMessage || 'Unknown status',
-                    sourceUrl: item.sourceUrl,
-                    isTable: true,
-                    table: item,
-                }
+            return {
+                id: `table-${item.id}`,
+                name: item.name,
+                sourceType: `${marketingSourceDisplayLabel(item.source_type)} ${item.source_prefix}`,
+                sourceTypeLabel: tableTypeLabel,
+                status: item.status || MarketingSourceStatus.Error,
+                statusMessage: item.statusMessage || 'Unknown status',
+                sourceUrl: item.sourceUrl,
+                isTable: true,
+                table: item,
             }
-
-            // Fallback for unknown types
-            return null
         })
         .filter(Boolean) as UnifiedSource[]
 
@@ -184,7 +167,7 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
     return (
         <SceneSection
             title="Data source configuration"
-            description="Connect and configure data sources to enable marketing analytics. Native sources sync automatically, while warehouse and self-managed sources need column mapping."
+            description="Connect and configure data sources to enable marketing analytics. Native sources sync automatically, while warehouse, file, and self-managed sources need column mapping."
         >
             {hasNoConfiguredSources &&
                 (unconfiguredNativeSources.length > 0 ? (
@@ -246,9 +229,9 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
                                 type={
                                     item.sourceTypeLabel === 'Native'
                                         ? 'success'
-                                        : item.sourceTypeLabel === 'Data warehouse'
-                                          ? 'default'
-                                          : 'primary'
+                                        : item.sourceTypeLabel === 'Self-managed'
+                                          ? 'primary'
+                                          : 'default'
                                 }
                             >
                                 {item.sourceTypeLabel}

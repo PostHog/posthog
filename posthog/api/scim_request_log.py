@@ -2,9 +2,9 @@ from django.db.models import Q, QuerySet
 
 import django_filters
 from rest_framework import response, serializers
-from rest_framework.pagination import PageNumberPagination
 from rest_framework.request import Request
 
+from posthog.api.pagination import BoundedPageNumberPagination
 from posthog.api.scim.utils import mask_email, mask_string
 from posthog.models.scim_request_log import SCIMRequestLog
 
@@ -50,7 +50,7 @@ class SCIMRequestLogQuerySerializer(serializers.Serializer):
     )
 
 
-class SCIMRequestLogPagination(PageNumberPagination):
+class SCIMRequestLogPagination(BoundedPageNumberPagination):
     page_size = 20
     page_size_query_param = "page_size"
     max_page_size = 100

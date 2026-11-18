@@ -1,12 +1,16 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { Realm } from '~/types'
 
+import { NEW_TEMPLATE } from 'products/workflows/frontend/TemplateLibrary/constants'
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 
 import {
@@ -14,6 +18,8 @@ import {
     EditorRef,
     EmailTemplate,
     EmailTemplaterLogicProps,
+    buildHtmlWrapDesign,
+    editorDesignForEmail,
     buildPersonPropertyMergeValue,
     emailTemplaterLogic,
 } from './emailTemplaterLogic'
@@ -39,6 +45,31 @@ function makeProps(overrides?: Partial<EmailTemplaterLogicProps>): EmailTemplate
 const ADVANCED_FIELDS = EMAIL_TYPE_SUPPORTED_FIELDS.native_email.filter((f) => f.isAdvancedField)
 const NON_ADVANCED_FIELDS = EMAIL_TYPE_SUPPORTED_FIELDS.native_email.filter((f) => !f.isAdvancedField)
 
+const renderAround = (block: string): string =>
+    `<html><head><style>#u_body a { color: #00e; }</style></head><body class="clean-body u_body"><!--[if mso]><table><tr><td><![endif]--><table id="u_body"><tbody><tr><td><div class="u-row">${block}</div></td></tr></tbody></table></body></html>`
+const RENDER_OF_OLD = renderAround('<p>old</p>')
+const RENDER_WITH_FOOTER = renderAround('<p>old</p><p>P.S.</p>')
+const RENDERED_PAGE = renderAround('<p>page</p>')
+const RENDERED_PAGE_WITH_FOOTER = `<div>${RENDERED_PAGE}<p>footer</p></div>`
+const RENDER_WITH_IMAGE = renderAround('<p>old</p><img src="https://example.com/offer.png">')
+const UNLAYER_COLUMN_OPEN =
+    '<!--[if (mso)|(IE)]><table width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td align="center"><![endif]--><!--[if (!mso)&(!IE)]><!--><div style="height: 100%;"><!--<![endif]-->'
+const UNLAYER_COLUMN_CLOSE =
+    '<!--[if (!mso)&(!IE)]><!--></div><!--<![endif]--><!--[if (mso)|(IE)]></td></tr></table><![endif]-->'
+const RENDER_IN_OUTLOOK_COLUMN = renderAround(`${UNLAYER_COLUMN_OPEN}<p>old</p>${UNLAYER_COLUMN_CLOSE}`)
+const RENDER_WITH_OUTLOOK_FOOTER = renderAround('<p>old</p><!--[if mso]><p>footer</p><![endif]-->')
+const RENDER_WITH_NON_OUTLOOK_FOOTER = renderAround('<p>old</p><!--[if !mso]><!--><p>footer</p><!--<![endif]-->')
+
+jest.mock('products/workflows/frontend/EmailDocumentEditor/components/EmailHtmlBlockView', () => ({
+    EmailHtmlBlockView: () => null,
+}))
+jest.mock('products/workflows/frontend/EmailDocumentEditor/components/EmailImageBlockView', () => ({
+    EmailImageBlockView: () => null,
+}))
+jest.mock('products/workflows/frontend/EmailDocumentEditor/components/EmailVariableChip', () => ({
+    EmailVariableChip: () => null,
+}))
+
 describe('emailTemplaterLogic', () => {
     let logic: ReturnType<typeof emailTemplaterLogic.build>
 
@@ -50,6 +81,8 @@ describe('emailTemplaterLogic', () => {
             },
         })
         initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], {})
     })
 
     afterEach(() => {
@@ -197,6 +230,134 @@ describe('emailTemplaterLogic', () => {
         })
     })
 
+    describe('which editor opens', () => {
+        const documentDesign = {
+            ...buildHtmlWrapDesign('<p>doc</p>'),
+            emailDocument: { version: 1, doc: { type: 'doc', attrs: { page: {} }, content: [] } },
+        }
+        const documentEmail = { ...DEFAULT_EMAIL_TEMPLATE, html: '<p>doc</p>', design: documentDesign as any }
+        const blankEmail = { ...DEFAULT_EMAIL_TEMPLATE, html: '', text: '', design: null }
+
+        it.each([
+            { name: 'flag off: a blank email', flag: false, value: blankEmail, expected: false },
+            { name: 'flag off: an email saved by the new editor', flag: false, value: documentEmail, expected: false },
+            { name: 'flag on: a blank email', flag: true, value: blankEmail, expected: true },
+            { name: 'flag on: an email saved by the new editor', flag: true, value: documentEmail, expected: true },
+            {
+                name: 'flag on: an old-editor email converts',
+                flag: true,
+                value: DEFAULT_EMAIL_TEMPLATE,
+                expected: true,
+            },
+            {
+                name: 'flag on: an html-only email converts',
+                flag: true,
+                value: { ...DEFAULT_EMAIL_TEMPLATE, html: '<p>Written elsewhere</p>', design: null },
+                expected: true,
+            },
+            {
+                name: 'flag on: a document that no longer matches the html converts from the html',
+                flag: true,
+                value: { ...documentEmail, html: '<p>changed elsewhere</p>' },
+                expected: true,
+            },
+            {
+                name: 'flag on: an email the new editor cannot rebuild converts as its own html',
+                flag: true,
+                value: {
+                    ...DEFAULT_EMAIL_TEMPLATE,
+                    html: '<p>Video</p>',
+                    design: {
+                        body: { rows: [{ cells: [1], columns: [{ contents: [{ type: 'video', values: {} }] }] }] },
+                    },
+                },
+                expected: true,
+            },
+            {
+                name: 'flag on: an email it cannot rebuild and has no html for stays on the old editor',
+                flag: true,
+                value: {
+                    ...DEFAULT_EMAIL_TEMPLATE,
+                    html: '',
+                    design: {
+                        body: { rows: [{ cells: [1], columns: [{ contents: [{ type: 'video', values: {} }] }] }] },
+                    },
+                },
+                expected: false,
+            },
+        ])('$name', async ({ flag, value, expected }) => {
+            featureFlagLogic.actions.setFeatureFlags(flag ? [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR] : [], {
+                [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR]: flag,
+            })
+            logic = emailTemplaterLogic(makeProps({ value }))
+            logic.mount()
+            logic.actions.setIsModalOpen(true)
+
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({ usesDocumentEditor: expected })
+        })
+
+        it('converts an old-editor email only once its editor opens', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR], {
+                [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR]: true,
+            })
+            logic = emailTemplaterLogic(makeProps({ value: DEFAULT_EMAIL_TEMPLATE }))
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({ emailConversion: null })
+
+            logic.actions.setIsModalOpen(true)
+
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({ usesDocumentEditor: true })
+        })
+
+        it('keeps someone who chose the old editor there until they switch back', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR], {
+                [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR]: true,
+            })
+            logic = emailTemplaterLogic(makeProps({ value: DEFAULT_EMAIL_TEMPLATE }))
+            logic.mount()
+            logic.actions.setIsModalOpen(true)
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({ usesDocumentEditor: true })
+
+            logic.actions.setPrefersOldEmailEditor(true)
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({ usesDocumentEditor: false })
+
+            logic.actions.setPrefersOldEmailEditor(false)
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({ usesDocumentEditor: true })
+        })
+
+        it('does not load the new template sample over the new editor starter', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR], {
+                [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR]: true,
+            })
+            const loadDesign = jest.fn()
+            logic = emailTemplaterLogic(makeProps({ value: NEW_TEMPLATE.content.email as any }))
+            logic.mount()
+            logic.actions.setEmailEditorRef({
+                editor: { loadDesign, addEventListener: jest.fn(), exportHtml: jest.fn() },
+            } as any)
+            logic.actions.onEmailEditorReady()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(loadDesign).not.toHaveBeenCalled()
+        })
+
+        it('keeps the destination email type on the old editor', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR], {
+                [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR]: true,
+            })
+            logic = emailTemplaterLogic(makeProps({ value: blankEmail, type: 'email' }))
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({ usesDocumentEditor: false })
+        })
+
+        it('refreshes the old-editor wrap of a document whose html changed elsewhere', () => {
+            expect(editorDesignForEmail({ html: '<p>changed</p>', design: documentDesign as any })).toEqual(
+                buildHtmlWrapDesign('<p>changed</p>')
+            )
+        })
+    })
+
     describe('modal content tab default', () => {
         it.each([
             {
@@ -299,6 +460,54 @@ describe('emailTemplaterLogic', () => {
                 })
             )
         })
+
+        it('applying a template whose stored wrap is stale loads its current html', () => {
+            const loadDesign = jest.fn()
+            logic = emailTemplaterLogic(makeProps())
+            logic.mount()
+            logic.actions.setEmailEditorRef({
+                editor: { loadDesign, addEventListener: jest.fn() },
+            } as unknown as EditorRef)
+            logic.actions.onEmailEditorReady()
+            loadDesign.mockClear()
+
+            logic.actions.applyTemplate({
+                id: 'template-3',
+                name: 'Newsletter',
+                content: {
+                    templating: 'liquid',
+                    email: { subject: 'News', html: '<p>new</p>', design: buildHtmlWrapDesign('<p>old</p>') },
+                },
+            } as MessageTemplate)
+
+            expect(loadDesign).toHaveBeenCalledWith(buildHtmlWrapDesign('<p>new</p>'), '<p>new</p>')
+        })
+    })
+
+    describe('custom sender', () => {
+        it('clearing the custom sender sends one update without the name, address, or reply-to', () => {
+            const onChange = jest.fn()
+            logic = emailTemplaterLogic(
+                makeProps({
+                    value: {
+                        ...DEFAULT_EMAIL_TEMPLATE,
+                        from: { integrationId: 1, name: 'Support', email: 'support@example.com' },
+                        replyTo: 'team@example.com',
+                    },
+                    onChange,
+                    layout: 'inline',
+                })
+            )
+            logic.mount()
+
+            logic.actions.clearCustomSender()
+
+            expect(onChange).toHaveBeenCalledTimes(1)
+            expect(onChange.mock.calls[0][0]).toMatchObject({
+                from: { integrationId: 1, name: undefined, email: undefined },
+                replyTo: '',
+            })
+        })
     })
 
     describe('html-only emails', () => {
@@ -319,6 +528,50 @@ describe('emailTemplaterLogic', () => {
                 type: 'html',
                 values: { html: '<p>raw</p>' },
             })
+        })
+
+        it.each([
+            ['the html was rewritten', '<p>old</p>', '<p>new</p>', '<p>new</p>'],
+            ['copy was appended to the block', '<p>old</p>', '<p>old</p><p>footer</p>', '<p>old</p><p>footer</p>'],
+            ['copy was appended inside its Unlayer render', '<p>old</p>', RENDER_WITH_FOOTER, RENDER_WITH_FOOTER],
+            [
+                'the block itself is an Unlayer page that got a footer',
+                RENDERED_PAGE,
+                RENDERED_PAGE_WITH_FOOTER,
+                RENDERED_PAGE_WITH_FOOTER,
+            ],
+            ['an image was added inside its Unlayer render', '<p>old</p>', RENDER_WITH_IMAGE, RENDER_WITH_IMAGE],
+            [
+                'an Outlook-only footer was added inside its Unlayer render',
+                '<p>old</p>',
+                RENDER_WITH_OUTLOOK_FOOTER,
+                RENDER_WITH_OUTLOOK_FOOTER,
+            ],
+            [
+                'a footer hidden from Outlook was added inside its Unlayer render',
+                '<p>old</p>',
+                RENDER_WITH_NON_OUTLOOK_FOOTER,
+                RENDER_WITH_NON_OUTLOOK_FOOTER,
+            ],
+            ['the html is the Unlayer render of the wrap', '<p>old</p>', RENDER_OF_OLD, '<p>old</p>'],
+            [
+                'the html is the Unlayer render of the wrap in Outlook column wrappers',
+                '<p>old</p>',
+                RENDER_IN_OUTLOOK_COLUMN,
+                '<p>old</p>',
+            ],
+        ])('when %s, the canvas loads a wrap of the right html', (_name, blockHtml, html, expectedBlockHtml) => {
+            const loadDesign = jest.fn()
+            logic = emailTemplaterLogic(
+                makeProps({ value: { ...DEFAULT_EMAIL_TEMPLATE, design: buildHtmlWrapDesign(blockHtml), html } })
+            )
+            logic.mount()
+            logic.actions.setEmailEditorRef({
+                editor: { loadDesign, addEventListener: jest.fn() },
+            } as unknown as EditorRef)
+            logic.actions.onEmailEditorReady()
+
+            expect(loadDesign).toHaveBeenCalledWith(buildHtmlWrapDesign(expectedBlockHtml))
         })
 
         it('does not load anything when there is neither design nor html', () => {
@@ -488,16 +741,19 @@ describe('emailTemplaterLogic', () => {
     })
 
     describe('live changes in the modal layout', () => {
-        let onChange: jest.Mock
+        let parent: { email: EmailTemplate }
         let loadDesign: jest.Mock
         let editorListeners: Record<string, () => void>
         let editorDesign: Record<string, any>
+        let holdNextExport: boolean
+        let releaseHeldExport: (() => void) | null
 
         const DESIGN_STORED = { body: { id: 'stored', rows: [{ id: 'r1' }] } }
         // What unlayer exports after normalizing DESIGN_STORED (it rewrites ids/defaults on load).
         const DESIGN_NORMALIZED = { body: { id: 'stored', rows: [{ id: 'r1' }], values: { normalized: true } } }
         const DESIGN_EDITED = { body: { id: 'edited', rows: [{ id: 'r2' }] } }
         const DESIGN_EXTERNAL = { body: { id: 'external', rows: [{ id: 'r3' }] } }
+        const DESIGN_EDITED_AGAIN = { body: { id: 'edited-again', rows: [{ id: 'r4' }] } }
 
         const value = (overrides?: Partial<EmailTemplate>): EmailTemplate => ({
             ...DEFAULT_EMAIL_TEMPLATE,
@@ -512,11 +768,22 @@ describe('emailTemplaterLogic', () => {
                     addEventListener: (event: string, callback: () => void) => {
                         editorListeners[event] = callback
                     },
-                    exportHtml: (callback: (data: any) => void) =>
-                        callback({ html: '<p>edited</p>', design: editorDesign }),
+                    exportHtml: (callback: (data: any) => void) => {
+                        const exported = { html: '<p>edited</p>', design: editorDesign }
+                        if (holdNextExport) {
+                            holdNextExport = false
+                            releaseHeldExport = () => callback(exported)
+                            return
+                        }
+                        callback(exported)
+                    },
                     exportPlainText: (callback: (data: any) => void) => callback({ text: 'edited' }),
                 },
             }) as unknown as EditorRef
+
+        const onChange = (email: EmailTemplate): void => {
+            parent.email = email
+        }
 
         const updateProps = (overrides?: Partial<EmailTemplate>): void => {
             // The logic is unkeyed: rebuilding with new props updates the mounted instance and
@@ -525,10 +792,12 @@ describe('emailTemplaterLogic', () => {
         }
 
         beforeEach(async () => {
-            onChange = jest.fn()
+            parent = { email: value() }
             loadDesign = jest.fn()
             editorListeners = {}
             editorDesign = DESIGN_NORMALIZED
+            holdNextExport = false
+            releaseHeldExport = null
             logic = emailTemplaterLogic(makeProps({ value: value(), onChange, liveChanges: true }))
             logic.mount()
             logic.actions.setIsModalOpen(true)
@@ -551,23 +820,20 @@ describe('emailTemplaterLogic', () => {
             jest.useRealTimers()
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(onChange).toHaveBeenCalledTimes(1)
-            expect(onChange.mock.calls[0][0]).toMatchObject({ design: DESIGN_EDITED, text: 'edited' })
+            expect(parent.email).toMatchObject({ design: DESIGN_EDITED, text: 'edited' })
         })
 
         it('propagates meta field edits while the modal is open', async () => {
             logic.actions.setEmailTemplateValue('subject', 'Updated subject')
 
-            expect(onChange).toHaveBeenCalledTimes(1)
-            expect(onChange.mock.calls[0][0]).toMatchObject({ subject: 'Updated subject' })
+            expect(parent.email).toMatchObject({ subject: 'Updated subject' })
         })
 
         it('a plain-text edit replaces the html body, like the modal save does', async () => {
             logic.actions.setActiveContentTab('plaintext')
             logic.actions.setEmailTemplateValue('text', 'Plain words')
 
-            expect(onChange).toHaveBeenCalledTimes(1)
-            expect(onChange.mock.calls[0][0]).toMatchObject({ text: 'Plain words', html: '' })
+            expect(parent.email).toMatchObject({ text: 'Plain words', html: '' })
         })
 
         it('browser back mid-debounce flushes the pending canvas edit through the same path', async () => {
@@ -577,33 +843,94 @@ describe('emailTemplaterLogic', () => {
             // Back button: the URL loses the param and urlToAction drives the close.
             router.actions.push(router.values.location.pathname, {})
             await jest.advanceTimersByTimeAsync(0)
-            expect(onChange).toHaveBeenCalledTimes(1)
-            expect(onChange.mock.calls[0][0]).toMatchObject({ design: DESIGN_EDITED })
+            expect(parent.email).toMatchObject({ design: DESIGN_EDITED })
             expect(logic.values.isModalOpen).toBe(false)
 
             await jest.advanceTimersByTimeAsync(500)
             jest.useRealTimers()
             await expectLogic(logic).toFinishAllListeners()
-            expect(onChange).toHaveBeenCalledTimes(1)
+            expect(parent.email).toMatchObject({ design: DESIGN_EDITED, text: 'edited' })
         })
 
-        it('closing mid-debounce flushes the pending canvas edit instead of dropping it', async () => {
+        it('switching the sender keeps a canvas edit made while the flush is exporting', async () => {
             jest.useFakeTimers()
             editorDesign = DESIGN_EDITED
             editorListeners['design:updated']()
-            // Close before the 500ms debounce fires - the last edit must still propagate.
-            logic.actions.closeWithConfirmation()
-            await jest.advanceTimersByTimeAsync(0)
-            expect(onChange).toHaveBeenCalledTimes(1)
-            expect(onChange.mock.calls[0][0]).toMatchObject({ design: DESIGN_EDITED, text: 'edited' })
-            expect(logic.values.isModalOpen).toBe(false)
+            holdNextExport = true
+            const flushed = logic.asyncActions.flushPendingDesignEdit()
+            editorDesign = DESIGN_EDITED_AGAIN
+            editorListeners['design:updated']()
+            releaseHeldExport?.()
+            await flushed
 
-            // The debounced export still fires afterwards; the flush must have rebaselined so it
-            // does not propagate the same edit twice.
+            expect(parent.email).toMatchObject({ design: DESIGN_EDITED_AGAIN })
+
             await jest.advanceTimersByTimeAsync(500)
             jest.useRealTimers()
             await expectLogic(logic).toFinishAllListeners()
-            expect(onChange).toHaveBeenCalledTimes(1)
+        })
+
+        it('keeps the editor open and says so when an edit fails to save on close', async () => {
+            const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => undefined as any)
+            logic.actions.setEmailEditorRef({
+                editor: {
+                    ...fakeEditorRef().editor,
+                    exportPlainText: () => {
+                        throw new Error('export failed')
+                    },
+                },
+            } as unknown as EditorRef)
+            jest.useFakeTimers()
+            editorDesign = DESIGN_EDITED
+            editorListeners['design:updated']()
+            logic.actions.closeWithConfirmation()
+            await jest.advanceTimersByTimeAsync(0)
+            jest.useRealTimers()
+
+            expect(logic.values.isModalOpen).toBe(true)
+            expect(toast).toHaveBeenCalledWith(expect.stringContaining("Couldn't save this email"))
+            toast.mockRestore()
+        })
+
+        it.each([
+            {
+                trigger: 'closing and reopening the editor',
+                leave: (): void => logic.actions.closeWithConfirmation(),
+                reopen: true,
+            },
+            {
+                trigger: 'switching the sender',
+                leave: (): void => void logic.asyncActions.flushPendingDesignEdit(),
+                reopen: false,
+            },
+        ])('$trigger mid-debounce keeps the pending canvas edit', async ({ leave, reopen }) => {
+            jest.useFakeTimers()
+            editorDesign = DESIGN_EDITED
+            editorListeners['design:updated']()
+            leave()
+            await jest.advanceTimersByTimeAsync(0)
+            expect(parent.email).toMatchObject({ design: DESIGN_EDITED, text: 'edited' })
+
+            if (reopen) {
+                logic.actions.setIsModalOpen(true)
+            }
+            logic.actions.setEmailEditorRef({
+                editor: {
+                    loadDesign,
+                    addEventListener: () => {},
+                    registerProvider: () => {},
+                    registerCallback: () => {},
+                    exportHtml: (callback: (data: any) => void) =>
+                        callback({ html: '', design: { body: { id: 'blank', rows: [] } } }),
+                    exportPlainText: (callback: (data: any) => void) => callback({ text: '' }),
+                },
+            } as unknown as EditorRef)
+            logic.actions.onEmailEditorReady()
+            await jest.advanceTimersByTimeAsync(500)
+            jest.useRealTimers()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(parent.email).toMatchObject({ design: DESIGN_EDITED, text: 'edited' })
         })
 
         it('loads an externally changed design into the mounted canvas', async () => {
@@ -627,9 +954,9 @@ describe('emailTemplaterLogic', () => {
             await jest.advanceTimersByTimeAsync(500)
             jest.useRealTimers()
             await expectLogic(logic).toFinishAllListeners()
-            expect(onChange).toHaveBeenCalledTimes(1)
+            expect(parent.email.design).toEqual(exported)
 
-            updateProps({ design: JSON.parse(JSON.stringify(exported)) })
+            updateProps({ design: JSON.parse(JSON.stringify(parent.email.design)) })
             await expectLogic(logic).toFinishAllListeners()
 
             expect(loadDesign).toHaveBeenCalledTimes(1)
@@ -649,8 +976,7 @@ describe('emailTemplaterLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             // The user's in-flight edit still propagates and wins.
-            expect(onChange).toHaveBeenCalledTimes(1)
-            expect(onChange.mock.calls[0][0]).toMatchObject({ design: DESIGN_EDITED })
+            expect(parent.email).toMatchObject({ design: DESIGN_EDITED })
         })
 
         it('does not reload the same external design when an unrelated field changes', async () => {

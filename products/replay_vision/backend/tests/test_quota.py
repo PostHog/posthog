@@ -507,7 +507,8 @@ class TestComputeScannerBudgets(_VisionQuotaTestCase):
         [
             ("no_own_cap_free_credits_bind", None, 1_000_000, FREE_TIER_MONTHLY_CREDITS, True, False, True),
             ("larger_own_cap_free_credits_bind", 100_000, 1_000_000, FREE_TIER_MONTHLY_CREDITS, True, False, True),
-            ("tighter_own_cap_binds", 5, 1_000_000, 5, True, False, False),
+            # The other scanner's spend fills the free credits, so they are full even though the own cap binds.
+            ("tighter_own_cap_binds", 5, 1_000_000, 5, True, False, True),
             ("no_org_limit_free_credits_still_bind", None, None, FREE_TIER_MONTHLY_CREDITS, True, False, True),
             ("org_limit_below_free_credits_binds", None, 1_000, 1_000, True, False, True),
             # In-flight work fills the own cap, but only the free credits are full of posted spend.
@@ -530,7 +531,7 @@ class TestComputeScannerBudgets(_VisionQuotaTestCase):
         expected_limit: int | str,
         expected_blocked: bool,
         in_flight: bool,
-        expected_free_credits_copy: bool,
+        expected_free_credits_full: bool,
     ) -> None:
         cost = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH)
         own_cap = cost if own_cap == "one_observation" else own_cap
@@ -561,8 +562,8 @@ class TestComputeScannerBudgets(_VisionQuotaTestCase):
             budget.credit_limit,
             budget.blocked,
             budget.blocked_by_settled_spend,
-            budget.settled_block_from_free_credits,
-        ) == (expected_limit, expected_blocked, True, expected_free_credits_copy)
+            budget.free_credits_filled_by_settled_spend,
+        ) == (expected_limit, expected_blocked, True, expected_free_credits_full)
 
     def test_free_only_scanner_keeps_the_tighter_headroom_when_its_own_cap_is_settled_full(self) -> None:
         cost = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH)
@@ -591,7 +592,7 @@ class TestComputeScannerBudgets(_VisionQuotaTestCase):
         with patch.object(quota, "MONTHLY_CREDIT_QUOTA", 1_000_000):
             budget = compute_scanner_budgets(self.organization.id, [free.id])[free.id]
         # The own cap is what posted spend fills, so the notification must not blame the free credits.
-        assert (budget.remaining, budget.blocked_by_settled_spend, budget.settled_block_from_free_credits) == (
+        assert (budget.remaining, budget.blocked_by_settled_spend, budget.free_credits_filled_by_settled_spend) == (
             max(0, cost - reserved),
             True,
             False,
@@ -840,6 +841,40 @@ class TestProjectedMonthlyObservations(_VisionQuotaTestCase):
         self._make_scanner(team=other_team, name="other", estimate=999)
         snapshot = compute_quota_snapshot(organization_id=self.organization.id)
         assert snapshot.projected_monthly_credits == 0
+
+    def test_unreported_spend_adds_spend_after_the_report_cutoff(self) -> None:
+        ReplayScanner.objects.filter(pk=self.scanner.pk).update(enabled=True)
+        self._make_scanner(team=self.team, name="paid", estimate=100)  # 100 × 15 credits
+        quiet_org = Organization.objects.create(name="quiet-org")
+        quiet_team = Team.objects.create(organization=quiet_org, name="quiet-team")
+        self._make_scanner(team=quiet_team, name="off", enabled=False, estimate=999)
+        switched_off_org = Organization.objects.create(name="switched-off-org")
+        switched_off_team = Team.objects.create(organization=switched_off_org, name="switched-off-team")
+        switched_off = ReplayScanner.objects.create(
+            team=switched_off_team, name="was-on", scanner_type=ScannerType.MONITOR, scanner_config={"prompt": "p"}
+        )
+        with time_machine.travel("2026-09-15T12:00:00Z", tick=False):
+            self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
+        with time_machine.travel("2026-09-16T03:00:00Z", tick=False):
+            self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
+            self._make_observation(status=ObservationStatus.RUNNING)
+            seed_scanner_spend(switched_off, 30)
+            with patch.object(
+                quota,
+                "_sum_active_backfill_remaining_credits",
+                side_effect=lambda org_id: quota.BackfillCommitments(
+                    paid=400 if org_id == self.organization.id else 0, free_only=0
+                ),
+            ):
+                spend = quota.unreported_spend_by_org(report_cutoff=datetime(2026, 9, 16, tzinfo=UTC))
+
+        # The 15-credit receipt and reservation after midnight count; the receipt before it is in the report.
+        assert spend == {
+            self.organization.id: quota.UnreportedSpend(
+                scanner_credits=round(1500 * (14 + 21 / 24) / 30) + 15 + 15, backfill_credits=400
+            ),
+            switched_off_org.id: quota.UnreportedSpend(scanner_credits=30, backfill_credits=0),
+        }
 
 
 class TestVisionQuotaEndpoint(_VisionQuotaTestCase):

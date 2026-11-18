@@ -1,12 +1,10 @@
 import { useMountedLogic } from 'kea'
 
+import { MAX_SIDE_PANEL_ID } from '~/layout/ai/aiPanelIds'
+
 import { SidePanelRunner } from 'products/posthog_ai/frontend/api/runner'
 
 import { phaiSidePanelComposerSeedLogic } from '../phaiSidePanelComposerSeedLogic'
-
-// The client-side key for the embedded `taskTrackerSceneLogic` (and paired `runnerPanelLogic`) instance
-// this panel binds — stable so the panel keeps the same in-flight run across re-renders of its host.
-export const MAX_SIDE_PANEL_ID = 'max-side-panel'
 
 /**
  * The new posthog_ai side-panel experience: task-based, built on the `products/posthog_ai/frontend` runner

@@ -19,6 +19,11 @@ being quiet.
 
 A query error never turns the scout off: the run continues as if there were no pre-check.
 
+A query can name the branch that released the run in a column named `mode`. `scout_precheck_evaluated`
+carries its value, or `mixed` when the rows name more than one, so the share of each branch reads from
+the event rather than from run summaries. While the scout has never run, the event also carries
+`seconds_since_config_created`, so the first evaluation after setup reads as the time to that evaluation.
+
 A scheduled pre-check runs as the scout's acting user (`acting_user.resolve_scout_run_acting_user`),
 so it can read the same tables the run can read. A query with no user loses every access-scoped
 `system.*` table and every warehouse table. The dry run runs as the person who asked for it.
@@ -30,6 +35,8 @@ The query comes from the first source that applies (`resolve_effective_precheck`
 3. The default the canonical skill ships (`scout-precheck-query` frontmatter), for a project
    inside that skill's rollout (`precheck_default_rollout` in the `signals-scout` flag payload).
    Projects outside the rollout run as if there were no default, and form the control group.
+   A background config whose lane sets `require_precheck` always uses the default, whatever the
+   rollout says.
 """
 
 from __future__ import annotations
@@ -37,7 +44,7 @@ from __future__ import annotations
 import json
 import time
 import dataclasses
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
@@ -63,10 +70,15 @@ from posthog.models import Team, User
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.acting_user import resolve_scout_run_acting_user
 from products.signals.backend.scout_harness.lazy_seed import canonical_precheck_query_for, scout_skill_origin
-from products.signals.backend.scout_harness.limits import MAX_PRECHECK_ROWS_BYTES, SCOUT_TRIAL_METADATA_KEY
+from products.signals.backend.scout_harness.limits import (
+    DUE_GRACE_SECONDS,
+    MAX_PRECHECK_ROWS_BYTES,
+    SCOUT_TRIAL_METADATA_KEY,
+)
 from products.signals.backend.scout_harness.team_limits import (
     precheck_default_rollout_bucket,
     precheck_default_rollout_percent,
+    resolve_background_lane,
 )
 from products.skills.backend.models.skills import LLMSkill
 
@@ -82,6 +94,8 @@ PrecheckOutcome = Literal["run", "skip", "error"]
 PrecheckReason = Literal["rows", "no_rows", "false_value", "query_error"]
 # Where the query came from. `off` means no pre-check runs.
 PrecheckQuerySource = Literal["config", "skill_default", "off"]
+PRECHECK_MODE_COLUMN = "mode"
+PRECHECK_MIXED_MODE = "mixed"
 
 
 @frozen
@@ -100,6 +114,7 @@ class PrecheckResult:
     # The capped rows, one JSON object per line, for the run prompt.
     rows_text: str | None = None
     query_source: PrecheckQuerySource = "config"
+    mode: str | None = None
 
     @property
     def should_run(self) -> bool:
@@ -114,6 +129,16 @@ class _PrecheckRows:
     @property
     def is_single_false_value(self) -> bool:
         return len(self.rows) == 1 and len(self.rows[0]) == 1 and self.rows[0][0] in (None, False, 0, "")
+
+    @property
+    def mode(self) -> str | None:
+        if PRECHECK_MODE_COLUMN not in self.columns:
+            return None
+        index = self.columns.index(PRECHECK_MODE_COLUMN)
+        modes = {str(row[index]) for row in self.rows if row[index] is not None}
+        if len(modes) > 1:
+            return PRECHECK_MIXED_MODE
+        return next(iter(modes), None)
 
 
 @frozen
@@ -134,27 +159,37 @@ class PrecheckDryRunResult:
 
 
 def parse_precheck_query(query: str) -> ast.SelectQuery | ast.SelectSetQuery:
-    """Parse a pre-check query with its `{since}`, `{now}` and `{interval_minutes}` placeholders bound.
+    """Parse a pre-check query with its `{since}`, `{now}`, `{interval_minutes}` and `{managed_by}` placeholders bound.
 
     Raises on a bad query.
     """
     moment = timezone.now()
-    return parse_select(query, placeholders=_placeholders(since=moment, now=moment, interval_minutes=1))
+    return parse_select(
+        query,
+        placeholders=_placeholders(
+            since=moment, now=moment, interval_minutes=1, managed_by=SignalScoutConfig.ManagedBy.TEAM
+        ),
+    )
 
 
-def _placeholders(*, since: datetime, now: datetime, interval_minutes: int) -> dict[str, ast.Expr]:
+def _placeholders(*, since: datetime, now: datetime, interval_minutes: int, managed_by: str) -> dict[str, ast.Expr]:
     return {
         "since": ast.Constant(value=since),
         "now": ast.Constant(value=now),
         "interval_minutes": ast.Constant(value=interval_minutes),
+        # "" when no config runs the query, as in the profile's `surfaces`.
+        "managed_by": ast.Constant(value=str(managed_by)),
     }
 
 
-def resolve_effective_precheck(config: SignalScoutConfig, *, is_canonical: bool) -> EffectivePrecheck:
+def resolve_effective_precheck(
+    config: SignalScoutConfig, *, is_canonical: bool, require_default: bool = False
+) -> EffectivePrecheck:
     """The pre-check query a scheduled run of this scout uses, and where it came from.
 
     `is_canonical` says whether the project's skill row is the one the harness ships. A team's own
-    skill can share a canonical name, and it inherits no default from disk.
+    skill can share a canonical name, and it inherits no default from disk. `require_default` skips
+    the rollout check, for a background lane that dispatches only when the default finds something.
     """
     if config.precheck_disabled:
         return EffectivePrecheck(query=None, source="off")
@@ -164,9 +199,16 @@ def resolve_effective_precheck(config: SignalScoutConfig, *, is_canonical: bool)
     if not default:
         return EffectivePrecheck(query=None, source="off")
     bucket = precheck_default_rollout_bucket(config.team_id, config.skill_name)
-    if bucket >= precheck_default_rollout_percent(config.skill_name):
+    if not require_default and bucket >= precheck_default_rollout_percent(config.skill_name):
         return EffectivePrecheck(query=None, source="off", rollout_bucket=bucket)
     return EffectivePrecheck(query=default, source="skill_default", rollout_bucket=bucket)
+
+
+def _background_lane_requires_precheck(config: SignalScoutConfig) -> bool:
+    if config.managed_by != SignalScoutConfig.ManagedBy.BACKGROUND:
+        return False
+    lane = resolve_background_lane(config.skill_name)
+    return lane is not None and lane.require_precheck
 
 
 def scout_skill_is_canonical(team_id: int, skill_name: str) -> bool:
@@ -211,6 +253,7 @@ def evaluate_scout_precheck(team_id: int, skill_name: str, now: datetime | None 
             "skill_name",
             "created_at",
             "status",
+            "managed_by",
             "enabled_by",
             "created_by",
             "precheck_query",
@@ -224,7 +267,11 @@ def evaluate_scout_precheck(team_id: int, skill_name: str, now: datetime | None 
     # succeed. A skip would hold the lane paused for as long as it stays quiet.
     if config is None or config.status not in SignalScoutConfig.RUNNABLE_STATUSES:
         return None
-    effective = resolve_effective_precheck(config, is_canonical=scout_skill_is_canonical(team_id, skill_name))
+    effective = resolve_effective_precheck(
+        config,
+        is_canonical=scout_skill_is_canonical(team_id, skill_name),
+        require_default=_background_lane_requires_precheck(config),
+    )
     if effective.query is None:
         return None
 
@@ -241,13 +288,22 @@ def evaluate_scout_precheck(team_id: int, skill_name: str, now: datetime | None 
         return None
 
     now = now or timezone.now()
-    since = precheck_since(config)
+    last_run_at = _last_run_at(config)
+    since = last_run_at or config.created_at
     interval_minutes = precheck_interval_minutes(config, team, now)
     started = time.monotonic()
     error_type: str | None = None
 
     try:
-        found = _run_query(team, user, effective.query, since=since, now=now, interval_minutes=interval_minutes)
+        found = _run_query(
+            team,
+            user,
+            effective.query,
+            since=since,
+            now=now,
+            interval_minutes=interval_minutes,
+            managed_by=config.managed_by,
+        )
     except Exception as error:
         error_type = type(error).__name__
         logger.warning(
@@ -271,6 +327,9 @@ def evaluate_scout_precheck(team_id: int, skill_name: str, now: datetime | None 
         acting_user_id=user.pk,
         duration_ms=round((time.monotonic() - started) * 1000),
         error_type=error_type,
+        seconds_since_config_created=None
+        if last_run_at is not None
+        else round((now - config.created_at).total_seconds()),
     )
     return result
 
@@ -289,7 +348,15 @@ def dry_run_scout_precheck(
     acting_user = resolve_scout_run_acting_user(team, config.skill_name, config)
     acting_user_id = acting_user.user_id if acting_user is not None and acting_user.user_id != user.pk else None
     try:
-        found = _run_query(team, user, query, since=since, now=now, interval_minutes=interval_minutes)
+        found = _run_query(
+            team,
+            user,
+            query,
+            since=since,
+            now=now,
+            interval_minutes=interval_minutes,
+            managed_by=config.managed_by,
+        )
     except Exception as error:
         logger.info(
             "signals_scout: pre-check dry run failed",
@@ -331,6 +398,7 @@ def run_precheck_query(
     since: datetime,
     now: datetime,
     interval_minutes: int,
+    managed_by: str = "",
     timeout_s: int = PRECHECK_TIMEOUT_S,
 ) -> PrecheckResult:
     """Run a pre-check query as `user` and classify its rows like a scheduled run does.
@@ -338,21 +406,71 @@ def run_precheck_query(
     Raises on a query error, so the caller decides what an error means.
     """
     return _result_from_rows(
-        _run_query(team, user, query, since=since, now=now, interval_minutes=interval_minutes, timeout_s=timeout_s)
+        _run_query(
+            team,
+            user,
+            query,
+            since=since,
+            now=now,
+            interval_minutes=interval_minutes,
+            managed_by=managed_by,
+            timeout_s=timeout_s,
+        )
     )
 
 
 def precheck_since(config: SignalScoutConfig) -> datetime:
     """The `{since}` bound: the last run that actually ran, or the config's creation."""
-    last_run_at = (
-        SignalScoutRun.objects.for_team(config.team_id)
-        .filter(skill_name=config.skill_name)
+    return _last_run_at(config) or config.created_at
+
+
+def _scheduled_runs(team_id: int, skill_name: str):
+    return (
+        SignalScoutRun.objects.for_team(team_id)
+        .filter(skill_name=skill_name)
         .exclude(metadata__has_key=SCOUT_TRIAL_METADATA_KEY)
+    )
+
+
+def _last_run_at(config: SignalScoutConfig) -> datetime | None:
+    return (
+        _scheduled_runs(config.team_id, config.skill_name)
         .order_by("-created_at")
         .values_list("created_at", flat=True)
         .first()
     )
-    return last_run_at or config.created_at
+
+
+def make_never_run_scout_due(team_id: int, skill_name: str, *, at: datetime) -> bool:
+    """Make a scout that has never run due at the first coordinator tick at or after `at`. Return whether it changed.
+
+    The coordinator stamps the dispatch anchor (`last_run_at`) before the pre-check runs, so a
+    pre-check that skips still waits a whole run interval for the next one. Call this when the data
+    that the pre-check reads arrives for the first time. The anchor only moves earlier, so a scout
+    that is already due sooner keeps its time.
+
+    A scout with a run row is not changed, because its pre-check already reads from that run. A cron
+    scout is not changed, because its anchor is a croniter reference. A paused scout is not changed.
+    """
+    config = (
+        SignalScoutConfig.objects.for_team(team_id)
+        .filter(skill_name=skill_name, status__in=SignalScoutConfig.RUNNABLE_STATUSES)
+        .only("id", "run_cron_schedule", "run_interval_minutes", "last_run_at")
+        .first()
+    )
+    if config is None or config.run_cron_schedule or config.last_run_at is None:
+        return False
+    if _scheduled_runs(team_id, skill_name).exists():
+        return False
+    # The coordinator dispatches a config once `now - last_run_at` is within `DUE_GRACE_SECONDS` of
+    # the interval, so this anchor makes the first tick at or after `at` the first due one.
+    anchor = at - timedelta(minutes=config.run_interval_minutes) + timedelta(seconds=DUE_GRACE_SECONDS)
+    moved = (
+        SignalScoutConfig.objects.for_team(team_id)
+        .filter(pk=config.pk, last_run_at__gt=anchor)
+        .update(last_run_at=anchor)
+    )
+    return moved > 0
 
 
 def _result_from_rows(found: _PrecheckRows) -> PrecheckResult:
@@ -360,7 +478,9 @@ def _result_from_rows(found: _PrecheckRows) -> PrecheckResult:
         return PrecheckResult(outcome="skip", reason="no_rows")
     if found.is_single_false_value:
         return PrecheckResult(outcome="skip", reason="false_value", row_count=1)
-    return PrecheckResult(outcome="run", reason="rows", row_count=len(found.rows), rows_text=_render_rows(found))
+    return PrecheckResult(
+        outcome="run", reason="rows", row_count=len(found.rows), rows_text=_render_rows(found), mode=found.mode
+    )
 
 
 def _run_query(
@@ -371,9 +491,13 @@ def _run_query(
     since: datetime,
     now: datetime,
     interval_minutes: int,
+    managed_by: str,
     timeout_s: int = PRECHECK_TIMEOUT_S,
 ) -> _PrecheckRows:
-    parsed = parse_select(query, placeholders=_placeholders(since=since, now=now, interval_minutes=interval_minutes))
+    parsed = parse_select(
+        query,
+        placeholders=_placeholders(since=since, now=now, interval_minutes=interval_minutes, managed_by=managed_by),
+    )
     capped = _cap_rows(parsed)
     with tags_context(product=Product.SIGNALS, feature=Feature.ENRICHMENT, team_id=team.pk):
         response = execute_hogql_query(
@@ -448,6 +572,7 @@ def _capture_precheck_evaluated(
     acting_user_id: int,
     duration_ms: int,
     error_type: str | None,
+    seconds_since_config_created: int | None,
 ) -> None:
     try:
         posthoganalytics.capture(
@@ -466,6 +591,8 @@ def _capture_precheck_evaluated(
                 "acting_user_id": acting_user_id,
                 "query_source": effective.source,
                 "rollout_bucket": effective.rollout_bucket,
+                "mode": result.mode,
+                "seconds_since_config_created": seconds_since_config_created,
             },
             groups=groups(team.organization, team),
         )

@@ -14,7 +14,9 @@ import { urls } from 'scenes/urls'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { toPaginatedResponse } from '~/mocks/handlers'
 import { useMocks } from '~/mocks/jest'
+import { Mocks } from '~/mocks/utils'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { DataTableNode } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { mockCohort } from '~/test/mocks'
 import {
@@ -29,6 +31,7 @@ import {
     PropertyType,
 } from '~/types'
 
+import { CohortCsvUploadModal } from './CohortCsvUploadModal'
 import { CohortEdit } from './CohortEdit'
 
 jest.mock('lib/components/AutoSizer', () => ({
@@ -119,6 +122,73 @@ describe('cohortEditLogic', () => {
         })
     })
 
+    describe('CSV upload modal', () => {
+        afterEach(() => {
+            cleanup()
+        })
+
+        it('clears the chosen CSV on close and on cancel', async () => {
+            logic = cohortEditLogic({ id: 10 })
+            render(<CohortCsvUploadModal id={10} />)
+
+            // Let the mount-time fetch land first, or its response would replace the state set below.
+            await waitFor(() => expect(logic.values.cohort.id).toEqual(mockCohort.id))
+
+            act(() => {
+                logic.actions.setCohort({
+                    ...NEW_COHORT,
+                    id: 10,
+                    name: 'Saved cohort',
+                    is_static: true,
+                    csv: new File(['person@example.com'], 'people.csv', { type: 'text/csv' }),
+                })
+                logic.actions.setCsvUploadModalOpen(true)
+            })
+
+            const closeButton = document.querySelector('.LemonModal__close button') as HTMLElement
+            await userEvent.click(closeButton)
+            expect(logic.values.cohort.csv).toBeUndefined()
+            expect(logic.values.csvUploadModalOpen).toBe(false)
+
+            act(() => {
+                logic.actions.setCohortValue('csv', new File(['a@b.com'], 'people.csv', { type: 'text/csv' }))
+                logic.actions.setCsvUploadModalOpen(true)
+            })
+            const cancelButton = document.querySelector('[data-attr="cohort-upload-csv-modal-cancel"]') as HTMLElement
+            await userEvent.click(cancelButton)
+            expect(logic.values.cohort.csv).toBeUndefined()
+            expect(logic.values.csvUploadModalOpen).toBe(false)
+        })
+
+        it('shows the size limit and disables Upload for an oversized CSV', async () => {
+            logic = cohortEditLogic({ id: 10 })
+            render(<CohortCsvUploadModal id={10} />)
+
+            // Let the mount-time fetch land first, or its response would replace the state set below.
+            await waitFor(() => expect(logic.values.cohort.id).toEqual(mockCohort.id))
+
+            const csv = new File(['person@example.com'], 'people.csv', { type: 'text/csv' })
+            Object.defineProperty(csv, 'size', { value: logic.values.csvMaxBytes + 1 })
+
+            act(() => {
+                logic.actions.setCohort({
+                    ...NEW_COHORT,
+                    id: 10,
+                    name: 'Saved cohort',
+                    is_static: true,
+                    csv,
+                })
+                logic.actions.setCsvUploadModalOpen(true)
+            })
+
+            expect(await screen.findByText(/larger than the limit/i)).toBeVisible()
+            const uploadButton = document.querySelector(
+                '[data-attr="cohort-upload-csv-modal-save"]'
+            ) as HTMLButtonElement
+            expect(uploadButton).toHaveAttribute('aria-disabled', 'true')
+        })
+    })
+
     describe('scroll to error functionality', () => {
         let scrollIntoViewSpy: jest.SpyInstance
         let querySelectorSpy: jest.SpyInstance
@@ -151,7 +221,7 @@ describe('cohortEditLogic', () => {
                 logic.actions.submitCohort()
             }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortFailure'])
 
-            await new Promise((resolve) => setTimeout(resolve, 10))
+            await new Promise((resolve) => requestAnimationFrame(resolve))
 
             expect(querySelectorSpy).toHaveBeenCalledWith('.Field--error')
             expect(scrollIntoViewSpy).toHaveBeenCalledWith({
@@ -693,6 +763,121 @@ describe('cohortEditLogic', () => {
         })
     })
 
+    describe('add users controls on an existing people cohort', () => {
+        afterEach(() => {
+            cleanup()
+        })
+
+        it.each([
+            { count: 0, showsInlineUpload: true },
+            { count: 3, showsInlineUpload: false },
+        ])('with $count people shows inline upload: $showsInlineUpload', async ({ count, showsInlineUpload }) => {
+            const cohortId = 20 + count
+            const cohortName = `People cohort ${count}`
+            useMocks({
+                get: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
+                        ...mockCohort,
+                        id: cohortId,
+                        name: cohortName,
+                        is_static: true,
+                        filters: { properties: { type: 'OR', values: [] } },
+                        count,
+                    },
+                },
+            })
+
+            render(<CohortEdit id={cohortId} />)
+
+            await screen.findAllByText(cohortName)
+            const dropzone = screen.queryByText('Drag a file here or click to browse for a file')
+            const addUsersMenu = document.querySelector('[data-attr="cohort-add-users-menu"]')
+            if (showsInlineUpload) {
+                expect(dropzone).toBeInTheDocument()
+                expect(addUsersMenu).not.toBeInTheDocument()
+            } else {
+                expect(dropzone).not.toBeInTheDocument()
+                expect(addUsersMenu).toBeInTheDocument()
+            }
+        })
+    })
+
+    describe('remove person from a static cohort', () => {
+        const personId = '0190f2a4-5c03-0000-0000-000000000001'
+
+        afterEach(() => {
+            cleanup()
+        })
+
+        function staticCohortMocks(cohortId: number, select: string[], row: unknown[]): Mocks {
+            return {
+                get: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
+                        ...mockCohort,
+                        id: cohortId,
+                        is_static: true,
+                        filters: { properties: { type: 'OR', values: [] } },
+                        count: 1,
+                    },
+                },
+                post: {
+                    '/api/environments/:team_id/query/:query_kind/': {
+                        columns: select,
+                        results: [row],
+                        hasMore: false,
+                    },
+                },
+            }
+        }
+
+        async function renderStaticCohortWithColumns(cohortId: number, select: string[]): Promise<HTMLElement> {
+            render(<CohortEdit id={cohortId} />)
+            const logic = cohortEditLogic({ id: cohortId })
+            act(() => {
+                logic.actions.setQuery({
+                    ...logic.values.query,
+                    source: { ...logic.values.query.source, select },
+                } as DataTableNode)
+            })
+
+            await waitFor(() =>
+                expect(document.querySelector('[data-attr="remove-person-from-cohort"]')).toBeInTheDocument()
+            )
+            return document.querySelector('[data-attr="remove-person-from-cohort"]') as HTMLElement
+        }
+
+        it('removes the person when the ID column comes first', async () => {
+            const select = ['id', 'person_display_name -- Person', 'created_at', 'person.$delete']
+            const row = [personId, { display_name: 'someone@example.com', id: personId }, '2024-01-01T00:00:00Z', null]
+            let removedPersonId: string | undefined
+            useMocks({
+                ...staticCohortMocks(31, select, row),
+                patch: {
+                    '/api/projects/:team_id/cohorts/:id/remove_person_from_static_cohort/': async ({ request }) => {
+                        removedPersonId = ((await request.json()) as { person_id: string }).person_id
+                        return { success: true }
+                    },
+                },
+            })
+            const removeButton = await renderStaticCohortWithColumns(31, select)
+
+            await userEvent.click(removeButton)
+            const dialog = await screen.findByRole('dialog')
+            expect(within(dialog).getByText(/Are you sure you want to remove/)).toHaveTextContent('someone@example.com')
+            await userEvent.click(within(dialog).getByText('Remove'))
+
+            await waitFor(() => expect(removedPersonId).toEqual(personId))
+        })
+
+        it('disables Remove when no column identifies the person', async () => {
+            const select = ['created_at', 'person.$delete']
+            useMocks(staticCohortMocks(32, select, ['2024-01-01T00:00:00Z', null]))
+            const removeButton = await renderStaticCohortWithColumns(32, select)
+
+            expect(removeButton).toHaveAttribute('aria-disabled', 'true')
+        })
+    })
+
     describe('used-in summary', () => {
         afterEach(() => {
             cleanup()
@@ -1085,12 +1270,12 @@ describe('cohortEditLogic', () => {
         )
     })
 
-    describe('locked type and populate-from controls on existing cohorts', () => {
+    describe('type tag on existing cohorts', () => {
         afterEach(() => {
             cleanup()
         })
 
-        it('renders locked controls as a read-only value with an info tooltip, not a dead-click dropdown', async () => {
+        it('shows the type as a tag next to the title instead of body rows', async () => {
             const cohortId = 10
 
             useMocks({
@@ -1112,19 +1297,13 @@ describe('cohortEditLogic', () => {
 
             render(<CohortEdit id={cohortId} />)
 
-            // The current value is always visible in plain text; the "why can't I change this"
-            // explanation lives in an info tooltip instead of being repeated inline.
-            const typeContainer = (await screen.findByText('Static')).closest('[data-attr="cohort-type"]')
-            const populateFromContainer = screen
-                .getByText('Criteria · One-time snapshot')
-                .closest('[data-attr="static-cohort-mode"]')
-            expect(typeContainer).toBeInTheDocument()
-            expect(populateFromContainer).toBeInTheDocument()
+            // The type is a tag in the title row; the populate-from detail lives in its tooltip.
+            const typeTag = (await screen.findByText('Static')).closest('[data-attr="cohort-type-tag"]')
+            expect(typeTag).toBeInTheDocument()
 
-            // The locked controls are read-only text, not interactive select buttons (the dead click):
-            // a LemonSelect would render the data-attr onto a <button>
-            expect(typeContainer?.tagName).not.toBe('BUTTON')
-            expect(populateFromContainer?.tagName).not.toBe('BUTTON')
+            // The old read-only body rows are gone, so the persons table is not pushed down.
+            expect(document.querySelector('[data-attr="cohort-type"]')).not.toBeInTheDocument()
+            expect(document.querySelector('[data-attr="static-cohort-mode"]')).not.toBeInTheDocument()
         })
     })
 

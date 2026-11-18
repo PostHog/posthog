@@ -33,6 +33,7 @@ export type AcpConnectionConfig = {
   /** Deployment environment - "local" for desktop, "cloud" for cloud sandbox */
   deviceType?: "local" | "cloud";
   logger?: Logger;
+  claudeAgentLogger?: Logger;
   processCallbacks?: ProcessSpawnedCallback;
   codexOptions?: CodexOptions;
   codexModels?: ReadonlyArray<ModelInfo>;
@@ -45,6 +46,7 @@ export type AcpConnectionConfig = {
   /** Explicit gateway config for the Claude adapter — prevents global process.env mutation. */
   claudeGatewayEnv?: GatewayEnv;
   claudeMachineAuth?: MachineClaudeAuth;
+  claudeModelsGatewayUrl?: string;
   /** Per-session context wiki mount — prevents global process.env mutation. */
   contextWiki?: ContextWikiEnv;
 };
@@ -164,11 +166,13 @@ function createClaudeConnection(config: AcpConnectionConfig): AcpConnection {
   const agentConnection = new AgentSideConnection((client) => {
     agent = new ClaudeAcpAgent(client, {
       ...config.processCallbacks,
+      logger: config.claudeAgentLogger,
       startupLogger: logger.child("ClaudeInitialization"),
       onStructuredOutput: config.onStructuredOutput,
       posthogApiConfig: resolveEnricherApiConfig(config),
       gatewayEnv: config.claudeGatewayEnv,
       machineAuth: config.claudeMachineAuth,
+      modelsGatewayUrl: config.claudeModelsGatewayUrl,
       contextWiki: config.contextWiki,
     });
     return agent;

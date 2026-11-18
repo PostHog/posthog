@@ -7,15 +7,19 @@ dispatch. The boundary is function-shaped and returns DTOs, so callers do not
 instantiate internal service classes or receive ORM models.
 """
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.tasks.backend.facade import contracts
+from products.tasks.backend.facade.profiles import TaskProfile
 from products.tasks.backend.logic.services.warm import SandboxWarmer, WarmResult
 from products.tasks.backend.models import Task
+
+if TYPE_CHECKING:
+    from posthog.temporal.oauth import PosthogMcpScopes
 
 __all__ = [
     "enforce_warm_quota",
@@ -37,16 +41,18 @@ def _warm_result_to_dto(result: WarmResult) -> contracts.WarmRunDTO:
     )
 
 
-def enforce_warm_quota(origin_product: str, team_id: int, user_id: int) -> None:
+def enforce_warm_quota(origin_product: str, team_id: int, user_id: int, *, profile: TaskProfile | None = None) -> None:
     """Raise if the team may not warm a sandbox run for the origin product."""
     team, user = _team_and_user(team_id, user_id)
-    SandboxWarmer.enforce_quota(origin_product, team, user)
+    SandboxWarmer.enforce_quota(origin_product, team, user, profile=profile)
 
 
-def warm_pool_at_capacity(origin_product: str, team_id: int, user_id: int) -> bool:
+def warm_pool_at_capacity(
+    origin_product: str, team_id: int, user_id: int, *, profile: TaskProfile | None = None
+) -> bool:
     """Whether the user or organization already holds the max concurrent warm runs."""
     team, user = _team_and_user(team_id, user_id)
-    return SandboxWarmer.at_capacity(origin_product, team, user)
+    return SandboxWarmer.at_capacity(origin_product, team, user, profile=profile)
 
 
 def warm_task_run(
@@ -56,8 +62,11 @@ def warm_task_run(
     *,
     mode: str = "interactive",
     extra_state: dict[str, Any] | None = None,
+    posthog_mcp_scopes: "PosthogMcpScopes | None" = None,
 ) -> contracts.WarmRunDTO:
     """Idempotently ensure a task has a warm run and return the run handle as a DTO."""
     task = Task.objects.select_related("team").get(id=task_id, team_id=team_id)
     user = User.objects.get(pk=user_id)
-    return _warm_result_to_dto(SandboxWarmer(task, user=user).warm(mode=mode, extra_state=extra_state))
+    return _warm_result_to_dto(
+        SandboxWarmer(task, user=user).warm(mode=mode, extra_state=extra_state, posthog_mcp_scopes=posthog_mcp_scopes)
+    )

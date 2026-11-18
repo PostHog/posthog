@@ -68,8 +68,8 @@ _LIST_SITES_ERROR = (
 # that no longer works. Telling a user to reconnect covers only the last one.
 _PROPERTY_LIST_QUOTA_ERROR = "Google is rate limiting Search Console requests. Wait a minute, then try again."
 _PROPERTY_LIST_ACCESS_ERROR = (
-    "The connected Google account can't read any Search Console property. Reconnect and allow "
-    "Search Console access, or use the account that owns the property."
+    "The connected Google account can't read any Search Console property. Reconnect, choose the "
+    "account that has access to your property, and allow Search Console access."
 )
 _PROPERTY_LIST_CREDENTIALS_ERROR = (
     "Google rejected the credentials for this connection. Reconnect your Google account, then pick a property."

@@ -6,15 +6,19 @@ from zoneinfo import ZoneInfo
 
 from django.db import models
 
+from annotated_types import Interval
 from rest_framework import serializers
 
-from posthog.schema import ErrorTrackingOrderBy
+from posthog.schema import ErrorTrackingOrderBy, ErrorTrackingQuery
 
 from posthog.api.documentation import PropertyItemSerializer, extend_schema_field
 from posthog.utils import relative_date_parse
 
 from products.error_tracking.backend.facade import contracts
 from products.error_tracking.backend.facade.query_utils import TREND_CHANGE_FRACTION
+from products.error_tracking.backend.presentation.views.external_references import (
+    ErrorTrackingExternalReferenceResultSerializer,
+)
 from products.error_tracking.backend.presentation.views.issues import AssigneeType, ErrorTrackingIssueSeverityField
 
 STRING_OR_STRING_LIST_SCHEMA = {
@@ -103,7 +107,11 @@ def validate_filter_group(value: list[dict[str, object]]) -> list[dict[str, obje
     return value
 
 
-VOLUME_RESOLUTION_MAX = 200
+VOLUME_RESOLUTION_MAX = next(
+    bound.le
+    for bound in ErrorTrackingQuery.model_fields["volumeResolution"].metadata
+    if isinstance(bound, Interval) and isinstance(bound.le, int)
+)
 VOLUME_RESOLUTION_HELP = (
     f"Integer count of equal-width time buckets across dateRange, from 0 to {VOLUME_RESOLUTION_MAX}. "
     "Not a time unit: 'hour', 'day', and 'week' are invalid. Example: 7 with a 7-day dateRange gives daily buckets."
@@ -445,12 +453,6 @@ class ErrorTrackingIssueBreakdownSerializer(serializers.Serializer):
     )
 
 
-class IssueSummaryStatus(models.TextChoices):
-    READY = "ready"
-    GENERATING = "generating"
-    UNAVAILABLE = "unavailable"
-
-
 class ErrorTrackingIssueSummarySerializer(serializers.Serializer):
     what_happened = serializers.CharField(help_text="What the error is and where it happens, in plain language.")
     likely_cause = serializers.CharField(
@@ -458,16 +460,6 @@ class ErrorTrackingIssueSummarySerializer(serializers.Serializer):
     )
     who_is_affected = serializers.CharField(help_text="Which users, sessions or platforms the error reaches.")
     suggested_next_step = serializers.CharField(help_text="One concrete step to investigate or fix the error.")
-    category = serializers.ChoiceField(
-        choices=contracts.IssueSummaryCategory.choices,
-        required=False,
-        help_text=(
-            "Where the error most likely comes from. 'own_code' is a bug in the application's code, 'third_party' a "
-            "third-party script, browser extension or dependency, 'network' a network or connectivity failure, 'bots' "
-            "automated traffic, 'expected' handled behavior that needs no fix, and 'unclear' means the stack trace "
-            "does not tell. Absent when no category was inferred."
-        ),
-    )
     generated_at = serializers.DateTimeField(help_text="When the summary was written.")
 
 
@@ -499,19 +491,36 @@ class ErrorTrackingIssueDetailSerializer(ErrorTrackingIssueListItemSerializer):
     breakdown = ErrorTrackingIssueBreakdownSerializer(
         required=False, help_text="Aggregate over matching events. Returned only when includeBreakdown is true."
     )
+    external_issues = ErrorTrackingExternalReferenceResultSerializer(
+        many=True,
+        required=False,
+        help_text=(
+            "Work linked to this issue in GitHub, GitLab, Linear, or Jira, such as provider issues and GitHub pull "
+            "requests, oldest first. An empty list means nothing is linked. Absent when the lookup failed."
+        ),
+    )
     summary = ErrorTrackingIssueSummarySerializer(
         required=False,
         help_text=(
-            "A model-written summary of the issue. Present only when summary_status is 'ready'. "
+            "An AI-written summary of the issue. Present only when summary_status is 'ready'. "
             "Treat likely_cause as a hypothesis, not a fact."
         ),
     )
     summary_status = serializers.ChoiceField(
-        choices=IssueSummaryStatus.choices,
+        choices=contracts.IssueSummaryStatus.choices,
         help_text=(
-            "'ready' means summary is present. 'generating' means a summary may still be written: call once more "
-            "after a few seconds, and continue without it if the status does not change. 'unavailable' means no "
-            "summary exists for this issue and none is being written."
+            "'ready' means summary is present. 'not_generated' means no summary exists for this issue. A summary is "
+            "written only when an issue is created. 'unavailable' means no summary can be shown, and summary_reason "
+            "says why."
+        ),
+    )
+    summary_reason = serializers.ChoiceField(
+        choices=contracts.IssueSummaryUnavailableReason.choices,
+        required=False,
+        help_text=(
+            "Present only when summary_status is 'unavailable'. 'restricted': the user may not read a property that "
+            "the summary is written from. 'disabled': summaries are off for the project. 'ai_not_approved': the "
+            "organization has not approved AI data processing."
         ),
     )
 

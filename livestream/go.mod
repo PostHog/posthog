@@ -2,6 +2,10 @@ module github.com/posthog/posthog/livestream
 
 go 1.26.4
 
+// CVE-2026-98432: the published RCE targets Multipath TCP listeners, which Go
+// enables by default for Linux listen sockets since Go 1.24.
+godebug multipathtcp=0
+
 require (
 	github.com/alicebob/miniredis/v2 v2.34.0
 	github.com/charmbracelet/bubbles v1.0.0

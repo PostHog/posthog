@@ -117,14 +117,7 @@ struct Choreography: Codable {
 }
 
 enum SharedStore {
-    // app.config.ts names the App Group "group." plus the app's bundle id, and this extension's bundle id is the
-    // app's id plus ".HedgehogWidget", so each app variant reads its own store.
-    static let suiteName: String = {
-        let extensionSuffix = ".HedgehogWidget"
-        let widgetId = Bundle.main.bundleIdentifier ?? "com.posthog.code.mobile\(extensionSuffix)"
-        let appId = widgetId.hasSuffix(extensionSuffix) ? String(widgetId.dropLast(extensionSuffix.count)) : widgetId
-        return "group.\(appId)"
-    }()
+    static let suiteName = AppGroup.suiteName
     static let choreographyKey = "choreography"
 
     static var defaults: UserDefaults? { UserDefaults(suiteName: suiteName) }

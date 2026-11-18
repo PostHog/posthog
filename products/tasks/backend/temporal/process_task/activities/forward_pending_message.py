@@ -142,10 +142,13 @@ def forward_pending_user_message(run_id: str) -> None:
                 refresh_agent_instructions_state(task_run, actor_user, reason="warm_activation")
 
         from products.tasks.backend.logic.services.sandbox_usage import (  # noqa: PLC0415 — matches the file's deferred-import pattern
+            claim_task_run_sandbox_sessions,
             measure_task_run_cpu_attribution,
         )
 
         cpu_attribution = measure_task_run_cpu_attribution(run_id, task_run.team_id)
+        if state.get("await_user_message"):
+            claim_task_run_sandbox_sessions(run_id, task_run.team_id, cpu_attribution)
         result = send_user_message(
             task_run,
             pending_message,

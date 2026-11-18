@@ -7,9 +7,10 @@ import { getTask, type TaskApi } from '@/api/tasks'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useDataMode } from '@/demo/demoMode'
 import { useDemoReportQuery } from '@/demo/hooks'
+import { useConnectivity } from '@/lib/connectivity'
 import { toError } from '@/lib/errors'
 import { type ReportTaskInput, reportTaskId, reportView } from '@/model/adapters/report'
-import { errorQuery, loadingQuery, successQuery } from '@/model/queryStates'
+import { connectionLoadingQuery, errorQuery, loadingQuery, successQuery } from '@/model/queryStates'
 import type { InboxItem, QueryState, ReportActions, ReportView } from '@/model/types'
 
 import { useHandoffActions } from '../handoff/hooks'
@@ -20,6 +21,7 @@ import { useSetPriorityAction } from '../priority/hooks'
 import { useSetReviewersAction } from '../reviewers/hooks'
 import { useSnoozeAction } from '../snooze/hooks'
 import { useDismissAction, useResolveAction } from '../verdict/hooks'
+import { reportScopeError, useFeatureAccess } from '../views/useViewsAccess'
 import { reportArtefactsQuery, reportDetailQuery, reportPageQuery, reportSignalsQuery } from './queries'
 
 export const REPORT_POLL_INTERVAL_MS = 15_000
@@ -31,8 +33,10 @@ type TaskWithCreator = TaskApi & Pick<ReportTaskInput, 'created_by'>
 // page, because they are the evidence then.
 function useLiveReport(reportId: string, enabled: boolean, refreshWhileVisible: boolean): QueryState<ReportView> {
     const scope = useProjectScope()
+    const offline = useConnectivity((state) => state.status === 'offline')
     const appActive = useAppActive()
-    const active = enabled && appActive && scope !== null
+    const access = useFeatureAccess('inbox')
+    const active = enabled && appActive && scope !== null && access.state === 'ok'
     const queryClient = useQueryClient()
     const refetchInterval = active && refreshWhileVisible ? REPORT_POLL_INTERVAL_MS : false
     const [report, artefacts, page, signals] = useQueries({
@@ -43,10 +47,15 @@ function useLiveReport(reportId: string, enabled: boolean, refreshWhileVisible: 
             { ...reportSignalsQuery(scope, reportId), enabled: active, refetchOnMount: 'always' },
         ],
     })
+    useEffect(() => {
+        for (const error of [report.error, artefacts.error, page.error, signals.error]) {
+            reportScopeError(error, 'inbox')
+        }
+    }, [report.error, artefacts.error, page.error, signals.error])
     const taskId = report.data && artefacts.data ? reportTaskId(report.data, artefacts.data.results) : undefined
     const task = useQuery({
         queryKey: reportKeys.task(scope, taskId),
-        queryFn: ({ signal }) => getTask(taskId as string, signal) as Promise<TaskWithCreator>,
+        queryFn: ({ signal }) => getTask(scope, taskId as string, signal) as Promise<TaskWithCreator>,
         enabled: active && taskId !== undefined,
         retry: retryUnlessMissing,
         refetchInterval,
@@ -119,7 +128,7 @@ function useLiveReport(reportId: string, enabled: boolean, refreshWhileVisible: 
             report.isFetching || artefacts.isFetching || page.isFetching || signals.isFetching || task.isFetching
         return successQuery(view, { refetch, isRefetching })
     }
-    return { ...loadingQuery<ReportView>(), refetch }
+    return connectionLoadingQuery<ReportView>(offline, refetch)
 }
 
 export function useReport(reportId: string, refreshWhileVisible = false, enabled = true): QueryState<ReportView> {

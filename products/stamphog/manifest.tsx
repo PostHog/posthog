@@ -3,10 +3,14 @@
  *
  * Defines scenes, routes, URLs, and navigation for this product.
  */
-import { ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Stamphog',
+    activityDescribers: {
+        [ActivityScope.STAMPHOG_REPO_CONFIG]: () =>
+            import('./frontend/activityDescriber').then((module) => module.stamphogRepoConfigActivityDescriber),
+    },
     scenes: {
         Stamphog: {
             // Single scene handles both the landing/list view and the post-install
@@ -23,6 +27,12 @@ export const manifest: ProductManifest = {
             name: 'Stamphog runs',
             iconType: 'stamphog',
         },
+        StamphogArea: {
+            import: () => import('./frontend/scenes/StamphogAreaScene/StamphogAreaScene'),
+            projectBased: true,
+            name: 'Stamphog area',
+            iconType: 'stamphog',
+        },
         StamphogDigests: {
             import: () => import('./frontend/scenes/StamphogDigestsScene/StamphogDigestsScene'),
             projectBased: true,
@@ -33,6 +43,7 @@ export const manifest: ProductManifest = {
     routes: {
         '/stamphog': ['Stamphog', 'stamphog'],
         '/stamphog/runs': ['StamphogRuns', 'stamphogRuns'],
+        '/stamphog/area': ['StamphogArea', 'stamphogArea'],
         '/stamphog/digests': ['StamphogDigests', 'stamphogDigests'],
         // GitHub App Setup URL — GitHub redirects here after install with an installation_id search
         // param. Lives under the product's own /stamphog namespace, not /integrations/*, so the generic
@@ -43,6 +54,7 @@ export const manifest: ProductManifest = {
     urls: {
         stamphog: (): string => '/stamphog',
         stamphogRuns: (): string => '/stamphog/runs',
+        stamphogArea: (): string => '/stamphog/area',
         stamphogDigests: (): string => '/stamphog/digests',
         stamphogCallback: (): string => '/stamphog/install/callback',
     },

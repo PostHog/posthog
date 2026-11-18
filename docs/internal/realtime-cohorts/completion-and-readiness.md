@@ -178,6 +178,7 @@ UPDATE posthog_cohort
 SET <stamp> = now()
 WHERE id = <cohort> AND team_id = <team>
   AND <kind shape hash> = <hash pinned on the participation>
+  AND realtime_enabled_at <= <the run's created_at>
   AND <stamp> IS NULL
 ```
 
@@ -187,10 +188,15 @@ together with marking the participation `stamped_at` in the same transaction.
 - A composition edit moves no kind hash, so before the update the finalizer also compares the pinned filters with the current filters.
   If the edit owes a repair run of this kind, or either definition cannot be parsed, the stamp is refused and the participation superseded.
 - A participation that was ever superseded never stamps, even if the definition was later edited back to the pinned one.
+- A cohort whose realtime is off never stamps, and the participation is superseded.
+  Neither does a run created before realtime was last turned on, whose seeds can predate a time when nothing maintained the membership.
+  Turning realtime off clears the stamps under the same row lock but supersedes the cohort's runs only after it commits, and that supersede can fail, so this check is what refuses those runs.
 - If the stamp is already set and the hash still matches, the participation is ratified without changing the timestamp.
 
 Stamps are written once.
-A stamp is cleared only by a save that invalidates its kind, and only while the cohort is realtime, not static and not deleted, on an allowlisted team.
+A stamp is cleared by a save that invalidates its kind, while the cohort is realtime, not static and not deleted, on an allowlisted team.
+Turning realtime on or off clears all of the cohort's stamps, because nothing maintains the membership of a cohort that is off.
+The cohort API's edit leaves the switch and the stamps out of its save, so an edit that read the row before a stamp, a turn-on or a turn-off cannot write the old values back.
 
 Keying the stamp on the kind's own shape hash, not on the whole definition, means a person-only leaf edit does not invalidate a still-valid behavioral backfill, and the reverse.
 A structural edit can still owe both kinds a run.
@@ -210,7 +216,7 @@ Person readiness may be enabled only once every region's flags service runs that
 
 ### In Django
 
-`Cohort.is_flag_compatible` is true when the cohort is realtime and **every** stamp its filters need is set, and they need at least one:
+`Cohort.is_flag_compatible` is true when the cohort is realtime, realtime is on for it, and **every** stamp its filters need is set, and they need at least one:
 
 - a behavioral leaf needs the events stamp,
 - a person leaf needs the person stamp,
@@ -218,18 +224,29 @@ Person readiness may be enabled only once every region's flags service runs that
 
 A `person_metadata` leaf makes a cohort non-realtime in the first place, so such a cohort is never compatible.
 A cohort made only of references needs no stamp, so it is never compatible either.
+On a team whose access row is at `processing` or `off` and that is not on `REALTIME_COHORT_TEAM_ALLOWLIST`, no stamp counts, even one from before the grant, so its cohorts are never compatible.
+A team with no row and not on the env list still counts the stamps it had before the levels existed, and `realtime_cohort_team_access enable` clears them before it grants the team.
 
-The flag API accepts a cohort with event-based criteria, or one that depends on such a cohort, only when the realtime targeting rollout flag is on for the user and every such cohort is flag-compatible.
-The same rollout flag lets the flag editor's cohort picker list these cohorts.
+The realtime cohorts gate (`is_realtime_cohort_flag_targeting_enabled`) is open for a team whose access row is `serving`, and for a team on `REALTIME_COHORT_TEAM_ALLOWLIST` when the realtime targeting rollout flag is on for the user.
+That list also holds load-test teams, which is why the flag still decides there.
+The flag API accepts a cohort with event-based criteria, or one that depends on such a cohort, only when the gate is open and every such cohort is flag-compatible.
+The same gate lets the flag editor's cohort picker list these cohorts, and the team's `realtime_cohorts` field tells the frontend about it.
+Under each condition set, the flag editor lists the cohorts the set targets that flags can't target yet, and turns realtime on for an `off` one through the cohort API's `realtime` action, the same action the cohort page calls.
+For a team inside the gate, that field also carries how many of the project's cohorts hold a slot and the plan's slot limit, and it carries nulls for every other team.
 
-Behind the same rollout flag, for allowlisted teams, the cohort API's `realtime` field reports one state per cohort that has event or person criteria: `static`, `person_properties`, `daily`, `building`, `rebuilding`, `ready`, or `needs_attention`.
+Behind the same gate, for teams at the `serving` level, the cohort API's `realtime` field reports one state per cohort that has event or person criteria: `static`, `person_properties`, `daily`, `off`, `building`, `rebuilding`, `ready`, or `needs_attention`.
+`off` is a cohort with event criteria that could be realtime and that nobody turned realtime on for.
+An `off` cohort whose criteria look back further than the [plan's history limit](definitions-and-eligibility.md#plan-limits) carries `reason: history_over_limit`, because it can't be turned on.
+A `daily` cohort whose criteria look back further than `REALTIME_COHORT_MAX_HISTORY_DAYS` carries it too.
+Both carry the plan's limit in `history_limit_days`, because that is the limit a person can raise.
+A `needs_attention` cohort carries `reason: too_large_to_build` when the save path refused its behavioral run on the scan limit, see [backfill coordination](backfill-coordination.md#when-things-go-wrong).
 
 ### In the feature flags service
 
 The Rust flags service reads cohorts from the flags cache, or from Postgres through a short-lived cache when the flags cache has none.
 It routes a cohort to the membership table when all of these hold:
 
-- the team is in `REALTIME_COHORT_EVALUATION_TEAM_IDS`,
+- the team is in `REALTIME_COHORT_EVALUATION_TEAM_IDS`, or its team access row is at `serving`,
 - the cohort's type is `realtime`, or the legacy `behavioral` type,
 - its `condition_type` marks a behavioral or lifecycle condition,
 - its stamps satisfy the configured stamp policy.
@@ -255,6 +272,7 @@ And Django can accept a flag that Rust then evaluates dynamically, for example w
 - **It does not mean complete history.**
   A person stamp covers persons updated since the run's horizon.
   A behavioral stamp covers history only up to the seeder's lookback cap.
+  Django keeps a cohort that looks back further off realtime when its criteria are saved, unless `REALTIME_COHORT_MAX_HISTORY_DAYS` is set above that cap.
 - **It does not cover leaving the realtime set.**
   The finalizer does not check whether the cohort was deleted, made static or stopped being realtime while the run was in flight.
 

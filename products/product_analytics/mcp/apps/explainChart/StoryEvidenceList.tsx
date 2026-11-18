@@ -1,5 +1,5 @@
 import { ArrowUpRight } from 'lucide-react'
-import { type ReactElement } from 'react'
+import { type ReactElement, type ReactNode } from 'react'
 
 import { Button, Text } from '@posthog/quill'
 
@@ -9,6 +9,7 @@ import { StoryMarkedText } from './StoryMarkedText'
 export interface StoryEvidenceListProps {
     evidence: StoryEvidence[]
     openLink: (url: string) => void
+    openLinkLabel?: ReactNode
     canShowChart: (item: StoryEvidence) => boolean
     shownIndex: number | null
     onToggleChart: (index: number) => void
@@ -17,6 +18,12 @@ export interface StoryEvidenceListProps {
 export function StoryEvidenceList({
     evidence,
     openLink,
+    openLinkLabel = (
+        <>
+            Open in PostHog
+            <ArrowUpRight className="size-3" />
+        </>
+    ),
     canShowChart,
     shownIndex,
     onToggleChart,
@@ -69,8 +76,7 @@ export function StoryEvidenceList({
                                             onClick={() => item.url && openLink(item.url)}
                                             data-attr="explain-chart-evidence-link"
                                         >
-                                            Open in PostHog
-                                            <ArrowUpRight className="size-3" />
+                                            {openLinkLabel}
                                         </Button>
                                     )}
                                 </div>

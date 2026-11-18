@@ -15,13 +15,16 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 LAUNCHED_AT = datetime(2026, 10, 1, 9, 0, tzinfo=UTC)
 FULL_ACCESS = ExperimentHealthReaderAccess(
-    can_read_flag_history=True, can_query_events=True, denied_event_properties=frozenset()
+    can_read_flag_history=True,
+    can_query_events=True,
+    denied_event_properties=frozenset(),
+    restricted_properties=frozenset(),
 )
 
 
 def _history(paused_after_hours: int | None) -> PauseHistory:
     return PauseHistory(
-        launched_at=LAUNCHED_AT,
+        start_date=LAUNCHED_AT,
         team_timezone="UTC",
         paused_at=None if paused_after_hours is None else LAUNCHED_AT + timedelta(hours=paused_after_hours),
     )

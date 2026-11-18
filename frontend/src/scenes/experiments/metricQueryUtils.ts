@@ -1,5 +1,6 @@
 import { match } from 'ts-pattern'
 
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { EXPERIMENT_DEFAULT_DURATION, FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
@@ -14,6 +15,7 @@ import {
     isWarehouseSeriesNode,
 } from 'scenes/insights/filters/ActionFilter/seriesNode'
 
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import type {
     ActionsNode,
     BreakdownFilter,
@@ -25,6 +27,7 @@ import type {
     ExperimentMetric,
     ExperimentMetricSource,
     ExperimentMetricTypeProps,
+    ExperimentQuantileMetricSource,
     ExperimentWarehouseNativeNode,
     FunnelsDataWarehouseNode,
     FunnelsFilter,
@@ -35,7 +38,6 @@ import type {
     TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { ExperimentMetricType, ExperimentWarehouseNativeMathType, NodeKind } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 import type { IntervalType } from '~/types'
 import { ChartDisplayType, ExperimentMetricMathType } from '~/types'
 
@@ -185,6 +187,10 @@ export const getQuery =
                 if (!isEventMetricSource(source) && !source.math) {
                     return undefined
                 }
+                // An insight cannot read a warehouse-native query
+                if (source.kind === NodeKind.ExperimentWarehouseNativeNode) {
+                    return undefined
+                }
 
                 /**
                  * return a TrendsQuery
@@ -263,12 +269,12 @@ const getFunnelSeries = (
 
 /**
  * The series editor has rows for events, actions and synced warehouse tables only. A
- * warehouse-native source has no row yet, so the form refuses it like the insight converters do.
+ * warehouse-native source has its own fields in the metric form, so it must never reach this editor.
  */
 export function metricSourcesToSeries(sources: ExperimentMetricSource[]): SeriesNode[] {
     return sources.map((source) => {
         if (source.kind === NodeKind.ExperimentWarehouseNativeNode) {
-            throw new Error('Warehouse-native sources cannot be edited in the metric form yet')
+            throw new Error('Warehouse-native sources cannot be edited in the series editor')
         }
         return source
     })
@@ -304,6 +310,33 @@ export function seriesToMetricSource(series: SeriesNode[]): PickedMetricSource |
         return { ...source, event: source.event || source.name }
     }
     return source
+}
+
+const QUANTILE_PROPERTY_TYPES: (string | undefined)[] = [
+    undefined,
+    TaxonomicFilterGroupType.EventProperties,
+    TaxonomicFilterGroupType.NumericalEventProperties,
+]
+
+/**
+ * The source of a percentile metric made from another metric's source, or null when the source can't carry over.
+ * The percentile query reads `properties.<name>` from each event, so a session or person property is dropped.
+ */
+export function toQuantileSource(source: ExperimentMetricSource): ExperimentQuantileMetricSource | null {
+    if (source.kind !== NodeKind.EventsNode && source.kind !== NodeKind.ActionsNode) {
+        return null
+    }
+    const isEventProperty =
+        source.math_property !== '$session_duration' && QUANTILE_PROPERTY_TYPES.includes(source.math_property_type)
+    return {
+        ...source,
+        math: undefined,
+        math_hogql: undefined,
+        math_group_type_index: undefined,
+        math_multiplier: undefined,
+        math_property_type: undefined,
+        math_property: isEventProperty ? source.math_property : undefined,
+    }
 }
 
 /**

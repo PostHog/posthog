@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { Fragment, useEffect, useRef, useState } from 'react'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
-import { LemonButton, LemonSegmentedButton, LemonTable, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTable, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -17,14 +17,16 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { LogRowScrollButtons } from 'products/logs/frontend/components/VirtualizedLogsList/LogRowScrollButtons'
 import { useOpenTraceDialog } from 'products/tracing/frontend/components/TraceDialog/useOpenTraceDialog'
 
-import { type MetricsSeriesRow, type MetricsPanelTab, metricsSamplesLogic } from './metricsSamplesLogic'
+import { type MetricsPanelTab, type MetricsSeriesRow, metricsSamplesLogic } from './metricsSamplesLogic'
+import { type MetricsSampleRow } from './metricsSamplesMerge'
 import { metricsUsageTrackingLogic } from './metricsUsageTrackingLogic'
 import { metricsViewerLogic } from './metricsViewerLogic'
 import { SampleAttributes } from './SampleAttributes'
 
 function SamplesTab(): JSX.Element {
-    const { samples, samplesLoading } = useValues(metricsSamplesLogic)
-    const { hasMetricName } = useValues(metricsViewerLogic)
+    const { samples, samplesLoading, failedSampleClauses } = useValues(metricsSamplesLogic)
+    const { hasMetricName, namedClauses } = useValues(metricsViewerLogic)
+    const multipleSeries = namedClauses.length > 1
     const { timezone } = useValues(teamLogic)
     const { sampleRowExpanded, tracePivotClicked } = useActions(metricsUsageTrackingLogic)
     const openTraceDialog = useOpenTraceDialog()
@@ -34,93 +36,116 @@ function SamplesTab(): JSX.Element {
     )
 
     return (
-        <LemonTable
-            dataSource={samples}
-            loading={samplesLoading}
-            size="small"
-            rowKey={(sample, rowIndex) => `${rowIndex}-${sample.timestamp}-${sample.trace_id}`}
-            emptyState={
-                hasMetricName
-                    ? 'No emissions for this metric in the selected range.'
-                    : 'Pick a metric to see its raw emissions.'
-            }
-            expandable={{
-                expandedRowRender: (sample) => <SampleAttributes sample={sample} />,
-                onRowExpand: (sample) => sampleRowExpanded(sample),
-            }}
-            columns={[
-                {
-                    title: 'Timestamp',
-                    key: 'timestamp',
-                    render: (_, sample) => (
-                        <TZLabel
-                            time={sample.timestamp}
-                            formatDate="MMM D"
-                            formatTime="HH:mm:ss"
-                            displayTimezone={timezone}
-                        />
-                    ),
-                },
-                {
-                    title: 'Value',
-                    key: 'value',
-                    align: 'right',
-                    render: (_, sample) => (
-                        <Tooltip
-                            title={
-                                sample.count > 1
-                                    ? `Distribution sum over ${sample.count} observations${sample.unit ? ` (${sample.unit})` : ''}`
-                                    : sample.unit || undefined
-                            }
-                        >
-                            <span className="font-mono">{humanFriendlyNumber(sample.value, 2)}</span>
-                        </Tooltip>
-                    ),
-                },
-                {
-                    title: 'Trace',
-                    key: 'trace',
-                    render: (_, sample) =>
-                        sample.trace_id && !tracingDisabledReason ? (
-                            <Tooltip title="Open the trace this emission was recorded in">
-                                <Link
-                                    to={traceUrl({
-                                        traceId: sample.trace_id,
-                                        spanId: sample.span_id || null,
-                                        ts: sample.timestamp,
-                                    })}
-                                    className="font-mono"
-                                    onClick={(event) => {
-                                        tracePivotClicked(sample)
-                                        openTraceDialog(
-                                            event,
-                                            {
-                                                traceId: sample.trace_id,
-                                                spanId: sample.span_id || null,
-                                                ts: sample.timestamp,
-                                            },
-                                            { entryPoint: 'metric_sample' }
-                                        )
-                                    }}
-                                >
-                                    {/* Link doesn't take data-attr; the span gives autocapture a named element. */}
-                                    <span data-attr="metrics-trace-pivot">
+        <>
+            {failedSampleClauses.length > 0 && (
+                <LemonBanner type="warning" className="mb-2" data-attr="metrics-samples-partial-failure">
+                    Couldn't load samples for series {failedSampleClauses.join(', ')}. The table shows the other series
+                    only.
+                </LemonBanner>
+            )}
+            <LemonTable
+                dataSource={samples}
+                loading={samplesLoading}
+                size="small"
+                rowKey={(sample, rowIndex) => `${rowIndex}-${sample.timestamp}-${sample.trace_id}`}
+                emptyState={
+                    hasMetricName
+                        ? multipleSeries
+                            ? 'No emissions for these metrics in the selected range.'
+                            : 'No emissions for this metric in the selected range.'
+                        : 'Pick a metric to see its raw emissions.'
+                }
+                expandable={{
+                    expandedRowRender: (sample) => <SampleAttributes sample={sample} />,
+                    onRowExpand: (sample) => sampleRowExpanded(sample),
+                }}
+                columns={[
+                    ...(multipleSeries
+                        ? [
+                              {
+                                  title: 'Series',
+                                  key: 'series',
+                                  render: (_: unknown, sample: MetricsSampleRow) => (
+                                      <Tooltip title={sample.metric_name}>
+                                          <span className="font-mono">{sample.clauses.join(', ')}</span>
+                                      </Tooltip>
+                                  ),
+                              },
+                          ]
+                        : []),
+                    {
+                        title: 'Timestamp',
+                        key: 'timestamp',
+                        render: (_, sample) => (
+                            <TZLabel
+                                time={sample.timestamp}
+                                formatDate="MMM D"
+                                formatTime="HH:mm:ss"
+                                displayTimezone={timezone}
+                            />
+                        ),
+                    },
+                    {
+                        title: 'Value',
+                        key: 'value',
+                        align: 'right',
+                        render: (_, sample) => (
+                            <Tooltip
+                                title={
+                                    sample.count > 1
+                                        ? `Distribution sum over ${sample.count} observations${sample.unit ? ` (${sample.unit})` : ''}`
+                                        : sample.unit || undefined
+                                }
+                            >
+                                <span className="font-mono">{humanFriendlyNumber(sample.value, 2)}</span>
+                            </Tooltip>
+                        ),
+                    },
+                    {
+                        title: 'Trace',
+                        key: 'trace',
+                        render: (_, sample) =>
+                            sample.trace_id && !tracingDisabledReason ? (
+                                <Tooltip title="Open the trace this emission was recorded in">
+                                    <Link
+                                        to={traceUrl({
+                                            traceId: sample.trace_id,
+                                            spanId: sample.span_id || null,
+                                            ts: sample.timestamp,
+                                        })}
+                                        className="font-mono"
+                                        onClick={(event) => {
+                                            tracePivotClicked(sample)
+                                            openTraceDialog(
+                                                event,
+                                                {
+                                                    traceId: sample.trace_id,
+                                                    spanId: sample.span_id || null,
+                                                    ts: sample.timestamp,
+                                                },
+                                                { entryPoint: 'metric_sample' }
+                                            )
+                                        }}
+                                    >
+                                        {/* Link doesn't take data-attr; the span gives autocapture a named element. */}
+                                        <span data-attr="metrics-trace-pivot">
+                                            {sample.trace_id.slice(0, 8).toLowerCase()}
+                                        </span>
+                                    </Link>
+                                </Tooltip>
+                            ) : sample.trace_id ? (
+                                <Tooltip title={tracingDisabledReason}>
+                                    <span className="font-mono text-secondary cursor-not-allowed">
                                         {sample.trace_id.slice(0, 8).toLowerCase()}
                                     </span>
-                                </Link>
-                            </Tooltip>
-                        ) : sample.trace_id ? (
-                            <Tooltip title={tracingDisabledReason}>
-                                <span className="font-mono text-secondary cursor-not-allowed">
-                                    {sample.trace_id.slice(0, 8).toLowerCase()}
-                                </span>
-                            </Tooltip>
-                        ) : (
-                            <span className="text-secondary">—</span>
-                        ),
-                },
-            ]}
-        />
+                                </Tooltip>
+                            ) : (
+                                <span className="text-secondary">—</span>
+                            ),
+                    },
+                ]}
+            />
+        </>
     )
 }
 
@@ -294,42 +319,18 @@ function SeriesTab(): JSX.Element {
     )
 }
 
-/** Side panel next to the chart: per-series totals, or the raw emissions
+/** Panel under the chart: per-series totals, or the raw emissions
  * behind the chart with a link to the trace each one was recorded in. */
 export function MetricsSamplesPanel(): JSX.Element {
     const { activeTab } = useValues(metricsSamplesLogic)
     const { setActiveTab } = useActions(metricsSamplesLogic)
-    const { viewerClauses, activeClauseIndex } = useValues(metricsViewerLogic)
-    const { setActiveClauseIndex } = useActions(metricsViewerLogic)
     const metricsViewerDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Metrics,
         AccessControlLevel.Viewer
     )
 
     return (
-        <div className="border rounded p-2 overflow-y-auto">
-            {/* Samples and the anomaly badge describe one series at a time; with several
-                clauses this picks which one they follow. The Series tab always covers all series. */}
-            {viewerClauses.length > 1 && (
-                <div className="flex flex-wrap items-center gap-2 pb-1">
-                    <span className="text-xs text-secondary">Samples follow series</span>
-                    <LemonSegmentedButton
-                        size="xsmall"
-                        value={activeClauseIndex}
-                        onChange={(index) => {
-                            if (!metricsViewerDisabledReason) {
-                                setActiveClauseIndex(index)
-                            }
-                        }}
-                        options={viewerClauses.map((clause, index) => ({
-                            value: index,
-                            label: clause.name,
-                            tooltip: clause.metricName.trim() || 'No metric picked',
-                        }))}
-                        data-attr="metrics-samples-panel-series-picker"
-                    />
-                </div>
-            )}
+        <div className="border rounded p-2 overflow-y-auto bg-surface-primary flex-1 min-h-0">
             <LemonTabs<MetricsPanelTab>
                 size="small"
                 activeKey={activeTab}

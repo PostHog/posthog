@@ -31,6 +31,7 @@ from posthog.llm.gateway_client import (
     get_llm_client,
     private_scout_gateway,
     resolve_ai_gateway_config,
+    resolve_https_ai_gateway_config,
     team_trace_id,
     trace_id_from_seed,
 )
@@ -84,7 +85,6 @@ class TestGetLlmClient:
         "product,expected_path",
         [
             ("django", "/django/v1/"),
-            ("llm_gateway", "/llm_gateway/v1/"),
             ("posthog_code", "/posthog_code/v1/"),
             ("wizard", "/wizard/v1/"),
             ("signals", "/signals/v1/"),
@@ -249,6 +249,23 @@ class TestResolveAIGatewayConfig:
         mock_logger.warning.assert_called_once()
         assert reason in str(mock_logger.warning.call_args)
 
+    @pytest.mark.parametrize(
+        "url,usable",
+        [
+            (AI_GATEWAY_URL, True),
+            ("http://ai-gateway.example/v1", False),
+            ("http://localhost:3308/v1", True),
+            ("http://127.0.0.1:3308/v1", True),
+            ("http://[::1]:3308/v1", True),
+            ("http://localhost.example.com/v1", False),
+        ],
+    )
+    def test_https_config_keeps_a_remote_key_off_plain_http(self, url, usable):
+        with override_settings(AI_GATEWAY_URL=url, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY):
+            config = resolve_https_ai_gateway_config()
+
+        assert config == (AIGatewayConfig(url=url, api_key=AI_GATEWAY_KEY) if usable else None)
+
 
 class TestBuildOpenAIClient:
     @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
@@ -343,6 +360,35 @@ class TestBuildAsyncOpenAIClient:
         assert headers["traceparent"].startswith("00-a9f9e1dd83324ad0959b36ea0a45734e-")
         assert headers["x-posthog-property-$ai_session_id"] == "summary-session-1"
         assert headers["x-posthog-property-evaluation_id"] == "evaluation-123"
+
+
+class TestOpenAIClientPrivacyMode:
+    @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
+    @pytest.mark.parametrize(
+        "builder,client_target",
+        [(build_openai_client, "OpenAI"), (build_async_openai_client, "AsyncOpenAI")],
+    )
+    @pytest.mark.parametrize("privacy_mode", [True, False])
+    def test_gateway_mode_sends_privacy_header_only_when_asked(self, builder, client_target, privacy_mode):
+        with patch(f"posthog.llm.gateway_client.{client_target}") as mock_client:
+            builder("django", ai_product="logs", privacy_mode=privacy_mode)
+
+        headers = mock_client.call_args.kwargs["default_headers"]
+        assert ("X-PostHog-Privacy-Mode" in headers) is privacy_mode
+        if privacy_mode:
+            assert headers["X-PostHog-Privacy-Mode"] == "true"
+
+    @override_settings(AI_GATEWAY_URL="", AI_GATEWAY_API_KEY="")
+    @pytest.mark.parametrize(
+        "builder,fallback_target",
+        [(build_openai_client, "get_llm_client"), (build_async_openai_client, "get_async_llm_client")],
+    )
+    def test_privacy_mode_never_falls_back_to_the_python_gateway(self, builder, fallback_target):
+        with patch(f"posthog.llm.gateway_client.{fallback_target}") as mock_fallback:
+            with pytest.raises(GatewayNotConfiguredError):
+                builder("django", ai_product="logs", privacy_mode=True)
+
+        mock_fallback.assert_not_called()
 
 
 class TestTeamTraceId:
@@ -531,15 +577,17 @@ class TestBuildAnthropicClient:
 
 
 class TestBuildAIGatewayAnthropicClient:
+    @pytest.mark.parametrize("privacy_mode", [True, False])
     @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
     @patch("posthog.llm.gateway_client.httpx.Client")
     @patch("posthog.llm.gateway_client.Anthropic")
-    def test_builds_the_go_gateway_client_with_attribution(self, mock_anthropic, mock_httpx):
+    def test_builds_the_go_gateway_client_with_attribution(self, mock_anthropic, mock_httpx, privacy_mode):
         result = build_ai_gateway_anthropic_client(
             ai_product="aio_stamphog",
             properties={"source_product": "stamphog_digest"},
             distinct_id="team-42",
             team_id=42,
+            privacy_mode=privacy_mode,
         )
 
         kwargs = mock_anthropic.call_args.kwargs
@@ -554,6 +602,7 @@ class TestBuildAIGatewayAnthropicClient:
             "source_product": "stamphog_digest",
             "team_id": "42",
         }
+        assert headers.get("X-PostHog-Privacy-Mode") == ("true" if privacy_mode else None)
         assert result is mock_anthropic.return_value
 
     @pytest.mark.parametrize(
@@ -576,6 +625,7 @@ class TestBuildAIGatewayOpenAIClient:
         result = build_ai_gateway_openai_client(
             api_key="pha_user_token",
             ai_product="custom_image_scans",
+            session_id="session-42",
             properties={"team_id": "42"},
             distinct_id="team-42",
         )
@@ -587,6 +637,7 @@ class TestBuildAIGatewayOpenAIClient:
         headers = kwargs["default_headers"]
         assert headers["X-PostHog-Product"] == "custom_image_scans"
         assert headers["X-PostHog-Distinct-Id"] == "team-42"
+        assert headers["X-PostHog-Session-Id"] == "session-42"
         assert json.loads(headers["X-PostHog-Properties"]) == {"ai_product": "custom_image_scans", "team_id": "42"}
         assert result is mock_openai.return_value
 

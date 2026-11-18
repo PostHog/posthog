@@ -14,7 +14,7 @@ import {
     buildNewBroadcastComposerContext,
 } from './broadcastAgentContext'
 import { broadcastPreviewLogic } from './broadcastPreviewLogic'
-import { canEditInWizard, isBroadcastShaped } from './broadcastsLogic'
+import { isBroadcastShaped, opensInWizard } from './broadcastsLogic'
 import { BroadcastSummary } from './BroadcastSummary'
 import { broadcastTestSendLogic } from './broadcastTestSendLogic'
 import { BroadcastWizard } from './BroadcastWizard'
@@ -79,7 +79,7 @@ function BroadcastSceneContent({ id }: BroadcastWizardLogicProps): JSX.Element {
         }
         // The wizard saves a broadcast back as its three-step graph, so any other graph (an edit made in the
         // workflow editor, or an agent-created one) stays read-only here rather than losing its extra steps.
-        if (broadcast.status !== 'draft' || !canEditInWizard(broadcast.actions as any, broadcast.edges as any)) {
+        if (!opensInWizard(broadcast)) {
             return <BroadcastSummary />
         }
     }

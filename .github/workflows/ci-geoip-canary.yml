@@ -37,6 +37,24 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
+                  sparse-checkout-cone-mode: false
+                  sparse-checkout: |
+                      /*
+                      !/*/
+                      /.github/actions/pnpm-install/
+                      /.github/actions/setup-pnpm/
+                      /.github/scripts/jest-retries.cjs
+                      /bin/download-mmdb
+                      /bin/fix-rdkafka-paths
+                      /common/hogvm/typescript/
+                      /common/replay-headless/
+                      /common/replay-shared/
+                      /frontend/jest.quarantine.ts
+                      /nodejs/
+                      /patches/
+                      /rust/common/hogvm/node/
+                      /rust/replay-anonymizer-node/
+                      /rust/ai-research/replay-core-v4-node/
 
             - name: Download MaxMind database
               run: ./bin/download-mmdb

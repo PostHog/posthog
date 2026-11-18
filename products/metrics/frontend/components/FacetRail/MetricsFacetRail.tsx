@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { ReactNode } from 'react'
 
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
@@ -66,18 +65,5 @@ export function MetricsFacetRailToggle(): JSX.Element {
         >
             {railCollapsed ? 'Show filters' : 'Hide filters'}
         </LemonButton>
-    )
-}
-
-/** Puts the rail beside the viewer, with the viewer scrolling on its own so the rail keeps its height. */
-export function MetricsFacetRailLayout({ enabled, children }: { enabled: boolean; children: ReactNode }): JSX.Element {
-    if (!enabled) {
-        return <div className="flex flex-col gap-3">{children}</div>
-    }
-    return (
-        <div className="flex gap-2 flex-1 min-h-0">
-            <MetricsFacetRail />
-            <div className="flex flex-col gap-3 flex-1 min-w-0 min-h-0 overflow-y-auto">{children}</div>
-        </div>
     )
 }

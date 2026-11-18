@@ -28,6 +28,7 @@ import {
   fetchGatewayModels,
   formatGatewayModelName,
   type GatewayModel,
+  isAnthropicModel,
   isClaudeAdapterModel,
   isClaudeAdapterModelId,
   isServedModelId,
@@ -162,7 +163,14 @@ export abstract class BaseAcpAgent implements Agent {
         : undefined,
     );
 
-    const adapterModels = this.gatewayModels.filter(isClaudeAdapterModel);
+    // A retired model stays served for saved sessions, so only the one this
+    // session already runs is offered.
+    const adapterModels = this.gatewayModels.filter(
+      (model) =>
+        isClaudeAdapterModel(model) &&
+        (!this.usesMachineAuth() || isAnthropicModel(model)) &&
+        (!isRetiredModel(model.id) || model.id === currentModelOverride),
+    );
 
     const options = adapterModels
       .map((model) => ({

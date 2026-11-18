@@ -5,14 +5,21 @@ import { cn } from 'lib/utils/css-classes'
 
 import { ThreadMessage } from '../types'
 import { MessagePartView } from './MessagePartView'
+import { ShowMore } from './ShowMore'
 
 export interface ThreadBubbleProps {
     message: ThreadMessage
     onSelect?: () => void
     isFaded?: boolean
+    highlightQuery?: string | null
 }
 
-export function ThreadBubble({ message, onSelect, isFaded = false }: ThreadBubbleProps): JSX.Element {
+export function ThreadBubble({
+    message,
+    onSelect,
+    isFaded = false,
+    highlightQuery = null,
+}: ThreadBubbleProps): JSX.Element {
     const isUser = message.role === 'user'
     const baseClassName = cn(
         'flex flex-col gap-2 text-left text-sm',
@@ -22,7 +29,13 @@ export function ThreadBubble({ message, onSelect, isFaded = false }: ThreadBubbl
         isFaded && 'opacity-50'
     )
 
-    const content = message.parts.map((part, index) => <MessagePartView key={index} part={part} />)
+    const content = (
+        <ShowMore highlightQuery={highlightQuery}>
+            {message.parts.map((part, index) => (
+                <MessagePartView key={index} part={part} highlightQuery={highlightQuery} />
+            ))}
+        </ShowMore>
+    )
 
     if (!onSelect) {
         return <div className={baseClassName}>{content}</div>
@@ -30,7 +43,7 @@ export function ThreadBubble({ message, onSelect, isFaded = false }: ThreadBubbl
 
     return (
         <div className={cn(baseClassName, 'flex-row items-start justify-between')}>
-            <div className="flex min-w-0 flex-col gap-2">{content}</div>
+            {content}
             <LemonButton
                 size="xsmall"
                 type="tertiary"

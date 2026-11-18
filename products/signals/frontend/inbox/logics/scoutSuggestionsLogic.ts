@@ -68,6 +68,7 @@ const scanFromBatch = (suggestionSet: ScoutSuggestionSetApi | null): ScoutSugges
 export interface scoutSuggestionsLogicValues {
     aiConsentDisabledReason: string | null // scoutFleetLogic
     runningChatType: ScoutChatType | null // scoutFleetLogic
+    scoutChatDisabledReason: string | null // scoutFleetLogic
     scoutConfigs: SignalScoutConfig[] | null // scoutFleetLogic
     currentProjectId: number | string // teamLogic
     currentTeamId: number | null // teamLogic
@@ -259,7 +260,7 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
     connect(() => ({
         values: [
             scoutFleetLogic,
-            ['scoutConfigs', 'aiConsentDisabledReason', 'runningChatType'],
+            ['scoutConfigs', 'aiConsentDisabledReason', 'scoutChatDisabledReason', 'runningChatType'],
             teamLogic,
             ['currentTeamId', 'currentProjectId'],
         ],

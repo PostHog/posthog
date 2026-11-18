@@ -47,18 +47,16 @@ class PullRequestOwnerResolver:
     @staticmethod
     def active_author_id(team_id: int, author_login: str) -> int | None:
         # Pulls in the signals product, which a webhook must not load at import.
-        from products.signals.backend.report_generation.resolve_reviewers import (  # noqa: PLC0415
-            resolve_org_github_login_to_users,
-        )
+        from products.signals.backend.facade.report_reviewers import org_user_ids_by_github_login  # noqa: PLC0415
 
         login = author_login.strip().lower()
         if not login:
             return None
-        user = resolve_org_github_login_to_users(team_id, [login]).get(login)
+        user_id = org_user_ids_by_github_login(team_id=team_id, github_logins=[login]).get(login)
         # An inactive user cannot act and cannot opt in, so they own nothing.
-        if user is None or not is_active_member(team_id=team_id, user_id=user.id):
+        if user_id is None or not is_active_member(team_id=team_id, user_id=user_id):
             return None
-        return user.id
+        return user_id
 
     @staticmethod
     def inbox_reviewer_id(team_id: int, *, repository: str, head_branch: str | None) -> int | None:
@@ -70,9 +68,9 @@ class PullRequestOwnerResolver:
             return None
         # An inactive reviewer cannot act or opt in, so ownership falls to the next active one.
         reviewers = [
-            user
-            for user in resolve_assigned_reviewers(team_id, run.signal_report_id)
-            if is_active_member(team_id=team_id, user_id=user.id)
+            user_id
+            for user_id in resolve_assigned_reviewers(team_id, run.signal_report_id)
+            if is_active_member(team_id=team_id, user_id=user_id)
         ]
         return pick_reviewer(reviewers, run.task_created_by_id) if reviewers else None
 

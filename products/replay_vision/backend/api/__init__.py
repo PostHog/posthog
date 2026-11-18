@@ -1,4 +1,5 @@
 from products.replay_vision.backend.api.backfills import ReplayScannerBackfillViewSet
+from products.replay_vision.backend.api.clusters import VisionGroupViewSet, VisionThemeViewSet
 from products.replay_vision.backend.api.observation_requests import ObservationRequestViewSet
 from products.replay_vision.backend.api.observations import ReplayObservationViewSet, SessionReplayObservationViewSet
 from products.replay_vision.backend.api.quota import VisionQuotaViewSet
@@ -18,5 +19,7 @@ __all__ = [
     "ReplayScannerVariantsViewSet",
     "SessionReplayObservationViewSet",
     "VisionAlertViewSet",
+    "VisionGroupViewSet",
     "VisionQuotaViewSet",
+    "VisionThemeViewSet",
 ]

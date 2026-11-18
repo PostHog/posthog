@@ -1,11 +1,9 @@
-import { generateText } from '@tiptap/core'
-
-import { JSONContent, RichContentNodeType } from 'lib/components/RichContentEditor/types'
+import { richContentToText } from 'lib/components/RichContentEditor/richContentText'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { dayjs } from 'lib/dayjs'
-import { DEFAULT_EXTENSIONS, serializationOptions } from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
 import { urls } from 'scenes/urls'
 
-import { ActivityScope } from '~/types'
+import { ActivityScope, CommentType } from '~/types'
 
 export interface RecordingLinkInfo {
     recordingId: string
@@ -62,38 +60,7 @@ export function getCommentText(comment: { content?: string | null; rich_content?
               ],
           }
 
-    try {
-        return generateText(content, DEFAULT_EXTENSIONS, serializationOptions)
-    } catch {
-        // Conversations authors comments with a richer schema than DEFAULT_EXTENSIONS, so a mark or
-        // node it lacks (italic, list, image, ...) makes generateText throw. Extract text schema-free.
-        return extractPlainText(content)
-    }
-}
-
-const INLINE_NODE_TYPES = new Set<string>(['text', 'hardBreak', RichContentNodeType.Mention])
-
-/** Concatenate a rich-content doc's text with no ProseMirror schema, so no node or mark can throw. */
-function extractPlainText(node: JSONContent): string {
-    if (node.type === RichContentNodeType.Mention) {
-        return node.attrs?.id != null ? `@member:${node.attrs.id}` : ''
-    }
-    if (node.type === 'hardBreak') {
-        return '\n'
-    }
-    if (node.type === 'image') {
-        return node.attrs?.src ? `![${node.attrs.alt || 'image'}](${node.attrs.src})` : ''
-    }
-    const children = node.content ?? []
-    const joined = children
-        .map(extractPlainText)
-        // Block children are separated by a blank line, inline runs concatenate directly.
-        .map((part, index) => {
-            const isBlock = index > 0 && !INLINE_NODE_TYPES.has(children[index].type ?? '')
-            return isBlock ? `\n\n${part}` : part
-        })
-        .join('')
-    return (node.text ?? '') + joined
+    return richContentToText(content, (id) => `@member:${id}`)
 }
 
 export function isViewingRecording(recordingId: string): boolean {
@@ -105,4 +72,16 @@ export function isViewingRecording(recordingId: string): boolean {
     const sessionRecordingId =
         url.searchParams.get('sessionRecordingId') || url.hash.match(/sessionRecordingId=([^&]+)/)?.[1]
     return sessionRecordingId === recordingId
+}
+
+// Comments that came in from a synced Slack thread have no PostHog author; their Slack identity
+// rides in item_context.
+export function getCommentAuthorName(comment: CommentType): string {
+    if (comment.created_by) {
+        return comment.created_by.first_name ?? 'Unknown user'
+    }
+    if (comment.item_context?.from_slack) {
+        return comment.item_context.slack_author_name ?? 'Slack user'
+    }
+    return 'Unknown user'
 }

@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
 import { TimeSeriesLineChart } from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
@@ -9,13 +9,23 @@ import { teamLogic } from 'scenes/teamLogic'
 import { pipelineOverviewSceneLogic } from './pipelineOverviewSceneLogic'
 
 export function RowsByDestination(): JSX.Element {
-    const { rowsByDestination, destinationRowSeries, destinationRowSeriesLoading, destinationsLoading, window } =
-        useValues(pipelineOverviewSceneLogic)
+    const {
+        rowsByDestination,
+        destinationRowSeries,
+        destinationRowSeriesLoading,
+        destinationsLoading,
+        sourcesLoading,
+        window,
+    } = useValues(pipelineOverviewSceneLogic)
     const { currentTeam } = useValues(teamLogic)
     const theme = useChartTheme()
 
-    if ((destinationRowSeriesLoading && destinationRowSeries === null) || destinationsLoading) {
+    if ((destinationRowSeries === null && (destinationRowSeriesLoading || sourcesLoading)) || destinationsLoading) {
         return <LemonSkeleton className="h-64 w-full" />
+    }
+
+    if (destinationRowSeries === null) {
+        return <LemonBanner type="error">Couldn't load rows by destination. Refresh to try again.</LemonBanner>
     }
 
     if (rowsByDestination.length === 0) {
@@ -32,7 +42,7 @@ export function RowsByDestination(): JSX.Element {
         <div className="flex h-80 flex-col overflow-hidden rounded border border-primary bg-surface-primary p-3">
             <TimeSeriesLineChart
                 series={rowsByDestination}
-                labels={destinationRowSeries?.labels ?? []}
+                labels={destinationRowSeries.labels}
                 theme={theme}
                 config={{
                     xAxis: {

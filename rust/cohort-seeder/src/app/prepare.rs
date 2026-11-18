@@ -11,6 +11,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use cohort_core::bucket_tz::window_start_for_now;
+use cohort_core::filters::TeamId;
 use common_types::cohort::TeamAllowlist;
 use metrics::{counter, gauge};
 use sqlx::PgPool;
@@ -41,6 +42,24 @@ use super::person_plan::PersonPlanRequest;
 pub(super) enum PreparedRun {
     Behavioral(Arc<PreparedBehavioral>),
     Person(Arc<PinnedPersonRun>),
+}
+
+impl PreparedRun {
+    /// The claim budget and [`run_ids_of_kind`] both resolve a run's kind through here, so the
+    /// mapping lives in one place.
+    pub(super) fn kind(&self) -> RunKind {
+        match self {
+            Self::Behavioral(_) => RunKind::Behavioral,
+            Self::Person(_) => RunKind::PersonProperty,
+        }
+    }
+
+    pub(super) fn team_id(&self) -> TeamId {
+        match self {
+            Self::Behavioral(prepared) => prepared.run.team_id,
+            Self::Person(run) => run.team_id,
+        }
+    }
 }
 
 /// A behavioral run and the static analysis of its conditions, which every chunk of it shares.
@@ -384,21 +403,13 @@ fn report_person_analysis(run_id: RunId, run: &PinnedPersonRun) {
     );
 }
 
-/// The eligible run ids of one kind — the per-kind label on every shared chunk metric resolves
-/// through here, so the mapping lives in one place.
 pub(super) fn run_ids_of_kind(
     eligible_runs: &HashMap<RunId, PreparedRun>,
     kind: RunKind,
 ) -> Vec<RunId> {
     eligible_runs
         .iter()
-        .filter(|(_, prepared)| {
-            matches!(
-                (prepared, kind),
-                (PreparedRun::Behavioral(_), RunKind::Behavioral)
-                    | (PreparedRun::Person(_), RunKind::PersonProperty)
-            )
-        })
+        .filter(|(_, prepared)| prepared.kind() == kind)
         .map(|(run_id, _)| *run_id)
         .collect()
 }

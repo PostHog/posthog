@@ -51,12 +51,17 @@ ENDED_EXPERIMENT_NAME = "checkout cta v2"
 
 
 # Verbatim description of the catch-all release condition that PostHog adds to a feature flag
-# when a variant is shipped to all users, see the ship_flag_variant call in
-# products.experiments.backend.experiment_service
+# when a variant is shipped to all users, see the `ship_flag_variant` call in the experiments
+# product's experiment service
 SHIP_VARIANT_FLIP_SIGNATURE = "Added automatically when the experiment was ended to keep only one variant."
 
 
-def seed_running_experiment(context: CustomPromptSandboxContext) -> dict[str, Any]:
+def seed_running_experiment(
+    context: CustomPromptSandboxContext,
+    *,
+    start_date: datetime | None = None,
+    description: str = "Seeded by eval — running experiment with 50/50 split.",
+) -> dict[str, Any]:
     """Seed one running experiment with a 50/50 multivariate flag.
 
     Designed for prompts that ask the agent to change variant split on a
@@ -69,7 +74,7 @@ def seed_running_experiment(context: CustomPromptSandboxContext) -> dict[str, An
     parameterising this one — the eval framework passes only ``context`` to seeders, so
     case-specific config has to live in the seeder definition.
     """
-    from products.experiments.backend.models.experiment import Experiment
+    from products.experiments.backend.facade.testing import create_experiment
     from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
     team_id = context.team_id
@@ -92,19 +97,18 @@ def seed_running_experiment(context: CustomPromptSandboxContext) -> dict[str, An
         active=True,
     )
 
-    experiment = Experiment.objects.create(
+    experiment_id = create_experiment(
         team_id=team_id,
         created_by_id=user_id,
         name=ROLLOUT_EXPERIMENT_NAME,
-        description="Seeded by eval — running experiment with 50/50 split.",
-        feature_flag=flag,
-        start_date=datetime.now(tz=UTC) - timedelta(days=7),
-        end_date=None,
+        description=description,
+        feature_flag_id=flag.id,
+        start_date=start_date or datetime.now(tz=UTC) - timedelta(days=7),
     )
 
     payload: dict[str, Any] = {
-        "experiment_id": experiment.id,
-        "experiment_name": experiment.name,
+        "experiment_id": experiment_id,
+        "experiment_name": ROLLOUT_EXPERIMENT_NAME,
         "feature_flag_id": flag.id,
         "feature_flag_key": flag.key,
         "initial_split": {"control": 50, "test": 50},
@@ -112,7 +116,7 @@ def seed_running_experiment(context: CustomPromptSandboxContext) -> dict[str, An
     logger.info(
         "Seeded running experiment for team_id=%s: experiment_id=%s flag_key=%s",
         team_id,
-        experiment.id,
+        experiment_id,
         flag.key,
     )
     return payload
@@ -122,12 +126,7 @@ def _seed_split_test_experiment_started_at(
     context: CustomPromptSandboxContext, *, start_date: datetime, description: str
 ) -> dict[str, Any]:
     """Seed the shared 50/50 experiment with the start date that a case's prompt describes."""
-    from products.experiments.backend.models.experiment import Experiment
-
-    payload = seed_running_experiment(context)
-    Experiment.objects.filter(team_id=context.team_id, id=payload["experiment_id"]).update(
-        start_date=start_date, description=description
-    )
+    payload = seed_running_experiment(context, start_date=start_date, description=description)
     return {**payload, "start_date": start_date.isoformat()}
 
 
@@ -212,7 +211,7 @@ def seed_uneven_split_experiment(context: CustomPromptSandboxContext) -> dict[st
     recognise that an 80/20 split combined with Exclude systematically removes
     overlap users from the smaller variant, biasing the test arm.
     """
-    from products.experiments.backend.models.experiment import Experiment
+    from products.experiments.backend.facade.testing import create_experiment
     from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
     team_id = context.team_id
@@ -235,19 +234,18 @@ def seed_uneven_split_experiment(context: CustomPromptSandboxContext) -> dict[st
         active=True,
     )
 
-    experiment = Experiment.objects.create(
+    experiment_id = create_experiment(
         team_id=team_id,
         created_by_id=user_id,
         name=UNEVEN_SPLIT_EXPERIMENT_NAME,
         description="Seeded by eval — 80/20 split, default exclude handling.",
-        feature_flag=flag,
+        feature_flag_id=flag.id,
         start_date=datetime.now(tz=UTC) - timedelta(days=14),
-        end_date=None,
     )
 
     return {
-        "experiment_id": experiment.id,
-        "experiment_name": experiment.name,
+        "experiment_id": experiment_id,
+        "experiment_name": UNEVEN_SPLIT_EXPERIMENT_NAME,
         "feature_flag_id": flag.id,
         "feature_flag_key": flag.key,
         "initial_split": {"control": 80, "test": 20},
@@ -262,7 +260,7 @@ def seed_inactive_flag_experiment(context: CustomPromptSandboxContext) -> dict[s
     can never fire, so the exposure-shape snapshot will be empty and the
     diagnostic is B10 / A5 (flag inactive / experiment not actually live).
     """
-    from products.experiments.backend.models.experiment import Experiment
+    from products.experiments.backend.facade.testing import create_experiment
     from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
     team_id = context.team_id
@@ -287,19 +285,18 @@ def seed_inactive_flag_experiment(context: CustomPromptSandboxContext) -> dict[s
         active=False,
     )
 
-    experiment = Experiment.objects.create(
+    experiment_id = create_experiment(
         team_id=team_id,
         created_by_id=user_id,
         name=INACTIVE_FLAG_EXPERIMENT_NAME,
         description="Seeded by eval — experiment with start_date set but flag inactive.",
-        feature_flag=flag,
+        feature_flag_id=flag.id,
         start_date=datetime.now(tz=UTC) - timedelta(days=3),
-        end_date=None,
     )
 
     return {
-        "experiment_id": experiment.id,
-        "experiment_name": experiment.name,
+        "experiment_id": experiment_id,
+        "experiment_name": INACTIVE_FLAG_EXPERIMENT_NAME,
         "feature_flag_id": flag.id,
         "feature_flag_key": flag.key,
         "flag_active": False,
@@ -325,7 +322,7 @@ def seed_ended_experiment_with_flag_flip(context: CustomPromptSandboxContext) ->
     """
     from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail
 
-    from products.experiments.backend.models.experiment import Experiment
+    from products.experiments.backend.facade.testing import create_experiment
     from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
     team_id = context.team_id
@@ -363,12 +360,12 @@ def seed_ended_experiment_with_flag_flip(context: CustomPromptSandboxContext) ->
         active=True,
     )
 
-    experiment = Experiment.objects.create(
+    experiment_id = create_experiment(
         team_id=team_id,
         created_by_id=user_id,
         name=ENDED_EXPERIMENT_NAME,
         description="Seeded by eval — experiment ended via ship-variant; flag rewritten to 0/100.",
-        feature_flag=flag,
+        feature_flag_id=flag.id,
         start_date=datetime.now(tz=UTC) - timedelta(days=30),
         end_date=datetime.now(tz=UTC) - timedelta(days=1),
     )
@@ -401,8 +398,8 @@ def seed_ended_experiment_with_flag_flip(context: CustomPromptSandboxContext) ->
     )
 
     return {
-        "experiment_id": experiment.id,
-        "experiment_name": experiment.name,
+        "experiment_id": experiment_id,
+        "experiment_name": ENDED_EXPERIMENT_NAME,
         "feature_flag_id": flag.id,
         "feature_flag_key": flag.key,
         "final_split": {"control": 0, "test": 100},
@@ -416,7 +413,7 @@ SHARED_METRIC_EVENT = "purchase_completed"
 
 def seed_shared_metric_purchase_count(context: CustomPromptSandboxContext) -> dict[str, Any]:
     """Seed one shared metric: mean count of purchase_completed per user, no filters."""
-    from products.experiments.backend.models.experiment import ExperimentSavedMetric
+    from products.experiments.backend.facade.testing import create_saved_metric
 
     team_id = context.team_id
     user_id = context.user_id
@@ -432,7 +429,7 @@ def seed_shared_metric_purchase_count(context: CustomPromptSandboxContext) -> di
         "uuid": str(uuid.uuid4()),
     }
 
-    metric = ExperimentSavedMetric.objects.create(
+    saved_metric_id = create_saved_metric(
         team_id=team_id,
         created_by_id=user_id,
         name=SHARED_METRIC_NAME,
@@ -441,8 +438,8 @@ def seed_shared_metric_purchase_count(context: CustomPromptSandboxContext) -> di
     )
 
     payload: dict[str, Any] = {
-        "saved_metric_id": metric.id,
-        "saved_metric_name": metric.name,
+        "saved_metric_id": saved_metric_id,
+        "saved_metric_name": SHARED_METRIC_NAME,
         "event": SHARED_METRIC_EVENT,
         "metric_type": "mean",
         "math": "total",
@@ -450,8 +447,8 @@ def seed_shared_metric_purchase_count(context: CustomPromptSandboxContext) -> di
     logger.info(
         "Seeded shared metric for team_id=%s: id=%s name=%s event=%s",
         team_id,
-        metric.id,
-        metric.name,
+        saved_metric_id,
+        SHARED_METRIC_NAME,
         SHARED_METRIC_EVENT,
     )
     return payload

@@ -23,6 +23,7 @@
                     table_type: {
                       table: {
                         description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                        events_retention_field: "timestamp",
                         fields: {
                           $group_0: {
                             description: None,
@@ -252,6 +253,7 @@
                         hidden: False,
                         inherit_profile_spill: False,
                         name: None,
+                        person_id_pushdown_default: False,
                         top_level_settings: None,
                         workload: None
                       }
@@ -382,6 +384,7 @@
                         field: "fingerprint_issue_state"
                         lazy_join: {
                           description: None,
+                          extra_from_fields: [],
                           from_field: [
                             "fingerprint"
                           ],
@@ -437,6 +440,7 @@
                             hidden: False,
                             inherit_profile_spill: False,
                             name: None,
+                            person_id_pushdown_default: False,
                             top_level_settings: None,
                             workload: None
                           },
@@ -459,6 +463,7 @@
                         field: "fingerprint_issue_state"
                         lazy_join: {
                           description: None,
+                          extra_from_fields: [],
                           from_field: [
                             "fingerprint"
                           ],
@@ -514,6 +519,7 @@
                             hidden: False,
                             inherit_profile_spill: False,
                             name: None,
+                            person_id_pushdown_default: False,
                             top_level_settings: None,
                             workload: None
                           },
@@ -536,6 +542,7 @@
                         field: "fingerprint_issue_state"
                         lazy_join: {
                           description: None,
+                          extra_from_fields: [],
                           from_field: [
                             "fingerprint"
                           ],
@@ -591,6 +598,7 @@
                             hidden: False,
                             inherit_profile_spill: False,
                             name: None,
+                            person_id_pushdown_default: False,
                             top_level_settings: None,
                             workload: None
                           },
@@ -613,6 +621,7 @@
                         field: "fingerprint_issue_state"
                         lazy_join: {
                           description: None,
+                          extra_from_fields: [],
                           from_field: [
                             "fingerprint"
                           ],
@@ -668,6 +677,7 @@
                             hidden: False,
                             inherit_profile_spill: False,
                             name: None,
+                            person_id_pushdown_default: False,
                             top_level_settings: None,
                             workload: None
                           },
@@ -690,6 +700,7 @@
                         field: "fingerprint_issue_state"
                         lazy_join: {
                           description: None,
+                          extra_from_fields: [],
                           from_field: [
                             "fingerprint"
                           ],
@@ -745,6 +756,7 @@
                             hidden: False,
                             inherit_profile_spill: False,
                             name: None,
+                            person_id_pushdown_default: False,
                             top_level_settings: None,
                             workload: None
                           },
@@ -767,6 +779,7 @@
                         field: "fingerprint_issue_state"
                         lazy_join: {
                           description: None,
+                          extra_from_fields: [],
                           from_field: [
                             "fingerprint"
                           ],
@@ -822,6 +835,7 @@
                             hidden: False,
                             inherit_profile_spill: False,
                             name: None,
+                            person_id_pushdown_default: False,
                             top_level_settings: None,
                             workload: None
                           },
@@ -844,6 +858,7 @@
                         field: "fingerprint_issue_state"
                         lazy_join: {
                           description: None,
+                          extra_from_fields: [],
                           from_field: [
                             "fingerprint"
                           ],
@@ -899,6 +914,7 @@
                             hidden: False,
                             inherit_profile_spill: False,
                             name: None,
+                            person_id_pushdown_default: False,
                             top_level_settings: None,
                             workload: None
                           },
@@ -921,6 +937,7 @@
                         field: "fingerprint_issue_state"
                         lazy_join: {
                           description: None,
+                          extra_from_fields: [],
                           from_field: [
                             "fingerprint"
                           ],
@@ -976,6 +993,7 @@
                             hidden: False,
                             inherit_profile_spill: False,
                             name: None,
+                            person_id_pushdown_default: False,
                             top_level_settings: None,
                             workload: None
                           },
@@ -1744,6 +1762,7 @@
                                 field: "override"
                                 lazy_join: {
                                   description: None,
+                                  extra_from_fields: [],
                                   from_field: [
                                     "distinct_id"
                                   ],
@@ -1771,6 +1790,7 @@
                                     hidden: False,
                                     inherit_profile_spill: False,
                                     name: None,
+                                    person_id_pushdown_default: False,
                                     top_level_settings: None,
                                     workload: None
                                   },
@@ -1831,6 +1851,7 @@
                         field: "override"
                         lazy_join: {
                           description: None,
+                          extra_from_fields: [],
                           from_field: [
                             "distinct_id"
                           ],
@@ -1858,6 +1879,7 @@
                             hidden: False,
                             inherit_profile_spill: False,
                             name: None,
+                            person_id_pushdown_default: False,
                             top_level_settings: None,
                             workload: None
                           },
@@ -2036,6 +2058,7 @@
                     from_asterisk: False
                     start: 7
                     type: {
+                      as_json: False
                       chain: [
                         "$exception_issue_id"
                       ]
@@ -2043,6 +2066,7 @@
                         name: "properties"
                         table_type: <recursion ...>
                       }
+                      joined_subquery_json_text: False
                     }
                   }
                   from_asterisk: False
@@ -2297,6 +2321,7 @@
             table_type: {
               table: {
                 description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                events_retention_field: "timestamp",
                 fields: {
                   $group_0: {
                     description: None,
@@ -2530,6 +2555,7 @@
                 hidden: False,
                 inherit_profile_spill: False,
                 name: None,
+                person_id_pushdown_default: False,
                 top_level_settings: None,
                 workload: None
               }
@@ -2736,6 +2762,7 @@
                             field: "override"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "distinct_id"
                               ],
@@ -2763,6 +2790,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -2826,6 +2854,7 @@
                     field: "override"
                     lazy_join: {
                       description: None,
+                      extra_from_fields: [],
                       from_field: [
                         "distinct_id"
                       ],
@@ -2853,6 +2882,7 @@
                         hidden: False,
                         inherit_profile_spill: False,
                         name: None,
+                        person_id_pushdown_default: False,
                         top_level_settings: None,
                         workload: None
                       },
@@ -3105,6 +3135,7 @@
                 from_asterisk: False
                 start: 7
                 type: {
+                  as_json: False
                   chain: [
                     "$exception_issue_id"
                   ]
@@ -3112,6 +3143,7 @@
                     name: "properties"
                     table_type: <recursion ...>
                   }
+                  joined_subquery_json_text: False
                 }
               }
               from_asterisk: False
@@ -3163,6 +3195,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -3218,6 +3251,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -3259,6 +3293,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -3314,6 +3349,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -3355,6 +3391,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -3410,6 +3447,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -3451,6 +3489,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -3506,6 +3545,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -3547,6 +3587,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -3602,6 +3643,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -3643,6 +3685,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -3698,6 +3741,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -3739,6 +3783,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -3794,6 +3839,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -3835,6 +3881,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -3890,6 +3937,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -4109,10 +4157,6 @@
                       description: "Earliest snapshot timestamp across the session (in UTC).",
                       hidden: False
                     },
-                    surfacing_score: {
-                      description: "AI-computed score ranking how worth surfacing the recording is.",
-                      hidden: False
-                    },
                     team_id: {
                       description: None,
                       hidden: False
@@ -4121,6 +4165,7 @@
                   hidden: False,
                   inherit_profile_spill: False,
                   name: None,
+                  person_id_pushdown_default: False,
                   top_level_settings: None,
                   workload: None
                 }
@@ -4536,26 +4581,6 @@
         }
       },
       {
-        alias: "surfacing_score"
-        expr: {
-          chain: [
-            "e",
-            "surfacing_score"
-          ]
-          from_asterisk: True
-          type: {
-            name: "surfacing_score"
-            table_type: <recursion ...>
-          }
-        }
-        from_asterisk: False
-        hidden: True
-        type: {
-          alias: "surfacing_score"
-          type: <recursion ...>
-        }
-      },
-      {
         alias: "start_time"
         expr: {
           chain: [
@@ -4819,6 +4844,7 @@
                         hidden: False,
                         inherit_profile_spill: False,
                         name: None,
+                        person_id_pushdown_default: False,
                         top_level_settings: None,
                         workload: None
                       }
@@ -4905,8 +4931,7 @@
         size: <recursion ...>,
         snapshot_library: <recursion ...>,
         snapshot_source: <recursion ...>,
-        start_time: <recursion ...>,
-        surfacing_score: <recursion ...>
+        start_time: <recursion ...>
       }
       ctes: {}
       is_lambda_type: False
@@ -5301,6 +5326,7 @@
                         table_type: {
                           table: {
                             description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                            events_retention_field: "timestamp",
                             fields: {
                               $group_0: {
                                 description: None,
@@ -5530,6 +5556,7 @@
                             hidden: False,
                             inherit_profile_spill: False,
                             name: None,
+                            person_id_pushdown_default: False,
                             top_level_settings: None,
                             workload: None
                           }
@@ -5660,6 +5687,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -5715,6 +5743,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -5737,6 +5766,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -5792,6 +5822,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -5814,6 +5845,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -5869,6 +5901,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -5891,6 +5924,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -5946,6 +5980,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -5968,6 +6003,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -6023,6 +6059,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -6045,6 +6082,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -6100,6 +6138,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -6122,6 +6161,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -6177,6 +6217,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -6199,6 +6240,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -6254,6 +6296,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -6336,6 +6379,7 @@
                         table_type: {
                           table: {
                             description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                            events_retention_field: "timestamp",
                             fields: {
                               $group_0: {
                                 description: None,
@@ -6565,6 +6609,7 @@
                             hidden: False,
                             inherit_profile_spill: False,
                             name: None,
+                            person_id_pushdown_default: False,
                             top_level_settings: None,
                             workload: None
                           }
@@ -6695,6 +6740,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -6750,6 +6796,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -6772,6 +6819,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -6827,6 +6875,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -6849,6 +6898,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -6904,6 +6954,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -6926,6 +6977,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -6981,6 +7033,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -7003,6 +7056,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -7058,6 +7112,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -7080,6 +7135,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -7135,6 +7191,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -7157,6 +7214,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -7212,6 +7270,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -7234,6 +7293,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -7289,6 +7349,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -8060,6 +8121,7 @@
                                   field: "override"
                                   lazy_join: {
                                     description: None,
+                                    extra_from_fields: [],
                                     from_field: [
                                       "distinct_id"
                                     ],
@@ -8087,6 +8149,7 @@
                                       hidden: False,
                                       inherit_profile_spill: False,
                                       name: None,
+                                      person_id_pushdown_default: False,
                                       top_level_settings: None,
                                       workload: None
                                     },
@@ -8147,6 +8210,7 @@
                           field: "override"
                           lazy_join: {
                             description: None,
+                            extra_from_fields: [],
                             from_field: [
                               "distinct_id"
                             ],
@@ -8174,6 +8238,7 @@
                               hidden: False,
                               inherit_profile_spill: False,
                               name: None,
+                              person_id_pushdown_default: False,
                               top_level_settings: None,
                               workload: None
                             },
@@ -8352,6 +8417,7 @@
                       from_asterisk: False
                       start: 7
                       type: {
+                        as_json: False
                         chain: [
                           "$exception_issue_id"
                         ]
@@ -8359,6 +8425,7 @@
                           name: "properties"
                           table_type: <recursion ...>
                         }
+                        joined_subquery_json_text: False
                       }
                     }
                     from_asterisk: False
@@ -8708,6 +8775,7 @@
                                       field: "override"
                                       lazy_join: {
                                         description: None,
+                                        extra_from_fields: [],
                                         from_field: [
                                           "distinct_id"
                                         ],
@@ -8735,6 +8803,7 @@
                                           hidden: False,
                                           inherit_profile_spill: False,
                                           name: None,
+                                          person_id_pushdown_default: False,
                                           top_level_settings: None,
                                           workload: None
                                         },
@@ -8795,6 +8864,7 @@
                               field: "override"
                               lazy_join: {
                                 description: None,
+                                extra_from_fields: [],
                                 from_field: [
                                   "distinct_id"
                                 ],
@@ -8822,6 +8892,7 @@
                                   hidden: False,
                                   inherit_profile_spill: False,
                                   name: None,
+                                  person_id_pushdown_default: False,
                                   top_level_settings: None,
                                   workload: None
                                 },
@@ -9000,6 +9071,7 @@
                           from_asterisk: False
                           start: 7
                           type: {
+                            as_json: False
                             chain: [
                               "$exception_issue_id"
                             ]
@@ -9007,6 +9079,7 @@
                               name: "properties"
                               table_type: <recursion ...>
                             }
+                            joined_subquery_json_text: False
                           }
                         }
                         from_asterisk: False
@@ -9496,6 +9569,7 @@
             table_type: {
               table: {
                 description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                events_retention_field: "timestamp",
                 fields: {
                   $group_0: {
                     description: None,
@@ -9725,6 +9799,7 @@
                 hidden: False,
                 inherit_profile_spill: False,
                 name: None,
+                person_id_pushdown_default: False,
                 top_level_settings: None,
                 workload: None
               }
@@ -9931,6 +10006,7 @@
                             field: "override"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "distinct_id"
                               ],
@@ -9958,6 +10034,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -10021,6 +10098,7 @@
                     field: "override"
                     lazy_join: {
                       description: None,
+                      extra_from_fields: [],
                       from_field: [
                         "distinct_id"
                       ],
@@ -10048,6 +10126,7 @@
                         hidden: False,
                         inherit_profile_spill: False,
                         name: None,
+                        person_id_pushdown_default: False,
                         top_level_settings: None,
                         workload: None
                       },
@@ -10300,6 +10379,7 @@
                 from_asterisk: False
                 start: 7
                 type: {
+                  as_json: False
                   chain: [
                     "$exception_issue_id"
                   ]
@@ -10307,6 +10387,7 @@
                     name: "properties"
                     table_type: <recursion ...>
                   }
+                  joined_subquery_json_text: False
                 }
               }
               from_asterisk: False
@@ -10358,6 +10439,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -10413,6 +10495,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -10454,6 +10537,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -10509,6 +10593,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -10550,6 +10635,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -10605,6 +10691,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -10646,6 +10733,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -10701,6 +10789,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -10742,6 +10831,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -10797,6 +10887,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -10838,6 +10929,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -10893,6 +10985,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -10934,6 +11027,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -10989,6 +11083,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -11030,6 +11125,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -11085,6 +11181,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -11182,6 +11279,7 @@
               table_type: {
                 table: {
                   description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                  events_retention_field: "timestamp",
                   fields: {
                     $group_0: {
                       description: None,
@@ -11411,6 +11509,7 @@
                   hidden: False,
                   inherit_profile_spill: False,
                   name: None,
+                  person_id_pushdown_default: False,
                   top_level_settings: None,
                   workload: None
                 }
@@ -11618,6 +11717,7 @@
                             field: "override"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "distinct_id"
                               ],
@@ -11645,6 +11745,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -11708,6 +11809,7 @@
                     field: "override"
                     lazy_join: {
                       description: None,
+                      extra_from_fields: [],
                       from_field: [
                         "distinct_id"
                       ],
@@ -11735,6 +11837,7 @@
                         hidden: False,
                         inherit_profile_spill: False,
                         name: None,
+                        person_id_pushdown_default: False,
                         top_level_settings: None,
                         workload: None
                       },
@@ -11987,6 +12090,7 @@
                 from_asterisk: False
                 start: 7
                 type: {
+                  as_json: False
                   chain: [
                     "$exception_issue_id"
                   ]
@@ -11994,6 +12098,7 @@
                     name: "properties"
                     table_type: <recursion ...>
                   }
+                  joined_subquery_json_text: False
                 }
               }
               from_asterisk: False
@@ -12045,6 +12150,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -12100,6 +12206,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -12141,6 +12248,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -12196,6 +12304,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -12237,6 +12346,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -12292,6 +12402,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -12333,6 +12444,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -12388,6 +12500,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -12429,6 +12542,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -12484,6 +12598,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -12525,6 +12640,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -12580,6 +12696,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -12621,6 +12738,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -12676,6 +12794,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -12717,6 +12836,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -12772,6 +12892,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -12870,6 +12991,7 @@
                 table_type: {
                   table: {
                     description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                    events_retention_field: "timestamp",
                     fields: {
                       $group_0: {
                         description: None,
@@ -13099,6 +13221,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   }
@@ -13175,6 +13298,7 @@
                 table_type: {
                   table: {
                     description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                    events_retention_field: "timestamp",
                     fields: {
                       $group_0: {
                         description: None,
@@ -13408,6 +13532,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   }
@@ -13503,6 +13628,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   }
@@ -13828,6 +13954,7 @@
             table_type: {
               table: {
                 description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                events_retention_field: "timestamp",
                 fields: {
                   $group_0: {
                     description: None,
@@ -14057,6 +14184,7 @@
                 hidden: False,
                 inherit_profile_spill: False,
                 name: None,
+                person_id_pushdown_default: False,
                 top_level_settings: None,
                 workload: None
               }
@@ -14169,6 +14297,7 @@
               table_type: {
                 table: {
                   description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                  events_retention_field: "timestamp",
                   fields: {
                     $group_0: {
                       description: None,
@@ -14398,6 +14527,7 @@
                   hidden: False,
                   inherit_profile_spill: False,
                   name: None,
+                  person_id_pushdown_default: False,
                   top_level_settings: None,
                   workload: None
                 }
@@ -14514,6 +14644,7 @@
                 table_type: {
                   table: {
                     description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                    events_retention_field: "timestamp",
                     fields: {
                       $group_0: {
                         description: None,
@@ -14743,6 +14874,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   }
@@ -14899,6 +15031,7 @@
                         table_type: {
                           table: {
                             description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                            events_retention_field: "timestamp",
                             fields: {
                               $group_0: {
                                 description: None,
@@ -15128,6 +15261,7 @@
                             hidden: False,
                             inherit_profile_spill: False,
                             name: None,
+                            person_id_pushdown_default: False,
                             top_level_settings: None,
                             workload: None
                           }
@@ -15290,6 +15424,7 @@
             table_type: {
               table: {
                 description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                events_retention_field: "timestamp",
                 fields: {
                   $group_0: {
                     description: None,
@@ -15519,6 +15654,7 @@
                 hidden: False,
                 inherit_profile_spill: False,
                 name: None,
+                person_id_pushdown_default: False,
                 top_level_settings: None,
                 workload: None
               }
@@ -15547,6 +15683,7 @@
               field: "person"
               lazy_join: {
                 description: None,
+                extra_from_fields: [],
                 from_field: [
                   "person_id"
                 ],
@@ -15560,6 +15697,7 @@
                 field: "pdi"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "distinct_id"
                   ],
@@ -15587,6 +15725,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -15651,6 +15790,7 @@
               table_type: {
                 table: {
                   description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                  events_retention_field: "timestamp",
                   fields: {
                     $group_0: {
                       description: None,
@@ -15880,6 +16020,7 @@
                   hidden: False,
                   inherit_profile_spill: False,
                   name: None,
+                  person_id_pushdown_default: False,
                   top_level_settings: None,
                   workload: None
                 }
@@ -15910,6 +16051,7 @@
               field: "person"
               lazy_join: {
                 description: None,
+                extra_from_fields: [],
                 from_field: [
                   "person_id"
                 ],
@@ -15923,6 +16065,7 @@
                 field: "pdi"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "distinct_id"
                   ],
@@ -15950,6 +16093,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -16013,6 +16157,7 @@
             table_type: {
               table: {
                 description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                events_retention_field: "timestamp",
                 fields: {
                   $group_0: {
                     description: None,
@@ -16242,6 +16387,7 @@
                 hidden: False,
                 inherit_profile_spill: False,
                 name: None,
+                person_id_pushdown_default: False,
                 top_level_settings: None,
                 workload: None
               }
@@ -16269,6 +16415,7 @@
               field: "pdi"
               lazy_join: {
                 description: None,
+                extra_from_fields: [],
                 from_field: [
                   "distinct_id"
                 ],
@@ -16296,6 +16443,7 @@
                   hidden: False,
                   inherit_profile_spill: False,
                   name: None,
+                  person_id_pushdown_default: False,
                   top_level_settings: None,
                   workload: None
                 },
@@ -16359,6 +16507,7 @@
               table_type: {
                 table: {
                   description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                  events_retention_field: "timestamp",
                   fields: {
                     $group_0: {
                       description: None,
@@ -16588,6 +16737,7 @@
                   hidden: False,
                   inherit_profile_spill: False,
                   name: None,
+                  person_id_pushdown_default: False,
                   top_level_settings: None,
                   workload: None
                 }
@@ -16617,6 +16767,7 @@
               field: "pdi"
               lazy_join: {
                 description: None,
+                extra_from_fields: [],
                 from_field: [
                   "distinct_id"
                 ],
@@ -16644,6 +16795,7 @@
                   hidden: False,
                   inherit_profile_spill: False,
                   name: None,
+                  person_id_pushdown_default: False,
                   top_level_settings: None,
                   workload: None
                 },
@@ -16727,6 +16879,7 @@
                 hidden: False,
                 inherit_profile_spill: False,
                 name: None,
+                person_id_pushdown_default: False,
                 top_level_settings: None,
                 workload: None
               }
@@ -16754,6 +16907,7 @@
               field: "person"
               lazy_join: {
                 description: None,
+                extra_from_fields: [],
                 from_field: [
                   "person_id"
                 ],
@@ -16818,6 +16972,7 @@
               table_type: {
                 table: {
                   description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                  events_retention_field: "timestamp",
                   fields: {
                     $group_0: {
                       description: None,
@@ -17047,6 +17202,7 @@
                   hidden: False,
                   inherit_profile_spill: False,
                   name: None,
+                  person_id_pushdown_default: False,
                   top_level_settings: None,
                   workload: None
                 }
@@ -17120,6 +17276,7 @@
                   table_type: {
                     table: {
                       description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                      events_retention_field: "timestamp",
                       fields: {
                         $group_0: {
                           description: None,
@@ -17349,6 +17506,7 @@
                       hidden: False,
                       inherit_profile_spill: False,
                       name: None,
+                      person_id_pushdown_default: False,
                       top_level_settings: None,
                       workload: None
                     }
@@ -17444,6 +17602,7 @@
             table_type: {
               table: {
                 description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                events_retention_field: "timestamp",
                 fields: {
                   $group_0: {
                     description: None,
@@ -17673,6 +17832,7 @@
                 hidden: False,
                 inherit_profile_spill: False,
                 name: None,
+                person_id_pushdown_default: False,
                 top_level_settings: None,
                 workload: None
               }
@@ -17708,6 +17868,7 @@
                             field: "override"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "distinct_id"
                               ],
@@ -17735,6 +17896,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -17798,6 +17960,7 @@
                     field: "override"
                     lazy_join: {
                       description: None,
+                      extra_from_fields: [],
                       from_field: [
                         "distinct_id"
                       ],
@@ -17825,6 +17988,7 @@
                         hidden: False,
                         inherit_profile_spill: False,
                         name: None,
+                        person_id_pushdown_default: False,
                         top_level_settings: None,
                         workload: None
                       },

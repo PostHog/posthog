@@ -31,9 +31,7 @@ const pin: PinView = {
     ref: '42',
     name: 'Product overview',
     href: '/dashboard/42',
-    native: true,
     rank: null,
-    type: 'dashboard',
     serverOrder: 0,
     display: { mode: 'number', tileId: 9, insightId: 7, insightShortId: 'signups' },
 }
@@ -82,7 +80,7 @@ describe('PinCard', () => {
 
     it.each(['number', 'chart'] as const)('shows dashboard and metric context on the actual %s pin', (mode) => {
         const shown = { ...pin, display: { ...pin.display, mode } }
-        const screen = render(<PinCard pin={shown} index={0} demo={false} {...callbacks} />)
+        const screen = render(<PinCard pin={shown} index={0} {...callbacks} />)
         expect(screen.getAllByText('Product overview')).toHaveLength(1)
         expect(screen.getAllByText('Daily signups')).toHaveLength(1)
         expect(screen.getByText('Last 7 days')).toBeTruthy()
@@ -94,7 +92,7 @@ describe('PinCard', () => {
 
     it('shows a standalone insight range once in its footer', () => {
         const shown = { ...pin, kind: 'insight' as const, ref: 'signups', name: 'Daily signups' }
-        const screen = render(<PinCard pin={shown} index={0} demo={false} {...callbacks} />)
+        const screen = render(<PinCard pin={shown} index={0} {...callbacks} />)
         expect(screen.getByText('Insight')).toBeTruthy()
         expect(screen.getAllByText('Last 7 days')).toHaveLength(1)
     })
@@ -166,7 +164,7 @@ describe('PinCard', () => {
             expect(multi.capabilities).toMatchObject({ chart: true, number: false })
             jest.mocked(usePinData).mockReturnValue({ ...data, snapshot: multi })
             const shown = { ...pin, display: { ...pin.display, mode: 'chart' as const } }
-            const screen = render(<PinCard pin={shown} index={0} demo={false} {...callbacks} />)
+            const screen = render(<PinCard pin={shown} index={0} {...callbacks} />)
             expect(screen.queryByTestId('views-pin-value-dashboard-42')).toBeNull()
             const first = shape === 'breakdown' ? 'Signups · direct' : 'Signups'
             const second = shape === 'breakdown' ? 'Invites · referral' : 'Invites'
@@ -180,7 +178,7 @@ describe('PinCard', () => {
     it('unpins the real shortcut when its metric is no longer accessible', () => {
         const shown = { ...pin, kind: 'insight' as const, ref: 'signups' }
         jest.mocked(usePinData).mockReturnValue({ ...data, snapshot: undefined, error: 'no_access' })
-        const screen = render(<PinCard pin={shown} index={0} demo={false} {...callbacks} />)
+        const screen = render(<PinCard pin={shown} index={0} {...callbacks} />)
         fireEvent.press(screen.getByLabelText('Unpin'))
         expect(callbacks.onUnpin).toHaveBeenCalledWith(shown)
         expect(callbacks.onUnpin.mock.calls[0]?.[0].shortcutId).toBe('real-shortcut')
@@ -190,7 +188,6 @@ describe('PinCard', () => {
         const screen = render(
             <ModeSegment
                 value="chart"
-                available={['row', 'chart']}
                 onChange={onChange}
                 variant="icons"
                 name="Product overview"
@@ -199,6 +196,5 @@ describe('PinCard', () => {
         )
         fireEvent.press(screen.getByTestId('mode-chart'))
         expect(onChange).toHaveBeenCalledWith('chart')
-        expect(screen.getByTestId('mode-number').props.accessibilityState.disabled).toBe(true)
     })
 })

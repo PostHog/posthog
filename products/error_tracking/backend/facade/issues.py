@@ -8,14 +8,21 @@ django.setup() path of the read-oriented main facade.
 from typing import Any
 from uuid import UUID
 
+from posthog.ingress.contracts import DeliveryOwnership
 from posthog.models.user import User
 
-from ..logic import issue_mutations as _mutations
+from ..logic import (
+    issue_mutations as _mutations,
+    linear_status_sync as _linear_status_sync,
+)
+from ..logic.issue_tags import correction as _issue_tag_correction
 from . import api, contracts
 
 CohortNotFoundError = _mutations.CohortNotFoundError
 AssigneeValidationError = _mutations.AssigneeValidationError
 InvalidIssueStatusError = _mutations.InvalidIssueStatusError
+IssueTagsDisabledError = _issue_tag_correction.IssueTagsDisabledError
+UnknownIssueTagError = _issue_tag_correction.UnknownIssueTagError
 
 
 def update_issue(
@@ -50,6 +57,14 @@ def assign_issue(
     return _mutations.assign_issue(team_id, issue_id, assignee, user=user, was_impersonated=was_impersonated)
 
 
+def correct_issue_tag(
+    team_id: int, issue_id: UUID, key: str, applied: bool, *, user: User, was_impersonated: bool
+) -> contracts.ErrorTrackingIssueTagCorrection:
+    return _issue_tag_correction.correct_issue_tag(
+        team_id, issue_id, key, applied, user=user, was_impersonated=was_impersonated
+    )
+
+
 def bulk_update_issues(
     team_id: int,
     issue_ids: list[str],
@@ -69,3 +84,15 @@ def bulk_update_issues(
         user=user,
         was_impersonated=was_impersonated,
     )
+
+
+def prepare_linear_status_sync_job(payload: dict[str, Any]) -> contracts.LinearStatusSyncJob | None:
+    return _linear_status_sync.prepare_job(payload)
+
+
+def sync_linear_status(job: contracts.LinearStatusSyncJob) -> None:
+    _linear_status_sync.sync_status(job)
+
+
+def linear_delivery_ownership(payload: dict[str, Any]) -> DeliveryOwnership:
+    return _linear_status_sync.delivery_ownership(payload)

@@ -58,9 +58,8 @@ jobs:
         outputs:
             hoglang: ${{ steps.filter.outputs.hoglang || 'true' }}
         steps:
-            # For pull requests it's not necessary to checkout the code, but we
-            # also want this to run on master so we need to checkout
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              if: github.event_name != 'push'
               with:
                   sparse-checkout: .github/actions/paths-filter
                   sparse-checkout-cone-mode: false
@@ -82,6 +81,7 @@ jobs:
                         - 'common/hogvm/**/*'
                         - 'posthog/hogql/**/*'
                         - 'bin/hoglang'
+                        - 'tools/hogvm_compile.py'
                         - 'package.json'
                         - requirements.txt
                         - requirements-dev.txt
@@ -172,14 +172,10 @@ jobs:
 
             - name: Run HogVM TypeScript tests
               run: |
-                  pnpm --filter=@posthog/hogvm install --frozen-lockfile
                   pnpm --filter=@posthog/hogvm test
 
             - name: Run HogLang tests
               run: |
-                  pnpm --filter=@posthog/hogvm install --frozen-lockfile
-                  pnpm --filter=@posthog/hogvm compile:stl
-                  bin/turbo --filter=@posthog/hogvm build
                   cd common/hogvm
                   ./test.sh && git diff --exit-code
               env:

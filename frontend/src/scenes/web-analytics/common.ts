@@ -7,6 +7,7 @@ import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { getDefaultInterval } from 'lib/utils/dateFilters'
 import { UnexpectedNeverError } from 'lib/utils/guards'
+import { hogql } from 'lib/utils/hogql'
 
 import { pageCollectionId } from '~/queries/nodes/DataNode/pageCollections'
 import { hogqlQuery } from '~/queries/query'
@@ -19,7 +20,6 @@ import {
     WebAnalyticsPropertyFilters,
     WebStatsBreakdown,
 } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
 import { InsightLogicProps, PropertyFilterType, PropertyMathType, PropertyOperator } from '~/types'
 
 /** Matches BREAKDOWN_NULL_DISPLAY in products/web_analytics/backend/hogql_queries/stats_table.py */
@@ -123,12 +123,15 @@ export enum ProductTab {
     BOT_ANALYTICS = 'bots',
     PAGE_PERFORMANCE = 'page-performance',
     AGENTS = 'agents',
-    CONTENT_AUTOPILOT = 'content-autopilot',
+    CONTENT_AUTOPILOT = 'ai-visibility',
 }
 
+// One flag gates the whole AI visibility page: prompt tracking and content autopilot.
 export const isContentAutopilotEnabled = (featureFlags: FeatureFlagsSet): boolean =>
-    !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE] &&
     !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT]
+
+// pinned: the AI visibility filters' URL search params, links people share depend on them
+export const AI_VISIBILITY_URL_PARAMS = ['days', 'engine', 'topic', 'branded'] as const
 
 export type DeviceType = 'Desktop' | 'Mobile'
 

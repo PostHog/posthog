@@ -19,7 +19,6 @@ import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useTheme } from '@/ui/theme'
 import { layout, motion, radii, type } from '@/ui/tokens'
 
-import { pinModes } from '../pinHooks'
 import { ModeSegment } from './ModeSegment'
 import { ViewIcon, viewTypeLabel } from './viewMeta'
 
@@ -188,8 +187,7 @@ function EditRow({
     }))
     const liftStyle = useAnimatedStyle(() => ({ opacity: dragging.value ? 1 : 0 }))
 
-    const modes = pinModes(pin)
-    const key = `${pin.kind}-${pin.ref ?? pin.kind}`
+    const key = `${pin.kind}-${pin.ref}`
     return (
         <Animated.View style={[styles.rowSlot, rowStyle]}>
             <Animated.View style={[StyleSheet.absoluteFill, styles.lift, shadows.card, liftStyle]} />
@@ -213,12 +211,11 @@ function EditRow({
                         {pin.name}
                     </Text>
                     <Text style={styles.meta} numberOfLines={1}>
-                        {viewTypeLabel(pin.kind) ?? 'Opens on the web'}
+                        {viewTypeLabel(pin.kind)}
                     </Text>
                 </View>
                 <ModeSegment
                     value={pin.display.mode}
-                    available={modes}
                     onChange={(mode) => onMode(pin, mode)}
                     variant="icons"
                     name={pin.name}

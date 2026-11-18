@@ -1,16 +1,21 @@
 from datetime import UTC, datetime, timedelta
+from io import StringIO
 from typing import Any
 from uuid import UUID
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.core import mail
+from django.core.management import call_command
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
+from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
@@ -38,11 +43,14 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceBatchEvaluation,
     SourceKind,
 )
+from products.data_warehouse.backend.facade.models import TeamDataWarehouseConfig
+from products.warehouse_sources.backend.facade.sync_alerts import create_default_failure_alert
 from products.warehouse_sources.backend.models.external_data_destination import ExternalDataDestination
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.presentation.views import warehouse_alert_destinations as destinations_view
-from products.warehouse_sources.backend.sync_alerts.destinations import EVENT_IDS_BY_KIND
+from products.warehouse_sources.backend.sync_alerts.default_alert import DEFAULT_FAILURE_ALERT_FLAG
+from products.warehouse_sources.backend.sync_alerts.destinations import EVENT_IDS_BY_KIND, WAREHOUSE_ALERTS_FLAG
 from products.warehouse_sources.backend.sync_alerts.email_recipients import project_member_emails
 from products.warehouse_sources.backend.sync_alerts.evaluation import evaluate_warehouse_alert_batch
 from products.warehouse_sources.backend.sync_alerts.wording import (
@@ -54,6 +62,13 @@ Status = ExternalDataSchema.Status
 DestinationStatus = ExternalDataDestination.Status
 SECRET = "hunter2-correct-horse"
 PAGERDUTY_ROUTING_KEY = "0123456789abcdef0123456789abcdef"
+DEFAULT_ALERT_FLAG_PATH = "products.warehouse_sources.backend.sync_alerts.default_alert.posthog_feature_flag_enabled"
+DEFAULT_ALERT = (
+    "Warehouse sync failures",
+    {"source_ids": [], "group_by": "source", "email_project_members": True},
+)
+OWN_ALERT = ("Sync failures", {"group_by": "source"})
+BOTH_FLAGS = (WAREHOUSE_ALERTS_FLAG, DEFAULT_FAILURE_ALERT_FLAG)
 
 
 class TestWarehouseAlerts(APIBaseTest):
@@ -415,6 +430,27 @@ class TestWarehouseAlerts(APIBaseTest):
 
         assert response.status_code == expected, response.json()
 
+    @parameterized.expand(
+        [
+            ("platform_alerts_only", "platform-alerts", status.HTTP_403_FORBIDDEN),
+            ("warehouse_flag_only", "platform-alerts-source-warehouse", status.HTTP_200_OK),
+        ]
+    )
+    def test_destinations_open_on_the_warehouse_flag(self, _name: str, flag_on: str, expected: int) -> None:
+        configuration_id = self._alert(SourceKind.WAREHOUSE_SOURCE, {}, "source_id")
+        self.enterContext(
+            patch(
+                "posthog.permissions.posthog_feature_flag_enabled",
+                side_effect=lambda flag, *_args, **_kwargs: flag == flag_on,
+            )
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/warehouse_alerts/{configuration_id}/destinations/")
+
+        assert response.status_code == expected, response.json()
+
+    # The response's 24-hour state bar ends at the request's time, so the create and the read share one clock.
+    @time_machine.travel("2026-01-01T12:00:00Z", tick=False)
     def test_an_alert_and_its_slack_destination_route_a_failure_to_that_channel(self) -> None:
         schema = self._schema(self._source(), "charges", Status.FAILED)
 
@@ -701,13 +737,89 @@ class TestWarehouseAlerts(APIBaseTest):
             record_outcomes(self.team.id, list(evaluation.outcomes), self.cutoff)
         (delivery,) = evaluation.deliveries
 
-        with patch("products.alerts_platform.backend.delivery.email.EmailMessage") as email_message:
+        set_instance_setting("EMAIL_HOST", "localhost")
+        with self.settings(EMAIL_ENABLED=True):
             sent = platform_testing.deliver(delivery)
 
         assert sent == 1
         assert delivery.configuration_id == str(configuration_id)
-        assert "Sync failures" in email_message.call_args.kwargs["subject"]
-        assert [call.kwargs["email"] for call in email_message.return_value.add_recipient.call_args_list] == sorted(
+        assert all("Sync failures" in message.subject for message in mail.outbox)
+        assert sorted(address for message in mail.outbox for address in message.to) == sorted(
             [self.user.email, "member@example.com"]
         )
-        email_message.return_value.send.assert_called_once_with()
+
+    def _source_alerts(self) -> list[tuple[str, dict[str, Any]]]:
+        with team_scope(self.team.id):
+            page = list_configurations(
+                team_id=self.team.id, source_kinds=[SourceKind.WAREHOUSE_SOURCE.value], limit=10, offset=0
+            )
+        return [(view.name, view.source_config) for view in page.configurations]
+
+    def _delete_source_alerts(self) -> None:
+        with team_scope(self.team.id):
+            page = list_configurations(
+                team_id=self.team.id, source_kinds=[SourceKind.WAREHOUSE_SOURCE.value], limit=10, offset=0
+            )
+            for view in page.configurations:
+                delete_configuration(
+                    team_id=self.team.id, source_kinds=[SourceKind.WAREHOUSE_SOURCE.value], configuration_id=view.id
+                )
+
+    @parameterized.expand(
+        [
+            ("one_default_for_two_sources", BOTH_FLAGS, False, False, [DEFAULT_ALERT]),
+            ("no_default_again_after_it_was_deleted", BOTH_FLAGS, False, True, []),
+            ("no_default_beside_an_alert_of_its_own", BOTH_FLAGS, True, False, [OWN_ALERT]),
+            ("no_default_after_its_own_alert_was_deleted", BOTH_FLAGS, True, True, []),
+            ("nothing_with_the_flags_off", (), False, False, []),
+            ("nothing_with_only_the_failure_email_flag_on", (DEFAULT_FAILURE_ALERT_FLAG,), False, False, []),
+            ("nothing_with_only_the_warehouse_alerts_flag_on", (WAREHOUSE_ALERTS_FLAG,), False, False, []),
+        ]
+    )
+    def test_a_project_gets_its_default_failure_alert_once(
+        self,
+        _name: str,
+        flags_on: tuple[str, ...],
+        own_alert: bool,
+        delete_between_sources: bool,
+        expected: list[tuple[str, dict[str, Any]]],
+    ) -> None:
+        if own_alert:
+            self._alert(SourceKind.WAREHOUSE_SOURCE, {"group_by": "source"}, "source_id")
+        with patch(DEFAULT_ALERT_FLAG_PATH, side_effect=lambda flag, *args, **kwargs: flag in flags_on):
+            create_default_failure_alert(self.team)
+            self._source()
+            create_default_failure_alert(self.team)
+            if delete_between_sources:
+                self._delete_source_alerts()
+            self._source(prefix="second")
+            create_default_failure_alert(self.team)
+
+        assert self._source_alerts() == expected
+
+    @parameterized.expand([("dry_run", True, []), ("live_run", False, [DEFAULT_ALERT])])
+    def test_the_backfill_gives_projects_with_a_source_the_default_alert(
+        self, _name: str, dry_run: bool, expected: list[tuple[str, dict[str, Any]]]
+    ) -> None:
+        self._source()
+        project_without_source = Team.objects.create(organization=self.organization, name="No sources")
+        output = StringIO()
+
+        with patch(DEFAULT_ALERT_FLAG_PATH, return_value=True):
+            call_command(
+                "backfill_default_warehouse_failure_alert",
+                "--team-ids",
+                str(self.team.id),
+                str(project_without_source.id),
+                *(["--dry-run"] if dry_run else []),
+                stdout=output,
+            )
+
+        assert self._source_alerts() == expected
+        assert ("would create: 1" if dry_run else "created: 1") in output.getvalue()
+        decided_at = (
+            TeamDataWarehouseConfig.objects.filter(team_id=self.team.id)
+            .values_list("default_failure_alert_at", flat=True)
+            .first()
+        )
+        assert (decided_at is not None) == (not dry_run)

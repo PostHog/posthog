@@ -18,9 +18,9 @@ from typing import Any
 
 from django.utils import timezone
 
+from posthog.constants import GroupTypeIndex
 from posthog.models import Team
 from posthog.models.event.util import bulk_create_events
-from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group.util import raw_create_group_ch
 from posthog.models.person.util import create_person, create_person_distinct_id
 from posthog.persons_db import persons_db_connection

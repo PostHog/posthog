@@ -818,6 +818,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     ): void => {
       this.markRelayRequestHandled(requestKey);
       this.analytics.track(ANALYTICS_EVENTS.CLOUD_CREDENTIAL_RELAY, {
+        $update_person_last_seen_at: false,
         credential: data.credential,
         outcome,
       });
@@ -1743,6 +1744,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
       });
       if (idleWatcher) {
         this.analytics.track(ANALYTICS_EVENTS.CLOUD_STREAM_IDLE_TIMEOUT, {
+          $update_person_last_seen_at: false,
           task_id: idleWatcher.taskId,
           run_id: idleWatcher.runId,
           team_id: idleWatcher.teamId,
@@ -2402,6 +2404,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     });
 
     this.analytics.track(ANALYTICS_EVENTS.CLOUD_STREAM_DISCONNECTED, {
+      $update_person_last_seen_at: false,
       task_id: watcher.taskId,
       run_id: watcher.runId,
       team_id: watcher.teamId,

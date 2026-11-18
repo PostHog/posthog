@@ -109,6 +109,10 @@ export class PersonsStoreTransaction {
         return await this.store.readMergeRows(teamId, targetId, sourceIds, distinctId, this.tx)
     }
 
+    async readPerson(teamId: number, distinctId: string): Promise<InternalPerson | undefined> {
+        return await this.store.readPerson(teamId, distinctId, this.tx)
+    }
+
     async addDistinctId(
         person: InternalPerson,
         distinctId: string,

@@ -168,6 +168,34 @@ describe('report metric', () => {
     test.each<[string, unknown, boolean, string | undefined]>([
         ['a trends line', trends({ trendsFilter: { display: 'ActionsLineGraph' } }), true, NEW_INSIGHT],
         ['a trends graph with no display', trends(), true, NEW_INSIGHT],
+        [
+            'one formula combining two input series',
+            trends({
+                series: [
+                    { kind: 'EventsNode', event: 'checkout_started' },
+                    { kind: 'EventsNode', event: 'checkout_retried' },
+                ],
+                trendsFilter: {
+                    display: 'ActionsLineGraph',
+                    formulaNodes: [{ formula: 'B/A' }],
+                    aggregationAxisFormat: 'percentage_scaled',
+                },
+            }),
+            true,
+            NEW_INSIGHT,
+        ],
+        [
+            'two output formulas from one input series',
+            trends({ trendsFilter: { formulaNodes: [{ formula: 'A' }, { formula: 'A*2' }] } }),
+            false,
+            NEW_INSIGHT,
+        ],
+        [
+            'two input series without a formula',
+            trends({ series: [{ kind: 'EventsNode' }, { kind: 'EventsNode' }] }),
+            false,
+            NEW_INSIGHT,
+        ],
         ['a bold number', trends({ trendsFilter: { display: 'BoldNumber' } }), false, NEW_INSIGHT],
         ['a pie', trends({ trendsFilter: { display: 'ActionsPie' } }), false, NEW_INSIGHT],
         ['a breakdown', trends({ breakdownFilter: { breakdown: '$browser' } }), false, NEW_INSIGHT],

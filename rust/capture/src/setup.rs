@@ -15,8 +15,11 @@ use common_redis::RedisClient;
 use metrics::gauge;
 use tracing::{info, warn};
 
+use crate::ai_event_limits::AI_MAX_EVENT_BYTES_CEILING;
+use crate::ai_event_size_caps::AiEventSizeCaps;
 use crate::config::{CaptureMode, Config};
 use crate::event_restrictions::{EventRestrictionService, Pipeline, RedisRestrictionsRepository};
+use crate::events::ai_byte_limit::ENVELOPE_WEIGHT_BYTES;
 use crate::global_rate_limiter::{ai_byte_limit_window, GlobalRateLimiter};
 use crate::outputs::{Output, OutputRegistry};
 use crate::producers::{self, ProducerConfig, ProducerName, ProducerRegistry};
@@ -25,12 +28,13 @@ use crate::quota_limiters::{
     is_exception_event, is_llm_event, is_survey_event, CaptureQuotaLimiter,
 };
 use crate::router;
-use crate::router::BATCH_BODY_SIZE;
+use crate::router::{AI_BODY_SIZE, BATCH_BODY_SIZE};
 use crate::sinks::kafka::KafkaSink;
 use crate::sinks::noop::NoOpSink;
 use crate::sinks::print::PrintSink;
 use crate::sinks::registry::OutputTable;
 use crate::sinks::s3::S3Sink;
+use crate::v1::constants::CAPTURE_V1_LEGACY_PROPERTY_SPLICE;
 use limiters::overflow::OverflowLimiter;
 use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, OVERFLOW_LIMITER_CACHE_KEY};
 use limiters::token_dropper::TokenDropper;
@@ -216,9 +220,11 @@ pub async fn build_components(
     // event individually, so we should instead allow for some small multiple of our max compressed
     // body size to be unpacked. If a single event is still too big, we'll drop it at kafka send time.
     let event_payload_max_bytes = match config.capture_mode {
-        CaptureMode::Events | CaptureMode::Ai | CaptureMode::Import => BATCH_BODY_SIZE * 5,
+        CaptureMode::Events | CaptureMode::Ai | CaptureMode::Import => EVENT_PAYLOAD_MAX_BYTES,
         CaptureMode::Recordings => ingestion_message_max_bytes as usize,
     };
+    let (capture_v1_max_compressed_body_bytes, capture_v1_max_decompressed_body_bytes) =
+        capture_v1_body_limits(&config);
 
     // Build the overflow limiters here (not inside the sink) so routing
     // policy lives in `router::State` alongside every other pipeline-level
@@ -334,8 +340,9 @@ pub async fn build_components(
     // metrics or state-cleanup tasks of its own: the global rate limiter owns
     // its background tick loop, its cache eviction, and its own metric series
     // (scoped `<mode>_ai_bytes`).
+    let ai_event_size_caps = ai_event_size_caps(&config, ingestion_message_max_bytes);
     if ai_byte_limit_enabled {
-        warn_if_ai_byte_budget_below_max_event(&config);
+        warn_if_ai_byte_budget_below_max_event(&config, ai_event_size_caps.largest_bytes());
     }
     warn_if_ai_ceiling_exceeds_producer_cap(&config, ingestion_message_max_bytes);
     let ai_byte_rate_limiter = ai_byte_limiter_redis.as_ref().map(|redis| {
@@ -367,16 +374,17 @@ pub async fn build_components(
         config.is_mirror_deploy,
         config.verbose_sample_percent,
         config.ai_max_sum_of_parts_bytes,
-        config.ai_max_event_bytes,
+        ai_event_size_caps,
         config.body_chunk_read_timeout_ms,
         config.body_read_chunk_size_kb,
-        config.capture_v1_max_compressed_body_bytes,
-        config.capture_v1_max_decompressed_body_bytes,
+        capture_v1_max_compressed_body_bytes,
+        capture_v1_max_decompressed_body_bytes,
         overflow_limiter,
         ai_events_overflow_limiter,
         ai_byte_rate_limiter,
         replay_overflow_limiter,
         config.capture_v1_scatter_gather_min_batch,
+        config.capture_v1_legacy_property_splice,
         config.ai_gateway_signing_secret.clone(),
         ingestion_warning_emitter,
     );
@@ -384,6 +392,15 @@ pub async fn build_components(
     info!(
         "config: is_mirror_deploy == {:?} ; log_level == {:?}",
         config.is_mirror_deploy, config.log_level
+    );
+    gauge!(CAPTURE_V1_LEGACY_PROPERTY_SPLICE).set(if config.capture_v1_legacy_property_splice {
+        1.0
+    } else {
+        0.0
+    });
+    info!(
+        capture_v1_legacy_property_splice = config.capture_v1_legacy_property_splice,
+        "capture v1 legacy property splice"
     );
 
     CaptureComponents {
@@ -426,6 +443,54 @@ fn ai_ceiling_exceeds_producer_cap(config: &Config, producer_message_max_bytes: 
     ceiling != 0 && ceiling >= producer_message_max_bytes as u64
 }
 
+fn ai_event_size_caps(config: &Config, producer_message_max_bytes: u32) -> AiEventSizeCaps {
+    AiEventSizeCaps::parse(
+        config.ai_max_event_bytes,
+        config
+            .ai_max_event_bytes_overrides_csv
+            .as_deref()
+            .unwrap_or_default(),
+        max_raised_ai_event_bytes(producer_message_max_bytes),
+    )
+}
+
+/// The producer's limit covers the `CapturedEvent` envelope too, so a raised
+/// cap stays below it by the allowance the AI byte limiter charges.
+fn max_raised_ai_event_bytes(producer_message_max_bytes: u32) -> u64 {
+    (producer_message_max_bytes as u64)
+        .saturating_sub(ENVELOPE_WEIGHT_BYTES as u64)
+        .min(AI_MAX_EVENT_BYTES_CEILING)
+}
+
+const EVENT_PAYLOAD_MAX_BYTES: usize = BATCH_BODY_SIZE * 5;
+
+const V1_MAX_COMPRESSED_BODY_BYTES: usize = 10 * 1024 * 1024;
+const V1_MAX_DECOMPRESSED_BODY_BYTES: usize = 50 * 1024 * 1024;
+
+/// A configured value always wins; only the defaults differ on capture-ai,
+/// where one v1 request has to carry an event at the shared ceiling.
+fn capture_v1_body_limits(config: &Config) -> (usize, usize) {
+    let (compressed, decompressed) = match config.capture_mode {
+        CaptureMode::Ai => (AI_BODY_SIZE, AI_BODY_SIZE),
+        CaptureMode::Events | CaptureMode::Import | CaptureMode::Recordings => {
+            (V1_MAX_COMPRESSED_BODY_BYTES, V1_MAX_DECOMPRESSED_BODY_BYTES)
+        }
+    };
+    (
+        config
+            .capture_v1_max_compressed_body_bytes
+            .unwrap_or(compressed),
+        config
+            .capture_v1_max_decompressed_body_bytes
+            .unwrap_or(decompressed),
+    )
+}
+
+const _: () = assert!(
+    EVENT_PAYLOAD_MAX_BYTES >= AI_BODY_SIZE,
+    "the AI batch route decompresses into the analytics budget"
+);
+
 fn warn_if_ai_ceiling_exceeds_producer_cap(config: &Config, producer_message_max_bytes: u32) {
     if ai_ceiling_exceeds_producer_cap(config, producer_message_max_bytes) {
         warn!(
@@ -442,8 +507,7 @@ fn warn_if_ai_ceiling_exceeds_producer_cap(config: &Config, producer_message_max
 /// every one of them, because the window budget cannot fit even a single event
 /// at the deployment's ceiling. Both sides come from config, so the check stays
 /// correct when either knob moves.
-fn warn_if_ai_byte_budget_below_max_event(config: &Config) {
-    let max_event_bytes = config.ai_max_event_bytes;
+fn warn_if_ai_byte_budget_below_max_event(config: &Config, max_event_bytes: u64) {
     if max_event_bytes == 0 {
         return;
     }
@@ -455,7 +519,7 @@ fn warn_if_ai_byte_budget_below_max_event(config: &Config) {
             window_secs,
             window_budget,
             max_event_bytes,
-            "AI_BYTE_LIMIT_PER_SECOND yields a window budget below AI_MAX_EVENT_BYTES; \
+            "AI_BYTE_LIMIT_PER_SECOND yields a window budget below the largest AI event cap; \
              a token sending full-size events will be limited on nearly every event"
         );
     }
@@ -809,6 +873,36 @@ mod tests {
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect();
         envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config")
+    }
+
+    #[rstest]
+    #[case(None, true)]
+    #[case(Some("true"), true)]
+    #[case(Some("false"), false)]
+    fn capture_v1_legacy_property_splice_reads_its_env_var(
+        #[case] value: Option<&str>,
+        #[case] expected: bool,
+    ) {
+        let mut cfg_env: HashMap<String, String> = [
+            ("REDIS_URL", "redis://localhost:6379/"),
+            ("CAPTURE_MODE", "events"),
+            (
+                "CAPTURE_OUTPUT_ANALYTICS_MAIN_TOPIC",
+                "events_plugin_ingestion",
+            ),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        if let Some(value) = value {
+            cfg_env.insert(
+                "CAPTURE_V1_LEGACY_PROPERTY_SPLICE".to_string(),
+                value.to_string(),
+            );
+        }
+        let config: Config =
+            envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config");
+        assert_eq!(config.capture_v1_legacy_property_splice, expected);
     }
 
     /// The emitter gauge as `(reason, value)`, or `None` if never emitted.
@@ -1168,6 +1262,61 @@ mod tests {
         create_output_registry(&config, &default_producers, None, None)
             .await
             .expect("boot must proceed when the completeness check is disabled");
+    }
+
+    #[test]
+    fn the_overrides_env_var_raises_only_its_tokens() {
+        let cfg_env: HashMap<String, String> = [
+            ("REDIS_URL", "redis://localhost:6379/"),
+            ("CAPTURE_MODE", "ai"),
+            ("AI_MAX_EVENT_BYTES_OVERRIDES_CSV", "phc_big=24000000"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        let config: Config =
+            envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config");
+
+        let caps = ai_event_size_caps(&config, 64_000_000);
+
+        assert_eq!(caps.for_token("phc_big"), 24_000_000);
+        assert_eq!(caps.for_token("phc_other"), config.ai_max_event_bytes);
+    }
+
+    #[rstest]
+    #[case::leaves_room_for_the_envelope(1_000_000, 999_488)]
+    #[case::cap_below_the_envelope_raises_nothing(100, 0)]
+    #[case::never_above_the_shared_ceiling(64_000_000, AI_MAX_EVENT_BYTES_CEILING)]
+    fn raised_caps_stay_under_the_producer_cap(#[case] producer_cap: u32, #[case] expected: u64) {
+        assert_eq!(max_raised_ai_event_bytes(producer_cap), expected);
+    }
+
+    #[rstest]
+    #[case::ai_defaults_carry_a_ceiling_sized_event("ai", None, (AI_BODY_SIZE, AI_BODY_SIZE))]
+    #[case::ai_keeps_a_configured_value("ai", Some(1_048_576), (1_048_576, 1_048_576))]
+    #[case::analytics_defaults_are_unchanged(
+        "events",
+        None,
+        (V1_MAX_COMPRESSED_BODY_BYTES, V1_MAX_DECOMPRESSED_BODY_BYTES)
+    )]
+    fn v1_body_limits_default_by_mode_and_keep_configured_values(
+        #[case] mode: &str,
+        #[case] configured: Option<usize>,
+        #[case] expected: (usize, usize),
+    ) {
+        let cfg_env: HashMap<String, String> = [
+            ("REDIS_URL", "redis://localhost:6379/"),
+            ("CAPTURE_MODE", mode),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        let mut config: Config =
+            envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config");
+        config.capture_v1_max_compressed_body_bytes = configured;
+        config.capture_v1_max_decompressed_body_bytes = configured;
+
+        assert_eq!(capture_v1_body_limits(&config), expected);
     }
 
     /// The ceiling only guards anything while it sits under the producer's cap.

@@ -5,6 +5,7 @@ import {
 } from 'scenes/feature-flags/flagEvaluationsTable'
 import { getHogQLValue } from 'scenes/insights/filters/aggregationTarget'
 
+import { isAnyDataWarehouseNode } from '~/queries/schema/node-guards'
 import {
     BreakdownFilter,
     DataWarehouseNode,
@@ -13,7 +14,6 @@ import {
     LifecycleDataWarehouseNode,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { isAnyDataWarehouseNode } from '~/queries/utils'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {
     AnyPropertyFilter,
@@ -24,7 +24,9 @@ import {
     PropertyOperator,
 } from '~/types'
 
-export const FLAG_CALLS_SERIES_NAME: string = CORE_FILTER_DEFINITIONS_BY_GROUP.events[FEATURE_FLAG_CALLED_EVENT].label
+export function flagCallsSeriesName(): string {
+    return CORE_FILTER_DEFINITIONS_BY_GROUP.events[FEATURE_FLAG_CALLED_EVENT]?.label ?? FEATURE_FLAG_CALLED_EVENT
+}
 
 /** Replaces the event's core description on insight pickers where picking the event builds a flag calls series. */
 export const FLAG_CALLS_SERIES_DESCRIPTION = `Sent by PostHog SDKs each time a feature flag is evaluated.

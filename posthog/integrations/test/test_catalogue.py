@@ -39,6 +39,7 @@ FROZEN_KIND_DEFAULTS: dict[str, str] = {
     "customerio-webhook": "token",
     "databricks": "credentials",
     "email": "credentials",
+    "email_sandbox": "credentials",
     "firebase": "credentials",
     "github": "oauth",
     "gitlab": "token",
@@ -58,6 +59,7 @@ FROZEN_KIND_DEFAULTS: dict[str, str] = {
     "linear": "oauth",
     "linkedin-ads": "oauth",
     "meta-ads": "oauth",
+    "motherduck": "credentials",
     "pardot": "oauth",
     "pinterest-ads": "oauth",
     "postgresql": "credentials",
@@ -146,6 +148,7 @@ SDK_FILES = (
     "enums.py",
     "kinds_generated.py",
     "manager.py",
+    "observability.py",
     "source_kinds.py",
     "usages.py",
 )

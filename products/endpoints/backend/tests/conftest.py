@@ -36,7 +36,7 @@ def create_endpoint_with_version(
         version=current_version,
         query=query,
         description=description,
-        data_freshness_seconds=data_freshness_seconds,
+        cache_ttl_seconds=data_freshness_seconds,
         created_by=created_by,
     )
     return endpoint

@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 
 import { ActivityLogRow } from 'lib/components/ActivityLog/ActivityLogRow'
@@ -99,6 +99,28 @@ describe('ActivityLogRow', () => {
             actor.compareDocumentPosition(screen.getByText('via MCP')) & Node.DOCUMENT_POSITION_FOLLOWING
         ).toBeTruthy()
         expect(screen.queryByText('A user')).not.toBeInTheDocument()
+    })
+
+    it('passes a markdown description to the markdown renderer', async () => {
+        const { container } = render(
+            <Provider>
+                <ActivityLogRow
+                    logItem={{
+                        name: 'Joe',
+                        isSystem: true,
+                        description: null,
+                        markdownDescription: 'Meet **session summaries**',
+                        created_at: dayjs(),
+                    }}
+                />
+            </Provider>
+        )
+
+        await waitFor(() =>
+            expect(container.querySelector('[data-testid="react-markdown"]')).toHaveTextContent(
+                'Meet **session summaries**'
+            )
+        )
     })
 
     test.each([

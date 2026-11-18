@@ -95,6 +95,10 @@
             },
             "type": "object"
         },
+        "filterTestAccounts": {
+            "description": "Exclude reports from the project's internal and test users.",
+            "type": "boolean"
+        },
         "kind": {
             "const": "MCPMissingCapabilitiesQuery",
             "default": "MCPMissingCapabilitiesQuery",

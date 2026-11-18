@@ -1,4 +1,8 @@
-from posthog.temporal.ai.anomaly_investigation import AnomalyInvestigationWorkflow, investigate_anomaly_activity
+from posthog.temporal.ai.anomaly_investigation import (
+    AnomalyInvestigationWorkflow,
+    investigate_anomaly_activity,
+    record_investigation_deliveries_started_activity,
+)
 from posthog.temporal.ai.chat_agent import (
     AssistantConversationRunnerWorkflow,
     ChatAgentWorkflow,
@@ -45,6 +49,7 @@ AI_ACTIVITIES = [
     process_research_agent_activity,
     summarize_llm_traces_activity,
     investigate_anomaly_activity,
+    record_investigation_deliveries_started_activity,
     *CHECKPOINT_COMPACTION_ACTIVITIES,
 ]
 

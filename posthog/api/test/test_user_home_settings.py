@@ -2,12 +2,35 @@ from typing import Any, cast
 
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import UserHomeSettings
+from posthog.models import Organization, UserHomeSettings
+from posthog.test.id_jag import id_jag_access_token
 
 
 class TestUserHomeSettingsAPI(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("current_project_in_token_organization", False, status.HTTP_200_OK),
+            ("current_project_in_other_organization", True, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_id_jag_token_reaches_only_its_organizations_current_project(
+        self, _name: str, current_project_elsewhere: bool, expected_status: int
+    ) -> None:
+        token = id_jag_access_token(self.user, self.organization, "user:read")
+        if current_project_elsewhere:
+            _, _, other_team = Organization.objects.bootstrap(self.user)
+            self.user.current_team = other_team
+            self.user.save()
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        response = self.client.get("/api/user_home_settings/@me/")
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+
     def test_retrieve_empty_settings(self):
         response = self.client.get("/api/user_home_settings/@me/")
 

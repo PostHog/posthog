@@ -3,6 +3,8 @@ import { useValues } from 'kea'
 import { IconArrowRightDown, IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonTable, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
 
+import { billingLogic } from 'lib/logic/billing/billingLogic'
+
 import {
     BillingProductV2AddonType,
     BillingProductV2Type,
@@ -16,7 +18,6 @@ import {
     hasDisplayFormatting,
     isProductVariantPrimary,
 } from './billing-utils'
-import { billingLogic } from './billingLogic'
 import { getTierDescription } from './BillingProduct'
 import { billingProductLogic } from './billingProductLogic'
 

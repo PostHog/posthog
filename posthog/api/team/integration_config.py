@@ -8,6 +8,7 @@ from django.utils import timezone
 from rest_framework import exceptions, request, response, serializers
 
 from posthog.event_usage import report_user_action
+from posthog.exceptions import as_drf_validation_error
 from posthog.models import Organization, Team, User
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.logs_retention import (
@@ -387,7 +388,7 @@ def handle_experiments_config(request: request.Request, team: Team) -> response.
                 team_id=team.id, update=TeamExperimentsSettingsUpdate(**serializer.validated_data)
             )
         except ExperimentValidationError as error:
-            raise serializers.ValidationError({error.field: [str(error)]} if error.field else [str(error)])
+            raise as_drf_validation_error(error)
     else:
         experiments_settings = experiments_api.get_team_experiments_settings(team.id)
 

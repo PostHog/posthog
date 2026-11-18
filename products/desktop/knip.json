@@ -96,25 +96,6 @@
     "apps/web": {
       "project": ["src/**/*.{ts,tsx}"],
       "ignoreDependencies": ["tailwindcss"]
-    },
-    "apps/mobile": {
-      "entry": ["src/**/*.{ts,tsx}"],
-      "project": ["src/**/*.{ts,tsx}"],
-      "ignoreDependencies": [
-        "@expo/ui",
-        "expo-crypto",
-        "expo-dev-client",
-        "expo-font",
-        "expo-glass-effect",
-        "expo-splash-screen",
-        "expo-system-ui",
-        "react-native-svg-transformer"
-      ],
-      "ignoreBinaries": ["eas"],
-      "metro": false,
-      "expo": false,
-      "babel": false,
-      "tailwind": false
     }
   },
   "rules": {

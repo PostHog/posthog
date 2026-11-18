@@ -1,5 +1,10 @@
 import json
 
+from .media_blocks import parse_media_block
+
+# A media part's flattened message keeps the original part here, so a judge with images can attach it.
+MEDIA_PART_KEY = "media_part"
+
 
 def flatten_parts_message(msg: dict) -> list[dict]:
     """Convert an OTel GenAI semconv parts-shaped message into flat chat message(s).
@@ -27,7 +32,7 @@ def flatten_parts_message(msg: dict) -> list[dict]:
     - `blob`/`uri`/`file` parts become bracketed text markers (`[image]`,
       `[image: <uri>]`, `[file: <id>]`). The trace view renders image blobs and uris
       as actual images; the judge gets markers instead because base64 payloads are
-      token noise to an LLM
+      token noise to an LLM. The original part stays under `MEDIA_PART_KEY`
     - `compaction` parts become follow-up messages carrying the compacted summary,
       or a `[conversation compacted]` marker when the summary is absent
 
@@ -76,7 +81,9 @@ def flatten_parts_message(msg: dict) -> list[dict]:
             if isinstance(reasoning, str) and reasoning:
                 followups.append({"role": "thinking", "content": reasoning})
         elif part_type in ("blob", "uri", "file"):
-            followups.append({"role": msg["role"], "content": _media_part_marker(part_type, part)})
+            followups.append(
+                {"role": msg["role"], "content": _media_part_marker(part_type, part), MEDIA_PART_KEY: part}
+            )
         elif part_type == "compaction":
             summary = part.get("content")
             if not (isinstance(summary, str) and summary):
@@ -101,13 +108,9 @@ def flatten_parts_message(msg: dict) -> list[dict]:
 
 
 def _media_part_marker(part_type: str, part: dict) -> str:
-    modality = part.get("modality")
-    if not isinstance(modality, str) or not modality:
-        modality = "media"
-    if part_type == "blob":
-        return f"[{modality}]"
-    if part_type == "uri":
-        uri = part.get("uri")
-        return f"[{modality}: {uri}]" if isinstance(uri, str) and uri else f"[{modality}]"
+    if part_type in ("blob", "uri"):
+        # The same rule a judge with images falls back to, so both transcripts match where no image attaches.
+        media = parse_media_block(part)
+        return media.marker() if media else "[media]"
     file_id = part.get("file_id")
     return f"[file: {file_id}]" if isinstance(file_id, str) and file_id else "[file]"

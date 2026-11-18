@@ -10,8 +10,9 @@ from rest_framework.exceptions import APIException
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.transport.transport import EgressBudgetExhausted
+from posthog.integrations import IntegrationManager
 from posthog.models.github_integration_base import _is_safe_github_repo_path
-from posthog.models.integration import GitHubIntegration, GitHubIntegrationError, Integration
+from posthog.models.integration import GitHubIntegration, GitHubIntegrationError
 from posthog.models.team.team import Team
 from posthog.ph_client import feature_enabled_or_false
 
@@ -39,7 +40,7 @@ class ResearchAccessPolicy:
         if not _is_safe_github_repo_path(repository):
             return None
         transient_error: Exception | None = None
-        for integration in Integration.objects.filter(team_id=team_id, kind="github"):
+        for integration in IntegrationManager.github.oauth.list(team_id):
             try:
                 github = GitHubIntegration(integration, source="signals_github_optional", priority=priority)
                 if github.installation_can_access_repository(repository, raise_on_transient=True):
@@ -111,3 +112,20 @@ class ResearchAccessPolicy:
             for project in Team.objects.filter(id__in=projects).only("id", "uuid")
             if ResearchAccessPolicy.enabled_for_project(project, only_evaluate_locally=True)
         }
+
+
+def team_has_code_access(team_id: int) -> bool:
+    """Whether Self-driving can read this team's code.
+
+    False is what "running Self-driving without GitHub" means: no installation, none that still
+    reaches a repository, or none healthy enough to use. This is the branch that decides whether
+    report research runs in `code` or `data_only` mode, so a caller that gates on code access must
+    use it rather than test for an installation itself. Answered from Postgres alone, so a caller
+    on a per-report path can afford it.
+    """
+    # The repo-selection agent is not importable at django.setup().
+    from products.tasks.backend.facade.repo_selection import resolve_team_github_integration  # noqa: PLC0415
+
+    # `team_only` because the personal and org-owner fallbacks would make a team that never
+    # connected GitHub itself look connected.
+    return resolve_team_github_integration(team_id, team_only=True) is not None

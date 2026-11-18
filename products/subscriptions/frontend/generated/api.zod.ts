@@ -29,6 +29,12 @@ export const subscriptionsCreateBodyTitleMax = 100
 
 export const subscriptionsCreateBodySummaryPromptGuideMax = 500
 
+export const subscriptionsCreateBodyDeliveryConfigOneImageSizeOneWidthMin = 320
+export const subscriptionsCreateBodyDeliveryConfigOneImageSizeOneWidthMax = 4000
+
+export const subscriptionsCreateBodyDeliveryConfigOneImageSizeOneHeightMin = 200
+export const subscriptionsCreateBodyDeliveryConfigOneImageSizeOneHeightMax = 5000
+
 export const subscriptionsCreateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault = false
 
 export const SubscriptionsCreateBody = /* @__PURE__ */ zod
@@ -206,11 +212,34 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             ),
         delivery_config: zod
             .object({
+                image_size: zod
+                    .object({
+                        width: zod
+                            .number()
+                            .min(subscriptionsCreateBodyDeliveryConfigOneImageSizeOneWidthMin)
+                            .max(subscriptionsCreateBodyDeliveryConfigOneImageSizeOneWidthMax)
+                            .nullish()
+                            .describe(
+                                'Output width in pixels, from 320 to 4000. Omit or use null for automatic width.'
+                            ),
+                        height: zod
+                            .number()
+                            .min(subscriptionsCreateBodyDeliveryConfigOneImageSizeOneHeightMin)
+                            .max(subscriptionsCreateBodyDeliveryConfigOneImageSizeOneHeightMax)
+                            .nullish()
+                            .describe(
+                                'Output height in pixels, from 200 to 5000. Omit or use null for automatic height. Content fits inside the requested size without stretching or cropping.'
+                            ),
+                    })
+                    .optional()
+                    .describe(
+                        'PNG size for each image in an insight or dashboard subscription. Omit for automatic sizing.'
+                    ),
                 post_all_insights_in_main_message: zod
                     .boolean()
                     .default(subscriptionsCreateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault)
                     .describe(
-                        "Slack insight and dashboard subscriptions only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false. The request is rejected when target_type is not 'slack', when the subscription sets prompt instead of insight or dashboard, or when the Slack integration does not hold the files:write permission. Omit it unless the user asks for one combined message."
+                        "Slack subscriptions only. Insight and dashboard subscriptions: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Prompt subscriptions: when true, post the chart images in the main message with the summary; when false, post them in the first thread reply. Defaults to false. The request is rejected when target_type is not 'slack', or when an insight or dashboard subscription's Slack integration does not hold the files:write permission. Omit it unless the user asks for all images or charts in the main message."
                     ),
                 include_images: zod
                     .boolean()
@@ -264,6 +293,12 @@ export const subscriptionsUpdateBodyCountMax = 2147483647
 export const subscriptionsUpdateBodyTitleMax = 100
 
 export const subscriptionsUpdateBodySummaryPromptGuideMax = 500
+
+export const subscriptionsUpdateBodyDeliveryConfigOneImageSizeOneWidthMin = 320
+export const subscriptionsUpdateBodyDeliveryConfigOneImageSizeOneWidthMax = 4000
+
+export const subscriptionsUpdateBodyDeliveryConfigOneImageSizeOneHeightMin = 200
+export const subscriptionsUpdateBodyDeliveryConfigOneImageSizeOneHeightMax = 5000
 
 export const subscriptionsUpdateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault = false
 
@@ -442,11 +477,34 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
             ),
         delivery_config: zod
             .object({
+                image_size: zod
+                    .object({
+                        width: zod
+                            .number()
+                            .min(subscriptionsUpdateBodyDeliveryConfigOneImageSizeOneWidthMin)
+                            .max(subscriptionsUpdateBodyDeliveryConfigOneImageSizeOneWidthMax)
+                            .nullish()
+                            .describe(
+                                'Output width in pixels, from 320 to 4000. Omit or use null for automatic width.'
+                            ),
+                        height: zod
+                            .number()
+                            .min(subscriptionsUpdateBodyDeliveryConfigOneImageSizeOneHeightMin)
+                            .max(subscriptionsUpdateBodyDeliveryConfigOneImageSizeOneHeightMax)
+                            .nullish()
+                            .describe(
+                                'Output height in pixels, from 200 to 5000. Omit or use null for automatic height. Content fits inside the requested size without stretching or cropping.'
+                            ),
+                    })
+                    .optional()
+                    .describe(
+                        'PNG size for each image in an insight or dashboard subscription. Omit for automatic sizing.'
+                    ),
                 post_all_insights_in_main_message: zod
                     .boolean()
                     .default(subscriptionsUpdateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault)
                     .describe(
-                        "Slack insight and dashboard subscriptions only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false. The request is rejected when target_type is not 'slack', when the subscription sets prompt instead of insight or dashboard, or when the Slack integration does not hold the files:write permission. Omit it unless the user asks for one combined message."
+                        "Slack subscriptions only. Insight and dashboard subscriptions: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Prompt subscriptions: when true, post the chart images in the main message with the summary; when false, post them in the first thread reply. Defaults to false. The request is rejected when target_type is not 'slack', or when an insight or dashboard subscription's Slack integration does not hold the files:write permission. Omit it unless the user asks for all images or charts in the main message."
                     ),
                 include_images: zod
                     .boolean()
@@ -500,6 +558,12 @@ export const subscriptionsPartialUpdateBodyCountMax = 2147483647
 export const subscriptionsPartialUpdateBodyTitleMax = 100
 
 export const subscriptionsPartialUpdateBodySummaryPromptGuideMax = 500
+
+export const subscriptionsPartialUpdateBodyDeliveryConfigOneImageSizeOneWidthMin = 320
+export const subscriptionsPartialUpdateBodyDeliveryConfigOneImageSizeOneWidthMax = 4000
+
+export const subscriptionsPartialUpdateBodyDeliveryConfigOneImageSizeOneHeightMin = 200
+export const subscriptionsPartialUpdateBodyDeliveryConfigOneImageSizeOneHeightMax = 5000
 
 export const subscriptionsPartialUpdateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault = false
 
@@ -683,11 +747,34 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             ),
         delivery_config: zod
             .object({
+                image_size: zod
+                    .object({
+                        width: zod
+                            .number()
+                            .min(subscriptionsPartialUpdateBodyDeliveryConfigOneImageSizeOneWidthMin)
+                            .max(subscriptionsPartialUpdateBodyDeliveryConfigOneImageSizeOneWidthMax)
+                            .nullish()
+                            .describe(
+                                'Output width in pixels, from 320 to 4000. Omit or use null for automatic width.'
+                            ),
+                        height: zod
+                            .number()
+                            .min(subscriptionsPartialUpdateBodyDeliveryConfigOneImageSizeOneHeightMin)
+                            .max(subscriptionsPartialUpdateBodyDeliveryConfigOneImageSizeOneHeightMax)
+                            .nullish()
+                            .describe(
+                                'Output height in pixels, from 200 to 5000. Omit or use null for automatic height. Content fits inside the requested size without stretching or cropping.'
+                            ),
+                    })
+                    .optional()
+                    .describe(
+                        'PNG size for each image in an insight or dashboard subscription. Omit for automatic sizing.'
+                    ),
                 post_all_insights_in_main_message: zod
                     .boolean()
                     .default(subscriptionsPartialUpdateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault)
                     .describe(
-                        "Slack insight and dashboard subscriptions only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false. The request is rejected when target_type is not 'slack', when the subscription sets prompt instead of insight or dashboard, or when the Slack integration does not hold the files:write permission. Omit it unless the user asks for one combined message."
+                        "Slack subscriptions only. Insight and dashboard subscriptions: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Prompt subscriptions: when true, post the chart images in the main message with the summary; when false, post them in the first thread reply. Defaults to false. The request is rejected when target_type is not 'slack', or when an insight or dashboard subscription's Slack integration does not hold the files:write permission. Omit it unless the user asks for all images or charts in the main message."
                     ),
                 include_images: zod
                     .boolean()
@@ -721,3 +808,13 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Standard Subscription serializer.')
+
+/**
+ * Take ownership of this subscription and enable it. Only organization admins can assign another member. The new owner needs access to its content. Deliveries run with the owner's access, so this is how a subscription continues after its owner left.
+ */
+export const SubscriptionsTakeOwnershipCreateBody = /* @__PURE__ */ zod.object({
+    user_uuid: zod
+        .uuid()
+        .optional()
+        .describe("New owner's user UUID. Must be an active organization member. Defaults to yourself."),
+})

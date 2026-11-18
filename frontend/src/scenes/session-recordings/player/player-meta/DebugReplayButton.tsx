@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { IconChevronDown, IconSparkles } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { SettingsButton } from 'lib/components/PanelSettings/PanelSettings'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
@@ -28,7 +29,7 @@ function debugChatTooltip(debugChatSummary: DebugChatSummary | undefined): JSX.E
     return 'Opens the PostHog AI chat that debugged this recording.'
 }
 
-export function DebugReplayButton(): JSX.Element {
+export function DebugReplayButton({ settingsBar = false }: { settingsBar?: boolean }): JSX.Element {
     const { sessionRecordingId, debugRecordingPreparing } = useValues(sessionRecordingPlayerLogic)
     const { taskIdBySessionRecordingId, openingSessionRecordingId, debugChatSummaryBySessionRecordingId } =
         useValues(debugReplayChatLogic)
@@ -52,64 +53,66 @@ export function DebugReplayButton(): JSX.Element {
     const promptModal = promptModalOpen ? <DebugReplayPromptModal onClose={() => setPromptModalOpen(false)} /> : null
 
     if (hasDebugChat) {
+        const openProps = {
+            icon: <IconSparkles />,
+            onClick: () => openDebugChat(sessionRecordingId),
+            loading: openingDebugChat || debugRecordingPreparing,
+            tooltip: debugRecordingPreparing ? preparingTooltip : debugChatTooltip(debugChatSummary),
+            'data-attr': 'replay-debug-chat-open',
+            sideAction: {
+                icon: <IconChevronDown />,
+                dropdown: {
+                    placement: 'bottom-end' as const,
+                    overlay: (
+                        <LemonMenuOverlay
+                            items={[
+                                {
+                                    label: 'Debug again in a new chat',
+                                    onClick: () => setPromptModalOpen(true),
+                                    'data-attr': 'replay-debug-with-ai-again',
+                                },
+                            ]}
+                        />
+                    ),
+                },
+                divider: false,
+                disabledReason: debugRecordingPreparing ? preparingTooltip : null,
+                'aria-label': 'More debug options',
+                'data-attr': 'replay-debug-chat-more',
+            },
+        }
         return (
             <>
-                <LemonButton
-                    size="small"
-                    type="secondary"
-                    className="shrink-0"
-                    icon={<IconSparkles />}
-                    onClick={() => openDebugChat(sessionRecordingId)}
-                    loading={openingDebugChat || debugRecordingPreparing}
-                    tooltip={debugRecordingPreparing ? preparingTooltip : debugChatTooltip(debugChatSummary)}
-                    data-attr="replay-debug-chat-open"
-                    sideAction={{
-                        icon: <IconChevronDown />,
-                        dropdown: {
-                            placement: 'bottom-end',
-                            overlay: (
-                                <LemonMenuOverlay
-                                    items={[
-                                        {
-                                            label: 'Debug again in a new chat',
-                                            onClick: () => setPromptModalOpen(true),
-                                            'data-attr': 'replay-debug-with-ai-again',
-                                        },
-                                    ]}
-                                />
-                            ),
-                        },
-                        divider: false,
-                        disabledReason: debugRecordingPreparing ? preparingTooltip : null,
-                        'aria-label': 'More debug options',
-                        'data-attr': 'replay-debug-chat-more',
-                    }}
-                >
-                    Open debug chat
-                </LemonButton>
+                {settingsBar ? (
+                    <SettingsButton label="Open debug chat" {...openProps} />
+                ) : (
+                    <LemonButton size="small" type="secondary" className="shrink-0" {...openProps}>
+                        Open debug chat
+                    </LemonButton>
+                )}
                 {promptModal}
             </>
         )
     }
 
+    const startProps = {
+        icon: <IconSparkles />,
+        onClick: () => setPromptModalOpen(true),
+        loading: debugRecordingPreparing,
+        tooltip: debugRecordingPreparing
+            ? preparingTooltip
+            : 'Asks PostHog AI what went wrong in this recording. You can edit the prompt first.',
+        'data-attr': 'replay-debug-with-ai',
+    }
     return (
         <>
-            <LemonButton
-                size="small"
-                type="secondary"
-                className="shrink-0"
-                icon={<IconSparkles />}
-                onClick={() => setPromptModalOpen(true)}
-                loading={debugRecordingPreparing}
-                tooltip={
-                    debugRecordingPreparing
-                        ? preparingTooltip
-                        : 'Asks PostHog AI what went wrong in this recording. You can edit the prompt first.'
-                }
-                data-attr="replay-debug-with-ai"
-            >
-                Debug this replay
-            </LemonButton>
+            {settingsBar ? (
+                <SettingsButton label="Debug this replay" {...startProps} />
+            ) : (
+                <LemonButton size="small" type="secondary" className="shrink-0" {...startProps}>
+                    Debug this replay
+                </LemonButton>
+            )}
             {promptModal}
         </>
     )

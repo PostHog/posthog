@@ -1,6 +1,7 @@
+import { escapeHogQLString } from 'lib/utils/hogql'
+
 import { BIConfig, BIDataSource, BIField } from '~/queries/schema/schema-business-intelligence'
 import { DateRange, HogQLFilters, HogQLQuery } from '~/queries/schema/schema-general'
-import { escapeHogQLString } from '~/queries/utils'
 
 const NATIVE_DATE_FIELDS: Record<string, string> = {
     events: 'timestamp',

@@ -27,7 +27,6 @@ from products.tasks.backend.temporal.process_task.activities.start_agent_server 
     _agentsh_domains_for,
     _emit_agent_server_log_tail,
     _ensure_repository_on_disk,
-    _include_personal_mcp_for_task,
     _invoke_start_agent_server,
     _launch_agent_shadow,
     _LaunchParams,
@@ -63,6 +62,10 @@ def task_run_state(mocker):
     )
     state = runs.return_value.values_list.return_value.first
     state.return_value = None
+    startup = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.TaskRun.objects.select_for_update"
+    )
+    startup.return_value.only.return_value.get.return_value = mocker.Mock(state={}, is_terminal=False)
     return state
 
 
@@ -699,7 +702,7 @@ def _mock_github_integration(mocker, pr_base: str | None):
     integration.access_token_expired.return_value = False
     integration.get_open_pr_base_for_head.return_value = pr_base
     mocker.patch(
-        "products.tasks.backend.temporal.process_task.activities.start_agent_server.Integration.objects.get",
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.IntegrationManager.github.oauth.get",
         return_value=mocker.Mock(),
     )
     mocker.patch(
@@ -707,21 +710,6 @@ def _mock_github_integration(mocker, pr_base: str | None):
         return_value=integration,
     )
     return integration
-
-
-@pytest.mark.parametrize(
-    "internal,expected",
-    [
-        # Internal/autonomous runs (support reply, signals) get shared team
-        # connections only — never a resolved member's personal MCP creds.
-        (True, False),
-        # User-initiated Code runs get shared + the creator's personal installs.
-        (False, True),
-    ],
-)
-def test_include_personal_mcp_for_task(mocker, internal, expected) -> None:
-    task = mocker.Mock(internal=internal)
-    assert _include_personal_mcp_for_task(task) is expected
 
 
 def test_prepare_launch_retries_task_read_and_keeps_db_drop_identity(mocker) -> None:
@@ -747,7 +735,7 @@ def test_prepare_launch_retries_task_read_and_keeps_db_drop_identity(mocker) -> 
     ],
 )
 def test_prepare_launch_relabels_only_non_transient_token_errors(mocker, raised, expected) -> None:
-    task = mocker.Mock(internal=True, created_by_id=None, team_id=1)
+    task = mocker.Mock(internal=True, stored_profile=None, created_by_id=None, team_id=1)
     mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.Task.objects.select_related"
     ).return_value.get.return_value = task
@@ -803,7 +791,7 @@ def test_resolve_protected_base_branch_for_stacked_run(mocker, stack_base_branch
 
 def test_resolve_protected_base_skips_lookup_without_repository(mocker) -> None:
     get = mocker.patch(
-        "products.tasks.backend.temporal.process_task.activities.start_agent_server.Integration.objects.get",
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.IntegrationManager.github.oauth.get",
     )
     context = _context(github_integration_id=42, repository=None, branch="some-branch")
     assert _resolve_protected_base_branch(context) is None
@@ -814,6 +802,7 @@ def _mock_prepare_launch_dependencies(mocker) -> None:
     prefix = "products.tasks.backend.temporal.process_task.activities.start_agent_server"
     task = mocker.Mock(
         internal=True,
+        stored_profile=None,
         runtime="claude",
         origin_product=None,
         mcp_builtin_agent_key=None,
@@ -860,7 +849,7 @@ def test_prepare_launch_resolves_protected_base_branch_alongside_preparation(
     prefix = "products.tasks.backend.temporal.process_task.activities.start_agent_server"
     _mock_prepare_launch_dependencies(mocker)
     if lookup_error is not None:
-        mocker.patch(f"{prefix}.Integration.objects.get", side_effect=lookup_error)
+        mocker.patch(f"{prefix}.IntegrationManager.github.oauth.get", side_effect=lookup_error)
     else:
         integration = _mock_github_integration(mocker, pr_base=pr_base)
     if lookup_hangs:
@@ -880,7 +869,7 @@ def test_prepare_launch_resolves_protected_base_branch_alongside_preparation(
 
 def test_resolve_protected_base_falls_back_to_branch_on_error(mocker) -> None:
     mocker.patch(
-        "products.tasks.backend.temporal.process_task.activities.start_agent_server.Integration.objects.get",
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.IntegrationManager.github.oauth.get",
         side_effect=RuntimeError("boom"),
     )
     context = _context(github_integration_id=42, repository="PostHog/posthog", branch="posthog-code/fix")
@@ -1182,6 +1171,7 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(
         created_by_id=None,
         team_id=1,
         internal=True,
+        stored_profile=None,
         origin_product="support_reply",
         mcp_builtin_agent_key="support",
         mcp_credential_owner_id=17,
@@ -1253,6 +1243,7 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(
         task_agent_key="support",
         credential_owner_id=17,
         allowed_gateway_server_ids=["srv-1"],
+        profile=None,
     )
     sandbox.start_agent_server.assert_called_once()
     sandbox.wait_for_agent_server_ready.assert_not_called()
@@ -1279,6 +1270,7 @@ async def test_start_agent_server_forwards_imported_and_relayed_mcp_servers(mock
         created_by_id=None,
         team_id=1,
         internal=False,
+        stored_profile=None,
         origin_product="user_created",
         mcp_builtin_agent_key=None,
         mcp_credential_owner_id=None,
@@ -1338,6 +1330,7 @@ async def test_start_agent_server_passes_initial_permission_mode(mocker) -> None
         created_by_id=None,
         team_id=1,
         internal=False,
+        stored_profile=None,
         origin_product="user_created",
         mcp_builtin_agent_key=None,
         mcp_credential_owner_id=None,

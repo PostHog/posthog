@@ -1,19 +1,26 @@
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { router } from 'kea-router'
+import { Component, type ReactNode, Suspense } from 'react'
 
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { LemonButton, LemonButtonWithoutSideActionProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { preflightLogic } from 'lib/logic/preflightLogic'
-import { BeginPasskeyLoginParams, passkeyLogic } from 'scenes/authentication/shared/passkeyLogic'
+import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { LoginMethod, SSOProvider } from '~/types'
 
 import passkeyLogo from './passkey.svg'
 import { SocialLoginIcon } from './SocialLoginIcon'
 import { getSocialLoginUrl } from './socialLoginUrl'
+
+// The passkey flow pulls in the login logic and the WebAuthn browser library.
+const PasskeyLoginButton = lazyWithRetry(() =>
+    import('scenes/authentication/shared/PasskeyLoginButton').then((m) => ({ default: m.PasskeyLoginButton }))
+)
 
 interface SocialLoginLinkProps {
     provider: SSOProvider
@@ -90,40 +97,46 @@ export function SocialLoginButton({
     )
 }
 
-interface PasskeyLoginButtonProps {
-    isLastUsed?: boolean
-    extraQueryParams?: Record<string, string>
+/** Holds the passkey button's place while its chunk loads, or when the chunk fails to load. */
+function PasskeyButtonPlaceholder({
+    loading,
+    disabledReason,
+}: {
+    loading?: boolean
+    disabledReason?: string
+}): JSX.Element {
+    return (
+        <LemonButton
+            size="large"
+            icon={<img src={passkeyLogo} alt="Passkey" className="object-contain w-7 h-7" />}
+            tooltip={disabledReason ? undefined : 'Passkey'}
+            htmlType="button"
+            loading={loading}
+            disabledReason={disabledReason}
+        />
+    )
 }
 
-export function PasskeyLoginButton({ isLastUsed, extraQueryParams }: PasskeyLoginButtonProps): JSX.Element {
-    const { beginPasskeyLogin } = useActions(passkeyLogic)
-    const { isLoading } = useValues(passkeyLogic)
+/** The re-authentication modal also shows the passkey button, and a page reload there would discard
+ * the user's work. So a failed chunk load disables the button in place instead of reloading. */
+class PasskeyChunkLoadBoundary extends Component<{ children: ReactNode }, { error: unknown }> {
+    override state: { error: unknown } = { error: null }
 
-    return (
-        <div className="relative">
-            <LemonButton
-                size="large"
-                icon={<img src={passkeyLogo} alt="Passkey" className="object-contain w-7 h-7" />}
-                active={isLastUsed}
-                tooltip="Passkey"
-                htmlType="button"
-                onClick={() => {
-                    beginPasskeyLogin(undefined, extraQueryParams as BeginPasskeyLoginParams)
-                }}
-                loading={isLoading}
-                data-attr="passkey-login"
-            />
-            {isLastUsed && (
-                <LemonTag
-                    type="muted"
-                    size="small"
-                    className="absolute -top-3 left-1/2 -translate-x-1/2 pointer-events-none"
-                >
-                    Last used
-                </LemonTag>
-            )}
-        </div>
-    )
+    static getDerivedStateFromError(error: unknown): { error: unknown } {
+        return { error }
+    }
+
+    override render(): ReactNode {
+        if (!this.state.error) {
+            return this.props.children
+        }
+        if (!isChunkLoadError(this.state.error)) {
+            throw this.state.error
+        }
+        return (
+            <PasskeyButtonPlaceholder disabledReason="Passkey sign-in couldn't load. Refresh the page to try again, or use another sign-in method." />
+        )
+    }
 }
 
 interface SocialLoginButtonsProps {
@@ -146,6 +159,8 @@ interface SocialLoginButtonsProps {
      * through `SSOEnforcedLoginButton` instead.
      */
     restrictToProviders?: SSOProvider[] | null
+    /** Rendered at the end of the row, after the providers and the passkey. */
+    extraButton?: ReactNode
 }
 
 export function SocialLoginButtons({
@@ -159,11 +174,12 @@ export function SocialLoginButtons({
     showPasskey = false,
     restrictToProviders,
     onProviderClick,
+    extraButton,
     ...props
 }: SocialLoginButtonsProps): JSX.Element | null {
     const { preflight, socialAuthAvailable } = useValues(preflightLogic)
 
-    if (!preflight || (!socialAuthAvailable && !showPasskey)) {
+    if (!preflight || (!socialAuthAvailable && !showPasskey && !extraButton)) {
         return null
     }
 
@@ -174,7 +190,7 @@ export function SocialLoginButtons({
               .sort((a, b) => order.indexOf(a) - order.indexOf(b))
         : []
 
-    if (!socialProviders.length && !showPasskey) {
+    if (!socialProviders.length && !showPasskey && !extraButton) {
         return null
     }
 
@@ -195,7 +211,14 @@ export function SocialLoginButtons({
                             {...props}
                         />
                     ))}
-                    {showPasskey && <PasskeyLoginButton isLastUsed={lastUsedProvider === 'passkey'} {...props} />}
+                    {showPasskey && (
+                        <PasskeyChunkLoadBoundary>
+                            <Suspense fallback={<PasskeyButtonPlaceholder loading />}>
+                                <PasskeyLoginButton isLastUsed={lastUsedProvider === 'passkey'} {...props} />
+                            </Suspense>
+                        </PasskeyChunkLoadBoundary>
+                    )}
+                    {extraButton}
                 </div>
                 {caption && captionLocation === 'bottom' && <p className="text-secondary">{caption}</p>}
             </div>

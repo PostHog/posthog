@@ -9,6 +9,7 @@ from parameterized import parameterized
 from posthog.schema import DateRange, MCPMissingCapabilitiesItem, MCPMissingCapabilitiesQuery
 
 from products.mcp_analytics.backend.hogql_queries.missing_capabilities import MCPMissingCapabilitiesQueryRunner
+from products.mcp_analytics.backend.models import MCPCustomHarness
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 
 
@@ -23,8 +24,11 @@ class TestMCPMissingCapabilitiesQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Cl
         distinct_id: str = "d1",
         timestamp: datetime | None = None,
         event_uuid: UUID | None = None,
+        feedback_type: str | None = None,
     ) -> None:
         properties: dict[str, Any] = {"$session_id": session_id, "$mcp_intent": intent}
+        if feedback_type is not None:
+            properties["$mcp_feedback_type"] = feedback_type
         if client_name is not None:
             properties["$mcp_client_name"] = client_name
         _create_event(
@@ -50,7 +54,7 @@ class TestMCPMissingCapabilitiesQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Cl
         now = datetime.now(tz=UTC)
         self._emit(intent="older ask", timestamp=now - timedelta(hours=2))
         self._emit(intent="newer ask", timestamp=now - timedelta(hours=1))
-        # Only $mcp_missing_capability is the unmet-demand signal; a tool call carrying an
+        # Only missing-capability reports are the unmet-demand signal; a tool call carrying an
         # intent is what the agent *did*, not what it couldn't do.
         self._emit(intent="a tool call intent", event="$mcp_tool_call")
         flush_persons_and_events()
@@ -61,6 +65,26 @@ class TestMCPMissingCapabilitiesQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Cl
         assert rows[0].session_id == "s1"
         assert rows[0].distinct_id == "d1"
         assert rows[0].harness == "Claude.ai"
+
+    @parameterized.expand(
+        [
+            ("get_more_tools_report", "$mcp_missing_capability", None, True),
+            ("send_feedback_missing_capability", "$mcp_feedback", "missing_capability", True),
+            ("send_feedback_issue", "$mcp_feedback", "issue", False),
+            ("send_feedback_praise", "$mcp_feedback", "praise", False),
+            ("tool_call_typed_like_a_report", "$mcp_tool_call", "missing_capability", False),
+        ]
+    )
+    def test_lists_missing_capability_reports_from_either_sdk_tool(
+        self, _name: str, event: str, feedback_type: str | None, listed: bool
+    ) -> None:
+        report = 'No tool to export a dashboard as a PDF.\n\nThe user asked for "Weekly signups" as a PDF.'
+        self._emit(intent=report, event=event, feedback_type=feedback_type)
+        flush_persons_and_events()
+
+        rows = self._run(search="dashboard")
+
+        assert [(row.intent, row.harness) for row in rows] == ([(report, "Claude.ai")] if listed else [])
 
     def test_date_range_excludes_older_reports(self) -> None:
         now = datetime.now(tz=UTC)
@@ -83,9 +107,29 @@ class TestMCPMissingCapabilitiesQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Cl
 
         assert [row.intent for row in self._run(search=term)] == expected
 
-    def test_labels_unidentified_and_self_reported_clients(self) -> None:
+    @parameterized.expand(
+        [
+            ("excluded", True, ["external ask"]),
+            ("included", False, ["internal ask", "external ask"]),
+        ]
+    )
+    def test_filter_test_accounts(self, _name: str, filter_test_accounts: bool, expected: list[str]) -> None:
+        self.team.test_account_filters = [
+            {"key": "$mcp_client_name", "value": ["internal-agent"], "operator": "is_not", "type": "event"}
+        ]
+        self.team.save()
+        now = datetime.now(tz=UTC)
+        self._emit(intent="external ask", timestamp=now - timedelta(hours=2))
+        self._emit(intent="internal ask", client_name="internal-agent", timestamp=now - timedelta(hours=1))
+        flush_persons_and_events()
+
+        assert [row.intent for row in self._run(filterTestAccounts=filter_test_accounts)] == expected
+
+    def test_labels_unidentified_self_reported_and_custom_named_clients(self) -> None:
+        MCPCustomHarness.objects.create(team=self.team, name="Acme Agent", match_pattern="acme-agent")
         self._emit(intent="no client identity", client_name=None)
         self._emit(intent="self-reported client", client_name="some-inhouse-agent")
+        self._emit(intent="custom named client", client_name="acme-agent")
         flush_persons_and_events()
 
         harness_by_intent = {row.intent: row.harness for row in self._run()}
@@ -93,6 +137,7 @@ class TestMCPMissingCapabilitiesQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Cl
         assert harness_by_intent == {
             "no client identity": "Unidentified client",
             "self-reported client": "some-inhouse-agent",
+            "custom named client": "Acme Agent",
         }
 
     def test_pages_equal_timestamps_deterministically(self) -> None:

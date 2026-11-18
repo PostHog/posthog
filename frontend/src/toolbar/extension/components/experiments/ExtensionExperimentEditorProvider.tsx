@@ -12,7 +12,8 @@ import { extensionExperimentsLogic } from '../../logics/panel/extensionExperimen
 /** Binds the toolbar's web experiment editor components to the panel's copy of the form. The page applies the changes. */
 export function ExtensionExperimentEditorProvider({ children }: { children: React.ReactNode }): JSX.Element | null {
     const { experimentsState, experimentForm } = useValues(extensionExperimentsLogic)
-    const { sendExperimentsCommand, renameVariant, setTransformField } = useActions(extensionExperimentsLogic)
+    const { sendExperimentsCommand, renameVariant, setTransformField, setVariantUrlCondition } =
+        useActions(extensionExperimentsLogic)
 
     const editor = useMemo((): WebExperimentEditor | null => {
         if (!experimentsState) {
@@ -43,8 +44,16 @@ export function ExtensionExperimentEditorProvider({ children }: { children: Reac
             setTransformationField: setTransformField,
             setTransformationSelector: (variant, index, selector) =>
                 sendExperimentsCommand({ type: 'set-experiment-transform-selector', variant, index, selector }),
+            setVariantUrlCondition,
         }
-    }, [experimentsState, experimentForm.variants, sendExperimentsCommand, renameVariant, setTransformField])
+    }, [
+        experimentsState,
+        experimentForm.variants,
+        sendExperimentsCommand,
+        renameVariant,
+        setTransformField,
+        setVariantUrlCondition,
+    ])
 
     return editor ? (
         <WebExperimentEditorContext.Provider value={editor}>{children}</WebExperimentEditorContext.Provider>

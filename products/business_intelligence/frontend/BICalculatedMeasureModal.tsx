@@ -3,9 +3,9 @@ import { useActions, useValues } from 'kea'
 import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
+import { escapeDottedHogQLIdentifier } from 'lib/utils/hogql'
 
 import { NodeKind } from '~/queries/schema/schema-general'
-import { escapeDottedHogQLIdentifier } from '~/queries/utils'
 
 import { biEditorLogic } from 'products/business_intelligence/frontend/biEditorLogic'
 

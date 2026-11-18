@@ -1,9 +1,11 @@
 import { useValues } from 'kea'
 
-import { Tooltip } from '@posthog/lemon-ui'
+import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
+import { urls } from 'scenes/urls'
 
+import { captureScratchpadLinkClicked } from '../../../inboxAnalytics'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { SCRATCHPAD_WINDOW_PAGE_SIZE, scratchpadLogic } from '../../../logics/scratchpadLogic'
 import { SCOUT_ROSTER_WINDOW_LABEL } from '../../../utils/scoutRunsWindow'
@@ -27,18 +29,41 @@ function Stat({
     label,
     tooltip,
     tone = 'muted',
+    to,
+    onClick,
+    dataAttr,
 }: {
     value: string
     label: string
     tooltip: string
     tone?: StatTone
+    /** Makes the stat a link to the page behind the number. */
+    to?: string
+    onClick?: () => void
+    dataAttr?: string
 }): JSX.Element {
+    const className = cn('flex items-baseline gap-1 whitespace-nowrap text-xs', LABEL_CLASS[tone])
+    const content = (
+        <>
+            <span className={cn('font-semibold tabular-nums', VALUE_CLASS[tone])}>{value}</span>
+            <span>{label}</span>
+        </>
+    )
     return (
         <Tooltip title={tooltip}>
-            <span className={cn('flex items-baseline gap-1 whitespace-nowrap text-xs', LABEL_CLASS[tone])}>
-                <span className={cn('font-semibold tabular-nums', VALUE_CLASS[tone])}>{value}</span>
-                <span>{label}</span>
-            </span>
+            {to ? (
+                <Link
+                    to={to}
+                    subtle
+                    onClick={onClick}
+                    className={cn(className, 'hover:underline')}
+                    data-attr={dataAttr}
+                >
+                    {content}
+                </Link>
+            ) : (
+                <span className={className}>{content}</span>
+            )}
         </Tooltip>
     )
 }
@@ -86,7 +111,9 @@ export function ScoutsRosterStats(): JSX.Element {
             <Stat
                 value={summaryValue(emittedFindingsSummary.runCount)}
                 label="runs"
-                tooltip={`Runs your scouts made in the ${SCOUT_ROSTER_WINDOW_LABEL}, quiet ones included.`}
+                tooltip={`Runs your scouts made in the ${SCOUT_ROSTER_WINDOW_LABEL}, quiet ones included. Click to see every recent run.`}
+                to={urls.inboxRuns()}
+                dataAttr="inbox-scout-stats-open-runs"
             />
             <Stat
                 value={summaryValue(emittedFindingsSummary.authoredReportCount)}
@@ -103,9 +130,12 @@ export function ScoutsRosterStats(): JSX.Element {
                 label="learned"
                 tooltip={
                     recentlyLearnedCountCapped
-                        ? `Scratchpad entries your scouts wrote or refreshed in the ${SCOUT_ROSTER_WINDOW_LABEL}. Only the newest ${SCRATCHPAD_WINDOW_PAGE_SIZE} entries are counted, and all of them fall in this window.`
-                        : `Scratchpad entries your scouts wrote or refreshed in the ${SCOUT_ROSTER_WINDOW_LABEL}.`
+                        ? `Scratchpad entries your scouts wrote or refreshed in the ${SCOUT_ROSTER_WINDOW_LABEL}. Only the newest ${SCRATCHPAD_WINDOW_PAGE_SIZE} entries are counted, and all of them fall in this window. Click to open the scratchpad.`
+                        : `Scratchpad entries your scouts wrote or refreshed in the ${SCOUT_ROSTER_WINDOW_LABEL}. Click to open the scratchpad.`
                 }
+                to={urls.inboxScratchpad()}
+                onClick={() => captureScratchpadLinkClicked({ entryPoint: 'roster_stats', surface: 'fleet_list' })}
+                dataAttr="inbox-scout-stats-open-scratchpad"
             />
         </div>
     )

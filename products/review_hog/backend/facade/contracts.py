@@ -94,6 +94,26 @@ DropDisposition = Literal[
     "budget",
 ]
 
+FindingOutcome = Literal["addressed", "reacted", "ignored"]
+FindingReactionSentiment = Literal["positive", "negative", "mixed"]
+FindingOutcomeMethod = Literal[
+    "judge_confirmed",
+    "judge_rejected",
+    "comment_reply",
+    # A reply from an agent other than ReviewHog itself. Engagement like `comment_reply`, kept
+    # apart so "a human responded" stays answerable as agents take over more of the replying.
+    "comment_reply_agent",
+    "comment_reaction",
+    "no_signal",
+    # A line-proximity candidate the judge never ruled on: the report exhausted its per-report
+    # judge budget. Counts as `ignored` like `no_signal` (no evidence it was addressed), but is
+    # named apart so consumers can tell "nothing touched it" from "we did not look".
+    "judge_budget_exhausted",
+    # The judge was asked and errored. Also `ignored`, and also named apart: a rate of these is
+    # a health signal about the judge, not about how the PR's authors respond to review.
+    "judge_failed",
+]
+
 
 @frozen
 class PRReviewRequestOutcome:
@@ -209,6 +229,10 @@ class PersonNotActiveMemberError(Exception):
     """The user to add to a people list is not an active member of the project's organization."""
 
 
+class AdminOnlyChangeError(Exception):
+    """A project member asked for a change that only project admins can make. The API answers 403."""
+
+
 @frozen
 class ProjectRef:
     """Another project, named only inside its own organization."""
@@ -269,6 +293,7 @@ class ReviewRepositorySettings:
     full_name: str
     selected: bool
     flash_for: AutomaticFlashFor | None
+    review_drafts: bool
     people: Sequence[ReviewRepositoryPersonEntry]
     created_by: ReviewUserRef | None
     created_at: datetime
@@ -352,6 +377,7 @@ class ReviewRepositoryOverviewEntry:
     selected: bool
     repository_id: UUID | None
     exception: ReviewRepositoryException | None
+    review_drafts: bool
     my_choice: ReviewUserRepositoryChoiceMode | None
     my_choice_id: UUID | None
     my_result: AutomaticReviewDecision
@@ -511,7 +537,19 @@ class ReviewLineRange:
 
 
 @frozen
+class ReviewFindingOutcome:
+    outcome: FindingOutcome
+    method: FindingOutcomeMethod
+    reviewed_head: str
+    final_head: str
+    reaction_sentiment: FindingReactionSentiment | None = None
+    reply_excerpt: str | None = None
+    comment_outdated: bool | None = None
+
+
+@frozen
 class ReviewFinding:
+    issue_key: str
     title: str
     file: str
     lines: Sequence[ReviewLineRange]
@@ -522,6 +560,7 @@ class ReviewFinding:
     source_perspective: str | None
     validator_category: ReviewIssueCategory | None
     validator_note: str
+    outcome: ReviewFindingOutcome | None = None
 
 
 @frozen

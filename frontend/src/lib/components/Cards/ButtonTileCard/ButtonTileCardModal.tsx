@@ -9,21 +9,23 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 
-import { DashboardPlacement, DashboardTile, DashboardTileIdOrNew, DashboardType } from '~/types'
+import { DashboardPlacement, DashboardTile, DashboardTileIdOrNew, DashboardType, NewDashboardTile } from '~/types'
 
 export function ButtonTileCardModal({
     isOpen,
     onClose,
     dashboard,
     buttonTileId,
+    onCreateTile,
 }: {
     isOpen: boolean
     onClose: () => void
     dashboard: DashboardType
     buttonTileId: DashboardTileIdOrNew
+    onCreateTile?: (tile: NewDashboardTile) => void
 }): JSX.Element {
     const isNewTile = buttonTileId === null
-    const modalLogic = buttonTileCardModalLogic({ dashboard, buttonTileId, onClose })
+    const modalLogic = buttonTileCardModalLogic({ dashboard, buttonTileId, onClose, onCreateTile })
     const { buttonTile, isButtonTileSubmitting, buttonTileValidationErrors } = useValues(modalLogic)
     const { submitButtonTile, resetButtonTile } = useActions(modalLogic)
 

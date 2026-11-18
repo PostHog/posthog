@@ -10,9 +10,11 @@ Depot CI runs GitHub Actions YAML on Depot's own orchestrator and compute, so mo
 
 ### Triggers
 
-`push` (branches, tags, paths), `pull_request` (branches, paths), `pull_request_target`, `pull_request_review`, `issue_comment` (created, edited, deleted), `deployment_status`, `repository_dispatch` (with `types`), `schedule`, `workflow_call`, `workflow_dispatch` (with inputs), `workflow_run`, `merge_group`
+`push` (branches, tags, paths), `pull_request` (branches, paths), `pull_request_target`, `pull_request_review`, `pull_request_review_comment`, `issue_comment` (created, edited, deleted), `deployment_status`, `repository_dispatch` (with `types`), `schedule`, `workflow_call`, `workflow_dispatch` (with inputs), `workflow_run`, `merge_group`
 
-`issue_comment` covers comments on issues and pull requests. The workflow runs from the repository's default branch. Use `github.event.issue.pull_request` to distinguish pull request comments. Issue edits and label changes use the separate unsupported `issues` trigger; inline pull request review comments use the separate unsupported `pull_request_review_comment` trigger.
+`issue_comment` covers comments on issues and pull requests. The workflow runs from the repository's default branch. Use `github.event.issue.pull_request` to distinguish pull request comments. Issue edits and label changes use the separate unsupported `issues` trigger.
+
+`pull_request_review` handles `submitted`, `edited`, and `dismissed` reviews. `pull_request_review_comment` handles `created`, `edited`, and `deleted` comments on a pull request diff. Use `types` to filter activities; omitting `types` accepts every activity. The listening workflow must exist on the default branch, but the run uses the pull request's merge ref. Read payloads from `github.event`; `github.base_ref` and `github.head_ref` are empty. Fork review runs and review runs triggered by Dependabot receive no user secrets and a read-only `GITHUB_TOKEN`.
 
 `repository_dispatch` lets you trigger runs from outside GitHub via the GitHub API; the custom event type and `client_payload` are available through `github.event.action` and `github.event.client_payload`. GitHub delivers these events only against the default branch, so the default-branch workflow runs.
 
@@ -65,7 +67,7 @@ Actions declaring Node 12, 16, or 20 run on Node.js 24 by default. `ACTIONS_ALLO
 - **Fork-triggered PRs**: `pull_request` and `pull_request_target` from forks not supported yet.
 - **Non-Ubuntu runners**: Depot CI has no Windows or macOS sandboxes. Do not assume a migrated runner label preserves the original operating system.
 - **Deployment environments**: the `environment` field is not supported.
-- **GitHub-specific event triggers**: `branch_protection_rule`, `check_run`, `check_suite`, `create`, `delete`, `deployment`, `discussion`, `discussion_comment`, `fork`, `gollum`, `image_version`, `issues`, `label`, `milestone`, `page_build`, `public`, `pull_request_comment`, `pull_request_review_comment`, `registry_package`, `release`, `status`, `watch`.
+- **GitHub-specific event triggers**: `branch_protection_rule`, `check_run`, `check_suite`, `create`, `delete`, `deployment`, `discussion`, `discussion_comment`, `fork`, `gollum`, `image_version`, `issues`, `label`, `milestone`, `page_build`, `public`, `pull_request_comment`, `registry_package`, `release`, `status`, `watch`.
 
 ### GitHub Packages authentication
 

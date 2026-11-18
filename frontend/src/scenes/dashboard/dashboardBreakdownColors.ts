@@ -1,8 +1,14 @@
 import { DataColorToken, dataColorVars } from 'lib/colors'
 import { getFunnelDatasetKey, getTrendDatasetKey, isNullBreakdown, isOtherBreakdown } from 'scenes/insights/utils'
 
+import {
+    hasBreakdownFilter,
+    isFunnelsQuery,
+    isInsightVizNode,
+    isRetentionQuery,
+    isTrendsQuery,
+} from '~/queries/schema/node-guards'
 import { BreakdownFilter } from '~/queries/schema/schema-general'
-import { hasBreakdownFilter, isFunnelsQuery, isInsightVizNode, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
 import { DashboardTile, FunnelVizType } from '~/types'
 
 export type BreakdownColorSource = 'auto' | 'manual'

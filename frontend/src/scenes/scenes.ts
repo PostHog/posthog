@@ -18,6 +18,7 @@ import { EventsQuery } from '~/queries/schema/schema-general'
 import { ActivityScope, ActivityTab, InsightShortId, ReplayTabs } from '~/types'
 
 import { BillingSectionId } from './billing/types'
+import { SettingSectionId } from './settings/types'
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
@@ -100,11 +101,24 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         layout: 'app-full-scene-height',
         hideProjectNotice: true,
     },
+    [Scene.WorkloadTrustPolicyRequest]: {
+        projectBased: true,
+        layout: 'plain',
+        name: 'Trusted workload request',
+        description: 'Review a request to trust a workload',
+    },
     [Scene.CLIAuthorize]: {
         name: 'Authorize CLI',
         projectBased: false,
         organizationBased: false,
         layout: 'plain',
+    },
+    [Scene.OAuthDeviceAuthorize]: {
+        name: 'Approve a login',
+        projectBased: false,
+        organizationBased: false,
+        layout: 'plain',
+        allowUnauthenticated: true,
     },
     [Scene.CLILive]: {
         name: 'Authorize Live',
@@ -159,10 +173,10 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Terminal]: { projectBased: true, name: 'Terminal', layout: 'app-full-scene-height' },
 
     [Scene.Error404]: { name: 'Not found', projectBased: true },
-    [Scene.ErrorAccessDenied]: { name: 'Access denied' },
+    [Scene.ErrorAccessDenied]: { name: 'Access denied', hideProjectNotice: true },
     [Scene.ErrorNetwork]: { name: 'Network error' },
-    [Scene.ErrorProjectAccessDenied]: { name: 'Project access denied' },
-    [Scene.ErrorProjectUnavailable]: { name: 'Project unavailable' },
+    [Scene.ErrorProjectAccessDenied]: { name: 'Project access denied', hideProjectNotice: true },
+    [Scene.ErrorProjectUnavailable]: { name: 'Project unavailable', hideProjectNotice: true },
     // Any scene can fail to mount, including a logged-out one (login, signup, invite, password reset),
     // so this generic error scene must render for both logged-out and logged-in visitors.
     [Scene.ErrorSceneLoad]: { name: 'Page could not load', allowUnauthenticated: true },
@@ -492,6 +506,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.SessionProfile]: { projectBased: true, name: 'Session profile', iconType: 'session_profile' },
     [Scene.Settings]: { projectBased: true, name: 'Settings' },
     [Scene.IdentityProviderConfig]: { projectBased: true, name: 'Configure identity provider' },
+    [Scene.DataDeletionRequestNew]: { projectBased: true, name: 'New deletion request' },
     [Scene.Signup]: { onlyUnauthenticated: true, name: 'Sign up', layout: 'plain' },
     [Scene.Site]: { projectBased: true, hideProjectNotice: true, layout: 'app-raw' },
     [Scene.StartupProgram]: { name: 'PostHog for Startups', organizationBased: true, layout: 'plain' },
@@ -638,6 +653,8 @@ export const redirects: Record<
     '/views/new': urls.analyticsList(),
     // Analytics opens on View all; the bare path stays as the pane's prefix.
     [urls.analytics()]: urls.analyticsList(),
+    // Collections were called spaces; this keeps old links working.
+    '/analytics/spaces': urls.analyticsSpaces(),
     '/action/:id': ({ id }) => urls.action(id),
     '/actions': urls.actions(),
     '/activity': urls.activity(),
@@ -731,6 +748,8 @@ export const redirects: Record<
     // There is no /project/new scene; send typed URLs and old bookmarks to the create-project flow
     '/project/new': urls.projectCreateFirst(),
     '/project/settings': urls.settings('project'),
+    '/project/settings/:section': ({ section }, _searchParams, hashParams) =>
+        combineUrl(urls.settings(section as SettingSectionId), {}, hashParams).url,
     // The quickstart landing page is gone; keep old bookmarks and pinned tabs out of a 404
     '/quickstart': urls.default(),
     '/recordings/file-playback': () => urls.replayFilePlayback(),
@@ -788,7 +807,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.savedInsights()]: [Scene.SavedInsights, 'savedInsights'],
     [urls.webAnalytics()]: [Scene.WebAnalytics, 'webAnalytics'],
     [urls.webAnalyticsWebVitals()]: [Scene.WebAnalytics, 'webAnalyticsWebVitals'],
-    [urls.webAnalyticsBotAnalytics()]: [Scene.WebAnalytics, 'webAnalyticsBotAnalytics'],
     [urls.webAnalyticsPagePerformance()]: [Scene.WebAnalytics, 'webAnalyticsPagePerformance'],
     [urls.webAnalyticsAgents()]: [Scene.WebAnalytics, 'webAnalyticsAgents'],
     [urls.webAnalyticsHealth()]: [Scene.WebAnalyticsHealth, 'webAnalyticsHealth'],
@@ -846,6 +864,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.productTours()]: [Scene.ProductTours, 'productTours'],
     [urls.productTour(':id')]: [Scene.ProductTour, 'productTour'],
     [urls.approval(':id')]: [Scene.Approval, 'approval'],
+    // pinned: the backend builds this path into the approval link it returns, which people share
+    [urls.workloadTrustPolicyRequest(':id')]: [Scene.WorkloadTrustPolicyRequest, 'workloadTrustPolicyRequest'],
     [urls.sqlEditor()]: [Scene.SQLEditor, 'sqlEditor'],
     [urls.featureFlags()]: [Scene.FeatureFlags, 'featureFlags'],
     [urls.featureFlagTemplates()]: ['FeatureFlagTemplates' as Scene, 'featureFlagTemplates'],
@@ -897,6 +917,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.accountConnected(':kind')]: [Scene.AccountConnected, 'accountConnected'],
     [urls.credentialReview()]: [Scene.CredentialReview, 'credentialReview'],
     [urls.cliAuthorize()]: [Scene.CLIAuthorize, 'cliAuthorize'],
+    [urls.oauthDeviceAuthorize()]: [Scene.OAuthDeviceAuthorize, 'oauthDeviceAuthorize'],
     [urls.cliLive()]: [Scene.CLILive, 'cliLive'],
     [urls.preflight()]: [Scene.PreflightCheck, 'preflight'],
     [urls.signup()]: [Scene.Signup, 'signup'],
@@ -933,6 +954,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.notebooks()]: [Scene.Notebooks, 'notebooks'],
     [urls.canvas()]: [Scene.Canvas, 'canvas'],
     [urls.identityProviderConfig(':feature', ':configId')]: [Scene.IdentityProviderConfig, 'identityProviderConfig'],
+    [urls.dataDeletionRequestNew()]: [Scene.DataDeletionRequestNew, 'dataDeletionRequestNew'],
     [urls.settings(':section' as any)]: [Scene.Settings, 'settings'],
     [urls.moveToPostHogCloud()]: [Scene.MoveToPostHogCloud, 'moveToPostHogCloud'],
     [urls.advancedActivityLogs()]: [Scene.AdvancedActivityLogs, 'advancedActivityLogs'],

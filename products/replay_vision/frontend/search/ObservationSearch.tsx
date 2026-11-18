@@ -9,10 +9,11 @@ import { LemonButton, LemonInput, LemonMenu, Popover, Spinner } from '@posthog/l
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
+
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 
 import { visionScannersListLogic } from '../logics/visionScannersListLogic'
 import { type ReplayScanner, scannerFromApi } from '../replay_scanners/types'

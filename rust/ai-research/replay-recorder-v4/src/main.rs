@@ -5,7 +5,7 @@ use axum::{routing::get, Router};
 use common_database::{get_pool_with_config, PoolConfig};
 use common_kafka::config::KafkaConfig;
 use common_kafka::kafka_producer::create_kafka_producer;
-use common_metrics::setup_metrics_routes;
+use common_metrics::{setup_metrics_routes_with_overrides, Matcher};
 use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
 use tracing::level_filters::LevelFilter;
@@ -19,9 +19,14 @@ use replay_core_v4::keys::table::{AwsKeyTable, CachedKeyTable};
 use replay_recorder_v4::config::Config;
 use replay_recorder_v4::consumer::{run, RecorderConsumer, Settings, Sources};
 use replay_recorder_v4::flush::{Writer, PRODUCER_FLUSH_ON_SHUTDOWN};
+use replay_recorder_v4::history::{AwsFetchHistory, FetchHistory};
 use replay_recorder_v4::limits::{Restrictions, SessionLimiter};
 use replay_recorder_v4::store::S3Store;
 use replay_recorder_v4::teams::TeamCache;
+
+const FLUSH_DURATION_BUCKETS_SECONDS: &[f64] = &[
+    0.5, 1.0, 2.5, 5.0, 10.0, 20.0, 30.0, 45.0, 60.0, 90.0, 120.0, 180.0, 300.0,
+];
 
 common_alloc::used!();
 
@@ -29,10 +34,11 @@ common_alloc::used!();
 const INDEX_QUEUE_MIB: u32 = 512;
 const INDEX_QUEUE_MESSAGES: u32 = 500_000;
 
+/// The argument that runs the v4 Parquet sink instead, so the sink ships in this image.
+const PARQUET_SINK_MODE: &str = "parquet-sink";
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let config = Config::init_from_env().expect("invalid configuration");
-    config.validate()?;
     tracing_subscriber::registry()
         .with(fmt::layer().with_target(true).with_level(true))
         .with(
@@ -41,6 +47,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .from_env_lossy(),
         )
         .init();
+    // The argument only picks which service this process runs, and grants nothing.
+    // nosemgrep: rust.lang.security.args.args
+    if std::env::args().nth(1).as_deref() == Some(PARQUET_SINK_MODE) {
+        return replay_parquet_sink_v4::run().await;
+    }
+    let config = Config::init_from_env().expect("invalid configuration");
+    config.validate()?;
     tracing::info!(topic = %config.kafka_topic, overflow_topic = %config.kafka_overflow_topic, group = %config.kafka_consumer_group, sample = config.sample_percentage, "starting replay-recorder-v4");
 
     // The consumer flushes the buffer, then the producer, on shutdown.
@@ -98,10 +111,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}"))
             .await
             .expect("bind metrics port");
-        axum::serve(listener, setup_metrics_routes(router))
-            .with_graceful_shutdown(metrics_handle.shutdown_signal())
-            .await
-            .expect("metrics server");
+        let overrides = [(
+            Matcher::Prefix("ai_research_v4_recorder_flush_".to_owned()),
+            FLUSH_DURATION_BUCKETS_SECONDS,
+        )];
+        axum::serve(
+            listener,
+            setup_metrics_routes_with_overrides(router, &overrides),
+        )
+        .with_graceful_shutdown(metrics_handle.shutdown_signal())
+        .await
+        .expect("metrics server");
     });
 
     // The first team list must load before any message is read: an empty list would skip every message as unknown.
@@ -234,7 +254,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             )
             .await?,
             index_topic: config.index_topic.clone(),
+            index_delivery_timeout: Duration::from_millis(config.index_delivery_timeout_ms.into()),
             sent_urls: replay_recorder_v4::urls::sent_urls(500_000),
+            fetch_history: (!config.image_fetch_history_table.is_empty()).then(
+                || -> Arc<dyn FetchHistory> {
+                    // A failed read only sends its jobs unchecked, so SDK retries would only use up the retry quota
+                    // that this process's key table reads share.
+                    let client = aws_sdk_dynamodb::Client::from_conf(
+                        aws_sdk_dynamodb::config::Builder::from(&aws)
+                            .retry_config(aws_sdk_dynamodb::config::retry::RetryConfig::disabled())
+                            .build(),
+                    );
+                    Arc::new(AwsFetchHistory::new(
+                        client,
+                        config.image_fetch_history_table.clone(),
+                    ))
+                },
+            ),
             seal_permits: Arc::new(tokio::sync::Semaphore::new(settings.flush_concurrency)),
         })
     } else {

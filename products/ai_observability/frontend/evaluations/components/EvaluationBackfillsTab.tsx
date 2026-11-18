@@ -5,7 +5,6 @@ import { LemonBanner, LemonButton, LemonSwitch, LemonTable, LemonTag, LemonTagTy
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
@@ -16,6 +15,7 @@ import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { CUSTOM_OPTION_KEY } from 'lib/utils/dateFilters'
 import { pluralize } from 'lib/utils/strings'
 
 import {
@@ -33,6 +33,7 @@ import type {
 } from '../../generated/api.schemas'
 import {
     backfillCoveredCount,
+    backfillIsWaitingForProgress,
     backfillLateArrivalCount,
     backfillLiveCoveredCount,
     backfillRangeDateFormat,
@@ -305,14 +306,17 @@ export function EvaluationBackfillsTab({
                 const measured = backfill.status === 'completed' && backfill.remaining_count !== null
                 const covered = backfillCoveredCount(backfill)
                 const total = backfillTotalCount(backfill)
+                const waitingForProgress = backfillIsWaitingForProgress(backfill)
                 return (
                     <Tooltip
                         title={
-                            backfill.completed_count != null
-                                ? `${backfill.completed_count.toLocaleString('en-US')} evaluated, ${backfill.evaluation_skipped_count.toLocaleString('en-US')} skipped, ${backfill.skipped_count.toLocaleString('en-US')} already handled, ${backfill.failed_count.toLocaleString('en-US')} failed.`
-                                : measured
-                                  ? `Estimated coverage when this run ended. This older backfill did not track execution outcomes.`
-                                  : `How many ${backfillUnitPlural(backfill)} this backfill has started evaluating or skipped because the evaluation already had them. It does not track which of them have finished.`
+                            waitingForProgress
+                                ? 'No progress reported yet. Evaluations may already be running.'
+                                : backfill.completed_count != null
+                                  ? `${backfill.completed_count.toLocaleString('en-US')} evaluated, ${backfill.evaluation_skipped_count.toLocaleString('en-US')} skipped, ${backfill.skipped_count.toLocaleString('en-US')} already handled, ${backfill.failed_count.toLocaleString('en-US')} failed.`
+                                  : measured
+                                    ? `Estimated coverage when this run ended. This older backfill did not track execution outcomes.`
+                                    : `How many ${backfillUnitPlural(backfill)} this backfill has started evaluating or skipped because the evaluation already had them. It does not track which of them have finished.`
                         }
                     >
                         <div className="min-w-24">
@@ -328,6 +332,7 @@ export function EvaluationBackfillsTab({
                                         : `${backfill.dispatched_count.toLocaleString('en-US')} started`}
                                 </span>
                             )}
+                            {waitingForProgress && <div className="text-muted">Waiting for progress</div>}
                             <LemonProgress
                                 className="mt-1"
                                 percent={total > 0 ? (covered / total) * 100 : 0}
@@ -393,13 +398,15 @@ export function EvaluationBackfillsTab({
                             disabledReason={
                                 backfill.rerun_existing
                                     ? "Retry isn't available for a backfill that re-ran existing results. Start a new backfill instead."
-                                    : evaluation && backfill.target !== evaluation.target
-                                      ? `This backfill ran on ${backfillUnitPlural(backfill)}, but the evaluation now runs on ${pluralize(2, evaluation.target, undefined, false)}. Start a new backfill instead.`
-                                      : !evaluation?.enabled
-                                        ? 'Re-enable the evaluation before retrying.'
-                                        : hasActiveBackfill || creatingBackfill || transitioningIds.length > 0
-                                          ? 'Wait for the active backfill operation to finish.'
-                                          : undefined
+                                    : backfill.max_units != null
+                                      ? "Retry isn't available for a capped preview of recent traffic. Start a new backfill to evaluate more."
+                                      : evaluation && backfill.target !== evaluation.target
+                                        ? `This backfill ran on ${backfillUnitPlural(backfill)}, but the evaluation now runs on ${pluralize(2, evaluation.target, undefined, false)}. Start a new backfill instead.`
+                                        : !evaluation?.enabled
+                                          ? 'Re-enable the evaluation before retrying.'
+                                          : hasActiveBackfill || creatingBackfill || transitioningIds.length > 0
+                                            ? 'Wait for the active backfill operation to finish.'
+                                            : undefined
                             }
                             onClick={() =>
                                 LemonDialog.open({

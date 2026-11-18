@@ -1,4 +1,4 @@
-import { GetObjectCommand, NoSuchKey, S3Client } from '@aws-sdk/client-s3'
+import { GetObjectCommand, NoSuchKey, S3Client, S3ServiceException } from '@aws-sdk/client-s3'
 import { ClickHouseClient } from '@clickhouse/client'
 import snappy from 'snappy'
 
@@ -6,13 +6,20 @@ import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { isCloud } from '~/common/utils/env-utils'
 import { logger, serializeError } from '~/common/utils/logger'
 import { ValidRetentionPeriods } from '~/ingestion/pipelines/sessionreplay/shared/constants'
-import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { createDeletionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
 import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
 
+import { blockRefEncoder, decodeBlockRef } from './block-refs'
 import { ClickHouseCredential } from './clickhouse-credential'
 import { RecordingApiMetrics } from './metrics'
-import { KeyStore, RecordingBlock, RecordingDecryptor, RecordingEncryptor, SessionKeyDeletedError } from './types'
+import {
+    KeyStore,
+    RecordingBlock,
+    RecordingDecryptor,
+    RecordingEncryptor,
+    SessionKey,
+    SessionKeyDeletedError,
+} from './types'
 
 export interface GetBlockParams {
     sessionId: string
@@ -21,11 +28,23 @@ export interface GetBlockParams {
     startByte: number
     endByte: number
     decompress?: boolean
+    // A caller that already read the session key passes it, so the block is decrypted without a second lookup.
+    sessionKey?: SessionKey
+    // The public block route's role cannot list the bucket, so S3 answers a missing key with AccessDenied there.
+    accessDeniedMeansMissing?: boolean
+    // Aborts the S3 request and the body read, so a stalled read cannot hold the caller's byte budget.
+    timeoutMs?: number
 }
 
 export type RecordingDeletedResult = { ok: false; error: 'deleted'; deletedAt?: number; deletedBy: string }
 
 export type GetBlockResult = { ok: true; data: Buffer } | { ok: false; error: 'not_found' } | RecordingDeletedResult
+
+export type BlockAdmission = 'ok' | 'too_large' | 'busy'
+
+export type GetBlockByRefResult = GetBlockResult | { ok: false; error: Exclude<BlockAdmission, 'ok'> }
+
+export type ListedBlock = RecordingBlock & { ref?: string }
 
 export type EncryptBlocksResult =
     | { ok: true; blocks: Buffer[] }
@@ -45,6 +64,13 @@ interface BlockListingRow {
     block_urls: string[]
 }
 
+function deletionOf(sessionKey: SessionKey): RecordingDeletedResult | null {
+    if (sessionKey.sessionState !== 'deleted') {
+        return null
+    }
+    return { ok: false, error: 'deleted', deletedAt: sessionKey.deletedAt, deletedBy: sessionKey.deletedBy ?? '' }
+}
+
 export class RecordingService {
     constructor(
         private s3Client: S3Client,
@@ -53,7 +79,6 @@ export class RecordingService {
         private keyStore: KeyStore,
         private decryptor: RecordingDecryptor,
         private metadataStore?: SessionMetadataStore,
-        private featureStore?: SessionFeatureStore,
         private postgres?: PostgresRouter,
         private clickhouse?: { client: ClickHouseClient; credential: ClickHouseCredential },
         private encryptor?: RecordingEncryptor
@@ -83,13 +108,9 @@ export class RecordingService {
         if (sessionKey.sessionState === 'cleartext' && isCloud()) {
             return { ok: false, error: 'key_unavailable' }
         }
-        if (sessionKey.sessionState === 'deleted') {
-            return {
-                ok: false,
-                error: 'deleted',
-                deletedAt: sessionKey.deletedAt,
-                deletedBy: sessionKey.deletedBy ?? '',
-            }
+        const deletion = deletionOf(sessionKey)
+        if (deletion) {
+            return deletion
         }
         return {
             ok: true,
@@ -131,7 +152,9 @@ export class RecordingService {
                 range: `bytes=${startByte}-${endByte}`,
             })
 
-            const response = await this.s3Client.send(command)
+            const response = params.timeoutMs
+                ? await this.s3Client.send(command, { abortSignal: AbortSignal.timeout(params.timeoutMs) })
+                : await this.s3Client.send(command)
 
             if (!response.Body) {
                 logger.debug('[RecordingService] S3 returned no body', { key })
@@ -145,11 +168,9 @@ export class RecordingService {
                 bytesReceived: bodyContents.length,
             })
 
-            const { data, sessionState } = await this.decryptor.decryptBlock(
-                sessionId,
-                teamId,
-                Buffer.from(bodyContents)
-            )
+            const { data, sessionState } = params.sessionKey
+                ? this.decryptor.decryptBlockWithKey(sessionId, teamId, Buffer.from(bodyContents), params.sessionKey)
+                : await this.decryptor.decryptBlock(sessionId, teamId, Buffer.from(bodyContents))
 
             logger.debug('[RecordingService] Decrypted block', {
                 sessionId,
@@ -190,6 +211,22 @@ export class RecordingService {
                     sessionId,
                 })
                 RecordingApiMetrics.observeGetBlock('not_found', (performance.now() - startTime) / 1000, 'unknown')
+                return { ok: false, error: 'not_found' }
+            }
+
+            // Elsewhere AccessDenied is a real permission fault and stays an error. The separate metric result keeps a public
+            // role fault visible on the dashboard.
+            if (
+                params.accessDeniedMeansMissing &&
+                error instanceof S3ServiceException &&
+                error.name === 'AccessDenied'
+            ) {
+                logger.warn('[RecordingService] S3 denied the read, treating the block as missing', {
+                    key,
+                    teamId,
+                    sessionId,
+                })
+                RecordingApiMetrics.observeGetBlock('access_denied', (performance.now() - startTime) / 1000, 'unknown')
                 return { ok: false, error: 'not_found' }
             }
 
@@ -241,6 +278,56 @@ export class RecordingService {
         })
         const rows = await result.json()
         return rows.length > 0
+    }
+
+    // Reports a deletion the key store recorded before ClickHouse learns of it through Kafka, and names each block of an
+    // encrypted session with a ref the browser can fetch and cache. Cleartext sessions have no key to derive refs from.
+    // Call it only for a session that has blocks; a session without any has no key worth reading yet.
+    async annotateBlocks(
+        sessionId: string,
+        teamId: number,
+        blocks: RecordingBlock[]
+    ): Promise<RecordingDeletedResult | ListedBlock[]> {
+        const sessionKey = await this.keyStore.getKey(sessionId, teamId)
+        const deletion = deletionOf(sessionKey)
+        if (deletion) {
+            return deletion
+        }
+        if (sessionKey.sessionState !== 'ciphertext') {
+            return blocks
+        }
+        const encodeRef = blockRefEncoder(sessionKey.plaintextKey)
+        return blocks.map((block) => ({
+            ...block,
+            ref: encodeRef({ teamId, sessionId, key: block.key, startByte: block.start_byte, endByte: block.end_byte }),
+        }))
+    }
+
+    // `admit` sees the block's size before the S3 read and can refuse it.
+    async getBlockByRef(
+        teamId: number,
+        sessionId: string,
+        ref: string,
+        admit: (bytes: number) => BlockAdmission = () => 'ok',
+        timeoutMs?: number
+    ): Promise<GetBlockByRefResult> {
+        const sessionKey = await this.keyStore.getKey(sessionId, teamId)
+        const deletion = deletionOf(sessionKey)
+        if (deletion) {
+            return deletion
+        }
+        const location =
+            sessionKey.sessionState === 'ciphertext'
+                ? decodeBlockRef(sessionKey.plaintextKey, ref, teamId, sessionId)
+                : null
+        if (!location || !this.validateS3Key(location.key)) {
+            return { ok: false, error: 'not_found' }
+        }
+        const admission = admit(location.endByte - location.startByte + 1)
+        if (admission !== 'ok') {
+            return { ok: false, error: admission }
+        }
+        return this.getBlock({ sessionId, teamId, ...location, sessionKey, accessDeniedMeansMissing: true, timeoutMs })
     }
 
     async listBlocks(sessionId: string, teamId: number): Promise<RecordingBlock[]> {
@@ -477,12 +564,9 @@ export class RecordingService {
     }
 
     private async emitDeletionEvents(sessionIds: string[], teamId: number): Promise<void> {
-        await Promise.all([
-            this.metadataStore?.storeSessionBlocks(
-                sessionIds.map((sessionId) => createDeletionBlockMetadata(sessionId, teamId))
-            ),
-            this.featureStore?.storeDeletionMarkers(sessionIds.map((sessionId) => ({ sessionId, teamId }))),
-        ])
+        await this.metadataStore?.storeSessionBlocks(
+            sessionIds.map((sessionId) => createDeletionBlockMetadata(sessionId, teamId))
+        )
     }
 
     private async deletePostgresRecords(sessionIds: string[], teamId: number): Promise<void> {

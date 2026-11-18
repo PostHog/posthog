@@ -42,6 +42,9 @@ jobs:
         steps:
             - name: Check out
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: products/metrics/agent
+                  sparse-checkout-cone-mode: false
 
             - parallel:
                   - name: Config render golden tests
@@ -105,6 +108,11 @@ jobs:
         steps:
             - name: Check out
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      products/metrics/agent
+                      .github/actions/docker-meta
+                  sparse-checkout-cone-mode: false
 
             - name: Docker meta and registry login
               id: docker-meta

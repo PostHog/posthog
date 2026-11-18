@@ -29,7 +29,25 @@ export function getUnusedTestAccountFilterReason(
     return `Only ${labels.join(' and ')} filters from your internal and test account settings apply here.`
 }
 
-type TestAccountFilterProps = Partial<LemonSwitchProps> & {
+export function getTestAccountFilterSwitchDisabledReason({
+    filters,
+    applicableFilterTypes,
+    disabledReason,
+    showNewTabIcon,
+}: {
+    filters: readonly { type?: string | null }[]
+    applicableFilterTypes?: string[]
+    disabledReason?: string | false | null
+    showNewTabIcon: boolean
+}): string | undefined {
+    if (filters.length === 0) {
+        return `You haven't set any internal test filters. Click the ${showNewTabIcon ? 'link' : 'gear'} icon to configure.`
+    }
+    const unusedReason = applicableFilterTypes ? getUnusedTestAccountFilterReason(filters, applicableFilterTypes) : null
+    return unusedReason ?? (disabledReason || undefined)
+}
+
+export type TestAccountFilterProps = Partial<LemonSwitchProps> & {
     checked: boolean
     onChange: (checked: boolean) => void
     /** When set, the toggle is disabled with an explanatory reason unless the team has at least one
@@ -50,20 +68,18 @@ export function TestAccountFilterSwitch({
     ...props
 }: TestAccountFilterProps): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
-    const filters = currentTeam?.test_account_filters || []
-    const hasFilters = filters.length > 0
-    const unusedReason = applicableFilterTypes ? getUnusedTestAccountFilterReason(filters, applicableFilterTypes) : null
     const showNewTabIcon = settingsLinkIcon === 'new-tab' && !onConfigure
     return (
         <LemonSwitch
             id="test-account-filter"
             bordered
             {...props}
-            disabledReason={
-                !hasFilters
-                    ? `You haven't set any internal test filters. Click the ${showNewTabIcon ? 'link' : 'gear'} icon to configure.`
-                    : (unusedReason ?? props.disabledReason)
-            }
+            disabledReason={getTestAccountFilterSwitchDisabledReason({
+                filters: currentTeam?.test_account_filters || [],
+                applicableFilterTypes,
+                disabledReason: props.disabledReason,
+                showNewTabIcon,
+            })}
             checked={checked}
             onChange={onChange}
             label={

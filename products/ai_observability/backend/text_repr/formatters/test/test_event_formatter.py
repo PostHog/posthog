@@ -475,3 +475,10 @@ class TestSpanToolResultFormatting:
         result = format_event_text_repr(self._span(state))
         assert "3 issues found" in result
         assert "'type': 'text'" not in result
+
+    def test_tool_result_images_reach_the_media_marker(self):
+        image = {"type": "input_image", "image_url": "data:image/png;base64,aGk="}
+        state = {"type": "tool", "name": "screenshot", "status": "success", "content": [image]}
+        result = format_event_text_repr(self._span(state), {"media_marker": lambda media: "[image 1]"})
+        assert "[image 1]" in result
+        assert "aGk=" not in result

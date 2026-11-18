@@ -1,5 +1,4 @@
 import base64
-import ipaddress
 from types import SimpleNamespace
 
 import time_machine
@@ -10,6 +9,7 @@ from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
 from rest_framework import authentication
+from rest_framework.exceptions import ValidationError
 from rest_framework.serializers import Serializer
 
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
@@ -19,11 +19,14 @@ from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_US,
     POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_US,
 )
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.contracts import TaskRepositoryState
 from products.tasks.backend.facade.model_catalogue import GatewayModel
 from products.tasks.backend.presentation.serializers import (
     TASK_RUN_ARTIFACT_INLINE_MAX_SIZE_BYTES,
+    ChannelUpdateSerializer,
     SandboxEnvironmentWriteSerializer,
     TaskCreateSerializer,
     TaskRunArtifactUploadSerializer,
@@ -34,6 +37,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunLivingArtifactEditRequestSerializer,
     TaskRunUpdateSerializer,
     TaskWriteSerializer,
+    WarmTaskRequestSerializer,
 )
 
 
@@ -73,6 +77,125 @@ class TestSandboxEnvironmentWriteSerializer(SimpleTestCase):
 
         with self.assertRaisesRegex(ValueError, "You can allow up to 100 domains"):
             tasks_facade.normalize_sandbox_allowed_domains(domains)
+
+
+class TestRepositoryValidationWithoutTaskData(SimpleTestCase):
+    @parameterized.expand([(ChannelUpdateSerializer,), (WarmTaskRequestSerializer,)])
+    def test_normalizes_repositories(
+        self, serializer_class: type[ChannelUpdateSerializer] | type[WarmTaskRequestSerializer]
+    ) -> None:
+        serializer = serializer_class()
+        assert serializer.validate_repositories(["PostHog/PostHog"]) == ["posthog/posthog"]
+
+
+class TestTaskWriteSerializerProviderUpdates(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("legacy_repository", "example/first", [], ["example/first"]),
+            (
+                "multiple_repositories",
+                "example/first",
+                ["example/first", "example/second"],
+                ["example/first", "example/second"],
+            ),
+        ]
+    )
+    def test_repository_state_preserves_effective_repositories(self, _name, repository, repositories, expected) -> None:
+        with patch("products.tasks.backend.facade.api._visible_task_qs") as visible_tasks:
+            visible_tasks.return_value.filter.return_value.values_list.return_value.first.return_value = (
+                repository,
+                repositories,
+                2,
+                None,
+                None,
+            )
+            state = tasks_facade.get_task_repository_state("task-id", 1, 1)
+        assert state is not None
+        assert state.repositories == expected
+        assert state.github_integration == 2
+
+    def test_gitlab_switch_validates_repositories_retained_by_update(self) -> None:
+        current = TaskRepositoryState(
+            repository="example/first",
+            repositories=["example/first", "example/second"],
+            repository_integration=None,
+            github_integration=2,
+            github_user_integration=None,
+        )
+        serializer = TaskWriteSerializer(
+            instance=current,
+            data={},
+            partial=True,
+            context={"team": SimpleNamespace(id=1), "request": SimpleNamespace(user=object())},
+        )
+        with patch("products.tasks.backend.facade.api.gitlab_tasks_enabled", return_value=True):
+            with self.assertRaisesRegex(ValidationError, "Choose one GitLab project"):
+                serializer.validate(
+                    {
+                        "repository": "example/new",
+                        "repository_integration": SimpleNamespace(id=1),
+                        "github_integration": None,
+                    }
+                )
+
+    @parameterized.expand(
+        [
+            ("gitlab_to_github", 1, None, {"github_integration": SimpleNamespace(id=2)}),
+            ("github_to_gitlab", None, 2, {"repository_integration": SimpleNamespace(id=1)}),
+        ]
+    )
+    def test_rejects_mixed_providers(self, _name, gitlab_id, github_id, changes) -> None:
+        current = SimpleNamespace(
+            repository="example/repo",
+            repositories=["example/repo"],
+            repository_integration=gitlab_id,
+            github_integration=github_id,
+            github_user_integration=None,
+        )
+        serializer = TaskWriteSerializer(instance=current, data={}, partial=True)
+        with self.assertRaisesRegex(ValidationError, "either a GitHub integration"):
+            serializer.validate(changes)
+
+    def test_gitlab_repository_update_checks_access(self) -> None:
+        current = SimpleNamespace(
+            repository="example/repo",
+            repositories=["example/repo"],
+            repository_integration=1,
+            github_integration=None,
+            github_user_integration=None,
+        )
+        serializer = TaskWriteSerializer(
+            instance=current,
+            data={},
+            partial=True,
+            context={"team": SimpleNamespace(id=1), "request": SimpleNamespace(user=object())},
+        )
+        with (
+            patch.object(
+                serializer.fields["repository_integration"], "run_validation", return_value=SimpleNamespace(id=1)
+            ),
+            patch("products.tasks.backend.facade.api.gitlab_tasks_enabled", return_value=True),
+            patch("products.tasks.backend.facade.api.gitlab_repository_error", return_value="Access denied"),
+        ):
+            with self.assertRaisesRegex(ValidationError, "Access denied"):
+                serializer.validate({"repository": "example/other"})
+
+    def test_github_integration_update_checks_existing_repository_access(self) -> None:
+        current = SimpleNamespace(
+            repository="example/repo",
+            repositories=["example/repo"],
+            repository_integration=None,
+            github_integration=2,
+            github_user_integration=None,
+        )
+        serializer = TaskWriteSerializer(
+            instance=current, data={}, partial=True, context={"team": SimpleNamespace(id=1)}
+        )
+        with patch(
+            "products.tasks.backend.facade.api.inaccessible_repositories_via_integration", return_value=["example/repo"]
+        ):
+            with self.assertRaisesRegex(ValidationError, "Not accessible"):
+                serializer.validate({"github_integration": SimpleNamespace(id=3)})
 
 
 class TestTaskWriteSerializerOriginProduct(SimpleTestCase):
@@ -149,7 +272,7 @@ class TestTaskRunCreateRequestSerializer(SimpleTestCase):
         ]
     )
     @time_machine.travel("2026-09-18T12:00:00Z", tick=False)
-    @patch("posthog.security.url_validation.resolve_host_ips", return_value={ipaddress.ip_address("93.184.216.34")})
+    @mock_anti_ssrf_dns_lookup()
     def test_schedule_rejects_unsupported_inputs(self, name: str, payload: dict, field: str, _resolve_host_ips) -> None:
         serializer = TaskRunCreateRequestSerializer(data={"scheduled_at": "2026-09-19T12:00:00", **payload})
         with patch(
@@ -250,10 +373,7 @@ class TestTaskRunCreateRequestSerializer(SimpleTestCase):
         if not accepted:
             assert "claude_model_access" in serializer.errors
 
-    @patch(
-        "posthog.security.url_validation.resolve_host_ips",
-        return_value={ipaddress.ip_address("93.184.216.34")},
-    )
+    @mock_anti_ssrf_dns_lookup()
     def test_deduplicates_imported_mcp_server_host_resolution(self, mock_resolve_host_ips) -> None:
         serializer = TaskRunCreateRequestSerializer(
             data={
@@ -351,7 +471,12 @@ class TestArtifactContentWhitespace(SimpleTestCase):
         ]
     )
     def test_content_keeps_leading_and_trailing_whitespace(
-        self, _name: str, serializer_class: type[Serializer], data: dict, field: str, expected: str | bytes
+        self,
+        _name: str,
+        serializer_class: type[Serializer],
+        data: dict,
+        field: str,
+        expected: str | bytes,
     ) -> None:
         serializer = serializer_class(data=data)
 

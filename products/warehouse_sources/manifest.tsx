@@ -3,6 +3,8 @@
  *
  * Defines scenes, routes, URLs, and navigation for this product.
  */
+import { combineUrl } from 'kea-router'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
@@ -24,7 +26,10 @@ export const manifest: ProductManifest = {
     routes: {
         '/etl': ['PipelineOverview', 'pipelineOverview'],
     },
-    redirects: {},
+    redirects: {
+        // ELT is the product name, so people guess /elt for the scene at /etl.
+        '/elt': (_params, searchParams, hashParams) => combineUrl(urls.etlOverview(), searchParams, hashParams).url,
+    },
     urls: {
         etlOverview: (): string => '/etl',
     },
@@ -41,9 +46,9 @@ export const manifest: ProductManifest = {
             intents: [ProductKey.DATA_WAREHOUSE],
             category: ProductItemCategory.TOOLS,
             iconType: 'data_pipeline',
-            iconColor: ['var(--color-product-data-warehouse-light)'],
+            iconColor: ['var(--color-product-data-warehouse-light)', 'var(--color-product-data-warehouse-dark)'],
             href: urls.etlOverview(),
-            searchKeywords: ['syncs', 'sync health'],
+            searchKeywords: ['etl', 'syncs', 'sync health'],
             // The nav entry and the scene body are gated separately. This hides the entry; the
             // scene itself still has to refuse a direct visit.
             flag: FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION,

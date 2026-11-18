@@ -27,7 +27,9 @@ from products.workflows.backend.models.hog_flow.hog_flow import (
     exit_condition_that_runs,
 )
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
+from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES
 from products.workflows.backend.services.action_redirects import compute_action_redirects
+from products.workflows.backend.services.batch_jobs import rate_limit_change_unpaces_batch
 from products.workflows.backend.services.email_utm_defaults import (
     flow_has_active_schedule,
     is_apply_eligible,
@@ -41,6 +43,7 @@ from products.workflows.backend.services.hog_flow_secrets import (
     strip_content_secrets,
     strip_secrets_from_content,
 )
+from products.workflows.backend.services.sandbox_email.validation import require_sandbox_runtime
 from products.workflows.backend.services.timing_reschedule import (
     get_all_timing_action_ids,
     get_timing_reschedule_action_ids,
@@ -56,10 +59,20 @@ def field_values(flow: HogFlow) -> dict[str, object]:
     return {field.attname: getattr(flow, field.attname) for field in flow._meta.concrete_fields}
 
 
-def create_workflow(*, team_id: int, user_id: Optional[int], validated_data: dict) -> WorkflowWriteResult:
+def create_workflow(
+    *,
+    team_id: int,
+    user_id: Optional[int],
+    validated_data: dict,
+    before_write: Optional[Callable[[], None]] = None,
+) -> WorkflowWriteResult:
     with transaction.atomic():
+        if before_write is not None:
+            before_write()
         data = dict(validated_data)
         tags = data.pop("tags", None)
+        if data.get("status") == HogFlow.State.ACTIVE:
+            require_sandbox_runtime(data.get("actions"))
         if "actions" in data:
             data["encrypted_inputs"] = strip_secrets_from_content(data, template_cache={})
         instance = HogFlow.objects.create(team_id=team_id, created_by_id=user_id, **data)
@@ -133,6 +146,8 @@ def _save_live(
         )
     for attr, value in data.items():
         setattr(instance, attr, value)
+    if instance.status == HogFlow.State.ACTIVE:
+        require_sandbox_runtime(instance.actions)
     instance.save()
 
 
@@ -162,7 +177,21 @@ def save_validated_workflow(*, team_id: int, hog_flow_id: UUID, validated_data: 
     # The save writes every column. Lock the read so that a concurrent write, such as a staff email
     # sending pause, either lands before this read or waits for this save, and is never overwritten.
     with transaction.atomic():
-        _save_live(HogFlow.objects.select_for_update().get(team_id=team_id, pk=hog_flow_id), validated_data)
+        locked = HogFlow.objects.select_for_update().get(team_id=team_id, pk=hog_flow_id)
+        _save_live(locked, _track_disabled_from_active(locked, validated_data))
+
+
+def _track_disabled_from_active(before: HogFlow, validated_data: dict) -> dict:
+    # Every status write goes through here, so no way of stopping a live workflow (disable or archive,
+    # from the API, MCP or a canvas) leaves later MCP content edits landing on the live config.
+    # Restoring an archived workflow keeps the mark; only going live again clears it.
+    target_status = validated_data.get("status")
+    if target_status is None or target_status == before.status:
+        return validated_data
+    disabled_from_active = target_status != HogFlow.State.ACTIVE and (
+        before.status == HogFlow.State.ACTIVE or before.disabled_from_active
+    )
+    return {**validated_data, "disabled_from_active": disabled_from_active}
 
 
 def _derive_from_locked_graph(
@@ -350,6 +379,28 @@ def _pause_schedules_on_audience_change(before: HogFlow, after: HogFlow) -> int:
     )
 
 
+def _delete_schedules_on_unscheduled_trigger(before: HogFlow, after: HogFlow) -> None:
+    """Delete every schedule when the live trigger stops being a scheduled type.
+
+    The scheduler keeps a schedule row through a switch to another trigger and arms it again when
+    the trigger switches back. By then the author has usually added a new schedule, so each
+    occurrence fires twice. Deleting the row on the switch leaves one schedule per cadence.
+
+    Called wherever the LIVE trigger changes (direct save, graph edit, publish), never for draft
+    writes, because a staged trigger change must not stop a schedule that still fires.
+
+    It runs inside the write transaction, while the workflow row is locked, so a concurrent switch
+    back cannot add a schedule between the trigger write and the delete. It also requires a
+    scheduled trigger before the write, so a save that does not touch the trigger keeps a schedule
+    that a staged draft depends on.
+    """
+    if (before.trigger or {}).get("type") not in SCHEDULED_TRIGGER_TYPES:
+        return
+    if (after.trigger or {}).get("type") in SCHEDULED_TRIGGER_TYPES:
+        return
+    after.schedules.all().delete()
+
+
 def update_workflow(
     *,
     team_id: int,
@@ -361,8 +412,10 @@ def update_workflow(
     base_live_updated_at: Optional[str],
     includes_staged_draft: bool,
     validated_status: str,
+    validated_disabled_from_active: Optional[bool] = None,
     keeps_live_sensitivity: bool = True,
     requested_exit_condition: Optional[str] = None,
+    before_write: Optional[Callable[[], None]] = None,
 ) -> WorkflowWriteResult:
     # Optimistic concurrency: a client may send the `updated_at` it last loaded as `base_updated_at`.
     # If the stored row is strictly newer, another channel (a second UI tab, MCP, or the API) wrote in
@@ -376,9 +429,23 @@ def update_workflow(
 
     with transaction.atomic():
         before_update = HogFlow.objects.select_for_update().get(pk=hog_flow_id, team_id=team_id)
-        # Validation ran before this lock, and a draft validates leniently. If the status moved since
-        # and the payload does not set it, that lenient content would land on a live workflow.
-        if "status" not in validated_data and before_update.status != validated_status:
+        # Validation ran before this lock, and a draft validates leniently. If the status or the draft
+        # protection moved since and the payload does not set it, content would land on a live workflow.
+        if "status" not in validated_data and (
+            before_update.status != validated_status
+            or (
+                validated_disabled_from_active is not None
+                and before_update.disabled_from_active != validated_disabled_from_active
+            )
+        ):
+            raise WorkflowStale()
+        # A batch launched since validation may have taken a raised cap from the stored rate limit.
+        if "email_sending_rate_limit" in validated_data and rate_limit_change_unpaces_batch(
+            team_id=team_id,
+            hog_flow_id=hog_flow_id,
+            current=before_update.email_sending_rate_limit,
+            new=validated_data["email_sending_rate_limit"],
+        ):
             raise WorkflowStale()
         # The write target is a second read, so `before_update` keeps the pre-write state.
         instance = HogFlow.objects.get(pk=hog_flow_id, team_id=team_id)
@@ -407,6 +474,8 @@ def update_workflow(
                 guard_timestamp = before_update.draft_updated_at
         if base_stamp and guard_timestamp and guard_timestamp > base_stamp:
             raise WorkflowStale()
+        if before_write is not None:
+            before_write()
 
         if route_to_draft:
             _write_draft(instance, before_update, validated_data)
@@ -427,11 +496,12 @@ def update_workflow(
                 base_live = _parse_stamp(base_live_updated_at)
                 if base_live and before_update.updated_at and before_update.updated_at > base_live:
                     raise WorkflowStale()
-                _save_live(instance, remaining)
+                _save_live(instance, _track_disabled_from_active(before_update, remaining))
         else:
             validated_data = _derive_from_locked_graph(before_update, validated_data, requested_exit_condition)
             if keeps_live_sensitivity:
                 validated_data = _keep_live_sensitivity(before_update, validated_data)
+            validated_data = _track_disabled_from_active(before_update, validated_data)
             _refresh_action_redirects(instance, before_update, validated_data.get("actions"))
             bump = _stage_revision_bump(instance, before_update, validated_data)
             if clears_staged_draft:
@@ -441,6 +511,7 @@ def update_workflow(
                 _save_live(instance, validated_data)
             if bump:
                 _append_revisions(team_id, user_id, instance, before_update)
+            _delete_schedules_on_unscheduled_trigger(before_update, instance)
 
         if tags_changed:
             replace_tags_on_object(tags, instance)
@@ -459,7 +530,7 @@ def edit_workflow_content(
     team_id: int,
     user_id: Optional[int],
     hog_flow_id: UUID,
-    stage_if_active: bool,
+    stage_if_protected: bool,
     base_updated_at: Optional[str],
     edit: Callable[[WorkflowEditState, list[dict], list[dict]], dict],
     changes_graph: bool,
@@ -469,7 +540,9 @@ def edit_workflow_content(
     with transaction.atomic():
         locked = HogFlow.objects.select_for_update().get(pk=hog_flow_id, team_id=team_id)
 
-        route_to_draft = stage_if_active and locked.status == HogFlow.State.ACTIVE
+        route_to_draft = stage_if_protected and (
+            locked.status == HogFlow.State.ACTIVE or locked.disabled_from_active is True
+        )
 
         # Optimistic concurrency, mirroring update_workflow: the surgical endpoints are the only MCP
         # paths that write graph content, so they carry the base_updated_at staleness contract.
@@ -504,6 +577,8 @@ def edit_workflow_content(
             _save_live(locked, validated_data)
             if bump:
                 _append_revisions(team_id, user_id, locked, before_update)
+            if changes_graph:
+                _delete_schedules_on_unscheduled_trigger(before_update, locked)
 
     paused = 0
     if changes_graph and not route_to_draft:
@@ -591,6 +666,7 @@ def publish_draft(
         locked.draft_encrypted_inputs = None
         locked.save(update_fields=["draft", "draft_updated_at", "draft_encrypted_inputs"])
         apply_approved_proposals_for_flow(locked)
+        _delete_schedules_on_unscheduled_trigger(before_update, locked)
 
     _reschedule_timing_edits(team_id, before_update, locked)
     paused = _pause_schedules_on_audience_change(before_update, locked)

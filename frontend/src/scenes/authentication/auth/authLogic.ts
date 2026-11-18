@@ -2,9 +2,9 @@ import { MakeLogicType, actions, connect, kea, listeners, path, reducers, select
 import { router, urlToAction } from 'kea-router'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { isEmail } from 'lib/utils/url'
 import { AuthEntry, AuthStep } from 'scenes/authentication/shared/authStepViewed'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
 import type { PreflightStatus } from '~/types'

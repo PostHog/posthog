@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
 import { uuid } from 'lib/utils/dom'
+import { escapeDottedHogQLIdentifier } from 'lib/utils/hogql'
 import { TableFieldsStatus, databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 import { performQuery } from '~/queries/query'
@@ -34,7 +35,6 @@ import {
     HogLanguage,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { escapeDottedHogQLIdentifier } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 import {

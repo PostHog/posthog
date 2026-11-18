@@ -11,8 +11,15 @@ export function ConversionGoalFilterButton(): JSX.Element {
 
     if (!draftConversionGoal) {
         return (
-            <LemonButton type="secondary" size="small" icon={<IconPlus />} onClick={showConversionGoalModal}>
-                Explore a conversion goal
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={<IconPlus />}
+                onClick={showConversionGoalModal}
+                tooltip="Preview a conversion goal on this dashboard. Save it if you want to keep it."
+                data-attr="marketing-analytics-add-conversion-goal"
+            >
+                Add conversion goal
             </LemonButton>
         )
     }

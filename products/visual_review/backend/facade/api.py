@@ -25,6 +25,8 @@ from django.utils import timezone
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.helpers.trigram_search import search_match_type_from_instance
+from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 
 from ..diff_metadata import (
     DiffMetadata,
@@ -34,11 +36,13 @@ from ..logic import (
     approvals,
     artifact_store,
     baseline_overview,
+    baseline_record,
     baselines,
     errors,
     flakiness,
     gating,
     history,
+    ledger_push,
     owners,
     quarantine,
     quarantine_lifts,
@@ -67,6 +71,9 @@ _RESERVED_RUN_METADATA_KEYS = frozenset(
         "github_comment_id",
         "baseline_commit_sha",
         "baseline_healed_from_merge_base",
+        # The frozen baseline record names the approvals a run counted. A client that could send it
+        # would make another pull request's approvals land with its own.
+        baseline_record.METADATA_KEY,
     }
 )
 
@@ -270,6 +277,7 @@ def _to_repo(repo) -> contracts.Repo:
         baseline_file_paths=repo.baseline_file_paths,
         enable_pr_comments=repo.enable_pr_comments,
         debt_digest_enabled=repo.debt_digest_enabled,
+        auto_quarantine_mode=repo.auto_quarantine_mode,
         created_at=repo.created_at,
     )
 
@@ -282,9 +290,8 @@ def get_repo(repo_id: UUID, team_id: int) -> contracts.Repo:
     return _to_repo(repo)
 
 
-def list_repos(team_id: int) -> list[contracts.Repo]:
-    projects = repos.list_repos_for_team(team_id)
-    return [_to_repo(p) for p in projects]
+def list_repos(team_id: int, page: PageRequest) -> Page[contracts.Repo]:
+    return select_page(repos.list_repos_for_team(team_id), page).map(_to_repo)
 
 
 def create_repo(team_id: int, repo_external_id: int, repo_full_name: str) -> contracts.Repo:
@@ -527,7 +534,9 @@ def list_runs(
     commit_sha: str | None = None,
     branch: str | None = None,
     search: str | None = None,
-) -> list[contracts.Run]:
+    *,
+    page: PageRequest,
+) -> Page[contracts.Run]:
     runs = run_queries.list_runs_for_team(
         team_id,
         review_state=review_state,
@@ -537,7 +546,7 @@ def list_runs(
         branch=branch,
         search=search,
     )
-    return [_to_run(r) for r in runs]
+    return select_page(runs, page).map(_to_run)
 
 
 def get_review_state_counts(team_id: int, repo_id: UUID | None = None) -> dict[str, int]:
@@ -830,6 +839,7 @@ def _to_quarantined_entry(
         updated_at=q.updated_at,
         created_by=created_by,
         source_run=source_run,
+        lift_reason=q.lift_reason,
     )
 
 
@@ -849,12 +859,19 @@ def _to_baseline_quarantine_summary(
 
 
 def list_quarantined(
-    repo_id: UUID, team_id: int, identifier: str | None = None, run_type: str | None = None
-) -> list[contracts.QuarantinedIdentifierEntry]:
-    entries = quarantine.list_quarantined_identifiers(repo_id, team_id, identifier=identifier, run_type=run_type)
-    user_ids = {e.created_by_id for e in entries if e.created_by_id}
+    repo_id: UUID,
+    team_id: int,
+    identifier: str | None = None,
+    run_type: str | None = None,
+    *,
+    page: PageRequest,
+) -> Page[contracts.QuarantinedIdentifierEntry]:
+    entries = select_page(
+        quarantine.list_quarantined_identifiers(repo_id, team_id, identifier=identifier, run_type=run_type), page
+    )
+    user_ids = {e.created_by_id for e in entries.results if e.created_by_id}
     user_basic_infos = _fetch_user_basic_infos(user_ids)
-    return [_to_quarantined_entry(q, user_basic_infos) for q in entries]
+    return entries.map(lambda entry: _to_quarantined_entry(entry, user_basic_infos))
 
 
 def quarantine_identifier(
@@ -946,3 +963,15 @@ def list_quarantine_lifts_for_run(run_id: UUID, team_id: int) -> list[contracts.
 
 def cancel_quarantine_lift(run_id: UUID, request_id: UUID, team_id: int) -> None:
     quarantine_lifts.cancel_lift_request(request_id, team_id=team_id, run_id=run_id)
+
+
+# --- Baseline ledger ---
+
+
+def advance_baseline_ledgers_after_push(github_repo_id: int) -> None:
+    """Enqueue an advance of every baseline ledger that follows this GitHub repository.
+
+    Call it for a push to the repository's default branch. The lookup is held in the process for
+    a minute, so nearly every call costs no query, and a repository without a ledger gets no task.
+    """
+    ledger_push.advance_after_push(github_repo_id)

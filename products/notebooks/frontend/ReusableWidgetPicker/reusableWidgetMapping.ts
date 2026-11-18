@@ -1,6 +1,5 @@
+import { escapeHogQLString } from 'lib/utils/hogql'
 import type { NotebookFrameNodeSummary } from 'scenes/notebooks/Nodes/notebookNodeContent'
-
-import { escapeHogQLString } from '~/queries/utils'
 
 import type { WidgetInputContractColumnApi } from '../generated/api.schemas'
 

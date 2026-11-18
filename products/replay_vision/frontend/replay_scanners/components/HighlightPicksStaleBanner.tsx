@@ -1,15 +1,23 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
+import { combineUrl } from 'kea-router'
+import { ReactNode } from 'react'
 
-import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { pluralize } from 'lib/utils/strings'
+import { urls } from 'scenes/urls'
 
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { highlightPicksLogic } from '../highlightPicksLogic'
 import { highlightPicksStaleLogic } from '../highlightPicksStaleLogic'
 import { scannerEditUrl } from '../scannerEditorSceneLogic'
+import { markScannerGoalDraftIntent } from '../scannerHandoffIntent'
 import { HighlightPicksBlockedState } from './HighlightPicksBlockedState'
+import { SCANNER_GOAL_STARTERS } from './scannerGoalStarters'
+
+const QUIET_WEEK_GOAL_KEYS = ['dead_end', 'frustration_score']
+const quietWeekGoals = SCANNER_GOAL_STARTERS.filter((starter) => QUIET_WEEK_GOAL_KEYS.includes(starter.key))
 
 export function HighlightPicksStaleBanner(): JSX.Element | null {
     const picksLogic = useMountedLogic(highlightPicksLogic)
@@ -25,7 +33,7 @@ export function HighlightPicksStaleBanner(): JSX.Element | null {
         nextBest,
         nextBestLoading,
     } = useValues(logic)
-    const { startBackfill, loadNextBest } = useActions(logic)
+    const { startBackfill, loadNextBest, pickSharperGoal } = useActions(logic)
     const editDisabledReason = getReplayVisionEditDisabledReason()
 
     if (!staleReason) {
@@ -39,7 +47,8 @@ export function HighlightPicksStaleBanner(): JSX.Element | null {
         (latest, pick) => (!latest || pick.observation.created_at > latest ? pick.observation.created_at : latest),
         null
     )
-    const running = scanners.filter((scanner) => scanner.enabled && !scanner.limit_reached).length
+    const runningScanners = scanners.filter((scanner) => scanner.enabled && !scanner.limit_reached)
+    const running = runningScanners.length
 
     if (staleReason === 'drought') {
         return (
@@ -111,28 +120,60 @@ export function HighlightPicksStaleBanner(): JSX.Element | null {
         )
     }
 
+    const stats: [string, ReactNode][] = [
+        ['Scanned', quietWeek ? String(quietWeek.scanned) : null],
+        ['Picks', String((picks ?? []).length)],
+        ['Last pick', newest ? <TZLabel key="last-pick" time={newest} showPopover={false} noStyles /> : null],
+    ]
     return (
         <div
-            className="flex flex-col gap-1 border-b bg-bg-light px-3 py-2 text-xs"
+            className="flex flex-col gap-2 border-b bg-bg-light px-3 py-2 text-xs"
             data-attr="vision-highlight-picks-stale-quiet"
         >
-            <span className="font-semibold">Quiet week</span>
-            {quietWeek ? (
-                <span className="text-secondary">
-                    {pluralize(quietWeek.scanned, 'recording')} scanned, {quietWeek.succeeded} finished, none stood out
-                    enough to be a pick.
-                </span>
-            ) : (
-                <span className="text-secondary">
-                    Nothing new{newest ? ' since ' : ''}
-                    {newest && <TZLabel time={newest} showPopover={false} noStyles />}. {pluralize(running, 'scanner')}{' '}
-                    running.
-                </span>
-            )}
+            <div className="flex items-baseline justify-between gap-2">
+                <span className="font-semibold">Quiet week</span>
+                {runningScanners.length === 1 && (
+                    <span className="truncate text-secondary">{runningScanners[0].name}</span>
+                )}
+            </div>
+            <div className="flex gap-4">
+                {stats.map(([label, value]) => (
+                    <div key={label} className="flex flex-col">
+                        <span className="text-xxs font-bold uppercase tracking-wide text-secondary">{label}</span>
+                        {value ? (
+                            <span className="text-base font-bold leading-tight">{value}</span>
+                        ) : (
+                            <LemonSkeleton className="h-5 w-8" />
+                        )}
+                    </div>
+                ))}
+            </div>
+            <span className="text-secondary">Nothing stood out this week. Try a sharper goal.</span>
+            {quietWeekGoals.map((starter) => (
+                <LemonButton
+                    key={starter.key}
+                    type="secondary"
+                    size="small"
+                    fullWidth
+                    icon={starter.icon}
+                    disabledReason={editDisabledReason}
+                    to={combineUrl(urls.replayVisionNewScanner(), { goal: starter.goal }).url}
+                    onClick={() => {
+                        markScannerGoalDraftIntent({ goal: starter.goal })
+                        pickSharperGoal(starter.key)
+                    }}
+                    data-attr={`vision-highlight-picks-stale-goal-${starter.key}`}
+                >
+                    <span className="flex min-w-0 flex-col text-left">
+                        <span>{starter.question}</span>
+                        <span className="truncate text-xxs font-normal text-secondary">{starter.goal}</span>
+                    </span>
+                </LemonButton>
+            ))}
             {nextBest === null ? (
                 <LemonButton
                     size="xsmall"
-                    type="secondary"
+                    type="tertiary"
                     className="self-start"
                     loading={nextBestLoading}
                     onClick={loadNextBest}

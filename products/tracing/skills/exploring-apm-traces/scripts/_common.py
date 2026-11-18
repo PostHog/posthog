@@ -4,6 +4,7 @@ When a script runs as `python3 scripts/foo.py FILE`, Python prepends the script'
 directory to sys.path, so `from _common import ...` resolves without any setup.
 """
 
+import re
 import json
 
 
@@ -15,10 +16,17 @@ def is_zero_id(s):
     return not s or set(s) == {"0"}
 
 
+# apm-trace-get fences its JSON in a data-only tag after a one-line notice:
+# "<notice>\n<trace-data informational=\"true\" ...>\n<json>\n</trace-data>".
+_INFORMATIONAL_TAG = re.compile(r'<([\w-]+) informational="true"[^>]*>\n(.*)\n</\1>\s*$', re.DOTALL)
+
+
 def unwrap_text_envelope(raw):
     # Claude Code persists large MCP tool results as [{"type": "text", "text": "<json>"}].
     if isinstance(raw, list) and raw and isinstance(raw[0], dict) and raw[0].get("type") == "text":
-        return json.loads(raw[0]["text"])
+        text = raw[0]["text"]
+        match = _INFORMATIONAL_TAG.search(text)
+        return json.loads(match.group(2) if match else text)
     return raw
 
 

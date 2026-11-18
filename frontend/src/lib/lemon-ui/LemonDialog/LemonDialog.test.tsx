@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, render, screen, waitFor, waitForElementToBeRemoved } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, waitForElementToBeRemoved } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
@@ -8,6 +8,7 @@ import posthog from 'posthog-js'
 import { ApiError } from 'lib/api-error'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 
 import { initKeaTests } from '~/test/init'
 
@@ -93,6 +94,65 @@ describe('LemonFormDialog', () => {
         } else {
             expect(captureException).not.toHaveBeenCalled()
         }
+    })
+
+    it('takes the submit button props from the current form values', async () => {
+        render(
+            <LemonFormDialog
+                dialogKey="test-dialog-dynamic-button"
+                title="Test dialog"
+                initialValues={{ name: '' }}
+                content={
+                    <LemonField name="name">
+                        <LemonInput />
+                    </LemonField>
+                }
+                getPrimaryButtonProps={({ name }) => ({ children: name ? `Save ${name}` : 'Save' })}
+                onSubmit={jest.fn()}
+            />
+        )
+        expect(screen.getByText('Save')).toBeInTheDocument()
+
+        await userEvent.type(screen.getByRole('textbox'), 'draft')
+
+        expect(screen.getByText('Save draft')).toBeInTheDocument()
+    })
+
+    it('lets a field that handles Enter commit its value instead of submitting', async () => {
+        const onSubmit = jest.fn().mockResolvedValue(undefined)
+        render(
+            <LemonFormDialog
+                dialogKey="test-dialog"
+                title="Test dialog"
+                shouldAwaitSubmit
+                initialValues={{ tags: ['growth'] }}
+                content={
+                    <LemonField name="tags">
+                        <LemonInputSelect mode="multiple" allowCustomValues options={[]} />
+                    </LemonField>
+                }
+                onSubmit={onSubmit}
+            />
+        )
+
+        await userEvent.type(screen.getByRole('textbox'), 'billing{Enter}')
+
+        expect(onSubmit).not.toHaveBeenCalled()
+        await submitViaButton()
+        await waitFor(() => expect(onSubmit).toHaveBeenCalledWith({ tags: ['growth', 'billing'] }))
+    })
+
+    it.each([
+        ['an IME composition confirm', 0, { isComposing: true }],
+        ['a Safari IME composition confirm', 0, { keyCode: 229 }],
+        ['a plain key press', 1, {}],
+    ])('Enter from %s in a text field submits %i times', async (_case, submits, eventInit) => {
+        const onSubmit = jest.fn().mockResolvedValue(undefined)
+
+        renderDialog(onSubmit)
+        fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter', ...eventInit })
+
+        await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(submits))
     })
 
     it('closes the dialog and does not capture when the submit resolves', async () => {

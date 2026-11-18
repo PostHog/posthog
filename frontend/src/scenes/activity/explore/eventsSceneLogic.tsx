@@ -27,8 +27,9 @@ import { urls } from 'scenes/urls'
 
 import { getDefaultEventsQueryForTeam } from '~/queries/nodes/DataTable/defaultEventsQuery'
 import { performQuery } from '~/queries/query'
+import { isDataTableNode } from '~/queries/schema/node-guards'
 import { DataTableNode, EventsQuery, Node, ProductKey } from '~/queries/schema/schema-general'
-import { isDataTableNode, isEventsQuery } from '~/queries/utils'
+import { isEventsQuery } from '~/queries/utils'
 import { ActivityTab, Breadcrumb } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'

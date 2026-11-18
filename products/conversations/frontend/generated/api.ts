@@ -19,13 +19,19 @@ import type {
     BulkUpdateTagsUUIDResponseApi,
     ComposeTicketApi,
     ComposeTicketResponseApi,
+    ConversationsMacrosListParams,
+    ConversationsTicketsAttachmentsCreateBody,
     ConversationsTicketsListParams,
     ConversationsTicketsMessagesListParams,
     ConversationsViewsListParams,
     CreatePostHogSupportTicketApi,
+    IntercomImportJobApi,
+    IntercomImportStartApi,
     PaginatedTicketListApi,
+    PaginatedTicketMacroListApi,
     PaginatedTicketMessageListApi,
     PaginatedTicketViewListApi,
+    PatchedTicketMacroApi,
     PatchedTicketNoteUpdateRequestApi,
     PatchedTicketUpdateRequestApi,
     PatchedTicketViewApi,
@@ -36,9 +42,13 @@ import type {
     PostHogSupportTicketListApi,
     PosthogSupportTicketsListParams,
     PosthogSupportTicketsRetrieveParams,
+    PylonImportJobApi,
+    PylonImportStartApi,
     SigningSecretApi,
     TicketApi,
+    TicketAttachmentApi,
     TicketFullEmailApi,
+    TicketMacroApi,
     TicketMessageApi,
     TicketNoteCreateRequestApi,
     TicketReplyRequestApi,
@@ -95,6 +105,175 @@ export const conversationsAiReplyPlaybookRetrieve = async (
     options?: RequestInit
 ): Promise<AIReplyPlaybookApi> => {
     return apiMutator<AIReplyPlaybookApi>(getConversationsAiReplyPlaybookRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getConversationsIntercomImportsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/intercom_imports/`
+}
+
+export const conversationsIntercomImportsCreate = async (
+    projectId: string,
+    intercomImportStartApi: IntercomImportStartApi,
+    options?: RequestInit
+): Promise<IntercomImportJobApi> => {
+    return apiMutator<IntercomImportJobApi>(getConversationsIntercomImportsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(intercomImportStartApi),
+    })
+}
+
+export const getConversationsIntercomImportsStatusRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/intercom_imports/status/`
+}
+
+export const conversationsIntercomImportsStatusRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<IntercomImportJobApi> => {
+    return apiMutator<IntercomImportJobApi>(getConversationsIntercomImportsStatusRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getConversationsMacrosListUrl = (projectId: string, params?: ConversationsMacrosListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/conversations/macros/?${stringifiedParams}`
+        : `/api/projects/${projectId}/conversations/macros/`
+}
+
+export const conversationsMacrosList = async (
+    projectId: string,
+    params?: ConversationsMacrosListParams,
+    options?: RequestInit
+): Promise<PaginatedTicketMacroListApi> => {
+    return apiMutator<PaginatedTicketMacroListApi>(getConversationsMacrosListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getConversationsMacrosCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/macros/`
+}
+
+export const conversationsMacrosCreate = async (
+    projectId: string,
+    ticketMacroApi: NonReadonly<TicketMacroApi>,
+    options?: RequestInit
+): Promise<TicketMacroApi> => {
+    return apiMutator<TicketMacroApi>(getConversationsMacrosCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(ticketMacroApi),
+    })
+}
+
+export const getConversationsMacrosRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/macros/${id}/`
+}
+
+export const conversationsMacrosRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TicketMacroApi> => {
+    return apiMutator<TicketMacroApi>(getConversationsMacrosRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getConversationsMacrosPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/macros/${id}/`
+}
+
+export const conversationsMacrosPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedTicketMacroApi?: NonReadonly<PatchedTicketMacroApi>,
+    options?: RequestInit
+): Promise<TicketMacroApi> => {
+    return apiMutator<TicketMacroApi>(getConversationsMacrosPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedTicketMacroApi),
+    })
+}
+
+export const getConversationsMacrosDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/macros/${id}/`
+}
+
+export const conversationsMacrosDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getConversationsMacrosDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getConversationsMacrosUsedCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/macros/${id}/used/`
+}
+
+export const conversationsMacrosUsedCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TicketMacroApi> => {
+    return apiMutator<TicketMacroApi>(getConversationsMacrosUsedCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getConversationsPylonImportsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/pylon_imports/`
+}
+
+export const conversationsPylonImportsCreate = async (
+    projectId: string,
+    pylonImportStartApi: PylonImportStartApi,
+    options?: RequestInit
+): Promise<PylonImportJobApi> => {
+    return apiMutator<PylonImportJobApi>(getConversationsPylonImportsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(pylonImportStartApi),
+    })
+}
+
+export const getConversationsPylonImportsStatusRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/pylon_imports/status/`
+}
+
+export const conversationsPylonImportsStatusRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<PylonImportJobApi> => {
+    return apiMutator<PylonImportJobApi>(getConversationsPylonImportsStatusRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
@@ -295,6 +474,34 @@ export const conversationsTicketsAiHumanOutcomeCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(aiHumanOutcomeRequestApi),
+    })
+}
+
+export const getConversationsTicketsAttachmentsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/${id}/attachments/`
+}
+
+/**
+ * Upload a file to put in a reply to this ticket.
+ *
+ * Images are validated and shown inline. Other files are stored as they are and
+ * served as a download. Widget tickets do not accept file attachments yet.
+ */
+export const conversationsTicketsAttachmentsCreate = async (
+    projectId: string,
+    id: string,
+    conversationsTicketsAttachmentsCreateBody?: ConversationsTicketsAttachmentsCreateBody,
+    options?: RequestInit
+): Promise<TicketAttachmentApi> => {
+    const formData = new FormData()
+    if (conversationsTicketsAttachmentsCreateBody?.file !== undefined) {
+        formData.append(`file`, conversationsTicketsAttachmentsCreateBody.file)
+    }
+
+    return apiMutator<TicketAttachmentApi>(getConversationsTicketsAttachmentsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        body: formData,
     })
 }
 

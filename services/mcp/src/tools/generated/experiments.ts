@@ -238,6 +238,7 @@ const ExperimentCreateSchema = () => {
     return ExperimentsCreateBody.omit({
         start_date: true,
         end_date: true,
+        feature_flag_rule_id: true,
         parameters: true,
         excluded_variants: true,
         secondary_metrics: true,
@@ -440,6 +441,7 @@ const ExperimentDuplicateSchema = () => {
                     description: true,
                     start_date: true,
                     end_date: true,
+                    feature_flag_rule_id: true,
                     holdout_id: true,
                     parameters: true,
                     running_time_calculation: true,
@@ -834,6 +836,7 @@ const experimentList = (): ToolBase<
                         event: params.event,
                         excluded_tags: params.excluded_tags,
                         feature_flag_id: params.feature_flag_id,
+                        feature_flag_ids: params.feature_flag_ids,
                         limit: params.limit,
                         offset: params.offset,
                         order: params.order,
@@ -960,7 +963,15 @@ const ExperimentMetricsRecalculationRetrieveSchema = () => {
             recalculation_id: ['run_id', 'runId', 'recalculationId'],
         }),
         ExperimentsMetricsRecalculationRetrieveParams.omit({ project_id: true }).extend({
-            id: z.preprocess(castStringToInt, ExperimentsMetricsRecalculationRetrieveParams.shape['id']),
+            id: z.preprocess(
+                castStringToInt,
+                ExperimentsMetricsRecalculationRetrieveParams.shape['id'].describe(
+                    "The experiment's numeric ID, not the recalculation run UUID. Get it from experiment-get or from the response of experiment-metrics-recalculation-create. The run UUID goes in recalculation_id."
+                )
+            ),
+            recalculation_id: ExperimentsMetricsRecalculationRetrieveParams.shape['recalculation_id'].describe(
+                'The recalculation run UUID, from experiment-metrics-recalculation-create or experiment-metrics-recalculation-latest-retrieve.'
+            ),
         })
     )
 }
@@ -1420,12 +1431,15 @@ const ExperimentTimeseriesResultsSchema = () => {
     )
 }
 
-const experimentTimeseriesResults = (): ToolBase<ReturnType<typeof ExperimentTimeseriesResultsSchema>, unknown> => ({
+const experimentTimeseriesResults = (): ToolBase<
+    ReturnType<typeof ExperimentTimeseriesResultsSchema>,
+    Schemas.ExperimentTimeseriesResults
+> => ({
     name: 'experiment-timeseries-results',
     schema: ExperimentTimeseriesResultsSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentTimeseriesResultsSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas.ExperimentTimeseriesResults>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/timeseries_results/`,
             query: {
@@ -1520,6 +1534,7 @@ const ExperimentUpdateSchema = () => {
                     start_date: true,
                     end_date: true,
                     feature_flag_key: true,
+                    feature_flag_rule_id: true,
                     parameters: true,
                     secondary_metrics: true,
                     filters: true,

@@ -36,6 +36,7 @@ from posthog.schema import HogQLQueryModifiers, MaterializationMode
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.escape_sql import escape_hogql_string
 from posthog.hogql.functions.clickhouse.json import JSON_FUNCTIONS
 from posthog.hogql.functions.udfs import JSON_DROP_KEYS_CLICKHOUSE_NAME
 from posthog.hogql.parser import parse_select
@@ -52,14 +53,14 @@ from posthog.hogql.property_planner import (
 )
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.resolver import resolve_types
-from posthog.hogql.test.utils import json_dynamic_read_sql, pretty_print_in_tests
+from posthog.hogql.test.utils import json_dynamic_read_sql, native_stored_document, pretty_print_in_tests
 from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
 from posthog.hogql.type_system import ComparisonCompatibility
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.events_json import EVENTS_JSON_DATA_TABLE, TEMPORARY_PROPERTIES_JSON_TYPE
 from posthog.errors import ExposedCHQueryError
-from posthog.models import PropertyDefinition, Team
+from posthog.models import Team
 from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_PROPERTIES_JSON_TYPE, PERSON_PROPERTIES_JSON_TYPE
 from posthog.models.group.util import create_group
 from posthog.models.property.util import get_property_string_expr
@@ -68,6 +69,7 @@ from posthog.schema_enums import PropertyGroupsMode
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.event_definitions.backend.models import PropertyDefinition
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 
@@ -142,6 +144,84 @@ class _NewEventsSchemaArraySubcolumnsHelpers:
 class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers, SimpleTestCase):
     @parameterized.expand(
         [
+            ("extract", "JSONExtractString(properties, '')"),
+            ("has", "JSONHas(properties, '')"),
+            ("property", "properties['']"),
+            ("numeric", "toFloat(properties[''])"),
+            ("person", "JSONExtract(poe.properties, '', 'String')"),
+            ("wrapped", "JSONExtractString(toString(properties), '')"),
+        ]
+    )
+    def test_empty_property_keys_do_not_print_empty_identifiers(self, _name: str, expression: str) -> None:
+        printed = self._print_select(f"SELECT {expression} AS value FROM events")
+        assert ".``" not in printed
+        assert "getSubcolumn(" in printed
+
+    def test_json_function_rewrites_ignore_property_metadata(self) -> None:
+        printed = self._print_select(
+            "SELECT JSONExtractRaw(properties, 'value') AS value FROM events",
+            event_properties={"value": {"type": "Numeric"}},
+        )
+        assert "events.properties.value" in printed
+        assert "accurateCastOrNull" not in printed
+        assert "JSONExtractKeysAndValuesRaw(events.properties)" not in printed
+
+    @parameterized.expand(
+        [
+            ("float", "JSONExtractFloat(properties, 'value')"),
+            ("typed", "JSONExtract(properties, 'value', 'Nullable(Float64)')"),
+        ]
+    )
+    def test_float_json_functions_do_not_serialize_the_path(self, _name: str, expression: str) -> None:
+        printed = self._print_select(f"SELECT {expression} AS value FROM events")
+        assert "events.properties.value" in printed
+        assert "toJSONString" not in printed
+        assert "JSONExtract" not in printed
+
+    @parameterized.expand(
+        [
+            (name, f"{name}(properties, 'value')")
+            for name in (
+                "JSONLength",
+                "JSONType",
+                "JSONExtractKeys",
+                "JSONExtractArrayRaw",
+                "JSONExtractKeysAndValuesRaw",
+            )
+        ]
+        + [("typed_pairs", "JSONExtractKeysAndValues(properties, 'value', 'String')")]
+    )
+    def test_json_functions_read_only_the_requested_property(self, _name: str, expression: str) -> None:
+        printed = self._print_select(f"SELECT {expression} AS value FROM events")
+        assert "events.properties.value" in printed
+        assert "JSONExtractKeysAndValuesRaw(events.properties)" not in printed
+        assert "events.temporary_properties" not in printed
+
+    def test_json_string_functions_ignore_property_metadata(self) -> None:
+        context = self._context(use_new_events_schema=True, event_properties={"value": {"type": "Numeric"}})
+        with patch("posthog.hogql.printer.utils.build_property_swapper"):
+            printed, _ = prepare_and_print_ast(
+                parse_select("SELECT JSONExtractString(toString(properties), 'value') AS value FROM events"),
+                context,
+                "clickhouse",
+            )
+        assert "events.properties.value" in printed
+        assert "accurateCastOrNull(events.properties.value, 'Float64')" not in printed
+        assert "JSONExtractKeysAndValuesRaw(events.properties)" not in printed
+
+    def test_json_functions_keep_nested_property_restrictions(self) -> None:
+        printed = self._print_select(
+            "SELECT JSONLength(properties, 'value'), JSONExtractKeys(properties, 'value'), "
+            "JSONExtractString(properties, 'value', 'secret') FROM events",
+            restricted_properties={
+                RestrictedProperty(name="value.secret", property_type=PropertyDefinition.Type.EVENT)
+            },
+        )
+        assert "JSONDropKeys" in printed
+        assert "events.properties.value" not in printed
+
+    @parameterized.expand(
+        [
             (f"{conversion}_{windowed}", conversion, windowed)
             for conversion in ("toFloat", "toInt")
             for windowed in (False, True)
@@ -160,8 +240,9 @@ class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers,
             "if(toString(properties.value) = 'ready', 1, 0), countIf(properties.value = 'ready') "
             "FROM events WHERE properties.value = 'ready' GROUP BY value"
         )
-        assert printed.count(f"toString({json_dynamic_read_sql('events.properties', ['value'])})") == 2
-        assert printed.count("CAST(events.properties.value, 'Nullable(String)')") == 2
+        value = json_dynamic_read_sql("events.properties", ["value"])
+        assert printed.count(f"toString({value})") == 2
+        assert printed.count(f"equals({value},") == 2
 
     def test_nested_aggregate_keeps_direct_numeric_reads(self) -> None:
         printed = self._print_select(
@@ -390,16 +471,20 @@ class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers,
                     "'\"$active_feature_flags\":'",
                     f"{JSON_DROP_KEYS_CLICKHOUSE_NAME}(",
                 ),
-                ("JSONMergePatch(", f"'', {JSON_DROP_KEYS_CLICKHOUSE_NAME}("),
+                ("'{\"$feature_flags\":'", f"'', {JSON_DROP_KEYS_CLICKHOUSE_NAME}("),
             ),
             (
-                "stored_document_restricted",
+                "restricted_document_under_to_json_string",
                 "SELECT toJSONString(if(1, properties, properties)) FROM events",
                 True,
                 {RestrictedProperty(name="$feature/secret", property_type=PropertyDefinition.Type.EVENT)},
                 None,
-                ("JSONMergePatch(", "mapFilter((key, value) -> not(has(", f"{JSON_DROP_KEYS_CLICKHOUSE_NAME}("),
-                ("'\"$active_feature_flags\":'", f"'', {JSON_DROP_KEYS_CLICKHOUSE_NAME}("),
+                (
+                    "mapFilter((key, value) -> not(has(",
+                    "'\"$active_feature_flags\":'",
+                    f"{JSON_DROP_KEYS_CLICKHOUSE_NAME}(",
+                ),
+                ("JSONMergePatch(", f"'', {JSON_DROP_KEYS_CLICKHOUSE_NAME}("),
             ),
             (
                 "whole_document_adds_temporary_keys",
@@ -473,36 +558,6 @@ class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers,
         assert "mapKeys(" not in where, printed
         assert "events.properties.`$active_feature_flags`" not in where, printed
 
-    def test_exception_types_use_array_subcolumn(self) -> None:
-        printed = self._print_select("select count() from events where properties.$exception_types = 'TypeError'")
-
-        assert "has(" in printed, printed
-        assert "events.properties.`$exception_types`" in printed, printed
-        assert "toString(events.properties.`$exception_types`)" not in printed, printed
-        assert "JSONExtract" not in printed, printed
-
-    @parameterized.expand(
-        [
-            ("typed_array", "$exception_types"),
-            ("dynamic_array", "custom_array"),
-        ]
-    )
-    def test_array_value_reads_are_json_strings(self, _name: str, property_name: str) -> None:
-        printed = self._print_select(f"select lower(properties.{property_name}) from events")
-        escaped_property_name = f"`{property_name}`" if property_name.startswith("$") else property_name
-
-        assert f"toJSONString(events.properties.{escaped_property_name})" in printed, printed
-        assert "JSONExtractKeysAndValuesRaw" not in printed, printed
-
-    def test_jsonextract_string_arrays_read_array_subcolumn(self) -> None:
-        printed = self._print_select(
-            "select JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)') from events"
-        )
-
-        assert "events.properties.`$exception_types`" in printed, printed
-        assert "JSONExtract" not in printed, printed
-        assert "toJSONString(events.properties.`$exception_types`)" not in printed, printed
-
     @parameterized.expand(
         [
             ("event_direct", "properties.$unparseable_properties", PropertyDefinition.Type.EVENT, False),
@@ -548,6 +603,79 @@ class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers,
 @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
 @pytest.mark.usefixtures("clickhouse_database")
 class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolumnsHelpers, SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("ordinary", ["value"]),
+            ("empty", [""]),
+            ("empty_first", ["", "child"]),
+            ("empty_middle", ["parent", "", "child"]),
+            ("empty_last", ["parent", ""]),
+            ("nested_percent", ["parent", "value%"]),
+            ("empty_then_backtick", ["", "tick`key"]),
+            ("percent_then_backtick", ["percent%", "tick`key"]),
+            ("empty_then_backslash_backtick", ["", "slash\\`key"]),
+            ("empty_then_control", ["", "line\nbreak\tkey"]),
+            ("former_declared_list", ["$exception_types"]),
+        ]
+    )
+    def test_json_function_conversions_and_defaults_match_the_blob(self, _name: str, keys: list[str]) -> None:
+        values = [
+            "null",
+            '""',
+            '"hello"',
+            '"2.5"',
+            '"1e3"',
+            "true",
+            "false",
+            "1.5",
+            "2.0",
+            "1e21",
+            "-1.5e-7",
+            "-2",
+            "0",
+            '[1,"two"]',
+            '{"name":"example"}',
+        ]
+        # Wrap the raw value text, because re-serializing it would rewrite number tokens such as `1e21`.
+        prefix = "".join(f"{{{json.dumps(key)}:" for key in keys)
+        suffix = "}" * len(keys)
+        documents = ["{}", *(prefix + value + suffix for value in values)]
+        path = ", ".join(escape_hogql_string(key) for key in keys)
+        expressions = [
+            f"JSONExtractString(properties, {path})",
+            f"JSONExtractInt(properties, {path})",
+            f"JSONExtractUInt(properties, {path})",
+            f"JSONExtractFloat(properties, {path})",
+            f"JSONExtractBool(properties, {path})",
+            f"JSONExtract(properties, {path}, 'Nullable(Int64)')",
+            f"JSONExtract(properties, {path}, 'Nullable(Bool)')",
+            f"JSONExtract(properties, {path}, 'String')",
+            f"JSONExtract(properties, {path}, 'Nullable(String)')",
+            f"JSONExtract(properties, {path}, 'Float64')",
+            f"JSONExtract(properties, {path}, 'Nullable(Float64)')",
+            f"JSONLength(properties, {path})",
+            f"JSONType(properties, {path})",
+        ]
+        query = "SELECT distinct_id, " + ", ".join(expressions) + " FROM events ORDER BY distinct_id"
+        results = []
+        for native in (False, True):
+            context = self._context(use_new_events_schema=native)
+            context.modifiers.propertyGroupsMode = PropertyGroupsMode.DISABLED
+            context.modifiers.materializationMode = MaterializationMode.DISABLED
+            with patch("posthog.hogql.printer.utils.build_property_swapper"):
+                sql, _ = prepare_and_print_ast(parse_select(query), context, "clickhouse")
+            table = "events_json" if native else "events"
+            properties = "CAST(document, 'JSON')" if native else "document"
+            prefix = (
+                f"WITH {table} AS (SELECT 1 AS team_id, toString(item.1) AS distinct_id, item.2 AS document, "
+                f"{properties} AS properties FROM (SELECT "
+                "arrayJoin(arrayZip(range(length(%(documents)s)), %(documents)s)) AS item)) "
+            )
+            stored = [native_stored_document(document) for document in documents] if native else documents
+            rows = sync_execute(prefix + sql, {**context.values, "documents": stored})
+            results.append(rows)
+        assert results[0] == results[1]
+
     @parameterized.expand(
         [
             (
@@ -712,11 +840,14 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
                 sql = "WITH " + source + printed
                 if printed.startswith("WITH "):
                     sql = "WITH " + source.rstrip() + ", " + printed.removeprefix("WITH ")
+                stored = (
+                    [native_stored_document(document) for document in documents] if reader == "native" else documents
+                )
                 if expected is None:
                     with pytest.raises(ServerException, match="not under aggregate function and not in GROUP BY"):
-                        sync_execute(sql, {**context.values, "documents": documents})
+                        sync_execute(sql, {**context.values, "documents": stored})
                 else:
-                    rows = sync_execute(sql, {**context.values, "documents": documents})
+                    rows = sync_execute(sql, {**context.values, "documents": stored})
                     assert rows == expected
 
     @parameterized.expand([("declared", EVENTS_PROPERTIES_JSON_TYPE()), ("dynamic", "JSON")])
@@ -754,18 +885,19 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
             (
                 name,
                 json_type,
-                "toFloat(properties.$screen_height), toFloat(properties.custom), toFloat(properties.nested.score)",
-                3,
+                "toFloat(properties.$screen_height), toFloat(properties.custom)",
+                2,
                 True,
             )
             for name, json_type in (("declared", EVENTS_PROPERTIES_JSON_TYPE()), ("dynamic", "JSON"))
         ]
         + [
             (
-                f"{name}_indexed",
+                f"{name}_inside_a_value",
                 json_type,
-                "toFloat(properties.numbers[1]), toFloat(properties.objects[1].score)",
-                2,
+                "toFloat(properties.nested.score), toFloat(properties.numbers[1]), "
+                "toFloat(properties.objects[1].score)",
+                3,
                 False,
             )
             for name, json_type in (("declared", EVENTS_PROPERTIES_JSON_TYPE()), ("dynamic", "JSON"))
@@ -788,14 +920,16 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
                 **context.values,
                 "json_type": json_type,
                 "documents": [
-                    json.dumps(
-                        {
-                            "$screen_height": value,
-                            "custom": value,
-                            "nested": {"score": value},
-                            "numbers": [value],
-                            "objects": [{"score": value}],
-                        }
+                    native_stored_document(
+                        json.dumps(
+                            {
+                                "$screen_height": value,
+                                "custom": value,
+                                "nested": {"score": value},
+                                "numbers": [value],
+                                "objects": [{"score": value}],
+                            }
+                        )
                     )
                     for value in values
                 ],
@@ -813,12 +947,16 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
 
     @parameterized.expand(
         [
-            ("text_equals", "properties.step = 'template'", [1, 0, 0, 0, 0, 0]),
-            ("text_not_equals", "properties.step != 'template'", [0, 1, 1, 1, 1, 1]),
-            ("text_in", "properties.step IN ('template', 'domain')", [1, 1, 0, 0, None, 0]),
-            ("text_and_number_in", "properties.step IN ('template', '5')", [1, 0, 1, 1, None, 0]),
-            ("number_equals", "properties.step = '5'", [0, 0, 1, 1, 0, 0]),
-            ("non_finite_text", "properties.step = 'nan'", [0, 0, 0, 0, 0, 1]),
+            ("text_equals", "properties.step = 'template'", [1, 0, 0, 0, 0, 0, 0, 0]),
+            ("text_not_equals", "properties.step != 'template'", [0, 1, 1, 1, 1, 1, 1, 1]),
+            ("text_in", "properties.step IN ('template', 'domain')", [1, 1, 0, 0, None, 0, 0, 0]),
+            ("text_and_number_in", "properties.step IN ('template', '5')", [1, 0, 1, 1, None, 0, 0, 0]),
+            ("number_equals", "properties.step = '5'", [0, 0, 1, 1, 0, 0, 0, 0]),
+            ("non_finite_text", "properties.step = 'nan'", [0, 0, 0, 0, 0, 1, 0, 0]),
+            ("empty_equals", "properties.step = ''", [0, 0, 0, 0, 0, 0, 1, 0]),
+            ("empty_not_equals", "properties.step != ''", [1, 1, 1, 1, 1, 1, 0, 1]),
+            ("empty_in", "properties.step IN ('', '5')", [0, 0, 1, 1, None, 0, 1, 0]),
+            ("array_text_equals", "properties.step = '[5]'", [0, 0, 0, 0, 0, 0, 0, 1]),
         ]
     )
     def test_numeric_property_compared_to_text_matches_text(
@@ -839,6 +977,8 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
                     '{"step":"5"}',
                     "{}",
                     '{"step":"nan"}',
+                    '{"step":""}',
+                    native_stored_document('{"step":[5]}'),
                 ],
             },
         )
@@ -846,16 +986,17 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
 
     @parameterized.expand(
         [
-            ("text_equals", "properties.opted_in = 'pending'", [1, 0, 0, 0, 0, 0]),
-            ("text_not_equals", "properties.opted_in != 'pending'", [0, 1, 1, 1, 1, 1]),
-            ("text_in", "properties.opted_in IN ('pending', 'declined')", [1, 1, 0, 0, None, 0]),
-            ("text_and_boolean_in", "properties.opted_in IN ('pending', 'true')", [1, 0, 1, 1, None, 0]),
-            ("boolean_text_equals", "properties.opted_in = 'true'", [0, 0, 1, 1, 0, 0]),
-            ("boolean_digit_equals", "properties.opted_in = '1'", [0, 0, 1, 1, 0, 0]),
-            ("boolean_yes_equals", "properties.opted_in = 'YeS'", [0, 0, 1, 1, 0, 0]),
-            ("boolean_no_equals", "properties.opted_in = 'No'", [0, 0, 0, 0, 0, 1]),
-            ("boolean_t_equals", "properties.opted_in = 'T'", [0, 0, 1, 1, 0, 0]),
-            ("boolean_f_equals", "properties.opted_in = 'F'", [0, 0, 0, 0, 0, 1]),
+            ("text_equals", "properties.opted_in = 'pending'", [1, 0, 0, 0, 0, 0, 0]),
+            ("text_not_equals", "properties.opted_in != 'pending'", [0, 1, 1, 1, 1, 1, 1]),
+            ("text_in", "properties.opted_in IN ('pending', 'declined')", [1, 1, 0, 0, None, 0, 0]),
+            ("text_and_boolean_in", "properties.opted_in IN ('pending', 'true')", [1, 0, 1, 1, None, 0, 0]),
+            ("boolean_text_equals", "properties.opted_in = 'true'", [0, 0, 1, 1, 0, 0, 0]),
+            ("boolean_digit_equals", "properties.opted_in = '1'", [0, 0, 1, 1, 0, 0, 0]),
+            ("boolean_yes_equals", "properties.opted_in = 'YeS'", [0, 0, 1, 1, 0, 0, 0]),
+            ("boolean_no_equals", "properties.opted_in = 'No'", [0, 0, 0, 0, 0, 1, 0]),
+            ("boolean_t_equals", "properties.opted_in = 'T'", [0, 0, 1, 1, 0, 0, 0]),
+            ("boolean_f_equals", "properties.opted_in = 'F'", [0, 0, 0, 0, 0, 1, 0]),
+            ("empty_equals", "properties.opted_in = ''", [0, 0, 0, 0, 0, 0, 1]),
             (
                 "boolean_true_aliases_in",
                 "countIf(properties.opted_in IN ('true', '1', 'T', 'Y', 'YeS', 'ON', 'Enable', 'Enabled'))",
@@ -886,6 +1027,7 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
                     '{"opted_in":"true"}',
                     "{}",
                     '{"opted_in":false}',
+                    '{"opted_in":""}',
                 ],
             },
         )
@@ -893,7 +1035,34 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
 
     @parameterized.expand(
         [
-            (name, property_name, value, escape_forward_slashes)
+            ("empty_equals", "properties.signed_up_at = ''", [0, 1, 0, 0]),
+            ("empty_in", "properties.signed_up_at IN ('', '2024-05-06')", [0, None, None, 1]),
+        ]
+    )
+    def test_datetime_property_compared_to_empty_text_matches_text(
+        self, _name: str, predicate: str, expected: list[int]
+    ) -> None:
+        context = self._context(event_properties={"signed_up_at": {"type": "DateTime"}})
+        with patch("posthog.hogql.printer.utils.build_property_swapper"):
+            printed, _ = prepare_and_print_ast(parse_select(f"SELECT {predicate} FROM events"), context, "clickhouse")
+        rows = sync_execute(
+            "WITH events_json AS (SELECT 1 AS team_id, CAST(arrayJoin(%(documents)s), 'JSON') AS properties) "
+            + printed,
+            {
+                **context.values,
+                "documents": [
+                    '{"signed_up_at":"2024-04-06 07:08:09"}',
+                    '{"signed_up_at":""}',
+                    "{}",
+                    '{"signed_up_at":"2024-05-06 00:00:00"}',
+                ],
+            },
+        )
+        assert [row[0] for row in rows] == expected
+
+    @parameterized.expand(
+        [
+            (name, property_name, value)
             for name, property_name, value in [
                 ("typed_array", "$exception_types", ["a", '"b"', "https://example.com/path", r"a\/b", r"a\\/b"]),
                 ("dynamic_array", "custom_array", ["a", '"b"', "https://example.com/path", r"a\/b", r"a\\/b"]),
@@ -910,11 +1079,10 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
                     },
                 ),
             ]
-            for escape_forward_slashes in (0, 1)
         ]
     )
     def test_raw_property_helper_reads_only_one_json_subcolumn(
-        self, _name: str, property_name: str, value: list[str] | dict[str, str | int], escape_forward_slashes: int
+        self, _name: str, property_name: str, value: list[str] | dict[str, str | int]
     ) -> None:
         expression, _ = get_property_string_expr(
             "events",
@@ -933,13 +1101,12 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
             {
                 "property_key": property_name,
                 "json_type": EVENTS_PROPERTIES_JSON_TYPE(),
-                "documents": [json.dumps({property_name: item}) for item in [value, [], None]],
+                "documents": [native_stored_document(json.dumps({property_name: item})) for item in [value, [], None]],
             },
-            settings={"output_format_json_escape_forward_slashes": escape_forward_slashes},
         )
         assert json.loads(rows[0][0]) == value
         assert "https://example.com/path" in rows[0][0]
-        assert rows[1:] == [("",), ("",)]
+        assert rows[1:] == [("[]",), ("",)]
 
     @parameterized.expand(
         [
@@ -958,7 +1125,8 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
                 {field}.$groups.project,
                 JSONHas({field}, '$groups', 'organization'),
                 JSONHas({field}, '$groups', if(event = 'synthetic', 'organization', 'project')),
-                JSONHas({field}, '$groups', 'project')
+                JSONHas({field}, '$groups', 'project'),
+                toJSONString(tuple({field}))
             FROM events"""
         )
         with patch("posthog.hogql.printer.utils.build_property_swapper"):
@@ -968,18 +1136,29 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
                 SELECT 1 AS team_id, 'synthetic' AS event,
                     CAST(%(document)s, %(event_type)s) AS properties,
                     CAST(%(document)s, %(person_type)s) AS person_properties,
-                    CAST('{}', %(temporary_type)s) AS temporary_properties
+                    CAST('{}', %(temporary_type)s) AS temporary_properties,
+                    CAST([], 'Array(String)') AS properties_null_keys,
+                    CAST([], 'Array(String)') AS temporary_properties_null_keys,
+                    CAST([], 'Array(String)') AS person_properties_null_keys
             ) """
             + printed,
             {
                 **context.values,
-                "document": '{"$groups":{"organization":"hidden","project":"visible"}}',
+                "document": native_stored_document('{"$groups":{"organization":"hidden","project":"visible"}}'),
                 "event_type": EVENTS_PROPERTIES_JSON_TYPE(),
                 "person_type": PERSON_PROPERTIES_JSON_TYPE(),
                 "temporary_type": TEMPORARY_PROPERTIES_JSON_TYPE,
             },
         )
-        assert row == ('{"project":"visible"}', None, "visible", 0, 0, 1)
+        assert row == (
+            '{"project":"visible"}',
+            None,
+            "visible",
+            0,
+            0,
+            1,
+            '["{\\"$groups\\":{\\"project\\":\\"visible\\"}}"]',
+        )
 
     def test_person_restriction_masks_set_containers_on_events(self) -> None:
         context = self._context()
@@ -990,14 +1169,15 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
         query = parse_select(
             """SELECT properties.$set,
                 properties.$set.email,
-                properties.$set."user%2Eemail" AS dotted_set,
+                properties.$set."user.email" AS dotted_set,
                 properties.$set.name,
                 properties.$set_once.email,
-                properties.$set_once."user%2Eemail" AS dotted_set_once,
+                properties.$set_once."user.email" AS dotted_set_once,
                 properties.email,
                 JSONHas(properties, '$set', 'email'),
-                JSONHas(properties, '$set', 'user%2Eemail'),
-                JSONExtractString(properties, '$set_once', 'email')
+                JSONHas(properties, '$set', 'user.email'),
+                JSONExtractString(properties, '$set_once', 'email'),
+                toJSONString(tuple(properties.$set))
             FROM events"""
         )
         with patch("posthog.hogql.printer.utils.build_property_swapper"):
@@ -1007,7 +1187,10 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
                 SELECT 1 AS team_id, '$identify' AS event,
                     CAST(%(document)s, %(event_type)s) AS properties,
                     CAST('{}', %(person_type)s) AS person_properties,
-                    CAST(%(temporary_document)s, %(temporary_type)s) AS temporary_properties
+                    CAST(%(temporary_document)s, %(temporary_type)s) AS temporary_properties,
+                    CAST([], 'Array(String)') AS properties_null_keys,
+                    CAST([], 'Array(String)') AS temporary_properties_null_keys,
+                    CAST([], 'Array(String)') AS person_properties_null_keys
             ) """
             + printed,
             {
@@ -1015,14 +1198,29 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
                 "document": '{"email":"event-level"}',
                 # The native cleaner stores $set and $set_once in temporary_properties, so a read of either
                 # container comes from that document.
-                "temporary_document": '{"$set":{"email":"hidden","user%2Eemail":"hidden","name":"visible"},"$set_once":{"email":"hidden","user%2Eemail":"hidden"}}',
+                "temporary_document": native_stored_document(
+                    '{"$set":{"email":"hidden","user.email":"hidden","name":"visible"},'
+                    '"$set_once":{"email":"hidden","user.email":"hidden"}}'
+                ),
                 "event_type": EVENTS_PROPERTIES_JSON_TYPE(),
                 "person_type": PERSON_PROPERTIES_JSON_TYPE(),
                 "temporary_type": TEMPORARY_PROPERTIES_JSON_TYPE,
             },
         )
         # `email` as an event property is a different property and stays readable.
-        assert row == ('{"name":"visible"}', None, None, "visible", None, None, "event-level", 0, 0, "")
+        assert row == (
+            '{"name":"visible"}',
+            None,
+            None,
+            "visible",
+            None,
+            None,
+            "event-level",
+            0,
+            0,
+            "",
+            '["{\\"name\\":\\"visible\\"}"]',
+        )
 
     def test_person_restriction_masks_set_containers_on_legacy_events(self) -> None:
         context = self._context(use_new_events_schema=False)
@@ -1384,6 +1582,62 @@ class TestPropertyTypes(BaseTest):
         assert "parseDateTime64BestEffortOrNull" not in overridden, overridden
         assert "toDateTime" not in overridden, overridden
 
+    @parameterized.expand(
+        [
+            ("equals", "properties.event_time_prop = ''"),
+            ("not_equals", "properties.event_time_prop != ''"),
+            ("reversed_equals", "'' = properties.event_time_prop"),
+            ("reversed_not_equals", "'' != properties.event_time_prop"),
+        ]
+    )
+    def test_datetime_property_compared_to_empty_string_uses_strings(self, _name: str, comparison: str) -> None:
+        PropertyDefinition.objects.get_or_create(
+            team=self.team,
+            type=PropertyDefinition.Type.EVENT,
+            name="event_time_prop",
+            defaults={"property_type": "DateTime"},
+        )
+
+        printed = self._print_select(f"select count() from events where {comparison}")
+
+        assert "parseDateTime64BestEffortOrNull" not in printed, printed
+
+    def test_datetime_group_property_compared_to_empty_string_uses_strings(self) -> None:
+        PropertyDefinition.objects.get_or_create(
+            team=self.team,
+            type=PropertyDefinition.Type.GROUP,
+            group_type_index=0,
+            name="group_event_time_prop",
+            defaults={"property_type": "DateTime"},
+        )
+
+        printed = self._print_select("select count() from events where group_0.properties.group_event_time_prop != ''")
+
+        assert "parseDateTime64BestEffortOrNull" not in printed, printed
+        assert "toString(" in printed, printed
+
+    @parameterized.expand(
+        [
+            ("iso_date", "properties.event_time_prop = '2024-01-01'"),
+            ("non_iso_timestamp", "properties.event_time_prop = '2024-01-01 0:00:00'"),
+            ("non_iso_timestamp_not_equals", "properties.event_time_prop != '2024-01-01 0:00:00'"),
+            ("function_argument", "formatDateTime(properties.event_time_prop, '%Y') = ''"),
+        ]
+    )
+    def test_datetime_property_keeps_conversion_unless_compared_to_empty_string(
+        self, _name: str, comparison: str
+    ) -> None:
+        PropertyDefinition.objects.get_or_create(
+            team=self.team,
+            type=PropertyDefinition.Type.EVENT,
+            name="event_time_prop",
+            defaults={"property_type": "DateTime"},
+        )
+
+        printed = self._print_select(f"select count() from events where {comparison}")
+
+        assert "parseDateTime64BestEffortOrNull" in printed, printed
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_property_types_person_raw(self):
         printed = self._print_select(
@@ -1517,14 +1771,17 @@ class TestPropertyTypes(BaseTest):
             ("to_int_or_zero", "toIntOrZero(properties.$screen_width)", "toInt64OrZero"),
             ("to_float_or_default", "toFloatOrDefault(properties.$screen_width, 0)", "toFloat64OrDefault"),
             ("to_int_or_default", "toIntOrDefault(properties.$screen_width, 0)", "toInt64OrDefault"),
+            ("to_float_or_zero_null_default", "toFloatOrZero(properties.$screen_width ?? '0')", "toFloat64OrZero"),
+            ("json_document_coalesce", "JSONLength(coalesce(properties.$screen_width, '[]'))", "JSONLength"),
         ]
     )
     def test_numeric_property_not_double_cast_inside_string_parser(self, _name: str, expr: str, ch_fn: str):
-        # toFloat64OrZero/toInt64OrZero/toFloat64OrDefault require a String first argument.
+        # toFloat64OrZero/toInt64OrZero/toFloat64OrDefault and the JSON functions require a String first argument.
         # A Numeric property must keep its raw string value here instead of being cast to
         # Float, otherwise ClickHouse raises ILLEGAL_TYPE_OF_ARGUMENT on a Float64 argument.
+        # A null default around the property returns it unchanged, so the same holds through it.
         printed = self._print_select(f"select {expr} from events")
-        assert f"{ch_fn}(accurateCastOrNull" not in printed
+        assert "accurateCastOrNull" not in printed
         assert f"{ch_fn}(" in printed
 
     def test_numeric_property_still_cast_outside_string_parser(self):
@@ -1550,15 +1807,14 @@ class TestPropertyTypes(BaseTest):
         # Array(String) — the same wrapping property_to_expr applies to typed exception filters.
         with materialized("events", "$exception_values"):
             printed = self._print_select(f"select uuid from events where {expr}")
-        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            # The native table declares $exception_values as Array(String), so the bare path is already an array.
-            assert f"{fn_name}(events.properties.`$exception_values`," in printed
-            assert "mat_$exception_values" not in printed
-            return
         # The membership function receives the property extracted to an array, not the bare String column.
         # (The 'Array(String)' type literal is parameterized out by the printer, so match structure instead.)
         assert f"{fn_name}(JSONExtract(ifNull(" in printed
-        assert "events.`mat_$exception_values`" in printed
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert "events.properties.`$exception_values`" in printed
+            assert "mat_$exception_values" not in printed
+        else:
+            assert "events.`mat_$exception_values`" in printed
         assert f"{fn_name}(events.`mat_$exception_values`" not in printed
 
     def test_non_exception_array_property_left_untouched(self):
@@ -1612,9 +1868,8 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
                 assert "events_json" in printed, printed
                 assert "properties.`$browser`" in printed, printed
                 assert "mat_$browser" not in printed, printed
-                assert (
-                    f"JSONExtractString(ifNull({json_dynamic_read_sql(root, ['$browser'], as_json=True)}, " in printed
-                ), printed
+                assert f"toString({root}.`$browser`)" in printed, printed
+                assert "JSONExtractString(ifNull(" not in printed, printed
                 return
 
             assert "mat_$browser" in printed, f"Expected mat_$browser in output, got: {printed}"
@@ -1630,9 +1885,7 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
                 assert "properties.`$browser`" in printed, printed
                 assert "properties.`$os`" in printed, printed
                 assert "mat_" not in printed, printed
-                assert printed.count("JSONExtractString(ifNull(if(notEquals(toJSONString(events.properties.^") == 2, (
-                    printed
-                )
+                assert "JSONExtractString(ifNull(" not in printed, printed
                 return
 
             assert "mat_$browser" in printed, printed
@@ -1663,7 +1916,7 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
                 assert "events_json" in printed, printed
                 assert "events.properties.typed_json_float" in printed, printed
-                assert "JSONExtract(ifNull(" in printed, printed
+                assert "JSONExtract(ifNull(" not in printed, printed
                 assert "mat_typed_json_float" not in printed, printed
                 return
 
@@ -1677,7 +1930,7 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
             )
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
                 assert "events.properties.typed_json_float" in printed, printed
-                assert "JSONExtract(ifNull(" in printed, printed
+                assert "JSONExtract(ifNull(" not in printed, printed
                 assert "mat_typed_json_float" not in printed, printed
                 return
 
@@ -1705,7 +1958,7 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
             printed = self._print_select("select JSONExtract(properties, '$browser', 'String') from events")
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
                 assert "events.properties.`$browser`" in printed, printed
-                assert "JSONExtract(ifNull(if(notEquals(toJSONString(" in printed, printed
+                assert "JSONExtract(ifNull(" not in printed, printed
                 assert "mat_" not in printed, printed
                 return
 
@@ -1716,7 +1969,7 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
             printed = self._print_select("select JSONExtractInt(properties, '$browser') from events")
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
                 assert "events.properties.`$browser`" in printed, printed
-                assert "JSONExtractInt(ifNull(if(notEquals(toJSONString(" in printed, printed
+                assert "JSONExtractInt(ifNull(if(" in printed, printed
                 assert "mat_" not in printed, printed
                 return
 
@@ -1736,18 +1989,20 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         assert "events.properties.score" in printed, printed
         assert "events.properties.email" in printed, printed
         assert "JSONExtractInt(ifNull(" in printed, printed
-        assert "JSONExtract(ifNull(" in printed, printed
-        assert "JSONExtractString(ifNull(" in printed, printed
+        assert "JSONExtract(ifNull(" not in printed, printed
+        assert "JSONExtractString(ifNull(" not in printed, printed
         assert "toJSONString(events.properties)" not in printed, printed
-        assert "toJSONString(events.properties.email)" in printed, printed
+        assert "CAST(events.properties.email, 'Nullable(String)')" in printed, printed
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
-    def test_new_events_schema_nested_jsonextractstring_uses_string_default(self):
+    def test_new_events_schema_nested_jsonextractstring_runs_on_the_property_text(self):
         printed = self._print_select("select JSONExtractString(properties, 'metadata', 'score') from events")
 
-        assert "JSONExtractString(ifNull(" in printed, printed
-        assert "events.properties.^metadata" in printed, printed
-        assert "%(hogql_val_0)s" in printed, printed
+        assert (
+            "JSONExtractString(ifNull(CAST(events.properties.metadata, 'Nullable(String)'), ''), %(hogql_val_0)s)"
+            in printed
+        ), printed
+        assert "isValidJSON" not in printed, printed
         assert "JSONExtractKeysAndValuesRaw" not in printed, printed
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
@@ -1755,18 +2010,17 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         printed = self._print_select("select JSONExtract(properties, 'score', 'Float64') from events")
 
         assert "events.properties.score" in printed, printed
-        assert "JSONExtract(ifNull(" in printed, printed
+        assert "JSONExtract(ifNull(" not in printed, printed
         assert "JSONExtractKeysAndValuesRaw" not in printed, printed
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
-    def test_new_events_schema_jsonextract_array_uses_json_serialized_subcolumn(self):
+    def test_new_events_schema_jsonextract_array_reads_the_property_text(self):
         printed = self._print_select(
             "select JSONExtract(ifNull(properties.arr_field, '[]'), 'Array(String)') from events"
         )
 
         assert "events_json" in printed, printed
-        assert "JSONExtract(ifNull(" in printed, printed
-        assert "toJSONString(events.properties.arr_field)" in printed, printed
+        assert "JSONExtract(ifNull(CAST(events.properties.arr_field, 'Nullable(String)')," in printed, printed
         assert "accurateCastOrNull(events.properties.arr_field, 'Array" not in printed, printed
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
@@ -1796,7 +2050,7 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
             ("bool", "JSONExtractBool(properties, 'flag')", "Bool", "0"),
         ]
     )
-    def test_scalar_jsonextract_uses_original_function_on_json_subcolumn(
+    def test_scalar_jsonextract_reads_json_subcolumns_without_parsing(
         self, _name: str, expression: str, _cast_type: str, _default_value: str
     ):
         printed = self._print_select(f"select {expression} from events")
@@ -1806,7 +2060,9 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
 
         property_name = "flag" if "flag" in expression else "metric"
         assert f"events.properties.{property_name}" in printed, printed
-        assert expression.split("(", 1)[0] in printed, printed
+        # Integer extraction keeps ClickHouse's parser on the serialized value; the other functions read the subcolumn.
+        parses = _name in ("int", "uint")
+        assert (f"{expression.split('(', 1)[0]}(ifNull(" in printed) == parses, printed
         assert "JSONExtractKeysAndValuesRaw" not in printed, printed
 
     def test_scalar_jsonextract_preserves_clickhouse_coercions(self):
@@ -1844,7 +2100,7 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
             assert "events.properties.value" in response.clickhouse
             assert "JSONExtractKeysAndValuesRaw" not in response.clickhouse
 
-    def test_jsonextractraw_typed_array_preserves_missing_default(self):
+    def test_jsonextractraw_list_property_preserves_missing_default(self):
         _create_event(
             team=self.team,
             distinct_id="array-set",
@@ -1919,7 +2175,7 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
             assert "events_json" in sql, sql
             assert "events.properties.`$browser`" in sql, sql
-            assert "JSONExtractString(ifNull(if(notEquals(toJSONString(" in sql, sql
+            assert "JSONExtractString(ifNull(if(notEquals(toJSONString(" not in sql, sql
             assert "mat_$browser" not in sql, sql
         else:
             assert "JSONExtractString(events.properties" in sql, sql
@@ -2209,12 +2465,9 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, BaseTest):
             context=restricted_context,
         )
         assert restricted.results is not None
-        # The masked document is a String, so toJSONString quotes it, as it quotes the legacy String column.
-        stored_document = json.loads(json.loads(restricted.results[0][3]))
-        assert "$feature/secret" not in stored_document
-        assert "secret" not in stored_document["$feature_flags"]
-        assert stored_document["$feature_flags"]["variant"] == "control"
         restricted_document = json.loads(restricted.results[0][0])
+        # The masked document is a String, so toJSONString quotes it, as it quotes the legacy String column.
+        assert json.loads(json.loads(restricted.results[0][3])) == restricted_document
         assert "$feature_flags" not in restricted_document
         # The fixture sends "true" as a string, which the cleaner stores as `$true`, so it comes back as a string.
         assert {key: value for key, value in restricted_document.items() if key.startswith("$feature/")} == {
@@ -2577,7 +2830,7 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, BaseTest):
                 [("x", "x", "2", "1", 2.0), (None, None, None, None, None), (None, None, None, None, None)],
             ),
             (
-                "array_index_on_a_declared_array",
+                "array_index_on_an_exception_list",
                 "SELECT properties.$exception_functions[-1], properties.$exception_functions.1",
                 None,
                 None,

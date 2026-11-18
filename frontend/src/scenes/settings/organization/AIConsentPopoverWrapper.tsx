@@ -6,9 +6,10 @@ import { LemonButton, Popover, PopoverProps, Tooltip } from '@posthog/lemon-ui'
 
 import { organizationLogic } from 'scenes/organizationLogic'
 
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
+
 import { AIAccessRequest } from './AIAccessRequest'
 import { getExternalAIProvidersTooltipTitle, openAIConsentLegalDialog } from './aiConsentCopy'
-import { aiConsentLogic } from './aiConsentLogic'
 
 export function AIConsentPopoverContent({
     onApprove,
@@ -76,6 +77,7 @@ export function AIConsentPopoverWrapper({
     children,
     ignoreDismissal,
     onApprove,
+    onBeforeApprove,
     onDismiss,
     hideTrainingDisclaimer,
     pendingRedirectUrl,
@@ -86,6 +88,11 @@ export function AIConsentPopoverWrapper({
     /** Always show popover regardless of prior dismissal. */
     ignoreDismissal?: boolean
     onApprove?: () => void
+    /**
+     * Runs once the person confirms, before the approval request. That request can trigger a
+     * full-page SSO reauthentication, so persist here anything `onApprove` would need after it.
+     */
+    onBeforeApprove?: () => void
     onDismiss?: () => void
     /** Passed through to AIConsentPopoverContent. */
     hideTrainingDisclaimer?: boolean
@@ -125,6 +132,7 @@ export function AIConsentPopoverWrapper({
                                     setAt: Date.now(),
                                 })
                             }
+                            onBeforeApprove?.()
                             await acceptDataProcessing()
                             onApprove?.()
                         }}

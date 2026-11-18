@@ -16,7 +16,6 @@ from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from products.workflows.backend.facade.audience_suggestions import (
     can_read_email,
     get_audience_suggestions,
-    is_enabled,
     needs_new_generation,
     start_audience_suggestions,
 )
@@ -53,7 +52,9 @@ class AudienceSuggestionSerializer(serializers.Serializer):
         allow_null=True, help_text="For regulars: how many times the event must happen in the window."
     )
     reachable_count = serializers.IntegerField(
-        help_text="People in the audience with an email address, counted when the suggestion was made."
+        allow_null=True,
+        help_text="Roughly how many people in the audience have an email address, counted when the suggestion was "
+        "made. Null while the count runs, or when it failed.",
     )
     cohort_filters = serializers.JSONField(
         help_text="The audience's cohort filters, in the cohorts endpoint's `filters` format. Saved as a static cohort."
@@ -64,7 +65,7 @@ class AudienceSuggestionsResponseSerializer(serializers.Serializer):
     status = serializers.ChoiceField(
         choices=DataSuggestionsStatus.choices,
         help_text="ready when suggestions were made (the list can still be empty), generating while a background "
-        "run makes them (poll current until it ends), ai_not_approved when the organization has not approved AI "
+        "run makes them (poll current until it ends, the list can already hold cards being counted), ai_not_approved when the organization has not approved AI "
         "data processing, unavailable when nothing was made or the run failed.",
     )
     suggestions = AudienceSuggestionSerializer(many=True, help_text="Up to 3 suggested broadcast audiences.")
@@ -97,7 +98,7 @@ class BroadcastAudienceSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewS
     )
     @action(detail=False, methods=["get"])
     def current(self, request: Request, **kwargs: Any) -> Response:
-        self._user_with_feature(request)
+        self._user_with_email_access(request)
         return Response(AudienceSuggestionsResponseSerializer(get_audience_suggestions(team=self.team)).data)
 
     @extend_schema(
@@ -107,15 +108,15 @@ class BroadcastAudienceSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewS
     )
     @action(detail=False, methods=["post"])
     def generate(self, request: Request, **kwargs: Any) -> Response:
-        user = self._user_with_feature(request)
+        user = self._user_with_email_access(request)
         payload = DataSuggestionGenerateRequestSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         result = start_audience_suggestions(team=self.team, user=user, refresh=payload.validated_data["refresh"])
         return Response(AudienceSuggestionsResponseSerializer(result).data)
 
-    def _user_with_feature(self, request: Request) -> User:
+    def _user_with_email_access(self, request: Request) -> User:
         user = request.user
-        if not isinstance(user, User) or not is_enabled(user, str(self.organization.id)):
+        if not isinstance(user, User):
             raise PermissionDenied("This feature is not available.")
         # The cards are shared by the whole project and count people by email, so they stay hidden from anyone
         # whose access hides email addresses.

@@ -1,7 +1,7 @@
 from django.conf import settings
 
 from posthog.clickhouse.kafka_engine import kafka_engine, kafka_num_consumers
-from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplicationScheme
+from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, MergeTreeEngine, ReplicationScheme
 from posthog.run_mode import RunMode, run_mode
 
 from .trace_attributes import (
@@ -411,7 +411,7 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{KAFKA_ME
     `max_created_at` SimpleAggregateFunction(max, DateTime64(9)),
     `max_lag` SimpleAggregateFunction(max, UInt64)
 )
-ENGINE = {MergeTreeEngine(KAFKA_METRICS_TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)}
+ENGINE = {AggregatingMergeTree(KAFKA_METRICS_TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)}
 ORDER BY (_topic, _partition)
 SETTINGS
     index_granularity = 8192

@@ -1,0 +1,12 @@
+<nav class="flex flex-wrap items-center gap-2 text-muted-foreground"
+     aria-label="Pages">
+    {% if paging.previous_url %}
+        <a class="quill-button quill-button--variant-outline quill-button--size-sm group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap"
+           href="{{ paging.previous_url }}">Previous</a>
+    {% endif %}
+    <span>Page {{ paging.number }} of {{ paging.num_pages }} · {{ paging.summary }}</span>
+    {% if paging.next_url %}
+        <a class="quill-button quill-button--variant-outline quill-button--size-sm group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap"
+           href="{{ paging.next_url }}">Next</a>
+    {% endif %}
+</nav>

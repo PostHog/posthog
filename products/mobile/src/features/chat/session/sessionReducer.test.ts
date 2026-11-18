@@ -60,6 +60,8 @@ function row(state: SessionThreadState, item: SessionThreadItem): string {
             return `user: ${item.text}`
         case 'assistant':
             return `assistant${item.complete ? '' : '…'}: ${item.text}`
+        case 'visualization':
+            return `visualization: ${item.title ?? item.shortId ?? item.id}`
         case 'thought':
             return `thought${item.complete ? '' : '…'}: ${item.text}`
         case 'tool': {
@@ -82,6 +84,42 @@ function rows(state: SessionThreadState): string[] {
 }
 
 describe('session thread reducer', () => {
+    test.each([
+        ['2026-11-16T00:01:00-05:00', '2026-11-16T00:01:00-05:00'],
+        [undefined, undefined],
+        ['invalid', undefined],
+    ])('keeps completed reply times consistent with replay: %s', (completed, expectedTimestamp) => {
+        const sent = '2026-11-15T23:58:00-05:00'
+        const started = '2026-11-15T23:59:00-05:00'
+        const final = { ...message('Hi there'), timestamp: completed }
+        const state = play([
+            { type: 'local_user', id: 'local', text: 'Hello', timestamp: sent },
+            { ...userChunk('Hello'), timestamp: '2026-11-15T23:58:02-05:00' },
+            { ...chunk('Hi'), timestamp: started },
+            final,
+        ])
+        expect(state.items).toEqual([
+            expect.objectContaining({ kind: 'user', timestamp: sent }),
+            expect.objectContaining({ kind: 'assistant', text: 'Hi there', complete: true }),
+        ])
+        const replay = play([{ ...userChunk('Hello'), timestamp: sent }, final], REPLAY)
+        const replyTimes = (items: SessionThreadItem[]): (string | undefined)[] =>
+            items.flatMap((item) => (item.kind === 'assistant' ? [item.timestamp] : []))
+        expect(replyTimes(state.items)).toEqual([expectedTimestamp])
+        expect(replyTimes(state.items)).toEqual(replyTimes(replay.items))
+    })
+
+    test('preserves the trace and source run of a completed turn across replay', () => {
+        const frame = notification('_posthog/turn_complete', { traceId: 'trace-1' })
+        for (const context of [LIVE, REPLAY]) {
+            expect(play([message('The answer'), frame], context).items.at(-1)).toMatchObject({
+                kind: 'turn_end',
+                traceId: 'trace-1',
+                runId: RUN,
+            })
+        }
+    })
+
     test('folds a stored run log into the thread the web shows', () => {
         const state = play(
             [
@@ -423,6 +461,31 @@ describe('session thread reducer', () => {
             update({ sessionUpdate: 'error', message: 'out of memory' }),
         ])
         expect(rows(state)).toEqual(['user: Try again', 'error(undelivered): out of memory'])
+    })
+
+    test.each([LIVE, REPLAY])('keeps one active compaction notice for $source frames', (context) => {
+        const start = notification('_posthog/status', { status: 'compacting' })
+        const compacting = play([start, start, start], context)
+        expect(rows(compacting)).toEqual(['notice(info, spinning): Compacting the conversation'])
+
+        const completed = play([notification('_posthog/compact_boundary', { trigger: 'auto' })], context, compacting)
+        expect(rows(completed)).toEqual(['notice(info): Compacted the conversation'])
+
+        const nextCompaction = play([start, start], context, completed)
+        expect(rows(nextCompaction)).toEqual([
+            'notice(info): Compacted the conversation',
+            'notice(info, spinning): Compacting the conversation',
+        ])
+        expect(new Set(nextCompaction.items.map((item) => item.id)).size).toBe(nextCompaction.items.length)
+        expect(
+            rows(
+                play(
+                    [notification('_posthog/status', { status: 'compacting', isComplete: true })],
+                    context,
+                    nextCompaction
+                )
+            )
+        ).toEqual(['notice(info): Compacted the conversation'])
     })
 
     test('progress steps group by id and status spinners leave when their work completes', () => {

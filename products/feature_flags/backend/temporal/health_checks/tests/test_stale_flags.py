@@ -21,7 +21,7 @@ from posthog.temporal.health_checks.processing import _process_batch_detection
 from posthog.temporal.health_checks.registry import HEALTH_CHECKS, ensure_registry_loaded
 
 from products.early_access_features.backend.models import EarlyAccessFeature
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.flag_status import ROLLOUT_FULLY_ROLLED_OUT, ROLLOUT_NOT_ROLLED_OUT, ROLLOUT_PARTIAL
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.temporal.health_checks.stale_flags import (
@@ -119,9 +119,9 @@ class TestStaleFlagsDetect(BaseTest):
                 team=self.team, name="t", content={"steps": []}, internal_targeting_flag=flag, archived=True
             )
         elif link == "experiment":
-            Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag)
+            create_experiment(team_id=self.team.id, feature_flag_id=flag.id, created_by_id=self.user.id)
         elif link == "deleted_experiment":
-            Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag, deleted=True)
+            create_experiment(team_id=self.team.id, feature_flag_id=flag.id, created_by_id=self.user.id, deleted=True)
         elif link == "early_access_feature":
             EarlyAccessFeature.objects.create(team=self.team, name="f", stage="beta", feature_flag=flag)
         elif link == "dependent_flag":

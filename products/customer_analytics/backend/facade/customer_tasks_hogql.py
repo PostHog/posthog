@@ -26,7 +26,7 @@ customer_tasks = _CustomerTasksTable(
     description="Customer analytics tasks visible to the caller. Includes archived tasks; filter archived_at IS NULL for active tasks.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Task UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "account_id": UUIDDatabaseField(name="account_id", nullable=True, description="Linked account UUID, if any."),
         "name": StringDatabaseField(name="name", description="Task name."),
         "description": StringDatabaseField(name="description", nullable=True, description="Task description."),

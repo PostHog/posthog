@@ -1,13 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { AttachedContextItem } from '~/layout/ai/attachedContext'
+
 import {
     ComposerOverride,
     useAttachedContext,
     useComposerOverride,
     useWelcomeOverride,
 } from 'products/posthog_ai/frontend/api/logics'
-import { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
 import { sceneAgentPanelLogic } from './sceneAgentPanelLogic'
 

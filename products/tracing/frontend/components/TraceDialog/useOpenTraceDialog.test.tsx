@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { Provider } from 'kea'
 import { router } from 'kea-router'
 
+import { traceDialogOpenLogic } from 'lib/components/ViewTraceButton/traceDialogOpenLogic'
 import { ViewTraceButton } from 'lib/components/ViewTraceButton/ViewTraceButton'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -11,7 +12,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
-import { traceDialogLogic } from './traceDialogLogic'
 import { useOpenTraceDialog } from './useOpenTraceDialog'
 
 function DialogTraceButton(): JSX.Element | null {
@@ -51,7 +51,7 @@ describe('useOpenTraceDialog', () => {
     ])('%s opens the dialog: %s', (_name, flagOn, modifiers, expectDialog) => {
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_TRACE_DIALOG]: flagOn })
-        traceDialogLogic.mount()
+        traceDialogOpenLogic.mount()
         router.actions.push('/logs')
         const pathnameBeforeClick = router.values.location.pathname
 
@@ -62,9 +62,9 @@ describe('useOpenTraceDialog', () => {
         )
         fireEvent.click(screen.getByText('View trace'), modifiers)
 
-        expect(traceDialogLogic.values.isOpen).toBe(expectDialog)
+        expect(traceDialogOpenLogic.values.isOpen).toBe(expectDialog)
         if (expectDialog) {
-            expect(traceDialogLogic.values.trace).toMatchObject({ traceId: 'abc123', spanId: 'DEF456' })
+            expect(traceDialogOpenLogic.values.trace).toMatchObject({ traceId: 'abc123', spanId: 'DEF456' })
             // A dialog click must not also follow the link.
             expect(router.values.location.pathname).toBe(pathnameBeforeClick)
         }

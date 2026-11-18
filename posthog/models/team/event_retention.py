@@ -1,7 +1,10 @@
+from collections.abc import Collection, Sequence
 from datetime import date
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
+from uuid import UUID
 
 from django.conf import settings
+from django.db import connection
 from django.utils import timezone
 
 import posthoganalytics
@@ -9,12 +12,10 @@ from dateutil.relativedelta import relativedelta
 
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
-from posthog.models.events_retention_config import effective_events_retention
-from posthog.models.organization import ProductFeature
+from posthog.dataclasses import frozen
+from posthog.models.events_retention_config import OrganizationEventsRetentionConfig, effective_events_retention
+from posthog.models.organization import Organization, ProductFeature
 from posthog.models.team.team import Team
-
-if TYPE_CHECKING:
-    from posthog.models.organization import Organization
 
 # Grandfather default: existing teams keep 7 years (84 months) until billing assigns a shorter window.
 DEFAULT_EVENT_RETENTION_MONTHS = 84
@@ -22,8 +23,13 @@ DEFAULT_EVENT_RETENTION_MONTHS = 84
 # Cohort feature flag — gates enforcement so the rollout can target a specific cohort.
 EVENTS_DATA_RETENTION_FLAG = "events-data-retention"
 
+EVENTS_DATA_DELETION_FLAG = "events-data-retention-deletion"
+
 # Billing entitlement key the sync job reconciles Team.event_retention_months against.
 EVENTS_DATA_RETENTION_FEATURE = AvailableFeature.PRODUCT_ANALYTICS_DATA_RETENTION
+
+STANDARD_DATA_RETENTION_FEATURE = AvailableFeature.PRODUCT_ANALYTICS_STANDARD_DATA_RETENTION
+STANDARD_DEFAULT_PERIOD_MONTHS = 24
 
 
 def should_enforce_events_retention(team_id: int) -> bool:
@@ -52,9 +58,9 @@ def should_enforce_events_retention(team_id: int) -> bool:
 def events_retention_months_for_team(team: Optional[Team], team_id: Optional[int]) -> Optional[int]:
     """Months of events retention to floor a query's events scans to, or None if retention isn't enforced.
 
-    The plan's window, shortened by the window set in project or organization settings. Computed once per query in
-    prepare_ast_for_printing. The cohort gate runs first and is DB-free, so non-cohort teams (the vast majority during
-    rollout) never hit Postgres here — only an enforced team triggers the lean field load.
+    The period set in project or organization settings, never past the plan's, else the default. Computed once per
+    query in prepare_ast_for_printing. The cohort gate runs first and is DB-free, so non-cohort teams (the vast majority
+    during rollout) never hit Postgres here — only an enforced team triggers the lean field load.
     """
     if team_id is None:
         if team is None:
@@ -65,27 +71,124 @@ def events_retention_months_for_team(team: Optional[Team], team_id: Optional[int
         return None
 
     if team is None:
-        team = Team.objects.filter(id=team_id).only("event_retention_months").first()
+        team = Team.objects.filter(id=team_id).only("organization_id", "event_retention_months").first()
         if team is None:
             return None
 
-    plan_months = team.event_retention_months or DEFAULT_EVENT_RETENTION_MONTHS
-    configured_months = _configured_events_retention_months(team)
-    return min(plan_months, configured_months) if configured_months is not None else plan_months
+    return _queryable_months(team)
 
 
-_REQUEST_CACHED_CONFIGURED_RETENTION_ATTR = "_request_cached_configured_events_retention_months"
+_REQUEST_CACHED_QUERYABLE_MONTHS_ATTR = "_request_cached_queryable_events_retention_months"
 
 
-def _configured_events_retention_months(team: Team) -> int | None:
-    """Memoise the window set in settings on the team instance, which is request-scoped in practice.
+def _queryable_months(team: Team) -> int:
+    """Memoise the period on the team instance, which is request-scoped in practice.
 
     Every insight on a dashboard and every query it prints asks again, and each ask is a Postgres query.
     """
-    if not hasattr(team, _REQUEST_CACHED_CONFIGURED_RETENTION_ATTR):
-        configured = effective_events_retention(team_ids=[team.id])
-        setattr(team, _REQUEST_CACHED_CONFIGURED_RETENTION_ATTR, configured[0].months if configured else None)
-    return getattr(team, _REQUEST_CACHED_CONFIGURED_RETENTION_ATTR)
+    if not hasattr(team, _REQUEST_CACHED_QUERYABLE_MONTHS_ATTR):
+        setattr(team, _REQUEST_CACHED_QUERYABLE_MONTHS_ATTR, events_retention_periods([team])[team.id])
+    return getattr(team, _REQUEST_CACHED_QUERYABLE_MONTHS_ATTR)
+
+
+@frozen
+class TeamPlan:
+    team_id: int
+    organization_id: UUID
+    plan_months: int
+
+
+def team_plan(team: Team) -> TeamPlan:
+    return TeamPlan(
+        team_id=team.id,
+        organization_id=team.organization_id,
+        plan_months=team.event_retention_months or DEFAULT_EVENT_RETENTION_MONTHS,
+    )
+
+
+def should_delete_past_default_period(team: Team) -> bool:
+    if settings.EVENTS_DATA_RETENTION_ENFORCED is not None:
+        return settings.EVENTS_DATA_RETENTION_ENFORCED
+
+    if not is_cloud():
+        return False
+
+    return bool(
+        posthoganalytics.feature_enabled(
+            EVENTS_DATA_DELETION_FLAG,
+            str(team.id),
+            person_properties={
+                "plan_retention_months": team_plan(team).plan_months,
+                "organization_id": str(team.organization_id),
+            },
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+    )
+
+
+def default_period(plan_months: int, standard: bool, min_months: int | None) -> int:
+    default = min(plan_months, STANDARD_DEFAULT_PERIOD_MONTHS) if standard else plan_months
+    return min(plan_months, max(default, min_months)) if min_months is not None else default
+
+
+def events_retention_periods(teams: Sequence[Team]) -> dict[int, int]:
+    return retention_periods([team_plan(team) for team in teams])
+
+
+def retention_periods(
+    plans: Sequence[TeamPlan], standard_organization_ids: Collection[UUID] | None = None
+) -> dict[int, int]:
+    setting_months = {
+        item.team_id: item.months for item in effective_events_retention(team_ids=[p.team_id for p in plans])
+    }
+    defaults = default_periods(
+        [plan for plan in plans if plan.team_id not in setting_months], standard_organization_ids
+    )
+    return {
+        plan.team_id: min(plan.plan_months, setting_months[plan.team_id])
+        if plan.team_id in setting_months
+        else defaults[plan.team_id]
+        for plan in plans
+    }
+
+
+def default_periods(
+    teams: Sequence[TeamPlan], standard_organization_ids: Collection[UUID] | None = None
+) -> dict[int, int]:
+    shortened = {team.organization_id for team in teams if STANDARD_DEFAULT_PERIOD_MONTHS < team.plan_months}
+    if standard_organization_ids is not None:
+        standard = shortened.intersection(standard_organization_ids)
+    else:
+        standard = _standard_retention_organization_ids(shortened) if shortened else set()
+    min_months = _minimum_months(standard) if standard else {}
+    return {
+        team.team_id: default_period(
+            team.plan_months, team.organization_id in standard, min_months.get(team.organization_id)
+        )
+        for team in teams
+    }
+
+
+def _minimum_months(organization_ids: Collection[UUID]) -> dict[UUID, int]:
+    return dict(
+        OrganizationEventsRetentionConfig.objects.filter(
+            organization_id__in=organization_ids, min_events_retention_months__isnull=False
+        ).values_list("organization_id", "min_events_retention_months")
+    )
+
+
+def _standard_retention_organization_ids(organization_ids: Collection[UUID]) -> set[UUID]:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT id FROM {Organization._meta.db_table}
+            WHERE id = ANY(%s::uuid[])
+              AND EXISTS (SELECT 1 FROM unnest(available_product_features) AS feature WHERE feature->>'key' = %s)
+            """,
+            [list(organization_ids), str(STANDARD_DATA_RETENTION_FEATURE)],
+        )
+        return {organization_id for (organization_id,) in cursor.fetchall()}
 
 
 def events_retention_floor_date(team: Team, retention_months: int) -> date:
@@ -118,11 +221,20 @@ def parse_events_feature_to_months(retention_feature: ProductFeature | None) -> 
             return DEFAULT_EVENT_RETENTION_MONTHS
 
 
-def organization_events_retention_months(organization: "Organization") -> int:
+def organization_events_retention_months(organization: Organization) -> int:
     return parse_events_feature_to_months(organization.get_available_feature(EVENTS_DATA_RETENTION_FEATURE))
 
 
-def reconcile_organization_events_retention(organization: "Organization") -> int:
+def billed_events_retention_months(organization: Organization) -> int | None:
+    """The plan period, or None before billing first sends the organization's features."""
+    return organization_events_retention_months(organization) if organization.available_product_features else None
+
+
+def has_standard_retention(organization: Organization) -> bool:
+    return organization.is_feature_available(STANDARD_DATA_RETENTION_FEATURE)
+
+
+def reconcile_organization_events_retention(organization: Organization) -> int:
     """Align the org's teams with its entitlement-derived retention window; returns teams updated.
 
     Re-reads the persisted entitlement so overlapping billing syncs can't apply a stale in-memory snapshot.

@@ -1,3 +1,5 @@
+import './dialog.css'
+
 import { Dialog as DialogPrimitive } from '@base-ui/react/dialog'
 import { mergeProps } from '@base-ui/react/merge-props'
 import { useRender } from '@base-ui/react/use-render'
@@ -5,7 +7,6 @@ import { XIcon } from 'lucide-react'
 import * as React from 'react'
 
 import { Button } from './button'
-import './dialog.css'
 import { cn } from './lib/utils'
 import { ScrollArea } from './scroll-area'
 
@@ -51,6 +52,8 @@ const DialogContent = React.forwardRef<
     DialogPrimitive.Popup.Props & {
         showCloseButton?: boolean
         nested?: boolean
+        /** Class for the backdrop behind this dialog, for a dialog that needs to dim the page more or less. */
+        overlayClassName?: string
         /**
          * Width variant. Defaults to the standard ~24rem dialog width
          * (Quill's existing media-query clamp at ≥640px viewports).
@@ -62,10 +65,13 @@ const DialogContent = React.forwardRef<
          */
         size?: 'wide' | 'full'
     }
->(function DialogContent({ className, children, showCloseButton = true, nested = false, size, ...props }, ref) {
+>(function DialogContent(
+    { className, children, showCloseButton = true, nested = false, size, overlayClassName, ...props },
+    ref
+) {
     return (
         <DialogPortal>
-            <DialogOverlay />
+            <DialogOverlay className={overlayClassName} />
             <DialogPrimitive.Popup
                 ref={ref}
                 data-quill

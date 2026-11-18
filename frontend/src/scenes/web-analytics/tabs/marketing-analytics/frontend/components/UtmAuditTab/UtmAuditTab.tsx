@@ -24,6 +24,7 @@ import {
 } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
+import { formatMarketingMoney } from '../../logic/utils'
 import type {
     AggregatedUtmSource,
     CampaignAuditResult,
@@ -123,10 +124,6 @@ function issueTooltip(record: CampaignAuditResult): string {
 function issueLabel(record: CampaignAuditResult): string {
     const kind = record.issues[0]?.kind
     return (kind && ISSUE_LABELS[kind]) || 'Source mismatch'
-}
-
-function formatCurrency(value: number, currency: string = 'USD'): string {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 0 }).format(value)
 }
 
 function formatNumber(value: number): string {
@@ -252,7 +249,7 @@ function CampaignTabContent(): JSX.Element {
                                             <div className="font-medium">{record.campaign_name}</div>
                                             <div className="text-xs text-secondary">
                                                 {record.source_name} · ID: {record.campaign_id} ·{' '}
-                                                {formatCurrency(record.spend, baseCurrency)} ·{' '}
+                                                {formatMarketingMoney(record.spend, baseCurrency)} ·{' '}
                                                 {formatNumber(record.clicks)} clicks
                                             </div>
                                         </div>

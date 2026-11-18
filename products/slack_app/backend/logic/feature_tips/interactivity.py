@@ -20,14 +20,22 @@ from products.slack_app.backend.logic.feature_tips.offer import (
     FEATURE_TIP_CTA_ACTION_ID,
     FEATURE_TIP_DISMISS_ACTION_ID,
     FEATURE_TIP_OPT_OUT_ACTION_ID,
+    FEATURE_TIP_UNDO_OPT_OUT_ACTION_ID,
 )
-from products.slack_app.backend.logic.feature_tips.state import FeatureTipsState, TipRecord, update_state
+from products.slack_app.backend.logic.feature_tips.state import (
+    FeatureTipsState,
+    TipRecord,
+    set_tips_enabled,
+    update_state,
+)
 from products.slack_app.backend.services.inbox_interactivity import post_response_url
+from products.slack_app.backend.services.slack_messages import section_block
 from products.slack_app.backend.services.workspace_integrations import get_workspace_integration
 
 logger = structlog.get_logger(__name__)
 
-TIPS_OFF_TEXT = "👋 Got it. I won't show you more tips."
+TIPS_OFF_TEXT = "👋 Got it. I won't show you more tips. You can turn them on again in the Home tab."
+TIPS_ON_AGAIN_TEXT = "💡 Tips are on again."
 
 
 @frozen
@@ -63,6 +71,17 @@ def feature_tip_integration_hint(payload: dict[str, Any]) -> int | None:
     return _integration_id(found.value) if found is not None else None
 
 
+def _tips_off_blocks(value: dict[str, Any]) -> list[dict[str, Any]]:
+    undo = {
+        "type": "button",
+        "action_id": FEATURE_TIP_UNDO_OPT_OUT_ACTION_ID,
+        "text": {"type": "plain_text", "text": "Undo"},
+        # The same value as the tip, so the cross-region router finds the region that owns the click.
+        "value": json.dumps(value),
+    }
+    return [section_block(TIPS_OFF_TEXT), {"type": "actions", "elements": [undo]}]
+
+
 def handle_feature_tip_action(payload: dict[str, Any]) -> HttpResponse:
     response_url = payload.get("response_url", "")
     found = _tip_action(payload)
@@ -80,6 +99,17 @@ def handle_feature_tip_action(payload: dict[str, Any]) -> HttpResponse:
     feature = SlackFeature(value["feature"])
 
     action_id = found.action_id
+    if action_id == FEATURE_TIP_UNDO_OPT_OUT_ACTION_ID:
+        set_tips_enabled(integration.integration_id, slack_user_id, True)
+        post_response_url(response_url, {"replace_original": True, "text": TIPS_ON_AGAIN_TEXT})
+        capture_slack_event(
+            integration,
+            "slack app feature tips turned on",
+            slack_user_id=slack_user_id,
+            feature=feature.value,
+            source="undo",
+        )
+        return HttpResponse(status=200)
     tip = CATALOG[feature]
     runs_action = action_id == FEATURE_TIP_CTA_ACTION_ID and tip.has_action
     now = timezone.now()
@@ -107,7 +137,10 @@ def handle_feature_tip_action(payload: dict[str, Any]) -> HttpResponse:
             post_response_url(response_url, {"delete_original": True})
     elif action_id == FEATURE_TIP_OPT_OUT_ACTION_ID:
         event = "slack app feature tips turned off"
-        post_response_url(response_url, {"replace_original": True, "text": TIPS_OFF_TEXT})
+        post_response_url(
+            response_url,
+            {"replace_original": True, "text": TIPS_OFF_TEXT, "blocks": _tips_off_blocks(found.value)},
+        )
     else:
         event = "slack app feature tip dismissed"
         post_response_url(response_url, {"delete_original": True})

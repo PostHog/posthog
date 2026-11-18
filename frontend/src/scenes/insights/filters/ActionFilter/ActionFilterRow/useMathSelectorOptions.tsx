@@ -2,18 +2,12 @@ import { useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconWarning } from '@posthog/icons'
-import { LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
 
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
+import { isInsightVizNode, isStickinessQuery, isTrendsQuery } from '~/queries/schema/node-guards'
 import { MathType } from '~/queries/schema/schema-general'
-import {
-    TRAILING_MATH_TYPES,
-    getMathTypeWarning,
-    isInsightVizNode,
-    isStickinessQuery,
-    isTrendsQuery,
-} from '~/queries/utils'
+import { TRAILING_MATH_TYPES, getMathTypeWarning } from '~/queries/utils'
 import { BaseMathType, ChartDisplayType, CountPerActorMathType, HogQLMathType, PropertyMathType } from '~/types'
 
 import { GroupIntroductionFooter } from 'products/groups/frontend/components/GroupsIntroduction'
@@ -25,13 +19,18 @@ import {
     mathsLogic,
 } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
 
+import { MathOptionChoiceSelect } from './MathOptionChoiceSelect'
 import {
     getDefaultPropertyMathType,
     isCountPerActorMath,
     SUPPORTED_PROPERTY_MATH_FOR_HISTOGRAM_BREAKDOWN,
 } from './mathUtils'
 import { MathAvailability } from './types'
-import type { MathSelectorProps } from './types'
+import type { MathOptionChoice, MathSelectorOption, MathSelectorProps, MathSelectorSection } from './types'
+
+function withChoice(option: MathSelectorOption, choice: MathOptionChoice): MathSelectorOption {
+    return { ...option, choice, labelInMenu: <MathOptionChoiceSelect choice={choice} /> }
+}
 
 function getActiveActor(
     selectedMath: string,
@@ -58,7 +57,7 @@ export function useMathSelectorOptions({
     excludedMathTypes,
     query,
     mathGroupTypeIndex,
-}: MathSelectorProps): LemonSelectOptions<string> {
+}: MathSelectorProps): MathSelectorSection[] {
     const isStickiness = query && isInsightVizNode(query) && isStickinessQuery(query.source)
     const isCalendarHeatmap =
         query &&
@@ -137,7 +136,7 @@ export function useMathSelectorOptions({
     }
     const isGroupsEnabled = !needsUpgradeForGroups && !canStartUsingGroups
 
-    const options: LemonSelectOption<string>[] = Object.entries(definitions)
+    const options: MathSelectorOption[] = Object.entries(definitions)
         .filter((entry): entry is [string, MathDefinition] => !!entry[1])
         .filter(([key]) => {
             const mathTypeKey = key as MathType
@@ -209,35 +208,33 @@ export function useMathSelectorOptions({
                 Object.values(CountPerActorMathType).some((type) => allowedMathTypes.includes(type))
 
             if (shouldShowCountPerUser) {
-                options.splice(1, 0, {
-                    value: countPerActorMathTypeShown,
-                    label: `Count per user ${COUNT_PER_ACTOR_MATH_DEFINITIONS[countPerActorMathTypeShown].shortName}`,
-                    labelInMenu: (
-                        <div className="flex items-center gap-2">
-                            <span>Count per user</span>
-                            <LemonSelect
-                                value={countPerActorMathTypeShown}
-                                onSelect={(value) => {
-                                    setCountPerActorMathTypeShown(value as CountPerActorMathType)
-                                    onMathSelect(index, value)
-                                }}
-                                options={Object.entries(COUNT_PER_ACTOR_MATH_DEFINITIONS)
-                                    .filter(([key]) => !allowedMathTypes || allowedMathTypes.includes(key))
-                                    .map(([key, definition]) => ({
-                                        value: key,
-                                        label: definition.shortName,
-                                        'data-attr': `math-${key}-${index}`,
-                                    }))}
-                                onClick={(e) => e.stopPropagation()}
-                                size="small"
-                                dropdownMatchSelectWidth={false}
-                                optionTooltipPlacement="right"
-                            />
-                        </div>
-                    ),
-                    tooltip: 'Statistical analysis of event count per user.',
-                    'data-attr': `math-node-count-per-actor-${index}`,
-                })
+                options.splice(
+                    1,
+                    0,
+                    withChoice(
+                        {
+                            value: countPerActorMathTypeShown,
+                            label: `Count per user ${COUNT_PER_ACTOR_MATH_DEFINITIONS[countPerActorMathTypeShown].shortName}`,
+                            tooltip: 'Statistical analysis of event count per user.',
+                            'data-attr': `math-node-count-per-actor-${index}`,
+                        },
+                        {
+                            prefix: 'Count per user',
+                            value: countPerActorMathTypeShown,
+                            onSelect: (value) => {
+                                setCountPerActorMathTypeShown(value as CountPerActorMathType)
+                                onMathSelect(index, value)
+                            },
+                            options: Object.entries(COUNT_PER_ACTOR_MATH_DEFINITIONS)
+                                .filter(([key]) => !allowedMathTypes || allowedMathTypes.includes(key))
+                                .map(([key, definition]) => ({
+                                    value: key,
+                                    label: definition.shortName,
+                                    'data-attr': `math-${key}-${index}`,
+                                })),
+                        }
+                    )
+                )
             }
         }
 
@@ -245,43 +242,39 @@ export function useMathSelectorOptions({
             !allowedMathTypes || Object.values(PropertyMathType).some((type) => allowedMathTypes.includes(type))
 
         if (shouldShowPropertyValue) {
-            options.push({
-                value: effectivePropertyMathTypeShown,
-                label: `Property value ${PROPERTY_MATH_DEFINITIONS[effectivePropertyMathTypeShown].shortName}`,
-                labelInMenu: (
-                    <div className="flex items-center gap-2">
-                        <span>Property value</span>
-                        <LemonSelect
-                            value={effectivePropertyMathTypeShown}
-                            onSelect={(value) => {
-                                setPropertyMathTypeShown(value as PropertyMathType)
-                                onMathSelect(index, value)
-                            }}
-                            options={Object.entries(PROPERTY_MATH_DEFINITIONS)
-                                .filter(([key]) => !allowedMathTypes || allowedMathTypes.includes(key))
-                                .map(([key, definition]) => ({
-                                    value: key,
-                                    label: definition.shortName,
-                                    tooltip: definition.description,
-                                    'data-attr': `math-${key}-${index}`,
-                                    disabledReason:
-                                        isHistogramBreakdown &&
-                                        // the backend raises an exception for queries that try to use unsupported math types
-                                        // for histogram breakdowns, but it's a nicer UX if we just disallow it in the first place.
-                                        !SUPPORTED_PROPERTY_MATH_FOR_HISTOGRAM_BREAKDOWN.has(key as PropertyMathType)
-                                            ? 'Not supported when breaking down by a numeric property'
-                                            : undefined,
-                                }))}
-                            onClick={(e) => e.stopPropagation()}
-                            size="small"
-                            dropdownMatchSelectWidth={false}
-                            optionTooltipPlacement="right"
-                        />
-                    </div>
-                ),
-                tooltip: 'Statistical analysis of property value.',
-                'data-attr': `math-node-property-value-${index}`,
-            })
+            options.push(
+                withChoice(
+                    {
+                        value: effectivePropertyMathTypeShown,
+                        label: `Property value ${PROPERTY_MATH_DEFINITIONS[effectivePropertyMathTypeShown].shortName}`,
+                        tooltip: 'Statistical analysis of property value.',
+                        'data-attr': `math-node-property-value-${index}`,
+                    },
+                    {
+                        prefix: 'Property value',
+                        value: effectivePropertyMathTypeShown,
+                        onSelect: (value) => {
+                            setPropertyMathTypeShown(value as PropertyMathType)
+                            onMathSelect(index, value)
+                        },
+                        options: Object.entries(PROPERTY_MATH_DEFINITIONS)
+                            .filter(([key]) => !allowedMathTypes || allowedMathTypes.includes(key))
+                            .map(([key, definition]) => ({
+                                value: key,
+                                label: definition.shortName,
+                                tooltip: definition.description,
+                                'data-attr': `math-${key}-${index}`,
+                                disabledReason:
+                                    isHistogramBreakdown &&
+                                    // the backend raises an exception for queries that try to use unsupported math types
+                                    // for histogram breakdowns, but it's a nicer UX if we just disallow it in the first place.
+                                    !SUPPORTED_PROPERTY_MATH_FOR_HISTOGRAM_BREAKDOWN.has(key as PropertyMathType)
+                                        ? 'Not supported when breaking down by a numeric property'
+                                        : undefined,
+                            })),
+                    }
+                )
+            )
         }
     }
 
@@ -311,30 +304,24 @@ export function useMathSelectorOptions({
             const tooltip = isDau
                 ? options[uniqueUsersIndex].tooltip
                 : groupsMathDefinitions[uniqueActorsShown]?.description
-            options[uniqueUsersIndex] = {
-                value,
-                label,
-                tooltip,
-                labelInMenu: (
-                    <div className="flex items-center gap-2">
-                        <span>Unique</span>
-                        <LemonSelect
-                            value={uniqueActorsShown}
-                            onClick={(e) => e.stopPropagation()}
-                            size="small"
-                            dropdownMatchSelectWidth={false}
-                            optionTooltipPlacement="right"
-                            onSelect={(value) => {
-                                setUniqueActorsShown(value as string)
-                                const mathType = value === 'users' ? BaseMathType.UniqueUsers : value
-                                onMathSelect(index, mathType)
-                            }}
-                            options={uniqueActorsOptions}
-                        />
-                    </div>
-                ),
-                'data-attr': `math-node-unique-actors-${index}`,
-            }
+            options[uniqueUsersIndex] = withChoice(
+                {
+                    value,
+                    label,
+                    tooltip,
+                    'data-attr': `math-node-unique-actors-${index}`,
+                },
+                {
+                    prefix: 'Unique',
+                    value: uniqueActorsShown,
+                    onSelect: (value) => {
+                        setUniqueActorsShown(value)
+                        const mathType = value === 'users' ? BaseMathType.UniqueUsers : value
+                        onMathSelect(index, mathType)
+                    },
+                    options: uniqueActorsOptions,
+                }
+            )
         }
 
         const getActiveActorOptionByPeriod = (
@@ -344,8 +331,8 @@ export function useMathSelectorOptions({
             period: 'month' | 'week',
             days: '30' | '7',
             optionIndex: number
-        ): LemonSelectOption<string> => {
-            const baseOption = options[optionIndex] as LemonSelectOption<string>
+        ): MathSelectorOption => {
+            const baseOption = options[optionIndex]
             const isUsers = activeActorShown === 'users'
             const actor = isUsers ? 'users' : aggregationLabel(mathGroupTypeIndex).plural
             const capitalizedActor = capitalizeFirstLetter(actor)
@@ -375,36 +362,28 @@ export function useMathSelectorOptions({
                 </>
             )
 
-            return {
-                ...baseOption,
-                value: mathType,
-                label,
-                tooltip,
-                'data-attr': `math-node-${period}ly-active-actors-${index}`,
-                labelInMenu: (
-                    <div className="flex items-center gap-2">
-                        <span>{capitalizeFirstLetter(period)}ly active</span>
-                        <LemonSelect
-                            value={activeActorShown}
-                            onClick={(e) => e.stopPropagation()}
-                            size="small"
-                            dropdownMatchSelectWidth={false}
-                            optionTooltipPlacement="right"
-                            onSelect={(value) => {
-                                setActiveActorShown(value as string)
-                                const groupIndex =
-                                    value === 'users'
-                                        ? undefined
-                                        : mathTypeToApiValues(value as string).math_group_type_index
-                                const resolvedMathType =
-                                    groupIndex !== undefined ? `${period}ly_active::${groupIndex}` : mathType
-                                onMathSelect(index, resolvedMathType)
-                            }}
-                            options={uniqueActorsOptions}
-                        />
-                    </div>
-                ),
-            }
+            return withChoice(
+                {
+                    ...baseOption,
+                    value: mathType,
+                    label,
+                    tooltip,
+                    'data-attr': `math-node-${period}ly-active-actors-${index}`,
+                },
+                {
+                    prefix: `${capitalizeFirstLetter(period)}ly active`,
+                    value: activeActorShown,
+                    onSelect: (value) => {
+                        setActiveActorShown(value)
+                        const groupIndex =
+                            value === 'users' ? undefined : mathTypeToApiValues(value).math_group_type_index
+                        const resolvedMathType =
+                            groupIndex !== undefined ? `${period}ly_active::${groupIndex}` : mathType
+                        onMathSelect(index, resolvedMathType)
+                    },
+                    options: uniqueActorsOptions,
+                }
+            )
         }
 
         const monthlyActiveUsersIndex = options.findIndex(
@@ -447,7 +426,7 @@ export function useMathSelectorOptions({
             if (optionIndex === -1) {
                 return
             }
-            const baseOption = options[optionIndex] as LemonSelectOption<string>
+            const baseOption = options[optionIndex]
             const baseName = staticMathDefinitions[baseMathType]?.name ?? ''
             const actorOptions = [
                 {
@@ -466,30 +445,26 @@ export function useMathSelectorOptions({
                     })),
             ]
             const isUsers = actorShown === 'users'
-            options[optionIndex] = {
-                ...baseOption,
-                value: isUsers ? baseMathType : actorShown,
-                label: isUsers ? baseOption.label : `${baseName} for ${aggregationLabel(mathGroupTypeIndex).plural}`,
-                tooltip: isUsers ? baseOption.tooltip : groupDefinitions[actorShown]?.description,
-                labelInMenu: (
-                    <div className="flex items-center gap-2">
-                        <span>{baseName} for</span>
-                        <LemonSelect
-                            value={actorShown}
-                            onClick={(e) => e.stopPropagation()}
-                            size="small"
-                            dropdownMatchSelectWidth={false}
-                            optionTooltipPlacement="right"
-                            onSelect={(value) => {
-                                setActorShown(value as string)
-                                onMathSelect(index, value === 'users' ? baseMathType : value)
-                            }}
-                            options={actorOptions}
-                        />
-                    </div>
-                ),
-                'data-attr': `math-node-first-occurrence-${baseMathType}-${index}`,
-            }
+            options[optionIndex] = withChoice(
+                {
+                    ...baseOption,
+                    value: isUsers ? baseMathType : actorShown,
+                    label: isUsers
+                        ? baseOption.label
+                        : `${baseName} for ${aggregationLabel(mathGroupTypeIndex).plural}`,
+                    tooltip: isUsers ? baseOption.tooltip : groupDefinitions[actorShown]?.description,
+                    'data-attr': `math-node-first-occurrence-${baseMathType}-${index}`,
+                },
+                {
+                    prefix: `${baseName} for`,
+                    value: actorShown,
+                    onSelect: (value) => {
+                        setActorShown(value)
+                        onMathSelect(index, value === 'users' ? baseMathType : value)
+                    },
+                    options: actorOptions,
+                }
+            )
         }
 
         addFirstOccurrenceActorPicker(

@@ -1,11 +1,16 @@
+from contextlib import nullcontext
+
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from slack_sdk.errors import SlackApiError
 
+from posthog.integrations import IntegrationNotFound
 from posthog.temporal.ai_observability.eval_reports.delivery import (
     CitationMap,
+    SlackDeliveryFailure,
     _build_citation_map,
     _format_period_for_display,
     _inline_email_styles,
@@ -349,12 +354,36 @@ class TestMetricsBlockHtml(SimpleTestCase):
         self.assertIn("▼", html)
         self.assertIn("30.00pp", html)
 
-    def test_no_delta_when_previous_is_none(self):
-        metrics = EvalReportMetrics(total_runs=10, result_counts={"pass": 9, "fail": 1, "na": 0})
-        html = _render_metrics_block_html(metrics)
-        self.assertNotIn("▲", html)
-        self.assertNotIn("▼", html)
-        self.assertNotIn("pp vs previous", html)
+    @parameterized.expand(
+        [
+            ("no_previous_report", {"total_runs": 10, "result_counts": {"pass": 9, "fail": 1, "na": 0}}),
+            (
+                "empty_period",
+                {"total_runs": 0, "result_counts": {"pass": 0, "fail": 0, "na": 0}, "previous_pass_rate": 92.0},
+            ),
+            (
+                "empty_sentiment_period",
+                {
+                    "output_type": "sentiment",
+                    "total_runs": 0,
+                    "result_counts": {"positive": 0, "neutral": 0, "negative": 0},
+                    "previous_result_rates": {"positive": 60.0, "neutral": 10.0, "negative": 30.0},
+                },
+            ),
+        ]
+    )
+    def test_no_delta_without_a_comparison(self, _name: str, fields: dict) -> None:
+        metrics = EvalReportMetrics(**fields)
+        for rendered in (_render_metrics_block_html(metrics), _render_metrics_slack_blocks(metrics)[0]["text"]["text"]):
+            self.assertNotIn("▲", rendered)
+            self.assertNotIn("▼", rendered)
+            self.assertNotIn("pp", rendered)
+
+    def test_empty_period_shows_no_pass_rate(self) -> None:
+        metrics = EvalReportMetrics(
+            total_runs=0, result_counts={"pass": 0, "fail": 0, "na": 0}, previous_pass_rate=92.0
+        )
+        self.assertIn("Pass rate: —", _render_metrics_slack_blocks(metrics)[0]["text"]["text"])
 
     def test_unavailable_metrics_render_notice_not_zero_table(self):
         html = _render_metrics_block_html(
@@ -478,8 +507,8 @@ class TestDeliverReport(SimpleTestCase):
     @patch("products.ai_observability.backend.models.evaluation_reports.EvaluationReport.objects")
     def test_deliver_report_partial_failure(self, mock_report_qs, mock_run_qs, mock_slack, mock_email):
         targets = [
-            {"type": "email", "value": "test@example.com"},
-            {"type": "slack", "integration_id": 1, "channel": "#reports"},
+            {"type": "email", "value": "test@example.com, other@example.com"},
+            {"type": "slack", "integration_id": 1, "channel": "C0001|reports"},
         ]
         report = self._make_report(targets)
         run = self._make_report_run()
@@ -487,11 +516,43 @@ class TestDeliverReport(SimpleTestCase):
         mock_report_qs.select_related.return_value.get.return_value = report
         mock_run_qs.get.return_value = run
         mock_email.return_value = []
-        mock_slack.return_value = ["slack failed"]
+        mock_slack.return_value = [SlackDeliveryFailure(message="slack failed", retryable=True)]
 
         deliver_report("report-id", "run-id")
 
         self.assertEqual(run.delivery_status, "partial_failure")
+        self.assertEqual(
+            run.delivery_destinations,
+            [
+                {"type": "email", "name": "test@example.com"},
+                {"type": "email", "name": "other@example.com"},
+                {"type": "slack", "name": "reports"},
+            ],
+        )
+        run.save.assert_called_once_with(update_fields=["delivery_status", "delivery_errors", "delivery_destinations"])
+
+    @parameterized.expand([("retryable_raises_for_retry", True), ("config_error_disables_report", False)])
+    @patch("posthog.temporal.ai_observability.eval_reports.delivery.disable_undeliverable_report")
+    @patch("posthog.temporal.ai_observability.eval_reports.delivery.deliver_email_report")
+    @patch("posthog.temporal.ai_observability.eval_reports.delivery.deliver_slack_report")
+    @patch("products.ai_observability.backend.models.evaluation_reports.EvaluationReportRun.objects")
+    @patch("products.ai_observability.backend.models.evaluation_reports.EvaluationReport.objects")
+    def test_all_slack_targets_failed(
+        self, _name, retryable, mock_report_qs, mock_run_qs, mock_slack, _mock_email, mock_disable
+    ):
+        report = self._make_report([{"type": "slack", "integration_id": 1, "channel": "C0123|#reports"}])
+        run = self._make_report_run()
+
+        mock_report_qs.select_related.return_value.get.return_value = report
+        mock_run_qs.get.return_value = run
+        mock_slack.return_value = [SlackDeliveryFailure(message="slack failed", retryable=retryable)]
+
+        with self.assertRaises(RuntimeError) if retryable else nullcontext():
+            deliver_report("report-id", "run-id")
+
+        self.assertEqual(run.delivery_status, "failed")
+        self.assertEqual(run.delivery_errors, ["slack failed"])
+        self.assertEqual(mock_disable.called, not retryable)
 
     @patch("posthog.temporal.ai_observability.eval_reports.delivery.deliver_email_report")
     @patch("posthog.temporal.ai_observability.eval_reports.delivery.deliver_slack_report")
@@ -585,6 +646,7 @@ class TestDeliverSlackReport(SimpleTestCase):
             self._make_report_run(sections=sections),
             targets,
             evaluation_name="Test Eval",
+            evaluation_id="eval-1",
             team_id=7,
             project_id=1,
             period_start="2026-03-01T00:00:00+00:00",
@@ -612,6 +674,7 @@ class TestDeliverSlackReport(SimpleTestCase):
             self._make_report_run(),
             targets,
             evaluation_name="Test Eval",
+            evaluation_id="eval-1",
             team_id=7,
             project_id=1,
             period_start="2026-03-01T00:00:00+00:00",
@@ -628,24 +691,29 @@ class TestDeliverSlackReport(SimpleTestCase):
 
     @patch("posthog.models.integration.SlackIntegration")
     @patch("posthog.integrations.IntegrationManager")
-    def test_root_message_carries_the_followup_invite(self, mock_integration, mock_slack_integration):
+    def test_root_message_links_the_report_and_carries_the_followup_invite(
+        self, mock_integration, mock_slack_integration
+    ):
         # The invite goes on the root message only, so a reader meets it once per report rather
         # than under every section. Which of its two variants renders is the shared builder's
         # decision, tested in products/slack_app; here it only has to be attached.
         client = MagicMock()
         client.chat_postMessage.return_value = {"ts": "123.456"}
         mock_slack_integration.return_value.client = client
+        report_run = self._make_report_run(
+            sections=[
+                ReportSection(title="Summary", content="All good."),
+                ReportSection(title="Details", content="More detail."),
+            ]
+        )
+        report_run.id = "run-1"
 
         targets = [{"type": "slack", "integration_id": 1, "channel": "C0B5CHB0JQH|#evals"}]
         errors = deliver_slack_report(
-            self._make_report_run(
-                sections=[
-                    ReportSection(title="Summary", content="All good."),
-                    ReportSection(title="Details", content="More detail."),
-                ]
-            ),
+            report_run,
             targets,
             evaluation_name="Test Eval",
+            evaluation_id="eval-1",
             team_id=1,
             project_id=1,
             period_start="2026-03-01T00:00:00+00:00",
@@ -654,6 +722,7 @@ class TestDeliverSlackReport(SimpleTestCase):
 
         self.assertEqual(errors, [])
         root_blocks = client.chat_postMessage.call_args_list[0].kwargs["blocks"]
+        self.assertIn("/ai-evals/evaluations/eval-1?report_run=run-1|", root_blocks[1]["elements"][0]["text"])
         self.assertIn("@PostHog", root_blocks[-1]["elements"][0]["text"])
         self.assertNotIn("blocks", client.chat_postMessage.call_args_list[1].kwargs)
 
@@ -671,6 +740,7 @@ class TestDeliverSlackReport(SimpleTestCase):
             self._make_report_run(),
             targets,
             evaluation_name="Test Eval",
+            evaluation_id="eval-1",
             team_id=1,
             project_id=1,
             period_start="2026-03-01T00:00:00+00:00",
@@ -678,5 +748,48 @@ class TestDeliverSlackReport(SimpleTestCase):
         )
 
         self.assertEqual(len(errors), 1)
-        self.assertIn("|#tech-devops-cron", errors[0])
+        self.assertIn("|#tech-devops-cron", errors[0].message)
+        self.assertFalse(errors[0].retryable)
         client.chat_postMessage.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("bot_not_in_channel", True, "not_in_channel", False, "#evals: The PostHog app is not in this channel"),
+            ("revoked_token", True, "token_revoked", False, "Reconnect Slack"),
+            ("rate_limited", True, "ratelimited", True, "ratelimited"),
+            ("integration_deleted", False, None, False, "Reconnect Slack"),
+        ]
+    )
+    @patch("posthog.models.integration.SlackIntegration")
+    @patch("posthog.integrations.IntegrationManager")
+    def test_slack_failure_is_classified(
+        self,
+        _name,
+        integration_exists,
+        slack_error,
+        expected_retryable,
+        expected_text,
+        mock_integration,
+        mock_slack_integration,
+    ):
+        if not integration_exists:
+            mock_integration.slack.oauth.get.side_effect = IntegrationNotFound("deleted")
+        client = MagicMock()
+        client.chat_postMessage.side_effect = SlackApiError("failed", {"ok": False, "error": slack_error})
+        mock_slack_integration.return_value.client = client
+
+        targets = [{"type": "slack", "integration_id": 1, "channel": "C0B5CHB0JQH|#evals"}]
+        errors = deliver_slack_report(
+            self._make_report_run(),
+            targets,
+            evaluation_name="Test Eval",
+            evaluation_id="eval-1",
+            team_id=1,
+            project_id=1,
+            period_start="2026-03-01T00:00:00+00:00",
+            period_end="2026-03-02T00:00:00+00:00",
+        )
+
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0].retryable, expected_retryable)
+        self.assertIn(expected_text, errors[0].message)

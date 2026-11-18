@@ -8,17 +8,17 @@ from parameterized import parameterized
 
 from products.tasks.backend.facade.profiles import (
     DrivePolicy,
+    GithubAccess,
     GithubResolution,
     Read,
     TaskProfile,
     WarmPolicy,
-    WarmQuota,
     task_profiles,
 )
 from products.tasks.backend.facade.run_config import WARMABLE_ORIGIN_PRODUCTS
 from products.tasks.backend.logic.services.compute_quota import is_billable_compute
 from products.tasks.backend.logic.services.sandbox import parse_requested_sandbox_template
-from products.tasks.backend.logic.services.warm import SandboxWarmer
+from products.tasks.backend.logic.services.warm import _CHECKERS_BY_WARM_QUOTA, SandboxWarmer
 from products.tasks.backend.models import MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN, Task, TaskClientProvenance
 from products.tasks.backend.presentation.views.api import (
     WARM_SANDBOX_FLAGS_BY_ORIGIN_PRODUCT,
@@ -26,9 +26,12 @@ from products.tasks.backend.presentation.views.api import (
 )
 from products.tasks.backend.temporal.oauth import _oauth_application_for_task
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
-from products.tasks.backend.temporal.process_task.activities.start_agent_server import _include_personal_mcp_for_task
 from products.tasks.backend.temporal.process_task.ai_gateway_token import resolve_sandbox_ai_product
-from products.tasks.backend.temporal.process_task.utils import USER_AUTHORABLE_ORIGIN_PRODUCTS, get_pr_authorship_mode
+from products.tasks.backend.temporal.process_task.utils import (
+    USER_AUTHORABLE_ORIGIN_PRODUCTS,
+    get_pr_authorship_mode,
+    include_personal_mcp_for_task,
+)
 from products.tasks.backend.visibility import (
     PRODUCT_PRIVATE_ORIGIN_PRODUCTS,
     TEAM_READABLE_ORIGIN_PRODUCTS,
@@ -69,7 +72,7 @@ def _master_warm_policy(origin_product: str) -> WarmPolicy | None:
     caps = SandboxWarmer.ORIGIN_PRODUCT_CAPS.get(origin_product, SandboxWarmer._DEFAULT_CAPS)
     checker = SandboxWarmer.ORIGIN_PRODUCT_QUOTA[origin_product]
     return WarmPolicy(
-        quota=WarmQuota.NONE if checker is None else WarmQuota.AI_CREDITS,
+        quota=next(quota for quota, check in _CHECKERS_BY_WARM_QUOTA.items() if check is checker),
         per_user_cap=caps.per_user,
         per_org_cap=caps.per_org,
         feature_flag=None
@@ -131,7 +134,7 @@ class TestTaskProfilesMatchMaster(SimpleTestCase):
 
     @parameterized.expand(PROFILES)
     def test_personal_mcp_matches_master(self, _key: str, profile: TaskProfile) -> None:
-        self.assertEqual(profile.personal_mcp, _include_personal_mcp_for_task(_task(profile)))
+        self.assertEqual(profile.personal_mcp, include_personal_mcp_for_task(_task(profile)))
 
     @parameterized.expand(PROFILES)
     def test_inherit_user_defaults_matches_master(self, _key: str, profile: TaskProfile) -> None:
@@ -153,12 +156,24 @@ class TestTaskProfilesMatchMaster(SimpleTestCase):
         self.assertEqual(attaches_github, master)
 
     @parameterized.expand(PROFILES)
+    def test_github_access_matches_master(self, _key: str, profile: TaskProfile) -> None:
+        attaches_github = any(
+            Task._github_resolution_allowed(profile.origin_product, has_repository=has_repository)
+            for has_repository in (True, False)
+        )
+        self.assertEqual(profile.github_access, GithubAccess.WRITE if attaches_github else GithubAccess.NONE)
+
+    @parameterized.expand(PROFILES)
     def test_user_authorable_prs_matches_master(self, _key: str, profile: TaskProfile) -> None:
         self.assertEqual(profile.user_authorable_prs, profile.origin_product in USER_AUTHORABLE_ORIGIN_PRODUCTS)
 
     @parameterized.expand(PROFILES)
     def test_default_pr_authorship_matches_master(self, _key: str, profile: TaskProfile) -> None:
         self.assertEqual(profile.default_pr_authorship, get_pr_authorship_mode(_task(profile), None))
+
+    @parameterized.expand(PROFILES)
+    def test_create_pr_matches_master(self, _key: str, profile: TaskProfile) -> None:
+        self.assertEqual(profile.create_pr, profile.origin_product not in PRODUCT_PRIVATE_ORIGIN_PRODUCTS)
 
     @parameterized.expand(PROFILES)
     def test_default_runtime_matches_master(self, _key: str, profile: TaskProfile) -> None:

@@ -1,9 +1,15 @@
 import { urls } from 'scenes/urls'
 
-import { ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Notebooks',
+    activityDescribers: {
+        [ActivityScope.NOTEBOOK]: () =>
+            import('scenes/notebooks/Notebook/notebookActivityDescriber').then(
+                (module) => module.notebookActivityDescriber
+            ),
+    },
     scenes: {
         ReusableWidget: {
             name: 'Reusable widget',

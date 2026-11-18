@@ -1,8 +1,6 @@
-"""The default-branch runs that a CI timing comparison may sample.
+"""The completed default-branch runs of one workflow that a CI timing comparison may sample.
 
-A candidate is a completed run of the same workflow, on the same engine, that a push or a schedule
-started on the repository's default branch. The newest ``RUNS_SCANNED`` are returned, because the
-caller reads every job of every candidate.
+Only the newest ``RUNS_SCANNED`` are returned, because the caller reads every job of every candidate.
 """
 
 from datetime import datetime
@@ -17,13 +15,10 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
 
 RUNS_SCANNED = 40
 
-# A pull request from a fork branch that has the default branch's name carries that name as its head
-# branch, so the branch alone does not prove a default-branch run. The trigger event does. A run with
-# no recorded event (a Depot CI run, or a table that lacks the column) qualifies only when no pull
-# request is attributed to it.
+# A fork pull request can use the default branch's name as its head branch, so the trigger event
+# decides. A run with no recorded event qualifies only when no pull request is attributed to it.
 _NOT_A_PULL_REQUEST_RUN = "if(ifNull(event, '') = '', pr_number = 0, NOT startsWith(event, 'pull_request'))"
 
-# One row more than the scan reads, which tells the caller that more eligible runs existed.
 _SELECT = f"""
     SELECT id, run_attempt, head_sha, run_started_at, native_run_id, native_workflow_run_id
     FROM __RUNS_SOURCE__ AS r
@@ -69,8 +64,8 @@ def query_timing_candidates(
     default_branch: str,
     window_start: datetime,
 ) -> TimingCandidates:
-    """Runs comparable to ``run``. The workflow id identifies the workflow when ``run`` has one, because
-    it survives a rename. The workflow name is the fallback."""
+    """Runs comparable to ``run``, excluding ``run`` itself. The workflow is matched by id when
+    ``run`` has one, because an id survives a rename, and by name otherwise."""
     placeholders: dict[str, ast.Expr] = {
         "repo_owner": ast.Constant(value=run.repo.owner),
         "repo_name": ast.Constant(value=run.repo.name),
@@ -87,7 +82,7 @@ def query_timing_candidates(
         identity = "workflow_name = {workflow_name}"
         placeholders["workflow_name"] = ast.Constant(value=run.workflow_name)
     response = curated.run(
-        _SELECT.replace("__RUNS_SOURCE__", curated.run_source(started_floor=True)).replace(
+        _SELECT.replace("__RUNS_SOURCE__", curated.run_source(started_floor=True, since=window_start)).replace(
             "__WORKFLOW_IDENTITY__", identity
         ),
         query_type="engineering_analytics.ci_timing_candidates",

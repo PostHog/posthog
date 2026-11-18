@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 
-import { IconChevronDown, IconChevronRight } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { IconChevronDown, IconChevronRight, IconGear, IconPlus } from '@posthog/icons'
+import { LemonButton, LemonInput, Spinner } from '@posthog/lemon-ui'
 
 import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 
@@ -13,11 +13,20 @@ import { type LLMProvider, toLLMProvider } from './settings/llmProviderKeysLogic
 
 export const PROVIDER_SETTINGS_URL = urls.settings('project-ai-observability', 'ai-observability-byok')
 
-export function getModelPickerFooterLink(hasByokKeys: boolean): { label: string; to: string } {
-    return {
-        label: hasByokKeys ? 'Configure AI providers' : 'Add your own API keys',
-        to: PROVIDER_SETTINGS_URL,
-    }
+export function getModelPickerFooterActions(hasByokKeys: boolean, onAddKey: () => void): LemonMenuItem[] {
+    return [
+        { icon: <IconPlus />, label: 'Add API key', onClick: onAddKey, 'data-attr': 'model-picker-add-api-key' },
+        ...(hasByokKeys
+            ? [
+                  {
+                      icon: <IconGear />,
+                      label: 'Manage API keys',
+                      to: PROVIDER_SETTINGS_URL,
+                      'data-attr': 'model-picker-manage-api-keys',
+                  },
+              ]
+            : []),
+    ]
 }
 
 export function parsePlaygroundProviderKeyId(providerKeyId: string): LLMProvider | null {
@@ -30,7 +39,8 @@ export interface ModelPickerProps {
     onSelect: (modelId: string, providerKeyId: string) => void
     groups: ProviderModelGroup[]
     loading?: boolean
-    footerLink?: { label: string; to: string } | null
+    onOpen?: () => void
+    footerActions?: LemonMenuItem[]
     placeholder?: string
     selectedModelName?: string
     'data-attr'?: string
@@ -105,7 +115,8 @@ export function ModelPicker({
     onSelect,
     groups,
     loading = false,
-    footerLink,
+    onOpen,
+    footerActions,
     placeholder = 'Select model',
     selectedModelName,
     'data-attr': dataAttr,
@@ -124,13 +135,11 @@ export function ModelPicker({
     }
 
     const handleVisibilityChange = (visible: boolean): void => {
-        if (!visible) {
+        if (visible) {
+            onOpen?.()
+        } else {
             setSearch('')
         }
-    }
-
-    if (loading) {
-        return <LemonSkeleton className="h-10" />
     }
 
     const isSearching = search.length > 0
@@ -160,7 +169,11 @@ export function ModelPicker({
                   {
                       label: () => (
                           <div className="px-2 py-1.5 text-xs text-secondary">
-                              {isSearching ? 'No models match your search.' : 'No models available.'}
+                              {loading
+                                  ? 'Loading models...'
+                                  : isSearching
+                                    ? 'No models match your search.'
+                                    : 'No models available.'}
                           </div>
                       ),
                   },
@@ -237,19 +250,7 @@ export function ModelPicker({
                 ],
             }
         }),
-        ...(footerLink
-            ? [
-                  {
-                      label: () => (
-                          <div className="px-2 py-1.5 border-t">
-                              <Link to={footerLink.to} className="text-xs">
-                                  {footerLink.label}
-                              </Link>
-                          </div>
-                      ),
-                  },
-              ]
-            : []),
+        ...(footerActions?.length ? [{ items: footerActions }] : []),
     ]
 
     return (
@@ -265,6 +266,7 @@ export function ModelPicker({
                 className="justify-between"
                 data-attr={dataAttr}
                 icon={selectedProvider ? <LLMProviderIcon provider={selectedProvider} /> : undefined}
+                sideIcon={loading ? <Spinner textColored /> : undefined}
             >
                 {selectedModelName ?? (model || placeholder)}
             </LemonButton>

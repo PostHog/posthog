@@ -44,7 +44,7 @@ class HasMetricsQueryRunner:
                 query_type="HasMetricsQuery",
                 query=query,
                 team=self.team,
-                workload=Workload.LOGS,
+                workload=Workload.METRICS,
             )
         except CHQueryErrorUnknownTable:
             # The metrics tables are provisioned out-of-band per environment;

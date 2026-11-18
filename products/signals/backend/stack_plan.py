@@ -27,7 +27,10 @@ from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import (
     ARTEFACT_CONTENT_SCHEMAS,
     ReportLink,
+    ReviewerProposal,
+    ReviewerState,
     StatusArtefactContent,
+    SuggestedReviewers,
     TaskRunArtefact,
 )
 from products.signals.backend.billing import system_billing_exempt_reason
@@ -137,6 +140,10 @@ def create_layer_reports(
                 content=judgment,
                 attribution=attribution,
                 reevaluate_autostart=False,
+                # The layer is new, so its reviewer state is empty.
+                reviewer_proposal=ReviewerProposal(expected_state=ReviewerState(), source="stack_plan")
+                if isinstance(judgment, SuggestedReviewers)
+                else None,
             )
         SignalReportArtefact.add_log(
             team_id=team_id,

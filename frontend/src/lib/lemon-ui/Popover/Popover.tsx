@@ -27,9 +27,9 @@ import React, {
     useState,
 } from 'react'
 
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
+import { ScrollableShadows } from 'lib/lemon-ui/ScrollableShadows/ScrollableShadows'
 
 import { LemonTableLoader } from '../LemonTable/LemonTableLoader'
 
@@ -97,6 +97,15 @@ const openPopoverFloatings: Array<{ level: number; element: HTMLElement }> = []
 // element still matches.
 const optedOutOfOutsideDismiss = (target: EventTarget | Node | null): boolean =>
     target instanceof Element && !!target.closest(`.${CLICK_OUTSIDE_BLOCK_CLASS}`)
+
+// For a non-Lemon popover that hosts Lemon content: true when a click or focus target sits in an open Lemon
+// popover, which portals outside the host, so the host can stay open.
+export function isInsideOpenPopover(target: EventTarget | null): boolean {
+    return (
+        optedOutOfOutsideDismiss(target) ||
+        (target instanceof Node && openPopoverFloatings.some((p) => p.element.contains(target)))
+    )
+}
 
 /** This is a custom popover control that uses `floating-ui` to position DOM nodes.
  *

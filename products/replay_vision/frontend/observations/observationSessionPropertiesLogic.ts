@@ -3,10 +3,10 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { HogQLQueryString, escapePropertyAsHogQLIdentifier, hogql } from 'lib/utils/hogql'
 import { getTimestampFromUUIDv7 } from 'scenes/sessions/sessionProfileLogic'
 
 import { QueryLogTags } from '~/queries/schema/schema-general'
-import { HogQLQueryString, escapePropertyAsHogQLIdentifier, hogql } from '~/queries/utils'
 
 import { PinnedProperty, observationPinnedPropertiesLogic } from './observationPinnedPropertiesLogic'
 

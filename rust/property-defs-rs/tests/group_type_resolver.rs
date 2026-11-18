@@ -153,6 +153,14 @@ impl PersonHogService for MockPersonHogService {
         Err(Status::unimplemented("not exercised by this mock"))
     }
 
+    async fn raise_person_version(
+        &self,
+        _req: Request<personhog_proto::personhog::types::v1::RaisePersonVersionRequest>,
+    ) -> Result<Response<personhog_proto::personhog::types::v1::RaisePersonVersionResponse>, Status>
+    {
+        Err(Status::unimplemented("not exercised by this mock"))
+    }
+
     async fn get_group_type_mappings_by_team_ids(
         &self,
         _req: Request<GetGroupTypeMappingsByTeamIdsRequest>,

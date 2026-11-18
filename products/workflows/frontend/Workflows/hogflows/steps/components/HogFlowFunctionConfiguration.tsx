@@ -1,9 +1,9 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
 import { IconCheck } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCollapse, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonCollapse, Link, Spinner } from '@posthog/lemon-ui'
 
 import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
 import { templateToConfiguration } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
@@ -18,6 +18,7 @@ import { hogFlowEditorTestLogic } from '../../panel/testing/hogFlowEditorTestLog
 import { isGithubEventTriggerConfig } from '../../registry/triggers/githubTriggerFilters'
 import { isSlackMessageTriggerConfig } from '../../registry/triggers/slackTriggerFilters'
 import { CustomerTaskWorkflowReferenceInput } from './CustomerTaskWorkflowReferenceInput'
+import { EnableEngagementEventsBanner } from './EnableEngagementEventsBanner'
 import { HogFlowFunctionMappings } from './HogFlowFunctionMappings'
 import { WorkflowAutoSaveIndicator } from './WorkflowAutoSaveIndicator'
 
@@ -214,8 +215,7 @@ export function HogFlowFunctionConfiguration({
     // The test panel loads a recent matching event; reuse it so autocomplete offers the property
     // names this workflow really carries. Already mounted by the surrounding step detail panel.
     const { sampleGlobals: realSampleGlobals } = useValues(hogFlowEditorTestLogic(logicProps))
-    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { currentTeam } = useValues(teamLogic)
 
     const template = hogFunctionTemplatesById[templateId]
     const isEmailStep = templateId === 'template-email'
@@ -253,9 +253,21 @@ export function HogFlowFunctionConfiguration({
     // fields inline and tuck the platform-specific ones into collapsed sections so the form stays flat.
     const inputsSchema = filterInputsSchemaForTrigger(templateId, workflow?.trigger, template.inputs_schema ?? [])
     const isPlatformInput = (key: string): boolean => key.startsWith('android_') || key.startsWith('ios_')
-    const coreInputsSchema = isPushStep ? inputsSchema.filter((s) => !isPlatformInput(s.key)) : inputsSchema
-    const androidInputsSchema = isPushStep ? inputsSchema.filter((s) => s.key.startsWith('android_')) : []
-    const iosInputsSchema = isPushStep ? inputsSchema.filter((s) => s.key.startsWith('ios_')) : []
+    const isSilentPush = isPushStep && inputs?.delivery?.value === 'silent'
+    const isHiddenForSilentPush = (key: string): boolean => isSilentPush && ['title', 'body', 'image'].includes(key)
+    // The template leaves the title optional so a silent push can skip it. Every other push needs one.
+    const coreInputsSchema = isPushStep
+        ? inputsSchema
+              .filter((s) => !isPlatformInput(s.key) && !isHiddenForSilentPush(s.key))
+              .map((s) => (s.key === 'title' ? { ...s, required: true } : s))
+        : inputsSchema
+    const isAndroidDataOnly = isPushStep && ['android_data_only', 'silent'].includes(inputs?.delivery?.value)
+    const androidInputsSchema = isPushStep
+        ? inputsSchema.filter(
+              (s) => s.key.startsWith('android_') && (!isAndroidDataOnly || s.key === 'android_priority')
+          )
+        : []
+    const iosInputsSchema = isPushStep && !isSilentPush ? inputsSchema.filter((s) => s.key.startsWith('ios_')) : []
 
     const renderInputs = (schema: typeof inputsSchema): JSX.Element => (
         <CyclotronJobInputs
@@ -333,48 +345,7 @@ export function HogFlowFunctionConfiguration({
                         </Link>
                     </div>
                 ) : (
-                    <LemonBanner type="info" hideIcon className="mt-2">
-                        <div className="flex flex-col gap-2">
-                            <span className="text-xs">
-                                Email engagement (sends, opens, clicks, bounces) is recorded as workflow metrics. You
-                                can also capture these as standard PostHog events for use in insights and funnels. They
-                                count toward your event usage and are billed like any other event.
-                            </span>
-                            <div className="flex items-center gap-2">
-                                <LemonButton
-                                    type="primary"
-                                    size="xsmall"
-                                    loading={currentTeamLoading}
-                                    onClick={() =>
-                                        updateCurrentTeam({
-                                            workflows_config: {
-                                                ...currentTeam?.workflows_config,
-                                                capture_workflows_engagement_events: true,
-                                            },
-                                        })
-                                    }
-                                >
-                                    Enable engagement events
-                                </LemonButton>
-                                <LemonButton
-                                    type="tertiary"
-                                    size="xsmall"
-                                    to={urls.settings('environment-workflows', 'workflows-engagement-events')}
-                                    targetBlank
-                                >
-                                    Manage in settings
-                                </LemonButton>
-                                <LemonButton
-                                    type="tertiary"
-                                    size="xsmall"
-                                    to="https://posthog.com/docs/workflows/engagement-events"
-                                    targetBlank
-                                >
-                                    Learn more
-                                </LemonButton>
-                            </div>
-                        </div>
-                    </LemonBanner>
+                    <EnableEngagementEventsBanner />
                 )
             ) : null}
             <HogFlowFunctionMappings

@@ -1,0 +1,62 @@
+from typing import Any, cast
+
+from unittest.mock import MagicMock
+
+from products.warehouse_sources.sources.dropbox_sign import source as source_module
+from products.warehouse_sources.sources.dropbox_sign._config import DropboxSignSourceConfig
+from products.warehouse_sources.sources.dropbox_sign.source import DropboxSignSource
+from products.warehouse_sources.sources.sdk import SourceInputs
+
+
+def _inputs(schema_name: str = "templates") -> SourceInputs:
+    return SourceInputs(
+        schema_name=schema_name,
+        schema_id="schema-1",
+        source_id="source-1",
+        team_id=1,
+        should_use_incremental_field=False,
+        db_incremental_field_last_value=None,
+        db_incremental_field_earliest_value=None,
+        incremental_field=None,
+        incremental_field_type=None,
+        job_id="job-1",
+        logger=MagicMock(),
+        reset_pipeline=False,
+    )
+
+
+class TestValidateCredentials:
+    def test_valid_key(self, monkeypatch: Any) -> None:
+        monkeypatch.setattr(source_module, "validate_dropbox_sign_credentials", lambda key: True)
+        ok, err = DropboxSignSource().validate_credentials(DropboxSignSourceConfig(api_key="k"), team_id=1)
+        assert ok is True
+        assert err is None
+
+    def test_invalid_key(self, monkeypatch: Any) -> None:
+        monkeypatch.setattr(source_module, "validate_dropbox_sign_credentials", lambda key: False)
+        ok, err = DropboxSignSource().validate_credentials(DropboxSignSourceConfig(api_key="k"), team_id=1)
+        assert ok is False
+        assert err == "Invalid Dropbox Sign API key"
+
+
+class TestSourceForPipeline:
+    def test_passes_schema_name_and_credentials_through(self, monkeypatch: Any) -> None:
+        captured: dict[str, Any] = {}
+
+        def fake_source(**kwargs: Any) -> str:
+            captured.update(kwargs)
+            return "response"
+
+        monkeypatch.setattr(source_module, "dropbox_sign_source", fake_source)
+
+        manager = MagicMock()
+        result = DropboxSignSource().source_for_pipeline(
+            DropboxSignSourceConfig(api_key="my-key"),
+            manager,
+            _inputs(schema_name="signature_requests"),
+        )
+
+        assert cast(Any, result) == "response"
+        assert captured["api_key"] == "my-key"
+        assert captured["endpoint"] == "signature_requests"
+        assert captured["resumable_source_manager"] is manager

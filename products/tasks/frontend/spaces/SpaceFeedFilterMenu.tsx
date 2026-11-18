@@ -1,8 +1,13 @@
 import { useActions, useValues } from 'kea'
 
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '@posthog/quill'
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    FilterMenuTrigger,
+} from '@posthog/quill'
 
-import { TodayFilterMenuTrigger } from '~/layout/today/TodayFilterMenuTrigger'
 import { RECENT_CREATED_BY_OPTIONS, RECENT_STATUS_OPTIONS } from '~/layout/today/todayRecentFilters'
 import { DEFAULT_RECENT_SORT, RECENT_SORT_OPTIONS } from '~/layout/today/todayRecentOrder'
 import { TodayRecentRadioSubmenu } from '~/layout/today/TodayRecentRadioSubmenu'
@@ -39,7 +44,7 @@ export function SpaceFeedFilterMenu({ sourceOptions }: { sourceOptions: string[]
 
     return (
         <DropdownMenu>
-            <TodayFilterMenuTrigger active={filtersActive} dataAttr="today-space-feed-filter" />
+            <FilterMenuTrigger active={filtersActive} dataAttr="today-space-feed-filter" />
             <DropdownMenuContent align="end" className="min-w-56">
                 <TodayRecentRadioSubmenu
                     label="Group by"

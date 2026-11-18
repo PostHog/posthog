@@ -271,7 +271,9 @@ records the decrease. See `products/architecture.md` § Wiring couplings.
 - Keep facades thin; put business rules behind the facade, in `logic/` by default. Other internal packages (`services/`, `reviewer/`, …) are fine as long as they stay behind the facade.
 - Transaction boundaries belong in the facade (or logic), not in views.
 - A view that serves a contract checks object RBAC through an `ObjectAccessRef`: return one from `safely_get_object()`, or pass one to `self.check_object_permissions(request, ref)`. Never check by hand or in the facade. See `products/architecture.md` § Who owns RBAC?
+- A view without a `queryset` declares its URL kwarg types with `path_parameters = {"pk": UUID}`, and does not parse path ids by hand. See `products/architecture.md` § Path ids.
 - Never return ORM models across product boundaries.
+- A list view pages through the facade: the facade takes a `PageRequest` and returns a `Page`, and the view uses `FacadeLimitOffsetPagination` or `FacadeCursorPagination`. Never set paginator state by hand. See `products/architecture.md` § How do lists page?
 - `hogli product:lint` reads the facade signatures, in the kinds `facade-returns`,
   `facade-accepts(<parameter>)` and `facade-logic`. The matching lines of
   `products/model_crossing_uses_baseline.txt` record what the facades do today and only shrink, so a
@@ -306,11 +308,12 @@ records the decrease. See `products/architecture.md` § Wiring couplings.
 3. Introduce a thin facade in `backend/facade/api.py`.
    - Map ORM instances to contracts with explicit mapper functions.
    - Keep method names capability-oriented and stable.
-   - Wiring that core registers (celery beat tasks, temporal workflows/activities/metrics/
-     schedule constants, query-runner registry hooks, Dagster assets) crosses the boundary
-     as objects, not data — give each its own facade submodule (`facade/tasks.py`,
-     `facade/temporal.py`, `facade/queries.py`, `facade/dags.py`) re-exporting exactly what
-     core touches. Registry-style consumers dispatch on class identity (`isinstance`), so
+   - Wiring that core registers (celery beat tasks, query-runner registry hooks, Dagster
+     assets) crosses the boundary as objects, not data — give each its own facade submodule
+     (`facade/tasks.py`, `facade/queries.py`, `facade/dags.py`) re-exporting exactly what
+     core touches. Temporal code is the exception: `facade/temporal.py` holds one
+     `TEMPORAL = TemporalRegistration(...)` declaration that core discovers and validates,
+     not re-exported lists (products/architecture.md § Temporal). Registry-style consumers dispatch on class identity (`isinstance`), so
      re-export the class itself; monkeypatch consumers need the module object, so re-export
      that too. Keep `facade/api.py` free of heavy imports (HogQL, temporalio) so config-only
      consumers don't drag them onto the `django.setup()` path — and split light shared

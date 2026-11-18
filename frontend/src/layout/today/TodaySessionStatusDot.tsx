@@ -20,7 +20,7 @@ export function TodaySessionStatusDot({ dot }: { dot: TodaySessionDot }): JSX.El
                         <Spinner
                             role="img"
                             aria-label={dot.label}
-                            className="absolute -inset-0.5 size-3 text-muted-foreground motion-reduce:animate-none"
+                            className="absolute top-1/2 left-1/2 size-3 -translate-1/2 text-muted-foreground motion-reduce:animate-none"
                         />
                     </span>
                 ) : (

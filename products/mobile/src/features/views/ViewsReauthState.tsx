@@ -21,6 +21,12 @@ interface FeatureCopy {
 }
 
 const COPY: Record<ScopedFeature, FeatureCopy> = {
+    inbox: {
+        unavailableTitle: "Inbox isn't available yet",
+        reads: 'inbox reports',
+        reauthTitle: 'Sign in again to see your inbox',
+        shows: 'inbox reports',
+    },
     views: {
         unavailableTitle: "Views isn't available yet",
         reads: 'dashboards and insights',
@@ -47,7 +53,7 @@ function scopeList(scopes: readonly string[]): string {
 
 /**
  * A feature needs scopes that an older sign-in did not grant, and a token refresh never adds them. One new sign-in fixes
- * it, so the state offers it; the inbox and chats keep working until then. When the last sign-in asked for the scope
+ * it, so the state offers it. When the last sign-in asked for the scope
  * and still did not get it, a new sign-in gets the same grant, so the state explains that and offers no sign-in.
  */
 export function ViewsReauthState({
@@ -77,7 +83,7 @@ export function ViewsReauthState({
             <StateView
                 icon={icon}
                 title={copy.unavailableTitle}
-                message={`PostHog doesn't let this app read ${copy.reads} yet, so signing in again won't help. Your inbox and chats still work.`}
+                message={`PostHog doesn't let this app read ${copy.reads} yet, so signing in again won't help. ${feature === 'inbox' ? 'Your chats still work.' : 'Your inbox and chats still work.'}`}
                 testID={`${feature}-unavailable`}
             />
         )

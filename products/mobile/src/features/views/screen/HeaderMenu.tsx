@@ -1,11 +1,11 @@
 import type { ComponentType, ReactElement } from 'react'
-import { View } from 'react-native'
-
+import { ScrollView } from 'react-native'
 import { MenuItem } from '@/features/views/list/ViewsMenu'
 import { FloatingCard } from '@/ui/FloatingCard'
 import type { IconProps } from '@/ui/icons/types'
 import { createStyles, useColors } from '@/ui/theme'
 import { iconSizes } from '@/ui/tokens'
+import { useFloatingMenuStyle } from '@/ui/useFloatingMenuStyle'
 import { topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 /** Design-frame top of the menu: just under the chrome's 54pt More pill. */
@@ -32,6 +32,7 @@ export function HeaderMenu({ visible, items, onClose, testID }: HeaderMenuProps)
     const colors = useColors()
     const styles = useStyles()
     const insets = useScreenInsets()
+    const cardStyle = useFloatingMenuStyle(topOffset(insets, MENU_TOP), MENU_WIDTH)
     return (
         <FloatingCard
             visible={visible}
@@ -39,9 +40,9 @@ export function HeaderMenu({ visible, items, onClose, testID }: HeaderMenuProps)
             transformOrigin="top right"
             accessibilityLabel="More"
             testID={testID}
-            style={[styles.card, { top: topOffset(insets, MENU_TOP) }]}
+            style={[styles.card, cardStyle]}
         >
-            <View style={styles.content}>
+            <ScrollView style={styles.content}>
                 {items.map(({ key, label, Icon, onPress, disabled = false, meta }) => (
                     <MenuItem
                         key={key}
@@ -56,7 +57,7 @@ export function HeaderMenu({ visible, items, onClose, testID }: HeaderMenuProps)
                         testID={`${testID}-${key}`}
                     />
                 ))}
-            </View>
+            </ScrollView>
         </FloatingCard>
     )
 }

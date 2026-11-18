@@ -396,7 +396,7 @@ class SimBrowserClient(SimClient):
     def reset(self):
         """Reset active client, for instance when the user logs out. Similar to JS `posthog.reset()`."""
         self.active_distinct_id = self.device_id
-        self.is_logged_in = True
+        self.is_logged_in = False
 
     def register(self, super_properties: Properties):
         """Register super properties. Similar to JS `posthog.register()`."""

@@ -11,7 +11,6 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
-from posthog.models import PropertyDefinition
 from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.temporal.ai_observability.trace_summarization.fetch_and_format import (
     _fetch_and_format_trace,
@@ -22,6 +21,7 @@ from posthog.temporal.ai_observability.trace_summarization.models import FetchAn
 from posthog.temporal.ai_observability.trace_summarization.queries import TraceSize
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.event_definitions.backend.models import PropertyDefinition
 
 
 @asynccontextmanager

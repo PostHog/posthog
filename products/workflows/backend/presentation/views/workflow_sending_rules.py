@@ -42,6 +42,15 @@ class WorkflowSendingRulesSerializer(serializers.Serializer):
         help_text="The length of the rolling frequency cap window, in days. Set it together with "
         "marketing_frequency_cap_max_messages, or set both to null to turn the cap off.",
     )
+    marketing_frequency_cap_hold_hours = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=168,
+        help_text="How many hours a marketing message over the frequency cap waits for a free slot before it is "
+        "skipped. Null skips it right away. A held message sends as soon as one of the person's earlier messages "
+        "leaves the window.",
+    )
     email_tracking_consent_mode = serializers.ChoiceField(
         choices=EMAIL_TRACKING_CONSENT_MODE_CHOICES,
         required=False,

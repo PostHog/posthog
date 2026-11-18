@@ -91,7 +91,7 @@ parameters: { featureFlags: { 'bool-flag': true, 'my-experiment': 'test' } } // 
 
 - The default is no flags, so every flag is off.
 - `featureFlagLogic` reads the persisted flags on mount and keeps them under every later flag load, so a pinned variant survives the empty flag callback posthog-js fires on load.
-- `STORYBOOK_FEATURE_FLAGS` from `lib/constants` is every flag except `TODAY_RAIL_NAV` and `INTERNAL_FEEDBACK_WIDGET`. The rail swaps the whole navigation, so a story opts in to it on its own. Use the constant for a scene story that shows the app with everything on.
+- `STORYBOOK_FEATURE_FLAGS` from `lib/constants` is every flag except `TODAY_RAIL_NAV`. The rail swaps the whole navigation, so a story opts in to it on its own. Use the constant for a scene story that shows the app with everything on.
 - A component that reads flags from a different posthog-js instance, such as the toolbar, needs that instance's own override. `Toolbar.stories.tsx` calls `toolbarPosthogJS.featureFlags.overrideFeatureFlags` for this reason.
 - The parameter only sets the flag. When the render also depends on other runtime state, such as localStorage, an `APP_CONTEXT` field or a logic that has to resolve an entry, set that up too. A small wrapper in the story file can set the state and mount the logic before it renders the component. Don't add test-only props to the production component.
 
@@ -166,7 +166,7 @@ parameters: {
 - `docs`, `controls`, `actions` and `options` are standard Storybook parameters for the Storybook UI. The runner ignores them.
 - `parameters.msw.mocks` works only with `mswDecorator` on the story or meta. No global decorator reads it. See [Mocking data](mocking-data.md).
 - A parameter that only one file uses, such as `narrow`, `width` or `tab`, is read by that file's own `render` or `beforeEach`. Read the file before you copy one.
-- A derived story that needs a base story's mocks imports a shared `Mocks` constant, for example `BI_MODE_WORKSHEET_MOCKS` in `SQLEditorScene.stories.tsx`. Don't read them back out of `BaseStory.parameters.msw.mocks`.
+- A derived story that needs a base story's mocks imports a shared `Mocks` constant, for example `BI_MODE_WORKSHEET_MOCKS` in `SQLEditorStoryFixtures.tsx`. Don't read them back out of `BaseStory.parameters.msw.mocks`.
 
 ## Story functions: `render`, `play`, `beforeEach`, `loaders`
 

@@ -1,0 +1,86 @@
+from typing import Any, Optional
+
+from unittest.mock import MagicMock
+
+from parameterized import parameterized
+
+from products.warehouse_sources.sources.sdk import SourceInputs
+from products.warehouse_sources.sources.snyk._config import SnykSourceConfig
+from products.warehouse_sources.sources.snyk.settings import SNYK_ENDPOINTS, SnykScope
+from products.warehouse_sources.sources.snyk.source import SnykSource
+
+
+def _source_inputs(
+    schema_name: str = "issues",
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Optional[Any] = None,
+    incremental_field: Optional[str] = None,
+) -> SourceInputs:
+    return SourceInputs(
+        schema_name=schema_name,
+        schema_id="schema-1",
+        source_id="source-1",
+        team_id=1,
+        should_use_incremental_field=should_use_incremental_field,
+        db_incremental_field_last_value=db_incremental_field_last_value,
+        db_incremental_field_earliest_value=None,
+        incremental_field=incremental_field,
+        incremental_field_type=None,
+        job_id="job-1",
+        logger=MagicMock(),
+        reset_pipeline=False,
+    )
+
+
+class TestSnykSource:
+    def setup_method(self) -> None:
+        self.source = SnykSource()
+        self.team_id = 1
+
+    def test_credential_retargeting_fields_force_token_reentry(self) -> None:
+        # `region` picks the host the token is sent to and `organization_id` picks the tenant it
+        # reads; dropping either from this list would let an editor retarget the preserved token
+        # without re-entering it.
+        assert self.source.connection_host_fields == ["region", "organization_id"]
+
+    @parameterized.expand(
+        [
+            ("organizations", False),
+            ("projects", False),
+            ("targets", False),
+            ("container_images", False),
+            ("issues", True),
+            ("org_audit_logs", True),
+            ("group_audit_logs", True),
+        ]
+    )
+    def test_only_server_filtered_endpoints_advertise_incremental(self, endpoint: str, expected: bool) -> None:
+        # Only issues (updated_after / created_after) and the audit log search (from) have a
+        # documented server-side timestamp filter; the others must stay full refresh.
+        schemas = {s.name: s for s in self.source.get_schemas(MagicMock(), team_id=self.team_id)}
+        assert schemas[endpoint].supports_incremental is expected
+        assert schemas[endpoint].supports_append is expected
+
+    @parameterized.expand(
+        [
+            ("organizations", ["id"]),
+            ("projects", ["id", "organization_id"]),
+            ("targets", ["id", "organization_id"]),
+            ("issues", ["id", "organization_id"]),
+        ]
+    )
+    def test_source_response_primary_keys(self, endpoint: str, expected_keys: list[str]) -> None:
+        manager = self.source.get_resumable_source_manager(_source_inputs(endpoint))
+        response = self.source.source_for_pipeline(
+            SnykSourceConfig.from_dict({"api_token": "tok"}), manager, _source_inputs(endpoint)
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == expected_keys
+
+    def test_fan_out_children_carry_organization_id_in_primary_key(self) -> None:
+        # Fan-out children aggregate rows from every org, so the injected org id must be part of
+        # the primary key — otherwise per-org id collisions would seed duplicate rows that slow
+        # every subsequent merge.
+        for config in SNYK_ENDPOINTS.values():
+            if config.scope is SnykScope.PER_ORG:
+                assert "organization_id" in config.primary_keys, config.name

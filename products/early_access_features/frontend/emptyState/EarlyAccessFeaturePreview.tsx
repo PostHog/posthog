@@ -2,7 +2,7 @@ import './EarlyAccessFeaturePreview.scss'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 // Hand-authored rising opt-ins series for the stat card sparkline.
 const SPARK_LINE = 'M 0 32 L 10 30.5 L 20 31 L 30 28 L 40 28.8 L 50 25.5 L 60 26.2 L 70 22 L 80 20.5 L 90 17 L 100 15'
@@ -18,7 +18,7 @@ const SPARK_AREA = `${SPARK_LINE} L 100 40 L 0 40 Z`
  * layout's size.
  */
 export function EarlyAccessFeaturePreview(): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     return (
         <div className={cn('EafPreview', isStatic && 'EafPreview--static')}>

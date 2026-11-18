@@ -60,6 +60,34 @@ describe('CLI context', () => {
         }
     )
 
+    it.each([
+        ['posthog-cli by default', undefined, 'posthog-cli', 'posthog_cli'],
+        [
+            'the CLI that passes its identity',
+            { clientName: 'hog', userAgent: 'hog/1.0.0', source: 'hog_cli' },
+            'hog',
+            'hog_cli',
+        ],
+    ])('reports %s as the client in analytics', async (_name, identity, clientName, source) => {
+        const context = await buildCliContext(
+            { apiKey: 'phx_key', host: 'https://us.posthog.com', version: 2 },
+            identity
+        )
+
+        await context.trackEvent(AnalyticsEvent.MCP_TOOL_CALL)
+
+        expect(mocks.capture).toHaveBeenCalledWith(
+            expect.objectContaining({
+                distinctId: expect.stringMatching(new RegExp(`^${clientName}:`)),
+                properties: expect.objectContaining({
+                    $mcp_client_name: clientName,
+                    $mcp_consumer: clientName,
+                    $mcp_source: source,
+                }),
+            })
+        )
+    })
+
     it('uses an opaque analytics distinct ID for feedback when identity resolution fails', async () => {
         const apiKey = 'phx_secret-token'
         const context = await buildCliContext({ apiKey, host: 'https://us.posthog.com', version: 2 })

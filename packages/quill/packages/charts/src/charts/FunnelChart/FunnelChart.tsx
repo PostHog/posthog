@@ -235,60 +235,38 @@ export function FunnelChart<Meta = unknown>({
     const bandLabels = useMemo(() => steps.map((_, stepIndex) => `${stepIndex + 1}`), [steps])
     const stepLabelFromBand = useCallback((band: string): string => steps[Number(band) - 1] ?? band, [steps])
 
-    const barConfig = useMemo<BarChartConfig>(
-        () => ({
-            barLayout: 'grouped',
-            showGrid,
-            animateHover,
-            margins,
-            hideXAxis: hideStepLabels || hasStepFooter,
-            hideYAxis: hideValueAxis,
-            maxCategoryLabelWidth,
-            xTickFormatter: stepLabelFromBand,
-            yTickFormatter: formatPercentTick,
-            barCornerRadius,
-            legend,
-            tooltip: {
-                placement: 'top',
-                valueFormatter: formatPercent,
-                labelFormatter: stepLabelFromBand,
-                ...tooltipConfig,
-            },
-            bars: {
-                track: true,
-                shadow: FUNNEL_BAR_SHADOW,
-                bandPadding: bandPadding ?? FUNNEL_BAND_PADDING,
-                minBarSize: minBarSize ?? FUNNEL_MIN_BAR_SIZE,
-                minBarSizeScope: 'hover',
-                maxBandRange,
-            },
-        }),
-        [
-            showGrid,
-            animateHover,
-            margins,
-            hideStepLabels,
-            hasStepFooter,
-            hideValueAxis,
-            maxCategoryLabelWidth,
-            stepLabelFromBand,
-            legend,
-            tooltipConfig,
-            barCornerRadius,
-            bandPadding,
-            minBarSize,
+    const barConfig: BarChartConfig = {
+        barLayout: 'grouped',
+        showGrid,
+        animateHover,
+        margins,
+        hideXAxis: hideStepLabels || hasStepFooter,
+        hideYAxis: hideValueAxis,
+        maxCategoryLabelWidth,
+        xTickFormatter: stepLabelFromBand,
+        yTickFormatter: formatPercentTick,
+        barCornerRadius,
+        legend,
+        tooltip: {
+            placement: 'top',
+            valueFormatter: formatPercent,
+            labelFormatter: stepLabelFromBand,
+            ...tooltipConfig,
+        },
+        bars: {
+            track: true,
+            shadow: FUNNEL_BAR_SHADOW,
+            bandPadding: bandPadding ?? FUNNEL_BAND_PADDING,
+            minBarSize: minBarSize ?? FUNNEL_MIN_BAR_SIZE,
+            minBarSizeScope: 'hover',
             maxBandRange,
-        ]
-    )
+        },
+    }
 
-    const handlePointClick = useMemo(
-        () =>
-            onStepClick
-                ? (data: PointClickData<Meta>): void =>
-                      onStepClick({ ...data, stepIndex: data.dataIndex, converted: !data.inTrackArea })
-                : undefined,
-        [onStepClick]
-    )
+    const handlePointClick = onStepClick
+        ? (data: PointClickData<Meta>): void =>
+              onStepClick({ ...data, stepIndex: data.dataIndex, converted: !data.inTrackArea })
+        : undefined
 
     const [bands, setBands] = useState<StepBand[] | null>(null)
 

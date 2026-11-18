@@ -12,16 +12,15 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { inviteLogic } from 'lib/logic/inviteLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { organizationMembershipLevelIntegers } from 'lib/utils/permissioning'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
 import { isEmail } from 'lib/utils/url'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { AccessControlLevel, AvailableFeature } from '~/types'
-
-import { inviteLogic } from './inviteLogic'
 
 /** Shuffled placeholder names */
 const PLACEHOLDER_NAMES: string[] = [...Array(10).fill('Jane'), ...Array(10).fill('John'), 'Sonic'].sort(
@@ -197,7 +196,7 @@ export function InviteRow({
     const { hasAvailableFeature } = useValues(userLogic)
     const hasAccessControl = hasAvailableFeature(AvailableFeature.ACCESS_CONTROL)
 
-    const { invitesToSend, existingMemberInviteRows } = useValues(inviteLogic)
+    const { invitesToSend, existingMemberInviteRows, canSubmit } = useValues(inviteLogic)
     const { updateInviteAtIndex, inviteTeamMembers, deleteInviteAtIndex } = useActions(inviteLogic)
     const isExistingMember = existingMemberInviteRows[index]
     const { preflight } = useValues(preflightLogic)
@@ -280,7 +279,7 @@ export function InviteRow({
                         <LemonButton
                             type="primary"
                             className="flex-1"
-                            disabled={!isEmail(invitesToSend[index].target_email) || isExistingMember}
+                            disabled={!isEmail(invitesToSend[index].target_email) || !canSubmit}
                             onClick={() => {
                                 inviteTeamMembers()
                             }}

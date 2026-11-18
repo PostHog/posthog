@@ -5,17 +5,9 @@ from random import randint
 
 import pytest
 
-from django.test import override_settings
-
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
-from products.batch_exports.backend.service import BackfillDetails
-from products.batch_exports.backend.temporal.batch_exports import (
-    DataInterval,
-    get_data_interval,
-    iter_records,
-    reads_native_events_source,
-)
+from products.batch_exports.backend.temporal.batch_exports import DataInterval, get_data_interval, iter_records
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -194,61 +186,6 @@ async def test_iter_records_can_include_events(clickhouse_client):
     assert_records_match_events(records, events[5000:])
 
 
-async def test_iter_records_ignores_timestamp_predicates(clickhouse_client):
-    """Test the rows returned by iter_records ignores timestamp predicates when configured."""
-    team_id = randint(1, 1000000)
-
-    inserted_at = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
-    data_interval_end = inserted_at + dt.timedelta(hours=1)
-
-    # Insert some data with timestamps a couple of years before inserted_at
-    timestamp_start = inserted_at - dt.timedelta(hours=24 * 365 * 2)
-    timestamp_end = inserted_at - dt.timedelta(hours=24 * 365)
-
-    (events, _, _) = await generate_test_events_in_clickhouse(
-        client=clickhouse_client,
-        team_id=team_id,
-        start_time=timestamp_start,
-        end_time=timestamp_end,
-        count=10,
-        count_outside_range=0,
-        count_other_team=0,
-        duplicate=True,
-        person_properties={"$browser": "Chrome", "$os": "Mac OS X"},
-        inserted_at=inserted_at,
-        table="sharded_events",
-    )
-
-    records = [
-        record
-        for record_batch in iter_records(
-            clickhouse_client,
-            team_id,
-            inserted_at.isoformat(),
-            data_interval_end.isoformat(),
-            use_new_events_schema=False,
-        )
-        for record in record_batch.to_pylist()
-    ]
-
-    assert len(records) == 0
-
-    with override_settings(UNCONSTRAINED_TIMESTAMP_TEAM_IDS=[str(team_id)]):
-        records = [
-            record
-            for record_batch in iter_records(
-                clickhouse_client,
-                team_id,
-                inserted_at.isoformat(),
-                data_interval_end.isoformat(),
-                use_new_events_schema=False,
-            )
-            for record in record_batch.to_pylist()
-        ]
-
-    assert_records_match_events(records, events)
-
-
 async def test_iter_records_can_flatten_properties(clickhouse_client):
     """Test iter_records can flatten properties as indicated by a field expression."""
     team_id = randint(1, 1000000)
@@ -409,33 +346,3 @@ def test_data_interval_rejects_reversed_bounds() -> None:
     end = dt.datetime(2023, 8, 1, tzinfo=dt.UTC)
     with pytest.raises(ValueError, match="start"):
         DataInterval(start=end + dt.timedelta(seconds=1), end=end)
-
-
-@pytest.mark.parametrize(
-    "start_ago,end_ago,is_backfill,backfill_ago,expected",
-    [
-        (dt.timedelta(hours=2), dt.timedelta(hours=1), False, None, False),
-        (dt.timedelta(days=61), dt.timedelta(days=60), False, None, False),
-        (dt.timedelta(days=61), dt.timedelta(days=60), True, dt.timedelta(days=61), True),
-        (dt.timedelta(hours=2), dt.timedelta(hours=1), True, dt.timedelta(hours=2), False),
-    ],
-    ids=["scheduled-recent", "scheduled-old", "backfill-old", "backfill-recent"],
-)
-def test_reads_native_events_source_tracks_query_routing(start_ago, end_ago, is_backfill, backfill_ago, expected):
-    now = dt.datetime.now(tz=dt.UTC)
-    start, end = now - start_ago, now - end_ago
-    backfill_details = (
-        BackfillDetails(backfill_id=None, start_at=(now - backfill_ago).isoformat(), end_at=end.isoformat())
-        if backfill_ago is not None
-        else None
-    )
-    arguments = {
-        "team_id": 1,
-        "interval_start": start.isoformat(),
-        "interval_end": end.isoformat(),
-        "is_backfill": is_backfill,
-        "backfill_details": backfill_details,
-    }
-
-    assert reads_native_events_source(use_new_events_schema=True, **arguments) is expected
-    assert reads_native_events_source(use_new_events_schema=False, **arguments) is False

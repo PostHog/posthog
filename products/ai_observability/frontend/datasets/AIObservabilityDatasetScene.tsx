@@ -273,9 +273,9 @@ export function AIObservabilityDatasetScene(): JSX.Element {
                             <h2 className="text-base font-semibold m-0 truncate" title={datasetForm.name}>
                                 {isNewDataset ? 'New dataset' : (isDataset(dataset) && dataset.name) || 'Dataset'}
                             </h2>
-                            {isDataset(dataset) && dataset.archived && (
-                                <LemonTag type="muted" size="small">
-                                    Archived
+                            {isDataset(dataset) && (dataset.expiring_soon || dataset.archived) && (
+                                <LemonTag type={dataset.expiring_soon ? 'warning' : 'muted'} size="small">
+                                    {dataset.expiring_soon ? 'Expiring soon' : 'Archived'}
                                 </LemonTag>
                             )}
                         </nav>

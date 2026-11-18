@@ -131,6 +131,7 @@ let dt2 = toDate("2024-05-03");
 print(dt2);
 print(toString(dt2));
 print(toInt(toUnixTimestamp(dt2)));
+print(toInt(toUnixTimestamp(dt2, "America/New_York")));
 print("-");
 let dt3 = toDateTime("2024-05-03T12:34:56Z");
 print(dt3);

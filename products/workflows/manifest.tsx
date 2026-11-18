@@ -3,12 +3,18 @@ import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 import type { MessagingNavTabKey } from './frontend/messagingTabs'
 import type { WorkflowsSceneTab } from './frontend/WorkflowsScene'
 
 export const manifest: ProductManifest = {
     name: 'Workflows',
+    activityDescribers: {
+        [ActivityScope.HOG_FLOW]: () =>
+            import('./frontend/Workflows/misc/workflowActivityDescriber').then(
+                (module) => module.workflowActivityDescriber
+            ),
+    },
     scenes: {
         Workflows: {
             import: () => import('./frontend/WorkflowsScene'),
@@ -51,6 +57,18 @@ export const manifest: ProductManifest = {
             projectBased: true,
             description: 'Send emails from your code with one API call',
         },
+        TransactionalEmailLogEntry: {
+            import: () => import('./frontend/Transactional/log/TransactionalEmailLogEntryScene'),
+            name: 'Transactional',
+            iconType: 'transactional',
+            projectBased: true,
+        },
+        TransactionalCodeEmail: {
+            import: () => import('./frontend/Transactional/code/CodeEmailScene'),
+            name: 'Transactional',
+            iconType: 'transactional',
+            projectBased: true,
+        },
         WorkflowsEmailDomain: {
             import: () => import('./frontend/Channels/EmailDomain/EmailDomainScene'),
             name: 'Workflows',
@@ -86,7 +104,12 @@ export const manifest: ProductManifest = {
         '/transactional/suppression': ['Transactional', 'transactional'],
         '/transactional/reputation': ['Transactional', 'transactional'],
         '/transactional/settings': ['Transactional', 'transactional'],
+        '/transactional/webhooks': ['Transactional', 'transactional'],
         '/transactional/new': ['Transactional', 'transactional'],
+        '/transactional/log': ['Transactional', 'transactional'],
+        '/transactional/metrics': ['Transactional', 'transactional'],
+        '/transactional/log/:id': ['TransactionalEmailLogEntry', 'transactionalEmailLogEntry'],
+        '/transactional/code-emails/:id': ['TransactionalCodeEmail', 'transactionalCodeEmail'],
         // A template opened from a section's Templates tab stays in that section.
         '/transactional/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
         '/broadcasts/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
@@ -107,16 +130,23 @@ export const manifest: ProductManifest = {
         broadcasts: (tab?: MessagingNavTabKey | 'calendar'): string => `/broadcasts${tab ? `/${tab}` : ''}`,
         broadcast: (id: string): string => `/broadcasts/${id}`,
         broadcastNew: (): string => '/broadcasts/new',
-        transactional: (tab?: MessagingNavTabKey): string => `/transactional${tab ? `/${tab}` : ''}`,
+        transactional: (tab?: MessagingNavTabKey | 'webhooks'): string => `/transactional${tab ? `/${tab}` : ''}`,
         transactionalNew: (): string => '/transactional/new',
+        transactionalLog: (): string => '/transactional/log',
+        transactionalMetrics: (): string => '/transactional/metrics',
+        transactionalEmailLogEntry: (messageId: string): string => `/transactional/log/${messageId}`,
         transactionalTemplate: (id: string): string => `/transactional/library/templates/${id}`,
+        transactionalCodeEmail: (id: string): string => `/transactional/code-emails/${id}`,
         broadcastsTemplate: (id: string): string => `/broadcasts/library/templates/${id}`,
     },
     fileSystemTypes: {
         workflows: {
             name: 'Workflow',
             iconType: 'workflows',
-            iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
+            iconColor: [
+                'var(--color-product-workflows-light)',
+                'var(--color-product-workflows-dark)',
+            ] as FileSystemIconColor,
             href: (ref: string) => urls.workflow(ref, 'workflow'),
             listHref: () => urls.workflows(),
             filterKey: 'workflows',
@@ -127,6 +157,7 @@ export const manifest: ProductManifest = {
             path: 'Workflows',
             intents: [ProductKey.WORKFLOWS],
             href: urls.workflows(),
+            searchKeywords: ['automations', 'campaigns', 'messaging'],
             searchTabs: [
                 { name: 'Library', href: urls.workflows('library') },
                 { name: 'Channels', href: urls.workflows('channels') },
@@ -138,13 +169,17 @@ export const manifest: ProductManifest = {
             type: 'workflows',
             category: ProductItemCategory.MESSAGING,
             iconType: 'workflows',
-            iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
+            iconColor: [
+                'var(--color-product-workflows-light)',
+                'var(--color-product-workflows-dark)',
+            ] as FileSystemIconColor,
             sceneKey: 'Workflows',
         },
         {
             path: 'Broadcasts',
             intents: [ProductKey.WORKFLOWS],
             href: urls.broadcasts(),
+            searchKeywords: ['newsletter', 'email blast'],
             type: 'broadcasts',
             category: ProductItemCategory.MESSAGING,
             iconType: 'broadcasts',
@@ -155,6 +190,7 @@ export const manifest: ProductManifest = {
             path: 'Transactional',
             intents: [ProductKey.WORKFLOWS],
             href: urls.transactional(),
+            searchKeywords: ['transactional email'],
             type: 'transactional',
             category: ProductItemCategory.MESSAGING,
             iconType: 'transactional',

@@ -2,9 +2,9 @@ import { useValues } from 'kea'
 
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import { Query } from '~/queries/Query/Query'
+import { isWebOverviewQuery, isWebStatsTableQuery } from '~/queries/schema/node-guards'
 import { DataTableNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { isWebOverviewQuery, isWebStatsTableQuery } from '~/queries/utils'
 
 import { insightLogic } from '../insights/insightLogic'
 import { insightVizDataLogic } from '../insights/insightVizDataLogic'

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 
 import {
     IconArrowRight,
@@ -34,6 +34,7 @@ import {
     DropdownMenuSubTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { pluralize } from 'lib/utils/strings'
 import { openDeleteGroupTypeDialog } from 'scenes/settings/environment/GroupAnalyticsConfig'
 import { groupAnalyticsConfigLogic } from 'scenes/settings/environment/groupAnalyticsConfigLogic'
@@ -50,7 +51,11 @@ import { joinPath, splitPath } from '../utils'
 import { BrowserLikeMenuItems } from './BrowserLikeMenuItems'
 import { DashboardsMenuItems } from './DashboardsMenuItems'
 import { ProductAnalyticsMenuItems } from './ProductAnalyticsMenuItems'
-import { SessionReplayMenuItems } from './SessionReplayMenuItems'
+
+// The submenu pulls in the replay playlist and saved filter logics, and it renders only when the replay menu opens.
+const SessionReplayMenuItems = lazyWithRetry(() =>
+    import('./SessionReplayMenuItems').then(({ SessionReplayMenuItems }) => ({ default: SessionReplayMenuItems }))
+)
 
 interface MenuItemsProps {
     item: TreeDataItem
@@ -130,7 +135,7 @@ export function MenuItems({
                 <MenuSeparator />
             </>
         ) : showProductMenuItems && item.name === 'Session replay' ? (
-            <>
+            <Suspense fallback={null}>
                 <SessionReplayMenuItems
                     MenuItem={MenuItem}
                     MenuSub={MenuSub}
@@ -141,7 +146,7 @@ export function MenuItems({
                     onLinkClick={(keyboardAction) => resetPanelLayout(keyboardAction ?? false)}
                 />
                 <MenuSeparator />
-            </>
+            </Suspense>
         ) : showProductMenuItems && item.name === 'Dashboards' ? (
             <>
                 <DashboardsMenuItems

@@ -7,7 +7,8 @@ from parameterized import parameterized
 
 from posthog.hogql.compiler.bytecode import create_bytecode
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.contracts import Action
+from products.actions.backend.facade.testing import create_action
 from products.cdp.backend.filters import (
     RUNTIME_CONTRACT,
     build_behavioral_event_expr,
@@ -34,7 +35,7 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
 
     def setUp(self):
         super().setUp()
-        self.action = Action.objects.create(
+        self.action = create_action(
             team=self.team,
             name="test action",
             steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
@@ -645,6 +646,49 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
             3,
             2,
         ]
+
+    @parameterized.expand(
+        [
+            ("flat_list_matches_all", "flat", {"plan": "pro", "country": "US"}, True),
+            ("flat_list_misses_one", "flat", {"plan": "pro", "country": "DE"}, False),
+            ("or_group_matches_inner_and", "grouped", {"plan": "pro", "country": "US"}, True),
+            ("or_group_matches_other_branch", "grouped", {"plan": "enterprise", "country": "DE"}, True),
+            ("or_group_misses_every_branch", "grouped", {"plan": "pro", "country": "DE"}, False),
+            ("and_of_and_group_and_or_group", "nested", {"plan": "pro", "country": "DE"}, True),
+            ("and_of_and_group_and_or_group_misses_one", "nested", {"plan": "free", "country": "US"}, False),
+            ("empty_group_in_or_is_skipped", "with_empty_group", {"plan": "free", "country": "DE"}, False),
+        ]
+    )
+    def test_property_groups_match_with_their_and_or_logic(
+        self, _name: str, shape: str, person_properties: dict, expected: bool
+    ):
+        plan_pro = {"key": "plan", "value": "pro", "operator": "exact", "type": "person"}
+        country_us = {"key": "country", "value": "US", "operator": "exact", "type": "person"}
+        country_de = {"key": "country", "value": "DE", "operator": "exact", "type": "person"}
+        plan_enterprise = {"key": "plan", "value": "enterprise", "operator": "exact", "type": "person"}
+        shapes: dict[str, list | dict] = {
+            "flat": [plan_pro, country_us],
+            "grouped": {
+                "type": "OR",
+                "values": [
+                    {"type": "AND", "values": [plan_pro, country_us]},
+                    {"type": "AND", "values": [plan_enterprise]},
+                ],
+            },
+            "nested": {
+                "type": "AND",
+                "values": [{"type": "AND", "values": [plan_pro]}, {"type": "OR", "values": [country_us, country_de]}],
+            },
+            "with_empty_group": {
+                "type": "OR",
+                "values": [{"type": "AND", "values": [plan_pro]}, {"type": "AND", "values": []}],
+            },
+        }
+        properties = shapes[shape]
+
+        bytecode = self.filters_to_bytecode(filters={"properties": properties})
+
+        assert execute_bytecode(bytecode, {"person": {"properties": person_properties}}).result is expected
 
     def test_multi_value_exact_filter_matches_numeric_property(self):
         # Survey ratings and other numeric event properties arrive as numbers, while a multi-value

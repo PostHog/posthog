@@ -95,6 +95,8 @@ from posthog.personhog_client.proto import (
     PersonsResponse,
     RaisePersonVersionFloorsRequest,
     RaisePersonVersionFloorsResponse,
+    RaisePersonVersionRequest,
+    RaisePersonVersionResponse,
     RestorePersonsRequest,
     RestorePersonsResponse,
     SetPersonDistinctIdVersionFloorRequest,
@@ -269,6 +271,7 @@ class PersonHogClient:
         self._lifecycle_channel: grpc.Channel | None = None
         self._lifecycle_state_monitor: _ChannelStateMonitor | None = None
         lifecycle_stub: PersonHogLifecycleStub | None = None
+        self._leader_stub: PersonHogServiceStub | None = None
         if lifecycle_addr:
             lifecycle_channel = grpc.insecure_channel(lifecycle_addr, options=options)
             self._lifecycle_channel = grpc.intercept_channel(
@@ -280,6 +283,8 @@ class PersonHogClient:
             # The channel-state gauge is keyed by client_name alone; two channels under one name would fight over it.
             self._lifecycle_state_monitor = _ChannelStateMonitor(lifecycle_channel, f"{client_name}-lifecycle")
             lifecycle_stub = PersonHogLifecycleStub(self._lifecycle_channel)
+            # The same router reaches the leader, which the facade router cannot.
+            self._leader_stub = PersonHogServiceStub(self._lifecycle_channel)
         self.lifecycle = PersonHogLifecycleClient(lifecycle_stub, lifecycle_timeout_ms / 1000.0)
 
     def close(self) -> None:
@@ -358,6 +363,18 @@ class PersonHogClient:
         self, request: RaisePersonVersionFloorsRequest, timeout: float | None = None
     ) -> RaisePersonVersionFloorsResponse:
         return self._stub.RaisePersonVersionFloors(request, timeout=timeout or self._timeout)
+
+    def raise_person_version(
+        self, request: RaisePersonVersionRequest, timeout: float | None = None
+    ) -> RaisePersonVersionResponse:
+        if self._leader_stub is None:
+            raise PersonHogLifecycleUnavailable("personhog leader path not configured (PERSONHOG_LIFECYCLE_ADDR)")
+        # The router routes leader calls by these headers, never by the request body.
+        return self._leader_stub.RaisePersonVersion(
+            request,
+            timeout=timeout or self._timeout,
+            metadata=[("x-team-id", str(request.team_id)), ("x-person-id", str(request.person_id))],
+        )
 
     def restore_persons(self, request: RestorePersonsRequest, timeout: float | None = None) -> RestorePersonsResponse:
         return self._stub.RestorePersons(request, timeout=timeout or self._timeout)

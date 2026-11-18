@@ -7,6 +7,19 @@ class BillingProvider(StrEnum):
     VERCEL = "vercel"
 
 
+class RatedUsageGrant(TypedDict):
+    grant_id: str
+    cents: int
+
+
+class RatedUsageItem(TypedDict):
+    team_id: int
+    product: str
+    day: str
+    cents: int
+    grants: NotRequired[list[RatedUsageGrant]]
+
+
 # Mirror of `billing/billing/types/usage.py::SupportedUsageType` in the billing repo.
 # These identifiers are accepted by the billing service's /api/v2/usage/ and
 # /api/v2/spend/ endpoints through the `usage_types` query param.
@@ -26,6 +39,7 @@ UsageType = Literal[
     "rows_exported_in_period",
     "ai_credits_used_in_period",
     "signals_credits_used_in_period",
+    "signals_spend_credits_used_in_period",
     "posthog_code_credits_used_in_period",
     "posthog_code_token_credits_used_in_period",
     "sandbox_compute_credits_used_in_period",
@@ -67,6 +81,7 @@ USAGE_TYPE_OPTIONS: tuple[UsageTypeOption, ...] = (
     {"label": "Rows exported", "value": "rows_exported_in_period"},
     {"label": "PostHog AI", "value": "ai_credits_used_in_period"},
     {"label": "Self-driving inbox credits", "value": "signals_credits_used_in_period"},
+    {"label": "Self-driving spend credits", "value": "signals_spend_credits_used_in_period"},
     {"label": "PostHog Desktop credits", "value": "posthog_code_credits_used_in_period"},
     {"label": "PostHog Desktop token credits", "value": "posthog_code_token_credits_used_in_period"},
     {"label": "Sandbox compute credits", "value": "sandbox_compute_credits_used_in_period"},
@@ -83,7 +98,7 @@ USAGE_TYPE_OPTIONS: tuple[UsageTypeOption, ...] = (
     {"label": "Workflow destinations", "value": "workflow_billable_invocations_in_period"},
     {"label": "Logs and traces ingested (MB)", "value": "logs_and_traces_mb_in_period"},
     {"label": "Logs ingested (MB)", "value": "logs_mb_in_period"},
-    {"label": "APM traces ingested (MB)", "value": "apm_tracing_mb_in_period"},
+    {"label": "Traces ingested (MB)", "value": "apm_tracing_mb_in_period"},
     {"label": "Logs 30-day retention (MB)", "value": "logs_retention_30d_mb_in_period"},
     {"label": "Logs retention (MB-days)", "value": "logs_retention_mb_days_in_period"},
 )
@@ -137,6 +152,7 @@ class CustomerProduct(TypedDict):
     price_description: Optional[str]
     image_url: Optional[str]
     type: str
+    subscribed: NotRequired[Optional[bool]]
     free_allocation: int
     tiers: list[Tier]
     tiered: bool
@@ -170,6 +186,7 @@ class BillingPeriod(TypedDict):
 class UsageSummary(TypedDict):
     limit: Optional[int]
     usage: Optional[int]
+    billing_start_date: NotRequired[str]
 
 
 class ProductFeature(TypedDict):
@@ -192,7 +209,7 @@ class CustomerInfo(TypedDict):
     projected_total_amount_usd_with_limit_after_discount: Optional[str]
     products: Optional[list[CustomerProduct]]
     custom_limits_usd: Optional[dict[str, int]]
-    usage_summary: Optional[dict[str, dict[str, Optional[int]]]]
+    usage_summary: Optional[dict[str, UsageSummary]]
     free_trial_until: Optional[str]
     discount_percent: Optional[int]
     discount_amount_usd: Optional[str]
@@ -202,6 +219,8 @@ class CustomerInfo(TypedDict):
 class BillingStatus(TypedDict):
     license: LicenseInfo
     customer: CustomerInfo
+    computed_at: NotRequired[str]
+    latest_usage_report_date: NotRequired[Optional[str]]
 
 
 class ProductPlan(TypedDict):

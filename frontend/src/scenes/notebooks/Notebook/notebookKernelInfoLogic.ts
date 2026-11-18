@@ -16,10 +16,15 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { ApiConfig } from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { notebooksKernelComputeOptionsRetrieve } from 'products/notebooks/frontend/generated/api'
+import {
+    notebooksKernelComputeOptionsRetrieve,
+    notebooksKernelStatusRetrieve,
+} from 'products/notebooks/frontend/generated/api'
 import type {
     NotebookComputeOptionsResponseApi,
     NotebookComputePresetApi,
@@ -27,6 +32,18 @@ import type {
 
 import { PythonKernelExecuteResponse } from '../Nodes/pythonExecution'
 import type { NotebookLogicMode } from './notebookLogic'
+
+/** A refused kernel start can stay refused for up to an hour, so "try again" copy would mislead the user. */
+export function kernelActionErrorMessage(error: unknown, fallback: string): string {
+    if (!(error instanceof ApiError) || error.status !== 429) {
+        return fallback
+    }
+    // The default throttle text counts raw seconds. A sandbox limit sends a sentence written for the user.
+    if (error.detail && !error.detail.startsWith('Request was throttled')) {
+        return error.detail
+    }
+    return `Too many kernel starts and restarts. Try again ${error.formattedRetryAfter ?? 'later'}.`
+}
 
 /** A DuckDB object a SQL node can currently SELECT from, as reported by the kernel's last run. */
 export type NotebookKernelFrame = {
@@ -448,7 +465,7 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
             },
         ],
     }),
-    loaders(({ props }) => ({
+    loaders(({ props, cache }) => ({
         computeOptions: [
             null as NotebookComputeOptionsResponseApi | null,
             {
@@ -464,10 +481,17 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
             null as NotebookKernelInfo | null,
             {
                 loadKernelInfo: async () => {
+                    const disposables = cache.disposables
                     try {
-                        const response = (await api.notebooks.kernelStatus(props.shortId)) as NotebookKernelInfo
+                        const response = (await notebooksKernelStatusRetrieve(
+                            String(ApiConfig.getCurrentTeamId()),
+                            props.shortId
+                        )) as NotebookKernelInfo
                         return response.backend ? response : null
-                    } catch {
+                    } catch (error) {
+                        if (error instanceof ApiError && error.status && [401, 403, 404, 410].includes(error.status)) {
+                            disposables.dispose('kernelInfoRefresh')
+                        }
                         return null
                     }
                 },
@@ -667,6 +691,8 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
         startKernel: async () => {
             try {
                 await api.notebooks.kernelStart(props.shortId)
+            } catch (error) {
+                lemonToast.error(kernelActionErrorMessage(error, 'The kernel could not be started. Try again.'))
             } finally {
                 actions.loadKernelInfo()
             }
@@ -681,6 +707,8 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
         restartKernel: async () => {
             try {
                 await api.notebooks.kernelRestart(props.shortId)
+            } catch (error) {
+                lemonToast.error(kernelActionErrorMessage(error, 'The kernel could not be restarted. Try again.'))
             } finally {
                 actions.loadKernelInfo()
             }
@@ -742,7 +770,12 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
         },
     })),
     afterMount(({ actions, cache, props, values }) => {
-        if ((props.mode && props.mode !== 'notebook') || props.isShared) {
+        if (
+            (props.mode && props.mode !== 'notebook') ||
+            props.isShared ||
+            props.shortId.startsWith('canvas-') ||
+            props.shortId.startsWith('template-')
+        ) {
             return
         }
         // Replacing the kea context drops this logic's path from the store without unmounting it,

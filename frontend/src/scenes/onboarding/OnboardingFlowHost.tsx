@@ -4,7 +4,7 @@ import { useEffect } from 'react'
 
 import { LemonBanner, Link, Spinner } from '@posthog/lemon-ui'
 
-import { billingLogic } from 'scenes/billing/billingLogic'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 

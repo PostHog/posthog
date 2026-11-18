@@ -9,6 +9,7 @@ import type { McpServerStdio } from "@agentclientprotocol/sdk";
 import { ghTokenEnv } from "@posthog/git/signed-commit";
 import {
   enabledLocalTools,
+  isFinishReportRequired,
   LOCAL_TOOLS_MCP_NAME,
   type LocalToolCtx,
   type LocalToolGateMeta,
@@ -30,6 +31,8 @@ export interface LocalToolsMeta extends LocalToolGateMeta {
   persistence?: { taskId?: string };
   baseBranch?: string;
 }
+
+const GITLAB_ENV_VARS = ["POSTHOG_GIT_PROVIDER", "GITLAB_TOKEN"] as const;
 
 function toMcpServerStdio(
   ctx: LocalToolCtx,
@@ -55,6 +58,12 @@ function toMcpServerStdio(
         value,
       })),
     );
+  }
+  // Codex gives an MCP child only a small default env, so the GitLab tool
+  // reads its credentials from these entries.
+  for (const name of GITLAB_ENV_VARS) {
+    const value = process.env[name];
+    if (value) env.push({ name, value });
   }
   return {
     name: LOCAL_TOOLS_MCP_NAME,
@@ -83,6 +92,7 @@ export function buildLocalToolsServer(
     taskId: resolveTaskId(meta),
     taskRunId: meta?.taskRunId,
     baseBranch: meta?.baseBranch,
+    finishReportRequired: isFinishReportRequired(meta),
   };
   const names = enabledLocalTools(toolCtx, meta).map((tool) => tool.name);
   if (isTaskRunSandbox(process.env)) names.push(MEMORY_KILL_HOOK_TOOL_NAME);

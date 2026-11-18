@@ -1,5 +1,6 @@
 import { forwardRef, type ReactElement, type ReactNode } from 'react'
-import { Text, TextInput, View } from 'react-native'
+import type { TextInputInstance } from 'react-native'
+import { ScrollView, Text, TextInput, View } from 'react-native'
 
 import { ArrowUpIcon } from '@/ui/icons/ArrowUpIcon'
 import { ChevronDownIcon } from '@/ui/icons/ChevronDownIcon'
@@ -11,6 +12,7 @@ import { iconSizes, inputReset, radii, type } from '@/ui/tokens'
 import { MAX_ATTACHMENTS_PER_MESSAGE } from './attachments/attachmentRules'
 
 interface ComposerProps {
+    compact?: boolean
     text: string
     onChangeText: (text: string) => void
     chips?: ReactNode
@@ -79,8 +81,9 @@ function OptionChip({
     )
 }
 
-export const Composer = forwardRef<TextInput, ComposerProps>(function Composer(
+export const Composer = forwardRef<TextInputInstance, ComposerProps>(function Composer(
     {
+        compact = false,
         text,
         onChangeText,
         chips,
@@ -107,8 +110,22 @@ export const Composer = forwardRef<TextInput, ComposerProps>(function Composer(
     const styles = useStyles()
     const typed = text.trim().length > 0
     return (
-        <View style={[styles.card, shadows.popover]}>
-            {chips ? <View style={styles.chips}>{chips}</View> : null}
+        <View style={[styles.card, shadows.popover, compact && styles.cardCompact]}>
+            {chips ? (
+                compact ? (
+                    <ScrollView
+                        horizontal
+                        style={styles.chipsCompact}
+                        contentContainerStyle={styles.chips}
+                        keyboardShouldPersistTaps="handled"
+                        showsHorizontalScrollIndicator={false}
+                    >
+                        {chips}
+                    </ScrollView>
+                ) : (
+                    <View style={styles.chips}>{chips}</View>
+                )
+            ) : null}
             <TextInput
                 ref={ref}
                 value={text}
@@ -116,9 +133,9 @@ export const Composer = forwardRef<TextInput, ComposerProps>(function Composer(
                 placeholder="Ask anything…"
                 placeholderTextColor={colors.tertiary}
                 keyboardAppearance={scheme}
-                style={styles.input}
-                autoFocus
+                style={[styles.input, compact && styles.inputCompact]}
                 multiline
+                disableFullscreenUI
                 returnKeyType="send"
                 // Keeps the keyboard up after sending, so a follow-up is one tap away.
                 submitBehavior="submit"
@@ -126,7 +143,7 @@ export const Composer = forwardRef<TextInput, ComposerProps>(function Composer(
                 accessibilityLabel="Message"
                 testID="chat-input"
             />
-            <View style={styles.toolbar}>
+            <View style={[styles.toolbar, compact && styles.toolbarCompact]}>
                 <Pressable44
                     onPress={onAttach}
                     disabled={attachDisabled || attachFull}
@@ -217,6 +234,24 @@ const useStyles = createStyles(({ colors }) => ({
         paddingBottom: 10,
         gap: 10,
     },
+    cardCompact: {
+        flexDirection: 'row',
+        flexWrap: 'nowrap',
+        alignItems: 'center',
+        paddingTop: 8,
+        paddingBottom: 8,
+        gap: 6,
+    },
+    chipsCompact: {
+        width: '22%',
+        flexGrow: 0,
+        maxHeight: 36,
+    },
+    inputCompact: {
+        flex: 1,
+        minWidth: 100,
+        maxHeight: 40,
+    },
     chips: {
         flexDirection: 'row',
         flexWrap: 'wrap',
@@ -232,6 +267,11 @@ const useStyles = createStyles(({ colors }) => ({
         ...type.input,
         color: colors.ink,
         textAlignVertical: 'top',
+    },
+    toolbarCompact: {
+        flexShrink: 1,
+        gap: 4,
+        maxWidth: '65%',
     },
     toolbar: {
         flexDirection: 'row',

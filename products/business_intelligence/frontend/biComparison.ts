@@ -1,5 +1,6 @@
+import { escapeHogQLString } from 'lib/utils/hogql'
+
 import { BIConfig, BIField } from '~/queries/schema/schema-business-intelligence'
-import { escapeHogQLString } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 import { getBIDateField } from './biQueryFilters'

@@ -1,4 +1,3 @@
-import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { DATE_FORMAT, formatDate, formatDateRange, formatDateTimeRange, isDate } from 'lib/utils/datetime'
 import { UnexpectedNeverError } from 'lib/utils/guards'
@@ -10,6 +9,8 @@ export function startOfWeek(date: dayjs.Dayjs, weekStartDay?: number | null): da
     const start = weekStartDay === 1 ? 1 : 0
     return date.subtract((date.day() - start + 7) % 7, 'day').startOf('day')
 }
+
+export const CUSTOM_OPTION_KEY = 'Custom'
 
 export const dateMapping: DateMappingOption[] = [
     { key: CUSTOM_OPTION_KEY, values: [] },

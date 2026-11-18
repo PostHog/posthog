@@ -17,6 +17,8 @@ from posthog.schema import (
     HogQLQuery,
     InsightActorsQuery,
     LifecycleDataWarehouseNode,
+    MarketingAnalyticsRecommendationsQuery,
+    MarketingAnalyticsSearchQuery,
     RetentionEntity,
     RetentionFilter,
     RetentionQuery,
@@ -96,6 +98,7 @@ class TestQueriedAccessControlledResources(BaseTest):
             ("ticket_assignments", "select * from system._ticket_assignments", {"ticket"}),
             ("ticket_assignee_roles", "select * from system._ticket_assignee_roles", {"ticket"}),
             ("task_public_channels", "select * from system._task_public_channels", {"task"}),
+            ("task_public_slack_tasks", "select * from system._task_public_slack_tasks", {"task"}),
             ("customer_tasks", "select * from system.customer_tasks", {"customer_task", "account"}),
             ("no_access_controlled_table", "select 1", set()),
             ("events_table", "select * from events", set()),
@@ -219,6 +222,18 @@ class TestQueriedAccessControlledResources(BaseTest):
             )
         )
         assert queried_access_controlled_resources(query, self.team) == set()
+
+    @parameterized.expand(
+        [
+            ("recommendations_without_sources", MarketingAnalyticsRecommendationsQuery(), True),
+            ("recommendations_with_empty_sources", MarketingAnalyticsRecommendationsQuery(sources=[]), False),
+            ("search_with_empty_sources", MarketingAnalyticsSearchQuery(sources=[]), False),
+        ]
+    )
+    def test_marketing_queries_partition_on_warehouse_scopes(self, _name, query, reads_warehouse):
+        scopes = queried_access_controlled_resources(query, self.team)
+        assert scopes is not None
+        assert ({"warehouse_table", "warehouse_view"} <= scopes) is reads_warehouse
 
     def test_references_data_warehouse_covers_all_variants_and_nesting(self):
         variants = [

@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
-import { billingLogic } from 'scenes/billing/billingLogic'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import type { OrganizationType } from '~/types'

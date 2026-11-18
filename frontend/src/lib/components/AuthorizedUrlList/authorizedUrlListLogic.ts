@@ -26,6 +26,7 @@ import {
 } from 'lib/components/AuthorizedUrlList/authorizedUrlMatching'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { hogql } from 'lib/utils/hogql'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { isDomain, isURL } from 'lib/utils/url'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -34,7 +35,6 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
 import { ExperimentIdType, ToolbarParams, ToolbarUserIntent } from '~/types'
 
 import type { TeamPublicType, TeamType, UserType } from '../../../types'

@@ -882,6 +882,39 @@ export interface CanvasSourceInvalidApi {
 }
 
 /**
+ * * `capability_widening_requires_creator` - Capability widening requires creator
+ * * `pinned_version_requires_creator` - Pinned version requires creator
+ * * `permission_denied` - Permission denied
+ */
+export type CanvasCreatorRequiredCodeEnumApi =
+    (typeof CanvasCreatorRequiredCodeEnumApi)[keyof typeof CanvasCreatorRequiredCodeEnumApi]
+
+export const CanvasCreatorRequiredCodeEnumApi = {
+    CapabilityWideningRequiresCreator: 'capability_widening_requires_creator',
+    PinnedVersionRequiresCreator: 'pinned_version_requires_creator',
+    PermissionDenied: 'permission_denied',
+} as const
+
+/**
+ * 403 body for a change that only a creator can make: renaming or adding capabilities to a canvas,
+ * or pinning a component version other than that component's live version.
+ */
+export interface CanvasCreatorRequiredApi {
+    /** Human-readable description of the refusal. */
+    detail: string
+    /** `capability_widening_requires_creator`: the change adds capabilities and the caller did not create the canvas. `pinned_version_requires_creator`: a grid layout pins a component version other than that component's live version and the caller did not create that component. `permission_denied`: a publish or edit supplied a name and the caller did not create the canvas.
+     *
+     * * `capability_widening_requires_creator` - Capability widening requires creator
+     * * `pinned_version_requires_creator` - Pinned version requires creator
+     * * `permission_denied` - Permission denied */
+    code: CanvasCreatorRequiredCodeEnumApi
+    /** Set for capability_widening_requires_creator. The capabilities the change adds, so the caller can ask the canvas creator to publish them. */
+    capability_widening?: CanvasCapabilityWideningApi
+    /** Set for pinned_version_requires_creator. IDs of the components whose placements must use the live version or `latest` instead. */
+    components?: string[]
+}
+
+/**
  * A staged draft version and the status of its latest build. Preview a
  * draft's files with `source?version_id=`, then make it live with `promote`.
  */
@@ -1613,6 +1646,18 @@ export interface CanvasStateEntryApi {
 export interface CanvasStateResponseApi {
     /** The canvas's shared entries plus the caller's own user-scoped entries. */
     entries: CanvasStateEntryApi[]
+    /** Number of entries in the whole selection, across all pages. */
+    count: number
+    /**
+     * URL of the next page, or null when complete. It pages the same way as this request: by cursor when the request used a cursor, otherwise by offset.
+     * @nullable
+     */
+    next: string | null
+    /**
+     * URL of the previous page by offset, or null on the first page and for a cursor request.
+     * @nullable
+     */
+    previous: string | null
     /**
      * Next entry offset, or null when complete. Null when the request used a cursor.
      * @nullable
@@ -1911,6 +1956,7 @@ export type CanvasesListParams = {
     kind?: CanvasesListKind
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2109,6 +2155,7 @@ export const CanvasesStateValueRetrieveScope = {
 export type CanvasesVersionsRetrieveParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

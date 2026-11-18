@@ -56,6 +56,8 @@ export function chatSheetSource(params: {
 }
 
 interface ChatSheetOpen extends ChatSheetSource {
+    conversationId?: string | null
+    runtime?: 'langgraph' | 'sandbox'
     hasContext: boolean
     resumed: boolean
 }
@@ -82,10 +84,18 @@ export function useChatSheetEvents(
     useEffect(() => {
         const { entry, origin, hasContext, resumed } = opened.current
         const openedAt = Date.now()
-        track('mobile_chat_sheet_opened', { entry, origin, has_context: hasContext, resumed })
+        track('mobile_chat_sheet_opened', {
+            entry,
+            origin,
+            has_context: hasContext,
+            resumed,
+            conversation_id: opened.current.conversationId,
+            agent_runtime: opened.current.runtime,
+        })
         return () => {
             track('mobile_chat_sheet_closed', {
                 entry,
+                agent_runtime: opened.current.runtime,
                 messages_sent: sent.current,
                 new_chats: newChats.current,
                 had_run: hadRun.current,
