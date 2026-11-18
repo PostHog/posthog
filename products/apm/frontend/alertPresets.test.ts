@@ -25,22 +25,32 @@ const ENDPOINT_ROW: EndpointHealthApi = {
     health,
 }
 
-const ENDPOINT_FILTER = {
+const endpointFilter = (name: string): object => ({
     type: 'AND',
     values: [
         {
             type: 'AND',
-            values: [
-                { type: PropertyFilterType.Span, key: 'name', operator: PropertyOperator.Exact, value: ['POST /cart'] },
-            ],
+            values: [{ type: PropertyFilterType.Span, key: 'name', operator: PropertyOperator.Exact, value: [name] }],
         },
     ],
-}
+})
 
 describe('APM alert presets', () => {
     it.each([
         ['service', serviceAlertTarget(SERVICE_ROW), null, 'checkout-api: p95 latency'],
-        ['endpoint', endpointAlertTarget(ENDPOINT_ROW), ENDPOINT_FILTER, 'checkout-api POST /cart: p95 latency'],
+        [
+            'endpoint',
+            endpointAlertTarget(ENDPOINT_ROW),
+            endpointFilter('POST /cart'),
+            'checkout-api POST /cart: p95 latency',
+        ],
+        // An empty span name is still one endpoint, not the whole service.
+        [
+            'endpoint with an empty name',
+            endpointAlertTarget({ ...ENDPOINT_ROW, endpoint: '' }),
+            endpointFilter(''),
+            'checkout-api: p95 latency',
+        ],
     ])('scopes a %s row alert to that row', (_, target, filterGroup, name) => {
         const form = buildTargetPresetForm(target, 'p95_latency')
 

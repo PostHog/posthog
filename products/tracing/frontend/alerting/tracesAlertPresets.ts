@@ -121,7 +121,7 @@ export function buildTargetPresetForm(target: TracesAlertPresetTarget, preset: T
     return {
         name: presetName(target, label),
         serviceNames: [target.serviceName],
-        filterGroup: target.operation ? operationFilterGroup(target.operation) : emptyFilterGroup(),
+        filterGroup: target.operation === null ? emptyFilterGroup() : operationFilterGroup(target.operation),
         ...condition,
         percentile: 95,
         windowMinutes: WindowMinutesEnumApi.Number5,
