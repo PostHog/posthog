@@ -686,6 +686,17 @@ jobs:
             # The leader warming, pruning, recovering and sealing a changelog generation
             # on another cluster, against the second broker only this job
             # starts. Elsewhere these tests run their single-cluster cases.
+            - name: Run the leader's warming tests 30 times
+              env:
+                  PERSONHOG_TEST_SECONDARY_KAFKA: 127.0.0.1:29092
+              run: |
+                  cargo test -p personhog-leader --features test-support --test warming_integration --no-run
+                  for attempt in $(seq 1 30); do
+                    echo "::group::attempt $attempt"
+                    cargo test -p personhog-leader --features test-support --test warming_integration
+                    echo "::endgroup::"
+                  done
+
             - name: Test the leader across two Kafka clusters
               env:
                   PERSONHOG_TEST_SECONDARY_KAFKA: 127.0.0.1:29092
