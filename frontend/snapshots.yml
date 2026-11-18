@@ -1792,6 +1792,10 @@ snapshots:
         hash: v1.k794b7964.56c30b942a282f104cfdb14cfafe76862bd1252b14ed96a60c62cff368ee4d6f.-TIBE9N0EqlTjZQoJNID_We0ityhC7uwZKS0u5UnqDo
     components-hogcharts-valuelabels--hidden-on-auxiliary-series--light:
         hash: v1.k794b7964.68556b5c84dfd98ef14c22cd12084e1199b3b74f67483c4aae81f586668b35ea.YwuCqJq5AJoRkGc2zz3XXMhAme8tlLRZE_6FhmPCpnQ
+    components-hogcharts-valuelabels--independent-colors--dark:
+        hash: v1.k794b7964.1fbd3907cf3c3d18f2ffd25375f375cb8742730d2e92bf820bbc172ecebb200c.G9-ltOHqsLY9U3k90Fd90HDKGqi_9R-vdM93yQPLTvs
+    components-hogcharts-valuelabels--independent-colors--light:
+        hash: v1.k794b7964.a482c262adbc741fc6c5f2f7f57044b90a0b1a1bad0c505f2866ab5ba1ee4e92.YBGt8AdOBp2Hv81NMBuRvxwPeiyI99wKefe-vvh1sRA
     components-hogcharts-valuelabels--multi-series-collision--dark:
         hash: v1.k794b7964.c8f4058a880ade96db4c3a6a99fe996611f17dc25855ac3218eb52c3a850aa10.S-J1LDxs3c31REssmtSGdmGbOE_8SyfqyBo4sD-FUAQ
     components-hogcharts-valuelabels--multi-series-collision--light:
@@ -6690,6 +6694,10 @@ snapshots:
         hash: v1.k794b7964.42f446b124bea09236f2bed461731e121face0443254e8d8ca16e3df0f6f4b7a.fygV3-fMSGpy4iismNlUQfIZLx_VcMF7pF5ArdYIzgw
     metrics-metricsdashboardimportmodal--import-summary--light:
         hash: v1.k794b7964.e7a41111b399b2b31b9533056e60b1c84182701b2ad4d70ae637610adc776a08.z85gVPCQ05epK3Q41EPh9OWDK2tVbfeAATkLqqH5j7U
+    metrics-metricsstarterdashboardmodal--with-service-health-panels--dark:
+        hash: v1.k794b7964.9c2b6b9034105843fe4b4bd812de31c302f64008dfa46b2dced92c093e97804c.6y6iy9UpHzxyF8mKJPH7HnrESG5QOXoyrSypy19nAFA
+    metrics-metricsstarterdashboardmodal--with-service-health-panels--light:
+        hash: v1.k794b7964.5d63d4afef82d785bc8f45e692fb5e341a38231a29972d31f634dd5a47fcc20a.HAKZh0pogucS3ThF1Y3dDReqCYPQAmNaroFKYketpHs
     metrics-save-as-metric--duration-with-dropped-filter--dark:
         hash: v1.k794b7964.ddf807b6ffc73e6c2c72b04a1492de1f5ef155fc6c68296c7f6fe20d0ff7fb45.XmtCDvc4JZorbNTjXwybf-V42M22hQAw3J02LYUf4hA
     metrics-save-as-metric--duration-with-dropped-filter--light:
