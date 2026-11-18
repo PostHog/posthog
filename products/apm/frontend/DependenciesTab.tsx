@@ -8,6 +8,7 @@ import { LemonBanner, LemonButton, LemonSelect, Spinner } from '@posthog/lemon-u
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
+import { applicationObservabilityLogic } from './applicationObservabilityLogic'
 import { FAILING_ERROR_RATE } from './dependencies'
 import { dependenciesLogic } from './dependenciesLogic'
 import { DependencyNode } from './DependencyNode'
@@ -42,11 +43,49 @@ function DependencyMapPlaceholder(): JSX.Element {
     )
 }
 
+function DependenciesTooHeavyBanner({ detail }: { detail: string }): JSX.Element {
+    const { serviceNames, dependencyService } = useValues(dependenciesLogic)
+    const { setDependencyService } = useActions(dependenciesLogic)
+    const { timeRange } = useValues(applicationObservabilityLogic)
+    const { setTimeRange } = useActions(applicationObservabilityLogic)
+
+    return (
+        <LemonBanner type="warning">
+            <div className="flex flex-col gap-2">
+                <span>{detail}</span>
+                <div className="flex flex-wrap items-center gap-2">
+                    {timeRange !== '-15m' && (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={() => setTimeRange('-15m')}
+                            data-attr="apm-dependencies-last-15-minutes"
+                        >
+                            Last 15 minutes
+                        </LemonButton>
+                    )}
+                    {!dependencyService && serviceNames.length > 0 && (
+                        <LemonSelect
+                            size="small"
+                            placeholder="Pick a service"
+                            value={null}
+                            onChange={(value) => value && setDependencyService(value)}
+                            options={serviceNames.map((name) => ({ value: name, label: name }))}
+                            data-attr="apm-dependencies-pick-service"
+                        />
+                    )}
+                </div>
+            </div>
+        </LemonBanner>
+    )
+}
+
 export function DependenciesTab(): JSX.Element {
     const {
         dependencies,
         dependenciesLoading,
         dependenciesLoadError,
+        dependenciesLoadErrorDetail,
         dependencyLayout,
         dependencyService,
         edges,
@@ -71,13 +110,15 @@ export function DependenciesTab(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-2">
-            {dependenciesLoadError && (
+            {dependenciesLoadErrorDetail ? (
+                <DependenciesTooHeavyBanner detail={dependenciesLoadErrorDetail} />
+            ) : dependenciesLoadError ? (
                 <LemonBanner type="error" action={{ children: 'Try again', onClick: () => loadDependencies() }}>
                     {edges.length > 0
                         ? "Couldn't refresh dependencies. Showing the last successful results."
                         : "Couldn't load dependencies. Check your connection and try again."}
                 </LemonBanner>
-            )}
+            ) : null}
             {dependencies?.truncated && (
                 <LemonBanner type="info">
                     Showing the busiest {edges.length} calls. Pick a shorter time range to see the rest.
@@ -94,6 +135,11 @@ export function DependenciesTab(): JSX.Element {
                     ]}
                     data-attr="apm-dependencies-service"
                 />
+                {dependencies?.sampled && (
+                    <span className="text-xs text-secondary" data-attr="apm-dependencies-sampled">
+                        Estimated from a sample of the time range.
+                    </span>
+                )}
                 <span className="text-xs text-secondary">
                     Dashed boxes are databases, queues and hosts that send no spans, named by their callers. Select a
                     service to see who calls it and what it calls.

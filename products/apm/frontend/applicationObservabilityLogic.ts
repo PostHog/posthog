@@ -19,7 +19,7 @@ import { ServiceGraph, buildServiceGraph, layoutServiceGraph } from './serviceMa
 
 export const APPLICATION_OBSERVABILITY_PATH = '/application-observability'
 
-export type TimeRange = '-1h' | '-6h' | '-24h' | '-7d'
+export type TimeRange = '-15m' | '-1h' | '-6h' | '-24h' | '-7d'
 
 export type ApplicationObservabilityTab = 'services' | 'endpoints' | 'map' | 'dependencies' | 'usage'
 
@@ -28,6 +28,7 @@ export type ServiceMapWarning = 'map' | 'layout' | 'health' | null
 export const TABS: ApplicationObservabilityTab[] = ['services', 'endpoints', 'map', 'dependencies', 'usage']
 
 export const TIME_RANGE_LABELS: Record<TimeRange, string> = {
+    '-15m': 'Last 15 minutes',
     '-1h': 'Last hour',
     '-6h': 'Last 6 hours',
     '-24h': 'Last 24 hours',
@@ -35,6 +36,7 @@ export const TIME_RANGE_LABELS: Record<TimeRange, string> = {
 }
 
 export const TIME_RANGE_MS: Record<TimeRange, number> = {
+    '-15m': 15 * 60 * 1000,
     '-1h': 60 * 60 * 1000,
     '-6h': 6 * 60 * 60 * 1000,
     '-24h': 24 * 60 * 60 * 1000,
