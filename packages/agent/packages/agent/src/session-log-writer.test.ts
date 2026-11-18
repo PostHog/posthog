@@ -1483,3 +1483,77 @@ describe("SessionLogWriter — local-cache tool_call_update coalescing", () => {
     }
   });
 });
+
+describe("SessionLogWriter flush caps", () => {
+  let logWriter: SessionLogWriter;
+  let mockAppendLog: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    mockAppendLog = vi.fn().mockResolvedValue(undefined);
+    logWriter = new SessionLogWriter({
+      posthogAPI: {
+        appendTaskRunLog: mockAppendLog,
+      } as unknown as PostHogAPIClient,
+    });
+  });
+
+  function appendTestLines(sessionId: string, count: number, pad = "") {
+    for (let i = 0; i < count; i++) {
+      logWriter.appendRawLine(
+        sessionId,
+        JSON.stringify({ method: "test", params: { i, pad } }),
+      );
+    }
+  }
+
+  function sentIndexes(): number[] {
+    return mockAppendLog.mock.calls.flatMap((call) =>
+      (call[2] as StoredNotification[]).map((entry) =>
+        Number(entry.notification.params?.i),
+      ),
+    );
+  }
+
+  it("flushes as soon as 250 entries are pending", async () => {
+    vi.useFakeTimers();
+    try {
+      const sessionId = "s1";
+      logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
+      appendTestLines(sessionId, 1);
+      await logWriter.flush(sessionId);
+      mockAppendLog.mockClear();
+
+      appendTestLines(sessionId, 249);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(mockAppendLog).not.toHaveBeenCalled();
+
+      appendTestLines(sessionId, 1);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(mockAppendLog).toHaveBeenCalledTimes(1);
+      expect(mockAppendLog.mock.calls[0][2]).toHaveLength(250);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    ["entries", 600, "", [250, 250, 100]],
+    ["bytes", 3, "x".repeat(400_000), [2, 1]],
+  ])(
+    "splits a flush over the %s cap into ordered requests",
+    async (_cap, count, pad, sizes) => {
+      const sessionId = "s1";
+      logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
+      appendTestLines(sessionId, count, pad);
+
+      await logWriter.flush(sessionId);
+
+      expect(
+        mockAppendLog.mock.calls.map(
+          (call) => (call[2] as StoredNotification[]).length,
+        ),
+      ).toEqual(sizes);
+      expect(sentIndexes()).toEqual([...Array(count).keys()]);
+    },
+  );
+});

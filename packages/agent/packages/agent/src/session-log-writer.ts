@@ -96,6 +96,8 @@ export class SessionLogWriter {
   private static readonly FLUSH_MAX_INTERVAL_MS = 5000;
   private static readonly FLUSH_MAX_INTERVAL_LARGE_LOG_MS = 10_000;
   private static readonly LARGE_LOG_BYTES = 4 * 1024 * 1024;
+  private static readonly FLUSH_MAX_ENTRIES = 250;
+  private static readonly FLUSH_MAX_BYTES = 1024 * 1024;
   private static readonly FLUSH_FAILURE_LOG_EVERY = 10;
   private static readonly SHUTDOWN_FLUSH_ATTEMPTS = 3;
   private static readonly MAX_RETRY_DELAY_MS = 30_000;
@@ -107,6 +109,7 @@ export class SessionLogWriter {
   private lastFlushAttemptTime: Map<string, number> = new Map();
   private retryCounts: Map<string, number> = new Map();
   private flushedBytes: Map<string, number> = new Map();
+  private entryByteSizes: WeakMap<StoredNotification, number> = new WeakMap();
   private sessions: Map<string, SessionState> = new Map();
   private flushQueues: Map<string, Promise<void>> = new Map();
   private sinks: SessionLogSink[];
@@ -447,27 +450,68 @@ export class SessionLogWriter {
       return;
     }
 
-    this.pendingEntries.delete(sessionId);
     const timeout = this.flushTimeouts.get(sessionId);
     if (timeout) {
       clearTimeout(timeout);
       this.flushTimeouts.delete(sessionId);
     }
 
+    let unsent = pending.length;
+    while (unsent > 0) {
+      const batch = this.takeFlushBatch(sessionId);
+      unsent -= batch.length;
+      if (!(await this.sendFlushBatch(sessionId, session, batch))) {
+        return;
+      }
+    }
+  }
+
+  private takeFlushBatch(sessionId: string): StoredNotification[] {
+    const pending = this.pendingEntries.get(sessionId) ?? [];
+    let count = 0;
+    let bytes = 0;
+    while (
+      count < pending.length &&
+      count < SessionLogWriter.FLUSH_MAX_ENTRIES
+    ) {
+      bytes += this.entryBytes(pending[count]);
+      if (count > 0 && bytes > SessionLogWriter.FLUSH_MAX_BYTES) {
+        break;
+      }
+      count++;
+    }
+    const rest = pending.slice(count);
+    if (rest.length) {
+      this.pendingEntries.set(sessionId, rest);
+    } else {
+      this.pendingEntries.delete(sessionId);
+    }
+    return pending.slice(0, count);
+  }
+
+  private async sendFlushBatch(
+    sessionId: string,
+    session: SessionState,
+    batch: StoredNotification[],
+  ): Promise<boolean> {
+    if (!this.posthogAPI) {
+      return false;
+    }
     this.lastFlushAttemptTime.set(sessionId, Date.now());
 
     try {
       await this.posthogAPI.appendTaskRunLog(
         session.context.taskId,
         session.context.runId,
-        pending,
+        batch,
       );
       this.retryCounts.set(sessionId, 0);
       this.flushedBytes.set(
         sessionId,
         (this.flushedBytes.get(sessionId) ?? 0) +
-          Buffer.byteLength(JSON.stringify(pending)),
+          Buffer.byteLength(JSON.stringify(batch)),
       );
+      return true;
     } catch (error) {
       if (error instanceof PostHogAPIError && !error.retryable) {
         this.retryCounts.set(sessionId, 0);
@@ -475,16 +519,16 @@ export class SessionLogWriter {
           taskId: session.context.taskId,
           runId: session.context.runId,
           status: error.status,
-          count: pending.length,
-          firstEventId: pending[0].first_event_id ?? pending[0].event_id,
-          lastEventId: pending[pending.length - 1].event_id,
+          count: batch.length,
+          firstEventId: batch[0].first_event_id ?? batch[0].event_id,
+          lastEventId: batch[batch.length - 1].event_id,
         });
-        return;
+        return true;
       }
       const retryCount = (this.retryCounts.get(sessionId) ?? 0) + 1;
       this.retryCounts.set(sessionId, retryCount);
       const currentPending = this.pendingEntries.get(sessionId) ?? [];
-      this.pendingEntries.set(sessionId, [...pending, ...currentPending]);
+      this.pendingEntries.set(sessionId, [...batch, ...currentPending]);
 
       if (retryCount === 1) {
         this.logger.warn("Failed to persist session logs, will retry", {
@@ -497,12 +541,37 @@ export class SessionLogWriter {
           taskId: session.context.taskId,
           runId: session.context.runId,
           attempts: retryCount,
-          pendingEntries: pending.length + currentPending.length,
+          pendingEntries: batch.length + currentPending.length,
           errorDetail: serializeError(error),
         });
       }
       this.scheduleFlush(sessionId);
+      return false;
     }
+  }
+
+  private entryBytes(entry: StoredNotification): number {
+    let size = this.entryByteSizes.get(entry);
+    if (size === undefined) {
+      size = Buffer.byteLength(JSON.stringify(entry));
+      this.entryByteSizes.set(entry, size);
+    }
+    return size;
+  }
+
+  private flushCapReached(sessionId: string): boolean {
+    const pending = this.pendingEntries.get(sessionId) ?? [];
+    if (pending.length >= SessionLogWriter.FLUSH_MAX_ENTRIES) {
+      return true;
+    }
+    let bytes = 0;
+    for (const entry of pending) {
+      bytes += this.entryBytes(entry);
+      if (bytes >= SessionLogWriter.FLUSH_MAX_BYTES) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private flushMaxIntervalMs(sessionId: string): number {
@@ -795,7 +864,10 @@ export class SessionLogWriter {
         ) - elapsed,
         0,
       );
-    } else if (elapsed >= this.flushMaxIntervalMs(sessionId)) {
+    } else if (
+      elapsed >= this.flushMaxIntervalMs(sessionId) ||
+      this.flushCapReached(sessionId)
+    ) {
       // If we've been accumulating for longer than the max interval, flush immediately
       delay = 0;
     } else {
