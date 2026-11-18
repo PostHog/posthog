@@ -1,19 +1,31 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { Suspense, lazy } from 'react'
 
 import { LemonButton, LemonDivider, LemonInput, LemonModal, SpinnerOverlay } from '@posthog/lemon-ui'
-import { Button, Card, CardContent, Heading, Text } from '@posthog/quill'
 
 import passkeyLogo from 'lib/components/SocialLoginButton/passkey.svg'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
+import { retryImport } from 'lib/utils/retryImport'
 
 import { SSOEnforcedLoginButton, SocialLoginButtons } from '../SocialLoginButton/SocialLoginButton'
-import { QuillTimeSensitiveAuthenticationModal } from './QuillTimeSensitiveAuthenticationModal'
 import { SetPasswordLinkPrompt } from './SetPasswordLinkPrompt'
 import { timeSensitiveAuthenticationLogic } from './timeSensitiveAuthenticationLogic'
+
+// This file ships on every logged-in page, and quill must load only where a page turns it on.
+const QuillTimeSensitiveAuthenticationModal = lazy(() =>
+    retryImport(() => import('./QuillTimeSensitiveAuthenticationModal')).then((m) => ({
+        default: m.QuillTimeSensitiveAuthenticationModal,
+    }))
+)
+const QuillReauthenticationRequired = lazy(() =>
+    retryImport(() => import('./QuillReauthenticationRequired')).then((m) => ({
+        default: m.QuillReauthenticationRequired,
+    }))
+)
 
 export function TimeSensitiveAuthenticationModal(): JSX.Element {
     const {
@@ -44,11 +56,13 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
 
     if (todayRailNav) {
         return (
-            <QuillTimeSensitiveAuthenticationModal
-                showPassword={!!showPassword}
-                showSetPasswordLink={showSetPasswordLink}
-                extraQueryParams={extraQueryParams}
-            />
+            <Suspense fallback={null}>
+                <QuillTimeSensitiveAuthenticationModal
+                    showPassword={!!showPassword}
+                    showSetPasswordLink={showSetPasswordLink}
+                    extraQueryParams={extraQueryParams}
+                />
+            </Suspense>
         )
     }
 
@@ -209,20 +223,9 @@ export function TimeSensitiveAuthenticationArea({ children }: { children: JSX.El
 
     if (quillSurface && timeSensitiveAuthenticationRequired) {
         return (
-            <Card className="max-w-3xl">
-                <CardContent className="flex flex-col items-start gap-2">
-                    <Heading size="sm" render={<h3 className="m-0" />}>
-                        Re-authentication required
-                    </Heading>
-                    <Text size="xs" variant="muted" render={<p className="m-0" />}>
-                        This settings area contains sensitive information, so we need you to re-authenticate before
-                        continuing.
-                    </Text>
-                    <Button variant="primary" onClick={reauthenticate}>
-                        Re-authenticate
-                    </Button>
-                </CardContent>
-            </Card>
+            <Suspense fallback={null}>
+                <QuillReauthenticationRequired onReauthenticate={reauthenticate} />
+            </Suspense>
         )
     }
 

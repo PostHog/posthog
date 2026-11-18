@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import React from 'react'
+import React, { Suspense, lazy } from 'react'
 
 import { IconCopy } from '@posthog/icons'
 
@@ -7,8 +7,12 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { retryImport } from 'lib/utils/retryImport'
 
-import { QuillCopyToClipboardInline } from './QuillCopyToClipboardInline'
+// This file ships on every logged-in page, and quill must load only where a page turns it on.
+const QuillCopyToClipboardInline = lazy(() =>
+    retryImport(() => import('./QuillCopyToClipboardInline')).then((m) => ({ default: m.QuillCopyToClipboardInline }))
+)
 
 interface InlinePropsBase {
     description?: string
@@ -63,19 +67,21 @@ export const CopyToClipboardInline = React.forwardRef<HTMLSpanElement, InlinePro
 
     if (quillSurface) {
         return (
-            <QuillCopyToClipboardInline
-                ref={ref}
-                onCopy={copy}
-                selectable={selectable}
-                isValueSensitive={isValueSensitive}
-                tooltipMessage={tooltipMessage}
-                iconPosition={iconPosition}
-                className={className}
-                data-attr={dataAttr}
-                {...props}
-            >
-                {children}
-            </QuillCopyToClipboardInline>
+            <Suspense fallback={null}>
+                <QuillCopyToClipboardInline
+                    ref={ref}
+                    onCopy={copy}
+                    selectable={selectable}
+                    isValueSensitive={isValueSensitive}
+                    tooltipMessage={tooltipMessage}
+                    iconPosition={iconPosition}
+                    className={className}
+                    data-attr={dataAttr}
+                    {...props}
+                >
+                    {children}
+                </QuillCopyToClipboardInline>
+            </Suspense>
         )
     }
 

@@ -1,15 +1,15 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect } from 'react'
+import { Suspense, lazy, useEffect } from 'react'
 
 import { IconInfo, IconOpenSidebar, IconUnlock } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
-import { Card, CardContent, Skeleton } from '@posthog/quill'
 
 import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
+import { retryImport } from 'lib/utils/retryImport'
 import { getProductIcon } from 'scenes/onboarding/shared/utils'
 import { userLogic } from 'scenes/userLogic'
 
@@ -17,7 +17,14 @@ import { AvailableFeature, BillingFeatureType, BillingProductV2AddonType, Billin
 
 import { PayGateButton } from './PayGateButton'
 import { PayGateMiniLogicProps, payGateMiniLogic } from './payGateMiniLogic'
-import { QuillPayGateContent } from './QuillPayGateContent'
+
+// This file ships on every logged-in page, and quill must load only where a page turns it on.
+const QuillPayGateContent = lazy(() =>
+    retryImport(() => import('./QuillPayGateContent')).then((m) => ({ default: m.QuillPayGateContent }))
+)
+const QuillPayGateSkeleton = lazy(() =>
+    retryImport(() => import('./QuillPayGateSkeleton')).then((m) => ({ default: m.QuillPayGateSkeleton }))
+)
 
 export type PayGateMiniProps = PayGateMiniLogicProps & {
     /**
@@ -103,15 +110,9 @@ export function PayGateMini({
         if (quillSurface) {
             return (
                 loadingSkeleton || (
-                    <Card className={className}>
-                        <CardContent className="flex flex-col items-center gap-2">
-                            <Skeleton className="h-10 w-20" />
-                            <Skeleton className="h-6 w-48" />
-                            <Skeleton className="h-4 w-1/2" />
-                            <Skeleton className="h-4 w-1/2" />
-                            <Skeleton className="h-8 w-32" />
-                        </CardContent>
-                    </Card>
+                    <Suspense fallback={null}>
+                        <QuillPayGateSkeleton className={className} />
+                    </Suspense>
                 )
             )
         }
@@ -145,17 +146,19 @@ export function PayGateMini({
     if (isGated && !overrideShouldShowGate) {
         if (quillSurface) {
             return (
-                <QuillPayGateContent
-                    feature={feature}
-                    currentUsage={currentUsage}
-                    className={className}
-                    background={background}
-                    isGrandfathered={isGrandfathered}
-                    handleCtaClick={handleCtaClick}
-                    learnMoreUrl={docsLink && isCloudOrDev ? learnMoreUrl : null}
-                    onBypass={user?.is_impersonated ? () => setBypassPaywall(true) : null}
-                    renderProductIcon={getProductIcon}
-                />
+                <Suspense fallback={null}>
+                    <QuillPayGateContent
+                        feature={feature}
+                        currentUsage={currentUsage}
+                        className={className}
+                        background={background}
+                        isGrandfathered={isGrandfathered}
+                        handleCtaClick={handleCtaClick}
+                        learnMoreUrl={docsLink && isCloudOrDev ? learnMoreUrl : null}
+                        onBypass={user?.is_impersonated ? () => setBypassPaywall(true) : null}
+                        renderProductIcon={getProductIcon}
+                    />
+                </Suspense>
             )
         }
 
