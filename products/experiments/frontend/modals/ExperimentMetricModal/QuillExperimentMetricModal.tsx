@@ -13,8 +13,8 @@ import {
     Input,
 } from '@posthog/quill'
 
-import { ExperimentMetricForm } from 'scenes/experiments/ExperimentMetricForm'
 import { resolveFilterTestAccounts, resolvedExposureEvent } from 'scenes/experiments/exposureContract'
+import { QuillExperimentMetricForm } from 'scenes/experiments/QuillExperimentMetricForm'
 
 import type { ExperimentExposureCriteria, ExperimentMetric } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
@@ -61,7 +61,7 @@ export function QuillExperimentMetricModal({
                                 onChange={(event) => setMetric({ ...metric, name: event.target.value })}
                             />
                         </Field>
-                        <ExperimentMetricForm
+                        <QuillExperimentMetricForm
                             metric={metric}
                             handleSetMetric={setMetric}
                             filterTestAccounts={resolveFilterTestAccounts(experiment.exposure_criteria)}
