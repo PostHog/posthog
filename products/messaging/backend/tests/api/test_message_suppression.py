@@ -408,16 +408,28 @@ class TestRemoveSuppressions(APIBaseTest):
         assert response.status_code == expected_status
         assert self._suppressed() == still_suppressed
 
-    def test_bulk_remove_reports_removed_and_unknown_addresses(self) -> None:
+    @parameterized.expand(
+        [
+            ("with no row", None),
+            ("already removed", {"suppressed": False, "deleted": True}),
+            ("no longer suppressed", {"suppressed": False}),
+        ]
+    )
+    def test_bulk_remove_reports_removed_and_absent_addresses(self, _name: str, absent_row: dict | None) -> None:
         self._suppress("bounced@example.com", SuppressionSource.BOUNCE)
+        if absent_row is not None:
+            self._suppress("absent@example.com", SuppressionSource.BOUNCE)
+            MessageSuppression.objects.for_team(self.team.id).filter(identifier="absent@example.com").update(
+                **absent_row
+            )
 
         response = self.client.post(
             self._url("bulk_remove_suppressions"),
-            {"identifiers": ["bounced@example.com", "unknown@example.com"]},
+            {"identifiers": ["bounced@example.com", "absent@example.com"]},
             format="json",
         )
 
-        assert response.json() == {"removed": ["bounced@example.com"], "not_found": ["unknown@example.com"]}
+        assert response.json() == {"removed": ["bounced@example.com"], "not_found": ["absent@example.com"]}
 
     def test_another_projects_entry_can_be_neither_listed_nor_removed(self) -> None:
         other_team = Team.objects.create(organization=self.organization)
