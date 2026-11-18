@@ -95,6 +95,50 @@ async function openAsRecipient(browser: Browser, path: string): Promise<Recipien
     }
 }
 
+// Each case is its own test declaration, because the flake check counts declarations to budget its repeat runs
+async function checkRefusedTopicSave(
+    browser: Browser,
+    page: Page,
+    playwrightSetup: PlaywrightSetup,
+    startsChecked: boolean
+): Promise<void> {
+    const { path, productNewsId, eventInvitesId, storedPreferences } = await createPreferencesPage(
+        page,
+        playwrightSetup
+    )
+    const { context, recipientPage, productNews, eventInvites, allMarketing, status } = await openAsRecipient(
+        browser,
+        path
+    )
+    const savedText = startsChecked ? 'Subscribed' : 'Not subscribed'
+    const storedProductNews = startsChecked ? 'OPTED_IN' : 'OPTED_OUT'
+
+    try {
+        await eventInvites.click()
+        await expect(status(eventInvitesId)).toHaveText('Not subscribed')
+        await productNews.setChecked(startsChecked)
+        await expect(status(productNewsId)).toHaveText(savedText)
+        await expect
+            .poll(() => storedPreferences())
+            .toEqual({ $all: 'OPTED_IN', [productNewsId]: storedProductNews, [eventInvitesId]: 'OPTED_OUT' })
+
+        await refuseNextSave(recipientPage, () => productNews.click())
+        await expect(productNews).toBeChecked({ checked: startsChecked })
+        await expect(productNews).toBeEnabled()
+        await expect(status(productNewsId)).toHaveText(savedText)
+
+        // An all marketing save resubmits every topic's saved choice, so a refused choice
+        // the page kept would reach storage here
+        await allMarketing.click()
+        await expect(status('$all')).toHaveText('Not subscribed')
+        await expect
+            .poll(() => storedPreferences())
+            .toEqual({ $all: 'OPTED_OUT', [productNewsId]: storedProductNews, [eventInvitesId]: 'OPTED_OUT' })
+    } finally {
+        await context.close()
+    }
+}
+
 test.describe('Message preferences page', () => {
     test('all marketing off holds topics off, and turning it back on restores them', async ({
         browser,
@@ -188,11 +232,11 @@ test.describe('Message preferences page', () => {
             await expect(eventInvites).toBeEnabled()
             await expect(status(eventInvitesId)).toHaveText('Not subscribed')
 
-            await productNews.click()
-            await expect(status(productNewsId)).toHaveText('Not subscribed')
+            await allMarketing.click()
+            await expect(status('$all')).toHaveText('Not subscribed')
             await expect
                 .poll(() => storedPreferences())
-                .toEqual({ $all: 'OPTED_IN', [productNewsId]: 'OPTED_OUT', [eventInvitesId]: 'OPTED_OUT' })
+                .toEqual({ $all: 'OPTED_OUT', [productNewsId]: 'OPTED_IN', [eventInvitesId]: 'OPTED_OUT' })
         } finally {
             await context.close()
         }
@@ -260,48 +304,19 @@ test.describe('Message preferences page', () => {
         }
     })
 
-    for (const { start, startsChecked, savedText, storedProductNews } of [
-        { start: 'on', startsChecked: true, savedText: 'Subscribed', storedProductNews: 'OPTED_IN' },
-        { start: 'off', startsChecked: false, savedText: 'Not subscribed', storedProductNews: 'OPTED_OUT' },
-    ]) {
-        test(`a refused topic save keeps the saved choice when the topic starts ${start}`, async ({
-            browser,
-            page,
-            playwrightSetup,
-        }) => {
-            const { path, productNewsId, eventInvitesId, storedPreferences } = await createPreferencesPage(
-                page,
-                playwrightSetup
-            )
-            const { context, recipientPage, productNews, eventInvites, allMarketing, status } = await openAsRecipient(
-                browser,
-                path
-            )
+    test('a refused topic save keeps the saved choice when the topic starts on', async ({
+        browser,
+        page,
+        playwrightSetup,
+    }) => {
+        await checkRefusedTopicSave(browser, page, playwrightSetup, true)
+    })
 
-            try {
-                await eventInvites.click()
-                await expect(status(eventInvitesId)).toHaveText('Not subscribed')
-                await productNews.setChecked(startsChecked)
-                await expect(status(productNewsId)).toHaveText(savedText)
-                await expect
-                    .poll(() => storedPreferences())
-                    .toEqual({ $all: 'OPTED_IN', [productNewsId]: storedProductNews, [eventInvitesId]: 'OPTED_OUT' })
-
-                await refuseNextSave(recipientPage, () => productNews.click())
-                await expect(productNews).toBeChecked({ checked: startsChecked })
-                await expect(productNews).toBeEnabled()
-                await expect(status(productNewsId)).toHaveText(savedText)
-
-                // An all marketing save resubmits every topic's saved choice, so a refused choice
-                // the page kept would reach storage here
-                await allMarketing.click()
-                await expect(status('$all')).toHaveText('Not subscribed')
-                await expect
-                    .poll(() => storedPreferences())
-                    .toEqual({ $all: 'OPTED_OUT', [productNewsId]: storedProductNews, [eventInvitesId]: 'OPTED_OUT' })
-            } finally {
-                await context.close()
-            }
-        })
-    }
+    test('a refused topic save keeps the saved choice when the topic starts off', async ({
+        browser,
+        page,
+        playwrightSetup,
+    }) => {
+        await checkRefusedTopicSave(browser, page, playwrightSetup, false)
+    })
 })
