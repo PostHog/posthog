@@ -58,10 +58,21 @@ const OPEN_SETTINGS_IN: ExtensionPanelState['kind'][] = [
 ]
 
 /** Sends the PostHog session cookie, like the toolbar's own entitlements request. */
+function requestWithSession(uiHost: string, path: string): Promise<Response> {
+    return safeFetch(`${uiHost}${path}`, { credentials: 'include', signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) })
+}
+
 async function fetchWithSession(uiHost: string, path: string): Promise<{ status: number; data: unknown }> {
-    return await readResponse(
-        safeFetch(`${uiHost}${path}`, { credentials: 'include', signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) })
-    )
+    return await readResponse(requestWithSession(uiHost, path))
+}
+
+/** For a path that answers with an app page, not JSON, so only the status says whether it worked. */
+async function fetchStatusWithSession(uiHost: string, path: string): Promise<number> {
+    try {
+        return (await requestWithSession(uiHost, path)).status
+    } catch {
+        return 0
+    }
 }
 
 async function readResponse(request: Promise<Response>): Promise<{ status: number; data: unknown }> {
@@ -440,7 +451,7 @@ export const extensionPanelLogic = kea<extensionPanelLogicType>([
         switchProject: async ({ teamId }) => {
             // The app's project-switch path moves the session's current project, which is the project
             // toolbar authentication uses.
-            const { status } = await fetchWithSession(values.uiHost, `/project/${teamId}`)
+            const status = await fetchStatusWithSession(values.uiHost, `/project/${teamId}`)
             if (status >= 200 && status < 300) {
                 toolbarPosthogJS.capture('toolbar extension project switched')
             } else {
