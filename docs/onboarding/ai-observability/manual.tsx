@@ -19,6 +19,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
         { key: 'PHP', label: 'PHP' },
         { key: 'Android', label: 'Android' },
         { key: 'iOS', label: 'iOS' },
+        { key: 'Flutter', label: 'Flutter' },
     ]
 
     return [
@@ -29,7 +30,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                     <Markdown>
                         {dedent`
                             If you use a different server-side SDK or a mobile SDK, or prefer to use the API, capture the
-                            data manually. Call the \`capture\` method (\`captureAi\` on Android and iOS), or use
+                            data manually. Call the \`capture\` method (\`captureAi\` on Android, iOS, and Flutter), or use
                             the [capture API](https://posthog.com/docs/api/capture).
 
                             \`$ai_trace_id\` groups the events of one LLM interaction into a trace.
@@ -399,6 +400,69 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                                 // "$ai_time_to_first_token": 0.25,
                                                             ]
                                                         )
+                                                    `}
+                                                />
+                                            </>
+                                        )}
+
+                                        {l.key === 'Flutter' && (
+                                            <>
+                                                <Markdown>
+                                                    {dedent`
+                                                        Requires posthog_flutter 6.0 or later. \`captureAi\` sends events to
+                                                        PostHog's AI endpoint, which accepts much larger events than
+                                                        \`capture\`. The SDK doesn't redact prompts or outputs, so use
+                                                        \`beforeSend\` to remove anything you don't want to send. On web,
+                                                        \`captureAi\` sends nothing and returns \`null\`.
+                                                    `}
+                                                </Markdown>
+
+                                                <Markdown>### 1. Install</Markdown>
+                                                <CodeBlock
+                                                    language="yaml"
+                                                    code={dedent`
+                                                        dependencies:
+                                                          posthog_flutter: ^6.0.0
+                                                    `}
+                                                />
+
+                                                <Markdown>### 2. Initialize PostHog</Markdown>
+                                                <CodeBlock
+                                                    language="dart"
+                                                    code={dedent`
+                                                        final config = PostHogConfig('<ph_project_token>')
+                                                          ..host = '<ph_client_api_host>';
+                                                        await Posthog().setup(config);
+                                                    `}
+                                                />
+
+                                                <Markdown>### 3. Capture Event</Markdown>
+                                                <CodeBlock
+                                                    language="dart"
+                                                    code={dedent`
+                                                        // After your LLM call. Returns the event's UUID, or null if it wasn't queued
+                                                        // (for example, the user opted out).
+                                                        final eventId = await Posthog().captureAi(
+                                                          eventName: r'$ai_generation',
+                                                          properties: {
+                                                            r'$ai_trace_id': 'trace_id_here',
+                                                            r'$ai_session_id': 'conversation-abc', // optional: groups traces into one session
+                                                            r'$ai_model': 'gpt-5-mini',
+                                                            r'$ai_provider': 'openai',
+                                                            r'$ai_input': [
+                                                              {'role': 'user', 'content': 'Tell me a fun fact about hedgehogs'},
+                                                            ],
+                                                            r'$ai_input_tokens': 10,
+                                                            r'$ai_output_choices': [
+                                                              {'role': 'assistant', 'content': 'Hedgehogs have around 5,000 to 7,000 spines on their backs!'},
+                                                            ],
+                                                            r'$ai_output_tokens': 20,
+                                                            r'$ai_latency': 1.5,
+                                                            // For streaming responses, also include:
+                                                            // r'$ai_stream': true,
+                                                            // r'$ai_time_to_first_token': 0.25,
+                                                          },
+                                                        );
                                                     `}
                                                 />
                                             </>
