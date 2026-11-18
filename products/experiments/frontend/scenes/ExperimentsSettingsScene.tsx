@@ -1,5 +1,7 @@
 import { useValues } from 'kea'
 
+import { Heading, Skeleton, Text } from '@posthog/quill'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
@@ -54,6 +56,56 @@ function SettingsItem({
     )
 }
 
+function QuillSettingsSection({
+    title,
+    description,
+    children,
+}: {
+    title: string
+    description?: string
+    children: React.ReactNode
+}): JSX.Element {
+    return (
+        <section className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1">
+                <Heading size="base" render={<h2 className="m-0" />}>
+                    {title}
+                </Heading>
+                {description && (
+                    <Text size="xs" variant="muted" render={<p className="m-0" />}>
+                        {description}
+                    </Text>
+                )}
+            </div>
+            {children}
+        </section>
+    )
+}
+
+function QuillSettingsItem({
+    label,
+    description,
+    children,
+}: {
+    label?: string
+    description: string
+    children: React.ReactNode
+}): JSX.Element {
+    return (
+        <div className="flex flex-col gap-1">
+            {label && (
+                <Text size="sm" weight="medium" render={<span />}>
+                    {label}
+                </Text>
+            )}
+            <Text size="xs" variant="muted" render={<p className="m-0" />}>
+                {description}
+            </Text>
+            {children}
+        </div>
+    )
+}
+
 /**
  * although this works fine for now, if we keep adding more settings we need to refactor this to use the
  * <Settings /> component. That will require we create a new section for experiments on the SettingsMap.
@@ -61,84 +113,95 @@ function SettingsItem({
 export function ExperimentsSettingsScene(): JSX.Element {
     const { experimentsConfig, experimentsConfigLoading } = useValues(experimentsConfigLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const quill =
+        !!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV] && !!featureFlags[FEATURE_FLAGS.EXPERIMENTS_RESULTS_REDESIGN]
+    const Section = quill ? QuillSettingsSection : SettingsSection
+    const Item = quill ? QuillSettingsItem : SettingsItem
 
     // The cleanup PR runs as a PostHog Desktop task, so the setting is only relevant with
     // Code access (same gate as the end-experiment modal checkbox).
     const cleanupPrAvailable = !!featureFlags[FEATURE_FLAGS.TASKS]
 
     if (experimentsConfigLoading && !experimentsConfig) {
-        return <SpinnerOverlay sceneLevel />
+        return quill ? (
+            <div className="flex flex-col gap-4">
+                <Skeleton className="h-6 w-1/3" />
+                <Skeleton className="h-24 w-full" />
+            </div>
+        ) : (
+            <SpinnerOverlay sceneLevel />
+        )
     }
 
     return (
         <div className="space-y-8">
-            <SettingsSection
+            <Section
                 title="Statistical analysis"
                 description="Defaults for new experiments in this environment. Each setting can be overridden per experiment."
             >
-                <SettingsItem label="Statistical method" description="The statistical method used to analyze results.">
+                <Item label="Statistical method" description="The statistical method used to analyze results.">
                     <DefaultExperimentStatsMethod />
-                </SettingsItem>
-                <SettingsItem
+                </Item>
+                <Item
                     label="Confidence level"
                     description="Higher confidence levels reduce false positives but require more data."
                 >
                     <DefaultExperimentConfidenceLevel />
-                </SettingsItem>
-                <SettingsItem
+                </Item>
+                <Item
                     label="Minimum detectable effect"
                     description="The smallest effect size you want to detect with statistical significance. Lower values require more data and longer run times."
                 >
                     <DefaultMinimumDetectableEffect />
-                </SettingsItem>
-                <SettingsItem
+                </Item>
+                <Item
                     label="Conversion window"
                     description="When enabled, new experiments exclude participants whose conversion or retention window hasn't elapsed yet."
                 >
                     <DefaultOnlyCountMaturedUsers />
-                </SettingsItem>
-            </SettingsSection>
-            <SettingsSection
+                </Item>
+            </Section>
+            <Section
                 title="CUPED variance reduction"
                 description="CUPED uses pre-experiment data to detect significant effects faster on supported metrics. Can be overridden per experiment."
             >
                 <DefaultCupedEnabled />
-                <SettingsItem
+                <Item
                     label="Lookback window"
                     description={`Number of days before the experiment start to use as the pre-experiment window. Must be between ${MIN_LOOKBACK_DAYS} and ${MAX_LOOKBACK_DAYS} days.`}
                 >
                     <DefaultCupedLookbackDays />
-                </SettingsItem>
-            </SettingsSection>
-            <SettingsSection
+                </Item>
+            </Section>
+            <Section
                 title="Sequential testing"
                 description="Sequential testing produces always-valid p-values that are robust to peeking. Confidence intervals are wider in exchange. Only applies to the frequentist statistical method. Can be overridden per experiment."
             >
                 <DefaultSequentialTestingEnabled />
-                <SettingsItem
+                <Item
                     label="Tuning parameter"
                     description="Roughly the sample size at which the always-valid confidence sequence is tightest. Set close to the expected total sample size of new experiments to minimize the width penalty."
                 >
                     <DefaultSequentialTuningParameter />
-                </SettingsItem>
-            </SettingsSection>
-            <SettingsSection title="Recalculation">
-                <SettingsItem
+                </Item>
+            </Section>
+            <Section title="Recalculation">
+                <Item
                     label="Daily recalculation time"
                     description="The time of day when experiment time series are recalculated, in your project's timezone."
                 >
                     <ExperimentRecalculationTime />
-                </SettingsItem>
-            </SettingsSection>
+                </Item>
+            </Section>
             {cleanupPrAvailable && (
-                <SettingsSection title="Flag cleanup">
-                    <SettingsItem
+                <Section title="Flag cleanup">
+                    <Item
                         label="Default repository for flag cleanup PRs"
                         description="Used when an experiment doesn't have its own repository."
                     >
                         <FlagCleanupRepository />
-                    </SettingsItem>
-                </SettingsSection>
+                    </Item>
+                </Section>
             )}
         </div>
     )
