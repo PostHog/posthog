@@ -610,6 +610,10 @@ def test_prints_core_trino_expression_mappings(expression: str, expected: str) -
             "SELECT x FROM (SELECT is_active AS x FROM flagged UNION ALL SELECT 2 AS x) WHERE x",
             'WHERE CAST("x" AS BOOLEAN)',
         ),
+        (
+            "SELECT properties.color FROM (SELECT properties FROM users)",
+            'json_extract_scalar("properties", \'$["color"]\')',
+        ),
     ],
 )
 def test_derived_column_types_reach_type_dependent_lowerings(query: str, expected: str) -> None:
@@ -3135,14 +3139,14 @@ def test_lowers_multi_key_any_join_with_a_right_expression() -> None:
 
 
 @pytest.mark.parametrize(
-    "people_column, error",
+    "people_column, expected, unread_hidden_columns",
     [
-        ("people.created_at", None),
-        # Property reads through a derived table are not lowered yet, but the hidden column must still resolve.
-        ("people.raw.key", "TRINO_PROPERTY_NOT_LOWERED"),
+        ("people.created_at", '"people"."created_at"', ["_sync_id", "_raw"]),
+        # A property read through a derived table reads the hidden column by its logical name.
+        ("people.raw.key", 'json_extract_scalar("people"."raw", \'$["key"]\')', ["_sync_id"]),
     ],
 )
-def test_lowers_unaliased_left_any_join(people_column: str, error: str | None) -> None:
+def test_lowers_unaliased_left_any_join(people_column: str, expected: str, unread_hidden_columns: list[str]) -> None:
     context = _context_with_trino_table()
     assert context.database is not None
     context.database.tables.add_child(
@@ -3167,15 +3171,11 @@ def test_lowers_unaliased_left_any_join(people_column: str, error: str | None) -
     query = parse_select(
         f"SELECT users.user_id, {people_column} FROM users LEFT ANY JOIN people ON users.user_id = people.user_id"
     )
-    if error is not None:
-        with pytest.raises(TrinoLoweringError, match=error):
-            prepare_and_print_ast(query, context, "trino")
-        return
     sql, _ = prepare_and_print_ast(query, context, "trino")
 
     assert "LEFT ANY JOIN" not in sql
-    assert "_sync_id" not in sql
-    assert "_raw" not in sql
+    assert expected in sql
+    assert not [column for column in unread_hidden_columns if column in sql]
     assert ') AS "people" ON ("users"."user_id" = "people"."user_id")' in sql
 
 

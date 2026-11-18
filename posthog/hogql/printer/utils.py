@@ -382,7 +382,7 @@ def prepare_ast_for_printing(
         # Lower JSON-blob property reads to dialect-neutral PropertyAccess nodes. The warehouse dialects have no
         # materialized columns, so logical lowering is the whole story for them (no ClickHouse property resolution).
         with context.timings.measure("lower_property_access"):
-            node = lower_property_access(node, context)
+            node = lower_property_access(node, context, follow_subquery_columns=dialect == "trino")
 
     if dialect == "clickhouse":
         with context.timings.measure("resolve_property_types"):
