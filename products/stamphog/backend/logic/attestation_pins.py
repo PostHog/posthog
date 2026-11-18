@@ -39,7 +39,9 @@ def object_marker(check_run: dict) -> tuple[str, dict] | None:
         return None
     try:
         payload = json.loads(markers[0])
-    except json.JSONDecodeError:
+    except (ValueError, RecursionError):
+        # Anyone can post a marker. An integer past Python's 4300-digit limit raises a plain
+        # ValueError, and deep nesting raises RecursionError. Either must read as no marker.
         return None
     return (markers[0], payload) if isinstance(payload, dict) else None
 

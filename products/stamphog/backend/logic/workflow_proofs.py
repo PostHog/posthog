@@ -63,16 +63,13 @@ from products.stamphog.backend.logic.attestation_policy import (
     WorkflowPublisher,
     workflow_publishers,
 )
-from products.stamphog.backend.logic.github_client import RepositoryIdentity, StamphogGitHubClient
+from products.stamphog.backend.logic.github_client import MAX_CHECK_RUNS, RepositoryIdentity, StamphogGitHubClient
 
 logger = structlog.get_logger(__name__)
 
 # A read that fails proves nothing, so the entry stays pending or lifts nothing. It must not fail the
 # review of a PR that the entry may not even cover.
 _UNREADABLE = (StamphogGitHubError, GitHubRateLimitError, GitHubEgressBudgetExhausted)
-# The check runs of a head are a writer's to fill, so only this many of the newest candidates per entry
-# are verified. A flood of check runs can hide a result but never forge one.
-_MAX_CANDIDATES = 5
 _TOKEN_RE = re.compile(r"<!--\s*stamphog-oidc:v1\s+([A-Za-z0-9_.-]+)\s*-->")
 _ID_RE = re.compile(r"[1-9][0-9]{0,19}")
 _SHA_RE = re.compile(r"[0-9a-f]{40}")
@@ -105,6 +102,7 @@ class Candidate:
     check_run: dict
     marker: str
     payload: dict
+    token: str
 
 
 @frozen
@@ -146,25 +144,33 @@ class WorkflowProofs:
         return self._identity
 
     def _candidates(self, publisher: WorkflowPublisher) -> list[Candidate]:
-        """The newest completed check runs of the entry's name whose marker names this PR and head.
+        """Each completed check run of the entry's name whose marker names this PR and head, once per token.
 
         Every check run of the name is read, because GitHub otherwise lists only the newest one, and
-        any job can post a newer one to hide the publisher's.
+        any job can post a newer one to hide the publisher's. The check run ids are a writer's to
+        order, so no window of the newest ones is safe: copies of an old result could push a newer one
+        out of it. Copies of one token are one result, so they are verified once.
         """
         check_runs = self._client.get_check_runs(
             self._repo, self._head_sha, check_name=publisher.check, all_runs=True, priority=self._priority
         )
-        candidates: list[Candidate] = []
-        for check_run in sorted(check_runs, key=lambda cr: cr.get("id") or 0, reverse=True):
+        if len(check_runs) >= MAX_CHECK_RUNS:
+            # The listing may have stopped before the newest result, so it proves nothing.
+            raise StamphogGitHubError(f"Too many {publisher.check!r} check runs on {self._head_sha} to verify")
+        candidates: dict[str, Candidate] = {}
+        for check_run in check_runs:
             if check_run.get("name") != publisher.check or check_run.get("status") != "completed":
                 continue
             marker = object_marker(check_run)
             if marker is None or marker[1].get("pr") != self._pr_number or marker[1].get("head_sha") != self._head_sha:
                 continue
-            candidates.append(Candidate(check_run=check_run, marker=marker[0], payload=marker[1]))
-            if len(candidates) == _MAX_CANDIDATES:
-                break
-        return candidates
+            tokens = _TOKEN_RE.findall((check_run.get("output") or {}).get("summary") or "")
+            if len(tokens) != 1:
+                continue
+            candidates.setdefault(
+                tokens[0], Candidate(check_run=check_run, marker=marker[0], payload=marker[1], token=tokens[0])
+            )
+        return list(candidates.values())
 
     def _decode(self, token: str, audience: str) -> dict | None:
         """The token's claims when GitHub signed it for this audience, or None. The expiry is not checked."""
@@ -203,11 +209,10 @@ class WorkflowProofs:
         )
 
     def _signed(self, candidate: Candidate, publisher: WorkflowPublisher) -> SignedResult | None:
-        tokens = _TOKEN_RE.findall((candidate.check_run.get("output") or {}).get("summary") or "")
         conclusion = candidate.check_run.get("conclusion")
-        if len(tokens) != 1 or not isinstance(conclusion, str):
+        if not isinstance(conclusion, str):
             return None
-        claims = self._decode(tokens[0], proof_audience(publisher.check, conclusion, candidate.marker))
+        claims = self._decode(candidate.token, proof_audience(publisher.check, conclusion, candidate.marker))
         if claims is None or not self._names_publisher(claims, publisher):
             return None
         run_id, run_attempt, job_id = (_id_claim(claims, key) for key in ("run_id", "run_attempt", "check_run_id"))
@@ -288,12 +293,13 @@ class WorkflowProofs:
         }
 
     def has_result(self, publisher: WorkflowPublisher) -> bool:
-        """Whether the publishing job signed a result for this PR and head, which ends the engine's wait.
+        """Whether the engine would find a result for this publisher, which ends its wait.
 
-        The poll asks this before it starts a new review, so it runs the same checks that decide
-        whether the engine still waits. The code check only decides whether a result lifts anything.
+        The poll asks this before it spends one of the head's few re-reviews, so it runs every check
+        the review runs. A result the server cannot finish checking leaves the engine waiting, so it
+        must not wake a review either.
         """
-        return self._publisher_result(publisher) is not None
+        return self.verified_result(publisher) is not None
 
 
 def proven_check_runs(

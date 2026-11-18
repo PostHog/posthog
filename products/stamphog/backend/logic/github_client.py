@@ -100,6 +100,8 @@ def _is_own_sticky_comment(comment: dict, expected_login: str | None, *, allow_a
 # Cap on how many comment/file pages we page through, so a pathological PR can't spin forever.
 _MAX_PAGES = 20
 _PER_PAGE = 100
+# The most check runs `get_check_runs` returns. A listing of this size may have stopped short.
+MAX_CHECK_RUNS = _MAX_PAGES * _PER_PAGE
 # GitHub lists at most 250 commits for a pull request, which is three pages of _PER_PAGE.
 _MAX_PR_COMMIT_PAGES = 3
 # GitHub's limit on the files that one compare response lists.

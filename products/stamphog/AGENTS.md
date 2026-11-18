@@ -232,7 +232,7 @@ The server's side (`logic/workflow_proofs.py`, with the policy fields read by `l
 - The token's `check_run_id` is the requesting job's id. The Actions API must name that job the entry's `job` in the token's run, so a second job with `id-token: write` cannot publish. `job` is the name Actions shows, not the job's key in the file, so give the publishing job a name no other job of the workflow has.
 - A success lifts only when the run's commit (`job_workflow_sha`) and the default branch hold the same workflow file and pinned paths, and the marker's `blobs` match them. A re-run of an old run executes the old code, so it counts only while that code is current. The server records the answer as `pinned_blobs_current`.
 - The verified result goes in as a check run under `WORKFLOW_PROOF_KEY`, which GitHub never sends. Both review paths, the context fetch and `_attest_gates`, build the engine's check runs through `proven_check_runs`, and the App pin check skips the verified result.
-- The poll records the publisher in the pending entry and wakes only on a result the publishing job signed for this PR and head, the same test that ends the engine's wait. A forged check spends no re-review.
+- The poll records the publisher in the pending entry and wakes only when the review would find a verified result, the same test that ends the engine's wait. A forged check, or a result the server cannot finish checking, spends no re-review.
 - The StampHog App needs "Actions: read" for the job lookup. A refused lookup proves nothing, and the entry stays pending.
 
 Accepted limits:
@@ -240,7 +240,7 @@ Accepted limits:
 - The token expires five minutes after the job requests it, and a review often comes later, so the server does not check the expiry. The audience binds the token to one result, so an old token proves only what it signed.
 - A key that GitHub removes from its published set fails every result it signed, and the entry waits until the publisher runs again.
 - A writer's job can strip the token from a newer result and post an older signed result of the same PR, head and merge base again. Unlike an App's check run, the newer one cannot be protected. The older result proved the same inputs with code that is still current, so this matters only for a publisher that answers differently on the same inputs.
-- Only the newest few check runs of the name are verified. A flood of check runs can hide a result, never forge one.
+- Every check run of the name is verified, once per token, because a writer orders the check run ids and copies of an old result would push a newer one out of any window. A listing that reaches the API's page limit counts as unreadable, so a flood keeps the entry pending and never lifts.
 
 ## The manual trigger (the one exception to label mode)
 

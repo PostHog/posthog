@@ -33,6 +33,7 @@ from products.stamphog.backend.logic.digest import DigestPRSummary, DigestSummar
 from products.stamphog.backend.logic.digest_config import RepoDigestConfig, load_repo_digest_config
 from products.stamphog.backend.logic.familiarity_facts import FamiliarityStatus, ReviewHistory, fetch_review_history
 from products.stamphog.backend.logic.github_client import (
+    MAX_CHECK_RUNS,
     MAX_COMPARE_DIFF_BYTES,
     CommitComparison,
     GitObjectId,
@@ -1128,9 +1129,9 @@ class WorkflowProofTests(SimpleTestCase):
     def test_an_older_result_posted_again_does_not_replace_the_newer_run(self) -> None:
         older = _signed_check_run(5, run_id="76", check_run_id="899")
         newer = _signed_check_run(6, conclusion="failure", run_id="77")
-        replayed = {**older, "id": 7}
+        replayed = [{**older, "id": posted_id} for posted_id in range(7, 13)]
         jobs = {899: {"name": "publish", "run_id": 76}, 900: {"name": "publish", "run_id": 77}}
-        client = _WorkflowClient([older, newer, replayed], jobs)
+        client = _WorkflowClient([older, newer, *replayed], jobs)
 
         proof = _proofs(client).verified_result(_PUBLISHER)
 
@@ -1188,8 +1189,8 @@ class WorkflowProofTests(SimpleTestCase):
         [
             ("a_job_lookup_server_error", "get_workflow_job", StamphogGitHubError("502", status_code=502), False),
             ("a_job_lookup_rate_limit", "get_workflow_job", GitHubRateLimitError("slow down"), False),
-            # The result stays pending, so the poll reviews again rather than the lift being refused.
-            ("a_code_check_rate_limit", "get_objects", GitHubRateLimitError("slow down"), True),
+            # The result stays pending rather than refusing the lift, and the poll does not spend a wake on it.
+            ("a_code_check_rate_limit", "get_objects", GitHubRateLimitError("slow down"), False),
         ]
     )
     def test_a_lookup_that_github_refuses_proves_nothing_and_fails_no_review(
@@ -1201,6 +1202,18 @@ class WorkflowProofTests(SimpleTestCase):
 
         assert _proofs(client).verified_result(_PUBLISHER) is None
         assert _proofs(client).has_result(_PUBLISHER) is poll_wakes
+
+    @parameterized.expand([("an_integer_past_the_digit_limit", '{"pr": ' + "9" * 4301 + "}")])
+    def test_a_hostile_marker_hides_no_result_and_fails_no_review(self, _name: str, marker: str) -> None:
+        hostile = {**_signed_check_run(9), "output": {"summary": f"<!-- stamphog:v1 {marker} -->"}}
+        client = _WorkflowClient([hostile, _signed_check_run()])
+
+        assert _proofs(client).verified_result(_PUBLISHER) is not None
+
+    def test_a_listing_that_may_have_stopped_short_proves_nothing(self) -> None:
+        client = _WorkflowClient([_signed_check_run(posted_id) for posted_id in range(MAX_CHECK_RUNS)])
+
+        assert _proofs(client).verified_result(_PUBLISHER) is None
 
     def test_both_review_paths_add_the_verified_result_and_leave_its_pins_alone(self) -> None:
         check_run = _signed_check_run()
