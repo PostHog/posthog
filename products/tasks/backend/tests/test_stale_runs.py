@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime, timedelta
 
 from unittest.mock import patch
@@ -12,7 +13,14 @@ from posthog.models import Organization, Team
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import SweptRunRow
 from products.tasks.backend.models import Task, TaskRun
-from products.tasks.backend.stale_runs import StaleRule, StaleRunCount, collect_stale_live_runs, stale_rules
+from products.tasks.backend.stale_runs import (
+    StaleRule,
+    StaleRunCount,
+    SweepMode,
+    collect_stale_live_runs,
+    stale_rules,
+    sweep_mode,
+)
 from products.tasks.backend.task_profiles import USER
 
 NOW = datetime(2026, 11, 18, 12, 0, tzinfo=UTC)
@@ -174,6 +182,9 @@ class TestCollectStaleLiveRuns(TestCase):
             ("shadow_mode", {USER.key: "shadow"}, {}, None),
             ("profile_not_in_the_payload", {"other": "enforce"}, {}, None),
             ("no_payload", None, {}, None),
+            ("payload_sent_as_json", json.dumps({USER.key: "enforce"}), {}, USER.key),
+            ("mode_that_does_not_exist", {USER.key: "enforced"}, {}, None),
+            ("payload_that_is_not_a_mapping", ["enforce"], {}, None),
             ("run_that_showed_life", {USER.key: "enforce"}, {"quiet_for": timedelta(seconds=5)}, None),
             ("queued_run", {USER.key: "enforce"}, {"status": TaskRun.Status.QUEUED}, None),
             ("local_run", {USER.key: "enforce"}, {"environment": LOCAL}, None),
@@ -195,7 +206,7 @@ class TestCollectStaleLiveRuns(TestCase):
         ]
     )
     def test_sweep_ends_only_quiet_cloud_runs_of_enforced_profiles(
-        self, _name: str, payload: dict[str, str] | None, run_overrides: dict, swept_profile: str | None
+        self, _name: str, payload: object, run_overrides: dict, swept_profile: str | None
     ) -> None:
         run = self._run(
             **{"profile": USER.key, "quiet_for": timedelta(hours=1), "idle_timeout_seconds": 600, **run_overrides}
@@ -252,6 +263,32 @@ class TestCollectStaleLiveRuns(TestCase):
         run.refresh_from_db()
         assert run.status == TaskRun.Status.IN_PROGRESS
         assert rows == []
+
+    @parameterized.expand(
+        [
+            ("resolved_mode", {USER.key: "enforce"}, SweepMode.ENFORCE),
+            ("failed_lookup", RuntimeError("flags are down"), SweepMode.OFF),
+        ]
+    )
+    def test_sweep_mode_is_kept_between_lookups(self, _name: str, first_answer: object, kept: SweepMode) -> None:
+        with patch(
+            "products.tasks.backend.stale_runs.posthoganalytics.get_feature_flag_payload",
+            side_effect=[first_answer, {USER.key: "shadow"}],
+        ):
+            modes = [sweep_mode(USER.key, self.team), sweep_mode(USER.key, self.team)]
+
+        assert modes == [kept, kept]
+
+    @parameterized.expand([("read", "get"), ("write", "set")])
+    def test_sweep_mode_is_resolved_when_the_cache_fails(self, _name: str, cache_call: str) -> None:
+        with (
+            patch(f"products.tasks.backend.stale_runs.cache.{cache_call}", side_effect=ConnectionError("cache down")),
+            patch(
+                "products.tasks.backend.stale_runs.posthoganalytics.get_feature_flag_payload",
+                return_value={USER.key: "enforce"},
+            ),
+        ):
+            assert sweep_mode(USER.key, self.team) == SweepMode.ENFORCE
 
     def test_a_run_that_heartbeats_after_the_scan_is_not_swept(self) -> None:
         run = self._run(profile=USER.key, quiet_for=timedelta(hours=1), idle_timeout_seconds=600)
