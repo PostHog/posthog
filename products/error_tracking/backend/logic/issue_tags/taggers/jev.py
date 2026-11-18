@@ -5,7 +5,7 @@ import structlog
 from products.error_tracking.backend.logic.issue_summaries import is_ai_data_processing_approved
 from products.error_tracking.backend.logic.issue_tags.registry import IssueTagDefinition, JevTaggerConfig
 from products.error_tracking.backend.logic.issue_tags.taggers.base import TagAnswer, TagContext
-from products.error_tracking.backend.logic.severity_inference import SEVERITY_INFERENCE_MODEL, build_severity_state
+from products.error_tracking.backend.logic.severity_inference import SEVERITY_INFERENCE_MODEL, build_exception_state
 from products.error_tracking.backend.models import ErrorTrackingIssueTag
 from products.error_tracking.backend.temporal.lifecycle.rendering import render_stacktrace
 from products.ml_inference.backend.facade import api as ml_inference
@@ -35,7 +35,7 @@ class JevTagger:
         result = ml_inference.decide_when_available(
             DecisionRequest(
                 team_id=context.issue.team_id,
-                state=build_severity_state(stacktrace, context.event_properties),
+                state=build_exception_state(stacktrace, context.event_properties),
                 questions={
                     key: DecisionQuestion(type=DecisionQuestionType.NOUL, instructions=config.instructions)
                     for key, config in configs.items()
