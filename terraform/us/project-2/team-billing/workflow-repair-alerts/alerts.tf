@@ -34,7 +34,7 @@ resource "posthog_hog_function" "spine_repair_required" {
           type = "section"
           text = {
             type = "plain_text"
-            text = "Billing repair #{event.properties.repair_id}\nMachine: {event.properties.machine}\nSource fact: {event.properties.source_fact_id}\nReason: {event.properties.reason}"
+            text = "{substring(f'Billing repair #{event.properties.repair_id}\nMachine: {event.properties.machine}\nSource fact: {event.properties.source_fact_id}\nReason: {event.properties.reason}', 1, 3000)}"
           }
         },
         {
