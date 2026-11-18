@@ -409,6 +409,10 @@ function candidatesIn(result: unknown): unknown[] {
     return [result, ...CONTAINER_KEYS.map((key) => result[key]), ...nested]
 }
 
+function repeatsATime(entry: NamedSeries): boolean {
+    return new Set(entry.data.map(([time]) => time)).size !== entry.data.length
+}
+
 function findTimeSeries(result: unknown): NamedSeries[] {
     for (const candidate of candidatesIn(result)) {
         const series = seriesFrom(candidate)
@@ -417,7 +421,10 @@ function findTimeSeries(result: unknown): NamedSeries[] {
         }
         const drawable = series.filter((entry) => entry.data.length >= MIN_POINTS)
         if (drawable.length > 0) {
-            return drawable
+            // A series with two values at one time means a column was read wrongly. For example, a
+            // numeric dimension such as `hour` or `status` was read as a value, so the rows it
+            // should split were merged into one line.
+            return drawable.some(repeatsATime) ? [] : drawable
         }
     }
     return []

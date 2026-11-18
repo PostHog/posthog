@@ -395,6 +395,21 @@ describe('buildTimeSeriesChartData', () => {
             ),
         ],
         ['a trends text table with an in-progress row', 'Date|count\n2026-11-10|5\n2026-11-11 (partial)|3'],
+        [
+            'an execute-sql text table split by a numeric hour',
+            { results: 'day|hour|events\n2026-11-10|0|5\n2026-11-10|1|7\n2026-11-11|0|6\n2026-11-11|1|8' },
+        ],
+        [
+            'rows split by a numeric status code',
+            {
+                results: [
+                    { day: '2026-11-10', status: 200, events: 50 },
+                    { day: '2026-11-10', status: 404, events: 3 },
+                    { day: '2026-11-11', status: 200, events: 60 },
+                    { day: '2026-11-11', status: 404, events: 2 },
+                ],
+            },
+        ],
     ])('returns nothing for %s', (_label, result) => {
         expect(buildTimeSeriesChartData(result)).toBeUndefined()
     })
