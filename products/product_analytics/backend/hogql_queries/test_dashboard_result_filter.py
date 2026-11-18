@@ -166,7 +166,15 @@ class TestDashboardResultFilterCache(BaseTest):
     @parameterized.expand(
         [
             (kind, name)
-            for kind in ("hogql", "trends", "actors", "metadata_breakdown", "metadata_breakdowns", "warehouse")
+            for kind in (
+                "hogql",
+                "trends",
+                "actors",
+                "metadata_breakdown",
+                "metadata_breakdowns",
+                "warehouse",
+                "warehouse_id",
+            )
             for name in ("matchesInsight", r"`matches\0Insight`", r'"matches\0Insight"')
         ]
     )
@@ -185,15 +193,15 @@ class TestDashboardResultFilterCache(BaseTest):
                 if kind == "metadata_breakdown"
                 else BreakdownFilter(breakdowns=[Breakdown(type="event_metadata", property=predicate)])
             )
-        elif kind == "warehouse":
+        elif kind in ("warehouse", "warehouse_id"):
             target.properties = []
             target.series = [
                 DataWarehouseNode(
                     id="events",
                     table_name="events",
-                    id_field="uuid",
+                    id_field=predicate if kind == "warehouse_id" else "uuid",
                     timestamp_field="timestamp",
-                    distinct_id_field=predicate,
+                    distinct_id_field=predicate if kind == "warehouse" else "distinct_id",
                 )
             ]
         query = (

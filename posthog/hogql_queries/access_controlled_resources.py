@@ -376,6 +376,7 @@ def _contains_insight_selection(value) -> bool:
             "math_hogql",
             "pathsHogQLExpression",
             "funnelAggregateByHogQL",
+            "id_field",
             "timestamp_field",
             "distinct_id_field",
             "aggregation_target_field",
