@@ -36,6 +36,7 @@ from products.messaging.backend.presentation.views.message_templates import (
     CODE_SEND_FIELDS,
     EMAIL_FROM_CODE_FLAG,
     TRANSACTIONAL_EMAIL_API_FLAG,
+    SendTransactionalEmailSerializer,
 )
 from products.messaging.backend.services import transactional_email
 from products.messaging.backend.services.code_email_source import SOURCE_DETECTION_FLAG
@@ -150,6 +151,11 @@ class TestTransactionalEmail(APIBaseTest):
         if "identifiers" in body:
             flat["distinct_id"] = body["identifiers"]["distinct_id"]
         return {**flat, "template_id": str(self.template.id)}
+
+    def _send_with_scheduled_at(self, client: APIClient, route: str, scheduled_at: str | None) -> Any:
+        if route == "code":
+            return client.post(self.send_email_url, self._code_send(scheduled_at=scheduled_at), format="json")
+        return self._send(client, route, {**self.body, "scheduled_at": scheduled_at})
 
     def _psak_client(
         self,
@@ -1144,34 +1150,38 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            (f"{name}_{case}", route, scheduled_at)
-            for name, route in (
-                ("template_route", "template"),
-                ("template_id", "send_email"),
-                ("nested_template_id", "send_email_nested"),
-                ("template_key", "code"),
-            )
-            for case, scheduled_at in (("a_time", "2026-11-20T09:00:00Z"), ("null", None))
+            ("template_route", "template"),
+            ("template_id", "send_email"),
+            ("nested_template_id", "send_email_nested"),
+            ("template_key", "code"),
         ]
     )
-    def test_every_send_route_refuses_scheduled_at_unless_null(
-        self, mock_post, _flag, _capture, _name, route, scheduled_at
-    ):
+    def test_every_send_route_refuses_a_scheduled_at(self, mock_post, _flag, _capture, _name, route):
         psak = self._psak_client(["hog_flow:write"])
 
         with FakeCdpApi().serving(mock_post) as cdp:
-            if route == "code":
-                response = psak.post(self.send_email_url, self._code_send(scheduled_at=scheduled_at), format="json")
-            else:
-                response = self._send(psak, route, {**self.body, "scheduled_at": scheduled_at})
+            response = self._send_with_scheduled_at(psak, route, "2026-11-20T09:00:00Z")
 
-        if scheduled_at is None:
-            assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
-            assert [payload["to"] for payload in cdp.received] == ["user@example.com"]
-        else:
-            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-            assert (response.json()["type"], response.json()["attr"]) == ("validation_error", "scheduled_at")
-            assert cdp.received == []
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert (response.json()["type"], response.json()["attr"]) == ("validation_error", "scheduled_at")
+        assert cdp.received == []
+
+    @parameterized.expand(
+        [
+            ("template_route", "template"),
+            ("template_id", "send_email"),
+            ("nested_template_id", "send_email_nested"),
+            ("template_key", "code"),
+        ]
+    )
+    def test_every_send_route_sends_now_when_scheduled_at_is_null(self, mock_post, _flag, _capture, _name, route):
+        psak = self._psak_client(["hog_flow:write"])
+
+        with FakeCdpApi().serving(mock_post) as cdp:
+            response = self._send_with_scheduled_at(psak, route, None)
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert [payload["to"] for payload in cdp.received] == ["user@example.com"]
 
     @parameterized.expand(
         [
@@ -2710,3 +2720,13 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         template.refresh_from_db()
         assert template.transactional_hog_flow_id == linked_hog_flow_id
+
+
+def test_each_send_in_a_list_refuses_its_own_scheduled_at() -> None:
+    serializer = SendTransactionalEmailSerializer(
+        many=True,
+        data=[{"to": "user@example.com"}, {"to": "user@example.com", "scheduled_at": "2026-11-20T09:00:00Z"}],
+    )
+
+    assert not serializer.is_valid()
+    assert [list(errors) for errors in serializer.errors] == [[], ["scheduled_at"]]

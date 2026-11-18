@@ -330,7 +330,6 @@ class EmailDeliveryStatus(LabeledStrEnum):
     COMPLAINED = "complained", "Complained"
 
 
-# The email log and its frontend maps read only EmailDeliveryStatus, so a status only the status read reports goes here.
 class EmailSendStatus(LabeledStrEnum):
     SCHEDULED = "scheduled", "Scheduled"
     QUEUED = "queued", "Queued"
