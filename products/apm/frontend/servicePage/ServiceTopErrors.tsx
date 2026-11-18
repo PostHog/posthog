@@ -63,7 +63,9 @@ export function ServiceTopErrors({
                     {
                         title: 'Error message',
                         key: 'message',
-                        render: (_, row) => <span className="font-mono break-all">{row.message}</span>,
+                        render: (_, row) => (
+                            <span className="ph-replay-block ph-no-capture font-mono break-all">{row.message}</span>
+                        ),
                     },
                     {
                         title: 'Spans',
