@@ -55,13 +55,13 @@ from products.apm.backend.logic.health.contract import (
     rank_services,
     status_of,
 )
-from products.apm.backend.logic.health.deployments import (
-    DeploymentVersion,
-    list_deployments as _list_deployments,
-)
 from products.apm.backend.logic.health.dependencies import (
     DependenciesResult,
     get_dependencies as _get_dependencies,
+)
+from products.apm.backend.logic.health.deployments import (
+    DeploymentVersion,
+    list_deployments as _list_deployments,
 )
 from products.apm.backend.logic.health.sources import (
     ServiceMapResult,

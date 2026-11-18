@@ -1,8 +1,8 @@
 from posthog.api.routing import RouterRegistry
 
 from products.apm.backend.presentation.views import (
-    DeploymentsViewSet,
     DependenciesViewSet,
+    DeploymentsViewSet,
     EndpointsHealthViewSet,
     ServiceMapViewSet,
     ServicesHealthViewSet,

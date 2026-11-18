@@ -42,10 +42,10 @@ from products.apm.backend.facade.api import (
     list_services_health,
 )
 from products.apm.backend.presentation.serializers import (
-    DeploymentsRequestSerializer,
-    DeploymentsResponseSerializer,
     DependenciesRequestSerializer,
     DependenciesResponseSerializer,
+    DeploymentsRequestSerializer,
+    DeploymentsResponseSerializer,
     EndpointsHealthRequestSerializer,
     EndpointsHealthResponseSerializer,
     ServiceMapResponseSerializer,
