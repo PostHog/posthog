@@ -1012,11 +1012,12 @@ The review runs as the PR owner, else as the user who connected the installation
 A running resolution drops a default self-driving handoff; opted-in refusals wait in the queue.
 The opted-in handoff adds scrutiny for size, restricted-path, tier, and structured-risk refusals, including silent refusals; it does not promise approval or merge.
 One pending fallback holds the newest Stamphog run (UUIDv7 order), so delayed delivery cannot replace it with an older refusal. Manual requests keep their own queue entry.
-Before analysis, the turn skips closed PRs, superseded heads, the `skip-agent-review` label, and the owner's review-off or draft opt-out. The owner's resolution preference still governs fixes.
+Before analysis, the turn skips closed PRs, superseded heads, the `skip-agent-review` label, and the owner's effective review-off or draft opt-out. The owner's repository-specific choice takes precedence over their default. The owner's resolution preference still governs fixes.
 A completed Deep review covers its head. Automatic fallback attempts are limited to one per head and two per PR, including failed attempts; activity and workflow retries keep their queue UUID.
 The UUID and head must still own the latest turn marker at its run index. A reused index cannot adopt another turn's snapshot or publication state.
+The fallback's GitHub publication marker includes this queue UUID, so a later manual Deep turn cannot mistake its findings for an earlier publication.
 After finalization, retries resume publication from saved findings, diff snapshot, and urgency threshold, without repeating analysis or deduplication. Finalization saves the threshold and turn watermark atomically.
-Completed publication, including a clean result, is recorded on the turn marker. A fallback updates per-turn publication watermarks but does not set the persistent Full watermark or lift the review tier, so later automatic Standard reviews remain enabled.
+Completed publication, including a clean result, is timestamped on the turn marker. Both head status and request outcome ignore failures before that completion, so a recovered publication reports success. A fallback updates per-turn publication watermarks but does not set the persistent Full watermark or lift the review tier, so later automatic Standard reviews remain enabled.
 A canonical-project mismatch skips the repository opt-in while preserving the original self-driving policy.
 Counters: `posthog_review_hog_authored_pr_review_total` and `posthog_review_hog_stamphog_handoff_total`, keyed by outcome.
 `facade/github.py::owning_team_id(installation_id, repository)` answers the same ownership question for other products, for example a PR comment command dispatcher.

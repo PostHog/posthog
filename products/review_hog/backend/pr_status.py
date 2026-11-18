@@ -155,12 +155,11 @@ class PRStatusLookup:
             marker = markers.get((self.report_id, run_index))
             if marker is None or not _covers(marker.review_mode, requested_mode):
                 continue
-            # The latest turn's finish time is `last_run_at`. Older turns store no finish time, but a
-            # turn whose marker was written after the request also finished after it.
-            if run_index == report.run_count and report.last_run_at is not None:
-                finished_after_request = report.last_run_at >= requested_at
-            else:
-                finished_after_request = marker.started_at >= requested_at
+            # Older markers have no publication time; finalization or the start provides a lower bound.
+            finished_at = marker.publication_completed_at
+            if finished_at is None and run_index == report.run_count:
+                finished_at = report.last_run_at
+            finished_after_request = (finished_at or marker.started_at) >= requested_at
             started_after_request = marker.started_at >= requested_at
             reviewed_requested_head = head_sha is not None and marker.head_sha == head_sha
             if finished_after_request and (started_after_request or reviewed_requested_head):
@@ -193,10 +192,14 @@ class PRStatusLookup:
         run_index = self._completed_turn(requested_at, requested_mode, head_sha)
         if run_index is not None:
             # Finalize counts the turn before it publishes, so a publish failure marks the same turn failed.
+            turn = turn_markers(self.team_id, [self.report_id]).get((self.report_id, run_index))
+            recovered_at = (turn.publication_completed_at or turn.started_at) if turn is not None else None
             turn_failed = [
                 marker
                 for marker in review_markers
-                if marker.outcome == RUN_OUTCOME_FAILED and marker.run_index == run_index
+                if marker.outcome == RUN_OUTCOME_FAILED
+                and marker.run_index == run_index
+                and (recovered_at is None or marker.created_at > recovered_at)
             ]
             if turn_failed:
                 return self._ended_outcome(turn_failed[-1], state)

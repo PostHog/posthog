@@ -12,6 +12,7 @@ from products.review_hog.backend.models import (
     ReviewProjectSettings,
     ReviewReport,
     ReviewRepository,
+    ReviewUserRepositoryChoice,
     ReviewUserSettings,
 )
 from products.review_hog.backend.reviewer.progress import run_outcome_markers
@@ -60,18 +61,37 @@ class TestResolveActingUser(BaseTest):
 
     @parameterized.expand(
         [
-            ("follow", False, True, True),
-            ("off", False, True, False),
-            ("flash", False, True, True),
-            ("follow", True, False, False),
+            ("follow", False, True, None, "PostHog/posthog", True),
+            ("off", False, True, None, "PostHog/posthog", False),
+            ("flash", False, True, None, "PostHog/posthog", True),
+            ("follow", True, False, None, "PostHog/posthog", False),
+            ("follow", False, True, "off", "posthog/POSTHOG", False),
+            ("flash", False, True, "off", "PostHog/posthog", False),
+            ("off", False, True, "flash", "PostHog/posthog", True),
+            ("off", True, False, "flash", "PostHog/posthog", False),
+            ("follow", False, True, "off", "PostHog/other", True),
         ]
     )
     def test_refusal_reviews_honor_the_owners_opt_out(
-        self, mode: str, draft: bool, review_drafts: bool, expected: bool
+        self,
+        mode: str,
+        draft: bool,
+        review_drafts: bool,
+        repository_choice: str | None,
+        repository: str,
+        expected: bool,
     ) -> None:
         ReviewUserSettings.objects.for_team(self.team.id).create(
             team=self.team, user=self.user, preferences={"default_review_mode": mode, "review_drafts": review_drafts}
         )
+        if repository_choice is not None:
+            ReviewUserRepositoryChoice.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                user=self.user,
+                installation_id="123",
+                full_name="PostHog/posthog",
+                mode=repository_choice,
+            )
         result = _resolve_acting_user(
             ResolveActingUserInput(
                 team_id=self.team.id,
@@ -80,6 +100,7 @@ class TestResolveActingUser(BaseTest):
                 trigger_source=TRIGGER_STAMPHOG,
                 draft=draft,
                 refusal_review=True,
+                repository=repository,
             )
         )
         assert result.refusal_review_allowed is expected

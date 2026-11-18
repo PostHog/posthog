@@ -301,7 +301,7 @@ Concern-only refusals, waits, technical failures (including gate-attestation err
 A silent refusal can request an independent Deep review whose findings appear on GitHub; Stamphog's withheld verdict stays private.
 The queue keeps the newest pending refusal, waits for active reviews or fixes, and skips closed PRs and requests for an older head.
 A completed Deep review already covers its head. Otherwise, there is at most one automatic fallback attempt per head and two per PR, including failed attempts. Retries reuse the same turn; manual reviews remain available after the limit.
-The repository must already be connected to PostHog Review in the same canonical project. The PR owner's review-off and draft preferences and the `skip-agent-review` label are honored. Automatic fixes still require the owner's existing opt-in.
+The repository must already be connected to PostHog Review in the same canonical project. The PR owner's repository-specific review choice takes precedence over their default. Review-off and draft preferences and the `skip-agent-review` label are honored. Automatic fixes still require the owner's existing opt-in.
 This one-off Deep review does not upgrade later Standard reviews. Repositories without this setting retain the self-driving handoff: Standard by default, Deep after an explicitly requested Deep review, and no repeat for a head already pending or completed.
 
 ## Security model

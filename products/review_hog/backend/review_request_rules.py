@@ -10,8 +10,11 @@ The checks are small functions so every trigger can call the same ones.
 
 from posthog.dataclasses import frozen
 
+from products.review_hog.backend.automatic_review_rules import load_author_preferences
 from products.review_hog.backend.facade.enums import ReviewRequestRefusal
 from products.review_hog.backend.models import ReviewReport, ReviewUserSettings
+from products.review_hog.backend.ownership import RepositoryRef
+from products.review_hog.backend.preferences import DefaultReviewMode
 from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, REVIEW_MODE_FULL
 from products.review_hog.backend.reviewer.review_state import published_heads_by_mode
 
@@ -30,6 +33,13 @@ class ResolutionGate:
             owner_user_id is not None and ReviewUserSettings.load_preferences(team_id, owner_user_id).resolve_comments
         )
         return cls(owner_user_id=owner_user_id, owner_opted_in=opted_in)
+
+
+def owner_allows_refusal_review(
+    team_id: int, *, owner_user_id: int | None, repository: RepositoryRef, draft: bool, review_drafts: bool
+) -> bool:
+    choice = load_author_preferences(team_id, user_id=owner_user_id, is_bot=False).for_repository(repository)
+    return (choice.repository_choice or choice.default_mode) != DefaultReviewMode.OFF and (not draft or review_drafts)
 
 
 def full_review_published(report: ReviewReport | None) -> bool:

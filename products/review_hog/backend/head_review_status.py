@@ -129,9 +129,9 @@ class HeadReviewStatusLookup:
         run_index = max(completed_runs)
         turn = turns.get(run_index)
         # Finalize counts a turn before it publishes, so a failed publish marks a counted turn failed.
-        # A failure from before the turn's last attempt started belongs to an attempt that a
-        # successful retry replaced.
-        if run_index in failed_at and (turn is None or failed_at[run_index] > turn.started_at):
+        # Publication recovery reuses the marker, so its completion also supersedes earlier failures.
+        recovered_at = (turn.marker.publication_completed_at or turn.started_at) if turn is not None else None
+        if run_index in failed_at and (recovered_at is None or failed_at[run_index] > recovered_at):
             return self._status(HeadReviewState.FAILED)
         pairs = load_turn_findings(team_id=self.team_id, report_id=self.report_id, run_index=run_index)
         counts, _ = finding_counts(pairs)

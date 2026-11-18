@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from django.db.models import JSONField, QuerySet
 from django.db.models.functions import Cast
+from django.utils import timezone
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import TurnMarkerArtefact
@@ -58,7 +59,7 @@ def refusal_review_skip_reason(
         return "superseded"
     resumed = resume_stamphog_turn(report, queue_turn_id)
     if resumed is not None:
-        return "completed" if resumed.publication_completed else None
+        return "completed" if resumed.publication_completed_at is not None else None
     markers = [
         TurnMarkerArtefact.model_validate_json(content)
         for content in _markers(report).values_list("content", flat=True)
@@ -69,7 +70,7 @@ def refusal_review_skip_reason(
             continue
         if marker.stamphog_review_run_id is not None:
             return "head_already_attempted"
-        if marker.review_mode == REVIEW_MODE_FULL and marker.publishes and marker.publication_completed:
+        if marker.review_mode == REVIEW_MODE_FULL and marker.publishes and marker.publication_completed_at is not None:
             return "head_already_reviewed"
     if len(fallback_turns) >= MAX_REFUSAL_REVIEWS_PER_PR:
         return "pr_budget_exhausted"
@@ -94,5 +95,6 @@ def complete_review_turn(report: ReviewReport, run_index: int, head_sha: str, qu
             raise ValueError("The review's turn marker is missing")
         return
     content = TurnMarkerArtefact.model_validate_json(marker.content)
-    marker.content = content.model_copy(update={"publication_completed": True}).model_dump_json()
-    marker.save(update_fields=["content"])
+    if content.publication_completed_at is None:
+        marker.content = content.model_copy(update={"publication_completed_at": timezone.now()}).model_dump_json()
+        marker.save(update_fields=["content"])

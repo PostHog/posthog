@@ -18,6 +18,7 @@ from typing import Any, Final, Literal, cast
 from django.db.models import (
     Case,
     CharField,
+    DateTimeField,
     Exists,
     Func,
     IntegerField,
@@ -291,6 +292,7 @@ class TurnMarker:
     started_at: datetime
     review_design: str = REVIEW_DESIGN_PIPELINE
     clean_full_coverage: bool | None = None
+    publication_completed_at: datetime | None = None
 
 
 def turn_markers(team_id: int, report_ids: list[str]) -> dict[tuple[str, int], TurnMarker]:
@@ -306,6 +308,9 @@ def turn_markers(team_id: int, report_ids: list[str]) -> dict[tuple[str, int], T
             marker_review_mode=KeyTextTransform("review_mode", content_json()),
             marker_review_design=KeyTextTransform("review_design", content_json()),
             marker_clean_full_coverage=KeyTextTransform("clean_full_coverage", content_json()),
+            marker_publication_completed_at=Cast(
+                KeyTextTransform("publication_completed_at", content_json()), DateTimeField()
+            ),
             fingerprint_review_design=KeyTextTransform(
                 "review_design", KeyTransform("fingerprint_inputs", content_json())
             ),
@@ -318,6 +323,7 @@ def turn_markers(team_id: int, report_ids: list[str]) -> dict[tuple[str, int], T
             "marker_review_mode",
             "marker_review_design",
             "marker_clean_full_coverage",
+            "marker_publication_completed_at",
             "fingerprint_review_design",
             "created_at",
         )
@@ -336,6 +342,7 @@ def turn_markers(team_id: int, report_ids: list[str]) -> dict[tuple[str, int], T
             started_at=row["created_at"],
             review_design=review_design,
             clean_full_coverage=_json_bool(row["marker_clean_full_coverage"]),
+            publication_completed_at=row["marker_publication_completed_at"],
         )
     return markers
 

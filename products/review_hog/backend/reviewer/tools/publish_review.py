@@ -132,7 +132,7 @@ def publish_persisted_review(
     marker_content = TurnMarkerArtefact.model_validate_json(turn.content) if turn is not None else None
     fallback = marker_content is not None and marker_content.stamphog_review_run_id is not None
     already_published = (
-        bool(marker_content and marker_content.publication_completed)
+        bool(marker_content and marker_content.publication_completed_at is not None)
         or (report.published_head_shas or {}).get(str(run_index)) == head_sha
         if fallback
         else review_already_published(report, head_sha, review_mode)
@@ -173,6 +173,7 @@ def publish_persisted_review(
         answers_request=answers_request,
         budget_note=budget_note(over_budget, comment_commands_on) if over_budget else "",
         round_note=round_note(review_round) if review_round.asks_for_a_rethink else "",
+        queue_turn_id=marker_content.queue_turn_id if fallback and marker_content is not None else None,
     )
     if outcome.posted:
         if report.outcomes_emitted_at is not None:
@@ -228,13 +229,18 @@ def publish_persisted_review(
     return outcome
 
 
-def _review_marker(report_id: str, head_sha: str, review_mode: str | None = None) -> str:
+def _review_marker(
+    report_id: str, head_sha: str, review_mode: str | None = None, queue_turn_id: str | None = None
+) -> str:
     """A hidden marker (HTML comment) embedded in the review body for publish idempotency.
 
     Posting isn't atomic with saving the `published_head_sha` watermark; if we crash between them, the
     marker lets the retry spot its own already-posted review and skip.
+    A fallback's queue UUID keeps it distinct from a later manual Deep turn at the same head.
     """
     suffix = f":{review_mode}" if review_mode is not None else ""
+    if queue_turn_id is not None:
+        suffix += f":{queue_turn_id}"
     return f"<!-- reviewhog:published:{report_id}:{head_sha}{suffix} -->"
 
 
@@ -285,6 +291,7 @@ def publish_review(
     budget_note: str = "",
     round_note: str = "",
     answers_request: bool = False,
+    queue_turn_id: str | None = None,
 ) -> PublishOutcome:
     """Publish the review to GitHub: the stored body plus inline comments from the durable rows.
 
@@ -318,7 +325,7 @@ def publish_review(
     logger.info(f"Publishing review for {owner}/{repo}#{pr_number}")
 
     report = ReviewReport.objects.for_team(team_id).get(id=report_id)
-    marker = _review_marker(report_id, head_sha, review_mode)
+    marker = _review_marker(report_id, head_sha, review_mode, queue_turn_id)
     standard = review_mode == REVIEW_MODE_FLASH
     large_pr_parts = capped_lens_parts if standard else None
     # `footer` closes the review whichever body posts, so the inline-only body keeps it too.
@@ -397,7 +404,7 @@ def publish_review(
         marker=marker,
         installation_id=installation_id,
         inline_body=inline_body,
-        legacy_marker=_review_marker(report_id, head_sha),
+        legacy_marker=_review_marker(report_id, head_sha) if queue_turn_id is None else None,
         review_mode=review_mode,
     )
     return PublishOutcome(posted=True, review_url=review_url)

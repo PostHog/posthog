@@ -8,6 +8,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
@@ -16,7 +17,11 @@ from temporalio.testing import ActivityEnvironment
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.instance_setting import override_instance_config
 
+from products.review_hog.backend.facade.enums import ReviewRequestOutcomeStatus
+from products.review_hog.backend.facade.review_status_types import HeadReviewState
+from products.review_hog.backend.head_review_status import HeadReviewStatusLookup
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
+from products.review_hog.backend.pr_status import PRStatusLookup
 from products.review_hog.backend.review_request_rules import full_review_published
 from products.review_hog.backend.reviewer.artefact_content import (
     PRSnapshotArtefact,
@@ -34,7 +39,8 @@ from products.review_hog.backend.reviewer.tools.publish_review import (
     _review_already_posted,
     _review_marker,
 )
-from products.review_hog.backend.temporal.activities import PublishInput, _publish, publish_review_activity
+from products.review_hog.backend.temporal.activities import PublishInput, _fail_run, _publish, publish_review_activity
+from products.review_hog.backend.temporal.client import QueuedReviewHeads, WorkflowProbe
 from products.signals.backend.facade.taxonomy import ArtefactAttribution
 
 # `_publish` now delegates to `publish_persisted_review` in the tool, so the GitHub-post seam and the
@@ -182,10 +188,14 @@ class TestPublishIdempotency(BaseTest):
         _auth: MagicMock,
     ) -> None:
         report_id = self._report()
+        requested_at = timezone.now()
         ReviewReport.objects.for_team(self.team.id).filter(id=report_id).update(
             published_heads_by_mode={"flash": "sha0"},
             published_head_shas={"1": "sha0"},
-            run_count=1,
+            run_count=2,
+            head_sha="sha1",
+            completed_head_sha="sha1",
+            last_run_at=requested_at,
         )
         ReviewReportArtefact.add_turn_marker(
             team_id=self.team.id,
@@ -236,6 +246,23 @@ class TestPublishIdempotency(BaseTest):
             pr_number=1,
         )
 
+        def statuses() -> tuple[HeadReviewState, ReviewRequestOutcomeStatus]:
+            with (
+                patch(
+                    "products.review_hog.backend.head_review_status.queued_review_heads",
+                    return_value=QueuedReviewHeads(),
+                ),
+                patch("products.review_hog.backend.pr_status.probe_workflow", return_value=WorkflowProbe.NOT_RUNNING),
+            ):
+                head = HeadReviewStatusLookup(self.team.id, "PostHog/posthog", 1, "sha1").status()
+                pr = PRStatusLookup(self.team.id, "PostHog", "posthog", 1).status(requested_at, "full", "sha1")
+            assert head is not None and pr.request_outcome is not None
+            return head.state, pr.request_outcome.status
+
+        with patch(f"{_ACTIVITIES}.fail_status_comment"):
+            _fail_run(self.team.id, report_id, run_index=2)
+        assert statuses() == (HeadReviewState.FAILED, ReviewRequestOutcomeStatus.FAILED)
+
         with (
             patch("products.review_hog.backend.reviewer.tools.publish_review.github_api_request") as github,
             patch(_PAGINATED, side_effect=lambda *args, **kwargs: iter([])),
@@ -243,27 +270,32 @@ class TestPublishIdempotency(BaseTest):
         ):
             github.return_value.json.return_value = {"html_url": "https://github.com/PostHog/posthog/pull/1#review-2"}
             assert _publish(request).posted is posted
+            assert statuses() == (HeadReviewState.COMPLETED, ReviewRequestOutcomeStatus.COMPLETED)
             if repair_completion:
                 marker = ReviewReportArtefact.objects.for_team(self.team.id).get(
                     report_id=report_id, type=ReviewReportArtefact.ArtefactType.TURN_MARKER
                 )
                 content = TurnMarkerArtefact.model_validate_json(marker.content)
-                marker.content = content.model_copy(update={"publication_completed": False}).model_dump_json()
+                marker.content = content.model_copy(update={"publication_completed_at": None}).model_dump_json()
                 marker.save(update_fields=["content"])
                 assert _publish(request).posted is False
             report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
             marker = ReviewReportArtefact.objects.for_team(self.team.id).get(
                 report_id=report_id, type=ReviewReportArtefact.ArtefactType.TURN_MARKER
             )
-            assert TurnMarkerArtefact.model_validate_json(marker.content).publication_completed
+            assert TurnMarkerArtefact.model_validate_json(marker.content).publication_completed_at is not None
             assert full_review_published(report) is (posted and request_id is None)
             assert (report.published_heads_by_mode or {}).get("flash") == "sha0"
             assert _publish(request).posted is False
+            with patch(f"{_ACTIVITIES}.fail_status_comment"):
+                _fail_run(self.team.id, report_id, run_index=2)
+            assert _publish(request).posted is False
+            assert statuses() == (HeadReviewState.FAILED, ReviewRequestOutcomeStatus.FAILED)
 
         posts = [call.kwargs["json"] for call in github.call_args_list if call.args[0] == "POST"]
         assert len(posts) == int(posted)
         if posts:
-            assert _review_marker(report_id, "sha1", "full") in posts[0]["body"]
+            assert _review_marker(report_id, "sha1", "full", "turn" if request_id else None) in posts[0]["body"]
 
     @parameterized.expand([("same_head", "sha1"), ("other_head", "sha2")])
     @patch(_AUTH, return_value=("tok", None))
@@ -303,22 +335,99 @@ class TestPublishIdempotency(BaseTest):
             )
         return report_id
 
-    @parameterized.expand([("full_then_flash", "full", "flash"), ("flash_then_full", "flash", "full")])
-    @patch(_PUBLISH)
-    @patch(_SNAPSHOT, return_value=None)
+    @parameterized.expand(
+        [
+            ("full_then_flash", "full", "flash", False, False),
+            ("flash_then_full", "flash", "full", False, False),
+            ("fallback_then_standard", "full", "flash", True, False),
+            ("fallback_then_manual_deep", "full", "full", True, False),
+            ("fallback_crash_then_manual_deep", "full", "full", True, True),
+        ]
+    )
     @patch(_AUTH, return_value=("tok", None))
     def test_distinct_modes_publish_once_each_at_the_same_head(
-        self, _name, first_mode, second_mode, _auth, _snapshot, mock_publish
+        self, _name: str, first_mode: str, second_mode: str, fallback: bool, crash: bool, _auth: MagicMock
     ) -> None:
-        mock_publish.return_value = PublishOutcome(posted=True)
         report_id = self._report()
-        first = replace(_publish_input(self.team.id, report_id, "sha1"), review_mode=first_mode)
-        second = replace(first, review_mode=second_mode, run_index=2)
-        for item in (first, second, first, second):
-            _publish(item)
-        assert mock_publish.call_count == 2
+        first = replace(
+            _publish_input(self.team.id, report_id, "sha1"),
+            review_mode=first_mode,
+            queue_turn_id="fallback-turn" if fallback else None,
+        )
+        second = replace(first, review_mode=second_mode, run_index=2, queue_turn_id=None)
+        for item in (first, second):
+            ReviewReportArtefact.add_turn_marker(
+                team_id=self.team.id,
+                report_id=report_id,
+                content=TurnMarkerArtefact(
+                    head_sha=item.head_sha,
+                    run_index=item.run_index,
+                    review_mode=item.review_mode,
+                    reviewhog_version="test",
+                    reviewhog_fingerprint="test",
+                    publishes=True,
+                    queue_turn_id=item.queue_turn_id,
+                    stamphog_review_run_id="refusal" if item.queue_turn_id else None,
+                ),
+                attribution=ArtefactAttribution.system(),
+            )
+            key = f"r{item.run_index}:guard"
+            ReviewReportArtefact.append_finding(
+                team_id=self.team.id,
+                report_id=report_id,
+                content=ReviewIssueFinding(
+                    issue_key=key,
+                    run_index=item.run_index,
+                    title=f"Missing guard {item.run_index}",
+                    file="handler.py",
+                    body=f"Finding from turn {item.run_index}",
+                    suggestion="Check the value first.",
+                    priority=IssuePriority.SHOULD_FIX,
+                ),
+                attribution=ArtefactAttribution.system(),
+            )
+            ReviewReportArtefact.append_verdict(
+                team_id=self.team.id,
+                report_id=report_id,
+                content=ValidationVerdict(issue_key=key, is_valid=True, argumentation="The value is unchecked."),
+                attribution=ArtefactAttribution.system(),
+            )
+        reviews: list[dict[str, Any]] = []
+        ReviewReport.objects.for_team(self.team.id).filter(id=report_id).update(report_markdown="Missing guard 1")
+
+        def github_request(method: str, path: str, **kwargs: Any) -> MagicMock:
+            if method == "POST":
+                reviews.append({**kwargs["json"], "user": {"login": "posthog[bot]", "type": "Bot"}})
+            return MagicMock(
+                json=lambda: {"html_url": f"https://github.com/PostHog/posthog/pull/1#review-{len(reviews)}"}
+            )
+
+        with (
+            patch(
+                "products.review_hog.backend.reviewer.tools.publish_review.github_api_request",
+                side_effect=github_request,
+            ),
+            patch(_PAGINATED, side_effect=lambda *args, **kwargs: iter(reviews)),
+            patch("products.review_hog.backend.reviewer.tools.publish_review.remove_own_pr_reactions"),
+        ):
+            if crash:
+                with patch.object(ReviewReport, "save", side_effect=RuntimeError("watermark unavailable")):
+                    with pytest.raises(RuntimeError, match="watermark unavailable"):
+                        _publish(first)
+            for item in (first, second):
+                ReviewReport.objects.for_team(self.team.id).filter(id=report_id).update(
+                    report_markdown=f"Missing guard {item.run_index}"
+                )
+                _publish(item)
+            for item in (first, second):
+                _publish(item)
+        assert len(reviews) == 2
+        assert "Missing guard 1" in reviews[0]["body"]
+        assert "Missing guard 2" in reviews[1]["body"]
         report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
-        assert report.published_heads_by_mode == {"full": "sha1", "flash": "sha1"}
+        assert report.published_heads_by_mode == (
+            {second_mode: "sha1"} if fallback else {"full": "sha1", "flash": "sha1"}
+        )
 
     @patch(_PUBLISH)
     @patch(_SNAPSHOT, return_value=None)

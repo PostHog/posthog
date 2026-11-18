@@ -68,6 +68,8 @@ class ParseReviewerOutputTests(SimpleTestCase):
             ("risk", "ESCALATE", None, True, False, None, True),
             ("risk_and_concern", "REFUSED", None, True, True, None, True),
             ("concern_only", "REFUSED", None, False, True, None, False),
+            ("blank_risk", "REFUSED", None, False, True, "blank_risk", False),
+            ("whitespace_risk", "REFUSED", None, False, True, "whitespace_risk", False),
             ("invalid_facts", "ESCALATE", None, True, False, "invalid_facts", False),
             ("attestation_failure", "ESCALATE", "size", True, False, "error", False),
             ("wait", "WAIT", "size", True, False, None, False),
@@ -95,6 +97,8 @@ class ParseReviewerOutputTests(SimpleTestCase):
         }
         if failure == "invalid_facts":
             del facts["owning_team_author"]
+        elif failure in ("blank_risk", "whitespace_risk"):
+            facts["risky_areas"] = ["" if failure == "blank_risk" else " \t\n"]
         verdict = parse_reviewer_output(
             json.dumps(
                 {

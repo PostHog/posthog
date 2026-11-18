@@ -46,11 +46,16 @@ from products.review_hog.backend.automatic_reviews import automatic_flash_allowe
 from products.review_hog.backend.facade.enums import ReviewRequestRefusal
 from products.review_hog.backend.facade.finished_review_hooks import FinishedReview, get_finished_review_hooks
 from products.review_hog.backend.models import ReviewProjectSettings, ReviewReport, ReviewUserSettings
+from products.review_hog.backend.ownership import RepositoryRef
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
 from products.review_hog.backend.preferences import ReviewPreferences
 from products.review_hog.backend.pull_request_events import has_skip_agent_review_label
 from products.review_hog.backend.review_notes import comment_commands_enabled, draft_review_notice, first_review_note
-from products.review_hog.backend.review_request_rules import ResolutionGate, full_review_published
+from products.review_hog.backend.review_request_rules import (
+    ResolutionGate,
+    full_review_published,
+    owner_allows_refusal_review,
+)
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import (
     ALREADY_RAISED_SHOWN,
@@ -1247,8 +1252,16 @@ def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResu
     defaults = ReviewPreferences.resolve({}, ReviewProjectSettings.load(input.team_id).defaults)
     preferences = defaults if borrowed else preferences_by_user[acting_user_id]
     owner_preferences = preferences_by_user[owner.user_id] if owner.user_id is not None else defaults
-    refusal_review_allowed = owner_preferences.default_review_mode != "off" and (
-        not input.draft or owner_preferences.review_drafts
+    refusal_review_allowed = not input.refusal_review or owner_allows_refusal_review(
+        input.team_id,
+        owner_user_id=owner.user_id,
+        repository=RepositoryRef(
+            installation_id=input.installation_id or "",
+            github_repo_id=input.github_repo_id,
+            full_name=input.repository or "",
+        ),
+        draft=input.draft,
+        review_drafts=owner_preferences.review_drafts,
     )
     if input.refusal_review and not refusal_review_allowed:
         if input.report_id is not None:

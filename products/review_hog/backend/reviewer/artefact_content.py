@@ -13,6 +13,7 @@ that fit unchanged (`Commit`, `CodeReference`, `TaskRunArtefact`, `NoteArtefact`
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import datetime
 from typing import Any, Literal, cast
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
@@ -337,8 +338,8 @@ class TurnMarkerArtefact(BaseModel):
     stamphog_review_run_id: str | None = Field(
         default=None, description="The Stamphog refusal that requested this Deep turn."
     )
-    publication_completed: bool = Field(
-        default=False, description="Whether this turn finished publishing, including a clean result."
+    publication_completed_at: datetime | None = Field(
+        default=None, description="When this turn finished publishing, including a clean result."
     )
     queue_turn_id: str | None = None
     finalized_urgency_threshold: str | None = None

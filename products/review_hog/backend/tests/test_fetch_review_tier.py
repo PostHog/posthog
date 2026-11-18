@@ -3,6 +3,8 @@ from dataclasses import replace
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 
 from posthog.ownership.paths import PathOwnership
@@ -104,7 +106,7 @@ class TestFetchDecidesTheTier(BaseTest):
                 reviewhog_version="test",
                 reviewhog_fingerprint="test",
                 stamphog_review_run_id=None if prior == "manual" else "old-refusal",
-                publication_completed=prior in ("manual", "completed"),
+                publication_completed_at=timezone.now() if prior in ("manual", "completed") else None,
                 queue_turn_id="old-turn",
                 publishes=True,
                 finalized_urgency_threshold="must_fix" if prior == "finalized" else None,

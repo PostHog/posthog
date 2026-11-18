@@ -24,5 +24,5 @@ def warrants_deep_review(verdict: ReviewerVerdict) -> bool:
             for key in list_fields
         )
         and all(isinstance(facts.get(key), bool) for key in ("owning_team_author", "strong_familiarity"))
-        and bool(facts["risky_areas"])
+        and any(value.strip() for value in facts["risky_areas"])
     )
