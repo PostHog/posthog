@@ -3,7 +3,13 @@
 from drf_spectacular.utils import extend_schema_serializer
 from rest_framework import serializers
 
-from products.apm.backend.facade.api import DependencyKind, HealthStatus, TimeSpentComponentKind, UsageSignal
+from products.apm.backend.facade.api import (
+    DependencyKind,
+    HealthStatus,
+    TimeSpentComponentKind,
+    UsageSignal,
+    VersionSource,
+)
 
 
 class WindowRequestSerializer(serializers.Serializer):
@@ -184,7 +190,7 @@ class DeploymentVersionSerializer(serializers.Serializer):
 class DeploymentsResponseSerializer(serializers.Serializer):
     results = DeploymentVersionSerializer(many=True, help_text="One row per version, oldest first.")
     version_source = serializers.ChoiceField(
-        choices=["service.version", "k8s.replicaset.name"],
+        choices=VersionSource.choices,
         allow_null=True,
         help_text="The resource attribute the versions come from: service.version when the service sets it, else k8s.replicaset.name, which changes on every Kubernetes rollout. Null when the spans carry neither.",
     )

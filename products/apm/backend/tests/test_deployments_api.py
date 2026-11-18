@@ -49,6 +49,8 @@ class TestDeploymentsAPI(ClickhouseTestMixin, APIBaseTest):
         w.span("adopting", env="prod", resource={"k8s.replicaset.name": "adopting-1a2b"})
         w.span("adopting", env="prod", resource={"k8s.replicaset.name": "adopting-3c4d", "service.version": "2.0.0"})
         w.span("bare", env="prod")
+        w.span("versioned-internals", env="prod", resource={"k8s.replicaset.name": "versioned-internals-5e6f"})
+        w.span("versioned-internals", env="prod", kind=1, parent="root", resource={"service.version": "4.0.0"})
         w.insert()
 
     def _get(self, **params) -> dict:
@@ -79,6 +81,7 @@ class TestDeploymentsAPI(ClickhouseTestMixin, APIBaseTest):
             ("k8s-api", "k8s.replicaset.name", ["k8s-api-6d4f", "k8s-api-7b9c"]),
             ("adopting", "service.version", ["2.0.0"]),
             ("bare", None, []),
+            ("versioned-internals", "service.version", []),
         ]
         for service, source, versions in cases:
             with self.subTest(service=service):

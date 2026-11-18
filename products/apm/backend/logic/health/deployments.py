@@ -4,15 +4,16 @@ A version is the first resource attribute in VERSION_ATTRIBUTES the service sets
 instrumentation never sets `service.version`, but every rollout creates a new replica set, so
 `k8s.replicaset.name` stands in for it. A service uses one source for the whole window: the first
 one any of its spans carry, so a service mid-way through adopting `service.version` doesn't mix
-replica set names with release names. Requests are entry spans (server and
-consumer), with root spans as the fallback for a service that has neither, as on the services tab.
+replica set names with release names. The source is chosen before versions with no requests are
+dropped, so internal spans carrying `service.version` still rule out replica set names. Requests
+are entry spans (server and consumer), with root spans as the fallback for a service that has
+neither, as on the services tab.
 First seen and last seen are the first and last span in the window, so a version that started
 before the window shows the window's start.
 """
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Literal
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
@@ -22,14 +23,14 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
 
+from products.apm.backend.logic.health.contract import VersionSource
 from products.apm.backend.logic.health.sources import environment_expr, environment_where, window_where
 
 DEPLOYMENTS_LIMIT = 200
 MAX_BYTES_TO_READ = 10_000_000_000
 MAX_EXECUTION_SECONDS = 30
 
-VersionSource = Literal["service.version", "k8s.replicaset.name"]
-VERSION_ATTRIBUTES: tuple[VersionSource, ...] = ("service.version", "k8s.replicaset.name")
+VERSION_ATTRIBUTES: tuple[VersionSource, ...] = (VersionSource.SERVICE_VERSION, VersionSource.K8S_REPLICASET_NAME)
 
 
 @dataclass(frozen=True)
@@ -53,12 +54,20 @@ class DeploymentsResult:
     version_source: VersionSource | None
 
 
-def _version_exprs() -> tuple[ast.Expr, ast.Expr]:
-    """The version and the index of the attribute it came from, 0 for the most preferred."""
-    values = [f"nullIf(resource_attributes['{key}'], '')" for key in VERSION_ATTRIBUTES]
-    version = "coalesce(" + ", ".join(values) + ", '')"
-    rank = "multiIf(" + ", ".join(f"{v} IS NOT NULL, {i}" for i, v in enumerate(values)) + f", {len(values)})"
-    return parse_expr(version), parse_expr(rank)
+def _version_values() -> list[str]:
+    return [f"nullIf(resource_attributes['{key}'], '')" for key in VERSION_ATTRIBUTES]
+
+
+def _version_expr() -> ast.Expr:
+    return parse_expr("coalesce(" + ", ".join(_version_values()) + ", '')")
+
+
+def _source_rank_expr() -> ast.Expr:
+    """The index of the attribute the version came from, 0 for the most preferred."""
+    values = _version_values()
+    return parse_expr(
+        "multiIf(" + ", ".join(f"{v} IS NOT NULL, {i}" for i, v in enumerate(values)) + f", {len(values)})"
+    )
 
 
 def _deployments_query(
@@ -66,7 +75,6 @@ def _deployments_query(
 ) -> ast.SelectQuery:
     # Entry or root spans are chosen per environment, as on the services tab, so a version that
     # only has root spans in one environment keeps those requests when every environment is read.
-    version_expr, source_rank_expr = _version_exprs()
     # Rows sort by source first, so the limit keeps the preferred source's newest versions.
     query = parse_select(
         """
@@ -97,13 +105,13 @@ def _deployments_query(
             GROUP BY version, source_rank, environment
         )
         GROUP BY version, source_rank
-        HAVING version != '' AND requests > 0
+        HAVING version != ''
         ORDER BY source_rank ASC, first_seen DESC, version DESC
         LIMIT {limit}
         """,
         placeholders={
-            "version_expr": version_expr,
-            "source_rank_expr": source_rank_expr,
+            "version_expr": _version_expr(),
+            "source_rank_expr": _source_rank_expr(),
             "env_expr": environment_expr(),
             "where": window_where(date_from, date_to),
             "env_where": environment_where(environment),
@@ -148,6 +156,10 @@ def compare_versions(rows: list[tuple]) -> list[DeploymentVersion]:
     return versions
 
 
+# Index of `requests` in a row once pick_version_source has dropped the source column.
+REQUESTS_COLUMN = 5
+
+
 def pick_version_source(rows: list[tuple]) -> tuple[VersionSource | None, list[tuple]]:
     """Keeps the rows of the most preferred source present, without their source column.
 
@@ -175,5 +187,6 @@ def list_deployments(
         ),
     ).results
     version_source, rows = pick_version_source(rows)
+    rows = [row for row in rows if row[REQUESTS_COLUMN]]
     # The query keeps the newest versions under the limit; the comparison walks them oldest first.
     return DeploymentsResult(versions=compare_versions(list(reversed(rows))), version_source=version_source)
