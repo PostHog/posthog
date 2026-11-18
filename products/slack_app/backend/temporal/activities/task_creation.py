@@ -1683,6 +1683,22 @@ def _build_terminal_recovery_prompt(previous_run: Any, user_text: str) -> str:
     return "\n".join(recovery_lines) + "\n\n" + user_text
 
 
+def _refresh_conversation_type(mapping: Any, slack: Any, event: dict[str, Any], channel: str) -> None:
+    """Resolve the thread's conversation type again before a new run stores the follow-up.
+
+    Slack keeps the channel id when it converts a channel between public and private and sends no
+    event for the conversion, so the stored ``conversation_type`` can be stale. The new run puts the
+    reply in its state, and a stale public type lets the whole team read that state. A failed lookup
+    comes back as ``UNKNOWN``, which keeps the task with its creator.
+    """
+    from products.slack_app.backend.services.slack_conversations import resolve_conversation_type  # noqa: PLC0415
+
+    conversation_type = resolve_conversation_type(slack, event, channel)
+    if conversation_type != mapping.conversation_type:
+        mapping.conversation_type = conversation_type
+        mapping.save(update_fields=["conversation_type", "updated_at"])
+
+
 def _resume_task_with_new_run(
     mapping: Any,
     previous_run: Any,
@@ -1742,6 +1758,8 @@ def _resume_task_with_new_run(
             text="I can't restart the agent — the original task creator is no longer available.",
         )
         return True
+
+    _refresh_conversation_type(mapping, slack, inputs.event, channel)
 
     create_pr = True
 
