@@ -86,16 +86,10 @@ return 0
 # the lock cannot extend, release, or publish over the leader that replaced it.
 _EXTEND_OWN_LOCK_SCRIPT = """
 if redis.call("get", KEYS[1]) == ARGV[1] then
-    redis.call("pexpire", KEYS[2], ARGV[2])
+    if ARGV[3] == "1" then
+        redis.call("set", KEYS[2], "1", "PX", ARGV[2])
+    end
     return redis.call("pexpire", KEYS[1], ARGV[2])
-end
-return 0
-"""
-
-_MARK_OWN_LEADER_QUERYING_SCRIPT = """
-if redis.call("get", KEYS[1]) == ARGV[1] then
-    redis.call("set", KEYS[2], "1", "PX", ARGV[2])
-    return 1
 end
 return 0
 """
@@ -180,7 +174,7 @@ class QuerySingleFlight:
         self._budget = budget
         self._token = uuid.uuid4().hex
         self._held = False
-        self._marked_querying = False
+        self._querying = False
         self._heartbeat: Optional[_Heartbeat] = None
 
     def acquire(self) -> bool:
@@ -200,12 +194,13 @@ class QuerySingleFlight:
         return True
 
     def extend(self) -> Optional[bool]:
-        """Push the lock's expiry out by one TTL. False once this leader no longer owns the lock,
-        None when storage was unreachable and ownership is unknown."""
+        """Push the lock's expiry out by one TTL, and write the querying marker once the leader queries.
+        False once this leader no longer owns the lock, None when storage was unreachable and ownership is unknown."""
         try:
             client = storage.query_cache_raw_client()
             extended = client.register_script(_EXTEND_OWN_LOCK_SCRIPT)(  # type: ignore[union-attr]
-                keys=[self.lock_key, self.querying_key], args=[self._token, _millis(FLIGHT_LOCK_TTL)]
+                keys=[self.lock_key, self.querying_key],
+                args=[self._token, _millis(FLIGHT_LOCK_TTL), "1" if self._querying else "0"],
             )
             return bool(extended)
         except Exception:
@@ -214,16 +209,10 @@ class QuerySingleFlight:
 
     def mark_querying(self) -> None:
         """Tell followers that this leader has started a ClickHouse query."""
-        if not self._held or self._marked_querying:
+        if not self._held or self._querying:
             return
-        self._marked_querying = True
-        try:
-            client = storage.query_cache_raw_client()
-            client.register_script(_MARK_OWN_LEADER_QUERYING_SCRIPT)(  # type: ignore[union-attr]
-                keys=[self.lock_key, self.querying_key], args=[self._token, _millis(FLIGHT_LOCK_TTL)]
-            )
-        except Exception:
-            self._storage_failed("mark_querying")
+        self._querying = True
+        self.extend()
 
     def succeed(self, last_refresh: datetime) -> None:
         """Release the lock, telling followers which entry to serve."""

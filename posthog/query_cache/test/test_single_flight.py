@@ -1,9 +1,8 @@
 import json
 import uuid
-import threading
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
-import pytest
 from unittest import mock
 
 from django.test import SimpleTestCase
@@ -115,7 +114,6 @@ class TestQuerySingleFlight(SimpleTestCase):
             ),
         ]
     )
-    @pytest.mark.timeout(10)
     def test_a_follower_waits_past_the_short_limit_only_for_a_leader_that_queries(
         self, _name, budget, leader_queries, expected
     ):
@@ -125,16 +123,30 @@ class TestQuerySingleFlight(SimpleTestCase):
         leader.acquire()
         if leader_queries:
             leader.mark_querying()
-        finish = threading.Timer(0.3, leader.succeed, args=[datetime(2026, 1, 1, tzinfo=UTC)])
-        self.addCleanup(finish.cancel)
-        finish.start()
-        with mock.patch.multiple(
-            single_flight,
-            FLIGHT_MAX_WAIT_BEFORE_LEADER_QUERIES_SECONDS=0.05,
-            FLIGHT_POLL_INTERVAL=0.01,
-            FLIGHT_MAX_POLL_INTERVAL=0.01,
-        ):
+        publish_at = single_flight.FLIGHT_MAX_WAIT_BEFORE_LEADER_QUERIES_SECONDS + 30
+        clock = SimpleNamespace(now=0.0)
+
+        def advance(seconds: float) -> None:
+            clock.now += seconds
+            if clock.now >= publish_at:
+                leader.succeed(datetime(2026, 1, 1, tzinfo=UTC))
+
+        fake_time = SimpleNamespace(monotonic=lambda: clock.now, sleep=advance)
+        with mock.patch.object(single_flight, "time", fake_time):
             assert QuerySingleFlight(key, budget).wait() == expected
+
+    def test_a_querying_marker_lost_to_a_storage_error_returns_with_the_next_heartbeat(self):
+        leader = QuerySingleFlight(_cache_key(), BUDGET_INTERACTIVE)
+        self.addCleanup(leader.release)
+        leader.acquire()
+        with mock.patch.object(storage, "query_cache_raw_client", side_effect=ConnectionError):
+            leader.mark_querying()
+        client = storage.query_cache_raw_client()
+        assert not client.exists(leader.querying_key)
+
+        leader.extend()
+
+        assert client.exists(leader.querying_key)
 
     def test_acquire_drops_the_previous_flights_published_result(self):
         key = _cache_key()
