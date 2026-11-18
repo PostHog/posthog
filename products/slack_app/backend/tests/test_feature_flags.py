@@ -2,8 +2,7 @@ import pytest
 from unittest.mock import patch
 
 from products.slack_app.backend import feature_flags
-from products.slack_app.backend.models import SlackUserProfileCache
-from products.slack_app.backend.tests.conftest import SLACK_TEAM_ID, SLACK_USER_ID
+from products.slack_app.backend.tests.conftest import SLACK_TEAM_ID
 
 PERSON_GATES = [
     feature_flags.is_slack_app_onboarding_enabled,
@@ -41,73 +40,31 @@ def test_gate_stays_closed_when_a_required_scope_is_missing(workspace_integratio
     assert gate(workspace_integration) is False
 
 
-@pytest.mark.parametrize(
-    "gate",
-    [feature_flags.is_slack_app_agent_design_enabled],
-    ids=["agent design"],
-)
-@pytest.mark.parametrize(
-    ("distinct_id", "expected_identity"),
-    [
-        ("user-1", "user-1"),
-        (None, f"slack_workspace:{SLACK_TEAM_ID}"),
-    ],
-    ids=["known user", "no user"],
-)
+# (gate, what it takes for the acting user)
+USER_KEYED_GATES = [
+    (feature_flags.is_slack_app_agent_design_enabled, "distinct_id"),
+    *((gate, "user_id") for gate in PERSON_GATES),
+]
+
+
+@pytest.mark.parametrize(("gate", "takes"), USER_KEYED_GATES, ids=[gate.__name__ for gate, _ in USER_KEYED_GATES])
+@pytest.mark.parametrize("known", [True, False], ids=["known user", "no user"])
 def test_user_keyed_gate_resolves_against_the_acting_user(
-    settings, workspace_integration, org_team_user, gate, distinct_id, expected_identity
+    settings, workspace_integration, org_team_user, gate, takes, known
 ):
     # The identity decides which rules can match at all. Resolving a known user against the
     # workspace instead would silently stop every person rule, `email ends_with
     # @posthog.com` included, from matching anyone.
     settings.CLOUD_DEPLOYMENT = "DEV"
-    org, _, _ = org_team_user
+    org, _, user = org_team_user
+    acting = (user.distinct_id if takes == "distinct_id" else user.id) if known else None
 
     with patch("posthoganalytics.feature_enabled", return_value=True) as feature_enabled:
-        gate(workspace_integration, distinct_id)
+        assert gate(workspace_integration, acting) is True
 
+    expected_identity = user.distinct_id if known else f"slack_workspace:{SLACK_TEAM_ID}"
     assert feature_enabled.call_args.args[1] == expected_identity
     assert feature_enabled.call_args.kwargs["person_properties"] == {"region": "DEV"}
-    assert feature_enabled.call_args.kwargs["groups"] == {"organization": str(org.id)}
-
-
-@pytest.mark.parametrize("gate", PERSON_GATES, ids=[gate.__name__ for gate in PERSON_GATES])
-@pytest.mark.parametrize(
-    ("linked", "cached_email", "user_passed"),
-    [
-        (False, None, False),
-        (False, "cached@example.com", False),
-        (True, "cached@example.com", False),
-        (False, None, True),
-    ],
-    ids=["unknown person", "cached profile", "linked user", "user from the caller"],
-)
-def test_person_gate_resolves_against_the_person_not_the_workspace(
-    settings, workspace_integration, org_team_user, link_user, gate, linked, cached_email, user_passed
-):
-    # Keyed on the workspace, a rule on `email` would match nobody, and the only way to turn a feature on for one
-    # tester would be to turn it on for everyone in their workspace.
-    settings.CLOUD_DEPLOYMENT = "DEV"
-    org, _, user = org_team_user
-    if linked:
-        link_user(user)
-    if cached_email:
-        SlackUserProfileCache.objects.create(
-            integration=workspace_integration, slack_user_id=SLACK_USER_ID, email=cached_email
-        )
-
-    with patch("posthoganalytics.feature_enabled", return_value=True) as feature_enabled:
-        assert gate(workspace_integration, SLACK_USER_ID, user=user if user_passed else None) is True
-
-    if linked or user_passed:
-        expected_identity, expected_email = user.distinct_id, user.email
-    else:
-        expected_identity, expected_email = f"slack:{SLACK_TEAM_ID}:{SLACK_USER_ID}", cached_email
-    assert feature_enabled.call_args.args[1] == expected_identity
-    assert feature_enabled.call_args.kwargs["person_properties"] == {
-        "region": "DEV",
-        **({"email": expected_email} if expected_email else {}),
-    }
     assert feature_enabled.call_args.kwargs["groups"] == {"organization": str(org.id)}
 
 

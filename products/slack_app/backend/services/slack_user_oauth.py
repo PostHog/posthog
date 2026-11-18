@@ -81,10 +81,12 @@ def linked_search_token(*, slack_user_id: str, slack_team_id: str) -> LinkedUser
     return token if token is not None and "search:read.public" in token.scopes else None
 
 
-def linked_posthog_user(*, slack_user_id: str, slack_team_id: str) -> User | None:
-    """The active PostHog user of the most recent link to this Slack identity, in any organization."""
-    link = _slack_links(slack_user_id=slack_user_id, slack_team_id=slack_team_id).select_related("user").first()
-    return link.user if link is not None else None
+def linked_posthog_user_id(*, slack_user_id: str, slack_team_id: str) -> int | None:
+    """The active PostHog user of the most recent link to this Slack identity, in any organization. A gate that
+    decides for a Slack user takes this, and falls back to the workspace before the person links."""
+    return (
+        _slack_links(slack_user_id=slack_user_id, slack_team_id=slack_team_id).values_list("user_id", flat=True).first()
+    )
 
 
 def linked_posthog_user_ids(*, slack_user_id: str, slack_team_id: str) -> list[int]:

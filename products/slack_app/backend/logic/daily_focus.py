@@ -25,7 +25,7 @@ from products.slack_app.backend.services.slack_user_info import (
     normalize_slack_response,
     persist_slack_user_info,
 )
-from products.slack_app.backend.services.slack_user_oauth import linked_search_token
+from products.slack_app.backend.services.slack_user_oauth import linked_posthog_user_id, linked_search_token
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
 
 logger = structlog.get_logger(__name__)
@@ -141,9 +141,9 @@ def _person_rows(slack_workspace_id: str, slack_user_id: str) -> QuerySet[SlackD
 
 def can_run_daily_focus(integration: WorkspaceIntegration, slack_user_id: str) -> bool:
     """The flag is on and the person's Slack link can search. The Home tab controls and the runs need both."""
-    return is_slack_app_daily_work_focus_enabled(integration, slack_user_id) and (
-        linked_search_token(slack_user_id=slack_user_id, slack_team_id=integration.integration_id) is not None
-    )
+    return is_slack_app_daily_work_focus_enabled(
+        integration, linked_posthog_user_id(slack_user_id=slack_user_id, slack_team_id=integration.integration_id)
+    ) and (linked_search_token(slack_user_id=slack_user_id, slack_team_id=integration.integration_id) is not None)
 
 
 def resolve_daily_focus(slack_workspace_id: str, slack_user_id: str) -> DailyFocusSettings:
