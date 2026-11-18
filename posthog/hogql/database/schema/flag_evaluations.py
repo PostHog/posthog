@@ -183,8 +183,7 @@ class FlagEvaluationsTable(EventsRetentionTable):
             hidden=True,
         ),
         "person_id": _person_id(),
-        # `follow_persons_on_events_mode` replaces `person_id` and leaves this field as it is. The events list joins
-        # each row to the merge-corrected person in every mode, so it keys on this field.
+        # `follow_persons_on_events_mode` leaves this field as it is, so the events list joins persons on it.
         "merged_person_id": _person_id(name="merged_person_id", hidden=True),
         "flag_key": StringDatabaseField(
             name="flag_key",

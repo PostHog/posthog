@@ -114,7 +114,6 @@ FLAG_EVALUATIONS_LIST_TABLE = EventsListTable(
     # It then prints the persons join before the override join that the persons join condition reads.
     alias="flag_evaluations",
     # The persons join reads a zero UUID from person.id for a distinct_id with no person row.
-    # merged_person_id holds the id that flag_evaluations resolved through person merges, whatever the project's mode.
     person_id="merged_person_id",
     # Reading person.properties in the query joins persons. That join deduplicates every person in the team before
     # the query picks the page. The runner reads display names for only the page's persons after the query, unless

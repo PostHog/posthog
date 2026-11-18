@@ -518,8 +518,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         [
             ("properties_on_events", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS, "merged"),
             ("no_override", PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS, "stored"),
-            # `person_id` reads through the person_distinct_id2 INNER JOIN, so `SELECT *` leaves it out, as on events.
-            # Reading it would drop this row, whose distinct_id has no person.
+            # `SELECT *` leaves out `person_id`, as on events, because its INNER JOIN would drop this personless row.
             ("disabled", PersonsOnEventsMode.DISABLED, None),
         ]
     )
@@ -1023,7 +1022,6 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            # The two booleans say whether person_id and poe.id read the merged person instead of the stored one.
             ("joined", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED, True, False, CURRENT_EMAIL),
             (
                 "properties_on_events",
