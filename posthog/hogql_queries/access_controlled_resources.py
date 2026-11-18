@@ -357,9 +357,9 @@ def _contains_insight_selection(value) -> bool:
     expressions = []
     if value.get("kind") == "HogQLQuery":
         expressions.append(value.get("query"))
-    if value.get("type") == "hogql":
+    if value.get("type") in ("hogql", "event_metadata"):
         expressions.extend(value.get(field) for field in ("key", "property"))
-    if value.get("breakdown_type") == "hogql":
+    if value.get("breakdown_type") in ("hogql", "event_metadata"):
         expressions.append(value.get("breakdown"))
     # These query fields contain expressions; property values and request metadata are literals.
     expressions.extend(
@@ -376,6 +376,10 @@ def _contains_insight_selection(value) -> bool:
             "math_hogql",
             "pathsHogQLExpression",
             "funnelAggregateByHogQL",
+            "timestamp_field",
+            "distinct_id_field",
+            "aggregation_target_field",
+            "created_at_field",
             "hogql",
         )
     )

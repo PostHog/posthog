@@ -5,7 +5,17 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flus
 
 from parameterized import parameterized
 
-from posthog.schema import ActorsQuery, EventsNode, HogQLPropertyFilter, HogQLQuery, InsightActorsQuery, TrendsQuery
+from posthog.schema import (
+    ActorsQuery,
+    Breakdown,
+    BreakdownFilter,
+    DataWarehouseNode,
+    EventsNode,
+    HogQLPropertyFilter,
+    HogQLQuery,
+    InsightActorsQuery,
+    TrendsQuery,
+)
 
 from posthog.hogql.escape_sql import escape_hogql_string
 
@@ -156,7 +166,7 @@ class TestDashboardResultFilterCache(BaseTest):
     @parameterized.expand(
         [
             (kind, name)
-            for kind in ("hogql", "trends", "actors")
+            for kind in ("hogql", "trends", "actors", "metadata_breakdown", "metadata_breakdowns", "warehouse")
             for name in ("matchesInsight", r"`matches\0Insight`", r'"matches\0Insight"')
         ]
     )
@@ -168,6 +178,24 @@ class TestDashboardResultFilterCache(BaseTest):
         selection = ActorsQuery(source=InsightActorsQuery(source=source))
         predicate = f"{name}({escape_hogql_string(selection.model_dump_json())})"
         target = TrendsQuery(series=[EventsNode(event="$pageview")], properties=[HogQLPropertyFilter(key=predicate)])
+        if kind in ("metadata_breakdown", "metadata_breakdowns"):
+            target.properties = []
+            target.breakdownFilter = (
+                BreakdownFilter(breakdown_type="event_metadata", breakdown=predicate)
+                if kind == "metadata_breakdown"
+                else BreakdownFilter(breakdowns=[Breakdown(type="event_metadata", property=predicate)])
+            )
+        elif kind == "warehouse":
+            target.properties = []
+            target.series = [
+                DataWarehouseNode(
+                    id="events",
+                    table_name="events",
+                    id_field="uuid",
+                    timestamp_field="timestamp",
+                    distinct_id_field=predicate,
+                )
+            ]
         query = (
             HogQLQuery(query=f"select count() from events where {predicate}")
             if kind == "hogql"
@@ -175,7 +203,7 @@ class TestDashboardResultFilterCache(BaseTest):
             if kind == "actors"
             else target
         )
-        runner_class = {"hogql": HogQLQueryRunner, "trends": TrendsQueryRunner, "actors": ActorsQueryRunner}[kind]
+        runner_class = {"hogql": HogQLQueryRunner, "actors": ActorsQueryRunner}.get(kind, TrendsQueryRunner)
         access = AccessControl.objects.create(team=self.team, resource="notebook", access_level="none")
         denied_runner = runner_class(query=query, team=self.team, user=self.user)
         assert "notebook" in denied_runner.get_cache_payload()["restricted_resources"]
