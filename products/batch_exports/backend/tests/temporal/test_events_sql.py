@@ -1,4 +1,6 @@
 import json
+import uuid
+import datetime as dt
 
 import pytest
 
@@ -6,9 +8,11 @@ from posthog.clickhouse.client import sync_execute
 from posthog.models.event.sql import EVENTS_JSON_CLEANER, EVENTS_PROPERTIES_JSON_TYPE
 from posthog.temporal.common.clickhouse import ClickHouseClient
 
+from products.batch_exports.backend.temporal.filters import compose_filters_clause
 from products.batch_exports.backend.temporal.sql.events import (
     _NATIVE_EVENTS_FIELD_EXPRESSIONS,
     native_events_export_query,
+    native_recent_events_export_query,
 )
 
 QUERY_PARAMETERS: dict[str, object] = {
@@ -67,3 +71,65 @@ def test_native_events_export_sends_properties_without_storage_defaults(
     )
 
     assert json.loads(result[0][0]) == expected
+
+
+@pytest.mark.parametrize(
+    "filters,expected_events",
+    [
+        ([], {"with-flag", "without-flag"}),
+        ([{"key": "$feature/checkout", "type": "event", "operator": "exact", "value": ["true"]}], {"with-flag"}),
+        ([{"key": "$os", "type": "event", "operator": "is_not_set"}], {"with-flag"}),
+    ],
+    ids=["no-filters", "flag-filter", "declared-property-not-set"],
+)
+@pytest.mark.django_db
+def test_native_recent_events_export_sends_stored_documents_and_filters_them_like_events_json(
+    team, filters: list[dict], expected_events: set[str]
+) -> None:
+    now = dt.datetime.now(tz=dt.UTC)
+    stored_properties = {
+        "with-flag": '{"$browser":"Chrome","$feature_flags":{"checkout":"true"},"page":"/a/b"}',
+        "without-flag": '{"$browser":"Firefox","$os":"Mac OS X"}',
+    }
+    sync_execute(
+        """
+        INSERT INTO sharded_events_json_recent
+            (uuid, event, properties, person_properties, temporary_properties, team_id, distinct_id, timestamp, inserted_at)
+        VALUES
+        """,
+        [
+            (uuid.uuid4(), event, properties, '{"email":"a@example.com"}', "{}", team.pk, "d1", now, now)
+            for event, properties in stored_properties.items()
+        ],
+    )
+    filters_str, filter_values = (
+        compose_filters_clause(filters, team_id=team.pk, use_new_events_schema=True) if filters else ("", {})
+    )
+    query = native_recent_events_export_query(
+        [
+            {"expression": "event", "alias": "event"},
+            {"expression": "properties", "alias": "properties"},
+            {"expression": "person_properties", "alias": "person_properties"},
+            {"expression": "set", "alias": "set"},
+        ],
+        filters_str,
+        is_5_min_batch_export=True,
+    ).replace("FORMAT ArrowStream", "")
+
+    rows = sync_execute(
+        query,
+        {
+            **filter_values,
+            "team_id": team.pk,
+            "interval_start": now - dt.timedelta(hours=1),
+            "interval_end": now + dt.timedelta(hours=1),
+            "include_events": [],
+            "exclude_events": [],
+        },
+    )
+
+    assert {row[0] for row in rows} == expected_events
+    for event, properties, person_properties, set_field in rows:
+        assert properties == stored_properties[event]
+        assert person_properties == '{"email":"a@example.com"}'
+        assert set_field is None

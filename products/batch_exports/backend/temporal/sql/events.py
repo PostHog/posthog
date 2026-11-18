@@ -1,5 +1,6 @@
 """SQL for the events batch export model."""
 
+import re
 import typing
 from collections.abc import Sequence
 from string import Template
@@ -8,6 +9,17 @@ from posthog.hogql.printer.events_json_document import (
     EVENTS_PROPERTIES_DECLARED_STRING_PATHS,
     json_document_sql,
     person_document_sql,
+)
+
+from posthog.clickhouse.events_json import (
+    EVENTS_JSON_INSERT_SETTINGS,
+    EVENTS_JSON_RECENT_TABLE,
+    TEMPORARY_PROPERTIES_JSON_TYPE,
+)
+from posthog.models.event.sql import (
+    EVENTS_JSON_ELEMENTS_COLUMNS,
+    EVENTS_PROPERTIES_JSON_TYPE,
+    PERSON_PROPERTIES_JSON_TYPE,
 )
 
 if typing.TYPE_CHECKING:
@@ -386,19 +398,21 @@ SETTINGS
 )
 
 
-EVENT_COUNT_BY_INTERVAL = """
+def build_event_count_by_interval_query(table: str) -> str:
+    """Count the events a 5-minute export of `table` reads, per interval, for monitoring."""
+    return """
 SELECT
     toStartOfInterval(_inserted_at, INTERVAL %(interval)s) AS interval_start,
     interval_start + INTERVAL %(interval)s AS interval_end,
     COUNT(*) as total_count
 FROM (
-    SELECT DISTINCT ON (team_id, event, cityHash64(events_recent.distinct_id), cityHash64(events_recent.uuid))
+    SELECT DISTINCT ON (team_id, event, cityHash64({table}.distinct_id), cityHash64({table}.uuid))
         inserted_at AS _inserted_at
     FROM
-        events_recent
+        {table}
     PREWHERE
-        events_recent.inserted_at >= %(overall_interval_start)s::DateTime64
-        AND events_recent.inserted_at < %(overall_interval_end)s::DateTime64
+        {table}.inserted_at >= %(overall_interval_start)s::DateTime64
+        AND {table}.inserted_at < %(overall_interval_end)s::DateTime64
     WHERE
         team_id = %(team_id)s::Int64
         AND (length(%(include_events)s::Array(String)) = 0 OR event IN %(include_events)s::Array(String))
@@ -409,7 +423,10 @@ ORDER BY interval_start ASC
 SETTINGS
     max_replica_delay_for_distributed_queries=1,
     optimize_aggregation_in_order=1
-"""
+""".format(table=table)
+
+
+EVENT_COUNT_BY_INTERVAL = build_event_count_by_interval_query("events_recent")
 
 
 # The native table exports `properties` and `person_properties` in their stored shape, built member by member the
@@ -419,6 +436,9 @@ SETTINGS
 #   fields are always empty.
 # `toJSONString` prints a stored dotted key as `a%2Eb` unless the query sets `json_type_escape_dots_in_keys`, which is
 # why the native query's SETTINGS carry it.
+_EMPTY_TEMPORARY_PROPERTY_FIELDS = dict.fromkeys(
+    ("set", "set_once", "unset", "group_set"), "CAST(NULL, 'Nullable(String)')"
+)
 # `events_json_recent` stores the same `properties` documents, written at insert time by the export cleaner, so a change
 # here needs the matching change in `clickhouse-udfs/util/cmd/json_clean_posthog_event_properties_udf/export.go`.
 _NATIVE_EVENTS_FIELD_EXPRESSIONS = {
@@ -428,7 +448,7 @@ _NATIVE_EVENTS_FIELD_EXPRESSIONS = {
         declared_string_paths=EVENTS_PROPERTIES_DECLARED_STRING_PATHS,
     ),
     "person_properties": person_document_sql("events.person_properties"),
-    **dict.fromkeys(("set", "set_once", "unset", "group_set"), "CAST(NULL, 'Nullable(String)')"),
+    **_EMPTY_TEMPORARY_PROPERTY_FIELDS,
 }
 
 
@@ -445,10 +465,7 @@ def native_events_export_query(
     `events.properties` and `events.person_properties` columns, which the query turns into text only for the export's
     own `properties` and `person_properties` fields.
     """
-    select = ", ".join(
-        f"{_NATIVE_EVENTS_FIELD_EXPRESSIONS.get(field['expression'], field['expression'])} AS {field['alias']}"
-        for field in fields
-    )
+    select = _select_fields(fields, _NATIVE_EVENTS_FIELD_EXPRESSIONS)
     return f"""
 {"INSERT INTO FUNCTION " + s3_function if s3_function else ""}
 SELECT {select}
@@ -471,6 +488,121 @@ SETTINGS
     fallback_to_stale_replicas_for_distributed_queries=0,
     optimize_aggregation_in_order=1,
     json_type_escape_dots_in_keys=1,
+    output_format_json_escape_forward_slashes=0
+{", log_comment=%(log_comment)s" if s3_function else ""}
+"""
+
+
+def _select_fields(fields: Sequence["BatchExportField"], replacements: dict[str, str]) -> str:
+    return ", ".join(
+        f"{replacements.get(field['expression'], field['expression'])} AS {field['alias']}" for field in fields
+    )
+
+
+# `events_json_recent` keeps the export's own `properties` and `person_properties` documents as text, so the export
+# sends them as stored. These columns hold the stored text when the query also reads the typed columns.
+_STORED_DOCUMENT_COLUMNS = {
+    "properties": "_stored_properties",
+    "person_properties": "_stored_person_properties",
+}
+# Columns that are typed JSON in `events_json` but are text (or absent) in `events_json_recent`. Filters and custom
+# fields printed for the new events schema read them with JSON subcolumn syntax, which fails on text.
+_TYPED_COLUMN_REFERENCE = re.compile(r"\b(?:properties|person_properties|temporary_properties|elements_chain_\w+)\b")
+
+
+def _reads_typed_columns(fields: Sequence["BatchExportField"], filters: str) -> bool:
+    return bool(filters) or any(
+        field["expression"] not in _NATIVE_EVENTS_FIELD_EXPRESSIONS
+        and _TYPED_COLUMN_REFERENCE.search(field["expression"]) is not None
+        for field in fields
+    )
+
+
+def _parse_materialized_columns(columns_sql: str) -> list[str]:
+    """`<expression> AS <name>` for each `, <name> <type> MATERIALIZED <expression>` line of a column list."""
+    selected = []
+    for line in columns_sql.strip().splitlines():
+        name, definition = line.strip().removeprefix(",").strip().split(" ", 1)
+        expression = definition.split(" MATERIALIZED ", 1)[1]
+        selected.append(f"{expression} AS {name}")
+    return selected
+
+
+def _build_typed_events_json_recent_source(table: str) -> str:
+    """`events_json_recent` with its document columns converted to the column types of `events_json`.
+
+    The stored documents leave out the declared defaults that `events_json` reads back, and a declared path converts
+    back to its default when it is absent, so filters and fields match what they match on `events_json`. The
+    `elements_chain_*` columns are materialized in `events_json` only, so this computes them the same way.
+    """
+    elements_chain_columns = ",\n        ".join(_parse_materialized_columns(EVENTS_JSON_ELEMENTS_COLUMNS))
+    return f"""(
+    SELECT
+        * REPLACE (
+            CAST(properties, '{EVENTS_PROPERTIES_JSON_TYPE()}') AS properties,
+            CAST(person_properties, '{PERSON_PROPERTIES_JSON_TYPE()}') AS person_properties,
+            CAST(temporary_properties, '{TEMPORARY_PROPERTIES_JSON_TYPE}') AS temporary_properties
+        ),
+        {table}.properties AS {_STORED_DOCUMENT_COLUMNS["properties"]},
+        {table}.person_properties AS {_STORED_DOCUMENT_COLUMNS["person_properties"]},
+        {elements_chain_columns}
+    FROM {table}
+    WHERE team_id = %(team_id)s::Int64
+        AND inserted_at >= %(interval_start)s::DateTime64
+        AND inserted_at < %(interval_end)s::DateTime64
+)"""
+
+
+def native_recent_events_export_query(
+    fields: Sequence["BatchExportField"],
+    filters: str = "",
+    *,
+    is_5_min_batch_export: bool,
+    order: str = "",
+    s3_function: str | None = None,
+) -> str:
+    """The export query for `events_json_recent`, which recent runs of a team on the new events schema read.
+
+    `filters` and any custom field expressions must be printed for the new events schema, as for
+    `native_events_export_query`. They read typed JSON columns, so when there are any the query converts the stored
+    text back to those types. That conversion parses every row again, so a query without them sends the stored text
+    without reading it.
+    """
+    reads_typed_columns = _reads_typed_columns(fields, filters)
+    replacements = _EMPTY_TEMPORARY_PROPERTY_FIELDS | (_STORED_DOCUMENT_COLUMNS if reads_typed_columns else {})
+    source = (
+        _build_typed_events_json_recent_source(EVENTS_JSON_RECENT_TABLE)
+        if reads_typed_columns
+        else EVENTS_JSON_RECENT_TABLE
+    )
+    # A 5-minute run reads straight after the data interval ends, so it accepts only fully replicated rows. Other
+    # recent runs accept up to a minute of replication lag, and fail rather than read a replica that is further behind.
+    replica_settings = (
+        "max_replica_delay_for_distributed_queries=1"
+        if is_5_min_batch_export
+        else "max_replica_delay_for_distributed_queries=60,\n    fallback_to_stale_replicas_for_distributed_queries=0"
+    )
+    return f"""
+{"INSERT INTO FUNCTION " + s3_function if s3_function else ""}
+SELECT {_select_fields(fields, replacements)}
+FROM (
+    SELECT DISTINCT ON (team_id, event, cityHash64(events.distinct_id), cityHash64(events.uuid))
+        * REPLACE (toString(uuid) AS uuid, toString(person_id) AS person_id), inserted_at AS _inserted_at
+    FROM {source} AS events
+    WHERE team_id = %(team_id)s::Int64
+        AND inserted_at >= %(interval_start)s::DateTime64
+        AND inserted_at < %(interval_end)s::DateTime64
+        AND (length(%(include_events)s::Array(String)) = 0 OR event IN %(include_events)s::Array(String))
+        AND (length(%(exclude_events)s::Array(String)) = 0 OR event NOT IN %(exclude_events)s::Array(String))
+        {"AND " + filters if filters else ""}
+    {order}
+) AS events
+{"" if s3_function else "FORMAT ArrowStream"}
+SETTINGS
+    max_bytes_before_external_sort=50000000000,
+    {replica_settings},
+    optimize_aggregation_in_order=1,
+    {EVENTS_JSON_INSERT_SETTINGS},
     output_format_json_escape_forward_slashes=0
 {", log_comment=%(log_comment)s" if s3_function else ""}
 """
