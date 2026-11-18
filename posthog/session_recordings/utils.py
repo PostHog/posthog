@@ -47,6 +47,12 @@ def query_as_params_to_dict(params_dict: dict) -> dict:
     # if they still include it
     converted.pop("as_query", None)
 
+    # The relevance filter and sort are retired, but open tabs with an older bundle and API callers
+    # still send them. Drop them so these requests fall back to the default order instead of a 400.
+    converted.pop("recommended_only", None)
+    if converted.get("order") == "surfacing_score":
+        converted.pop("order")
+
     return converted
 
 
