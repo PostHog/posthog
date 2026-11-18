@@ -23,6 +23,7 @@ from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal
 from posthog.rate_limit import AEOKeywordReportBurstRateThrottle
 
+from products.aeo.backend import brand, catalog
 from products.aeo.backend.engine_settings import engine_schedule
 from products.aeo.backend.engines import top_domains
 from products.aeo.backend.facade.api import RECOMPUTE_DEBOUNCE_SECONDS, create_keywords, get_prompt_set_overview
@@ -56,6 +57,8 @@ class TestAEOPromptAPI(APIBaseTest):
         mode: str = "web_search",
         names_brand: bool | None = None,
     ) -> str:
+        if names_brand is None and not check_failed:
+            names_brand = brand.names_brand(answer_text, catalog.own_domains(self.team.pk))
         with team_scope(self.team.pk):
             prompt = AEOPrompt.objects.get(id=prompt_id)
             check = AEOCitationCheck.objects.create(
@@ -357,6 +360,7 @@ class TestAEOPromptAPI(APIBaseTest):
         assert response.json() == [{"topic": "", "prompts": 1}, {"topic": "Replay", "prompts": 2}]
 
     def test_list_returns_the_latest_check_per_engine(self) -> None:
+        create_own_brand(self.team, "example.com")
         prompts = [{"prompt": "checked?", "topic": "a"}, {"prompt": "never checked?", "topic": "b"}]
         self.client.post(f"{self.url}bulk_import/", {"prompts": prompts}, format="json")
         ids = {row["prompt"]: row["id"] for row in self.client.get(self.url).json()["results"]}
@@ -370,7 +374,6 @@ class TestAEOPromptAPI(APIBaseTest):
         self._record_check(
             checked_id, "claude-no-search", minutes_ago=1, mode="no_search", answer_text="Example, from memory."
         )
-        create_own_brand(self.team, "example.com")
 
         listed = {row["prompt"]: row for row in self.client.get(self.url).json()["results"]}
         retrieved = self.client.get(f"{self.url}{checked_id}/").json()
@@ -475,6 +478,17 @@ class TestAEOPromptAPI(APIBaseTest):
 
         assert len(four_prompts.captured_queries) == len(one_prompt.captured_queries)
 
+    @parameterized.expand([("prompt_list", ""), ("overview", "overview/")])
+    def test_set_level_reads_never_load_the_answer_text(self, _name: str, path: str) -> None:
+        create_own_brand(self.team, "example.com")
+        self._record_check(self._import_one_prompt(), "exa-answer", minutes_ago=1, answer_text="Try Example.")
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(f"{self.url}{path}")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [query["sql"] for query in queries.captured_queries if "answer_text" in query["sql"]] == []
+
     @parameterized.expand([("all_engines", "", ["c", "b", "a"]), ("one_engine", "&engine=exa-answer", ["c", "a"])])
     def test_checks_list_history_newest_first_in_pages(self, _name: str, filters: str, expected: list[str]) -> None:
         prompt_id = self._import_one_prompt()
@@ -573,6 +587,7 @@ class TestAEOPromptAPI(APIBaseTest):
 
     @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
     def test_stats_count_checks_per_engine_and_per_day(self) -> None:
+        create_own_brand(self.team, "example.com")
         prompt_id = self._import_one_prompt()
         day = 24 * 60
         self._record_check(prompt_id, "exa-answer", minutes_ago=10, cited=True, position=1)
@@ -583,8 +598,6 @@ class TestAEOPromptAPI(APIBaseTest):
         self._record_check(
             prompt_id, "claude-no-search", minutes_ago=30, mode="no_search", answer_text="Example is a good pick."
         )
-
-        create_own_brand(self.team, "example.com")
 
         response = self.client.get(f"{self.url}{prompt_id}/stats/")
 
@@ -646,10 +659,9 @@ class TestAEOPromptAPI(APIBaseTest):
     def test_stats_count_a_mention_when_the_answer_names_the_brand(
         self, _name: str, check: dict, expected_mentioned: int
     ) -> None:
+        create_own_brand(self.team, "example.com")
         prompt_id = self._import_one_prompt()
         self._record_check(prompt_id, "exa-answer", minutes_ago=10, **check)
-
-        create_own_brand(self.team, "example.com")
 
         stats = self.client.get(f"{self.url}{prompt_id}/stats/").json()
 
@@ -657,6 +669,7 @@ class TestAEOPromptAPI(APIBaseTest):
         assert [row["mentioned"] for row in stats["daily"]] == [expected_mentioned]
 
     def test_stats_count_brand_sentiment_per_engine_and_checks_expose_it(self) -> None:
+        create_own_brand(self.team, "example.com")
         prompt_id = self._import_one_prompt()
         scored = self._record_check(prompt_id, "exa-answer", minutes_ago=10, answer_text="Example is great.")
         self._record_check(prompt_id, "exa-answer", minutes_ago=20, answer_text="Example is slow.")
@@ -670,8 +683,6 @@ class TestAEOPromptAPI(APIBaseTest):
             AEOCitationCheck.objects.filter(id=scored).update(
                 brand_sentiment_sentences=[{"start": 0, "end": 17, "label": "positive", "score": 0.9}]
             )
-
-        create_own_brand(self.team, "example.com")
 
         stats = self.client.get(f"{self.url}{prompt_id}/stats/").json()
         checks = self.client.get(f"{self.url}{prompt_id}/checks/?engine=exa-answer").json()["results"]
@@ -772,6 +783,7 @@ class TestAEOPromptAPI(APIBaseTest):
 
     @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
     def test_overview_counts_the_set_per_window_engine_and_topic(self) -> None:
+        create_own_brand(self.team, "example.com")
         ids = self._import_prompts(
             [
                 {"prompt": "funnels?", "topic": "Analytics"},
@@ -842,8 +854,6 @@ class TestAEOPromptAPI(APIBaseTest):
                 check_failed=failed,
                 mode="no_search",
             )
-
-        create_own_brand(self.team, "example.com")
 
         response = self.client.get(f"{self.url}overview/")
 
@@ -1139,6 +1149,8 @@ class TestAEOPromptAPI(APIBaseTest):
         expected_searches: list[str],
         expected_rankings: tuple[int, list[str]],
     ) -> None:
+        for domain in target_domains:
+            create_own_brand(self.team, domain)
         ids = self._import_prompts(
             [
                 {"prompt": "is example good for funnels?"},
@@ -1177,8 +1189,6 @@ class TestAEOPromptAPI(APIBaseTest):
         )
         self._record_check(ids["best funnel tools?"], "exa-answer", minutes_ago=35 * 24 * 60, answer_text="None.")
 
-        for domain in target_domains:
-            create_own_brand(self.team, domain)
         overview = self.client.get(f"{self.url}overview/", {"branded": branded}).json()
         rankings = self.client.get(f"{self.url}rankings/", {"branded": branded}).json()
 

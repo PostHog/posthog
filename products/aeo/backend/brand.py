@@ -53,18 +53,12 @@ def names_brand(answer_text: str | None, target_domains: list[str]) -> bool:
     return bool(answer_text and pattern and pattern.search(answer_text))
 
 
-def mention_filter(target_domains: list[str]) -> Q:
+def mention_filter() -> Q:
     """Checks whose answer names the brand. A cited answer counts as a mention even when the
     text only carries the URL, so the mention rate is never below the citation rate.
 
-    The stored `names_brand` answers for every check that has it. The regex only runs for a check
-    recorded before the column existed and not yet filled by the reconcile."""
-    mention = Q(cited=True) | Q(names_brand=True)
-    if regex := brand_regex(target_domains):
-        # Two Q objects, because one Q sorts its lookups by name and would put the regex first. The
-        # null test must come first so the database reads the answer text of unfilled checks alone.
-        mention |= Q(names_brand__isnull=True) & Q(answer_text__iregex=regex)
-    return mention
+    It reads stored columns only, so a count over a window never loads the answer text."""
+    return Q(cited=True) | Q(names_brand=True)
 
 
 def branded_filter(target_domains: list[str], *, field: PromptField = "prompt_text") -> Q:
