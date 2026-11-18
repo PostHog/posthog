@@ -69,6 +69,7 @@ describe('engagement events banner restricted area event', () => {
         'sends $expectedEvents project restricted area events to a project member when $when',
         async ({ captureOn, shownText, expectedEvents }) => {
             sentEvents.length = 0
+            const receivedBodies: Promise<void>[] = []
             useMocks({
                 get: {
                     '/api/projects/:team_id/hog_function_templates': {
@@ -78,7 +79,11 @@ describe('engagement events banner restricted area event', () => {
                 },
                 post: {
                     [`${INGESTION_HOST}/e/`]: async ({ request }: MockResolverInfo) => {
-                        sentEvents.push(...((await request.json()) as { batch: SentEvent[] }).batch)
+                        const body = request.json().then((parsed) => {
+                            sentEvents.push(...(parsed as { batch: SentEvent[] }).batch)
+                        })
+                        receivedBodies.push(body)
+                        await body
                         return [200, { status: 1 }]
                     },
                 },
@@ -91,16 +96,16 @@ describe('engagement events banner restricted area event', () => {
                     capture_workflows_engagement_events: captureOn,
                 },
             })
-            // The editor loads its templates twice, once on mount and once on the first read of the lazy
-            // loader. The panel shows a spinner during each load, which remounts the banner. A person opens
-            // a step only after the editor has loaded, so the test waits for both loads before it opens one.
+            // The panel shows a spinner while the editor loads its templates, which remounts the banner. A
+            // person opens a step only after the editor has loaded, so the test lets every load finish first.
+            // Reading the templates starts the lazy load as it does in the editor.
             const editor = app.workflowLogic({ id: 'new' })
             editor.mount()
             await app
                 .expectLogic(editor, () => {
                     void editor.values.hogFunctionTemplatesById
                 })
-                .toDispatchActions(['loadHogFunctionTemplatesByIdSuccess', 'loadHogFunctionTemplatesByIdSuccess'])
+                .toFinishAllListeners()
 
             app.rtl.render(
                 <app.Provider>
@@ -119,6 +124,8 @@ describe('engagement events banner restricted area event', () => {
             await app.rtl.waitFor(() =>
                 expect(sentEvents.map((sent) => sent.event)).toContain('engagement banner test done')
             )
+            // Each event is its own request, so the marker can be parsed before an earlier event is.
+            await Promise.all(receivedBodies)
             expect(
                 sentEvents.filter(
                     (sent) => sent.event === 'restricted_area_accessed' && sent.properties.scope === 'project'
