@@ -309,7 +309,25 @@ def mocked_compute(team: Team, backend: MockBackend) -> Iterator[None]:
 def real_redis() -> Iterator[None]:
     """pytest sets TEST, which swaps Redis for FakeRedis and the Django caches for LocMemCache.
     Point both back at the local Redis so limiter and cache timings include real round trips."""
-    client = redis_lib.from_url(settings.REDIS_URL, db=0)
+    clients: dict[tuple[str, float, float], redis_lib.Redis] = {}
+
+    def get_client(
+        redis_url: Optional[str] = None,
+        *,
+        socket_timeout: Optional[float] = None,
+        socket_connect_timeout: Optional[float] = None,
+    ) -> redis_lib.Redis:
+        # Same timeouts and per-call overrides as `posthog.redis.get_client`, minus its TEST switch.
+        key = (
+            redis_url or settings.REDIS_URL,
+            settings.REDIS_SOCKET_TIMEOUT_SECONDS if socket_timeout is None else socket_timeout,
+            settings.REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS if socket_connect_timeout is None else socket_connect_timeout,
+        )
+        if key not in clients:
+            clients[key] = redis_lib.from_url(key[0], db=0, socket_timeout=key[1], socket_connect_timeout=key[2])
+        return clients[key]
+
+    client = get_client()
     client.ping()
     redis_cache = {
         "BACKEND": "django_redis.cache.RedisCache",
@@ -319,7 +337,7 @@ def real_redis() -> Iterator[None]:
     }
     caches = {**settings.CACHES, **dict.fromkeys(("default", "query_cache"), redis_cache)}
     with (
-        patch.object(posthog_redis, "get_client", lambda *args, **kwargs: client),
+        patch.object(posthog_redis, "get_client", get_client),
         patch.object(limit.RateLimit, "redis_client", client),
         override_settings(CACHES=caches),
     ):
