@@ -125,6 +125,23 @@ describe('IntakeProducer', () => {
         expect(publishSettled).toBe(true)
     })
 
+    it('leaves no deadline timer behind when the caller refuses to track the publish', async () => {
+        jest.useFakeTimers()
+
+        const outcome = await new IntakeProducer(outputs()).produce(
+            { kind: 'transactional-email', invocation: invocation() },
+            'async',
+            {
+                track: () => {
+                    throw new Error('tracker closed')
+                },
+            }
+        )
+
+        expect(outcome).toBe('unacked')
+        expect(jest.getTimerCount()).toBe(0)
+    })
+
     it('records the wait for the ack in milliseconds', async () => {
         jest.useFakeTimers()
         produce = () => new Promise<void>((resolve) => setTimeout(resolve, 400))

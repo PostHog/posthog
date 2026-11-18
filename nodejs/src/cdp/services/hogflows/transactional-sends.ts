@@ -322,8 +322,6 @@ export class TransactionalSends {
         stages: TransactionalEmailStageTimer,
         files: SendFiles,
         sender: CodeSendSender = { kind: 'own' },
-        // Collects this send's publishes, so a caller that bounds its sends in flight can wait them out past the ack
-        // deadline.
         settlement?: Settlement
     ): Promise<TransactionalSendResult> {
         const senderKind = sender.kind === 'email_sandbox' ? sender.kind : undefined

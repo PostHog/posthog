@@ -47,8 +47,7 @@ export const intakeModeOf = (
     return (teamId) => (isAsync(teamId) ? 'async' : isShadow(teamId) ? 'shadow' : 'off')
 }
 
-// Collects the publishes a caller must wait out: a produce keeps running after its ack deadline, so a caller that
-// bounds its work in flight releases its share only once the publish itself settles.
+// A produce outlives its ack deadline, so a caller that bounds its work in flight waits out the publish itself.
 export type Settlement = { track: (publish: Promise<unknown>) => void }
 
 export type IntakeRun = {
@@ -103,12 +102,11 @@ export class IntakeProducer {
     // The produce keeps running after the deadline, so a late ack can still land the message: an unacked run is
     // unconfirmed, not lost.
     private withinDeadline(produce: Promise<void>, settlement?: Settlement): Promise<void> {
+        settlement?.track(produce.catch(() => undefined))
         let timer: NodeJS.Timeout | undefined
         const deadline = new Promise<never>((_, reject) => {
             timer = setTimeout(() => reject(new Error('no ack before the deadline')), this.ackDeadlineMs)
         })
-        const published = produce.catch(() => undefined)
-        settlement?.track(published)
         return Promise.race([produce, deadline]).finally(() => clearTimeout(timer))
     }
 }
