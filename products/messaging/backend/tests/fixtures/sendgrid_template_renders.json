@@ -5,7 +5,7 @@
     "data": {
       "firstName": "Ben"
     },
-    "liquid": "<p>Hello {{ variables.firstName }}</p>",
+    "liquid": "<p>Hello {{ variables.firstName | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}</p>",
     "expected": "<p>Hello Ben</p>"
   },
   {
@@ -14,8 +14,17 @@
     "data": {
       "url": "https://example.com/a?b=1"
     },
-    "liquid": "<a href=\"{{ variables.url }}\">Go</a>",
+    "liquid": "<a href=\"{{ variables.url | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}\">Go</a>",
     "expected": "<a href=\"https://example.com/a?b=1\">Go</a>"
+  },
+  {
+    "name": "value in an unquoted attribute",
+    "source": "<a title={{name}} href=\"https://example.com/reset\">Reset</a>",
+    "data": {
+      "name": "Customer href=https://attacker.example/"
+    },
+    "liquid": "<a title={{ variables.name | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} href=\"https://example.com/reset\">Reset</a>",
+    "expected": "<a title=Customer href&#x3D;https://attacker.example/ href=\"https://example.com/reset\">Reset</a>"
   },
   {
     "name": "deep object",
@@ -27,7 +36,7 @@
         }
       }
     },
-    "liquid": "<p>{{ variables.user.profile.firstName }}</p>",
+    "liquid": "<p>{{ variables.user.profile.firstName | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}</p>",
     "expected": "<p>Ben</p>"
   },
   {
@@ -36,7 +45,7 @@
     "data": {
       "user": {}
     },
-    "liquid": "[{{ variables.user.profile.firstName }}]",
+    "liquid": "[{{ variables.user.profile.firstName | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}]",
     "expected": "[]"
   },
   {
@@ -45,7 +54,7 @@
     "data": {
       "markup": "<b>Tom & Ann</b>"
     },
-    "liquid": "{{ variables.markup }}",
+    "liquid": "{{ variables.markup | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}",
     "expected": "&lt;b&gt;Tom &amp; Ann&lt;/b&gt;"
   },
   {
@@ -63,7 +72,7 @@
     "data": {
       "name": "Björk 日本語 🎉"
     },
-    "liquid": "<p>Grüße {{ variables.name }} 🦔</p>",
+    "liquid": "<p>Grüße {{ variables.name | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} 🦔</p>",
     "expected": "<p>Grüße Björk 日本語 🎉 🦔</p>"
   },
   {
@@ -72,7 +81,7 @@
     "data": {
       "count": 0
     },
-    "liquid": "{{ variables.count }}",
+    "liquid": "{{ variables.count | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}",
     "expected": "0"
   },
   {
@@ -81,7 +90,7 @@
     "data": {
       "a": null
     },
-    "liquid": "[{{ variables.a }}]",
+    "liquid": "[{{ variables.a | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}]",
     "expected": "[]"
   },
   {
@@ -92,7 +101,7 @@
         "b c": "spaced"
       }
     },
-    "liquid": "{{ variables.a[\"b c\"] }}",
+    "liquid": "{{ variables.a[\"b c\"] | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}",
     "expected": "spaced"
   },
   {
@@ -105,14 +114,14 @@
         }
       ]
     },
-    "liquid": "{{ variables.items[0].name }}",
+    "liquid": "{{ variables.items[0].name | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}",
     "expected": "first"
   },
   {
     "name": "insert missing uses default",
     "source": "Hello {{insert name \"default=Customer\"}}!",
     "data": {},
-    "liquid": "Hello {{ variables.name | default: \"Customer\" }}!",
+    "liquid": "Hello {{ variables.name | default: \"Customer\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}!",
     "expected": "Hello Customer!"
   },
   {
@@ -121,21 +130,21 @@
     "data": {
       "name": "Ben"
     },
-    "liquid": "Hello {{ variables.name | default: \"Customer\" }}!",
+    "liquid": "Hello {{ variables.name | default: \"Customer\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}!",
     "expected": "Hello Ben!"
   },
   {
     "name": "insert plain default",
     "source": "{{insert biz \"your business\"}}",
     "data": {},
-    "liquid": "{{ variables.biz | default: \"your business\" }}",
+    "liquid": "{{ variables.biz | default: \"your business\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}",
     "expected": "your business"
   },
   {
     "name": "insert no default",
     "source": "[{{insert biz}}]",
     "data": {},
-    "liquid": "[{{ variables.biz }}]",
+    "liquid": "[{{ variables.biz | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}]",
     "expected": "[]"
   },
   {
@@ -144,7 +153,7 @@
     "data": {
       "t": "2020-01-01T23:00:00.000Z"
     },
-    "liquid": "{{ variables.t | date: \"%B %d, %Y %-I:%M:%S %p\", 0 }}",
+    "liquid": "{{ variables.t | date: \"%B %d, %Y %-I:%M:%S %p\", 0 | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}",
     "expected": "January 01, 2020 11:00:00 PM"
   },
   {
@@ -153,7 +162,7 @@
     "data": {
       "t": "2020-01-01T23:00:00.000Z"
     },
-    "liquid": "{{ variables.t | date: \"%B %d, %Y %-I:%M:%S %p\", 480 }}",
+    "liquid": "{{ variables.t | date: \"%B %d, %Y %-I:%M:%S %p\", 480 | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}",
     "expected": "January 01, 2020 3:00:00 PM"
   },
   {
@@ -162,7 +171,7 @@
     "data": {
       "t": "2020-01-01T23:00:00.000Z"
     },
-    "liquid": "{{ variables.t | date: \"%a, %b %-d %y %H:%M\", -330 }}",
+    "liquid": "{{ variables.t | date: \"%a, %b %-d %y %H:%M\", -330 | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}",
     "expected": "Thu, Jan 2 20 04:30"
   },
   {
@@ -171,7 +180,7 @@
     "data": {
       "t": 1577919600
     },
-    "liquid": "{{ variables.t | date: \"%Y-%m-%d\", 0 }}",
+    "liquid": "{{ variables.t | date: \"%Y-%m-%d\", 0 | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}",
     "expected": "2020-01-01"
   },
   {
@@ -180,7 +189,7 @@
     "data": {
       "t": "2020-01-01T23:00:00.000Z"
     },
-    "liquid": "{{ variables.t | date: \"%Y-%m-%dT%H:%M:%S.%LZ\", 0 }}",
+    "liquid": "{{ variables.t | date: \"%Y-%m-%dT%H:%M:%S.%LZ\", 0 | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}",
     "expected": "2020-01-01T23:00:00.000Z"
   },
   {
@@ -189,7 +198,7 @@
     "data": {
       "t": "2026-03-08T07:30:00.000Z"
     },
-    "liquid": "{{ variables.t | date: \"%Y-%m-%d %H:%M\", 300 }}",
+    "liquid": "{{ variables.t | date: \"%Y-%m-%d %H:%M\", 300 | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}",
     "expected": "2026-03-08 02:30"
   },
   {
@@ -322,7 +331,7 @@
       ],
       "phone": "555"
     },
-    "liquid": "{% for item in variables.xs %}{{ variables.phone }};{% endfor %}",
+    "liquid": "{% for item in variables.xs %}{{ variables.phone | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }};{% endfor %}",
     "expected": "555;555;"
   },
   {
@@ -558,7 +567,7 @@
         }
       ]
     },
-    "liquid": "<ol>{% for item in variables.orders %}<li>{{ item.item }} on {{ item.date }}</li>{% endfor %}</ol>",
+    "liquid": "<ol>{% for item in variables.orders %}<li>{{ item.item | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} on {{ item.date | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}</li>{% endfor %}</ol>",
     "expected": "<ol><li>Shoes on 1/4/2017</li><li>Hat on 2/4/2017</li></ol>"
   },
   {
@@ -574,7 +583,7 @@
         }
       ]
     },
-    "liquid": "{% for item in variables.xs %}{{ item.name }},{% endfor %}",
+    "liquid": "{% for item in variables.xs %}{{ item.name | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }},{% endfor %}",
     "expected": "a,b,"
   },
   {
@@ -586,7 +595,7 @@
         "b"
       ]
     },
-    "liquid": "{% for item in variables.xs %}{{ item }},{% endfor %}",
+    "liquid": "{% for item in variables.xs %}{{ item | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }},{% endfor %}",
     "expected": "a,b,"
   },
   {
@@ -615,7 +624,7 @@
         "c"
       ]
     },
-    "liquid": "{% for item in variables.xs %}{{ forloop.index0 }}{% if forloop.first %}F{% endif %}{% if forloop.last %}L{% endif %} {% endfor %}",
+    "liquid": "{% for item in variables.xs %}{{ forloop.index0 | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% if forloop.first %}F{% endif %}{% if forloop.last %}L{% endif %} {% endfor %}",
     "expected": "0F 1 2L "
   },
   {
@@ -627,7 +636,7 @@
         "a"
       ]
     },
-    "liquid": "{% for item in variables.xs %}{{ variables.label }}:{{ item }} {% endfor %}",
+    "liquid": "{% for item in variables.xs %}{{ variables.label | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}:{{ item | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} {% endfor %}",
     "expected": "L:a "
   },
   {
@@ -652,7 +661,7 @@
         }
       ]
     },
-    "liquid": "{% for item in variables.os %}{{ item.name }}[{% for item2 in item.items %}{{ item2.sku }}/{{ item.name }},{% endfor %}]{% endfor %}",
+    "liquid": "{% for item in variables.os %}{{ item.name | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}[{% for item2 in item.items %}{{ item2.sku | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}/{{ item.name | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }},{% endfor %}]{% endfor %}",
     "expected": "A[1/A,2/A,]B[]"
   },
   {
@@ -670,7 +679,7 @@
         }
       ]
     },
-    "liquid": "{% for item in variables.xs %}{% if item.on and item.on != 0 and item.on.size != 0 %}{{ item.n }}{% else %}-{% endif %}{% endfor %}",
+    "liquid": "{% for item in variables.xs %}{% if item.on and item.on != 0 and item.on.size != 0 %}{{ item.n | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% else %}-{% endif %}{% endfor %}",
     "expected": "a-"
   },
   {
@@ -682,7 +691,7 @@
         2
       ]
     },
-    "liquid": "{% if variables.xs and variables.xs != 0 and variables.xs.size != 0 %}{% for item in variables.xs %}{{ item }}{% endfor %}{% else %}none{% endif %}",
+    "liquid": "{% if variables.xs and variables.xs != 0 and variables.xs.size != 0 %}{% for item in variables.xs %}{{ item | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% endfor %}{% else %}none{% endif %}",
     "expected": "12"
   },
   {
@@ -718,7 +727,7 @@
         "k": "v"
       }
     },
-    "liquid": "{% for item in variables.o %}{{ item[0] }}={{ item[1] }};{% endfor %}",
+    "liquid": "{% for item in variables.o %}{{ item[0] | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}={{ item[1] | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }};{% endfor %}",
     "expected": "k=v;"
   },
   {
@@ -734,7 +743,7 @@
     "data": {
       "v": "x"
     },
-    "liquid": "a{{ variables.v }}b",
+    "liquid": "a{{ variables.v | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}b",
     "expected": "axb"
   },
   {
@@ -778,7 +787,7 @@
         "n": "x"
       }
     },
-    "liquid": "{% if variables.u and variables.u != 0 and variables.u.size != 0 %}{{ variables.u.n }}{% else %}none{% endif %}",
+    "liquid": "{% if variables.u and variables.u != 0 and variables.u.size != 0 %}{{ variables.u.n | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% else %}none{% endif %}",
     "expected": "x"
   },
   {
@@ -787,7 +796,7 @@
     "data": {
       "n": "y"
     },
-    "liquid": "{{ \"{%\" }} if x %} 100% {{ variables.n }}",
+    "liquid": "{{ \"{%\" }} if x %} 100% {{ variables.n | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}",
     "expected": "{% if x %} 100% y"
   },
   {
@@ -796,7 +805,7 @@
     "data": {
       "n": "y"
     },
-    "liquid": "{% raw %}{{n}}{% endraw %} {{ variables.n }}",
+    "liquid": "{% raw %}{{n}}{% endraw %} {{ variables.n | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}",
     "expected": "{{n}} y"
   },
   {
@@ -814,7 +823,7 @@
     "data": {
       "pre": "Your order 🎉"
     },
-    "liquid": "<table class=\"module preheader preheader-hide\" data-type=\"preheader\"><tr><td><p>{{ variables.pre }}</p></td></tr></table><p>Body</p>",
+    "liquid": "<table class=\"module preheader preheader-hide\" data-type=\"preheader\"><tr><td><p>{{ variables.pre | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}</p></td></tr></table><p>Body</p>",
     "expected": "<table class=\"module preheader preheader-hide\" data-type=\"preheader\"><tr><td><p>Your order 🎉</p></td></tr></table><p>Body</p>"
   },
   {
@@ -830,7 +839,7 @@
         }
       ]
     },
-    "liquid": "{% for item in variables.xs %}{% assign item_index = forloop.index0 %}{{ item_index }}:{{ item.name }};{% endfor %}",
+    "liquid": "{% for item in variables.xs %}{% assign item_index = forloop.index0 %}{{ item_index | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}:{{ item.name | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }};{% endfor %}",
     "expected": "0:Hat;1:Shoe;"
   },
   {
@@ -851,7 +860,7 @@
         }
       ]
     },
-    "liquid": "{% for item in variables.orders %}{% assign item_index = forloop.index0 %}{% for item2 in item.items %}{% assign item2_index = forloop.index0 %}{{ item_index }}:{{ item2 }};{% endfor %}{% endfor %}",
+    "liquid": "{% for item in variables.orders %}{% assign item_index = forloop.index0 %}{% for item2 in item.items %}{% assign item2_index = forloop.index0 %}{{ item_index | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}:{{ item2 | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }};{% endfor %}{% endfor %}",
     "expected": "0:a;0:b;1:c;"
   },
   {
@@ -910,7 +919,7 @@
         "name": "Ada"
       }
     },
-    "liquid": "{% if variables.u and variables.u != 0 and variables.u.size != 0 %}{{ variables.u.name }}{% else %}none{% endif %}",
+    "liquid": "{% if variables.u and variables.u != 0 and variables.u.size != 0 %}{{ variables.u.name | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% else %}none{% endif %}",
     "expected": "Ada"
   }
 ]

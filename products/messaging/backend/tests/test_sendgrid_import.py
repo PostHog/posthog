@@ -173,7 +173,7 @@ class TestSendGridImport(BaseTest):
         assert email["subject"] == "Your order {{ variables.order.id }}"
         assert "Old" not in email["html"]
         assert "{{ unsubscribe_url }}" in email["html"]
-        assert "{{ variables.preheader }}" in email["html"]
+        assert "{{ variables.preheader | escape" in email["html"]
         assert "{{ variables.first_name }}" in email["text"] or "default" in email["text"]
         assert '"first_name": "Ada"' in receipt.description
         assert templates["d-4444444444444444444444444444dddd"].content["email"]["html"] == "<p>Newest</p>"
@@ -569,7 +569,11 @@ class TestSendGridTemplateConversion(SimpleTestCase):
                 "section",
             ),
             ("{{@../index}}", "{% raw %}{{@../index}}{% endraw %}", "index"),
-            ("{{formatDate t fmt}}", '{{ variables.t | date: "%Y-%m-%dT%H:%M:%S.%LZ", 0 }}', "fmt"),
+            (
+                "{{formatDate t fmt}}",
+                '{{ variables.t | date: "%Y-%m-%dT%H:%M:%S.%LZ", 0 | escape | replace: "=", "&#x3D;" | replace: "`", "&#x60;" | raw }}',
+                "fmt",
+            ),
             ("{{{Weblink}}}", "", "view in browser"),
         ]
     )

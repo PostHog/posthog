@@ -570,6 +570,9 @@ class _Converter:
             return self.literal(node.source)
 
     def _print(self, value: str, raw: bool, filters: str = "") -> str:
+        if self.is_html and not raw:
+            # Handlebars also encodes = and `, so a value in an unquoted attribute can't add an attribute of its own.
+            return f'{{{{ {value}{filters} | escape | replace: "=", "&#x3D;" | replace: "`", "&#x60;" | raw }}}}'
         escape = " | raw" if raw and self.is_html else ""
         return f"{{{{ {value}{filters}{escape} }}}}"
 
