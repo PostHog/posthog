@@ -365,7 +365,6 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             evaluated.calculation_interval,
             evaluated.detector_config,
             evaluated.threshold.configuration,
-            # Where the AI detector's earlier checks switch from the row's history to the platform's.
             evaluated.platform_owned_since,
         ) == (alert.id, alert.name, self.user, AlertCalculationInterval.DAILY, None, threshold, handed_over_at)
         assert outcome is not None
@@ -1008,7 +1007,6 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             "errored",
             True,
         )
-        # The owner hears why the alert stopped.
         assert [delivery.sends_messages for delivery in self.deliveries] == [True]
         # The error message names and links the insight, as a firing's does.
         assert set(outcome.failure.source_detail) == {"insight_name", "insight_short_id"}

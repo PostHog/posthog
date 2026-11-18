@@ -526,7 +526,6 @@ def fail_insight_check(
     checks = due_checks(team_id, SourceKind.INSIGHT.value, slot, cutoff, configuration_ids=[configuration_id])
     if not checks:
         return None
-    # A copy switched off mid-check is no longer due, so it never reaches here.
     alert = checked_alert(checks[0])
     if alert is None:
         return None
@@ -691,7 +690,6 @@ def _decide(
     # nothing here. The copy's own `enabled` already decided that the check is due.
     alert = checked_alert(check)
     if alert is None:
-        # The insight is gone, so this alert can never be checked again.
         return _skipped(check, snapshot, now=now, disable=True)
     if not is_evaluated_on_the_platform(alert):
         return _skipped(check, snapshot, now=now)
