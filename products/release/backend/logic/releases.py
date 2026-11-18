@@ -26,8 +26,11 @@ def list_catalog_releases(
     *,
     owner_ids: list[int] | None = None,
     oldest_first: bool = False,
+    feature_flag_id: int | None = None,
 ) -> QuerySet[Release]:
     releases = Release.objects.filter(team_id=team_id)
+    if feature_flag_id is not None:
+        releases = releases.filter(feature_flag_ids__contains=[feature_flag_id])
     if after:
         created_at, release_id = after
         if oldest_first:
