@@ -4,7 +4,6 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { ApiError } from 'lib/api'
 import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
@@ -12,12 +11,12 @@ import { urls } from 'scenes/urls'
 
 import {
     messagingTemplatesPartialUpdate,
-    transactionalCodeEmailsList,
     transactionalCodeEmailsPartialUpdate,
     transactionalCodeEmailsRetrieve,
 } from 'products/messaging/frontend/generated/api'
 import type { CodeEmailApi, MessageTemplateApi } from 'products/messaging/frontend/generated/api.schemas'
 
+import { listCodeEmails } from './listCodeEmails'
 import {
     DEFAULT_FILTERS,
     ManagedBy,
@@ -146,17 +145,7 @@ export const transactionalEmailsLogic = kea<transactionalEmailsLogicType>([
         codeEmails: [
             null as CodeEmailApi[] | null,
             {
-                loadCodeEmails: async () => {
-                    try {
-                        return await transactionalCodeEmailsList(String(values.currentTeamId))
-                    } catch (error) {
-                        // The endpoint answers 404 while the project can't send email from code yet.
-                        if (error instanceof ApiError && error.status === 404) {
-                            return []
-                        }
-                        throw error
-                    }
-                },
+                loadCodeEmails: async () => listCodeEmails(String(values.currentTeamId)),
             },
         ],
     })),

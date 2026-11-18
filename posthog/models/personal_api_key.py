@@ -33,6 +33,9 @@ LEGACY_HASH_PREFIX = f"{PBKDF2PasswordHasher.algorithm}$"
 
 DEFAULT_MAX_PERSONAL_API_KEYS = 10
 
+# The scopes that the feature flag definitions route in `rust/feature-flags` accepts.
+FEATURE_FLAG_DEFINITIONS_SCOPES = ("*", "feature_flag:read", "feature_flag:write")
+
 PERSONAL_API_KEY_AUTH_COUNTER = Counter(
     "personal_api_key_hash_mode_total",
     "Successful personal API key authentications by hash mode",
@@ -160,7 +163,8 @@ def get_organization_personal_api_keys(organization: "Organization") -> QuerySet
     The scope filters are the SQL form of `get_organization_ids_in_key_scope`. The other filters drop
     expired keys, keys without scopes, keys of inactive users, and member keys that the organization blocks.
     `APIScopePermission` applies that block only while the organization has the security settings feature,
-    so this filter has the same condition.
+    so this filter has the same condition. The feature flag definitions route in `rust/feature-flags` does not
+    check the block, so a blocked member key with a scope that route accepts stays listed.
     """
     # organization.py imports this module, so a module-level import is circular.
     from posthog.models.organization import OrganizationMembership
@@ -169,7 +173,9 @@ def get_organization_personal_api_keys(organization: "Organization") -> QuerySet
     if not organization.members_can_use_personal_api_keys and organization.is_feature_available(
         AvailableFeature.ORGANIZATION_SECURITY_SETTINGS
     ):
-        membership &= Q(user__organization_membership__level__gte=OrganizationMembership.Level.ADMIN)
+        membership &= Q(user__organization_membership__level__gte=OrganizationMembership.Level.ADMIN) | Q(
+            scopes__overlap=list(FEATURE_FLAG_DEFINITIONS_SCOPES)
+        )
     team_ids = list(organization.teams.values_list("id", flat=True))
     return (
         PersonalAPIKey.objects.filter(membership, user__is_active=True)

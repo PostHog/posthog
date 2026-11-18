@@ -95,6 +95,17 @@ CROSS JOIN LATERAL (
     WHERE j.status = 'available' AND j.queue_name = c.queue_name AND j.priority = c.priority AND j.scheduled <= NOW()
 ) due`
 
+export const cappedQueueDepthSql = (limit: number): string => `WITH RECURSIVE ${QUEUE_CLASSES_CTE}
+SELECT COALESCE(SUM(due.count), 0) AS count
+FROM queue_classes c
+CROSS JOIN LATERAL (
+    SELECT COUNT(*) AS count FROM (
+        SELECT 1 FROM cyclotron_jobs j
+        WHERE j.status = 'available' AND j.queue_name = c.queue_name AND j.priority = c.priority AND j.scheduled <= NOW()
+        LIMIT ${Math.max(1, Math.floor(limit))}
+    ) capped
+) due`
+
 export const QUEUE_DEPTHS_SQL = `WITH RECURSIVE ${QUEUE_CLASSES_CTE}
 SELECT c.queue_name, SUM(due.count) AS count,
        EXTRACT(EPOCH FROM NOW() - MIN(due.oldest))::float8 * 1000 AS oldest_due_age_ms

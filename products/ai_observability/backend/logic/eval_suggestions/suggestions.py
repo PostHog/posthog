@@ -26,7 +26,14 @@ from products.ai_observability.backend.models.eval_suggestions import (
 from products.ai_observability.backend.models.evaluations import Evaluation
 
 from .config import is_enabled_for_organization
-from .eligibility import StartRun, claim_first_visit_run, queue_first_visit_run, record_visit
+from .eligibility import (
+    StartRun,
+    TemporalUnreachable,
+    claim_first_visit_run,
+    queue_first_visit_run,
+    record_visit,
+    release_first_visit_run,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -54,12 +61,16 @@ def applies(suggestion: EvalSuggestion) -> bool:
     return target is not None and not target.deleted and target.updated_at <= suggestion.run.created_at
 
 
-def visible_suggestions(team_id: int, access: UserAccessControl | None) -> QuerySet[EvalSuggestion]:
+def visible_suggestions(team: Team, access: UserAccessControl | None) -> QuerySet[EvalSuggestion]:
     """The team's suggestions, without those that name an evaluation the user cannot read.
 
-    `access` is None for service credentials, which see every suggestion.
+    `access` is None for service credentials, which see every suggestion of an organization in the rollout.
     """
+    team_id = team.pk
     suggestions = EvalSuggestion.objects.for_team(team_id)
+    # A shadow organization's runs publish cards that staff review, and nobody in the organization reads them.
+    if not is_enabled_for_organization(str(team.organization_id)):
+        return suggestions.none()
     if access is None:
         return suggestions
     # Runs read every event property as the project, and a card's filters, headline and evidence can carry
@@ -75,10 +86,10 @@ def visible_suggestions(team_id: int, access: UserAccessControl | None) -> Query
     )
 
 
-def find_suggestion(team_id: int, access: UserAccessControl | None, suggestion_id: uuid.UUID) -> EvalSuggestion | None:
+def find_suggestion(team: Team, access: UserAccessControl | None, suggestion_id: uuid.UUID) -> EvalSuggestion | None:
     return (
-        visible_suggestions(team_id, access)
-        .select_related("target_evaluation", "similar_evaluation")
+        visible_suggestions(team, access)
+        .select_related("run", "target_evaluation", "similar_evaluation")
         .filter(id=suggestion_id)
         .first()
     )
@@ -103,16 +114,19 @@ def latest_suggestions(
         try:
             queue_first_visit_run(team, start_run)
             pending = True
+        except TemporalUnreachable:
+            release_first_visit_run(team)
+            logger.warning("llma.eval_suggestions_first_visit_temporal_unreachable", team_id=team.pk)
         except Exception:
             # The list still answers. The claim holds for the day, so the next day's visit tries again.
             logger.exception("llma.eval_suggestions_first_visit_start_failed", team_id=team.pk)
     results = (
-        visible_suggestions(team.pk, access)
+        visible_suggestions(team, access)
         .filter(run=latest, status=EvalSuggestionStatus.PROPOSED)
         .exclude(STALE_FIX)
-        .select_related("target_evaluation", "similar_evaluation")
+        .select_related("run", "target_evaluation", "similar_evaluation")
         .order_by("-score")
         if latest
-        else EvalSuggestion.objects.none()
+        else EvalSuggestion.objects.unscoped().none()
     )
     return LatestSuggestions(run=latest, pending=pending, suggestions=list(results))

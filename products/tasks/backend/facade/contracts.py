@@ -1099,14 +1099,6 @@ class SandboxSnapshotDTO:
 
 
 @dataclass(frozen=True)
-class SignalReportPrUrlDTO:
-    """The PR URL produced by the latest task run for a signal report."""
-
-    report_id: str
-    pr_url: str
-
-
-@dataclass(frozen=True)
 class WarmTaskDTO:
     """The draft Task + warm Run birthed by a Code-app warm request."""
 
@@ -1152,6 +1144,7 @@ class ComputeQuotaDenialReason(StrEnum):
 class TaskPullRequest:
     url: str
     state: str
+    run_id: str | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -1204,3 +1197,17 @@ class TaskRunLogLink:
 
     url: str | None
     unavailable_reason: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class AgentEgressRegistrationDTO:
+    run_id: UUID
+    team_id: int
+    execution_id: UUID
+    actor_id: int
+    actor_epoch: int
+    relay_key_sha256: str
+    authority: str
+    region: str
+    lease_expires_at: datetime
+    revoked: bool

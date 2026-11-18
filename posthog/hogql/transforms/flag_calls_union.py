@@ -54,6 +54,7 @@ from posthog.hogql.transforms.events_predicate_pushdown import PREDICATE_SAFE_JO
 from posthog.hogql.transforms.flag_calls_from_flag_evaluations import (
     EVENTS_NAMES,
     EventsScan,
+    FlagCallScope,
     ScanVisitor,
     SyntaxVisitor,
     and_conditions,
@@ -192,7 +193,7 @@ def read_flag_calls_in_inline_cohort(
     return query
 
 
-def require_union_readable(resolved: ast.AST, context: HogQLContext, view_name: str | None = None) -> None:
+def require_union_readable(resolved: ast.AST, context: HogQLContext, scope: FlagCallScope | None = None) -> None:
     """Raises a QueryError when an organization with flag calls only in `flag_evaluations` has a union scan in
     `resolved` that reads a field the union cannot supply. An inline cohort is spliced in after the rename, so only
     the resolved query shows its scans. `IN COHORT` resolves its join before lazy table resolution builds the
@@ -201,7 +202,7 @@ def require_union_readable(resolved: ast.AST, context: HogQLContext, view_name: 
         return
     unreadable = union_unreadable_reason(resolved, context)
     if unreadable is not None:
-        raise flag_calls_only_in_flag_evaluations_error(unreadable, view_name)
+        raise flag_calls_only_in_flag_evaluations_error(unreadable, scope)
 
 
 def union_unreadable_reason(node: ast.AST, context: HogQLContext) -> str | None:

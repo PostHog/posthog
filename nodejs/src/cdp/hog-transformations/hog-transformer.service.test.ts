@@ -77,7 +77,6 @@ describe('HogTransformer', () => {
             SITE_URL: hub.SITE_URL,
             CDP_HOG_RUST_VM_EXECUTION_ENABLED: false,
             CDP_HOG_RUST_VM_BATCH_EXECUTION_ENABLED: false,
-            MMDB_FILE_LOCATION: hub.MMDB_FILE_LOCATION,
             // Deliberately not the default, so the assertion below proves the value is plumbed
             // through rather than hardcoded in the factory.
             TRANSFORMATIONS_HOG_TIMEOUT_MS: 123,

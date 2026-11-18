@@ -198,9 +198,18 @@ _PAID_TRUST_MINIMUM = 7.0
 
 
 def best_customer_trust_score(organization: "Organization") -> float:
-    """The org's best trust score across billed resources; a missing or malformed score counts as zero."""
+    """The org's best trust score across billed resources; a missing or malformed score counts as zero.
+    Credit resources do not count: billing can score them from a default spend limit with no payment behind it."""
+    from ee.billing.quota_limiting import (  # noqa: PLC0415 — keeps the quota limiting stack off the facade import path
+        GRACE_PERIOD_EXEMPT_RESOURCES,
+    )
+
+    credit_resources = {resource.value for resource in GRACE_PERIOD_EXEMPT_RESOURCES}
     scores = organization.customer_trust_scores or {}
-    return max((float(v) for v in scores.values() if isinstance(v, int | float)), default=0.0)
+    return max(
+        (float(v) for k, v in scores.items() if k not in credit_resources and isinstance(v, int | float)),
+        default=0.0,
+    )
 
 
 def posthog_code_trusted(organization: "Organization") -> bool:

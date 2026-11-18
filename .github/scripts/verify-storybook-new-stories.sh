@@ -10,12 +10,6 @@ set -euo pipefail
 # Pass the merge base, not the base branch tip. A branch tip that moved on since the
 # fork point makes its own story changes look like this branch's.
 #
-# AFFECTED_FILES_JSON (optional) is a JSON array of story files that the diff affects
-# without changing them, from the story selection job. A component change can make an
-# existing story unstable, and the changed story files alone never show that. Those
-# files run twice in chromium and only warn, because a story that was already unstable
-# on master would otherwise block an unrelated PR.
-#
 # Example:
 #   .github/scripts/verify-storybook-new-stories.sh "$(git merge-base origin/master HEAD)" 3
 
@@ -26,10 +20,6 @@ fi
 
 BASE_SHA="$1"
 REPEAT_COUNT="${2:-3}"
-# Bound the warn-only phase so it fits the job time budget next to the blocking phase.
-MAX_AFFECTED_FILES=10
-AFFECTED_PHASE_SECONDS=900
-
 if ! [[ "$REPEAT_COUNT" =~ ^[0-9]+$ ]] || [ "$REPEAT_COUNT" -lt 1 ]; then
     echo "Error: repeat_count must be a positive integer" >&2
     exit 1
@@ -66,29 +56,8 @@ while IFS= read -r story_file; do
     fi
 done <<< "$changed_story_files"
 
-declare -a affected_to_check=()
-affected_skipped=0
-if [ -n "${AFFECTED_FILES_JSON:-}" ]; then
-    affected_list_path=$(mktemp)
-    node -e 'for (const file of JSON.parse(process.env.AFFECTED_FILES_JSON)) process.stdout.write(`${file}\n`)' > "$affected_list_path"
-    while IFS= read -r story_file; do
-        [ -n "$story_file" ] || continue
-        [ -f "$story_file" ] || continue
-        is_served_story_file "$story_file" || continue
-        if printf '%s\n' "${stories_to_verify[@]}" | grep -qxF -- "$story_file"; then
-            continue
-        fi
-        if [ "${#affected_to_check[@]}" -ge "$MAX_AFFECTED_FILES" ]; then
-            affected_skipped=$((affected_skipped + 1))
-            continue
-        fi
-        affected_to_check+=("$story_file")
-    done < "$affected_list_path"
-    rm "$affected_list_path"
-fi
-
-if [ ${#stories_to_verify[@]} -eq 0 ] && [ ${#affected_to_check[@]} -eq 0 ]; then
-    echo "No changed or affected story files to verify"
+if [ ${#stories_to_verify[@]} -eq 0 ]; then
+    echo "No changed story files to verify"
     exit 0
 fi
 
@@ -108,9 +77,8 @@ set_patterns() {
 }
 
 # Returns non-zero when the run fails, so callers decide whether that blocks.
-# An optional fourth argument stops the run after that many seconds, with exit code 124.
 run_stories() {
-    local browser="$1" run_name="$2" snapshot_flag="$3" time_limit="${4:-0}"
+    local browser="$1" run_name="$2" snapshot_flag="$3"
     echo "=== $run_name ==="
 
     # Run test-storybook directly (tests a pre-built storybook dist served over http-server).
@@ -119,17 +87,14 @@ run_stories() {
     # the main runner's testMatch doesn't cover. Those are verified by their own
     # CI, so finding no matching tests here is not a failure.
     # Keep STORYBOOK_SKIP_TAGS in sync with the visual-regression shards in ci-storybook.yml.
-    # timeout with a duration of 0 never stops the command.
     local status=0
     STORYBOOK_SKIP_TAGS="test-skip,test-skip-${browser}" \
-        timeout --kill-after=30 "$time_limit" pnpm --filter=@posthog/storybook exec test-storybook \
+        pnpm --filter=@posthog/storybook exec test-storybook \
         "$snapshot_flag" --no-index-json --maxWorkers=1 \
         --browsers "$browser" \
         -- "${pattern_args[@]}" --passWithNoTests 2>&1 | tee "/tmp/storybook-verify-${run_name}.log" || status=$?
     if [ "$status" -eq 0 ]; then
         echo "$run_name passed"
-    elif [ "$status" -eq 124 ]; then
-        echo "$run_name stopped after ${time_limit}s"
     else
         echo "$run_name failed"
     fi
@@ -173,43 +138,6 @@ if [ ${#stories_to_verify[@]} -gt 0 ]; then
 
     # PR matrices render chromium only. --updateSnapshot stops a missing baseline from failing this run.
     run_stories webkit webkit-run --updateSnapshot || failed_runs+=("webkit-run")
-fi
-
-if [ ${#affected_to_check[@]} -gt 0 ]; then
-    echo "Checking ${#affected_to_check[@]} affected story file(s) the PR did not change: 2 chromium runs, warn only:"
-    printf "  %s\n" "${affected_to_check[@]}"
-    if [ "$affected_skipped" -gt 0 ]; then
-        echo "NOTE: $affected_skipped more affected story file(s) skipped to fit the job time budget"
-    fi
-    set_patterns "${affected_to_check[@]}"
-    echo ""
-
-    # The first run writes the pictures the second run compares against. A failure in
-    # the first run is a render error, which the visual-regression shards already report.
-    # Both runs share one time budget. A run that hits it ends the phase without a verdict.
-    phase_start=$SECONDS
-    affected_status=0
-    run_stories chromium affected-run-1 --updateSnapshot "$AFFECTED_PHASE_SECONDS" || affected_status=$?
-    if [ "$affected_status" -eq 0 ]; then
-        remaining=$((AFFECTED_PHASE_SECONDS - (SECONDS - phase_start)))
-        if [ "$remaining" -lt 1 ]; then
-            affected_status=124
-        else
-            run_stories chromium affected-run-2 --ci "$remaining" || affected_status=$?
-            if [ "$affected_status" -ne 0 ] && [ "$affected_status" -ne 124 ]; then
-                message="A story affected by this PR rendered two different pictures in two runs. The story file is unchanged, so this may be an existing flake on master. The affected-run-2 log in this job names the story."
-                echo "::warning title=Unstable story affected by this PR::$message"
-                {
-                    echo "### Unstable story affected by this PR"
-                    echo ""
-                    echo "$message"
-                } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
-            fi
-        fi
-    fi
-    if [ "$affected_status" -eq 124 ]; then
-        echo "::notice title=Affected stories not fully checked::The check of unchanged affected stories stopped at its ${AFFECTED_PHASE_SECONDS}s budget."
-    fi
 fi
 
 if [ "${#failed_runs[@]}" -gt 0 ]; then

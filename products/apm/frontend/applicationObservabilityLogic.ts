@@ -21,11 +21,18 @@ export const APPLICATION_OBSERVABILITY_PATH = '/application-observability'
 
 export type TimeRange = '-1h' | '-6h' | '-24h' | '-7d'
 
-export type ApplicationObservabilityTab = 'services' | 'endpoints' | 'map' | 'usage'
+export type ApplicationObservabilityTab = 'services' | 'endpoints' | 'map' | 'dependencies' | 'deployments' | 'usage'
 
 export type ServiceMapWarning = 'map' | 'layout' | 'health' | null
 
-export const TABS: ApplicationObservabilityTab[] = ['services', 'endpoints', 'map', 'usage']
+export const TABS: ApplicationObservabilityTab[] = [
+    'services',
+    'endpoints',
+    'map',
+    'dependencies',
+    'deployments',
+    'usage',
+]
 
 export const TIME_RANGE_LABELS: Record<TimeRange, string> = {
     '-1h': 'Last hour',
@@ -34,7 +41,7 @@ export const TIME_RANGE_LABELS: Record<TimeRange, string> = {
     '-7d': 'Last 7 days',
 }
 
-const TIME_RANGE_MS: Record<TimeRange, number> = {
+export const TIME_RANGE_MS: Record<TimeRange, number> = {
     '-1h': 60 * 60 * 1000,
     '-6h': 6 * 60 * 60 * 1000,
     '-24h': 24 * 60 * 60 * 1000,
@@ -89,9 +96,10 @@ export interface applicationObservabilityLogicValues {
     endpointsLoadError: boolean
     endpointsService: string | null
     environment: string | null
-    environments: string[]
+    environments: (string | null)[]
     hasLoadError: boolean
-    resolvedEnvironment: string
+    paused: boolean
+    refreshing: boolean
     selectedMapService: ServiceHealthApi | null
     selectedMapServiceName: string | null
     serviceMap: ServiceMapResponseApi | null
@@ -189,6 +197,9 @@ export interface applicationObservabilityLogicActions {
         servicesHealth: ServicesHealthResponseApi
         payload?: void
     }
+    refresh: () => {
+        value: true
+    }
     requestReload: (includeServices?: boolean) => {
         includeServices: boolean
     }
@@ -197,6 +208,9 @@ export interface applicationObservabilityLogicActions {
     }
     setEnvironment: (environment: string | null) => {
         environment: string | null
+    }
+    setPaused: (paused: boolean) => {
+        paused: boolean
     }
     setSelectedMapService: (service: string | null) => {
         service: string | null
@@ -216,8 +230,7 @@ export interface applicationObservabilityLogicActions {
 export interface applicationObservabilityLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         services: (servicesHealth: ServicesHealthResponseApi | null) => ServiceHealthApi[]
-        environments: (servicesHealth: ServicesHealthResponseApi | null) => string[]
-        resolvedEnvironment: (environment: string | null, servicesHealth: ServicesHealthResponseApi | null) => string
+        environments: (servicesHealth: ServicesHealthResponseApi | null) => (string | null)[]
         endpoints: (endpointsHealth: EndpointsHealthResponseApi | null) => EndpointHealthApi[]
         selectedMapService: (
             serviceMapLayout: ServiceGraph | null,
@@ -228,6 +241,12 @@ export interface applicationObservabilityLogicMeta {
             serviceMapLayoutError: boolean,
             hasLoadError: boolean
         ) => ServiceMapWarning
+        refreshing: (
+            servicesHealthLoading: boolean,
+            endpointsHealthLoading: boolean,
+            serviceMapLoading: boolean,
+            serviceUsageLoading: boolean
+        ) => boolean
         usageRows: (serviceUsage: ServiceUsageResponseApi | null) => ServiceUsageApi[]
         attentionCount: (services: ServiceHealthApi[]) => number
     }
@@ -251,6 +270,8 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
         setEndpointsService: (service: string | null) => ({ service }),
         showServiceEndpoints: (service: string) => ({ service }),
         setSelectedMapService: (service: string | null) => ({ service }),
+        setPaused: (paused: boolean) => ({ paused }),
+        refresh: true,
         // Internal: coalesces the picker actions and the initial URL sync into a single reload.
         // `includeServices` is false for changes that only affect the active tab's own data.
         requestReload: (includeServices: boolean = true) => ({ includeServices }),
@@ -259,6 +280,7 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
     reducers({
         environment: [null as string | null, { setEnvironment: (_, { environment }) => environment }],
         timeRange: ['-1h' as TimeRange, { setTimeRange: (_, { timeRange }) => timeRange }],
+        paused: [false, { setPaused: (_, { paused }) => paused }],
         tab: [
             'services' as ApplicationObservabilityTab,
             { setTab: (_, { tab }) => tab, showServiceEndpoints: () => 'endpoints' },
@@ -320,7 +342,7 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
                     const response = await apmEndpointsList(String(values.currentTeamId), {
                         date_from: dateFrom.toISOString(),
                         date_to: dateTo.toISOString(),
-                        ...(values.environment ? { environment: values.environment } : {}),
+                        ...(values.environment !== null ? { environment: values.environment } : {}),
                         ...(values.endpointsService ? { service: values.endpointsService } : {}),
                     })
                     breakpoint()
@@ -337,7 +359,7 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
                     const response = await apmServiceMapList(String(values.currentTeamId), {
                         date_from: dateFrom.toISOString(),
                         date_to: dateTo.toISOString(),
-                        ...(values.environment ? { environment: values.environment } : {}),
+                        ...(values.environment !== null ? { environment: values.environment } : {}),
                     })
                     breakpoint()
                     return response
@@ -388,7 +410,7 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
                     const response = await apmServicesList(String(values.currentTeamId), {
                         date_from: dateFrom.toISOString(),
                         date_to: dateTo.toISOString(),
-                        ...(values.environment ? { environment: values.environment } : {}),
+                        ...(values.environment !== null ? { environment: values.environment } : {}),
                     })
                     // A superseded call (environment/range changed again mid-flight) throws here
                     // instead of overwriting state with a stale response.
@@ -406,12 +428,7 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
         ],
         environments: [
             (s) => [s.servicesHealth],
-            (servicesHealth: ServicesHealthResponseApi | null): string[] => servicesHealth?.environments ?? [],
-        ],
-        resolvedEnvironment: [
-            (s) => [s.environment, s.servicesHealth],
-            (environment: string | null, servicesHealth: ServicesHealthResponseApi | null): string =>
-                environment ?? servicesHealth?.environment ?? 'default',
+            (servicesHealth: ServicesHealthResponseApi | null): (string | null)[] => servicesHealth?.environments ?? [],
         ],
         endpoints: [
             (s) => [s.endpointsHealth],
@@ -426,6 +443,15 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
             (s) => [s.serviceMapLoadError, s.serviceMapLayoutError, s.hasLoadError],
             (serviceMapLoadError: boolean, serviceMapLayoutError: boolean, hasLoadError: boolean): ServiceMapWarning =>
                 serviceMapLoadError ? 'map' : serviceMapLayoutError ? 'layout' : hasLoadError ? 'health' : null,
+        ],
+        refreshing: [
+            (s) => [s.servicesHealthLoading, s.endpointsHealthLoading, s.serviceMapLoading, s.serviceUsageLoading],
+            (
+                servicesHealthLoading: boolean,
+                endpointsHealthLoading: boolean,
+                serviceMapLoading: boolean,
+                serviceUsageLoading: boolean
+            ): boolean => servicesHealthLoading || endpointsHealthLoading || serviceMapLoading || serviceUsageLoading,
         ],
         usageRows: [
             (s) => [s.serviceUsage],
@@ -443,10 +469,11 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
         const toUrl = (): [string, Record<string, string>] => [
             APPLICATION_OBSERVABILITY_PATH,
             {
-                ...(values.environment ? { environment: values.environment } : {}),
+                ...(values.environment !== null ? { environment: values.environment } : {}),
                 ...(values.timeRange !== '-1h' ? { range: values.timeRange } : {}),
                 ...(values.tab !== 'services' ? { tab: values.tab } : {}),
                 ...(values.endpointsService ? { service: values.endpointsService } : {}),
+                ...(values.paused ? { paused: 'true' } : {}),
             },
         ]
         return {
@@ -455,6 +482,7 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
             setTab: toUrl,
             setEndpointsService: toUrl,
             showServiceEndpoints: toUrl,
+            setPaused: toUrl,
         }
     }),
 
@@ -467,6 +495,11 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
             const range = isTimeRange(searchParams.range) ? searchParams.range : '-1h'
             const tab = isTab(searchParams.tab) ? searchParams.tab : 'services'
             const service = typeof searchParams.service === 'string' ? searchParams.service : null
+            // The router parses `?paused=true` into a boolean.
+            const paused = searchParams.paused === true || searchParams.paused === 'true'
+            if (paused !== values.paused) {
+                actions.setPaused(paused)
+            }
             if (service !== values.endpointsService) {
                 actions.setEndpointsService(service)
             }
@@ -486,6 +519,13 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
         setEnvironment: () => actions.requestReload(),
         setTimeRange: () => actions.requestReload(),
         setTab: () => actions.requestReload(false),
+        refresh: () => actions.requestReload(),
+        // Resuming catches up on what changed while paused instead of waiting for the next poll.
+        setPaused: ({ paused }) => {
+            if (!paused) {
+                actions.requestReload()
+            }
+        },
         setEndpointsService: () => actions.requestReload(false),
         showServiceEndpoints: () => actions.requestReload(false),
         loadServiceMapSuccess: () => actions.layoutServiceMap(),
@@ -521,10 +561,14 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
         },
     })),
 
-    afterMount(({ actions, cache }) => {
+    afterMount(({ actions, values, cache }) => {
         actions.requestReload()
         cache.disposables.add(() => {
-            const handle = setInterval(() => actions.requestReload(), POLL_INTERVAL_MS)
+            const handle = setInterval(() => {
+                if (!values.paused) {
+                    actions.requestReload()
+                }
+            }, POLL_INTERVAL_MS)
             return () => clearInterval(handle)
         }, 'poll')
     }),

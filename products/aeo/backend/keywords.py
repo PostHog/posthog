@@ -44,6 +44,7 @@ from products.aeo.backend.facade.contracts import (
     ModifierKind,
 )
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOKeyword
+from products.aeo.backend.scope import NAMED_SCOPE_SQL, CheckScope, named_scope_sql_params, scope_filter
 
 
 def normalize_keyword(text: str) -> str:
@@ -127,7 +128,7 @@ def _window(timezone_name: str, days: int) -> _Window:
 # `matched` keeps only the pairs where the keyword occurs, since every aggregate below filters on a match.
 # It is MATERIALIZED because Postgres otherwise inlines it and evaluates the `uses` replace() once for each
 # aggregate that reads it.
-_KEYWORD_REPORT_SQL = """
+_KEYWORD_REPORT_SQL = f"""
     WITH answered AS MATERIALIZED (
         SELECT check_row.prompt_id, check_row.cited, check_row.target_best_position,
             lower(check_row.prompt_text) AS prompt_text,
@@ -144,6 +145,7 @@ _KEYWORD_REPORT_SQL = """
         FROM posthog_aeo_citation_check AS check_row
         WHERE check_row.team_id = %(team_id)s AND check_row.created_at >= %(since)s
             AND check_row.created_at < %(until)s AND check_row.check_failed = false
+            AND {NAMED_SCOPE_SQL}
     ),
     matched AS MATERIALIZED (
         SELECT keyword, answered.prompt_id, answered.cited, answered.mentioned, answered.target_best_position,
@@ -180,27 +182,37 @@ _KEYWORD_REPORT_SQL = """
 KEYWORD_REPORT_CACHE_SECONDS = 10 * 60
 
 
-def get_keyword_report(team_id: int, *, target_domains: list[str], timezone_name: str, days: int) -> KeywordReport:
+def get_keyword_report(
+    team_id: int, *, target_domains: list[str], timezone_name: str, days: int, scope: CheckScope
+) -> KeywordReport:
     window = _window(timezone_name, days)
     keywords = list(AEOKeyword.objects.for_team(team_id).order_by("keyword").values_list("keyword", flat=True))
     # The key carries the keyword list and the window's last day, so adding or removing a keyword, or a new day,
     # misses the cache instead of serving a stale report.
     fingerprint = hashlib.sha256(json.dumps([sorted(target_domains), keywords]).encode()).hexdigest()
-    cache_key = f"aeo_keyword_report:{team_id}:{days}:{timezone_name}:{window.window_to.isoformat()}:{fingerprint}"
+    scope_key = f"{scope.segment.value}:{json.dumps([scope.engine, scope.topic])}"
+    cache_key = (
+        f"aeo_keyword_report:{team_id}:{days}:{timezone_name}:{window.window_to.isoformat()}:{scope_key}:{fingerprint}"
+    )
     cached = cache.get(cache_key)
     if isinstance(cached, KeywordReport):
         return cached
-    report = _build_keyword_report(team_id, window, keywords, target_domains=target_domains, days=days)
+    report = _build_keyword_report(team_id, window, keywords, target_domains=target_domains, days=days, scope=scope)
     cache.set(cache_key, report, KEYWORD_REPORT_CACHE_SECONDS)
     return report
 
 
 def _build_keyword_report(
-    team_id: int, window: _Window, keywords: list[str], *, target_domains: list[str], days: int
+    team_id: int, window: _Window, keywords: list[str], *, target_domains: list[str], days: int, scope: CheckScope
 ) -> KeywordReport:
     answers = (
         AEOCitationCheck.objects.for_team(team_id)
-        .filter(created_at__gte=window.start, created_at__lt=window.until, check_failed=False)
+        .filter(
+            scope_filter(scope, target_domains),
+            created_at__gte=window.start,
+            created_at__lt=window.until,
+            check_failed=False,
+        )
         .count()
     )
     rows: dict[str, tuple[Any, ...]] = {}
@@ -215,6 +227,7 @@ def _build_keyword_report(
                     "until": window.until,
                     "brand": brand_regex(target_domains),
                     "keywords": keywords,
+                    **named_scope_sql_params(scope, target_domains),
                 },
             )
             rows = {row[0]: row[1:] for row in cursor.fetchall()}
@@ -446,14 +459,25 @@ class _ModifierCounts:
 
 
 def get_keyword_modifiers(
-    team_id: int, *, timezone_name: str, days: int, keyword: str | None = None
+    team_id: int,
+    *,
+    target_domains: list[str],
+    timezone_name: str,
+    days: int,
+    keyword: str | None = None,
+    scope: CheckScope,
 ) -> KeywordModifierReport:
     window = _window(timezone_name, days)
     keyword = normalize_keyword(keyword) if keyword else None
     counts = _ModifierCounts()
     checks = (
         AEOCitationCheck.objects.for_team(team_id)
-        .filter(created_at__gte=window.start, created_at__lt=window.until, check_failed=False)
+        .filter(
+            scope_filter(scope, target_domains),
+            created_at__gte=window.start,
+            created_at__lt=window.until,
+            check_failed=False,
+        )
         .order_by("id")
     )
     # Keyset pages, because PgBouncer turns server-side cursors off and `.iterator()` would then load the whole window.

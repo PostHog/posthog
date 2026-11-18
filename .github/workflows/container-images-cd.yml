@@ -462,12 +462,23 @@ jobs:
                   aws-region: us-east-1
             - name: Publish frontend assets to dev
               if: vars.AWS_STATIC_ASSETS_DEV_UPLOAD_IAM_ROLE != ''
-              timeout-minutes: 5
+              timeout-minutes: 10
               env:
                   BUCKET: posthog-cloud-dev-us-east-1-static-assets
               run: |
                   set -euo pipefail
-                  aws s3 cp --recursive --no-overwrite --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"
+                  # One failed object fails the whole copy and skips every deploy of this commit. A
+                  # retry uploads only the objects still missing, because the copy never overwrites.
+                  for attempt in 1 2 3; do
+                    if aws s3 cp --recursive --no-overwrite --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"; then
+                      break
+                    fi
+                    if [ "$attempt" -eq 3 ]; then
+                      exit 1
+                    fi
+                    echo "::warning::Frontend asset upload to $BUCKET failed on attempt $attempt. Retrying."
+                    sleep 10
+                  done
                   aws s3api put-object --bucket "$BUCKET" --key "static/builds/$GITHUB_SHA" --cache-control "no-cache"
 
             - name: Assume the prod-us static-assets role
@@ -478,12 +489,23 @@ jobs:
                   aws-region: us-east-1
             - name: Publish frontend assets to prod-us
               if: vars.AWS_STATIC_ASSETS_PROD_US_UPLOAD_IAM_ROLE != ''
-              timeout-minutes: 5
+              timeout-minutes: 10
               env:
                   BUCKET: posthog-cloud-prod-us-east-1-static-assets
               run: |
                   set -euo pipefail
-                  aws s3 cp --recursive --no-overwrite --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"
+                  # One failed object fails the whole copy and skips every deploy of this commit. A
+                  # retry uploads only the objects still missing, because the copy never overwrites.
+                  for attempt in 1 2 3; do
+                    if aws s3 cp --recursive --no-overwrite --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"; then
+                      break
+                    fi
+                    if [ "$attempt" -eq 3 ]; then
+                      exit 1
+                    fi
+                    echo "::warning::Frontend asset upload to $BUCKET failed on attempt $attempt. Retrying."
+                    sleep 10
+                  done
                   aws s3api put-object --bucket "$BUCKET" --key "static/builds/$GITHUB_SHA" --cache-control "no-cache"
 
             - name: Assume the prod-eu static-assets role
@@ -494,12 +516,23 @@ jobs:
                   aws-region: eu-central-1
             - name: Publish frontend assets to prod-eu
               if: vars.AWS_STATIC_ASSETS_PROD_EU_UPLOAD_IAM_ROLE != ''
-              timeout-minutes: 5
+              timeout-minutes: 10
               env:
                   BUCKET: posthog-cloud-prod-eu-central-1-static-assets
               run: |
                   set -euo pipefail
-                  aws s3 cp --recursive --no-overwrite --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"
+                  # One failed object fails the whole copy and skips every deploy of this commit. A
+                  # retry uploads only the objects still missing, because the copy never overwrites.
+                  for attempt in 1 2 3; do
+                    if aws s3 cp --recursive --no-overwrite --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"; then
+                      break
+                    fi
+                    if [ "$attempt" -eq 3 ]; then
+                      exit 1
+                    fi
+                    echo "::warning::Frontend asset upload to $BUCKET failed on attempt $attempt. Retrying."
+                    sleep 10
+                  done
                   aws s3api put-object --bucket "$BUCKET" --key "static/builds/$GITHUB_SHA" --cache-control "no-cache"
 
             # The role action exports its session keys to the job environment, where they stay until the
@@ -574,12 +607,25 @@ jobs:
                       # An edit that adds a path here also deploys once, through
                       # check_general_purpose_coverage_added below.
                       generalPurpose:
+                        # MCPA_TASK_QUEUE defaults to the general-purpose queue, and prod runs no
+                        # separate MCP analytics worker, so this worker runs intent clustering.
+                        - 'products/mcp_analytics/backend/**'
+                        - 'posthog/temporal/mcp_analytics/**'
                         - 'products/notebooks/backend/**'
                         - 'products/subscriptions/backend/temporal/**'
                         - 'products/subscriptions/backend/facade/temporal.py'
                         - 'products/engineering_analytics/backend/**'
                         - 'products/canvas/backend/**'
                         - 'products/today/backend/**'
+                        - 'products/messaging/backend/facade/contracts.py'
+                        - 'products/messaging/backend/facade/temporal.py'
+                        - 'products/messaging/backend/models/**'
+                        - 'products/messaging/backend/provider_imports/**'
+                        - 'products/messaging/backend/services/customerio_client.py'
+                        - 'products/messaging/backend/services/customerio_config.py'
+                        - 'products/messaging/backend/services/customerio_import_service.py'
+                        - 'products/messaging/backend/services/suppression.py'
+                        - 'products/messaging/backend/temporal/**'
                         - 'products/product_analytics/backend/insight_series.py'
                         - 'posthog/llm/**'
                         - 'posthog/temporal/dlq_replay/**'
@@ -598,6 +644,11 @@ jobs:
                         - 'products/security/backend/logic/**'
                         - 'products/metrics/backend/temporal/**'
                         - 'products/metrics/backend/suggested_dashboards/**'
+                        - 'posthog/temporal/cimd_provisioning_review/**'
+                        - 'posthog/api/oauth/provisioning_review.py'
+                        - 'posthog/api/oauth/provisioning_review_slack.py'
+                        - 'posthog/models/oauth_provisioning_review.py'
+                        - 'posthog/egress/firecrawl/**'
                         - 'posthog/kafka_client/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
@@ -775,7 +826,7 @@ jobs:
                       dataWarehouseCdpProducer:
                         - 'posthog/hogql*/**'
                         - 'products/warehouse_sources_queue/**'
-                        - 'posthog/temporal/data_modeling/**'
+                        - 'products/data_modeling/backend/temporal/**'
                         - 'products/customer_analytics/backend/**'
                         - 'products/warehouse_sources/backend/temporal/data_imports/**'
                         - '!products/warehouse_sources/backend/temporal/data_imports/sources/!(common)/*'
@@ -826,7 +877,7 @@ jobs:
                         - 'products/managed_warehouse/backend/**'
                         - '!products/managed_warehouse/backend/temporal/**'
                         - '!products/managed_warehouse/backend/tests/temporal/**'
-                        - 'posthog/temporal/data_modeling/**'
+                        - 'products/data_modeling/backend/temporal/**'
                         - 'posthog/temporal/data_warehouse/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/warehouse/**'
