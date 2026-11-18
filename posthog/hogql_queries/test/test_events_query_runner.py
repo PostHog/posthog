@@ -243,8 +243,15 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             [cast(ast.Constant, cast(ast.Call, x).args[0]).value for x in right_expr.exprs], ["id1", "id2"]
         )
-        plain_expr = cast(ast.CompareOperation, cast(ast.And, query_ast.where).exprs[1])
-        self.assertEqual([cast(ast.Constant, x).value for x in cast(ast.Tuple, plain_expr.right).exprs], ["id1", "id2"])
+
+        # flag_evaluations can answer only a plain distinct_id comparison from its bloom filter index
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        flag_calls_query = EventsQuery(
+            kind="EventsQuery", select=["*"], event="$feature_flag_called", personId=str(person.pk), orderBy=[]
+        )
+        with self.capture_select_queries() as queries:
+            EventsQueryRunner(query=flag_calls_query, team=self.team).calculate()
+        self.assertTrue(any("in(flag_evaluations.distinct_id, tuple('id1', 'id2'))" in q for q in queries), queries)
 
         # another team
         another_team = Team.objects.create(organization=Organization.objects.create())
