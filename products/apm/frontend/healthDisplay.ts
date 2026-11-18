@@ -45,6 +45,7 @@ export function formatMs(ms: number | null): string {
     return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms)}ms`
 }
 
-export function formatApdex(score: number | null): string {
-    return score === null ? '—' : score.toFixed(2)
+// Health responses cached before apdex shipped have no score at all, so treat undefined like null.
+export function formatApdex(score: number | null | undefined): string {
+    return score === null || score === undefined ? '—' : score.toFixed(2)
 }
