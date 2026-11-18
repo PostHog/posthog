@@ -111,6 +111,8 @@ def _identity_secrets(team: Team) -> list[_IdentitySecret]:
 
     The conversations signing secret is the only store. A rotation keeps the replaced
     value verifying for SigningSecret.PREVIOUS_SECRET_GRACE, then it expires on its own.
+    Every row is trusted as is: migration 0091 resynced rows that had drifted from the
+    retired legacy token column, and the legacy rotation path that caused drift is gone.
     """
     secrets: list[_IdentitySecret] = []
     signing_secret = SigningSecret.objects.for_team(team.id).first()
