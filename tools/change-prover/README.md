@@ -28,9 +28,10 @@ Two workflows split the work.
 | `identify` | `contents: read`, `pull-requests: read`                           | Finds the one open pull request at the head by an allowed author, checks the pusher, and reads the merge base. |
 | `prove`    | none                                                              | Replays pnpm in a merge-base worktree with `--lockfile-only`, `--ignore-scripts` and `--ignore-pnpmfile`.      |
 | `scan`     | none                                                              | Scans the added packages with GuardDog.                                                                        |
-| `publish`  | none, plus an App token with `checks: write` from its environment | Runs `conclude` and posts the check run.                                                                       |
+| `conclude` | none                                                              | Runs `conclude`, which decides the check run from the other jobs' results.                                     |
+| `publish`  | none, plus an App token with `checks: write` from its environment | Posts the check run that `conclude` decided.                                                                   |
 
-Only `publish` can reach the App key, and `publish` runs no package manager.
+Only `publish` can reach the App key, and `publish` checks out nothing and runs only `gh`.
 
 Nothing from the pull request tree runs.
 Each job checks out only the prover, the `setup-uv` action and `.nvmrc` from the default branch.
