@@ -116211,7 +116211,7 @@ export namespace Schemas {
     }
 
     /**
-     * * `sandbox_sender` - Sent from the sandbox sender
+     * * `sandbox_sender` - Sent from the PostHog test sender
      */
     export type SendWarningCodeEnum = typeof SendWarningCodeEnum[keyof typeof SendWarningCodeEnum];
 
@@ -116221,9 +116221,9 @@ export namespace Schemas {
     } as const;
 
     export interface SendWarning {
-      /** What the warning is about. `sandbox_sender`: the email went out from PostHog's sandbox sender because the project has no verified sending domain, so it only reaches members of the organization.
+      /** What the warning is about. `sandbox_sender`: the email went out from the PostHog test sender because the project has no verified sending domain, so it only reaches members of the organization.
        *
-       * * `sandbox_sender` - Sent from the sandbox sender */
+       * * `sandbox_sender` - Sent from the PostHog test sender */
       code: SendWarningCodeEnum;
       /** What happened and what to do next, in words a person can read. */
       message: string;

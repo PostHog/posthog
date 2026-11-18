@@ -748,7 +748,7 @@ class MakeTransactionalSerializer(serializers.Serializer):
 class SendWarningSerializer(serializers.Serializer):
     code = serializers.ChoiceField(
         choices=SendWarningCode.choices,
-        help_text="What the warning is about. `sandbox_sender`: the email went out from PostHog's sandbox sender "
+        help_text="What the warning is about. `sandbox_sender`: the email went out from the PostHog test sender "
         "because the project has no verified sending domain, so it only reaches members of the organization.",
     )
     message = serializers.CharField(help_text="What happened and what to do next, in words a person can read.")
