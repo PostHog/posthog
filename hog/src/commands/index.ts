@@ -14,6 +14,7 @@ import query from './query'
 import schema from './schema'
 import setup from './setup'
 import skills from './skills'
+import upgrade from './upgrade'
 
 export const COMMANDS: CommandTree = {
     setup,
@@ -28,6 +29,7 @@ export const COMMANDS: CommandTree = {
     schema,
     config,
     commands,
+    upgrade,
     feedback,
     ...LEGACY_COMMANDS,
 }
