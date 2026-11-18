@@ -14,6 +14,7 @@ from django.core.cache import cache, caches
 from django.urls import resolve
 from django.utils import timezone
 
+from django_redis.client import DefaultClient
 from prometheus_client import Counter
 from redis.exceptions import RedisError
 from rest_framework import exceptions
@@ -218,6 +219,7 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
 
     def allow_units(self, request: "Request", view: "APIView", units: int) -> bool:
         self.units_to_charge = 0
+        self.retry_wait = 0.0
         self.units_to_check = units
         try:
             return self.allow_request(request, view)
@@ -240,7 +242,7 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         self.key = self.get_cache_key(request, view)
         if self.key is None:
             return True
-        self.history = self.cache.get(self.key, [])
+        self.history = self._primary_history(self.key)
         self.now = self.timer()
         while self.history and self.history[-1] <= self.now - duration:
             self.history.pop()
@@ -249,6 +251,12 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
             return False
         self.units_to_charge = units
         return True
+
+    def _primary_history(self, key: str) -> list[float]:
+        cache_client = getattr(self.cache, "client", None)
+        if isinstance(cache_client, DefaultClient):
+            return cache_client.get(key, [], client=cache_client.get_client(write=True))
+        return self.cache.get(key, [])
 
     def _wait_for_room(self, units: int, num_requests: int, duration: int) -> float:
         expiries_needed = len(self.history) + units - num_requests

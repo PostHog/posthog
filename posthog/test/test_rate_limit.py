@@ -1,15 +1,19 @@
 import json
+import time
 from datetime import timedelta
-from urllib.parse import quote
+from typing import Any
+from urllib.parse import quote, urlsplit
 
 import time_machine
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import ANY, Mock, call, patch
 
-from django.core.cache import cache
-from django.test import SimpleTestCase
+from django.conf import settings
+from django.core.cache import cache, caches
+from django.test import SimpleTestCase, override_settings
 from django.utils.timezone import now
 
+from django_redis.cache import RedisCache
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 from redis.exceptions import RedisError
@@ -1185,6 +1189,54 @@ class TestReserveUnits(BaseTest):
 
             self._clear_policy_caches()
             self.assertEqual(self._singles_allowed(_PSAKTeamThrottleForTest, 6), [True, True, True, True, True, False])
+
+    def test_a_reused_throttle_advertises_no_wait_left_from_a_refused_reservation(self):
+        with (
+            patch.object(_PSAKThrottleForTest, "rate", "3/minute"),
+            patch.object(_PSAKTeamThrottleForTest, "rate", "1/hour"),
+            time_machine.travel("2026-01-01T00:00:00Z", tick=False),
+        ):
+            throttles: list[_SendThrottle] = [_PSAKThrottleForTest(), _PSAKTeamThrottleForTest()]
+            with self.assertRaises(exceptions.Throttled):
+                rate_limit.reserve_units(throttles, self._request(), self.view, 2)
+            read = cache.get
+
+            def team_history_unreadable(key: str, *args: Any, **kwargs: Any) -> Any:
+                if key == throttles[1].key:
+                    raise RedisError("down")
+                return read(key, *args, **kwargs)
+
+            with patch("django.core.cache.cache.get", side_effect=team_history_unreadable):
+                with self.assertRaises(exceptions.Throttled) as refusal:
+                    rate_limit.reserve_units(throttles, self._request(), self.view, 4)
+
+            response = exception_handler(refusal.exception, {"request": self._request()})
+            assert response is not None
+            self.assertEqual(response.headers["Retry-After"], "60")
+
+    def test_a_reservation_counts_the_charge_a_lagging_reader_has_not_seen(self):
+        reader = urlsplit(settings.REDIS_URL)._replace(path="/15").geturl()
+        replicated = {
+            "default": {
+                "BACKEND": "django_redis.cache.RedisCache",
+                "LOCATION": [settings.REDIS_URL, reader],
+                "KEY_PREFIX": "test-reserve-units",
+            }
+        }
+        with override_settings(CACHES=replicated), patch.object(_PSAKThrottleForTest, "rate", "2/minute"):
+            redis_cache = caches["default"]
+            assert isinstance(redis_cache, RedisCache)
+            key = _PSAKThrottleForTest().get_cache_key(self._request(), self.view)
+            clients = [redis_cache.client.get_client(write=True), redis_cache.client.get_client(write=False)]
+            for client in clients:
+                redis_cache.set(key, [time.time()], 60, client=client)
+            try:
+                retry_after = self._send([_PSAKThrottleForTest], 2)
+            finally:
+                for client in clients:
+                    redis_cache.delete(key, client=client)
+
+        self.assertEqual(retry_after, "60")
 
     def test_a_refusal_is_counted(self):
         route = rate_limit.get_route_from_path("/api/messaging/send/email_batch/")
