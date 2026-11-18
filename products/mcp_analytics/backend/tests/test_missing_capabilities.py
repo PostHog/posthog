@@ -50,10 +50,13 @@ class TestMCPMissingCapabilitiesQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Cl
         )
         return runner.calculate()
 
-    def test_returns_reports_newest_first_with_their_text(self) -> None:
-        now = datetime.now(tz=UTC)
-        self._emit(intent="older ask", timestamp=now - timedelta(hours=2))
-        self._emit(intent="newer ask", timestamp=now - timedelta(hours=1))
+    def test_returns_reports_newest_first_with_their_text_and_time(self) -> None:
+        self.team.timezone = "Asia/Tokyo"
+        self.team.save()
+        now = datetime.now(tz=UTC).replace(microsecond=0)
+        older, newer = now - timedelta(hours=2), now - timedelta(hours=1)
+        self._emit(intent="older ask", timestamp=older)
+        self._emit(intent="newer ask", timestamp=newer)
         # Only missing-capability reports are the unmet-demand signal; a tool call carrying an
         # intent is what the agent *did*, not what it couldn't do.
         self._emit(intent="a tool call intent", event="$mcp_tool_call")
@@ -61,7 +64,10 @@ class TestMCPMissingCapabilitiesQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Cl
 
         rows = self._run()
 
-        assert [row.intent for row in rows] == ["newer ask", "older ask"]
+        assert [(row.intent, datetime.fromisoformat(row.timestamp)) for row in rows] == [
+            ("newer ask", newer),
+            ("older ask", older),
+        ]
         assert rows[0].session_id == "s1"
         assert rows[0].distinct_id == "d1"
         assert rows[0].harness == "Claude.ai"
