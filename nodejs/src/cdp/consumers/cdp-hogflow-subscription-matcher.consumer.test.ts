@@ -378,6 +378,41 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(byTopic[KAFKA_EVENTS_JSON]?.['metadata.broker.list']).toBeUndefined()
         })
 
+        it('retries a failed watcher refresh within a minute, then waits the full interval after a success', async () => {
+            jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
+            try {
+                const pool = (matcher as any).cyclotronPool
+                const query = pool.query
+                let refreshFails = true
+                pool.query = jest.fn((sql: string, params: any[]) =>
+                    refreshFails && sql.includes('MIN(created_at)')
+                        ? Promise.reject(new Error('db down'))
+                        : query(sql, params)
+                )
+                ;(matcher as any).kafkaConsumer = { connect: jest.fn().mockResolvedValue(undefined) }
+                matcher.watcherRows = [
+                    { team_id: 7, function_id: 'flow-7', oldest_created_at: '2026-01-01T00:00:00Z' } as any,
+                ]
+                const admitted = (): boolean => (matcher as any).mayHaveLiveWatchers(7)
+
+                await matcher.start()
+                expect(admitted()).toBe(false)
+
+                refreshFails = false
+                await jest.advanceTimersByTimeAsync(30_000)
+                expect(admitted()).toBe(true)
+
+                matcher.watcherRows = []
+                await jest.advanceTimersByTimeAsync(4 * 60_000)
+                expect(admitted()).toBe(true)
+                await jest.advanceTimersByTimeAsync(90_000)
+                expect(admitted()).toBe(false)
+            } finally {
+                matcher.clearWatcherTimers()
+                jest.useRealTimers()
+            }
+        })
+
         it.each(['', 'realtime_only_events_json'])(
             'creates the realtime-only events consumer only when its topic is configured (%j)',
             (topic) => {
