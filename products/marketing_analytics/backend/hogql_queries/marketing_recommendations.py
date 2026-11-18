@@ -49,6 +49,8 @@ POLICY_REASONS = frozenset(
         "HAS_ASSET_GROUPS_DISAPPROVED",
     }
 )
+LIMITED_APPROVALS = frozenset({"APPROVED_LIMITED", "AREA_OF_INTEREST_ONLY"})
+DISAPPROVED = "DISAPPROVED"
 # Modifiers that match almost any search, so they say nothing about whether a query fits the account.
 GENERIC_WORDS = frozenset(
     {
@@ -118,6 +120,9 @@ MATCH_TYPES = {"2": "EXACT", "3": "PHRASE", "4": "BROAD"}
 ADS_ACCOUNT_SETTINGS_URL = "https://ads.google.com/aw/settings/account"
 ADS_CAMPAIGNS_URL = "https://ads.google.com/aw/campaigns"
 ADS_KEYWORDS_URL = "https://ads.google.com/aw/keywords"
+ADS_ADS_URL = "https://ads.google.com/aw/ads"
+ADS_ASSET_GROUPS_URL = "https://ads.google.com/aw/assetgroup"
+ADS_POLICY_ISSUES_URL = "https://ads.google.com/aw/policy/ads/issues"
 ADS_NEGATIVE_KEYWORDS_URL = "https://ads.google.com/aw/keywords/negative"
 ADS_SEARCH_TERMS_URL = "https://ads.google.com/aw/keywords/searchterms"
 SEARCH_CONSOLE_PERFORMANCE_URL = "https://search.google.com/search-console/performance/search-analytics"
@@ -219,6 +224,13 @@ class Ad:
 
 
 @frozen
+class PolicyAds:
+    campaign_id: str
+    disapproved: int
+    limited: int
+
+
+@frozen
 class RecommendationInputs:
     campaigns: tuple[CampaignStats, ...]
     search_terms: tuple[SearchTermStats, ...]
@@ -231,6 +243,7 @@ class RecommendationInputs:
     customer_id: str | None = None
     keyword_tracking: KeywordTracking | None = None
     ads: tuple[Ad, ...] = ()
+    policy_ads: tuple[PolicyAds, ...] = ()
 
 
 @frozen
@@ -455,6 +468,7 @@ class _Recommender:
         self.keywords = {keyword_row.keyword.lower() for keyword_row in inputs.term_keywords}
         self.copy_stems: dict[str, set[str]] = defaultdict(set)
         self.keyword_insertion_groups: set[str] = set()
+        self.policy_ads = {row.campaign_id: row for row in inputs.policy_ads}
         for ad in inputs.ads:
             for text in ad.texts:
                 self.copy_stems[ad.ad_group_id] |= _word_stems(text)
@@ -568,17 +582,7 @@ class _Recommender:
                 if campaign.budget_id:
                     constrained_budgets.add(campaign.budget_id)
             if POLICY_REASONS.intersection(campaign.status_reasons):
-                recommendations.append(
-                    self._campaign_recommendation(
-                        MarketingAnalyticsRecommendationRule.POLICY_LIMITED,
-                        campaign,
-                        "Check the affected ads in Policy manager",
-                        "Some ads or asset groups are limited or disapproved by Google policy, which cuts the campaign's reach.",
-                        None,
-                        "gain",
-                        "measured",
-                    )
-                )
+                recommendations.append(self._policy_limited(campaign))
 
         has_brand_campaign = any(self._is_brand_campaign(c, brand_spend) for c in self.campaigns.values())
         for campaign in self.campaigns.values():
@@ -1572,6 +1576,59 @@ class _Recommender:
             self._campaign_name(term),
             steps=steps,
             cpa=self._cpa(term.cost / term.conversions if term.conversions else None, benchmark) if benchmark else None,
+        )
+
+    def _policy_limited(self, campaign: CampaignStats) -> MarketingAnalyticsRecommendation:
+        policy_ads = self.policy_ads.get(campaign.id)
+        disapproved, limited = (policy_ads.disapproved, policy_ads.limited) if policy_ads else (0, 0)
+        counts = [
+            f"{count} {'ad is' if count == 1 else 'ads are'} {label}"
+            for count, label in ((disapproved, "disapproved"), (limited, "limited"))
+            if count
+        ]
+        reason = (
+            f"{' and '.join(counts)} by Google policy, which cuts the campaign's reach."
+            if counts
+            else "Some ads or asset groups are limited or disapproved by Google policy, which cuts the campaign's reach."
+        )
+        if campaign.channel_type == "PERFORMANCE_MAX":
+            find = Step(
+                text="Open Asset groups and look for assets whose status shows a policy issue. "
+                "Hover the status to see which policy the asset breaks.",
+                url=ADS_ASSET_GROUPS_URL,
+                linkText="Asset groups",
+            )
+            fix = Step(text="Replace each affected asset with one that follows the policy.")
+        else:
+            find = Step(
+                text="Open Ads and filter by the status Disapproved or Eligible (limited). "
+                "Hover the status of each ad to see which policy it breaks.",
+                url=ADS_ADS_URL,
+                linkText="Ads",
+            )
+            fix = Step(
+                text="Edit the ad text or landing page so it follows the policy, then save. Saving sends the ad to review again."
+            )
+        steps = (
+            self._open_campaign(campaign.name),
+            find,
+            fix,
+            Step(
+                text="If a decision looks wrong, open Policy manager and appeal it from the Policy issues tab.",
+                url=ADS_POLICY_ISSUES_URL,
+                linkText="Policy manager",
+            ),
+            Step(text="Come back here after Google reviews the changes, usually within a business day."),
+        )
+        return self._campaign_recommendation(
+            MarketingAnalyticsRecommendationRule.POLICY_LIMITED,
+            campaign,
+            "Fix or appeal the policy issues in this campaign",
+            reason,
+            None,
+            "gain",
+            "measured",
+            steps=steps,
         )
 
     def _campaign_recommendation(
