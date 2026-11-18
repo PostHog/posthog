@@ -230,7 +230,7 @@ const decideCascade = (overrides) =>
         ...overrides,
     })
 
-test('phase 1 and 2 product cascades select today, and phase 3 reports a shadow selection', () => {
+test('every product cascade phase selects, and one above the trusted phase reports a shadow selection', () => {
     const noShadow = { shadow_mode: '', shadow_skip_reason: '', shadow_selection_size: null }
     const shadowed = { mode: 'full', skip_reason: 'untrusted', shadow_mode: 'selected', shadow_skip_reason: '', shadow_selection_size: 1 }
     const cases = [
@@ -251,9 +251,14 @@ test('phase 1 and 2 product cascades select today, and phase 3 reports a shadow 
             { productCascadePhase: 2, runLegacyReason: 'contract_cascade', selection: cascadeSelection({ snob: { status: 'error' } }) },
             { mode: 'full', skip_reason: 'selector_error', would_trust_phase: 2, ...noShadow },
         ],
-        [{ productCascadePhase: 3 }, { ...shadowed, would_trust_phase: 3 }],
+        [{ productCascadePhase: 3 }, { mode: 'selected', skip_reason: '', would_trust_phase: 3, ...noShadow }],
         [
             { productCascadePhase: 3, selection: cascadeSelection({ ast: { full_run_reasons: ['conftest.py'] } }) },
+            { mode: 'full', skip_reason: 'full_run_requested', would_trust_phase: 3, ...noShadow },
+        ],
+        [{ productCascadePhase: 3, trustedProductCascadePhase: 2 }, { ...shadowed, would_trust_phase: 3 }],
+        [
+            { productCascadePhase: 3, trustedProductCascadePhase: 2, selection: cascadeSelection({ ast: { full_run_reasons: ['conftest.py'] } }) },
             { ...shadowed, would_trust_phase: 3, shadow_mode: 'full', shadow_skip_reason: 'full_run_requested', shadow_selection_size: null },
         ],
         [{ productCascadePhase: null }, { mode: 'full', skip_reason: 'untrusted', would_trust_phase: null, ...noShadow }],
@@ -272,14 +277,10 @@ test('phase 1 and 2 product cascades select today, and phase 3 reports a shadow 
         ],
         [
             { productCascadePhase: 3, selection: cascadeSelection({ snob: { status: 'error' } }) },
-            { ...shadowed, would_trust_phase: 3, shadow_mode: 'full', shadow_skip_reason: 'selector_error', shadow_selection_size: null },
+            { mode: 'full', skip_reason: 'selector_error', would_trust_phase: 3, ...noShadow },
         ],
         [{ productCascadePhase: 1, draft: true, selection: null }, { mode: 'skip', skip_reason: 'selector_error', ...noShadow }],
         [{ productCascadePhase: 1, disabled: true }, { mode: 'full', skip_reason: 'disabled', ...noShadow }],
-        [
-            { productCascadePhase: 3, trustedProductCascadePhase: 3 },
-            { mode: 'selected', skip_reason: '', would_trust_phase: 3, ...noShadow },
-        ],
     ]
     for (const [overrides, expected] of cases) {
         const decision = decideCascade(overrides)

@@ -1359,7 +1359,7 @@ function decideSelection({
 // The highest product cascade phase whose selection gates a ready PR. A cascade in a higher
 // phase still runs the full matrices, and its telemetry reports what the selection would
 // have run (would_trust_phase, shadow_*). See productCascadePhase for the phases.
-const TRUSTED_PRODUCT_CASCADE_PHASE = 2
+const TRUSTED_PRODUCT_CASCADE_PHASE = 3
 
 const PRODUCT_FRONTEND_FILE = /^products\/[^/]+\/frontend\//
 const PRODUCT_FACADE_FILE = /^products\/[^/]+\/backend\/facade\//
