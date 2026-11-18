@@ -17,7 +17,10 @@ use crate::{
         cohort_cache_manager::CohortCacheManager, cohort_models::MembershipStampPolicy,
         membership::CohortMembershipProvider,
     },
-    flags::{flag_group_type_mapping::GroupTypeCacheManager, flag_models::FeatureFlagList},
+    flags::{
+        flag_group_type_mapping::GroupTypeCacheManager, flag_models::FeatureFlagList,
+        flag_request::KnownAbsentProperties,
+    },
     rayon_dispatcher::RayonDispatcher,
     router,
     utils::user_agent::UserAgentInfo,
@@ -67,6 +70,7 @@ pub struct RequestPropertyOverrides {
     pub group_properties: Option<HashMap<String, HashMap<String, Value>>>,
     pub groups: Option<HashMap<String, Value>>,
     pub hash_key: Option<String>,
+    pub known_absent: KnownAbsentProperties,
 }
 
 /// Represents all context required for evaluating a set of feature flags.
@@ -88,6 +92,7 @@ pub struct FeatureFlagEvaluationContext {
     pub group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
     pub groups: Option<HashMap<String, Value>>,
     pub hash_key_override: Option<String>,
+    pub known_absent_properties: KnownAbsentProperties,
     /// Contains explicitly requested flag keys and their dependencies. If empty, all flags will be evaluated.
     pub flag_keys: Option<Vec<String>>,
     /// When true, skip hash key override lookups for flags that don't need them

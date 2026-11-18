@@ -1,0 +1,195 @@
+[
+    {
+        "name": "system accounts external ID",
+        "query": "SELECT * FROM system.accounts WHERE external_id = {account_external_id}",
+        "valid": true
+    },
+    {
+        "name": "system accounts aliased external ID",
+        "query": "SELECT * FROM system.accounts a WHERE a.external_id = {account_external_id}",
+        "valid": true
+    },
+    {
+        "name": "quoted system accounts external ID",
+        "query": "SELECT * FROM `system.accounts` WHERE external_id = {account_external_id}",
+        "valid": true
+    },
+    {
+        "name": "quoted system accounts unrelated column",
+        "query": "SELECT * FROM `system.accounts` WHERE name = {account_external_id}",
+        "error": "SQL queries on system.accounts must filter external_id by {account_external_id}.",
+        "valid": false
+    },
+    {
+        "name": "system accounts remapped external ID",
+        "query": "SELECT * FROM system.accounts AS a (id, actual_external_id, external_id) WHERE a.external_id = {account_external_id}",
+        "error": "SQL account widgets do not support table column aliases.",
+        "valid": false
+    },
+    {
+        "name": "quoted system accounts remapped external ID",
+        "query": "SELECT * FROM `system.accounts` AS a (id, actual_external_id, external_id) WHERE a.external_id = {account_external_id}",
+        "error": "SQL account widgets do not support table column aliases.",
+        "valid": false
+    },
+    {
+        "name": "subquery remapped account column",
+        "query": "SELECT * FROM (SELECT * FROM system.accounts WHERE external_id = {account_external_id}) AS a (id, actual_external_id, external_id) WHERE a.external_id = {account_external_id}",
+        "error": "SQL account widgets do not support table column aliases.",
+        "valid": false
+    },
+    {
+        "name": "system accounts unrelated column",
+        "query": "SELECT * FROM system.accounts WHERE name = {account_external_id}",
+        "error": "SQL queries on system.accounts must filter external_id by {account_external_id}.",
+        "valid": false
+    },
+    {
+        "name": "system accounts unrelated OR branch",
+        "query": "SELECT * FROM system.accounts a WHERE a.external_id = {account_external_id} OR a.name = {account_external_id}",
+        "error": "SQL queries on system.accounts must filter external_id by {account_external_id}.",
+        "valid": false
+    },
+    { "name": "equality", "query": "select * from engagements where org_id = {account_external_id}", "valid": true },
+    {
+        "name": "reversed equality",
+        "query": "select * from engagements where {account_external_id} = org_id",
+        "valid": true
+    },
+    {
+        "name": "scoped conjunction",
+        "query": "select * from engagements where org_id = {account_external_id} and (active or recent)",
+        "valid": true
+    },
+    {
+        "name": "scoped disjunction",
+        "query": "select * from engagements where (org_id = {account_external_id} and active) or (org_id = {account_external_id} and recent)",
+        "valid": true
+    },
+    {
+        "name": "scoped union",
+        "query": "select * from first_table where org_id = {account_external_id} union all select * from second_table where org_id = {account_external_id}",
+        "valid": true
+    },
+    {
+        "name": "scoped subquery",
+        "query": "select * from (select * from engagements where org_id = {account_external_id}) e where e.org_id = {account_external_id}",
+        "valid": true
+    },
+    {
+        "name": "scoped aggregation",
+        "query": "select count() from engagements where org_id = {account_external_id}",
+        "valid": true
+    },
+    { "name": "no filter", "query": "select * from engagements", "valid": false },
+    {
+        "name": "cross join",
+        "query": "select e.event from events e cross join system.accounts a where a.external_id = {account_external_id}",
+        "error": "SQL account widgets do not support joins. Use a single table per SELECT.",
+        "valid": false
+    },
+    {
+        "name": "comma join",
+        "query": "select e.event from events e, system.accounts a where a.external_id = {account_external_id}",
+        "error": "SQL account widgets do not support joins. Use a single table per SELECT.",
+        "valid": false
+    },
+    {
+        "name": "inner join",
+        "query": "select e.event from events e join system.accounts a on e.properties.account_id = a.external_id where a.external_id = {account_external_id}",
+        "error": "SQL account widgets do not support joins. Use a single table per SELECT.",
+        "valid": false
+    },
+    {
+        "name": "placeholder expression",
+        "query": "select {account_external_id + 'suffix'} from engagements where org_id = {account_external_id}",
+        "error": "SQL account widgets only support the {account_external_id} placeholder.",
+        "valid": false
+    },
+    {
+        "name": "aliased placeholder",
+        "query": "select {account_external_id as current_account} from engagements where org_id = {account_external_id}",
+        "error": "SQL account widgets only support the {account_external_id} placeholder.",
+        "valid": false
+    },
+    {
+        "name": "other placeholder",
+        "query": "select {other_value} from engagements where org_id = {account_external_id}",
+        "error": "SQL account widgets only support the {account_external_id} placeholder.",
+        "valid": false
+    },
+    {
+        "name": "placeholder table",
+        "query": "select * from {account_external_id} where org_id = {account_external_id}",
+        "error": "SQL account widgets require a table name or scoped subquery in FROM.",
+        "valid": false
+    },
+    { "name": "select placeholder", "query": "select {account_external_id}, * from engagements", "valid": false },
+    { "name": "comment placeholder", "query": "select * from engagements -- {account_external_id}", "valid": false },
+    {
+        "name": "string placeholder",
+        "query": "select * from engagements where name = '{account_external_id}'",
+        "valid": false
+    },
+    {
+        "name": "unscoped disjunction",
+        "query": "select * from engagements where org_id = {account_external_id} or true",
+        "valid": false
+    },
+    { "name": "not equal", "query": "select * from engagements where org_id != {account_external_id}", "valid": false },
+    {
+        "name": "negated filter",
+        "query": "select * from engagements where not (org_id = {account_external_id})",
+        "valid": false
+    },
+    {
+        "name": "constant comparison",
+        "query": "select * from engagements where {account_external_id} = {account_external_id}",
+        "valid": false
+    },
+    {
+        "name": "select alias",
+        "query": "select {account_external_id} as org_id, * from engagements where org_id = {account_external_id}",
+        "valid": false
+    },
+    {
+        "name": "qualified select alias",
+        "query": "SELECT event, JSONExtract(concat('{\"x\":', toJSONString({account_external_id}), '}'), 'Tuple(x String)') AS k FROM events WHERE k.x = {account_external_id}",
+        "valid": false
+    },
+    {
+        "name": "qualified with alias",
+        "query": "WITH JSONExtract(concat('{\"x\":', toJSONString({account_external_id}), '}'), 'Tuple(x String)') AS k SELECT event FROM events WHERE k.x = {account_external_id}",
+        "valid": false
+    },
+    {
+        "name": "qualified dotted select alias",
+        "query": "SELECT event, JSONExtract(concat('{\"x\":', toJSONString({account_external_id}), '}'), 'Tuple(x String)') AS `k.value` FROM events WHERE `k.value`.x = {account_external_id}",
+        "valid": false
+    },
+    {
+        "name": "with alias",
+        "query": "with {account_external_id} as org_id select * from engagements where org_id = {account_external_id}",
+        "valid": false
+    },
+    {
+        "name": "where alias",
+        "query": "select * from engagements where org_id = {account_external_id} and ({account_external_id} as org_id)",
+        "valid": false
+    },
+    {
+        "name": "unscoped union branch",
+        "query": "select * from first_table where org_id = {account_external_id} union all select * from second_table",
+        "valid": false
+    },
+    {
+        "name": "unscoped subquery",
+        "query": "select (select count() from other_table) from engagements where org_id = {account_external_id}",
+        "valid": false
+    },
+    {
+        "name": "unscoped cte",
+        "query": "with other as (select * from other_table) select * from other where org_id = {account_external_id}",
+        "valid": false
+    }
+]

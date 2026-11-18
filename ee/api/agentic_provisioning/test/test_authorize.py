@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from urllib.parse import quote
 
 from unittest.mock import patch
@@ -22,6 +22,8 @@ from ee.api.agentic_provisioning.test.base import (
     ProvisioningTestBase,
     provisioning_config,
 )
+from ee.billing.billing_manager import BillingManager
+from ee.billing.billing_types import BillingStatus
 
 if TYPE_CHECKING:
     from rest_framework.response import _MonkeyPatchedResponse
@@ -367,10 +369,21 @@ class TestAgenticAuthorizeConfirm(AgenticAuthorizeMultiOrgBase):
         self.user.refresh_from_db()
         assert (self.user.current_organization_id, self.user.current_team_id) == (self.organization.id, self.team.id)
 
-    def test_paying_partner_confirm_reuses_the_organization_the_partner_already_provisioned(self) -> None:
+    @parameterized.expand([("before_its_subscription_starts", False), ("after_its_subscription_starts", True)])
+    def test_paying_partner_confirm_reuses_the_organization_the_partner_already_provisioned(
+        self, _name: str, subscription_started: bool
+    ) -> None:
         self.partner.update_provisioning(pays_for_customers=True)
-        team = Team.objects.create_with_data(initiating_user=self.user, organization=self._partner_organization())
+        organization = self._partner_organization()
+        team = Team.objects.create_with_data(initiating_user=self.user, organization=organization)
         TeamProvisioningConfig.objects.create(team=team, application=self.partner)
+        if subscription_started:
+            BillingManager(license=None).update_org_details(
+                organization,
+                cast(BillingStatus, {"customer": {"customer_id": "cus_partner_subscription", "paid_by_partner": True}}),
+            )
+            organization.refresh_from_db()
+            assert organization.customer_id == "cus_partner_subscription"
         organization_count = Organization.objects.count()
 
         self._set_pending_auth("state_again", self.user.email)

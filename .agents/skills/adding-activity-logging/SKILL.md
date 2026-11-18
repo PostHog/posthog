@@ -56,6 +56,7 @@ For a model without a `.team` foreign key (`ProductTeamModel`), read `organizati
 
 A receiver that is not imported in `ready()` connects only where something else imports the module.
 That is the silent failure this convention exists to prevent.
+Each product owns this wiring in its `apps.py`; core keeps no list of product receivers, following [#93107](https://github.com/PostHog/posthog/pull/93107).
 
 ## Step 5 - Bulk writes
 
@@ -83,6 +84,26 @@ When the model is routed in `products/db_routing.yaml`:
 - Bookkeeping fields go in `field_exclusions` (dropped from the diff).
 - Secrets go in `field_with_masked_contents` (the change is recorded, the values are not).
 - User-facing names go in `field_name_overrides`.
+
+Put them in a data only module next to the model, so the team that owns the model owns its tuning:
+
+```python
+# products/<name>/backend/activity_log_config.py
+FIELD_EXCLUSIONS = {"Thing": ["bookkeeping_field"]}
+```
+
+Product configs must use exactly `products/<name>/backend/activity_log_config.py`; other names and locations will not load by convention.
+For a core model, put the config beside it, as in `posthog/models/oauth_activity_log_config.py`, and add the config to the model's `owners.yaml` rule's `match` list.
+Until the discovery follow-up lands, register it with one import and one entry in `MODULES` in `posthog/models/activity_logging/activity_log_config_registry.py`.
+This core list is temporary: it imports product internals outside their facades.
+DevEx plans to replace product registration with `posthog.products.load_product_modules("activity_log_config")`.
+That follow-up removes the registry, its AST guard, and the completeness check; the owner-match check stays.
+That registry file holds only those two things and has no owner on purpose, so registering your own tuning never waits on the activity log team.
+Do not move the merge into it: `activity_log.py` merges the modules and owns the check for a scope tuned twice.
+A config module holds no imports: `activity_log.py` merges it at `django.setup()`.
+Use only `FIELD_EXCLUSIONS`, `FIELD_NAME_OVERRIDES`, `FIELD_WITH_MASKED_CONTENTS`, and `SIGNAL_EXCLUSIONS`; omit unused settings.
+Scopes whose model has no product owner keep their tuning in the registries in `activity_log.py`.
+`posthog/test/repo_invariants/test_activity_log_config_ownership.py` checks registration, product config paths, setting names, and ownership matching the model.
 
 ## Step 8 - Describer (optional)
 

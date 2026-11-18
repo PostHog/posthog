@@ -102,6 +102,8 @@ export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_
     startup_failure?: SignalReportApi['startup_failure']
     research_context?: SignalReportApi['research_context']
     repo_slug?: SignalReportApi['repo_slug']
+    /** Who set each agent decision, and why. Detail responses only. */
+    decisions?: SignalReportApi['decisions']
     pull_requests?: readonly SignalReportPullRequestApi[]
     assignee?: SignalReportAssigneeApi | null
     implementation_in_flight?: SignalReportApi['implementation_in_flight']

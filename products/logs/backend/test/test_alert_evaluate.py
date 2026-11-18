@@ -85,7 +85,7 @@ from products.logs.backend.temporal.batch_slot import LogsBatchSlot
 
 _MODULE = "products.logs.backend.alert_source_cycle"
 CONDITION = {"threshold_count": 10, "threshold_operator": "above", "window_minutes": 5}
-_NATIVE: dict[str, Any] = {"legacy_configuration_id": None, "destinations_owner": "platform"}
+_NATIVE: dict[str, Any] = {"legacy_configuration_id": None}
 _LOGS_OWNED_FIELDS = ("state", "consecutive_failures", "next_check_at", "last_notified_at", "snooze_until")
 # Settings a check reads from the logs alert rather than from its platform copy.
 _LEGACY_ALERT_FIELDS = ("evaluation_periods", "datapoints_to_alarm", "cooldown_minutes", "schedule_restriction")
@@ -729,33 +729,28 @@ class TestLogsAlertEvaluation(APIBaseTest):
         # History and messages read the stored copy, so it has to state what the check evaluated.
         assert copy.source_config["condition"]["threshold_count"] == stored_threshold
 
-    def test_a_copy_the_platform_owns_runs_as_stored_whatever_its_logs_row_says(self) -> None:
+    @parameterized.expand([("edited_and_switched_off",), ("moved_to_another_team",), ("deleted",)])
+    def test_a_copy_the_platform_owns_runs_as_stored_whatever_its_logs_row_says(self, shell_edit: str) -> None:
         configuration = self._configuration(owner="platform")
-        # Stored as "above 10", which 500 logs breach. The logs row now says otherwise, and is off.
-        LogsAlertConfiguration.objects.filter(id=self._legacy_ids[configuration.id]).update(
-            threshold_count=1000, enabled=False
-        )
-
-        evaluation, query = self._run(configuration)
-
-        assert [g.kind for o in evaluation.outcomes for g in o.groups] == [AlertEventKind.FIRING]
-        assert query.called
-
-    def test_a_copy_the_platform_owns_stops_when_its_logs_row_is_in_an_environment(self) -> None:
-        configuration = self._configuration(owner="platform")
-        environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
-        # The environment's logs live under its own team, which the project's query would not read.
-        LogsAlertConfiguration.objects.filter(id=self._legacy_ids[configuration.id]).update(team=environment)
+        row = LogsAlertConfiguration.objects.filter(id=self._legacy_ids[configuration.id])
+        # Stored as "above 10", which 500 logs breach.
+        if shell_edit == "edited_and_switched_off":
+            row.update(threshold_count=1000, enabled=False)
+        elif shell_edit == "moved_to_another_team":
+            row.update(team=Team.objects.create(organization=self.organization, name="other"))
+        else:
+            row.delete()
 
         evaluation, query = self._run(configuration)
         self._record(evaluation)
 
-        assert query.called is False
+        assert [g.kind for o in evaluation.outcomes for g in o.groups] == [AlertEventKind.FIRING]
+        assert query.called
         with team_scope(self.team.id):
             (copy,) = list_configurations(
                 team_id=self.team.id, source_kinds=[SourceKind.LOGS.value], limit=10, offset=0
             ).configurations
-        assert copy.enabled is False
+        assert (copy.enabled, copy.source_config["condition"]["threshold_count"]) == (True, 10)
 
     def test_a_redispatched_batch_does_not_share_the_slot_its_earlier_run_still_holds(self) -> None:
         configuration = self._configuration()
@@ -982,9 +977,22 @@ class TestPlatformAlertSignals(SimpleTestCase):
 
 
 class TestPlatformAlertSignalFacts(APIBaseTest):
-    def test_a_signal_carries_the_logs_alert_as_it_is_and_skips_a_deleted_one(self) -> None:
+    def test_a_signal_carries_the_alert_as_the_platform_holds_it_and_skips_a_deleted_one(self) -> None:
         alert = LogsAlertConfiguration.objects.create(
             team=self.team, name="API errors", filters={"serviceNames": ["api"]}, threshold_count=10, window_minutes=5
+        )
+        with team_scope(self.team.id):
+            platform_testing.create_configuration(
+                team_id=self.team.id,
+                name="API errors",
+                source_kind=SourceKind.LOGS,
+                source_config={"filters": {"serviceNames": ["api"]}, "condition": CONDITION},
+                check_interval_minutes=10,
+                owner="platform",
+                legacy_configuration_id=alert.id,
+            )
+        LogsAlertConfiguration.objects.filter(id=alert.id).update(
+            name="Edited in a shell", filters={"serviceNames": ["shell"]}, threshold_count=99
         )
         with team_scope(self.team.id):
             native = platform_testing.create_configuration(

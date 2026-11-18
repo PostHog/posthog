@@ -11,6 +11,7 @@ from django.urls import reverse
 from posthog.admin.console.panels import Fact, Operation, OperationHandler, Owner, Panel, ReasonForm, Tone
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import console
+from posthog.admin.console.tools import Link
 from posthog.api.oauth.provisioning_review import decide_partner, partner_provisioning_status
 from posthog.models.oauth import OAuthApplication, revoke_application_sessions
 from posthog.models.oauth_provisioning import (
@@ -92,6 +93,8 @@ STATUS_TONES: dict[PartnerProvisioningStatus, Tone | None] = {
 def provisioning_status(app: OAuthApplication, review: CIMDProvisioningReview | None) -> tuple[str, Tone | None]:
     """Whether the app can provision right now, in a few words, for the app page and the list of apps."""
     status = partner_provisioning_status(app, review)
+    if status != PartnerProvisioningStatus.BLOCKED and app.provisioning.active and app.needs_organization_link:
+        return "Off until it links a PostHog organization", Tone.WARNING
     if status == PartnerProvisioningStatus.ON and app.provisioning.disabled:
         return "On, though marked blocked", Tone.WARNING
     return str(status.label), STATUS_TONES[status]
@@ -257,6 +260,10 @@ class OAuthApplicationOverviewPanel(Panel):
                     href=RECORD_TYPES["organization"].url(obj.organization),
                 )
             )
+        elif obj.organization_link_issuer:
+            facts.append(
+                Fact(label="Organization", value=f"Linked to an organization at {obj.organization_link_issuer}")
+            )
         if obj.is_verified:
             facts.append(Fact(label="Verified", value="Yes", tone=Tone.SUCCESS))
         if obj.is_first_party:
@@ -282,6 +289,26 @@ class OAuthApplicationOverviewPanel(Panel):
         ]
 
 
+DECISION_OPERATION_KEYS = ("accept", "block")
+
+
+def decision_operation_links(app: OAuthApplication) -> list[Link]:
+    """Links to the accept and block operations the app's page offers right now, the first one primary."""
+    panel = OAuthApplicationProvisioningPanel()
+    decisions = [operation for operation in panel.operations(app) if operation.key in DECISION_OPERATION_KEYS]
+    return [
+        Link(
+            label=operation.label,
+            href=reverse(
+                RECORD_TYPES[panel.record].operation_url_name,
+                kwargs={"pk": app.pk, "panel_key": panel.key, "operation_key": operation.key},
+            ),
+            primary=index == 0,
+        )
+        for index, operation in enumerate(decisions)
+    ]
+
+
 @console.register_panel
 class OAuthApplicationProvisioningPanel(Panel):
     record = "oauth-application"
@@ -297,6 +324,8 @@ class OAuthApplicationProvisioningPanel(Panel):
         if not obj.is_provisioning_partner and review is None:
             return [Fact(label="Provisioning", value="Not a partner")]
         facts = [_provisioning_fact(obj, review)]
+        if partner_provisioning_status(obj, review) == PartnerProvisioningStatus.WAITING_FOR_STAFF:
+            facts.append(Fact(label="Next step", value="Read the review, then accept or block the partner below."))
         if review is not None:
             status = ProvisioningReviewStatus(review.status)
             facts.append(

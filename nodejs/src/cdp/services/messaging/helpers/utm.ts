@@ -19,7 +19,7 @@ export type UtmTags = {
 type LinkTags = Record<string, string>
 
 export type WorkflowRunTag = {
-    runId: string
+    runId: string | null
     senderEmail: string
     siteUrl: string
 }
@@ -128,12 +128,7 @@ const trimUrlWhitespace = (href: string): string => {
     return href.slice(start, end)
 }
 
-/**
- * Appends each tag the link does not already carry. Returns null when the link stays as is:
- * not an absolute http(s) URL, a host the caller does not tag, an unrendered template tag, or a
- * link that already has every tag.
- */
-const addTagsToUrl = (url: string, tags: LinkTags, isTaggedHost: (url: URL) => boolean): string | null => {
+const parseTaggableUrl = (url: string, isTaggedHost: (url: URL) => boolean): URL | null => {
     if (url.includes('{{') || url.includes('{%')) {
         return null
     }
@@ -144,6 +139,19 @@ const addTagsToUrl = (url: string, tags: LinkTags, isTaggedHost: (url: URL) => b
         return null
     }
     if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:') || !isTaggedHost(parsed)) {
+        return null
+    }
+    return parsed
+}
+
+/**
+ * Appends each tag the link does not already carry. Returns null when the link stays as is:
+ * not an absolute http(s) URL, a host the caller does not tag, an unrendered template tag, or a
+ * link that already has every tag.
+ */
+const addTagsToUrl = (url: string, tags: LinkTags, isTaggedHost: (url: URL) => boolean): string | null => {
+    const parsed = parseTaggableUrl(url, isTaggedHost)
+    if (!parsed) {
         return null
     }
     const missing = Object.entries(tags).filter(([key, value]) => value && !parsed.searchParams.has(key))
@@ -257,6 +265,12 @@ export const addWorkflowRunTagToEmail = (html: string, { runId, senderEmail, sit
         parsed.host !== siteHost && registrableDomainOf(parsed.hostname) === senderDomain
     return addTagsToEmailLinks(html, {
         isOptedOut: ({ html: anchor }) => isNeverClickTracked(anchor),
-        tagUrl: (url) => addTagsToUrl(removeWorkflowRunTag(url), { [WORKFLOW_RUN_PARAM]: runId }, isOnSenderDomain),
+        tagUrl: (url) => {
+            if (runId !== null) {
+                return addTagsToUrl(removeWorkflowRunTag(url), { [WORKFLOW_RUN_PARAM]: runId }, isOnSenderDomain)
+            }
+            const stripped = removeWorkflowRunTag(url)
+            return stripped !== url && parseTaggableUrl(stripped, isOnSenderDomain) ? stripped : null
+        },
     })
 }
