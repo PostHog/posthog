@@ -216,6 +216,7 @@ jobs:
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   REPOSITORY: ${{ github.repository }}
+                  HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
                   CHECK_RUN: ${{ needs.conclude.outputs.check_run }}
                   UNPROVED: ${{ needs.conclude.outputs.unproved }}
                   IDENTIFY_RESULT: ${{ needs.identify.result }}
@@ -228,9 +229,14 @@ jobs:
                   if [[ "$REPOSITORY" != "PostHog/posthog" ]]; then
                       exit 0
                   fi
-                  # An empty check run means `conclude` itself broke, so nothing is posted.
+                  # An empty check run means `conclude` itself broke. stamphog waits for a completed
+                  # check, so a neutral one that proves nothing is posted, and the run still fails.
                   if [[ -z "$CHECK_RUN" ]]; then
-                      exit 1
+                      CHECK_RUN="$(jq -cn --arg head_sha "$HEAD_SHA" '{
+                          name: "Dependency proof", head_sha: $head_sha, status: "completed", conclusion: "neutral",
+                          output: {title: "Not proved", summary: "The proof job failed before it decided."}
+                      }')"
+                      UNPROVED=1
                   fi
                   gh api --method POST "repos/$REPOSITORY/check-runs" --input - <<< "$CHECK_RUN" > /dev/null
 
