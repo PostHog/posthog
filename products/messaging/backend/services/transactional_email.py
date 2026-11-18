@@ -725,7 +725,6 @@ def _field_the_sandbox_sender_cannot_send(email: CodeEmail) -> str | None:
 
 
 def _fields_the_sandbox_ignores(email: CodeEmail) -> tuple[str, ...]:
-    # The sandbox sender only sends from its own address, so a caller's sender and reply address can't apply.
     return tuple(field for field, value in (("from", email.sender), ("reply_to", email.reply_to)) if value)
 
 
