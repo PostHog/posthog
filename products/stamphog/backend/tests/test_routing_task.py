@@ -206,12 +206,14 @@ def _finish_review(
     )
 
 
-def _save_finished_run(team_id: int, verdict: ReviewVerdict, posted_review_id: int | None = None) -> None:
+def _save_finished_run(
+    team_id: int, verdict: ReviewVerdict, posted_review_id: int | None = None, head_sha: str = HEAD_SHA
+) -> None:
     with team_scope(team_id):
         ReviewRun.objects.for_team(team_id).create(
             team_id=team_id,
             pull_request=PullRequest.objects.for_team(team_id).get(pr_number=PR_NUMBER),
-            head_sha=HEAD_SHA,
+            head_sha=head_sha,
             status=ReviewRunStatus.COMPLETED,
             verdict=verdict,
             posted_review_id=posted_review_id,
@@ -1090,12 +1092,12 @@ def _proof_policy(paths: str, *, pin: str = f"publisher_files: ['{_PROOF_PUBLISH
 
 
 def _proof_check(
-    files: list[str] | None = None, *, conclusion: str = "success", status: str = "completed"
+    files: list[str] | None = None, *, conclusion: str = "success", status: str = "completed", head_sha: str = HEAD_SHA
 ) -> dict[str, Any]:
     marker = {
         "files": _ALL_FILES if files is None else files,
         "pr": PR_NUMBER,
-        "head_sha": HEAD_SHA,
+        "head_sha": head_sha,
         "merge_base": "mergebase000",
         "blobs": {_PROOF_PUBLISHER: "publisher-blob-1", _PROOF_ISSUER: "issuer-blob-1"},
     }
@@ -1114,6 +1116,7 @@ _CLIENT_LIBRARIES_REQUESTED = ("requested_team", "client-libraries")
 _TEAM_ALPHA_REQUESTED = ("requested_team", "team-alpha")
 _STAMPHOG_APPROVED = ("approved",)
 _STAMPHOG_REFUSED = ("refused",)
+_PROVEN_PUSH = ("proven_push",)
 _POLL = ("poll",)
 _NEXT_POLL = ("next_poll",)
 _ATTESTED = ("done", "attested", "attestation", HEAD_SHA)
@@ -1188,22 +1191,58 @@ _ATTESTED_ROUTING_CASES = [
         [1],
     ),
     (
-        "attested_then_the_approval_retracted",
+        "attested_then_pushed_and_approved_again",
         _PROVEN,
         _proof_check(),
-        {"review_mode": ReviewMode.LABEL},
-        [_STAMPHOG_APPROVED, _POLL, ("push",), ("retracted",)],
-        ("done", "full", "approval_retracted", _HEAD_2),
-        [1],
+        {"with_addition": False},
+        [_STAMPHOG_APPROVED, _POLL, _PROVEN_PUSH, ("retracted",), ("approved", _HEAD_2), _NEXT_POLL],
+        ("done", "attested", "attestation", _HEAD_2),
+        [1, 1],
     ),
     (
-        "attested_with_a_pending_request_then_the_approval_retracted",
+        "attested_then_pushed_and_approved_before_the_check",
+        _PROVEN,
+        _proof_check(),
+        {"with_addition": False},
+        [_STAMPHOG_APPROVED, _POLL, ("push",), ("retracted",), ("approved", _HEAD_2), ("proof", _HEAD_2), _NEXT_POLL],
+        ("done", "attested", "attestation", _HEAD_2),
+        [1, 1],
+    ),
+    (
+        "attested_then_pushed_and_refused",
+        _PROVEN,
+        _proof_check(),
+        {},
+        [_STAMPHOG_APPROVED, _POLL, _PROVEN_PUSH, ("retracted",), ("refused", _HEAD_2), _NEXT_POLL],
+        ("done", "full", "attestation", _HEAD_2),
+        [1, 1],
+    ),
+    (
+        "attested_then_pushed_without_a_review_to_come",
         _PROVEN,
         _proof_check(),
         {"review_mode": ReviewMode.LABEL},
-        [_CLIENT_LIBRARIES_REQUESTED, _POLL, ("push",), ("retracted",)],
-        _ATTESTED,
-        [1],
+        [_STAMPHOG_APPROVED, _POLL, _PROVEN_PUSH, ("retracted",), _NEXT_POLL],
+        ("done", "full", "attestation", _HEAD_2),
+        [1, 1],
+    ),
+    (
+        "attested_then_pushed_without_a_proof",
+        _PROVEN,
+        _proof_check(),
+        {},
+        [_STAMPHOG_APPROVED, _POLL, ("push",), ("retracted",), ("approved", _HEAD_2), ("net",)],
+        ("done", "full", "safety_net", _HEAD_2),
+        [1, 1],
+    ),
+    (
+        "attested_with_a_pending_request_then_pushed",
+        _PROVEN,
+        _proof_check(),
+        {"review_mode": ReviewMode.LABEL, "with_addition": False},
+        [_CLIENT_LIBRARIES_REQUESTED, _POLL, _PROVEN_PUSH, ("retracted",), _NEXT_POLL],
+        ("done", "attested", "attestation", _HEAD_2),
+        [1, 1],
     ),
     (
         "attested_then_retargeted_without_a_review_to_come",
@@ -1311,10 +1350,10 @@ _ATTESTED_ROUTING_CASES = [
         "head_moved",
         _PROVEN,
         _proof_check(),
-        {},
-        [_CLIENT_LIBRARIES_REQUESTED, ("push",), _POLL],
-        ("done", "full", "attestation", _HEAD_2),
-        [1],
+        {"with_addition": False},
+        [_CLIENT_LIBRARIES_REQUESTED, _PROVEN_PUSH, _POLL, _NEXT_POLL],
+        ("done", "attested", "attestation", _HEAD_2),
+        [1, 1],
     ),
     (
         "check_still_running",
@@ -1389,10 +1428,12 @@ def test_always_requests_nobody_only_for_a_verified_proof_that_keeps_a_reviewer(
                 pr_obj.routing = {**(pr_obj.routing or {}), "requested_owners": [step[1]]}
                 pr_obj.save(update_fields=["routing"])
         elif step[0] == "approved":
-            _save_finished_run(team.id, ReviewVerdict.APPROVED, posted_review_id=902)
-            _post_approval(routing_chain, 902)
+            head_sha = step[1] if len(step) > 1 else HEAD_SHA
+            review_id = 902 if head_sha == HEAD_SHA else 903
+            _save_finished_run(team.id, ReviewVerdict.APPROVED, posted_review_id=review_id, head_sha=head_sha)
+            _post_approval(routing_chain, review_id)
         elif step[0] == "refused":
-            _save_finished_run(team.id, ReviewVerdict.REFUSED)
+            _save_finished_run(team.id, ReviewVerdict.REFUSED, head_sha=step[1] if len(step) > 1 else HEAD_SHA)
         elif step[0] == "approval_dismissed":
             for review in recorder.pr_reviews[(REPO, PR_NUMBER)]:
                 review["state"] = "DISMISSED"
@@ -1404,7 +1445,17 @@ def test_always_requests_nobody_only_for_a_verified_proof_that_keeps_a_reviewer(
         elif step[0] == "pinned_head_adds":
             recorder.compare_files.append(_file(step[1]))
         elif step[0] == "push":
+            # GitHub dismisses stamphog's approval of the earlier head.
+            for review in recorder.pr_reviews.get((REPO, PR_NUMBER), []):
+                review["state"] = "DISMISSED"
             _push(routing_chain, _HEAD_2)
+        elif step[0] == "proven_push":
+            for review in recorder.pr_reviews.get((REPO, PR_NUMBER), []):
+                review["state"] = "DISMISSED"
+            _push(routing_chain, _HEAD_2)
+            recorder.check_runs[(REPO, _HEAD_2)] = [_proof_check(head_sha=_HEAD_2)]
+        elif step[0] == "proof":
+            recorder.check_runs[(REPO, step[1])] = [_proof_check(head_sha=step[1])]
         elif step[0] == "verdict":
             _finish_review(repo_config, ReviewRunStatus.COMPLETED, ReviewVerdict(step[1]), head_sha=_HEAD_2)
         elif step[0] == "retracted":

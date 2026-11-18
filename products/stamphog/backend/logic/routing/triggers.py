@@ -615,6 +615,24 @@ def _attestation_step(pr: dict[str, Any], head_sha: str, scope: str = SCOPE_FULL
     return _Step(pr=pr, head_sha=head_sha, mode=RoutingMode.ALWAYS, trigger=TRIGGER_ATTESTATION, scope=scope)
 
 
+def _attestation_wait_on_live_head(
+    client: StamphogGitHubClient, state: _State, pr: dict[str, Any], *, trigger: str
+) -> _Step:
+    """Make a head the author pushed wait for its own attestation checks, or route it in full when none cover it.
+
+    A proof covers the files of the head it names, so the proof of an earlier head says nothing about this one.
+    """
+    checks = attestation_checks_to_wait_for(client, state.repo_config.repository, pr)
+    return _Step(
+        pr=pr,
+        head_sha=_head_sha(pr),
+        mode=RoutingMode.ALWAYS,
+        trigger=trigger,
+        wait=bool(checks),
+        attestation_checks=checks,
+    )
+
+
 def _attestation_poll_step(
     client: StamphogGitHubClient, state: _State, *, head_sha: str, poll: int, review_path: ReviewPath
 ) -> _Step | None:
@@ -627,17 +645,18 @@ def _attestation_poll_step(
         return None
     live_head_sha = _head_sha(pr)
     if live_head_sha != head_sha:
-        # A proof covers the files of the head it names, and a push starts no new wait.
-        return _attestation_step(pr, live_head_sha)
+        return _attestation_wait_on_live_head(client, state, pr, trigger=TRIGGER_ATTESTATION)
     repository = state.repo_config.repository
     if not all_reported(client, repository, head_sha, checks):
         review_path.schedule_attestation_poll(state.repo_config, state.pr_number, head_sha, poll + 1)
         return None
     if not attestation_proven(client, repository, pr):
         return _attestation_step(pr, head_sha)
+    # Read before the reviewer check: an approval that lands between the two reads then counts in one of them.
+    approval_can_still_come = _approval_can_still_come(pr, state, review_path=review_path)
     if _keeps_a_reviewer(pr, state, review_path=review_path):
         return _attestation_step(pr, head_sha, scope=SCOPE_ATTESTED)
-    if _approval_can_still_come(pr, state, review_path=review_path):
+    if approval_can_still_come:
         # Stamphog reviews an admitted bot's pull request again only after the proof reported, so its approval
         # usually lands a few minutes after the check.
         review_path.schedule_attestation_poll(state.repo_config, state.pr_number, head_sha, poll + 1)
@@ -701,18 +720,22 @@ def _retracted_approval_step(client: StamphogGitHubClient, state: _State, *, rev
 
 
 def _attested_retraction_step(client: StamphogGitHubClient, state: _State, *, review_path: ReviewPath) -> _Step | None:
-    """Route the live head of an attested pull request in full when a retraction leaves it without a reviewer."""
+    """Decide an attested pull request again when a retraction can leave it without a reviewer.
+
+    A push dismisses the approval, and the pushed head waits for its own proof. On the same head, the head routes in
+    full when it is left without a reviewer.
+    """
     record = state.record
     if record is None or not _is_attested_done(record):
         return None
     pr = _live_head(client, state.repo_config, state.pr_number)
     if pr is None:
         return None
-    if _keeps_a_reviewer(pr, state, review_path=review_path):
-        return None
     live_head_sha = _head_sha(pr)
     if live_head_sha != record.get("head_sha"):
-        return _full_step_on_live_head(pr, state, trigger=TRIGGER_APPROVAL_RETRACTED, review_path=review_path)
+        return _attestation_wait_on_live_head(client, state, pr, trigger=TRIGGER_APPROVAL_RETRACTED)
+    if _keeps_a_reviewer(pr, state, review_path=review_path):
+        return None
     # A base retarget retracts the approval of the attested head, and its run still counts as a review of the head.
     # Only a visible review judges the retargeted diff, and its verdict routes the head.
     if review_path.will_review(state.repo_config, pr, count_silent=False):
@@ -727,8 +750,8 @@ def route_after_approval_retracted(
 
     A push to an unlabeled pull request, or a base retarget, retracts the approval and starts no review, so no
     verdict comes to upgrade the pinned-only routing. A review of the live head, or a visible one that comes for
-    it such as for the trigger label, routes it by its verdict instead. An attested ALWAYS pull request routes the
-    same way when the retraction leaves it without a reviewer. ``task_id`` is the Celery task id, which a retry of
+    it such as for the trigger label, routes it by its verdict instead. An attested ALWAYS pull request waits for the
+    proof of a pushed head, and routes the same way when the retraction leaves the same head without a reviewer. ``task_id`` is the Celery task id, which a retry of
     the same task keeps, so a retry knows its own claim.
     """
     repo_config = _repo_config(team_id, repo_config_id)
