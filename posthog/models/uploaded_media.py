@@ -38,6 +38,8 @@ MEDIA_PURPOSES = [MEDIA_PURPOSE_EMAIL, MEDIA_PURPOSE_CANVAS, MEDIA_PURPOSE_EXPER
 # can show a customer's data, and the library list does not check access to the ticket.
 MEDIA_PURPOSE_CONVERSATIONS = "conversations"
 UPLOAD_ONLY_MEDIA_PURPOSES = [MEDIA_PURPOSE_CONVERSATIONS]
+# Gates the `conversations` purpose and the check that ticket reply images are this team's uploads.
+CONVERSATIONS_REPLY_IMAGES_FLAG = "conversations-mcp-reply-images"
 UPLOAD_MEDIA_PURPOSES = [*MEDIA_PURPOSES, *UPLOAD_ONLY_MEDIA_PURPOSES]
 
 # These uploads must never be served through the unauthenticated /uploaded_media route.

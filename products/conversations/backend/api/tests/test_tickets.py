@@ -3280,11 +3280,18 @@ class TestTicketReplyAPI(APIBaseTest):
             ("trailing_slash", "personal_api_key", "own_trailing_slash", status.HTTP_400_BAD_REQUEST),
             ("malformed_url", "personal_api_key", "https://[invalid/image.png", status.HTTP_400_BAD_REQUEST),
             ("in_app_external_url", "session", "https://example.com/pasted.png", status.HTTP_201_CREATED),
+            # Before the rollout, API callers keep sending any image, as they could before.
+            ("flag_off_external_url", "personal_api_key", "https://example.com/pasted.png", status.HTTP_201_CREATED),
         ]
     )
     def test_reply_rich_content_image_must_be_own_team_upload(
         self, mock_on_commit, _name, auth, source, expected_status
     ):
+        flag_patch = patch(
+            "posthog.api.uploaded_media.posthoganalytics.feature_enabled", return_value=not _name.startswith("flag_off")
+        )
+        flag_patch.start()
+        self.addCleanup(flag_patch.stop)
         if auth == "personal_api_key":
             raw_key = generate_random_token_personal()
             PersonalAPIKey.objects.create(

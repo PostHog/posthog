@@ -49,6 +49,7 @@ from posthog.api.tagged_item import (
     normalize_tag_names,
     set_tags_on_object,
 )
+from posthog.api.uploaded_media import conversations_reply_images_enabled
 from posthog.auth import SessionAuthentication
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
@@ -1794,6 +1795,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
     def _validate_rich_content_images(self, rich_content: object) -> None:
         # The in-app editor can paste external images, as it always could. The check covers API and MCP callers.
         if isinstance(self.request.successful_authenticator, SessionAuthentication):
+            return
+        # API callers such as hogdesk may still send external images, so the check waits for the rollout.
+        if not conversations_reply_images_enabled(self.request.user, self.team):
             return
         disallowed = find_disallowed_image_sources(self.team_id, rich_content)
         if disallowed:
