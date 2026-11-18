@@ -1,7 +1,6 @@
-import { useActions, useValues } from 'kea'
-
 import { LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { MetricConversionWindow } from 'scenes/experiments/ExperimentForm/MetricsPanel/MetricConversionWindow'
@@ -17,7 +16,8 @@ import type { ExperimentMetric } from '~/queries/schema/schema-general'
 
 import { MetricContext } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
 
-import { sharedMetricDetailsModalLogic } from './sharedMetricDetailsModalLogic'
+import { QuillSharedMetricDetailsModal } from './QuillSharedMetricDetailsModal'
+import { useSharedMetricDetailsModal } from './useSharedMetricDetailsModal'
 
 function MetricSummary({ metric }: { metric: ExperimentMetric }): JSX.Element | null {
     if (!metric.sharedMetricId) {
@@ -67,40 +67,37 @@ export function SharedMetricDetailsModal({
 }: {
     onDelete: (sharedMetricId: number, context: MetricContext) => void
 }): JSX.Element | null {
-    const { isModalOpen, sharedMetric, context } = useValues(sharedMetricDetailsModalLogic)
-    const { closeSharedMetricDetailModal } = useActions(sharedMetricDetailsModalLogic)
+    const { sharedMetric, isOpen, close, remove } = useSharedMetricDetailsModal(onDelete)
+    const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
-    if (!sharedMetric || !sharedMetric.sharedMetricId) {
+    if (!sharedMetric) {
         return null
+    }
+
+    if (todayRailNav && resultsRedesign) {
+        return (
+            <QuillSharedMetricDetailsModal sharedMetric={sharedMetric} isOpen={isOpen} close={close} remove={remove} />
+        )
     }
 
     return (
         <LemonModal
-            isOpen={isModalOpen}
-            onClose={closeSharedMetricDetailModal}
+            isOpen={isOpen}
+            onClose={close}
             maxWidth={800}
             title="Shared metric"
             footer={
                 <div className="flex justify-between w-full">
                     <div>
                         {sharedMetric && (
-                            <LemonButton
-                                status="danger"
-                                onClick={() => {
-                                    if (!sharedMetric.sharedMetricId) {
-                                        return
-                                    }
-                                    onDelete(sharedMetric.sharedMetricId, context)
-                                    closeSharedMetricDetailModal()
-                                }}
-                                type="secondary"
-                            >
+                            <LemonButton status="danger" onClick={remove} type="secondary">
                                 Remove from experiment
                             </LemonButton>
                         )}
                     </div>
                     <div className="flex gap-2">
-                        <LemonButton onClick={closeSharedMetricDetailModal} type="secondary">
+                        <LemonButton onClick={close} type="secondary">
                             Close
                         </LemonButton>
                     </div>
