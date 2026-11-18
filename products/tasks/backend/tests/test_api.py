@@ -10026,6 +10026,14 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "Here's your answer.",
             ),
             (
+                "keeps_long_answer_when_short_closing_line_follows_tool_call",
+                {
+                    "text": "unused",
+                    "text_parts": ["Let me check.", "A" * 300, "Reply yes for the draft PR."],
+                },
+                "A" * 300 + "\n\nReply yes for the draft PR.",
+            ),
+            (
                 "falls_back_to_text_when_parts_only_blank",
                 {"text": "actual message", "text_parts": ["", "   "]},
                 "actual message",

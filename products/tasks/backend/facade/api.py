@@ -6661,15 +6661,26 @@ def capture_relay_command_telemetry(
 # --- Task run relay (Slack) ---
 
 
+RELAY_ANSWER_MIN_CHARS = 300
+
+
 def _pick_relay_text(*, text: str, text_parts: list[str] | None) -> str:
     """Pick the text to post. If ``text_parts`` has any non-empty entries,
-    the last one wins (that's the post-last-tool-use answer). Otherwise fall
-    back to the joined ``text`` field."""
-    if text_parts:
-        for part in reversed(text_parts):
-            if isinstance(part, str) and part.strip():
-                return part
-    return text
+    the last one is the post-last-tool-use answer. Otherwise fall back to the
+    joined ``text`` field.
+
+    Agents often write the full answer, call a tool (for example to update the
+    task summary), and then write one short closing line. If the last part is
+    shorter than ``RELAY_ANSWER_MIN_CHARS``, the post starts at the latest
+    earlier part that has at least that length, so the closing line does not
+    replace the answer. Short interim narration stays out of the post."""
+    parts = [part for part in text_parts or [] if isinstance(part, str) and part.strip()]
+    if not parts:
+        return text
+    for index in range(len(parts) - 1, -1, -1):
+        if len(parts[index].strip()) >= RELAY_ANSWER_MIN_CHARS:
+            return "\n\n".join(parts[index:])
+    return parts[-1]
 
 
 def relay_task_run_message(
@@ -6689,8 +6700,8 @@ def relay_task_run_message(
     (run not found / terminal / no Slack mapping / empty text / streamed inline under the
     agent-design flag), or ``"failed"``.
 
-    When ``text_parts`` is provided the last non-empty entry is used — it's the
-    post-last-tool-use answer, and posting only that keeps the interim narration
+    When ``text_parts`` is provided, ``_pick_relay_text`` posts the
+    post-last-tool-use answer, which keeps short interim narration
     ("Let me check…") out of the Slack thread. Older callers still send just
     ``text`` and get the previous behavior unchanged.
 
