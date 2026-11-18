@@ -985,6 +985,11 @@ class _MetricCatalogListParamsSerializer(_MetricValuesParamsSerializer):
         default=False,
         help_text="Add `first_seen`: the earliest hour each name arrived in, within retention.",
     )
+    series_stats = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Add `series_count` and `tag_key_count` for each name, over the last 24 hours.",
+    )
     fold_histograms = serializers.BooleanField(
         required=False,
         default=False,
@@ -1034,6 +1039,20 @@ class _MetricNameSerializer(serializers.Serializer):
         help_text=(
             "Start of the earliest hour this metric arrived in, within retention, ISO 8601. "
             "Only present when `first_seen` was requested."
+        ),
+    )
+    series_count = serializers.IntegerField(
+        required=False,
+        help_text=(
+            "Approximate number of distinct series (label sets) in the last 24 hours. "
+            "Only present when `series_stats` was requested."
+        ),
+    )
+    tag_key_count = serializers.IntegerField(
+        required=False,
+        help_text=(
+            "Number of distinct datapoint attribute keys in the last 24 hours. "
+            "Only present when `series_stats` was requested."
         ),
     )
     classic_histogram = _MetricClassicHistogramSerializer(
@@ -1525,6 +1544,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 match=params.validated_data.get("match", "substring"),
                 include_sparklines=params.validated_data.get("sparklines", True),
                 include_first_seen=params.validated_data.get("first_seen", False),
+                include_series_stats=params.validated_data.get("series_stats", False),
                 fold_histograms=params.validated_data.get("fold_histograms", False),
             )
         except ValueError as exc:
