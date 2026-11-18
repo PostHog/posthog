@@ -1,19 +1,15 @@
 import { useActions, useValues } from 'kea'
 
-import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { Link } from 'lib/lemon-ui/Link'
 import { isUUIDLike } from 'lib/utils/guards'
-import { ActivitySceneTabs } from 'scenes/activity/ActivitySceneTabs'
+import { PeopleSceneHeader } from 'scenes/activity/PeopleSceneHeader'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneMenuBar, SceneMenuBarMenu } from '~/layout/scenes/components/SceneMenuBar'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { ActorsQuery, ProductKey } from '~/queries/schema/schema-general'
 import { ActivityTab, CustomerProfileScope, OnboardingStepKey } from '~/types'
@@ -24,6 +20,7 @@ import { customerProfileConfigLogic } from 'products/customer_analytics/frontend
 
 import { personsSceneLogic } from '../logics/personsSceneLogic'
 import { SAMPLE_PERSONS_SOURCE } from '../samplePersonRows'
+import { PersonsSceneMenuBar } from './PersonsSceneMenuBar'
 
 export const scene: SceneExport = {
     component: PersonsScene,
@@ -37,8 +34,6 @@ export function PersonsScene(): JSX.Element {
     const { currentTeam, baseCurrency } = useValues(teamLogic)
     const { loadConfigs } = useActions(customerProfileConfigLogic({ scope: CustomerProfileScope.PERSON }))
     const queryUniqueKey = 'persons-query'
-    const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     // A UUID-shaped search that returns nothing is often a session ID typed into the wrong field.
     // Session IDs aren't part of the persons query, so point the user to where they are searchable.
@@ -52,21 +47,9 @@ export function PersonsScene(): JSX.Element {
 
     return (
         <SceneContent>
-            <ActivitySceneTabs activeKey="persons" />
-
-            {sceneMenuBarEnabled &&
-                (todayRailNav ? (
-                    // This page has no project tree entry, so it has no File menu. The bar adds Help under the Today layout.
-                    <SceneMenuBar />
-                ) : (
-                    <SceneMenuBar>
-                        <SceneMenuBarMenu label="File" dataAttr="persons-menubar-file">
-                            <SceneMenuBarFileItems dataAttrKey="persons" />
-                        </SceneMenuBarMenu>
-                    </SceneMenuBar>
-                ))}
-
-            <SceneTitleSection
+            <PeopleSceneHeader
+                activeKey="persons"
+                menuBar={<PersonsSceneMenuBar />}
                 name={sceneConfigurations[Scene.Persons].name}
                 description={sceneConfigurations[Scene.Persons].description}
                 resourceType={{

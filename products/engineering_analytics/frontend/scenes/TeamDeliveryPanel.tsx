@@ -6,7 +6,6 @@ import { DeliveryScope } from '../lib/deliveryScope'
 import { DeliverySections } from './DeliverySections'
 import { deliverySummaryLogic } from './deliverySummaryLogic'
 
-/** The team page's window panel with the team's delivery figures on top, so a delivery reload spins the rim too. */
 export function TeamDeliveryPanel({
     scope,
     sourceId,

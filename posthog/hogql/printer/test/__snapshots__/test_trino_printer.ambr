@@ -249,6 +249,7 @@
       'minStateOrDefaultIf',
       'minStateOrNull',
       'minStateOrNullIf',
+      'quantilesExact',
       'quantilesMerge',
       'quantilesMergeIf',
       'quantilesState',

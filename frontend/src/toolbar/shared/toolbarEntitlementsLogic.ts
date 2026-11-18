@@ -42,10 +42,12 @@ export interface toolbarEntitlementsLogicActions {
     setOAuthTokens: (
         accessToken: string,
         refreshToken: string | null,
-        clientId: string
+        clientId: string,
+        project: import('../../lib/toolbar/toolbarProject').ToolbarProject
     ) => {
         accessToken: string
         clientId: string
+        project: import('../../lib/toolbar/toolbarProject').ToolbarProject
         refreshToken: string | null
     } // toolbarConfigLogic
     loadEntitlements: () => any

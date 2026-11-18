@@ -12,7 +12,12 @@ from products.data_modeling.backend.facade.api import allowed_saved_query_ids, b
 from products.warehouse_sources.backend.facade.api import allowed_table_ids
 
 from ..facade.contracts import SubjectKinds
-from ..facade.enums import WarehouseSuggestionKind, WarehouseSuggestionStatus, WarehouseSuggestionSubjectKind
+from ..facade.enums import (
+    WarehouseSuggestionKind,
+    WarehouseSuggestionStatus,
+    WarehouseSuggestionSubjectKind,
+    WarehouseSuggestionSurface,
+)
 from ..models import WarehouseSuggestion
 from .flags import is_warehouse_suggestions_enabled
 from .rules import RULES
@@ -40,6 +45,34 @@ ALLOWED_SUBJECT_IDS: Mapping[WarehouseSuggestionSubjectKind, AllowedSubjectIds] 
 }
 CATALOG_KINDS = frozenset({WarehouseSuggestionKind.CERTIFY, WarehouseSuggestionKind.DEPRECATE})
 EDITOR_LEVEL: "AccessControlLevel" = "editor"
+SURFACE_FILTERS: Mapping[WarehouseSuggestionSurface, Q] = {
+    WarehouseSuggestionSurface.MODELS: Q(
+        kind__in=[WarehouseSuggestionKind.MATERIALIZE, WarehouseSuggestionKind.UNMATERIALIZE]
+    )
+    | Q(kind=WarehouseSuggestionKind.DEPRECATE, subject_kind=WarehouseSuggestionSubjectKind.SAVED_QUERY),
+    WarehouseSuggestionSurface.CATALOG: Q(kind__in=CATALOG_KINDS),
+}
+
+
+def surface_q(surface: WarehouseSuggestionSurface | None) -> Q:
+    return Q() if surface is None else SURFACE_FILTERS[surface]
+
+
+def actionable_waiting(
+    team_id: int,
+    user_access_control: "UserAccessControl",
+    surface: WarehouseSuggestionSurface | None,
+    subject_kinds: SubjectKinds,
+) -> Q:
+    """Waiting suggestions on `surface`, or of every kind without one, the user could accept or dismiss once shown."""
+    kinds = subject_kinds.readable & subject_kinds.actionable
+    scoped = Q(subject_kind__in=kinds) & surface_q(surface)
+    waiting = (
+        WarehouseSuggestion.objects.for_team(team_id)
+        .filter(status=WarehouseSuggestionStatus.PROPOSED, surfaced_at__isnull=True)
+        .filter(scoped)
+    )
+    return scoped & subject_access(team_id, user_access_control, waiting, actionable_kinds=kinds).editable_q()
 
 
 def can_take(team: "Team", user: "User", suggestion: WarehouseSuggestion) -> bool:
@@ -63,15 +96,41 @@ class SubjectAccess:
     editable: Mapping[WarehouseSuggestionSubjectKind, frozenset[UUID]]
 
     def readable_q(self) -> Q:
-        readable = Q(pk__in=[])
-        for subject_kind, subject_ids in self.readable.items():
-            readable |= Q(subject_kind=subject_kind, subject_id__in=subject_ids)
-        return readable
+        return _subjects_q(self.readable)
+
+    def editable_q(self) -> Q:
+        return _subjects_q(self.editable)
 
     def can_act_on(self, suggestion: WarehouseSuggestion) -> bool:
         return suggestion.subject_id in self.editable.get(
             WarehouseSuggestionSubjectKind(suggestion.subject_kind), frozenset()
         )
+
+
+def _subjects_q(subject_ids_by_kind: Mapping[WarehouseSuggestionSubjectKind, frozenset[UUID]]) -> Q:
+    subjects = Q(pk__in=[])
+    for subject_kind, subject_ids in subject_ids_by_kind.items():
+        subjects |= Q(subject_kind=subject_kind, subject_id__in=subject_ids)
+    return subjects
+
+
+def shown_suggestions(
+    team_id: int,
+    *,
+    subject_kinds: SubjectKinds,
+    status: WarehouseSuggestionStatus | None = None,
+    subject_ids: Collection[UUID] | None = None,
+) -> QuerySet[WarehouseSuggestion]:
+    suggestions = (
+        WarehouseSuggestion.objects.for_team(team_id)
+        .filter(subject_kind__in=subject_kinds.readable)
+        .exclude(status=WarehouseSuggestionStatus.PROPOSED, surfaced_at__isnull=True)
+    )
+    if status is not None:
+        suggestions = suggestions.filter(status=status)
+    if subject_ids is not None:
+        suggestions = suggestions.filter(subject_id__in=subject_ids)
+    return suggestions
 
 
 def visible_suggestions(
@@ -82,20 +141,18 @@ def visible_suggestions(
     kind: WarehouseSuggestionKind | None = None,
     status: WarehouseSuggestionStatus | None = None,
     subject_id: UUID | None = None,
+    subject_ids: Collection[UUID] | None = None,
     assignee_id: int | None = None,
+    surface: WarehouseSuggestionSurface | None = None,
     subject_kinds: SubjectKinds,
 ) -> tuple[QuerySet[WarehouseSuggestion], SubjectAccess]:
-    suggestions = (
-        WarehouseSuggestion.objects.for_team(team_id)
-        .filter(subject_kind__in=subject_kinds.readable)
-        .exclude(status=WarehouseSuggestionStatus.PROPOSED, surfaced_at__isnull=True)
-    )
+    suggestions = shown_suggestions(team_id, subject_kinds=subject_kinds, status=status, subject_ids=subject_ids)
+    if surface is not None:
+        suggestions = suggestions.filter(surface_q(surface))
     if suggestion_id is not None:
         suggestions = suggestions.filter(id=suggestion_id)
     if kind is not None:
         suggestions = suggestions.filter(kind=kind)
-    if status is not None:
-        suggestions = suggestions.filter(status=status)
     if subject_id is not None:
         suggestions = suggestions.filter(subject_id=subject_id)
     if assignee_id is not None:

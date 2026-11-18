@@ -13,6 +13,7 @@ from products.warehouse_sources.sources.sdk import (
     ERROR_TOKEN_REFRESH_FAILED,
     IntegrationAccount,
     IntegrationAccountListingError,
+    IntegrationRecord,
     OauthIntegration,
 )
 from products.warehouse_sources.sources.sdk.testing import Integration, ScriptedResponse, SourceDriver
@@ -198,9 +199,10 @@ class TestRedditAdsSource:
             sensitive_config={"access_token": "stale-token", "refresh_token": "refresh"},
         )
 
-        def _succeed(oauth_integration: OauthIntegration) -> None:
+        def _succeed(oauth_integration: OauthIntegration) -> IntegrationRecord:
             oauth_integration.integration.errors = ""
             oauth_integration.integration.sensitive_config["access_token"] = "refreshed-token"
+            return oauth_integration.integration
 
         with (
             mock.patch.object(RedditAdsSource, "get_oauth_integration", return_value=integration),

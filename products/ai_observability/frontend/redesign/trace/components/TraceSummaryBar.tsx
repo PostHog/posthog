@@ -2,9 +2,9 @@ import { IconClock } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { urls } from 'scenes/urls'
 
-import type { TraceNodeStatsApi } from '../../../generated/api.schemas'
-import { LabeledLink } from '../types'
+import type { TraceApi, TraceClusterApi } from '../../../generated/api.schemas'
 import { EvalsChip, EvalsChipProps } from './EvalsChip'
 import { FeedbackChip, FeedbackChipProps } from './FeedbackChip'
 import { GitBranchChip, GitBranchChipProps } from './GitBranchChip'
@@ -12,15 +12,12 @@ import { LabeledChipValue } from './LabeledChipValue'
 import { NodeStatsLine } from './NodeStatsLine'
 import { PersonChip } from './PersonChip'
 import { ReviewChip, ReviewChipProps } from './ReviewChip'
-import { TraceClustersChip, TraceClustersChipProps } from './TraceClustersChip'
+import { TraceClustersChip } from './TraceClustersChip'
 import { TraceIdChip } from './TraceIdChip'
 
 export interface TraceSummaryBarProps {
-    traceId: string
-    timestamp: string
-    person: LabeledLink | null
-    totals: TraceNodeStatsApi
-    clusters?: TraceClustersChipProps | null
+    trace: Pick<TraceApi, 'id' | 'createdAt' | 'person' | 'totals'>
+    clusters?: TraceClusterApi[] | null
     evals?: EvalsChipProps | null
     feedback?: FeedbackChipProps | null
     git?: GitBranchChipProps | null
@@ -28,10 +25,7 @@ export interface TraceSummaryBarProps {
 }
 
 export function TraceSummaryBar({
-    traceId,
-    timestamp,
-    person,
-    totals,
+    trace,
     clusters = null,
     evals = null,
     feedback = null,
@@ -43,11 +37,11 @@ export function TraceSummaryBar({
             {/* The chips cap at a full line and the empty spacer stays on their line, so stats that fit beside the chips
                 are pushed right, and stats that wrap start their own line on the left. */}
             <div className="flex max-w-full min-w-0 flex-wrap items-center gap-1.5 pr-3">
-                <TraceIdChip traceId={traceId} />
+                <TraceIdChip traceId={trace.id} />
                 <LemonTag weight="normal">
                     <LabeledChipValue label="Time" icon={<IconClock />}>
                         <TZLabel
-                            time={timestamp}
+                            time={trace.createdAt}
                             timestampStyle="absolute"
                             formatDate="MMM D, YYYY"
                             formatTime="HH:mm"
@@ -56,15 +50,22 @@ export function TraceSummaryBar({
                         />
                     </LabeledChipValue>
                 </LemonTag>
-                {person ? <PersonChip person={person} /> : null}
-                {clusters ? <TraceClustersChip {...clusters} /> : null}
+                {trace.person ? (
+                    <PersonChip
+                        person={{
+                            label: trace.person.label,
+                            href: urls.personByDistinctId(trace.person.distinctId),
+                        }}
+                    />
+                ) : null}
+                {clusters ? <TraceClustersChip clusters={clusters} /> : null}
                 {evals ? <EvalsChip {...evals} /> : null}
                 {feedback ? <FeedbackChip {...feedback} /> : null}
                 {review ? <ReviewChip {...review} /> : null}
                 {git ? <GitBranchChip {...git} /> : null}
             </div>
             <span aria-hidden className="grow" />
-            <NodeStatsLine stats={totals} wrap className="leading-[1.375rem]" />
+            <NodeStatsLine stats={trace.totals} wrap className="leading-[1.375rem]" />
         </div>
     )
 }

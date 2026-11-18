@@ -30,6 +30,12 @@ class AccessControlLevel(StrEnum):
     MANAGER = "manager"
 
 
+class AccountActivityMatrixEmptyReason(StrEnum):
+    NO_EXTERNAL_ID = "no_external_id"
+    NO_GROUP_TYPE = "no_group_type"
+    NO_METRICS = "no_metrics"
+
+
 class AccountsTableAccountField(StrEnum):
     NAME = "name"
     EXTERNAL_ID = "external_id"
@@ -142,7 +148,6 @@ class AgentMode(StrEnum):
     FLAGS = "flags"
     LLM_ANALYTICS = "llm_analytics"
     SANDBOX = "sandbox"
-    USER_INTERVIEW = "user_interview"
     CUSTOMER_ANALYTICS = "customer_analytics"
 
 
@@ -596,6 +601,7 @@ class AssistantTool(StrEnum):
     ESTIMATE_REPLAY_VISION_SCANNER = "estimate_replay_vision_scanner"
     LABEL_REPLAY_VISION_OBSERVATION = "label_replay_vision_observation"
     ANALYZE_REPLAY_VISION_IMPACT = "analyze_replay_vision_impact"
+    GET_REPLAY_VISION_OBSERVATION_STATS = "get_replay_vision_observation_stats"
     UPSERT_ACCOUNT = "upsert_account"
     UPSERT_ACCOUNT_NOTEBOOK = "upsert_account_notebook"
     OPEN_ACCOUNT = "open_account"
@@ -806,6 +812,17 @@ class BingAdsDefaultSources(StrEnum):
     MICROSOFT = "microsoft"
     MSADS = "msads"
     BING_VIDEO = "bing_video"
+
+
+class BookActivityInterval(StrEnum):
+    DAY = "day"
+    WEEK = "week"
+    MONTH = "month"
+
+
+class BookActivityMatrixEmptyReason(StrEnum):
+    NO_GROUP_TYPE = "no_group_type"
+    EMPTY_BOOK = "empty_book"
 
 
 class BreakdownAttributionType(StrEnum):
@@ -1246,6 +1263,7 @@ class DetectorType(StrEnum):
     OCSVM = "ocsvm"
     PCA = "pca"
     LLM = "llm"
+    FORECAST = "forecast"
 
 
 class DistanceFunc(StrEnum):
@@ -1495,6 +1513,7 @@ class ExperimentExposureHealthFindingActionKind(StrEnum):
     EDIT_EXPOSURE_CRITERIA = "edit_exposure_criteria"
     ADJUST_DISTRIBUTION = "adjust_distribution"
     USE_FIRST_SEEN_VARIANT = "use_first_seen_variant"
+    MOVE_START_DATE = "move_start_date"
 
 
 class ExperimentExposureHealthFindingCode(StrEnum):
@@ -1560,6 +1579,15 @@ class ExperimentMetricType(StrEnum):
     MEAN = "mean"
     RATIO = "ratio"
     RETENTION = "retention"
+    QUANTILE = "quantile"
+
+
+class ExperimentMetricValueFormatType(StrEnum):
+    CURRENCY = "currency"
+    DURATION = "duration"
+    DURATION_MS = "duration_ms"
+    PERCENTAGE = "percentage"
+    PERCENTAGE_SCALED = "percentage_scaled"
 
 
 class PrecomputationMode(StrEnum):
@@ -1987,6 +2015,7 @@ class IntegrationKind(StrEnum):
     STRIPE = "stripe"
     INTERCOM = "intercom"
     EMAIL = "email"
+    EMAIL_SANDBOX = "email_sandbox"
     TWILIO = "twilio"
     LINEAR = "linear"
     GITHUB = "github"
@@ -2015,6 +2044,7 @@ class IntegrationKind(StrEnum):
     AWS_REDSHIFT = "aws-redshift"
     S3_COMPATIBLE = "s3-compatible"
     SNOWFLAKE = "snowflake"
+    MOTHERDUCK = "motherduck"
     YOUTUBE_ANALYTICS = "youtube-analytics"
     TWITTER_ADS = "twitter-ads"
 
@@ -2034,6 +2064,11 @@ class Method(StrEnum):
     LARGEST = "largest"
     MEAN = "mean"
     MEDIAN = "median"
+
+
+class LLMDetectorModel(StrEnum):
+    CLAUDE_HAIKU_5_5 = "claude-haiku-5-5"
+    GPT_6_LUNA = "gpt-6-luna"
 
 
 class LifecycleToggle(StrEnum):
@@ -2081,6 +2116,25 @@ class LogsSparklineBreakdownBy(StrEnum):
 class LogsSparklineRankBy(StrEnum):
     COUNT = "count"
     BYTES = "bytes"
+
+
+class MCPDashboardSection(StrEnum):
+    KPIS = "kpis"
+    PERIOD_TOTALS = "periodTotals"
+    TOOL_ROWS = "toolRows"
+    SESSION_ROWS = "sessionRows"
+    HARNESS_ROWS = "harnessRows"
+    MODEL_ROWS = "modelRows"
+    PROTOCOL_VERSION_ROWS = "protocolVersionRows"
+    ACTIVITY_ROWS = "activityRows"
+    TOOL_DAILY_ROWS = "toolDailyRows"
+    MODEL = "model"
+    PROTOCOL_VERSION = "protocolVersion"
+    TOOL = "tool"
+    ERROR_TYPE = "errorType"
+    LAB_USERS = "labUsers"
+    NAMED_MODEL_USERS = "namedModelUsers"
+    RELIABILITY = "reliability"
 
 
 class NeighborDirection(StrEnum):
@@ -2183,6 +2237,10 @@ class MarketingAnalyticsRecommendationCpaBenchmarkSource(StrEnum):
     ACCOUNT = "account"
 
 
+class MarketingAnalyticsRecommendationIdentitySourceType(StrEnum):
+    GOOGLE_ADS = "google_ads"
+
+
 class MarketingAnalyticsRecommendationImpactDirection(StrEnum):
     SAVE = "save"
     GAIN = "gain"
@@ -2196,8 +2254,14 @@ class MarketingAnalyticsRecommendationImpactType(StrEnum):
 
 
 class MarketingAnalyticsRecommendationLevel(StrEnum):
+    ACCOUNT = "account"
     CAMPAIGN = "campaign"
     SEARCH_TERM = "search_term"
+
+
+class MarketingAnalyticsRecommendationResolutionState(StrEnum):
+    DISMISSED = "dismissed"
+    APPLIED = "applied"
 
 
 class MarketingAnalyticsRecommendationRule(StrEnum):
@@ -2211,6 +2275,7 @@ class MarketingAnalyticsRecommendationRule(StrEnum):
     KEYWORD_GAP = "keyword_gap"
     SPEND_WITHOUT_CONVERSIONS = "spend_without_conversions"
     STRIKING_DISTANCE = "striking_distance"
+    KEYWORD_TRACKING = "keyword_tracking"
 
 
 class MarketingAnalyticsRecommendationsDataGapKind(StrEnum):
@@ -2330,6 +2395,8 @@ class MetricsAggregation(StrEnum):
     RATE = "rate"
     INCREASE = "increase"
     HISTOGRAM_QUANTILE = "histogram_quantile"
+    COUNT_RATE = "count_rate"
+    COUNT_INCREASE = "count_increase"
 
 
 class MetricsAttributeScope(StrEnum):
@@ -2546,13 +2613,16 @@ class NodeKind(StrEnum):
     TRACES_QUERY = "TracesQuery"
     TRACE_QUERY = "TraceQuery"
     SESSION_QUERY = "SessionQuery"
-    TRACE_NEIGHBORS_QUERY = "TraceNeighborsQuery"
     VECTOR_SEARCH_QUERY = "VectorSearchQuery"
     DOCUMENT_SIMILARITY_QUERY = "DocumentSimilarityQuery"
     USAGE_METRICS_QUERY = "UsageMetricsQuery"
     ACCOUNTS_QUERY = "AccountsQuery"
     ACCOUNTS_TABLE_QUERY = "AccountsTableQuery"
     ACCOUNT_USERS_QUERY = "AccountUsersQuery"
+    ACCOUNT_ACTIVITY_MATRIX_QUERY = "AccountActivityMatrixQuery"
+    BOOK_ACTIVITY_MATRIX_QUERY = "BookActivityMatrixQuery"
+    BOOK_ACTIVITY_PEOPLE_QUERY = "BookActivityPeopleQuery"
+    BOOK_ACTIVITY_FIRSTS_QUERY = "BookActivityFirstsQuery"
     ENDPOINTS_USAGE_OVERVIEW_QUERY = "EndpointsUsageOverviewQuery"
     ENDPOINTS_USAGE_TABLE_QUERY = "EndpointsUsageTableQuery"
     ENDPOINTS_USAGE_TRENDS_QUERY = "EndpointsUsageTrendsQuery"
@@ -2575,6 +2645,7 @@ class NodeKind(StrEnum):
     MCP_TOOL_SAMPLE_INTENTS_QUERY = "MCPToolSampleIntentsQuery"
     MCP_TOOL_NEIGHBORS_QUERY = "MCPToolNeighborsQuery"
     MCP_MISSING_CAPABILITIES_QUERY = "MCPMissingCapabilitiesQuery"
+    MCP_DASHBOARD_QUERY = "MCPDashboardQuery"
     PROPERTY_VALUES_QUERY = "PropertyValuesQuery"
 
 
@@ -2686,6 +2757,7 @@ class ProductIntentContext(StrEnum):
     METRICS_DOCS_VIEWED = "metrics_docs_viewed"
     METRICS_VIEWER_QUERY_RUN = "metrics_viewer_query_run"
     METRICS_SQL_QUERY_RUN = "metrics_sql_query_run"
+    METRICS_DERIVED_QUERY_RUN = "metrics_derived_query_run"
     METRICS_QUERY_SAVED = "metrics_query_saved"
     METRICS_FIRST_INGESTED = "metrics_first_ingested"
     METRICS_SCRAPE_AGENT_SNIPPET_COPIED = "metrics_scrape_agent_snippet_copied"
@@ -2978,7 +3050,6 @@ class RecordingOrder(StrEnum):
     MOUSE_ACTIVITY_COUNT = "mouse_activity_count"
     ACTIVITY_SCORE = "activity_score"
     RECORDING_TTL = "recording_ttl"
-    SURFACING_SCORE = "surfacing_score"
 
 
 class RecordingOrderDirection(StrEnum):
@@ -3094,8 +3165,10 @@ class Theme(StrEnum):
 class SlackIntegrationScope(StrEnum):
     APP_MENTIONS_READ = "app_mentions:read"
     ASSISTANT_WRITE = "assistant:write"
+    CANVASES_READ = "canvases:read"
     CANVASES_WRITE = "canvases:write"
     CHANNELS_HISTORY = "channels:history"
+    CHANNELS_JOIN = "channels:join"
     CHANNELS_MANAGE = "channels:manage"
     CHANNELS_READ = "channels:read"
     CHAT_WRITE = "chat:write"
@@ -3117,9 +3190,9 @@ class SlackIntegrationScope(StrEnum):
     USERS_READ_EMAIL = "users:read.email"
 
 
+# Add the Slack scopes that wait on Slack app review to SlackIntegrationScopeInReview in frontend/src/types.ts.
 class SlackIntegrationScopeInReview(StrEnum):
-    CANVASES_READ = "canvases:read"
-    CHANNELS_JOIN = "channels:join"
+    pass
 
 
 class SlashCommandName(StrEnum):
@@ -3378,6 +3451,11 @@ class UsageMetricDisplay(StrEnum):
 class UsageMetricFormat(StrEnum):
     NUMERIC = "numeric"
     CURRENCY = "currency"
+
+
+class WarehouseSuggestionNoteKind(StrEnum):
+    MATERIALIZE = "materialize"
+    UNMATERIALIZE = "unmaterialize"
 
 
 class WebAgentAnalyticsQueryType(StrEnum):

@@ -123,7 +123,7 @@ describe('FunnelLineChart', () => {
             await waitFor(() => {
                 expect(personsModal.actorNames()).toEqual(['funnel-wed-a@example.com', 'funnel-wed-b@example.com'])
             })
-            expect(personsModal.title()).toMatch(/12 Jun/)
+            expect(personsModal.title()).toMatch(/Wed\s*12 Jun 2024/)
         })
 
         it('opens the persons modal scoped to the clicked breakdown row', async () => {

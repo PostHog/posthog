@@ -5,16 +5,16 @@ import { Skeleton } from '@posthog/quill'
 
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { materializationJobsLogic } from 'scenes/data-warehouse/saved_queries/materializationJobsLogic'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ScenePanel, ScenePanelInfoSection } from '~/layout/scenes/SceneLayout'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { canEditNodeDescription } from './nodeDescriptionState'
 import { NodeDetailActions } from './NodeDetailActions'
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 import { NodeDetailTitleTags } from './NodeDetailTitleTags'
+import { nodeTypeForDisplay } from './nodeTypeForDisplay'
 
 export function NodeDetailHeader({ id }: { id: string }): JSX.Element {
     const {
@@ -33,24 +33,8 @@ export function NodeDetailHeader({ id }: { id: string }): JSX.Element {
         })
     )
     const savedQuery = currentSavedQuery ?? initialSavedQuery
-    const nodeType =
-        node?.type === 'view' || node?.type === 'matview'
-            ? savedQuery
-                ? savedQuery.is_materialized
-                    ? 'matview'
-                    : 'view'
-                : node.type
-            : node?.type
-    // A native table such as `events` has no warehouse table, so it has no annotation to edit.
-    const isNativeTable = node?.type === 'table' && !node.warehouse_table_id
-    const canEdit =
-        node?.type !== 'metric' &&
-        !isNativeTable &&
-        userHasAccess(
-            AccessControlResourceType.WarehouseObjects,
-            AccessControlLevel.Editor,
-            savedQuery?.user_access_level
-        )
+    const nodeType = nodeTypeForDisplay(node, savedQuery)
+    const canEdit = canEditNodeDescription(node, savedQuery)
 
     return (
         <>

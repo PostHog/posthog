@@ -5,18 +5,19 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { userLogic } from 'scenes/userLogic'
 
-import { customerIOImportLogic } from './customerIOImportLogic'
-import { CustomerIOImportModal } from './CustomerIOImportModal'
 import { OptOutCategories } from './OptOutCategories'
 import { OptOutList } from './OptOutList'
 import { optOutSceneLogic } from './optOutSceneLogic'
+import { providerImportLogic } from './providerImportLogic'
+import { ProviderImportModal } from './ProviderImportModal'
 
 export function OptOutScene(): JSX.Element {
     const { user } = useValues(userLogic)
 
     const { preferencesUrlLoading } = useValues(optOutSceneLogic)
     const { openPreferencesPage } = useActions(optOutSceneLogic)
-    const { openImportModal } = useActions(customerIOImportLogic)
+    const { hasSeveralProviders } = useValues(providerImportLogic)
+    const { openImportModal } = useActions(providerImportLogic)
 
     return (
         <div className="space-y-8" data-attr="opt-out-scene">
@@ -29,9 +30,14 @@ export function OptOutScene(): JSX.Element {
                             size="small"
                             onClick={() => openImportModal()}
                             icon={<IconDownload />}
-                            tooltip="Import subscription topics and preferences from Customer.io"
+                            tooltip={
+                                hasSeveralProviders
+                                    ? 'Import topics, preferences and more from your current email tool'
+                                    : 'Import subscription topics and preferences from Customer.io'
+                            }
+                            data-attr="open-provider-import"
                         >
-                            Import from Customer.io
+                            {hasSeveralProviders ? 'Import from another tool' : 'Import from Customer.io'}
                         </LemonButton>
                         <LemonButton
                             type="secondary"
@@ -59,7 +65,7 @@ export function OptOutScene(): JSX.Element {
                 <OptOutList />
             </div>
 
-            <CustomerIOImportModal />
+            <ProviderImportModal />
         </div>
     )
 }

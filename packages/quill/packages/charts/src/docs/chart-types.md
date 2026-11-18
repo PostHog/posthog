@@ -20,7 +20,7 @@ Takes `series: ScatterSeries[]`, each `{ key, label, points: { x, y, label?, rad
 
 - `config.xAxis` and `config.yAxis` are symmetric `ScatterAxisConfig`s (`scaleType`, `domain`, `label`, `tickFormatter`, `hide`, `startAtZero`). Both axes float to their data range by default, because forcing either to zero squashes the correlation into a corner.
 - On a log axis, points with a non-positive coordinate are dropped. A pinned `domain` narrows the chart rather than the viewport: points outside it are dropped too, so nothing piles onto the plot edge at a value it does not have.
-- `shape` (`circle | square | triangle | cross`) separates series without relying on color. Markers fill at `config.fillOpacity` (0.7) over an opaque outline so a dense cloud reads as density.
+- `shape` (`circle | square | triangle | cross`) separates series without relying on color. Marker fills multiply the point color's alpha by `config.fillOpacity` (0.7); outlines preserve the color's alpha. Translucent colors dim both parts of the marker.
 - Hit-testing is 2D and edge-based: the tooltip resolves the marker nearest the cursor in both axes (a large marker the cursor sits inside beats a small one whose center is nearer), and empty plot area resolves to nothing rather than to the nearest column.
 - `config.isPointHighlighted` draws selection halos without replacing series or rebuilding geometry. Keep the callback stable until the selection changes.
 - `onPointClick` and the `tooltip` render prop receive the resolved `ScatterPointDatum` (with its series and `meta`), not a data index. `config.tooltip` takes `enabled`, `placement`, `labelFormatter`, `xFormatter`, `yFormatter`. The default tooltip labels its two rows from the axis titles, falling back to the hovered point's series label for y and to `X` for x; a header that would repeat the y row is dropped.
@@ -221,7 +221,7 @@ There is no `series` or `labels`.
 - Click zooms into a node: it spans the full width, its ancestors stay above it at full width and fade, and its siblings leave the view.
   A "+N more" cell zooms to just the bundled nodes.
   The breadcrumb row above the graph shows the path with a reset button, and Escape zooms out one level while the graph has keyboard focus.
-  `defaultFocusedId` zooms into a node on mount only; to open on another node, give the chart a new `key`.
+  `defaultFocusedId` zooms into a node on mount only and scrolls its row to the top of the viewport; to open on another node, give the chart a new `key`.
   `onFocusChange` receives the newly zoomed `FlameHit`, or null after a reset, on each click, breadcrumb, Escape or reset that changes the zoom. `defaultFocusedId` does not call it.
 - `search` is a case-insensitive substring matched against names.
   Matches keep their color, everything else turns a neutral gray, and the breadcrumb row shows the match count and the share of the graph's width they cover, counting a match nested in another match once.

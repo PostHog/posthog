@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-replica', operation='split_person_read_live_uuids' */\n            SELECT uuid as \"uuid!\"\n            FROM posthog_person\n            WHERE team_id = $1 AND uuid = ANY($2) AND is_deleted = false\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "uuid!",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "952fc9a0148f7cc93f51578cf505ba670e5661ec24eb859ff9405d76f665953c"
+}

@@ -21,6 +21,14 @@ TIMESTAMP_INCREMENTAL: IncrementalField = {
 }
 
 
+@dataclass(frozen=True)
+class UbidotsFanOutConfig:
+    # Each id listed by `parent_path` is formatted into the child `path` as `{parent_id}`, and each
+    # child row gets the parent id under `parent_key`, which leads the child's composite primary key.
+    parent_path: str
+    parent_key: str
+
+
 @dataclass(frozen=False)
 class UbidotsEndpointConfig:
     name: str
@@ -30,6 +38,7 @@ class UbidotsEndpointConfig:
     supports_incremental: bool = False
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
+    fanout: UbidotsFanOutConfig | None = None
 
 
 # The `values` stream fans out per variable: v2.0 lists the variables, then the Data API pages
@@ -46,6 +55,14 @@ UBIDOTS_ENDPOINTS: dict[str, UbidotsEndpointConfig] = {
     "device_groups": UbidotsEndpointConfig(name="device_groups", path="/api/v2.0/device_groups/"),
     "device_types": UbidotsEndpointConfig(name="device_types", path="/api/v2.0/device_types/"),
     "events": UbidotsEndpointConfig(name="events", path="/api/v2.0/events/"),
+    "organizations": UbidotsEndpointConfig(name="organizations", path="/api/v2.0/organizations/"),
+    "users": UbidotsEndpointConfig(name="users", path="/api/v2.0/users/"),
+    "event_logs": UbidotsEndpointConfig(
+        name="event_logs",
+        path="/api/v2.0/events/{parent_id}/logs/",
+        primary_keys=["event", "id"],
+        fanout=UbidotsFanOutConfig(parent_path="/api/v2.0/events/", parent_key="event"),
+    ),
     VALUES_ENDPOINT: UbidotsEndpointConfig(
         name=VALUES_ENDPOINT,
         path=VALUES_PATH_TEMPLATE,

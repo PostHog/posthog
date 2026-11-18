@@ -41,6 +41,7 @@ import type {
     FileSystemFrequentListParams,
     FileSystemHomeFolderApi,
     FileSystemListParams,
+    FileSystemMoveRequestApi,
     FileSystemRankedSearchResponseApi,
     FileSystemSearchRetrieveParams,
     FileSystemShortcutApi,
@@ -64,6 +65,7 @@ import type {
     OrganizationInviteDelegateApi,
     OrganizationNotificationLockBulkUpdateApi,
     OrganizationNotificationMemberApi,
+    OrganizationOAuthApplicationApi,
     OrganizationsProjectsEventIngestionRestrictionsListParams,
     OrganizationsProjectsListParams,
     PaginatedCIMDVerificationTokenListApi,
@@ -103,6 +105,8 @@ import type {
     ProjectSecretAPIKeyApi,
     ProjectSecretApiKeysListParams,
     PropertyDefinitionsListParams,
+    PropertyUsageMetricsRequestApi,
+    PropertyUsageMetricsResponseApi,
     ResolvedWorkloadSubjectApi,
     RevokeOtherSessionsResponseApi,
     SCIMTokenResponseApi,
@@ -897,7 +901,8 @@ export const getOauthApplicationsListUrl = (organizationId: string, params?: Oau
 }
 
 /**
- * ViewSet for listing OAuth applications at the organization level (read-only).
+ * OAuth applications linked to the organization, with each app's provisioning partner status and
+ * review. Read-only, and only for organization admins, who are the people who run the apps.
  */
 export const oauthApplicationsList = async (
     organizationId: string,
@@ -911,6 +916,25 @@ export const oauthApplicationsList = async (
             method: 'GET',
         }
     )
+}
+
+export const getOauthApplicationsRetrieveUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/oauth_applications/${id}/`
+}
+
+/**
+ * OAuth applications linked to the organization, with each app's provisioning partner status and
+ * review. Read-only, and only for organization admins, who are the people who run the apps.
+ */
+export const oauthApplicationsRetrieve = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<OrganizationOAuthApplicationApi> => {
+    return apiMutator<OrganizationOAuthApplicationApi>(getOauthApplicationsRetrieveUrl(organizationId, id), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getOrganizationsProjectsListUrl = (organizationId: string, params?: OrganizationsProjectsListParams) => {
@@ -1985,14 +2009,14 @@ export const getFileSystemMoveCreateUrl = (projectId: string, id: string) => {
 export const fileSystemMoveCreate = async (
     projectId: string,
     id: string,
-    fileSystemApi: NonReadonly<FileSystemApi>,
+    fileSystemMoveRequestApi: FileSystemMoveRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getFileSystemMoveCreateUrl(projectId, id), {
+): Promise<FileSystemApi> => {
+    return apiMutator<FileSystemApi>(getFileSystemMoveCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(fileSystemApi),
+        body: JSON.stringify(fileSystemMoveRequestApi),
     })
 }
 
@@ -2732,6 +2756,27 @@ export const propertyDefinitionsSeenTogetherRetrieve = async (
     return apiMutator<void>(getPropertyDefinitionsSeenTogetherRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getPropertyDefinitionsUsageMetricsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/property_definitions/usage_metrics/`
+}
+
+/**
+ * Returns how many query executions referenced each property in the last 30 days, including cached insight views. Batched: send up to 100 properties at once. Counts are cached for 24 hours.
+ * @summary 30-day query usage for a set of properties
+ */
+export const propertyDefinitionsUsageMetricsCreate = async (
+    projectId: string,
+    propertyUsageMetricsRequestApi: PropertyUsageMetricsRequestApi,
+    options?: RequestInit
+): Promise<PropertyUsageMetricsResponseApi> => {
+    return apiMutator<PropertyUsageMetricsResponseApi>(getPropertyDefinitionsUsageMetricsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(propertyUsageMetricsRequestApi),
     })
 }
 

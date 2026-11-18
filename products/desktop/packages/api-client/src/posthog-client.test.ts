@@ -11,6 +11,118 @@ import {
 } from "./posthog-client";
 
 describe("PostHogAPIClient", () => {
+  it.each([
+    ["getGithubRepositories", "timeout", "headers"],
+    ["getGithubRepositories", "timeout", "body"],
+    ["getGithubRepositories", "cancel", "headers"],
+    ["getGithubRepositories", "cancel", "body"],
+    ["refreshGithubRepositories", "timeout", "headers"],
+    ["refreshGithubRepositories", "timeout", "body"],
+    ["refreshGithubRepositories", "cancel", "headers"],
+    ["refreshGithubRepositories", "cancel", "body"],
+  ] as const)(
+    "aborts %s on %s while waiting for %s",
+    async (method, reason, stage) => {
+      vi.useFakeTimers();
+      try {
+        let markStarted!: (signal: AbortSignal) => void;
+        const started = new Promise<AbortSignal>((resolve) => {
+          markStarted = resolve;
+        });
+        const fetch = vi.fn(
+          (_url: string | URL | Request, init?: RequestInit) => {
+            const pending = new Promise<never>((_resolve, reject) => {
+              const signal = init?.signal ?? new AbortController().signal;
+              signal.addEventListener("abort", () => reject(signal.reason), {
+                once: true,
+              });
+              markStarted(signal);
+            });
+            if (stage === "headers") return pending;
+            const response = new Response();
+            vi.spyOn(response, "json").mockReturnValue(pending);
+            return Promise.resolve(response);
+          },
+        );
+        const client = new PostHogAPIClient(
+          "https://example.com",
+          async () => "test-token",
+          async () => "test-token",
+          42,
+          { fetch },
+        );
+        const controller = new AbortController();
+        const result = expect(
+          client[method](1, controller.signal),
+        ).rejects.toThrow("abort");
+        const signal = await started;
+        if (reason === "timeout") {
+          await vi.runAllTimersAsync();
+        } else {
+          controller.abort();
+        }
+        expect(signal.aborted).toBe(true);
+        await result;
+        expect(fetch).toHaveBeenCalledOnce();
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it("loads every GitHub repository page when the total duration exceeds one page timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetch = vi.fn(
+        (input: string | URL | Request, init?: RequestInit) =>
+          new Promise<Response>((resolve, reject) => {
+            const offset = new URL(String(input)).searchParams.get("offset");
+            const timer = setTimeout(
+              () =>
+                resolve(
+                  new Response(
+                    JSON.stringify({
+                      repositories: [
+                        offset === "0" ? "example/first" : "example/second",
+                      ],
+                      has_more: offset === "0",
+                    }),
+                  ),
+                ),
+              10_000,
+            );
+            init?.signal?.addEventListener(
+              "abort",
+              () => {
+                clearTimeout(timer);
+                reject(init.signal?.reason);
+              },
+              { once: true },
+            );
+          }),
+      );
+      const client = new PostHogAPIClient(
+        "https://example.com",
+        async () => "test-token",
+        async () => "test-token",
+        42,
+        { fetch },
+      );
+      const pending = client.getGithubRepositories(1).then(
+        (repositories) => ({ repositories }),
+        (error: unknown) => ({ error }),
+      );
+
+      await vi.advanceTimersByTimeAsync(20_000);
+
+      expect(await pending).toEqual({
+        repositories: ["example/first", "example/second"],
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it.each(["implementation", "discussion"] as const)(
     "creates a report %s without client repository credentials",
     async (relationship) => {

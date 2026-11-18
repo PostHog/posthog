@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonInput, LemonLabel, LemonModal } from '@posthog/lemon-ui'
 
-import { AccountPropertiesWidgetConfiguration } from './AccountPropertiesWidgetConfiguration'
+import { getAccountViewComponentByKind } from '../../components/Accounts/accountViewComponents'
 import { accountViewsLogic } from './accountViewsLogic'
 
 interface AccountViewTileEditorModalProps {
@@ -12,7 +12,8 @@ interface AccountViewTileEditorModalProps {
 export function AccountViewTileEditorModal({ projectId }: AccountViewTileEditorModalProps): JSX.Element {
     const logic = accountViewsLogic({ projectId })
     const { tileEditor, tileSaving } = useValues(logic)
-    const { closeTileEditor, saveTileEditor, setTileEditorName, setTileEditorPropertiesConfig } = useActions(logic)
+    const { closeTileEditor, saveTileEditor, setTileEditorName, setTileEditorConfig } = useActions(logic)
+    const ConfigEditor = tileEditor?.kind ? getAccountViewComponentByKind(tileEditor.kind)?.ConfigEditor : undefined
     const saveDisabledReason = tileSaving
         ? 'Saving changes'
         : !tileEditor?.name.trim()
@@ -62,14 +63,14 @@ export function AccountViewTileEditorModal({ projectId }: AccountViewTileEditorM
                     data-attr="account-view-tile-name"
                 />
             </div>
-            {tileEditor?.propertiesConfig && tileEditor.accountId ? (
+            {ConfigEditor && tileEditor?.config && tileEditor.accountId ? (
                 <div className="mt-4">
-                    <AccountPropertiesWidgetConfiguration
+                    <ConfigEditor
                         projectId={projectId}
                         accountId={tileEditor.accountId}
-                        config={tileEditor.propertiesConfig}
+                        config={tileEditor.config}
                         saving={tileSaving}
-                        onChange={setTileEditorPropertiesConfig}
+                        onChange={setTileEditorConfig}
                     />
                 </div>
             ) : null}

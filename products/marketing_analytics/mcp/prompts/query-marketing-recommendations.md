@@ -16,17 +16,20 @@ Do not use it for attribution, conversion goals, or channel performance. Use `ma
 
 Each result has:
 
-- `rule` — the check that produced it, for example `spend_without_conversions`, `brand_leak`, `budget_constrained`, `scale_campaign`, `review_campaign`, `brand_overlap`, `content_gap`, `keyword_gap`, `striking_distance` or `policy_limited`.
-- `level` — `campaign` or `search_term`. `subject` is the campaign name or the search term, and `campaign` is the campaign a search term belongs to. For `keyword_gap`, `campaign` is the campaign to add the keyword to, because the search is not bought yet.
+- `rule` — the check that produced it, for example `spend_without_conversions`, `brand_leak`, `budget_constrained`, `scale_campaign`, `review_campaign`, `brand_overlap`, `content_gap`, `keyword_gap`, `striking_distance`, `policy_limited` or `keyword_tracking`. `keyword_tracking` means the project's Google Ads sessions arrive without `utm_term`, so PostHog conversions cannot be tied to keywords until the account passes `utm_term={keyword}`.
+- `level` — `account`, `campaign` or `search_term`. `subject` is the ad account name, the campaign name or the search term, and `campaign` is the campaign a search term belongs to. For `keyword_gap`, `campaign` is the campaign to add the keyword to, because the search is not bought yet.
 - `action` and `reason` — what to do and the numbers behind it. Quote them instead of inventing your own advice.
 - `impact` — the monthly money impact in `currency`, or null. `impactDirection` says how to read it: `save` is spend to cut, `invest` is extra budget to add, `gain` is value to win, and `keep` is spend to protect.
 - `impactType` — `measured` comes straight from the data. `estimated` is a projection, so present it as an estimate.
+- `identity` and `key` — what a dismissal or an applied mark keys on, and its opaque id. Ignore them when you present the results.
 - `steps` — how to apply the recommendation, in order. A step's `copyValue` is the exact text to paste, such as a campaign name, a keyword in match type syntax (`[term]` is exact match, `"term"` is phrase match) or a page URL. A step's `url` opens what `linkText` names: a Google Ads section for the whole account, Google Search Console, or the page on the user's site that ranks for the search. When the user asks how to make a change, walk them through these steps. Some rules have no steps yet.
-- `cpa` — `value` is the subject's cost per conversion, `benchmark` is the CPA benchmark (rules that judge a CPA compare it with this value, and other rules show it for context), `benchmarkSource` says where that benchmark comes from (`target_cpa`: the campaign's target CPA in Google Ads, compared with the campaign's total CPA; `campaign`: the campaign's own non-brand CPA, used for its search terms once it has enough non-brand conversions; `account`: the account's non-brand CPA), and `bestCampaign` and `worstCampaign` are the lowest and highest non-brand CPAs of the account's non-brand Search campaigns. Use them to say whether to scale or cut.
+- `cpa` — `value` is the subject's cost per conversion, `benchmark` is the CPA benchmark the rule compares the subject with (only rules that judge a CPA carry `cpa`), `benchmarkSource` says where that benchmark comes from (`target_cpa`: the campaign's target CPA in Google Ads, compared with the campaign's total CPA; `campaign`: the campaign's own non-brand CPA, used for its search terms once it has enough non-brand conversions; `account`: the account's non-brand CPA), and `bestCampaign` and `worstCampaign` are the lowest and highest non-brand CPAs of the account's non-brand Search campaigns. Use them to say whether to scale or cut.
 
 `dataGaps` lists data the rules could not read. Mention each gap's `message`, because the CPAs it names count the primary conversion actions instead of the selected ones.
 
 Totals in different currencies come from different ad accounts. Never add them together.
+
+The results leave out recommendations that someone in the project dismissed or marked as applied in the Marketing analytics scene, so do not suggest those again. A missing recommendation can mean someone already handled it.
 
 Present the results as suggestions for the user to evaluate, not as instructions. Always show the response's `disclaimer` text with them. Do not change campaigns, budgets, bids or keywords on the user's behalf.
 

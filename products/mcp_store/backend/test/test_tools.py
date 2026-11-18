@@ -866,4 +866,5 @@ class TestSyncInstallationToolsTask(ClickhouseTestMixin, APIBaseTest):
         assert event["event"] == expected_event
         assert event["distinct_id"] == self.user.distinct_id
         assert event["properties"]["server_host"] == "mcp.example.com"
+        assert event["properties"]["$update_person_last_seen_at"] is False
         assert expected_properties.items() <= event["properties"].items()

@@ -86,13 +86,13 @@
                     "items": {
                         "properties": {
                             "key": {
-                                "description": "The key this dimension groups by — an attribute key (e.g. \"session_id\", \"service.name\") or, when source is \"column\", one of the top-level log fields: \"severity_level\", \"service_name\", \"trace_id\", \"span_id\", \"pattern\" (the masked message template).",
+                                "description": "The key this dimension groups by — an attribute key (e.g. \"session_id\", \"service.name\"); when source is \"column\", one of the top-level log fields: \"severity_level\", \"service_name\", \"trace_id\", \"span_id\", \"pattern\" (the masked message template); when source is \"body\", a dot-separated JSON path into the log body (e.g. \"fields.message\").",
                                 "type": "string"
                             },
                             "source": {
                                 "default": "log",
-                                "description": "Where this dimension's key lives: \"log\" for log-level attributes, \"resource\" for resource-level attributes, \"column\" for top-level log fields.\n\n* `log` - log\n* `resource` - resource\n* `column` - column",
-                                "enum": ["log", "resource", "column"],
+                                "description": "Where this dimension's key lives: \"log\" for log-level attributes, \"resource\" for resource-level attributes, \"column\" for top-level log fields, \"body\" for a JSON path into the body.\n\n* `log` - log\n* `resource` - resource\n* `column` - column\n* `body` - body",
+                                "enum": ["log", "resource", "column", "body"],
                                 "type": "string"
                             }
                         },
@@ -105,8 +105,8 @@
                 },
                 "groupBySource": {
                     "default": "log",
-                    "description": "Where the grouping key lives: \"log\" for log-level attributes, \"resource\" for resource-level attributes, \"column\" for top-level log fields. Ignored when groupBys is provided.\n\n* `log` - log\n* `resource` - resource\n* `column` - column",
-                    "enum": ["log", "resource", "column"],
+                    "description": "Where the grouping key lives: \"log\" for log-level attributes, \"resource\" for resource-level attributes, \"column\" for top-level log fields, \"body\" for a JSON path into the body. Ignored when groupBys is provided.\n\n* `log` - log\n* `resource` - resource\n* `column` - column\n* `body` - body",
+                    "enum": ["log", "resource", "column", "body"],
                     "type": "string"
                 },
                 "limit": {

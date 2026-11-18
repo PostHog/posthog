@@ -23,6 +23,8 @@ interface TileSpec {
     failed?: boolean
     onRetry?: () => void
     summaryLabel: string
+    // A loading metric has no sparkline data yet, so this says whether the placeholder should reserve one.
+    trend: boolean
     // Overrides the summary caption — used to flag a tile whose value isn't
     // scoped by the dashboard filters.
     subtitle?: string
@@ -64,7 +66,7 @@ function KPITile({
     incompleteTail: boolean
 }): JSX.Element {
     const { metric } = tile
-    // Tiles whose metric carries no sparkline (Users, Intent clusters) have no segment to dash.
+    // Tiles whose metric carries no sparkline (Intent clusters) have no segment to dash.
     const dashedFromIndex = incompleteTail && metric.sparkline.length >= 2 ? metric.sparkline.length - 1 : undefined
 
     return (
@@ -91,7 +93,7 @@ function KPITile({
                 }
                 hoverChangeFromPreviousPoint
                 restingSubtitle={tile.subtitle ?? tile.summaryLabel}
-                sparklineHeight={50}
+                sparklineHeight={tile.trend ? 50 : undefined}
                 sparklineDashedFromIndex={dashedFromIndex}
             />
         </Link>
@@ -100,7 +102,6 @@ function KPITile({
 
 export function KpiTiles({
     kpis,
-    users,
     intentClusterCount,
     kpisLoading,
     usersLoading,
@@ -114,7 +115,6 @@ export function KpiTiles({
     incompleteTail,
 }: {
     kpis: KPIData
-    users: KPIMetric
     intentClusterCount: KPIMetric
     kpisLoading: boolean
     usersLoading: boolean
@@ -140,15 +140,20 @@ export function KpiTiles({
     const tiles: TileSpec[] = [
         {
             label: 'Users',
-            metric: users,
+            metric: kpis.users,
             // Person identity (email/name) is resolved on the Sessions tab, so that's the drill-down for "who".
             href: sessionsHref,
             format: formatNumber,
-            color: theme.colors[2],
-            loading: usersLoading,
-            failed: usersFailed,
-            onRetry: onRetryUsers,
+            color: theme.colors[0],
+            loading: kpisLoading || usersLoading,
+            failed: kpisFailed || usersFailed,
+            onRetry: () =>
+                retryFailedSources([
+                    { failed: kpisFailed, retry: onRetryKpis },
+                    { failed: usersFailed, retry: onRetryUsers },
+                ]),
             summaryLabel: 'Total',
+            trend: true,
         },
         {
             label: 'Sessions',
@@ -160,6 +165,7 @@ export function KpiTiles({
             failed: kpisFailed,
             onRetry: onRetryKpis,
             summaryLabel: 'Total',
+            trend: true,
         },
         {
             label: 'Tool calls',
@@ -171,6 +177,7 @@ export function KpiTiles({
             failed: kpisFailed,
             onRetry: onRetryKpis,
             summaryLabel: 'Total',
+            trend: true,
         },
         {
             label: 'Error rate',
@@ -182,6 +189,7 @@ export function KpiTiles({
             failed: kpisFailed,
             onRetry: onRetryKpis,
             summaryLabel: 'Overall',
+            trend: true,
         },
         {
             label: 'p95 latency',
@@ -197,6 +205,7 @@ export function KpiTiles({
                     { failed: usersFailed, retry: onRetryUsers },
                 ]),
             summaryLabel: 'Overall',
+            trend: true,
         },
         ...(showIntentClusters
             ? [
@@ -208,6 +217,7 @@ export function KpiTiles({
                       color: theme.colors[6],
                       loading: false,
                       summaryLabel: 'Total',
+                      trend: false,
                       // Clusters come from the latest clustering snapshot across all sessions, so
                       // unlike the other tiles this count isn't scoped by the date or test-account
                       // filters. Label it so the grid doesn't read as a single consistent scope.

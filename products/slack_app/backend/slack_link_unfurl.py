@@ -43,8 +43,7 @@ from products.access_control.backend.facade.user_access_control import (
 from products.canvas.backend.facade import access as canvas_access
 from products.cohorts.backend.models.cohort import Cohort
 from products.conversations.backend.models.ticket import Ticket
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.facade import api as dashboards_api
 from products.error_tracking.backend.facade import api as error_tracking_facade
 from products.experiments.backend.facade import (
     api as experiments_facade,
@@ -56,7 +55,9 @@ from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.facade.filters import condition_rollout_percentage
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
+from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
 from products.product_analytics.backend.facade.models import Insight
+from products.release.backend.facade import api as releases_api
 from products.signals.backend.facade.reports import get_report_card, may_read_reports
 from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
@@ -119,6 +120,7 @@ _UNFURL_TEMPLATES: dict[str, tuple[str, ...]] = {
     "cohort": OBJECT_URL_TEMPLATES["cohort"],
     "error": OBJECT_URL_TEMPLATES["error"],
     "report": ("/inbox/{tab}/{id}", *OBJECT_URL_TEMPLATES["report"]),
+    "release": ("/releases/{id}",),
 }
 
 _KIND_EMOJI: dict[str, str] = {
@@ -134,6 +136,7 @@ _KIND_EMOJI: dict[str, str] = {
     "survey": "📝",
     "cohort": "👥",
     "error": "🐞",
+    "release": "🚀",
     ADHOC_INSIGHT_KIND: "📈",
 }
 
@@ -781,19 +784,17 @@ def _adhoc_insight_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard 
 
 
 def _dashboard_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
-    dashboard = Dashboard.objects.filter(pk=ref, team_id=ctx.team.pk).first() if ref.isdigit() else None
+    dashboard = dashboards_api.get_dashboard(team_id=ctx.team.pk, dashboard_id=int(ref)) if ref.isdigit() else None
     if not dashboard:
         return "not_found"
-    level = ctx.uac.get_user_access_level(dashboard)
-    if not level or not access_level_satisfied_for_resource("dashboard", level, "viewer"):
+    if not dashboards_api.can_access_dashboard(dashboard, user_access_control=ctx.uac):
         return "no_access"
-    tiles = (
-        DashboardTile.objects.filter(dashboard=dashboard, insight__isnull=False, insight__deleted=False)
-        .exclude(deleted=True)
-        .select_related("insight")
-        .order_by("id")
-    )
-    insights = [tile.insight for tile in tiles if tile.insight]
+    insight_ids = [tile.insight_id for tile in dashboards_api.insight_tiles(dashboard_id=dashboard.id)]
+    insights_by_id = {
+        insight.id: insight
+        for insight in insights_including_soft_deleted_for_team(team_id=dashboard.team_id, insight_ids=insight_ids)
+    }
+    insights = [insights_by_id[insight_id] for insight_id in insight_ids if insight_id in insights_by_id]
     ctx.uac.preload_object_access_controls(cast(list, insights))
     names = [
         insight.name or insight.derived_name or "Untitled"
@@ -803,7 +804,7 @@ def _dashboard_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _S
     return _UnfurlCard(
         label="Dashboard",
         title=dashboard.name or "Untitled",
-        details=(_count(len(names), "insight"), *_by(dashboard.created_by)),
+        details=(_count(len(names), "insight"), *_by(_user(dashboard.created_by_id))),
         chart=_tile_grid(names),
         body=dashboard.description,
     )
@@ -866,7 +867,7 @@ def _task_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipRe
     return _UnfurlCard(
         label="Task",
         title=task.title,
-        status=task.latest_run_status,
+        status=task.status,
         details=(*((dto.repository,) if dto and dto.repository else ()), *_by(_user(task.created_by_id))),
         button=_CardButton(label="View pull request", url=pr_url) if pr_url else None,
         timestamp=dto.updated_at if dto else None,
@@ -1111,6 +1112,49 @@ def _survey_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _Skip
     )
 
 
+def _release_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
+    release_id = _uuid(ref)
+    if release_id is None:
+        return "not_found"
+    root_team = Team.objects.get(pk=ctx.team.parent_team_id) if ctx.team.parent_team_id else ctx.team
+    uac = ctx.uac if root_team.pk == ctx.team.pk else UserAccessControl(user=ctx.user, team=root_team)
+    if not uac.check_access_level_for_resource("feature_flag", "viewer"):
+        return "no_access"
+    if not releases_api.releases_enabled(
+        team_id=ctx.team.pk,
+        team_uuid=ctx.team.uuid,
+        organization_id=ctx.team.organization_id,
+        distinct_id=str(ctx.user.distinct_id),
+        email=None if ctx.user.anonymize_data else ctx.user.email,
+        only_evaluate_locally=True,
+    ):
+        return "no_access"
+    try:
+        release = releases_api.get_summary(ctx.team.pk, release_id)
+    except releases_api.ReleaseNotFoundError:
+        return "not_found"
+    flags = list(
+        FeatureFlag.objects_including_soft_deleted.filter(team_id=root_team.pk, pk__in=release.feature_flag_ids).only(
+            "id", "team_id", "created_by_id", "key", "active", "deleted"
+        )
+    )
+    viewable = [flag for flag in flags if uac.check_access_level_for_object(flag, required_level="viewer")]
+    hidden = len(viewable) < len(flags)
+    visible = [flag for flag in viewable if not flag.deleted]
+    lines = [f"{flag.key} · {'Active' if flag.active else 'Disabled'}" for flag in visible]
+    return _UnfurlCard(
+        label="Release",
+        title=releases_api.RESTRICTED_NAME if release.auto_named and hidden else release.name,
+        details=(
+            *((_count(len(visible), "flag"),) if visible else ()),
+            *((f"Owner {release.owner_first_name}",) if release.owner_first_name else ()),
+        ),
+        chart="\n".join(_capped_lines(lines)) or None,
+        body=release.description or None,
+        timestamp=release.updated_at,
+    )
+
+
 def _cohort_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
     cohort = Cohort.objects.filter(team_id=ctx.team.pk, pk=ref, deleted=False).first() if ref.isdigit() else None
     if not cohort:
@@ -1179,6 +1223,7 @@ _CARD_BUILDERS: dict[str, Callable[[_UnfurlContext, str, str], _UnfurlCard | _Sk
     "cohort": _cohort_card,
     "error": _error_card,
     "report": _report_card,
+    "release": _release_card,
 }
 
 

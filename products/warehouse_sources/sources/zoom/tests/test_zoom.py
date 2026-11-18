@@ -1,6 +1,8 @@
+import datetime as dt
 from typing import Any
 
 import pytest
+import time_machine
 from unittest.mock import patch
 
 from products.warehouse_sources.sources.sdk import RESTClientRetryableError
@@ -8,12 +10,13 @@ from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
+    error_message_matches,
     route,
     scripted_network,
 )
 from products.warehouse_sources.sources.zoom._config import ZoomSourceConfig
 from products.warehouse_sources.sources.zoom.source import ZoomSource
-from products.warehouse_sources.sources.zoom.zoom import ZoomResumeConfig, validate_credentials
+from products.warehouse_sources.sources.zoom.zoom import ZoomResumeConfig, month_windows, validate_credentials
 
 _TOKEN = ScriptedResponse(json={"access_token": "tok", "expires_in": 3599})
 
@@ -219,6 +222,183 @@ class TestFanOutRows:
         assert isinstance(result.raised, RESTClientRetryableError)
 
 
+class TestInstanceRows:
+    @pytest.mark.parametrize(
+        "endpoint,parent_key,parent_path,instances_root,parent_column",
+        [
+            ("meeting_instances", "meetings", "/users/u1/meetings", "/past_meetings", "meeting_id"),
+            ("webinar_instances", "webinars", "/users/u1/webinars", "/past_webinars", "webinar_id"),
+        ],
+    )
+    def test_instances_carry_parent_id_without_the_path_helper(
+        self, endpoint: str, parent_key: str, parent_path: str, instances_root: str, parent_column: str
+    ) -> None:
+        instance = {"uuid": "ab/c+d==", "start_time": "2026-01-05T10:00:00Z"}
+        result = _driver().run(
+            endpoint,
+            route(
+                {
+                    "/oauth/token": [_TOKEN],
+                    "/v2/users": [ScriptedResponse(json={"users": [{"id": "u1"}], "next_page_token": ""})],
+                    parent_path: [ScriptedResponse(json={parent_key: [{"id": 111}], "next_page_token": ""})],
+                    f"{instances_root}/111/instances": [ScriptedResponse(json={parent_key: [instance]})],
+                }
+            ),
+        )
+
+        assert result.rows == [{**instance, parent_column: 111}]
+
+
+class TestMonthlyWindowRows:
+    @pytest.fixture(autouse=True)
+    def _pin_clock(self) -> Any:
+        with time_machine.travel(dt.datetime(2026, 11, 17, 12, tzinfo=dt.UTC), tick=False):
+            yield
+
+    @pytest.mark.parametrize(
+        "start,end,expected",
+        [
+            (dt.date(2026, 11, 1), dt.date(2026, 11, 17), [("2026-11-01", "2026-11-17")]),
+            (
+                dt.date(2026, 1, 20),
+                dt.date(2026, 3, 2),
+                [("2026-01-20", "2026-01-31"), ("2026-02-01", "2026-02-28"), ("2026-03-01", "2026-03-02")],
+            ),
+            (dt.date(2025, 12, 31), dt.date(2026, 1, 1), [("2025-12-31", "2025-12-31"), ("2026-01-01", "2026-01-01")]),
+            (dt.date(2026, 11, 18), dt.date(2026, 11, 17), []),
+        ],
+    )
+    def test_month_windows(self, start: dt.date, end: dt.date, expected: list[tuple[str, str]]) -> None:
+        assert [(w.start.isoformat(), w.end.isoformat()) for w in month_windows(start, end)] == expected
+
+    @pytest.mark.parametrize(
+        "inputs,expected_starts",
+        [
+            # Zoom serves only the last six months: the current month and the five before it.
+            ({}, ["2026-06-01", "2026-07-01", "2026-08-01", "2026-09-01", "2026-10-01", "2026-11-01"]),
+            (
+                {"incremental_field": "period_start", "db_incremental_field_last_value": dt.date(2026, 10, 1)},
+                ["2026-10-01", "2026-11-01"],
+            ),
+            (
+                {"incremental_field": "period_start", "db_incremental_field_last_value": "2026-11-01"},
+                ["2026-11-01"],
+            ),
+            # A cursor older than Zoom's six months is clamped instead of sending a rejected range.
+            (
+                {"incremental_field": "period_start", "db_incremental_field_last_value": dt.date(2025, 1, 1)},
+                ["2026-06-01", "2026-07-01", "2026-08-01", "2026-09-01", "2026-10-01", "2026-11-01"],
+            ),
+        ],
+    )
+    def test_report_users_reads_both_reports_per_month(
+        self, inputs: dict[str, Any], expected_starts: list[str]
+    ) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/oauth/token":
+                return _TOKEN
+            assert request.path == "/v2/report/users", f"unexpected request {request.url}"
+            if request.param("next_page_token") is None:
+                user = {"id": f"{request.param('type')}-{request.param('from')}", "meetings": 3}
+                return ScriptedResponse(json={"users": [user], "next_page_token": "t1"})
+            return ScriptedResponse(json={"users": [], "next_page_token": ""})
+
+        result = _driver().run("report_users", respond, **inputs)
+
+        first_pages = [
+            r for r in result.requests if r.path == "/v2/report/users" and r.param("next_page_token") is None
+        ]
+        assert [(r.param("from"), r.param("type")) for r in first_pages] == [
+            (start, report_type) for start in expected_starts for report_type in ("active", "inactive")
+        ]
+        assert first_pages[-1].param("to") == "2026-11-17"
+        assert result.rows[-1] == {
+            "id": "inactive-2026-11-01",
+            "meetings": 3,
+            "period_start": "2026-11-01",
+            "period_end": "2026-11-17",
+            "report_type": "inactive",
+        }
+        assert len(result.rows) == 2 * len(expected_starts)
+
+    @pytest.mark.parametrize(
+        "inputs,expected_u1_ranges",
+        [
+            # A first sync starts at the user's creation date.
+            ({}, [("2026-09-20", "2026-09-30"), ("2026-10-01", "2026-10-31"), ("2026-11-01", "2026-11-17")]),
+            # An incremental sync starts at the cursor's day; Zoom takes UTC dates.
+            (
+                {
+                    "incremental_field": "start_time",
+                    "db_incremental_field_last_value": dt.datetime(2026, 11, 3, 23, 30, tzinfo=dt.UTC),
+                },
+                [("2026-11-03", "2026-11-17")],
+            ),
+        ],
+    )
+    def test_recordings_walk_each_user_by_month(
+        self, inputs: dict[str, Any], expected_u1_ranges: list[tuple[str, str]]
+    ) -> None:
+        recording = {"uuid": "rec==", "start_time": "2026-11-05T10:00:00Z", "total_size": 1024}
+        users_by_status = {
+            "active": [{"id": "u1", "created_at": "2026-09-20T08:00:00Z"}],
+            # A deactivated user keeps their recordings; this one has none, which Zoom answers with a 404.
+            "inactive": [{"id": "u2", "created_at": "2026-11-10T08:00:00Z"}],
+        }
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/oauth/token":
+                return _TOKEN
+            if request.path == "/v2/users":
+                return ScriptedResponse(
+                    json={"users": users_by_status[str(request.param("status"))], "next_page_token": ""}
+                )
+            if request.path == "/v2/users/u2/recordings":
+                return ScriptedResponse(status=404, json={"code": 3301, "message": "There is no recording."})
+            assert request.path == "/v2/users/u1/recordings", f"unexpected request {request.url}"
+            if request.param("from") == "2026-11-01" or request.param("from") == "2026-11-03":
+                if request.param("next_page_token") is None:
+                    return ScriptedResponse(
+                        json={"meetings": [{**recording, "recording_play_passcode": "pass"}], "next_page_token": "t1"}
+                    )
+                return ScriptedResponse(json={"meetings": [{**recording, "uuid": "rec2=="}], "next_page_token": ""})
+            return ScriptedResponse(json={"meetings": [], "next_page_token": ""})
+
+        result = _driver().run("recordings", respond, **inputs)
+
+        u1_first_pages = [
+            r for r in result.requests if r.path == "/v2/users/u1/recordings" and r.param("next_page_token") is None
+        ]
+        assert [(r.param("from"), r.param("to")) for r in u1_first_pages] == expected_u1_ranges
+        assert result.rows == [recording, {**recording, "uuid": "rec2=="}]
+        assert "/v2/users/u2/recordings" in result.paths
+        # The user list is read to its end before any recording request, so its page token cannot expire.
+        api_paths = [r.path for r in result.requests if r.path != "/oauth/token"]
+        assert api_paths[:2] == ["/v2/users", "/v2/users"]
+        assert "/v2/users" not in api_paths[2:]
+        assert result.raised is None
+
+    def test_recordings_fail_on_missing_scope_instead_of_returning_nothing(self) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/oauth/token":
+                return _TOKEN
+            if request.path == "/v2/users":
+                return ScriptedResponse(
+                    json={"users": [{"id": "u1", "created_at": "2026-11-01T08:00:00Z"}], "next_page_token": ""}
+                )
+            return ScriptedResponse(
+                status=400, json={"code": 4711, "message": "Invalid access token, does not contain scopes."}
+            )
+
+        result = _driver().run("recordings", respond)
+
+        assert result.raised is not None
+        assert result.rows == []
+        # A missing scope never clears on retry, so the job must stop retrying instead of
+        # burning its whole retry budget on the same 400.
+        assert error_message_matches(str(result.raised), ZoomSource().get_non_retryable_errors())
+
+
 class TestZoomSourceResponse:
     @pytest.mark.parametrize(
         "endpoint,resumable",
@@ -230,6 +410,12 @@ class TestZoomSourceResponse:
             ("webinar_registrants", False),
             ("meeting_participants", False),
             ("webinar_participants", False),
+            ("meeting_instances", False),
+            ("webinar_instances", False),
+            ("groups", True),
+            ("group_members", True),
+            ("report_users", False),
+            ("recordings", False),
         ],
     )
     def test_chained_tables_are_not_resumable(self, endpoint: str, resumable: bool) -> None:

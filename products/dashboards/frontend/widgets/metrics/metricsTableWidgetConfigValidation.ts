@@ -10,7 +10,10 @@ import {
 import { WIDGET_DATE_RANGE_SELECT_OPTIONS } from '../../widget_types/widgetConfigShared'
 import { fieldErrorsFromZodError, parseWidgetConfig } from '../widgetConfigValidation'
 
-export { metricsTableWidgetConfigLimitMax as METRICS_TABLE_MAX_LIMIT } from '../../generated/widget-config-schemas/metricsTableWidgetConfig.zod'
+export {
+    metricsTableWidgetConfigGroupByTwoMax as METRICS_TABLE_MAX_GROUP_BY,
+    metricsTableWidgetConfigLimitMax as METRICS_TABLE_MAX_LIMIT,
+} from '../../generated/widget-config-schemas/metricsTableWidgetConfig.zod'
 
 /** Metrics queries span at most 31 days, so longer presets are left out. Matches the backend config check. */
 export const METRICS_TABLE_DATE_RANGE_OPTIONS = WIDGET_DATE_RANGE_SELECT_OPTIONS.filter(
@@ -21,6 +24,14 @@ export type MetricsTableColumn = NonNullable<MetricsTableWidgetConfig['columns']
 export type MetricsTableAggregation = MetricsTableColumn['aggregation']
 type MetricsTableWidgetFormField = keyof z.infer<typeof metricsTableWidgetFormSchema>
 export type MetricsTableWidgetFieldErrors = Partial<Record<MetricsTableWidgetFormField, string>>
+
+/** The group-by labels of a config. A tile saved before multi-label grouping stores one label as a string. */
+export function metricsTableGroupByLabels(groupBy: MetricsTableWidgetConfig['groupBy']): string[] {
+    if (!groupBy) {
+        return []
+    }
+    return typeof groupBy === 'string' ? [groupBy] : groupBy
+}
 
 export function parseMetricsTableWidgetConfig(config: Record<string, unknown>): MetricsTableWidgetConfig {
     return parseWidgetConfig(metricsTableWidgetConfigSchema, config)

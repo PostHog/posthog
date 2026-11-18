@@ -21,6 +21,7 @@ import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 
+import type { CatalogHttpTool } from '../src/cli/catalog/schema'
 import { hasScope } from '../src/lib/api'
 import {
     discoverDefinitions,
@@ -46,8 +47,7 @@ const PRODUCTS_DIR = path.resolve(REPO_ROOT, 'products')
 const TOOLS_SRC_DIR = path.resolve(MCP_ROOT, 'src/tools')
 const GENERATED_DIR = path.resolve(MCP_ROOT, 'src/tools/generated')
 const DEFINITIONS_JSON_PATH = path.resolve(MCP_ROOT, 'schema/generated-tool-definitions.json')
-const ALL_DEFINITIONS_JSON_PATH = path.resolve(MCP_ROOT, 'schema/tool-definitions-all.json')
-const TOOL_DEFINITIONS_PATH = path.resolve(MCP_ROOT, 'schema/tool-definitions.json')
+const CATALOG_TOOLS_JSON_PATH = path.resolve(MCP_ROOT, 'schema/cli-catalog-tools.json')
 const OPENAPI_PATH = path.resolve(REPO_ROOT, 'frontend/tmp/openapi.json')
 const SCHEMA_JSON_PATH = path.resolve(REPO_ROOT, 'frontend/src/queries/schema.json')
 
@@ -462,6 +462,7 @@ const CAST_HELPERS = {
     'string-int': 'castStringToInt',
     'boolean-string': 'castBooleanToString',
     'object-json-string': 'castObjectToJsonString',
+    'sync-frequency': 'castSyncFrequency',
 } as const
 
 interface SchemaComposition {
@@ -498,6 +499,7 @@ interface SchemaComposition {
      * `z.preprocess(normalizeParamAliases(...), ...)` when non-empty.
      */
     paramAliases: Record<string, string[]>
+    paramCasts: Record<string, string>
 }
 
 function composeToolSchema(
@@ -704,6 +706,7 @@ function composeToolSchema(
     const schemaRefBlocks: string[] = []
     const paramFallbacks: Record<string, string> = {}
     const paramAliases: Record<string, string[]> = {}
+    const paramCasts: Record<string, string> = {}
     // Fields added via param_overrides (input_schema/schema_ref) need to participate in
     // the body builder for write ops — otherwise the override is in the schema but
     // the handler never forwards the value to the API. On PATCH (partial update) the
@@ -796,6 +799,9 @@ function composeToolSchema(
                         expr += '.optional()'
                     }
                     schemaOverrides.push(`${paramName}: ${wrapWithCast(expr)}`)
+                    if (castHelper) {
+                        paramCasts[paramName] = castHelper
+                    }
                 }
             }
         }
@@ -899,6 +905,7 @@ function composeToolSchema(
         renamedFields,
         paramFallbacks,
         paramAliases,
+        paramCasts,
     }
 }
 
@@ -1106,6 +1113,101 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
     }
 
     return `        return ${wrapped(resultVar)}\n`
+}
+
+const CATALOG_TOOLS: Record<string, CatalogHttpTool> = {}
+
+function buildCatalogTool(args: {
+    config: ToolConfig
+    category: CategoryConfig
+    resolved: ResolvedOperation
+    composition: SchemaComposition
+    httpMethod: string
+    hasBody: boolean
+    hasQuery: boolean
+    isSoftDelete: boolean
+    softDeleteField: string
+    injectBody: Record<string, unknown>
+    transformsBody: boolean
+}): CatalogHttpTool {
+    const { config, category, resolved, composition } = args
+    const response = config.response
+    const baseUrl = config.url_prefix ?? category.url_prefix
+    const joinerFor = (prefix: string): '' | '/' => (/^[?#]/.test(prefix) ? '' : '/')
+
+    let filter: CatalogHttpTool['response']['filter'] = null
+    if (response?.include?.length) {
+        filter = { kind: 'pick', fields: response.include, selectable: !!response.selectable }
+    } else if (response?.exclude?.length || response?.expandable?.length) {
+        filter = { kind: 'omit', fields: response.exclude ?? [], expandable: response.expandable ?? [] }
+    }
+
+    let enrich: CatalogHttpTool['response']['enrich'] = null
+    if (config.list && config.enrich_url) {
+        const { prefix, field, suffix } = parseEnrichUrl(config.enrich_url)
+        enrich = { kind: 'list_items', baseUrl, joiner: joinerFor(prefix), prefix, field, suffix }
+    } else if (config.list) {
+        enrich = { kind: 'list', baseUrl }
+    } else if (config.enrich_url) {
+        const { prefix, field, suffix, source } = parseEnrichUrl(config.enrich_url)
+        enrich = { kind: 'item', baseUrl, joiner: joinerFor(prefix), prefix, field, suffix, source }
+    }
+
+    const validators = config.validators ?? []
+    const requires = [
+        ...(config.hooks ? [`hook:${config.hooks}`] : []),
+        ...validators.map((name) => `validator:${name}`),
+    ]
+
+    return {
+        name: '',
+        kind: 'http',
+        requires,
+        hooks: config.hooks ?? null,
+        uiApp: config.ui_app ?? null,
+        request: {
+            method: args.httpMethod as CatalogHttpTool['request']['method'],
+            path: resolved.path,
+            pathParams: composition.pathParamNames,
+            fallbacks: Object.entries(composition.paramFallbacks).map(([param, scope]) => ({
+                param,
+                scope: scope as 'projectId' | 'orgId',
+            })),
+            query: args.hasQuery
+                ? composition.queryParamNames.map((param) => ({
+                      param,
+                      key: composition.renamedFields[param] ?? param,
+                      csv: composition.csvQueryParamNames.has(param),
+                  }))
+                : null,
+            body:
+                args.hasBody && !args.isSoftDelete
+                    ? composition.bodyFieldNames.map((param) => ({
+                          param,
+                          key: composition.renamedFields[param] ?? param,
+                      }))
+                    : null,
+            injectBody: args.injectBody,
+            softDelete: args.isSoftDelete ? args.softDeleteField : null,
+            transformBody: args.transformsBody,
+        },
+        response: {
+            list: !!config.list,
+            filter,
+            stripNulls: !!response?.strip_nulls,
+            enrich,
+            agentNote: config.agent_note ?? null,
+            informational: response?.informational_wrapper
+                ? { tag: response.informational_wrapper.tag, purpose: response.informational_wrapper.purpose ?? null }
+                : null,
+            textInclude: response?.text_include ?? [],
+        },
+        input: {
+            aliases: composition.paramAliases,
+            casts: composition.paramCasts as CatalogHttpTool['input']['casts'],
+            validators,
+        },
+    }
 }
 
 // ------------------------------------------------------------------
@@ -1376,6 +1478,28 @@ function generateToolCode(
         !!expandableExtension
     const paramsName = paramsUsed ? 'params' : '_params'
 
+    // A param schema named from tool-inputs can transform its value, and one built from schema_ref
+    // coerces strings to numbers. JSON Schema carries neither, so those tools stay compiled-in only.
+    const hasCodeOnlyInput = Object.values(config.param_overrides ?? {}).some(
+        (override) => !!override.input_schema || !!override.schema_ref
+    )
+    if (!config.confirmed_action && !hasCodeOnlyInput) {
+        CATALOG_TOOLS[toolName] = buildCatalogTool({
+            config,
+            category,
+            resolved,
+            composition,
+            httpMethod,
+            hasBody,
+            hasQuery,
+            isSoftDelete,
+            softDeleteField,
+            injectBody: hasInjectBody ? injectBody : {},
+            transformsBody,
+        })
+        CATALOG_TOOLS[toolName]!.name = toolName
+    }
+
     // When `confirmed_action` is declared, emit TWO factories instead of
     // one — `<name>-prepare` and `<name>-execute`. The prepare tool signs
     // the validated args into a hash; the execute tool verifies the hash,
@@ -1574,6 +1698,8 @@ function buildConfirmedActionFactories(args: {
     }
     const prepareArgsExpr =
         resolvedFallbackNames.length > 0 ? `{ ...params, ${resolvedFallbackNames.join(', ')} }` : 'params'
+    const executeResolvedArgsField =
+        resolvedFallbackNames.length > 0 ? `            resolvedArgs: ${JSON.stringify(resolvedFallbackNames)},\n` : ''
 
     // Prepare handler: validate args via the base schema (already happens
     // before our handler runs) and call into the runtime. Args are signed
@@ -1583,6 +1709,7 @@ function buildConfirmedActionFactories(args: {
 ${scopeResolveBlock}${prepareFallbackBlock}        return await prepareConfirmedAction(context, {
             args: ${prepareArgsExpr},
             purpose: ${JSON.stringify(toolName)},
+            inputSchema: ${schemaName}(),
             actionLabel: ${JSON.stringify(actionLabel)},
             messageTemplate: ${JSON.stringify(messageTemplate)},
             codec: __runtime.codec,
@@ -1597,8 +1724,8 @@ ${prepareScopeField}        })
 ${scopeResolveBlock}        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof ${schemaName}>>>(context, {
             incomingArgs: confirmationParams,
             purpose: ${JSON.stringify(toolName)},
-            codec: __runtime.codec,
-            ledger: __runtime.ledger,
+            inputSchema: ${schemaName}(),
+${executeResolvedArgsField}            codec: __runtime.codec,
             stash: __runtime.stash,
 ${executeScopeField}        })
         if (!__guard.ok) {
@@ -2642,6 +2769,26 @@ function main(): void {
         }
     }
 
+    const catalogTools = sortKeys(CATALOG_TOOLS)
+    fs.writeFileSync(CATALOG_TOOLS_JSON_PATH, JSON.stringify(catalogTools, null, 4) + '\n')
+
+    const hookModules = [
+        ...new Set(allCategories.flatMap((c) => c.enabledTools.map(([, toolConfig]) => toolConfig.hooks))),
+    ]
+        .filter((name): name is string => !!name)
+        .sort()
+    const hooksCode = `// AUTO-GENERATED — do not edit
+
+import type { ToolHooks } from '@/tools/tool-hooks'
+
+${hookModules.map((name, index) => `import hooks${index} from '@/tools/${name}'`).join('\n')}
+
+export const GENERATED_TOOL_HOOKS: Record<string, ToolHooks<any>> = {
+${hookModules.map((name, index) => `    '${name}': hooks${index},`).join('\n')}
+}
+`
+    fs.writeFileSync(path.join(GENERATED_DIR, 'hooks.ts'), hooksCode)
+
     // Barrel index
     const sortedModules = [...generatedModules].sort()
     const imports = sortedModules.map((m) => `import { GENERATED_TOOLS as ${toCamelCase(m)} } from './${m}'`).join('\n')
@@ -2662,23 +2809,17 @@ ${spreads}
     const definitions = sortKeys({ ...generateDefinitionsJson(allCategories), ...queryWrapperDefinitions })
     fs.writeFileSync(DEFINITIONS_JSON_PATH, JSON.stringify(definitions, null, 4) + '\n')
 
-    // Combined tool definitions for external consumers (docs site)
-    const handwrittenDefinitions = JSON.parse(fs.readFileSync(TOOL_DEFINITIONS_PATH, 'utf-8'))
-    const allDefinitions = sortKeys({ ...handwrittenDefinitions, ...definitions })
-    fs.writeFileSync(ALL_DEFINITIONS_JSON_PATH, JSON.stringify(allDefinitions, null, 4) + '\n')
-
     const totalTools = allCategories.reduce((sum, c) => sum + c.enabledTools.length, 0)
     const totalQueryWrappers = Object.keys(queryWrapperDefinitions).length
-    const totalAllTools = Object.keys(allDefinitions).length
     process.stdout.write(`Generated ${totalTools} tool(s) from ${allCategories.length} category file(s)\n`)
     if (totalQueryWrappers > 0) {
         process.stdout.write(`Generated ${totalQueryWrappers} query wrapper tool(s)\n`)
     }
-    process.stdout.write(`Combined ${totalAllTools} total tool(s) into tool-definitions-all.json\n`)
 
     const generatedTsFiles = [
         ...generatedModules.map((m) => path.join(GENERATED_DIR, `${m}.ts`)),
         path.join(GENERATED_DIR, 'index.ts'),
+        path.join(GENERATED_DIR, 'hooks.ts'),
     ]
     const format = spawnSync(path.join(REPO_ROOT, 'bin/hogli'), ['format:js', ...generatedTsFiles], {
         stdio: 'pipe',
@@ -2687,7 +2828,7 @@ ${spreads}
     if (format.status !== 0) {
         console.warn(`hogli format:js failed:\n${format.stderr?.toString() ?? ''}${format.stdout?.toString() ?? ''}`)
     }
-    spawnSync(path.join(REPO_ROOT, 'bin/hogli'), ['format:yaml', DEFINITIONS_JSON_PATH, ALL_DEFINITIONS_JSON_PATH], {
+    spawnSync(path.join(REPO_ROOT, 'bin/hogli'), ['format:yaml', DEFINITIONS_JSON_PATH, CATALOG_TOOLS_JSON_PATH], {
         stdio: 'pipe',
         cwd: REPO_ROOT,
     })

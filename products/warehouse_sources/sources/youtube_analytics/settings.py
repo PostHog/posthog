@@ -64,6 +64,7 @@ VIDEOS = "videos"
 AUDIENCE_RETENTION = "audience_retention"
 PLAYLIST_DAILY = "playlist_daily"
 CONCURRENT_VIEWERS = "concurrent_viewers"
+MEMBERSHIP_CANCELLATIONS = "membership_cancellations"
 
 PLAYLIST_DIMENSION = "playlist"
 
@@ -240,6 +241,13 @@ YOUTUBE_ANALYTICS_REPORTS: dict[str, YouTubeAnalyticsReportConfig] = {
         filter_dimension=PLAYLIST_DIMENSION,
         filter_values_from_playlists=True,
         # A channel with many playlists makes the backfill heavy, so it is opt-in.
+        should_sync_default=False,
+    ),
+    MEMBERSHIP_CANCELLATIONS: YouTubeAnalyticsReportConfig(
+        name=MEMBERSHIP_CANCELLATIONS,
+        dimensions=("membershipsCancellationSurveyReason",),
+        metrics=("membershipsCancellationSurveyResponses",),
+        # Only channels with memberships turned on have rows, so the one-request-per-day backfill is opt-in.
         should_sync_default=False,
     ),
 }

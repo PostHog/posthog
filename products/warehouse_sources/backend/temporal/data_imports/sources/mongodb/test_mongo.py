@@ -448,6 +448,25 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
                 "found in project 000000000000000000000000, correlationID = 000000000000000000000000', "
                 "'code': 125, 'codeName': 'CommandFailed'}",
             ),
+            # Real pymongo ProtocolError raised by _OpMsg.unpack when a reply carries more than
+            # one payload section — the server isn't speaking the wire protocol this driver expects.
+            ("protocol_error_multiple_sections", "Unsupported OP_MSG reply: >1 section"),
+            # The sibling ProtocolError variants from the same unpack method, for an unrecognized
+            # flag and a non-zero payload type.
+            ("protocol_error_unsupported_flags", "Unsupported OP_MSG flags: 0x2"),
+            ("protocol_error_payload_type", "Unsupported OP_MSG payload type: 0x1"),
+            # pymongo's fixed message when the connection string sets authMechanism=GSSAPI but the
+            # optional pykerberos/winkerberos package isn't installed. We don't bundle that package,
+            # so the mechanism never works and a retry can't change that.
+            ("gssapi_auth_unsupported", 'The "kerberos" module must be installed to use GSSAPI authentication.'),
+            # pymongo's fixed message when the connection string sets authMechanism=MONGODB-AWS but
+            # the optional pymongo-auth-aws package isn't installed. We don't bundle that package,
+            # so the mechanism never works and a retry can't change that.
+            (
+                "mongodb_aws_auth_unsupported",
+                "MONGODB-AWS authentication requires pymongo-auth-aws: install with: "
+                "python -m pip install 'pymongo[aws]'",
+            ),
         ]
     )
     def test_known_errors_are_non_retryable(self, _name, error_msg):
@@ -507,6 +526,17 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
             ("replica_set_no_members", "No replica set members available for replica set name", "replica set"),
             ("replica_set_mismatch", "client is configured to connect to a replica set named", "replica set"),
             ("cluster_not_found_in_project", "not found in project", "data federation"),
+            ("protocol_error", "Unsupported OP_MSG", "genuine mongodb server"),
+            (
+                "gssapi_auth_unsupported",
+                "must be installed to use GSSAPI authentication",
+                "username and password",
+            ),
+            (
+                "mongodb_aws_auth_unsupported",
+                "MONGODB-AWS authentication requires pymongo-auth-aws",
+                "username and password",
+            ),
         ]
     )
     def test_pattern_has_friendly_message(self, _name, pattern, expected_substring):
@@ -610,6 +640,19 @@ class TestGetRetryableErrors(SimpleTestCase):
             f"MongoDB connection reset should be classified retryable: {error_msg}"
         )
 
+    def test_connection_closed_is_classified_retryable(self):
+        # AutoReconnect wrapping a clean EOF (network_layer.py's OSError("connection closed"), not
+        # a reset or a timeout) mid-cursor-read — an idle-connection reaper, a load balancer, or
+        # Atlas maintenance ending the socket. The next connection attempt succeeds once the
+        # network recovers, so this must not flood error tracking as an unclassified exception.
+        error_msg = (
+            "cluster0.example.mongodb.net:27017: connection closed "
+            "(configured timeouts: socketTimeoutMS: 600000.0ms, connectTimeoutMS: 10000.0ms)"
+        )
+        assert any(pattern in error_msg for pattern in self.retryable), (
+            f"MongoDB connection closed should be classified retryable: {error_msg}"
+        )
+
     def test_interrupted_at_shutdown_is_classified_retryable(self):
         # NotPrimaryError raised when a read is killed by a routine replica-set failover (the
         # primary shutting down or stepping down); the next retry hits the new primary.
@@ -635,6 +678,21 @@ class TestGetRetryableErrors(SimpleTestCase):
         )
         assert any(pattern in error_msg for pattern in self.retryable), (
             f"MongoDB execution timeout with no progress should be classified retryable: {error_msg}"
+        )
+
+    def test_cosmos_db_request_rate_too_large_is_classified_retryable(self):
+        # OperationFailure code 16500 (codeName 'RequestRateTooLarge') is Azure Cosmos DB's API for
+        # MongoDB reporting its own throughput throttling (HTTP 429 underneath). The cluster already
+        # says to retry later, so this must not flood error tracking as an unclassified bug on every
+        # occurrence of a self-recovering rate limit.
+        error_msg = (
+            "Error=16500, RetryAfterMs=72, Details='Response status code does not indicate success: "
+            'TooManyRequests (429); Reason: (Errors : ["Request rate is large."]);, full error: '
+            "{'ok': 0.0, 'errmsg': 'Error=16500, RetryAfterMs=72, ...', 'code': 16500, "
+            "'codeName': 'RequestRateTooLarge'}"
+        )
+        assert any(pattern in error_msg for pattern in self.retryable), (
+            f"MongoDB Cosmos DB RequestRateTooLarge should be classified retryable: {error_msg}"
         )
 
 
@@ -1403,6 +1461,16 @@ class TestConnectionTimeouts(SimpleTestCase):
         assert kwargs["serverSelectionTimeoutMS"] == SERVER_SELECTION_TIMEOUT_MS
         assert kwargs["connectTimeoutMS"] == CONNECT_TIMEOUT_MS
         assert kwargs["socketTimeoutMS"] == SOCKET_TIMEOUT_MS
+
+    def test_client_tolerates_non_utf8_bytes_in_mongodb_strings(self):
+        # A string field that isn't valid UTF-8 (a buggy driver, a bad migration) must not fail
+        # the whole getMore batch with InvalidBSON. "replace" substitutes U+FFFD for the bad
+        # bytes instead of raising, so the sync continues.
+        with patch(f"{_MONGO_MODULE}.MongoClient") as client_class:
+            with mongo_client("mongodb://user:pw@db.example.com/db?tls=true", team_id=1):
+                pass
+
+        assert client_class.call_args.kwargs["unicode_decode_error_handler"] == "replace"
 
     @parameterized.expand(
         [
