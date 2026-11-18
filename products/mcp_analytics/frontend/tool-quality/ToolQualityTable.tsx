@@ -185,8 +185,15 @@ function ToolRowsError(): JSX.Element {
 }
 
 function ToolRows(): JSX.Element {
-    const { toolRows, toolRowsTotalSessions, toolRowsPreviousTotalSessions, selectedTool, dateFilter, pinnedInterval } =
-        useValues(mcpAnalyticsToolQualityLogic)
+    const {
+        toolRows,
+        toolRowsTotalSessions,
+        toolRowsPreviousTotalSessions,
+        toolRowsPageLoading,
+        selectedTool,
+        dateFilter,
+        pinnedInterval,
+    } = useValues(mcpAnalyticsToolQualityLogic)
     const { setSelectedTool } = useActions(mcpAnalyticsToolQualityLogic)
     const toggleRow = (tool: string): void => setSelectedTool(tool === selectedTool ? null : tool)
 
