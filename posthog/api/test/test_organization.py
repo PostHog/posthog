@@ -83,7 +83,7 @@ class TestOrganizationAPI(APIBaseTest):
         teams = {team["id"]: team for team in organization.json()["teams"]}
         self.assertEqual(teams[self.team.id]["project_group"], "production-apps")
 
-    def test_external_project_links_are_listed_for_their_organization_only(self) -> None:
+    def test_external_project_links_are_read_only_and_listed_for_their_organization_only(self) -> None:
         link = OrganizationExternalProjectLink.objects.create(
             organization=self.organization, name="Hedgebox (EU)", url="https://eu.posthog.com/project/2"
         )
@@ -92,6 +92,15 @@ class TestOrganizationAPI(APIBaseTest):
             organization=other_organization, name="Other (EU)", url="https://eu.posthog.com/project/3"
         )
 
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        patched = self.client.patch(
+            "/api/organizations/@current",
+            {"external_project_links": [{"name": "Phishing", "url": "https://example.com"}]},
+            format="json",
+        )
+        self.assertEqual(patched.status_code, status.HTTP_200_OK, patched.json())
+
         response = self.client.get("/api/organizations/@current")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -99,6 +108,7 @@ class TestOrganizationAPI(APIBaseTest):
             response.json()["external_project_links"],
             [{"id": str(link.id), "name": "Hedgebox (EU)", "url": "https://eu.posthog.com/project/2"}],
         )
+        self.assertEqual(OrganizationExternalProjectLink.objects.count(), 2)
 
     def test_get_current_team_fields(self):
         self.organization.setup_section_2_completed = False
