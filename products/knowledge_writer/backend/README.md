@@ -44,7 +44,7 @@ flox activate -- python manage.py knowledge_writer_pr_smoke \
 
 On a Coder workspace `SITE_URL` is the public URL, which the sandbox and self-capture cannot reach, so every process also needs `SELF_CAPTURE_HOST=http://localhost:8010`, `SANDBOX_API_URL=http://localhost:8010` and `SANDBOX_LLM_GATEWAY_URL=http://host.docker.internal:3308`.
 
-Turn the `knowledge-writer-agent-launch` and `knowledge-writer-open-prs` flags on at 100% for the team; otherwise intake runs in shadow mode and the command stops. Pick a merged pull request whose change the section's docs lack, so the agent has something to write. Then:
+Turn the `knowledge-writer-agent-launch` and `knowledge-writer-open-prs` flags on at 100% for the team; otherwise intake runs in shadow mode. Before any GitHub write, the command checks the env vars, flags, flags service, Temporal worker, LLM gateway and GitHub integration, prints `MISSING <name>: <fix>` for each gap, and stops. It prints the task, publish workflow and docs pull request links as the run reaches them. Pick a merged pull request whose change the section's docs lack, so the agent has something to write. Then:
 
 ```bash
 flox activate -- python manage.py knowledge_writer_pr_smoke \

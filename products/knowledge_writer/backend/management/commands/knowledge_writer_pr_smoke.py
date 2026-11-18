@@ -1,19 +1,30 @@
+import os
 import json
 import time
 import base64
+import asyncio
 import secrets
+from collections.abc import Callable
+from urllib.parse import quote
 from uuid import UUID
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 
+import requests
 from asgiref.sync import async_to_sync
+from temporalio.api.enums.v1 import TaskQueueType
+from temporalio.api.taskqueue.v1 import TaskQueue
+from temporalio.api.workflowservice.v1 import DescribeTaskQueueRequest
+from temporalio.service import RPCError
 
+from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
-from posthog.models.integration import GitHubIntegration, GitHubIntegrationError
+from posthog.models.integration import GitHubInstallationAccessFetchError, GitHubIntegration, GitHubIntegrationError
 from posthog.models.team import Team
-from posthog.utils import initialize_self_capture_api_token
+from posthog.temporal.common.client import async_connect
+from posthog.utils import absolute_uri, initialize_self_capture_api_token
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import TaskRunDTO
@@ -22,7 +33,7 @@ from ...adapters.command_tag import CommandTagAdapter
 from ...adapters.repo_merge import pull_request_dedupe_id
 from ...facade.contracts import AdapterVerdict, DocsCommandRequest, DocsRequest
 from ...facade.enums import DocsChangeKind
-from ...feature_flags import AGENT_LAUNCH_FLAG, OPEN_PULL_REQUESTS_FLAG, is_team_flag_enabled
+from ...feature_flags import AGENT_LAUNCH_FLAG, OPEN_PULL_REQUESTS_FLAG, WRITER_FLAG, team_flag_state
 from ...logic import intake
 from ...logic.launch import start_writer
 from ...logic.pull_requests import (
@@ -43,6 +54,7 @@ from ...logic.routing import route_request
 from ...logic.server_commit import docs_branch_head
 from ...logic.writer_change import WRITER_CHANGE_ARTIFACT_NAME, writer_change_artifact
 from ...settings import WriterSettings, writer_settings
+from ...temporal.client import publish_workflow_id
 
 PRODUCTION_DOCS_REPOSITORY = "posthog/posthog.com"
 SCRATCH_PAGE_NAME = "knowledge-writer-smoke-test.mdx"
@@ -52,6 +64,19 @@ AGENT_POLL_INTERVAL_SECONDS = 15
 SCRATCH_PUBLISH_TIMEOUT_SECONDS = 300
 SMOKE_NOTE = "Knowledge writer smoke test."
 SMOKE_REQUESTER = "knowledge-writer-smoke-test"
+LOCAL_LLM_GATEWAY_LIVENESS_URL = "http://localhost:3308/_liveness"
+PROBE_TIMEOUT_SECONDS = 3
+LOCAL_SANDBOX_URLS = {
+    "SELF_CAPTURE_HOST": "http://localhost:8010",
+    "SANDBOX_API_URL": "http://localhost:8010",
+    "SANDBOX_LLM_GATEWAY_URL": "http://host.docker.internal:3308",
+}
+
+
+@frozen
+class MissingPrerequisite:
+    name: str
+    fix: str
 
 
 class Command(BaseCommand):
@@ -84,26 +109,39 @@ class Command(BaseCommand):
         team = Team.objects.filter(id=options["team_id"]).first()
         if team is None:
             raise CommandError(f"Team {options['team_id']} does not exist")
-        writer = writer_settings()
-        if writer is None or writer.team_id != team.id or writer.docs_repository.lower() != repository.lower():
-            raise CommandError(
-                "Set KNOWLEDGE_WRITER_TEAM_ID, KNOWLEDGE_WRITER_USER_ID and KNOWLEDGE_WRITER_DOCS_REPOSITORY "
-                "to this team and repository"
+        source_url: str | None = options["with_agent"]
+        missing = missing_prerequisites(team, repository, needs_agent=source_url is not None)
+        github = None if missing else connected_github(team.id, repository, options["installation_id"])
+        if not missing and github is None:
+            missing.append(
+                MissingPrerequisite(
+                    name=f"GitHub integration for {repository.split('/', 1)[0]}",
+                    fix="install the dev GitHub App on the scratch fork and pass its --installation-id",
+                )
             )
-        if not is_team_flag_enabled(OPEN_PULL_REQUESTS_FLAG, team):
-            raise CommandError(f"Turn the {OPEN_PULL_REQUESTS_FLAG} flag on at 100% for team {team.id}")
-        github = connected_github(team.id, repository, options["installation_id"])
+        for prerequisite in missing:
+            self.stderr.write(f"MISSING {prerequisite.name}: {prerequisite.fix}")
+        writer = writer_settings()
+        if missing or writer is None or github is None:
+            raise CommandError(f"{len(missing)} prerequisite(s) missing")
         section: str = options["section"]
         smoke_id = secrets.token_hex(4)
-        source_url: str | None = options["with_agent"]
         branches: list[str] = []
         try:
             opened = (
                 run_agent_request(
-                    github, writer, team, section, source_url, smoke_id, options["agent_timeout_minutes"], branches
+                    github,
+                    writer,
+                    team,
+                    section,
+                    source_url,
+                    smoke_id,
+                    options["agent_timeout_minutes"],
+                    branches,
+                    self.stdout.write,
                 )
                 if source_url
-                else run_scratch_request(github, writer, team, section, smoke_id, branches)
+                else run_scratch_request(github, writer, team, section, smoke_id, branches, self.stdout.write)
             )
             failures = check_pull_request(github, repository, opened)
         finally:
@@ -118,19 +156,132 @@ class Command(BaseCommand):
         self.stdout.write(f"PASS draft pull request {opened.url} opened from a server commit, closed and cleaned up")
 
 
-def connected_github(team_id: int, repository: str, installation_id: str | None) -> GitHubIntegration:
+def missing_prerequisites(team: Team, repository: str, *, needs_agent: bool) -> list[MissingPrerequisite]:
+    flags = [WRITER_FLAG, OPEN_PULL_REQUESTS_FLAG, *([AGENT_LAUNCH_FLAG] if needs_agent else [])]
+    missing = [*missing_writer_environment(team, repository), *missing_flags(team, flags)]
+    temporal_problem = temporal_worker_problem()
+    if temporal_problem:
+        missing.append(temporal_problem)
+    if needs_agent:
+        missing += missing_agent_services()
+    return missing
+
+
+def missing_writer_environment(team: Team, repository: str) -> list[MissingPrerequisite]:
+    expected = {
+        "KNOWLEDGE_WRITER_TEAM_ID": str(team.id),
+        "KNOWLEDGE_WRITER_DOCS_REPOSITORY": repository,
+    }
+    missing = [
+        MissingPrerequisite(name=name, fix=f"export {name}={value}")
+        for name, value in expected.items()
+        if os.environ.get(name, "").lower() != value.lower()
+    ]
+    if not os.environ.get("KNOWLEDGE_WRITER_USER_ID", "").isdigit():
+        missing.append(
+            MissingPrerequisite(
+                name="KNOWLEDGE_WRITER_USER_ID", fix="export KNOWLEDGE_WRITER_USER_ID=<id of a user in the team>"
+            )
+        )
+    return missing
+
+
+def missing_flags(team: Team, flags: list[str]) -> list[MissingPrerequisite]:
+    states = {flag: team_flag_state(flag, team) for flag in flags}
+    if all(state is None for state in states.values()):
+        return [
+            MissingPrerequisite(
+                name="feature flags",
+                fix=f"run bin/start-rust-service feature-flags, then create {', '.join(flags)} at 100% for team {team.id}",
+            )
+        ]
+    return [
+        MissingPrerequisite(name=f"{flag} flag", fix=f"create it if missing and turn it on at 100% for team {team.id}")
+        for flag, state in states.items()
+        if state is not True
+    ]
+
+
+def temporal_worker_problem() -> MissingPrerequisite | None:
+    try:
+        pollers = asyncio.run(asyncio.wait_for(task_queue_pollers(), PROBE_TIMEOUT_SECONDS))
+    except (RPCError, OSError, RuntimeError, TimeoutError) as error:
+        return MissingPrerequisite(
+            name="Temporal server",
+            fix=f"start the temporal docker compose profile ({error.__class__.__name__}: {error})",
+        )
+    if pollers == 0:
+        return MissingPrerequisite(
+            name=f"Temporal worker on {settings.VIDEO_EXPORT_TASK_QUEUE}",
+            fix=f"python manage.py start_temporal_worker --task-queue {settings.VIDEO_EXPORT_TASK_QUEUE}",
+        )
+    return None
+
+
+async def task_queue_pollers() -> int:
+    client = await async_connect()
+    described = await client.workflow_service.describe_task_queue(
+        DescribeTaskQueueRequest(
+            namespace=client.namespace,
+            task_queue=TaskQueue(name=settings.VIDEO_EXPORT_TASK_QUEUE),
+            task_queue_type=TaskQueueType.TASK_QUEUE_TYPE_WORKFLOW,
+        )
+    )
+    return len(described.pollers)
+
+
+def missing_agent_services() -> list[MissingPrerequisite]:
+    missing: list[MissingPrerequisite] = []
+    try:
+        requests.get(LOCAL_LLM_GATEWAY_LIVENESS_URL, timeout=PROBE_TIMEOUT_SECONDS).raise_for_status()
+    except requests.RequestException as error:
+        missing.append(
+            MissingPrerequisite(
+                name="LLM gateway",
+                fix=f"run bin/start-llm-gateway with LLM_GATEWAY_DEBUG=true ({error.__class__.__name__})",
+            )
+        )
+    if not os.environ.get("CODER"):
+        return missing
+    missing += [
+        MissingPrerequisite(name=name, fix=f"export {name}={url} for every process on a Coder workspace")
+        for name, url in LOCAL_SANDBOX_URLS.items()
+        if os.environ.get(name) != url
+    ]
+    return missing
+
+
+def connected_github(team_id: int, repository: str, installation_id: str | None) -> GitHubIntegration | None:
     owner = repository.split("/", 1)[0]
     github = docs_github(team_id, owner, priority=Priority.CRITICAL)
-    if github is None and installation_id:
+    if github is not None or not installation_id:
+        return github
+    try:
         GitHubIntegration.integration_from_installation_id(installation_id, team_id)
-        github = docs_github(team_id, owner, priority=Priority.CRITICAL)
-    if github is None:
-        raise CommandError(f"Team {team_id} has no GitHub integration for {owner}; pass --installation-id")
-    return github
+    except (*GITHUB_FAILURES, GitHubInstallationAccessFetchError):
+        return None
+    return docs_github(team_id, owner, priority=Priority.CRITICAL)
+
+
+def task_run_link(team_id: int, task_id: UUID) -> str:
+    return absolute_uri(f"/project/{team_id}/tasks/{task_id}")
+
+
+def temporal_workflow_link(workflow_id: str) -> str:
+    return (
+        f"{settings.TEMPORAL_UI_HOST.rstrip('/')}/namespaces/{quote(settings.TEMPORAL_NAMESPACE, safe='')}"
+        f"/workflows/{quote(workflow_id, safe='')}"
+    )
 
 
 def run_scratch_request(
-    github: GitHubIntegration, writer: WriterSettings, team: Team, section: str, smoke_id: str, branches: list[str]
+    github: GitHubIntegration,
+    writer: WriterSettings,
+    team: Team,
+    section: str,
+    smoke_id: str,
+    branches: list[str],
+    announce: Callable[[str], object],
 ) -> WriterPullRequest:
     request = smoke_request(section, unreachable_source(writer.user_id), smoke_id)
     routing = route_request(request, team_id=team.id, github=source_repository_github(team.id))
@@ -165,7 +316,7 @@ def run_scratch_request(
         )
         tasks_facade.update_task_run(run_id, task_id, team.id, validated_data={"status": "completed"})
     deadline = time.monotonic() + SCRATCH_PUBLISH_TIMEOUT_SECONDS
-    return wait_for_pull_request(task_id, team.id, deadline)
+    return wait_for_pull_request(task_id, team.id, deadline, announce)
 
 
 def merged_source(github: GitHubIntegration, source_url: str, requested_by_user_id: int) -> DocsCommandRequest:
@@ -233,6 +384,7 @@ def run_agent_request(
     smoke_id: str,
     timeout_minutes: int,
     branches: list[str],
+    announce: Callable[[str], object],
 ) -> WriterPullRequest:
     source = merged_source(github, source_url, writer.user_id)
     async_to_sync(initialize_self_capture_api_token)()
@@ -250,19 +402,28 @@ def run_agent_request(
     head_branch = tasks_facade.read_task_state_entry(outcome.task_id, team.id, HEAD_BRANCH_STATE_KEY)
     if isinstance(head_branch, str):
         branches.append(head_branch)
-    return wait_for_pull_request(outcome.task_id, team.id, deadline)
+    return wait_for_pull_request(outcome.task_id, team.id, deadline, announce)
 
 
-def wait_for_pull_request(task_id: UUID, team_id: int, deadline: float) -> WriterPullRequest:
+def wait_for_pull_request(
+    task_id: UUID, team_id: int, deadline: float, announce: Callable[[str], object]
+) -> WriterPullRequest:
+    announce(f"task: {task_run_link(team_id, task_id)}")
+    announced_run_ids: set[UUID] = set()
     failure: object = None
     while time.monotonic() < deadline:
         stored = tasks_facade.read_task_state_entry(task_id, team_id, PULL_REQUEST_STATE_KEY)
         if isinstance(stored, dict):
-            return pull_request_json.validate_python(stored)
+            opened = pull_request_json.validate_python(stored)
+            announce(f"docs pull request: {opened.url}")
+            return opened
         failure = tasks_facade.read_task_state_entry(task_id, team_id, PULL_REQUEST_FAILURE_STATE_KEY)
         if isinstance(failure, str):
             raise CommandError(f"Task {task_id} could not open its docs pull request: {failure}")
         for run_id in tasks_facade.list_task_run_ids(task_id, team_id):
+            if run_id not in announced_run_ids:
+                announced_run_ids.add(run_id)
+                announce(f"publish workflow: {temporal_workflow_link(publish_workflow_id(run_id))}")
             run = tasks_facade.get_task_run(run_id, team_id)
             if run is None:
                 continue
