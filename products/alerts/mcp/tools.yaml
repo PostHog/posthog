@@ -104,8 +104,8 @@ tools:
             Post this insight alert to a Slack channel as well as emailing its subscribed users. The Slack workspace
             must already be connected to the project — list the workspaces and their channels with
             integrations-channels-retrieve. An alert can have up to 5 destinations. The returned id identifies the
-            destination; pass it in destination_ids to alert-destinations-delete to remove it. When id is null, pass
-            the returned hog_function_ids instead.
+            destination; pass it in destination_ids to alert-destinations-delete to remove it. When id is null, pass the
+            returned hog_function_ids instead.
         param_overrides:
             type:
                 description: Destination type. Slack is the only type this tool creates.
