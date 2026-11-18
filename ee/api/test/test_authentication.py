@@ -1,6 +1,8 @@
 import os
+import re
 import json
 import uuid
+import smtplib
 import datetime
 from hashlib import sha256
 from types import SimpleNamespace
@@ -480,8 +482,18 @@ class TestOIDCAuthentication(APILicensedTest):
         self.assertFalse(UserSocialAuth.objects.filter(user=password_user).exists())
         self.assertFalse(IdentityProviderEmailVerification.objects.filter(user=password_user).exists())
 
+    @parameterized.expand(
+        [
+            ("accepted", None),
+            ("zero_accepted", 0),
+            ("connection_lost", smtplib.SMTPServerDisconnected("example relay disconnected")),
+            ("authentication_failed", smtplib.SMTPAuthenticationError(535, b"example credentials rejected")),
+        ]
+    )
     @pytest.mark.disable_mock_code_based_verifier
-    def test_idp_login_delivers_a_code_over_smtp_despite_password_exemptions(self) -> None:
+    def test_idp_login_delivers_a_code_over_smtp_despite_password_exemptions(
+        self, _name: str, failure: int | Exception | None
+    ) -> None:
         self.user.email = "member@example.com"
         self.user.save()
         self.client.logout()
@@ -493,12 +505,35 @@ class TestOIDCAuthentication(APILicensedTest):
             patch("posthog.helpers.two_factor_session.is_dev_mode", return_value=True),
             patch("posthog.helpers.two_factor_session.is_email_code_exempt", return_value=True),
             patch("posthog.email.is_http_email_service_available", return_value=False),
+            time_machine.travel("2026-01-10T12:00:00Z", tick=False) as clock,
         ):
+            if failure is not None:
+                with patch(
+                    "django.core.mail.backends.locmem.EmailBackend.send_messages",
+                    **({"side_effect": failure} if isinstance(failure, Exception) else {"return_value": failure}),
+                ):
+                    response = self._complete_oidc_login("member@example.com")
+                self.assertEqual(
+                    parse_qs(urlparse(response["Location"]).query)["error_code"], ["sso_verification_email_failed"]
+                )
+                self.assertNotIn("code_based_verification_pending_user_id", self.client.session)
+                self.assertEqual(len(mail.outbox), 0)
+                clock.shift(datetime.timedelta(seconds=61))
+                self.client = APIClient()
             response = self._complete_oidc_login("member@example.com")
-        self.assertIn("code_verification_pending=1", response["Location"])
-        self.assertNotIn("_auth_user_id", self.client.session)
-        self.assertEqual(mail.outbox[-1].to, ["member@example.com"])
-        self.assertIn("Your PostHog login code", mail.outbox[-1].subject)
+            self.assertIn("code_verification_pending=1", response["Location"])
+            self.assertNotIn("_auth_user_id", self.client.session)
+            self.assertEqual(mail.outbox[-1].to, ["member@example.com"])
+            self.assertIn("Your PostHog login code", mail.outbox[-1].subject)
+            message = mail.outbox[-1]
+            assert isinstance(message, mail.EmailMultiAlternatives)
+            html_body = message.alternatives[0][0]
+            assert isinstance(html_body, str)
+            code = re.search(r">(\d{6})</p>", html_body)
+            assert code is not None
+            response = self.client.post("/api/login/code-based-verification/", {"code": code.group(1), "email": ""})
+            self.assertEqual(response.status_code, 200, response.content)
+            self.assertEqual(self.client.session["_auth_user_id"], str(self.user.pk))
 
     @pytest.mark.disable_mock_code_based_verifier
     def test_linked_idp_session_can_reauthenticate_without_a_mailbox_proof_row(self) -> None:

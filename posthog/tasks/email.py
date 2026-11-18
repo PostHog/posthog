@@ -28,6 +28,7 @@ from posthog.email import (
     get_email_team_and_org_context,
     is_email_available,
     is_http_email_service_available,
+    raise_if_delivery_rejected,
     single_line,
 )
 from posthog.event_usage import groups
@@ -626,6 +627,8 @@ def send_code_based_verification(user_id: int, code: str, to_email: str | None =
     message.add_user_recipient(user, email_override=to_email)
     if message.send(send_async=False):
         raise EmailRecipientUndeliverableError("the login code email was refused as undeliverable")
+    if to_email is not None:
+        raise_if_delivery_rejected(message.campaign_key, to_email)
     posthoganalytics.capture(
         distinct_id=str(user.distinct_id),
         event="login verification code sent",
