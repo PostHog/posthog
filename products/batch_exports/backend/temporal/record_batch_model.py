@@ -20,8 +20,6 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_write_only_logger
 
-from products.batch_exports.backend.custom_events_schema import recompile_stored_schema
-from products.batch_exports.backend.events_table import batch_exports_read_new_events_table
 from products.batch_exports.backend.hogql_source import (
     DATA_INTERVAL_END_PLACEHOLDER,
     UnsupportedHogQLQueryError,
@@ -479,8 +477,5 @@ def resolve_batch_exports_model(
                 user_id=model.user_id,
                 hogql_modifiers=model.modifiers,
             )
-
-    if schema is not None and (query := schema.get("hogql_query")) and batch_exports_read_new_events_table(team_id):
-        fields, extra_query_parameters = recompile_stored_schema(team_id, schema, query)
 
     return model, record_batch_model, model_name, fields, filters, extra_query_parameters

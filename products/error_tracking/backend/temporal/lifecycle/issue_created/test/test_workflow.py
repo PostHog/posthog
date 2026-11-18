@@ -20,7 +20,7 @@ from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
 
-from products.error_tracking.backend.logic.severity_inference import SEVERITY_INFERENCE_MODEL, build_severity_state
+from products.error_tracking.backend.logic.severity_inference import SEVERITY_INFERENCE_MODEL, build_exception_state
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.types import (
     AutoMergeReopenedTarget,
     FingerprintEmbeddingMergeResult,
@@ -130,7 +130,7 @@ def test_decode_token_prefix_does_not_emit_replacement_characters() -> None:
     ],
 )
 def test_severity_state(properties: dict[str, object], expected: str) -> None:
-    assert build_severity_state("TypeError: boom\n", properties) == expected
+    assert build_exception_state("TypeError: boom\n", properties) == expected
 
 
 def test_stacktrace_rendering_matches_cymbal_embedding_content() -> None:

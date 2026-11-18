@@ -24,7 +24,7 @@ def test_a_code_check_keeps_its_title_and_reports_counts_from_its_sample(
 ) -> None:
     text = cards.code_check_text(adapters.unrecovered_errors([]), failed, of, segment)
 
-    assert text.headline == "Unrecovered tool or model failures"
+    assert text.headline == "Tool or model calls that never succeed"
     assert text.outcome.startswith(opening)
     assert (text.observation, text.observation_scope) == (observation, "Sampled from the last 7 days")
 
@@ -123,7 +123,7 @@ def test_one_outcome_card_advice_fits_the_eval_type(_name: str, evaluation_type:
             None,
             "No recent events match this eval",
             "No AI events from the last 14 days match this eval's filters. "
-            "Review its filters and recent traffic to check whether this is expected.",
+            "If you still expect traffic, check its filters.",
         ),
         (
             "no_condition_sets",

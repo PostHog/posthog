@@ -1,9 +1,11 @@
 import { type ReactNode } from 'react'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonDivider, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import type { LemonSelectOptionLeaf } from 'lib/lemon-ui/LemonSelect'
 import { Link } from 'lib/lemon-ui/Link'
 import { fullNameOrEmail } from 'lib/utils/strings'
 
@@ -12,10 +14,13 @@ import type { ReportPriorityApi } from 'products/signals/frontend/generated/api.
 import { PRIORITY_MEANING, PRIORITY_TAG_TYPE } from '../../filterOptions'
 import { SignalReport } from '../../types'
 import { reportClaimant } from '../../utils/reportClaim'
+import type { ReportDecisionAttributions } from '../../utils/reportDecisions'
 import { parsePrUrlParts, safeHttpUrl } from '../../utils/reportPresentation'
 import { ReportPullRequest, reportPullRequests } from '../../utils/reportPullRequests'
 import { STATUS_LABELS } from '../badges/SignalReportStatusBadge'
 import { DetailSection } from './DetailSection'
+import { ReportDecisionRow } from './ReportDecisionRow'
+import { ReportRepositoryDecisionRow } from './ReportRepositoryDecisionRow'
 
 const PULL_REQUEST_STATES: Record<ReportPullRequest['state'], string> = {
     unknown: 'Status unavailable',
@@ -24,6 +29,21 @@ const PULL_REQUEST_STATES: Record<ReportPullRequest['state'], string> = {
     closed: 'Closed',
     merged: 'Merged',
 }
+
+const PRIORITY_OPTIONS: LemonSelectOptionLeaf<ReportPriorityApi>[] = Object.entries(PRIORITY_MEANING).map(
+    ([priority, { label }]) => ({
+        value: priority as ReportPriorityApi,
+        label: `${priority} · ${label}`,
+        labelInMenu: (
+            <span className="flex items-center gap-2">
+                <LemonTag type={PRIORITY_TAG_TYPE[priority as ReportPriorityApi]} size="small">
+                    {priority}
+                </LemonTag>
+                <span className="text-default">{label}</span>
+            </span>
+        ),
+    })
+)
 
 const REVIEW_DECISIONS: Record<NonNullable<ReportPullRequest['review_decision']>, string> = {
     approved: 'Approved',
@@ -57,12 +77,20 @@ export function ReportStatusSection({
     rightSlot,
     onPriorityChange,
     prioritySaving = false,
+    onRepositoryChange,
+    repositorySaving = false,
+    decisionAttributions = null,
 }: {
     report: SignalReport
     rightSlot?: ReactNode
     onPriorityChange?: (priority: ReportPriorityApi) => void
     prioritySaving?: boolean
+    onRepositoryChange?: (repository: string) => void
+    repositorySaving?: boolean
+    /** Null before the report's detail loads. */
+    decisionAttributions?: ReportDecisionAttributions | null
 }): JSX.Element {
+    const editableDecisions = useFeatureFlag('INBOX_REPORT_EDITABLE_DECISIONS')
     const externalClaim = externalClaimLabel(report)
     const pullRequests = reportPullRequests(report)
     const trackerUrl = safeHttpUrl(report.tracker_issue_url ?? '')
@@ -70,9 +98,33 @@ export function ReportStatusSection({
     return (
         <DetailSection icon={<IconInfo />} title="Status" rightSlot={rightSlot} collapsible>
             <dl className="m-0 flex flex-col gap-2">
+                {editableDecisions && (report.repo_slug || report.priority) && (
+                    <>
+                        {report.repo_slug && (
+                            <ReportRepositoryDecisionRow
+                                repository={report.repo_slug}
+                                attribution={decisionAttributions?.repository ?? null}
+                                onChange={onRepositoryChange}
+                                saving={repositorySaving}
+                            />
+                        )}
+                        {report.priority && (
+                            <ReportDecisionRow<ReportPriorityApi>
+                                label="Priority"
+                                value={report.priority}
+                                attribution={decisionAttributions?.priority ?? null}
+                                options={PRIORITY_OPTIONS}
+                                onChange={onPriorityChange}
+                                saving={prioritySaving}
+                                data-attr="report-priority-select"
+                            />
+                        )}
+                        <LemonDivider className="my-0" />
+                    </>
+                )}
                 <StatusRow label="Report status">{STATUS_LABELS[report.status] ?? report.status}</StatusRow>
                 {externalClaim && <StatusRow label="In progress by">{externalClaim}</StatusRow>}
-                {report.priority && (
+                {!editableDecisions && report.priority && (
                     <StatusRow label="Priority">
                         {onPriorityChange ? (
                             <LemonSelect<ReportPriorityApi>
@@ -87,21 +139,7 @@ export function ReportStatusSection({
                                 dropdownPlacement="bottom-end"
                                 dropdownMatchSelectWidth={false}
                                 menu={{ className: 'w-56' }}
-                                options={Object.entries(PRIORITY_MEANING).map(([priority, { label }]) => ({
-                                    value: priority as ReportPriorityApi,
-                                    label: `${priority} · ${label}`,
-                                    labelInMenu: (
-                                        <span className="flex items-center gap-2">
-                                            <LemonTag
-                                                type={PRIORITY_TAG_TYPE[priority as ReportPriorityApi]}
-                                                size="small"
-                                            >
-                                                {priority}
-                                            </LemonTag>
-                                            <span className="text-default">{label}</span>
-                                        </span>
-                                    ),
-                                }))}
+                                options={PRIORITY_OPTIONS}
                                 renderButtonContent={() => (
                                     <span className="text-default text-xs font-normal">{report.priority}</span>
                                 )}

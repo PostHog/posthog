@@ -20,7 +20,11 @@ from products.signals.backend.facade.github import (
     update_pull_request_assignments,
 )
 from products.tasks.backend.constants import PR_LOOP_ENABLED_STATE_KEY
-from products.tasks.backend.facade.api import post_pr_created_thread_update, signal_workflow_completion
+from products.tasks.backend.facade.api import (
+    _post_slack_update_for_pr,
+    post_pr_created_thread_update,
+    signal_workflow_completion,
+)
 from products.tasks.backend.facade.cancellation import cancel_task_run
 from products.tasks.backend.metrics import observe_github_webhook_task_lookup, observe_github_webhook_task_run_lookup
 from products.tasks.backend.models import Task, TaskRun
@@ -355,6 +359,8 @@ def handle_pull_request_event(payload: dict) -> None:
     )
     if task_run is not None and is_internal_branch:
         _record_run_pr_url(task_run, pr_url)
+        if action == "opened":
+            transaction.on_commit(lambda: _post_slack_update_for_pr(task_run, pr_url=pr_url, report_threads_only=True))
 
     # After the backstop on purpose: a just-backfilled pr_url means the run now
     # claims this PR. Gated on the run's *primary* PR — output.pr_state describes
