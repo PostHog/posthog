@@ -3228,6 +3228,11 @@ class TaskRun(models.Model):
         self.last_heartbeat_at = heartbeat_at
         self.agent_status = TaskRun.AgentStatus.BUSY
 
+    def record_client_heartbeat(self) -> None:
+        heartbeat_at = django_timezone.now()
+        TaskRun.objects.filter(pk=self.pk, team_id=self.team_id).update(last_heartbeat_at=heartbeat_at)
+        self.last_heartbeat_at = heartbeat_at
+
     def heartbeat_workflow(self, agent_active: bool = False, *, force: bool = False) -> None:
         if not agent_active:
             return
