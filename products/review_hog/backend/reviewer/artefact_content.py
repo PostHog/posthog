@@ -17,7 +17,12 @@ from typing import Any, Literal, cast
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
-from products.review_hog.backend.facade.contracts import ReviewIssueCategory
+from products.review_hog.backend.facade.contracts import (
+    FindingOutcome,
+    FindingOutcomeMethod,
+    FindingReactionSentiment,
+    ReviewIssueCategory,
+)
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import (
     DropDisposition,
@@ -142,24 +147,19 @@ class FindingOutcomeArtefact(BaseModel):
 
     issue_key: str = Field(description="The `ReviewIssueFinding.issue_key` this outcome rules on.")
     run_index: int = Field(description="The review turn whose published head was compared against the merge.")
-    outcome: Literal["addressed", "reacted", "ignored"] = Field(description="The finding's classified fate.")
-    method: Literal[
-        "judge_confirmed",
-        "judge_rejected",
-        "comment_reply",
-        # A reply from an agent other than ReviewHog itself. Engagement like `comment_reply`, kept
-        # apart so "a human responded" stays answerable as agents take over more of the replying.
-        "comment_reply_agent",
-        "comment_reaction",
-        "no_signal",
-        # A line-proximity candidate the judge never ruled on: the report exhausted its per-report
-        # judge budget. Counts as `ignored` like `no_signal` (no evidence it was addressed), but is
-        # named apart so consumers can tell "nothing touched it" from "we did not look".
-        "judge_budget_exhausted",
-        # The judge was asked and errored. Also `ignored`, and also named apart: a rate of these is
-        # a health signal about the judge, not about how the PR's authors respond to review.
-        "judge_failed",
-    ] = Field(description="Which signal decided the outcome.")
+    outcome: FindingOutcome = Field(description="The finding's classified fate.")
+    method: FindingOutcomeMethod = Field(description="Which signal decided the outcome.")
+    reaction_sentiment: FindingReactionSentiment | None = Field(
+        default=None,
+        description="The tone of the reactions people and other agents left on the finding's comment, or None without one.",
+    )
+    reply_excerpt: str | None = Field(
+        default=None, description="The start of the first reply to the finding's comment that ReviewHog did not write."
+    )
+    comment_outdated: bool | None = Field(
+        default=None,
+        description="Whether GitHub marked the finding's comment outdated at merge, or None when no comment matched.",
+    )
     reviewed_head: str = Field(description="The head the finding was published at (the compare base).")
     final_head: str = Field(description="The PR branch tip at merge (the compare head).")
     judge_reasoning: str | None = Field(

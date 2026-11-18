@@ -223,6 +223,25 @@ describe('dataQualityCheckEditorLogic', () => {
         expect(performQuery).not.toHaveBeenCalled()
     })
 
+    it.each<[string, CheckTypeEnumApi, string]>([
+        [
+            'keeps the query when the current type is picked again',
+            CheckTypeEnumApi.CustomSql,
+            'SELECT * FROM {metric} WHERE x',
+        ],
+        ['clears the query when another type is picked', CheckTypeEnumApi.RowCount, ''],
+    ])('%s', async (_, checkType, expectedSql) => {
+        await mountLogic()
+        logic.actions.openEditor(null, { subjectType: 'metric', subjectId: 'metric-1' })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setCheckFormValue('customSql', 'SELECT * FROM {metric} WHERE x')
+
+        logic.actions.setCheckType(checkType)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.checkForm).toMatchObject({ checkType, customSql: expectedSql })
+    })
+
     it('offers HogQL metrics in the overview and pre-fills the metric query after selection', async () => {
         ;(dataQualityChecksCheckTypesList as jest.Mock).mockResolvedValue(
             CHECK_TYPE_CATALOG.filter((type) => type.check_type === 'custom_sql')

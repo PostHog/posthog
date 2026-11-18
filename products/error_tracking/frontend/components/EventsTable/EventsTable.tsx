@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 
 import { Link } from '@posthog/lemon-ui'
 
+import { ExceptionMessage } from 'lib/components/Errors/ExceptionMessage'
 import { ErrorEventType } from 'lib/components/Errors/types'
 import { getExceptionTypeAndValue, getRuntimeFromLib } from 'lib/components/Errors/utils'
 import type { TimelineMarkerColor } from 'lib/components/SessionTimeline/SessionTimeline'
@@ -175,7 +176,7 @@ function EventTitle({ record }: { record: ErrorEventType }): JSX.Element {
                 {type ?? <span className="italic text-muted-foreground">Unknown</span>}
             </div>
             <div className="col-span-2 min-w-0 truncate text-xs text-muted-foreground">
-                {value ?? <span className="italic">No message</span>}
+                {value ? <ExceptionMessage value={value} /> : <span className="italic">No message</span>}
             </div>
         </div>
     )

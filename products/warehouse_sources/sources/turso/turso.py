@@ -8,6 +8,7 @@ from requests.exceptions import HTTPError
 from products.warehouse_sources.sources.sdk import (
     ClientConfig,
     Endpoint,
+    EndpointResource,
     RESTAPIConfig,
     ResumableSourceManager,
     SourceInputs,
@@ -39,6 +40,15 @@ def validate_organization(organization: str) -> None:
 
 def _encode_database_name(row: dict[str, Any]) -> dict[str, Any]:
     return {**row, "encoded_name": quote(row["Name"], safe="")}
+
+
+def _location_rows(locations: dict[str, Any]) -> list[dict[str, Any]]:
+    return [{"code": code, "name": name} for code, name in locations.items()]
+
+
+DATA_MAPS: dict[str, Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]] = {
+    "locations": _location_rows,
+}
 
 
 def get_resource(
@@ -81,10 +91,10 @@ def get_resource(
             parent_endpoint_extra={"data_selector": parent.data_selector, "data_selector_required": True},
             child_endpoint_extra={"data_selector": settings.data_selector, "data_selector_required": True},
         )
-    rest_config: RESTAPIConfig = {
-        "client": client,
-        "resources": [{"name": endpoint, "endpoint": endpoint_config, "write_disposition": "replace"}],
-    }
+    resource: EndpointResource = {"name": endpoint, "endpoint": endpoint_config, "write_disposition": "replace"}
+    if endpoint in DATA_MAPS:
+        resource["data_map"] = DATA_MAPS[endpoint]
+    rest_config: RESTAPIConfig = {"client": client, "resources": [resource]}
     return rest_api_resource(
         rest_config,
         team_id,

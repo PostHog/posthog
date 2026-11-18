@@ -13,6 +13,30 @@
             "maximum": 90,
             "minimum": 1,
             "type": "number"
+        },
+        "engine": {
+            "anyOf": [
+                {
+                    "maxLength": 64,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine."
+        },
+        "topic": {
+            "anyOf": [
+                {
+                    "maxLength": 200,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Only count checks that ran with this prompt topic. A prompt moved to another topic keeps its past checks under the old one. An empty value counts the checks of prompts that had no topic. Omit to count every topic."
         }
     },
     "type": "object"

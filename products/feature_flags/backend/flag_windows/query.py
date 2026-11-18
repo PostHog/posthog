@@ -67,7 +67,7 @@ from posthog.dataclasses import frozen
 from posthog.errors import InternalCHQueryError
 from posthog.models import Team
 
-from products.feature_flags.backend.facade.flags import flag_calls_only_in_flag_evaluations
+from products.feature_flags.backend.facade.flag_calls import FlagCalls
 from products.feature_flags.backend.person_sampling import SPILL_GROUP_BY_AFTER_BYTES
 from products.feature_flags.backend.user_blast_radius import (
     replace_proxy_properties,
@@ -143,6 +143,13 @@ class FlagRead:
     # The person (or group) is in a watched condition, by each way of matching. Empty without watched conditions.
     in_condition: Mapping[ConditionMatch, ast.Expr] = field(default_factory=dict)
 
+    @property
+    def unexposed(self) -> ast.Expr:
+        """The event carries the value false, or loaded flags without this one when the edit enables the flag."""
+        return parse_expr(
+            "{with_flag} AND NOT {exposed}", placeholders={"with_flag": self.with_flag, "exposed": self.exposed}
+        )
+
     def has_variant(self, variant: str) -> ast.Expr:
         return parse_expr(
             "{variant_key} = {variant}",
@@ -181,22 +188,22 @@ class EditCounts:
 
 
 @frozen
-class _Actor:
+class Actor:
     # The person, or the group that a group flag aggregates by.
     expr: ast.Expr
     # The event has the actor. A group flag needs the group on the event.
     present: ast.Expr
 
 
-def _actor(group_type_index: int | None) -> _Actor:
+def actor_of(group_type_index: int | None) -> Actor:
     if group_type_index is None:
-        return _Actor(expr=ast.Field(chain=["person_id"]), present=ast.Constant(value=True))
+        return Actor(expr=ast.Field(chain=["person_id"]), present=ast.Constant(value=True))
     actor = ast.Field(chain=[f"$group_{group_type_index}"])
-    return _Actor(expr=actor, present=parse_expr("notEmpty({actor})", placeholders={"actor": actor}))
+    return Actor(expr=actor, present=parse_expr("notEmpty({actor})", placeholders={"actor": actor}))
 
 
 def read_flag(edit: WatchedEdit, in_condition: Mapping[ConditionMatch, ast.Expr]) -> FlagRead:
-    actor = _actor(edit.group_type_index)
+    actor = actor_of(edit.group_type_index)
     # A flag key can hold any character, so it goes in as an AST node, never as HogQL text.
     property_name = f"$feature/{edit.flag_key}"
     flag_value = ast.Call(name="toString", args=[ast.Field(chain=["properties", property_name])])
@@ -295,44 +302,6 @@ def _matches_condition(team: Team, condition: WatchedCondition, end: datetime) -
     )
 
 
-@frozen
-class _FlagCalls:
-    """Where the reason joins and the last values read the flag calls of a team."""
-
-    table: tuple[str, ...]
-    # Limits the rows to flag calls.
-    only_calls: ast.Expr
-    flag_key: ast.Expr
-    response: ast.Expr
-    # The stored person id. The events read it too, because the query doesn't apply person merges.
-    person_id: ast.Expr
-
-    @classmethod
-    def of(cls, team: Team) -> "_FlagCalls":
-        # Ingestion writes no flag calls to events for some teams of an organization on FLAG_EVALUATIONS_ONLY, and the
-        # native JSON events table holds none. The flag_evaluations swap can't move this scan, because there
-        # `person_id` applies person merges. So the scan reads `flag_evaluations` by name. Otherwise events holds every
-        # flag call, and flag_evaluations only those of the teams that ingestion writes there.
-        if not flag_calls_only_in_flag_evaluations(team):
-            return cls(
-                table=("events",),
-                only_calls=parse_expr("event = '$feature_flag_called'"),
-                flag_key=parse_expr("properties.$feature_flag"),
-                response=parse_expr("toString(properties.$feature_flag_response)"),
-                person_id=ast.Field(chain=["person_id"]),
-            )
-        return cls(
-            table=("posthog", "flag_evaluations"),
-            only_calls=ast.Constant(value=True),
-            flag_key=ast.Field(chain=["flag_key"]),
-            response=ast.Field(chain=["response"]),
-            person_id=ast.Field(chain=["flag_evaluation_person_id"]),
-        )
-
-    def actor_column(self, group_type_index: int | None) -> ast.Expr:
-        return self.person_id if group_type_index is None else _actor(group_type_index).expr
-
-
 def _edits_by_actor(edits: Sequence[WatchedEdit]) -> dict[int | None, list[tuple[int, WatchedEdit]]]:
     """The edits with their position in `edits`, by the group type that their flag aggregates by."""
     by_actor: dict[int | None, list[tuple[int, WatchedEdit]]] = {}
@@ -341,7 +310,7 @@ def _edits_by_actor(edits: Sequence[WatchedEdit]) -> dict[int | None, list[tuple
     return by_actor
 
 
-def _join_by_actor(table: ast.SelectQuery, alias: str, actor: _Actor) -> ast.JoinExpr:
+def _join_by_actor(table: ast.SelectQuery, alias: str, actor: Actor) -> ast.JoinExpr:
     return ast.JoinExpr(
         join_type="LEFT JOIN",
         table=table,
@@ -369,12 +338,12 @@ def _reason_joins(
     }
     if not edits_by_actor:
         return [], {}
-    calls = _FlagCalls.of(team)
+    calls = FlagCalls.of(team)
     joins: list[ast.JoinExpr] = []
     columns: dict[str, ast.Expr] = {}
     for group_type_index, watched in edits_by_actor.items():
         alias = "flag_reasons" if group_type_index is None else f"flag_reasons_{group_type_index}"
-        actor = _actor(group_type_index)
+        actor = actor_of(group_type_index)
         reasons_by_edit = {edit.id: _watched_reasons(edit) for _, edit in watched}
         subquery = ast.SelectQuery(
             select=[
@@ -431,7 +400,7 @@ def _watched_reasons(edit: WatchedEdit) -> list[str]:
     return reasons
 
 
-def _called_with_watched_reason(edit: WatchedEdit, calls: _FlagCalls, reasons: Sequence[str]) -> ast.Expr:
+def _called_with_watched_reason(edit: WatchedEdit, calls: FlagCalls, reasons: Sequence[str]) -> ast.Expr:
     return parse_expr(
         """
         max(
@@ -457,12 +426,12 @@ def last_values(
     edits_by_actor = _edits_by_actor(edits)
     if not edits_by_actor:
         return LastValues(joins=(), by_edit={})
-    calls = _FlagCalls.of(team)
+    calls = FlagCalls.of(team)
     joins: list[ast.JoinExpr] = []
     by_edit: dict[str, LastValue] = {}
     for group_type_index, watched in edits_by_actor.items():
         alias = "flag_last_values" if group_type_index is None else f"flag_last_values_{group_type_index}"
-        actor = _actor(group_type_index)
+        actor = actor_of(group_type_index)
         # Events before an edit carry the old value, so no edit reads a value from before it.
         since = max(start - LAST_VALUE_LOOKBACK, min(edit.edited_at for _, edit in watched))
         counted_actors = ast.SelectQuery(
@@ -542,7 +511,7 @@ def last_values(
     return LastValues(joins=tuple(joins), by_edit=by_edit)
 
 
-def _call_carries(edit: WatchedEdit, calls: _FlagCalls) -> ast.Expr:
+def _call_carries(edit: WatchedEdit, calls: FlagCalls) -> ast.Expr:
     if {"true", "false"} & set(edit.variants):
         # A flag call's response is text, so a variant named "true" or "false" reads the same as a boolean value.
         return ast.Constant(value=False)
@@ -679,6 +648,37 @@ def _states(index: int, edit: WatchedEdit, read: FlagRead, counts: Sequence[ast.
     ]
 
 
+def run_window_query(team: Team, query: ast.SelectQuery, query_type: str) -> list[Any]:
+    """The result rows of an observation window query, run with the settings that every window query shares."""
+    with tags_context(
+        product=Product.FEATURE_FLAGS,
+        feature=Feature.HEALTH_CHECK,
+        team_id=team.pk,
+        org_id=team.organization_id,
+    ):
+        response = execute_hogql_query(
+            query,
+            team=team,
+            query_type=query_type,
+            workload=Workload.OFFLINE,
+            # The join that applies person merges costs seconds on large teams and moves the counts by a tiny
+            # fraction, because a merge moves few people.
+            modifiers=HogQLQueryModifiers(
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+            ),
+            # A query that breaks on timeout returns partial counts, which would read as lower counts.
+            settings=HogQLGlobalSettings(
+                max_execution_time=QUERY_TIMEOUT_SECONDS,
+                max_threads=QUERY_MAX_THREADS,
+                timeout_overflow_mode="throw",
+                # The reason joins group the flag calls by actor. On a large team the aggregation goes to disk
+                # instead of failing the counts of every edit.
+                max_bytes_before_external_group_by=SPILL_GROUP_BY_AFTER_BYTES,
+            ),
+        )
+    return response.results or []
+
+
 @frozen
 class _BucketQuery:
     team: Team
@@ -739,35 +739,8 @@ class _BucketQuery:
             # One row per bucket. HogQL adds LIMIT 100 to a query without one.
             limit=ast.Constant(value=self.buckets),
         )
-        with tags_context(
-            product=Product.FEATURE_FLAGS,
-            feature=Feature.HEALTH_CHECK,
-            team_id=self.team.pk,
-            org_id=self.team.organization_id,
-        ):
-            response = execute_hogql_query(
-                query,
-                team=self.team,
-                query_type=self.query_type,
-                workload=Workload.OFFLINE,
-                # The join that applies person merges costs seconds on large teams and moves the counts by a tiny
-                # fraction, because a merge moves few people.
-                modifiers=HogQLQueryModifiers(
-                    personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
-                ),
-                # A query that breaks on timeout returns partial counts, which would read as lower counts.
-                settings=HogQLGlobalSettings(
-                    max_execution_time=QUERY_TIMEOUT_SECONDS,
-                    max_threads=QUERY_MAX_THREADS,
-                    timeout_overflow_mode="throw",
-                    # The reason joins group the flag calls by actor. On a large team the aggregation goes to disk
-                    # instead of failing the counts of every edit.
-                    max_bytes_before_external_group_by=SPILL_GROUP_BY_AFTER_BYTES,
-                ),
-            )
-
         rows_by_edit: dict[str, list[BucketCounts]] = {edit.id: [] for edit in self.edits}
-        for row in response.results or []:
+        for row in run_window_query(self.team, query, self.query_type):
             values = iter(row[1:])
             for edit, edit_states in zip(self.edits, states_by_edit):
                 # Each state gives the bucket's own value, then the value since the edit.

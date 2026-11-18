@@ -1,0 +1,9 @@
+{
+    "schema_version": 1,
+    "source_commit": null,
+    "digest": "e1f025304135",
+    "requirements": [
+        { "kind": "sqlx", "database": "persons", "versions": [20250923000001, 20251113000001] },
+        { "kind": "sqlx", "database": "behavioral-cohorts", "versions": [20250113000001] }
+    ]
+}

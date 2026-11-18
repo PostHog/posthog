@@ -1,7 +1,7 @@
 import { PostHog } from 'posthog-js'
 import { useEffect, useRef } from 'react'
 
-import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
+import { getToolbarRuntime } from 'lib/toolbar/toolbarRuntime'
 
 export function useScrollSync(enabled: boolean = true): {
     innerRef: React.RefObject<HTMLDivElement>
@@ -16,12 +16,7 @@ export function useScrollSync(enabled: boolean = true): {
             return
         }
 
-        let posthogInstance: PostHog | null = null
-        try {
-            posthogInstance = toolbarConfigLogic.values.posthog
-        } catch {
-            // toolbarConfigLogic not mounted — fall back to window.scrollY
-        }
+        const posthogInstance: PostHog | null = getToolbarRuntime()?.posthog() ?? null
 
         let rafId: number | undefined
         let lastScrollY = -1

@@ -11,6 +11,7 @@ from django.core.cache import cache
 
 import httpx
 import numpy as np
+import openai
 import anthropic
 from parameterized import parameterized
 
@@ -26,7 +27,12 @@ from products.alerts.backend.judge import (
     SeriesContext,
     SeriesJudgment,
 )
-from products.alerts.backend.judge.llm import LLM_DETECTOR_OUT_OF_CREDITS_MESSAGE, MAX_RATIONALE_CHARS, LLMSeriesJudge
+from products.alerts.backend.judge.llm import (
+    LLM_DETECTOR_OUT_OF_CREDITS_MESSAGE,
+    LLM_DETECTOR_UNKNOWN_MODEL_MESSAGE,
+    MAX_RATIONALE_CHARS,
+    LLMSeriesJudge,
+)
 from products.alerts.backend.judge.prompt import (
     INSTRUCTIONS_FENCE,
     MAX_EARLIER_RATIONALE_CHARS,
@@ -115,15 +121,26 @@ def _judge(
 
 
 class TestLLMJudgeVerdictMapping:
-    @parameterized.expand([("anomaly", True, "drop"), ("not_anomaly", False, "none")])
+    @parameterized.expand(
+        [
+            ("anomaly", True, "drop", {}, "claude-haiku-5-5"),
+            ("not_anomaly", False, "none", {"model": None}, "claude-haiku-5-5"),
+            ("chosen_model", True, "spike", {"model": "gpt-6-luna"}, "gpt-6-luna"),
+        ]
+    )
     def test_the_verdict_on_the_latest_point_is_the_fire_decision(
-        self, _name: str, is_anomaly: bool, kind: str
+        self, _name: str, is_anomaly: bool, kind: str, config: dict[str, Any], model: str
     ) -> None:
-        judgment = _judge(LLMSeriesJudge({"type": "llm"}), _verdict(is_anomaly=is_anomaly, kind=kind))
+        judgment = _judge(LLMSeriesJudge({"type": "llm", **config}), _verdict(is_anomaly=is_anomaly, kind=kind))
 
         assert judgment.fires is is_anomaly
-        assert judgment.model
-        assert judgment.persisted_metadata() == {"rationale": judgment.rationale, "kind": kind}
+        assert judgment.persisted_metadata() == {"rationale": judgment.rationale, "kind": kind, "model": model}
+
+    def test_the_model_writes_its_rationale_before_its_verdict(self) -> None:
+        fields = list(LLMDetectionVerdict.model_json_schema()["properties"])
+
+        assert fields.index("rationale") < fields.index("is_anomaly")
+        assert fields.index("rationale") < fields.index("kind")
 
     def test_too_short_a_series_does_not_call_the_model(self) -> None:
         with patch.object(LLMSeriesJudge, "_ask_model") as ask:
@@ -376,16 +393,39 @@ _SLOT = "b8f3a1e0-0000-0000-0000-000000000001:2026-01-07T00:00:00+00:00"
 _NEXT_SLOT = "b8f3a1e0-0000-0000-0000-000000000001:2026-01-07T00:15:00+00:00"
 
 
+HAIKU = "claude-haiku-5-5"
+LUNA = "gpt-6-luna"
+
+
 @contextmanager
-def _mocked_model(verdict: LLMDetectionVerdict, *, privacy_mode: bool = False) -> Iterator[Any]:
+def _mocked_models(
+    verdict: LLMDetectionVerdict, *, privacy_mode: bool = False, chart: bytes | None = None
+) -> Iterator[dict[str, Any]]:
     with (
-        patch("products.alerts.backend.judge.prompt.render_series_chart", return_value=None),
+        patch("products.alerts.backend.judge.prompt.render_series_chart", return_value=chart),
         patch("ee.hogai.utils.feature_flags.is_privacy_mode_enabled", return_value=privacy_mode),
-        patch("products.alerts.backend.judge.llm.build_ai_gateway_anthropic_client") as build_client,
+        patch(
+            "products.alerts.backend.judge.llm.resolve_ai_gateway_config",
+            return_value=MagicMock(api_key="phs_test"),
+        ),
+        patch("products.alerts.backend.judge.llm.build_ai_gateway_anthropic_client") as build_anthropic,
+        patch("products.alerts.backend.judge.llm.build_ai_gateway_openai_client") as build_openai,
     ):
-        parse = build_client.return_value.with_options.return_value.messages.parse
-        parse.return_value = MagicMock(parsed_output=verdict)
-        yield parse
+        haiku = build_anthropic.return_value.with_options.return_value.messages.parse
+        haiku.return_value = MagicMock(parsed_output=verdict)
+        haiku.build_client = build_anthropic
+        luna = build_openai.return_value.with_options.return_value.chat.completions.parse
+        luna.return_value = MagicMock(choices=[MagicMock(message=MagicMock(parsed=verdict))])
+        luna.build_client = build_openai
+        yield {HAIKU: haiku, LUNA: luna}
+
+
+@contextmanager
+def _mocked_model(
+    verdict: LLMDetectionVerdict, *, model: str = HAIKU, privacy_mode: bool = False, chart: bytes | None = None
+) -> Iterator[Any]:
+    with _mocked_models(verdict, privacy_mode=privacy_mode, chart=chart) as parses:
+        yield parses[model]
 
 
 @pytest.fixture
@@ -440,15 +480,25 @@ class TestLLMJudgeVerdictMemo:
 
         assert invoke.call_count == expected_calls
 
-    @parameterized.expand([("LLM_DETECTOR_MODEL", "new-model"), ("PROMPT_REVISION", 99)])
-    def test_model_and_prompt_updates_require_a_new_verdict(self, setting: str, value: str | int) -> None:
+    def test_a_prompt_update_requires_a_new_verdict(self) -> None:
         judge = LLMSeriesJudge({"type": "llm"})
         with _mocked_model(_verdict()) as invoke:
             judge.judge_latest(SERIES, series=_series(), attribution=_attribution(evaluation_id=_SLOT))
-            with patch(f"products.alerts.backend.judge.llm.{setting}", value):
+            with patch("products.alerts.backend.judge.llm.PROMPT_REVISION", 99):
                 judge.judge_latest(SERIES, series=_series(), attribution=_attribution(evaluation_id=_SLOT))
 
         assert invoke.call_count == 2
+
+    def test_a_model_change_requires_a_new_verdict(self) -> None:
+        # An alert can switch models between retries of one check, and the retry must not reuse the old model's verdict.
+        attribution = _attribution(evaluation_id=_SLOT)
+        with _mocked_models(_verdict()) as parses:
+            LLMSeriesJudge({"type": "llm"}).judge_latest(SERIES, series=_series(), attribution=attribution)
+            LLMSeriesJudge({"type": "llm", "model": LUNA}).judge_latest(
+                SERIES, series=_series(), attribution=attribution
+            )
+
+        assert (parses[HAIKU].call_count, parses[LUNA].call_count) == (1, 1)
 
 
 @pytest.mark.parametrize(
@@ -474,14 +524,25 @@ def test_an_organization_without_ai_credits_makes_no_model_call(
 
 
 @pytest.mark.parametrize(
-    "error_type,status_code,headers,expected_error,expected_message",
+    "model,error_type,status_code,headers,expected_error,expected_message",
     [
-        (anthropic.AuthenticationError, 401, {}, LLMDetectorUnavailableError, "could not reach the model"),
-        (anthropic.PermissionDeniedError, 403, {}, LLMDetectorUnavailableError, "could not reach the model"),
-        (anthropic.BadRequestError, 400, {}, LLMDetectorUnavailableError, "could not reach the model"),
-        (anthropic.APIStatusError, 402, {}, LLMDetectorUnavailableError, "could not reach the model"),
+        (HAIKU, anthropic.AuthenticationError, 401, {}, LLMDetectorUnavailableError, "could not reach the model"),
+        (HAIKU, anthropic.PermissionDeniedError, 403, {}, LLMDetectorUnavailableError, "could not reach the model"),
+        (HAIKU, anthropic.BadRequestError, 400, {}, LLMDetectorUnavailableError, "could not reach the model"),
+        (HAIKU, anthropic.APIStatusError, 402, {}, LLMDetectorUnavailableError, "could not reach the model"),
         (
+            HAIKU,
             anthropic.APIStatusError,
+            402,
+            {"X-PostHog-Denial": "insufficient_credits"},
+            LLMDetectorPausedError,
+            LLM_DETECTOR_OUT_OF_CREDITS_MESSAGE,
+        ),
+        (LUNA, openai.BadRequestError, 400, {}, LLMDetectorUnavailableError, "could not reach the model"),
+        (LUNA, openai.APIStatusError, 402, {}, LLMDetectorUnavailableError, "could not reach the model"),
+        (
+            LUNA,
+            openai.APIStatusError,
             402,
             {"X-PostHog-Denial": "insufficient_credits"},
             LLMDetectorPausedError,
@@ -490,7 +551,8 @@ def test_an_organization_without_ai_credits_makes_no_model_call(
     ],
 )
 def test_provider_rejections_do_not_disable_an_alert(
-    error_type: type[anthropic.APIStatusError],
+    model: str,
+    error_type: type[anthropic.APIStatusError] | type[openai.APIStatusError],
     status_code: int,
     headers: dict[str, str],
     expected_error: type[Exception],
@@ -499,13 +561,26 @@ def test_provider_rejections_do_not_disable_an_alert(
     response = httpx.Response(
         status_code, headers=headers, request=httpx.Request("POST", "https://example.com/messages")
     )
-    with _mocked_model(_verdict()) as invoke:
+    with _mocked_model(_verdict(), model=model) as invoke:
         invoke.side_effect = error_type("Provider unavailable", response=response, body={})
         with pytest.raises(expected_error) as raised:
-            LLMSeriesJudge({"type": "llm"}).judge_latest(SERIES, series=_series(), attribution=_attribution())
+            LLMSeriesJudge({"type": "llm", "model": model}).judge_latest(
+                SERIES, series=_series(), attribution=_attribution()
+            )
     assert expected_message in str(raised.value)
 
 
+def test_a_stored_model_that_is_no_longer_offered_pauses_the_alert_without_a_call() -> None:
+    with _mocked_model(_verdict()) as parse, pytest.raises(LLMDetectorPausedError) as raised:
+        LLMSeriesJudge({"type": "llm", "model": "retired-model"}).judge_latest(
+            SERIES, series=_series(), attribution=_attribution()
+        )
+
+    assert str(raised.value) == LLM_DETECTOR_UNKNOWN_MODEL_MESSAGE
+    assert not parse.called
+
+
+@pytest.mark.parametrize("model", [HAIKU, LUNA])
 @pytest.mark.parametrize(
     "is_agent_billable,privacy_mode,expected_headers",
     [
@@ -516,10 +591,26 @@ def test_provider_rejections_do_not_disable_an_alert(
     ],
 )
 def test_model_call_preserves_the_billing_and_privacy_decisions(
-    is_agent_billable: bool, privacy_mode: bool, expected_headers: dict[str, str]
+    model: str, is_agent_billable: bool, privacy_mode: bool, expected_headers: dict[str, str]
 ) -> None:
-    with _mocked_model(_verdict(), privacy_mode=privacy_mode) as parse:
-        LLMSeriesJudge({"type": "llm"}).judge_latest(
+    with _mocked_model(_verdict(), model=model, privacy_mode=privacy_mode) as parse:
+        LLMSeriesJudge({"type": "llm", "model": model}).judge_latest(
             SERIES, series=_series(), attribution=_attribution(is_agent_billable=is_agent_billable)
         )
     assert parse.call_args.kwargs["extra_headers"] == expected_headers
+
+
+def test_luna_is_asked_the_same_question_with_the_chart_and_charged_to_the_team() -> None:
+    with _mocked_model(_verdict(is_anomaly=False, kind="none"), model=LUNA, chart=b"png-bytes") as parse:
+        judgment = LLMSeriesJudge({"type": "llm", "model": LUNA}).judge_latest(
+            SERIES, series=_series(), attribution=_attribution()
+        )
+
+    assert judgment is not None and judgment.fires is False
+    request = parse.call_args.kwargs
+    assert request["model"] == LUNA
+    system, user = request["messages"]
+    assert system == {"role": "system", "content": SYSTEM_PROMPT}
+    assert [part["type"] for part in user["content"]] == ["text", "image_url"]
+    assert user["content"][1]["image_url"]["url"].startswith("data:image/png;base64,")
+    assert parse.build_client.call_args.kwargs["properties"] == {"team_id": "1"}

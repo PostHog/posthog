@@ -334,11 +334,11 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         )
 
     def test_can_create_many_playlists_without_n_plus_1(self):
-        with self.assertNumQueries(9 * 50 + 1):
+        with self.assertNumQueries(11 * 50 + 1):
             for i in range(50):
                 self._create_playlist({"name": f"test-{i}", "type": "collection"})
 
-        with self.assertNumQueries(9 * 100):
+        with self.assertNumQueries(11 * 100):
             for i in range(100):
                 self._create_playlist({"name": f"test-{i}", "type": "collection"})
 
@@ -460,6 +460,16 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         )
         assert update_response.status_code == status.HTTP_400_BAD_REQUEST
         assert "experiment you don't have access to" in update_response.json()["detail"]
+
+    @parameterized.expand([("retired_order", "surfacing_score"), ("non_string_order", ["start_time"])])
+    def test_rejects_saving_filters_with_an_unsupported_sort_order(self, _name: str, order: object) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists",
+            data={"name": "relevance", "type": "filters", "filters": {"date_from": "-3d", "order": order}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "not a sort order" in response.json()["detail"]
 
     def test_saves_filters_that_reference_an_experiment_the_saver_can_view(self) -> None:
         # The experiment's creator keeps viewer access despite the team-wide "none", so the

@@ -45,7 +45,7 @@ def loop_owner_eligible_for_credentials(user_id: int | None, team: Team) -> bool
     return UserPermissions(user=owner, team=team).current_team.effective_membership_level is not None
 
 
-def user_has_current_team_access(user: User, team: Team) -> bool:
+def user_has_current_team_access(user: User, team: Team, *, raise_on_error: bool = False) -> bool:
     """Fresh eligibility for acting on a run: an active user with current effective
     access to the team. Fails closed on resolution errors — callers here have no
     fallback actor, unlike the Slack resolver below."""
@@ -54,6 +54,8 @@ def user_has_current_team_access(user: User, team: Team) -> bool:
     try:
         return UserPermissions(user=user, team=team).current_team.effective_membership_level is not None
     except Exception:
+        if raise_on_error:
+            raise
         logger.warning(
             "user_team_access_check_failed",
             extra={"team_id": team.id, "user_id": user.id},
@@ -70,6 +72,7 @@ def get_task_run_actor_user(
     state: dict[str, Any] | None = None,
     *,
     allow_task_creator_fallback: bool = True,
+    raise_on_error: bool = False,
 ) -> User | None:
     """Return the PostHog user acting on this task run.
 
@@ -104,6 +107,8 @@ def get_task_run_actor_user(
             UserPermissions(user=actor, team=task.team).current_team.effective_membership_level is not None
         )
     except Exception:
+        if raise_on_error:
+            raise
         logger.warning(
             "slack_actor_user_access_check_failed",
             extra={"task_id": task.id, "actor_user_id": actor_user_id},
@@ -120,7 +125,9 @@ def get_task_run_actor_user(
     return actor
 
 
-def get_task_run_credential_user(task: Task, state: dict[str, Any] | None = None) -> User | None:
+def get_task_run_credential_user(
+    task: Task, state: dict[str, Any] | None = None, *, raise_on_error: bool = False
+) -> User | None:
     """Return the user whose credentials may be minted for this run.
 
     Slack runs fail closed when their recorded actor can't be validated, but runs
@@ -129,7 +136,9 @@ def get_task_run_credential_user(task: Task, state: dict[str, Any] | None = None
     """
     state = state or {}
     allow_fallback = not is_slack_interaction_state(state) or "slack_actor_user_id" not in state
-    return get_task_run_actor_user(task, state, allow_task_creator_fallback=allow_fallback)
+    return get_task_run_actor_user(
+        task, state, allow_task_creator_fallback=allow_fallback, raise_on_error=raise_on_error
+    )
 
 
 def get_actor_distinct_id(actor: User) -> str:

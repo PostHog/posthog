@@ -381,10 +381,11 @@ class SQLValueEscaper:
 
     # Unlike posthog.hogql.visitor.Visitor, this tiny visitor works on primitives.
     def visit(self, node: Any) -> str:
-        method_name = f"visit_{node.__class__.__name__.lower()}"
-        if hasattr(self, method_name):
-            return getattr(self, method_name)(node)
-        raise ResolutionError(f"SQLValueEscaper has no method {method_name}")
+        for cls in type(node).__mro__:
+            method = getattr(self, f"visit_{cls.__name__.lower()}", None)
+            if method is not None:
+                return method(node)
+        raise ResolutionError(f"SQLValueEscaper has no method visit_{node.__class__.__name__.lower()}")
 
     def visit_nonetype(self, value: None):
         return "NULL"

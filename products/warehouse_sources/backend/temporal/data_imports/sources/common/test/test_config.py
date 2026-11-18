@@ -170,16 +170,26 @@ def test_from_dict_raises_clear_error_on_unconvertible_value():
     assert "not-a-number" not in str(exc_info.value)
 
 
-def test_validate_dict_rejects_unconvertible_value():
+@pytest.mark.parametrize(
+    "converter,value",
+    [
+        (int, "not-a-number"),
+        (config.str_to_bool, {"enabled": "true"}),
+        (config.str_to_bool, None),
+        (config.str_to_optional_int, {"value": 5432}),
+        (config.str_to_optional_int, ["5432"]),
+    ],
+)
+def test_validate_dict_rejects_unconvertible_value(converter, value):
     """`validate_dict` must flag a value that can't convert to the declared type rather than pass and
-    defer the crash to `to_config`. The reported error came from a value that cleared validation."""
+    defer the crash to `to_config`, or raise an unhandled `AttributeError` from the converter."""
 
     @config.config
     class TestConfig(config.Config):
         host: str
-        port: int = config.value(converter=int)
+        option: typing.Any = config.value(converter=converter)
 
-    is_valid, errors = TestConfig.validate_dict({"host": "db.example.com", "port": "not-a-number"})
+    is_valid, errors = TestConfig.validate_dict({"host": "db.example.com", "option": value})
 
     assert is_valid is False
     assert len(errors) == 1

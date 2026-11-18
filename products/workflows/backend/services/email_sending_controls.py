@@ -28,6 +28,8 @@ def get_email_sending_state(team_id: int) -> EmailSendingState | None:
         tier=config.email_sending_tier,
         tier_pinned=config.email_sending_tier_pinned,
         tier_updated_at=config.email_sending_tier_updated_at,
+        provider_paused=config.ses_tenant_sending_status.strip().upper() == "DISABLED",
+        provider_reputation_impact=config.ses_tenant_reputation_impact.strip().upper(),
     )
 
 

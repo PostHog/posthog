@@ -76,10 +76,10 @@ export interface logsSessionErrorsLogicValues {
 export interface logsSessionErrorsLogicActions {
     fetchLogsSuccess: (
         logs: import('~/queries/schema').LogMessage[],
-        payload?: any
+        payload?: import('../../generated/api.schemas').LogsQueryTriggerEnumApi | undefined
     ) => {
         logs: import('~/queries/schema').LogMessage[]
-        payload?: any
+        payload?: import('../../generated/api.schemas').LogsQueryTriggerEnumApi
     } // logsViewerDataLogic
     fetchNextLogsPageSuccess: (
         logs: import('~/queries/schema').LogMessage[],

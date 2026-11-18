@@ -136,6 +136,11 @@ export interface CertificationCreateApi {
     proposed_status?: ProposedStatusEnumApi
 }
 
+export interface MetricAvailabilityApi {
+    /** Whether the project has any live metric, counted before per-table access checks. */
+    has_metrics: boolean
+}
+
 /**
  * * `user` - user
  * * `ai_generated` - ai_generated
@@ -639,6 +644,39 @@ export interface AdjustedRunApi {
     is_scout: boolean
 }
 
+/**
+ * * `metric_runs` - Metric runs
+ * * `conversations` - Conversations
+ * * `adjusted_runs` - Adjusted runs
+ * * `topics` - Topics
+ * * `table_sources` - Table sources
+ * * `uncovered` - Uncovered
+ */
+export type UsageSectionEnumApi = (typeof UsageSectionEnumApi)[keyof typeof UsageSectionEnumApi]
+
+export const UsageSectionEnumApi = {
+    MetricRuns: 'metric_runs',
+    Conversations: 'conversations',
+    AdjustedRuns: 'adjusted_runs',
+    Topics: 'topics',
+    TableSources: 'table_sources',
+    Uncovered: 'uncovered',
+} as const
+
+export interface SectionFailureApi {
+    /** The payload section whose step failed.
+     *
+     * * `metric_runs` - Metric runs
+     * * `conversations` - Conversations
+     * * `adjusted_runs` - Adjusted runs
+     * * `topics` - Topics
+     * * `table_sources` - Table sources
+     * * `uncovered` - Uncovered */
+    section: UsageSectionEnumApi
+    /** Why the scan step failed. */
+    reason: string
+}
+
 export interface MetricUsageApi {
     /** ID of the catalog metric. */
     metric_id: string
@@ -657,6 +695,8 @@ export interface MetricUsageApi {
     runs: MetricRunCountsApi | null
     /** Agent queries that re-derived the metric. is_scout marks the ones a scout ran. */
     adjusted_runs: AdjustedRunApi[]
+    /** Failed sections that these numbers read, so a missing count is not a zero. */
+    failed_sections: SectionFailureApi[]
 }
 
 /**
@@ -1061,6 +1101,8 @@ export interface UsageSnapshotPayloadApi {
      * @nullable
      */
     proposed_metrics: ProposedMetricApi[] | null
+    /** Sections whose scan step failed. Each one stays null, and the others keep their results. */
+    failed_sections: SectionFailureApi[]
 }
 
 export interface UsageSnapshotApi {
@@ -1124,7 +1166,7 @@ export type DataCatalogMetricsListParams = {
      */
     offset?: number
     /**
-     * Find metrics for a measure instead of reading the whole catalog. Send the user's words, the likely metric name, and the spelled-out form of an acronym, separated by commas, such as 'mrr, monthly recurring revenue'. Results come best match first, 10 by default, and match_reason says why each one matched. Words match by stem in the name, display name, description, and definition. Synonyms do not match unless the metric's text contains them.
+     * Find metrics for a measure instead of reading the whole catalog. Send the user's words, the likely metric name, and the spelled-out form of an acronym, separated by commas, such as 'mrr, monthly recurring revenue'. Results come best match first, 20 by default, and match_reason says why each one matched. Words match by stem in the name, display name, description, and definition. Synonyms do not match unless the metric's text contains them.
      */
     search?: string
     /**
