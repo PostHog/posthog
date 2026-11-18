@@ -441,9 +441,12 @@ class _JudgeMessages:
             count = len(re.findall(r"^P\d+ at", prompt, re.MULTILINE))
             labels = ["C1"] * count if self.join_pieces else [f"C{number}" for number in range(1, count + 1)]
             return _Stream(json.dumps({"labels": labels}))
-        kind = "lookup" if "open the ticket thread" in prompt else "analysis"
+        if "<motive>" in prompt:
+            needs_measure = "open the ticket thread" not in prompt
+            return _Stream(json.dumps({"needs_measure": needs_measure, "measure": "weekly signups", "reasoning": "x"}))
+        first_note = re.search(r"<first_calls[^>]*>\n- [^:]+: (.*)", prompt)
         return _Stream(
-            json.dumps({"kind": kind, "question": "How many signups happen each week?", "catalog_check": True})
+            json.dumps({"motive": first_note.group(1) if first_note else "", "scheduled": False, "unclear": False})
         )
 
     async def create(
@@ -457,7 +460,7 @@ class _JudgeMessages:
     ) -> SimpleNamespace:
         prompt = messages[0]["content"]
         self.judged_sql.append(prompt)
-        asks_for_signups = "<session_question>\nHow many signups happen each week?\n</session_question>" in prompt
+        asks_for_signups = "<session_question>\n(not given)\n</session_question>" not in prompt
         relation = "serves" if asks_for_signups and "page_views" not in prompt else "different"
         reply = json.dumps({"reasoning": "It counts signups.", "relation": relation, "confidence": 0.9})
         return SimpleNamespace(content=[SimpleNamespace(type="text", text=reply)])
@@ -612,7 +615,7 @@ class TestMeasureTeam(ClickhouseTestMixin, BaseTest):
         assert result.served_share == 2 / 7
         silent = next(row for row in result.rows if row.session_id == "silent")
         assert (silent.metric_name, silent.is_example, silent.reasoning) == ("signups", True, "It counts signups.")
-        assert silent.question == "How many signups happen each week?"
+        assert silent.question == "weekly signups"
         assert silent.started_at == self.END - timedelta(hours=6)
         assert silent.source == "posthog_ai"
 

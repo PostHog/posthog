@@ -150,6 +150,8 @@ class PieceCall:
     at: datetime
     tool: str
     note: str
+    # For an `exec` call, the command and what it looked for, such as "search ^skill-get$" or "learn load <skill>".
+    detail: str = ""
 
 
 @frozen
@@ -474,7 +476,7 @@ FROM (
                         anyIf(conversation_id, length(conversation_id) > 0) AS conversation,
                         min(timestamp) AS started_at,
                         max(timestamp) AS ended_at,
-                        arraySort(call -> call.1, groupArrayIf(tuple(timestamp, tool, intent), call_no <= {max_piece_calls})) AS calls,
+                        arraySort(call -> call.1, groupArrayIf(tuple(timestamp, tool, intent, detail), call_no <= {max_piece_calls})) AS calls,
                         max(is_data) AS queried,
                         max(source IN ('self_driving', 'wizard')) AS excluded
                     FROM (
@@ -484,6 +486,29 @@ FROM (
                             timestamp,
                             substring(ifNull(toString(properties.$mcp_intent), ''), 1, {max_intent_chars}) AS intent,
                             toString(properties.$mcp_tool_name) AS tool,
+                            if(
+                                tool = 'exec',
+                                arrayStringConcat(
+                                    arrayFilter(
+                                        part -> length(part) > 0,
+                                        [
+                                            ifNull(toString(properties.exec_verb), ''),
+                                            ifNull(toString(properties.exec_learn_kind), ''),
+                                            substring(
+                                                coalesce(
+                                                    nullIf(toString(properties.exec_learn_target), ''),
+                                                    nullIf(toString(properties.exec_search_query), ''),
+                                                    ''
+                                                ),
+                                                1,
+                                                {max_intent_chars}
+                                            )
+                                        ]
+                                    ),
+                                    ' '
+                                ),
+                                ''
+                            ) AS detail,
                             ifNull(toString(properties.$mcp_client_name), '') AS client_name,
                             ifNull(toString(properties.source), '') AS source,
                             ifNull(toString(properties.$mcp_conversation_id), '') AS conversation_id,
@@ -564,7 +589,10 @@ def fetch_candidate_chains(
                 person=person,
                 source=source or "",
                 client=client or "",
-                calls=tuple(PieceCall(at=at, tool=tool, note=note or "") for at, tool, note in calls),
+                calls=tuple(
+                    PieceCall(at=at, tool=tool, note=note or "", detail=detail or "")
+                    for at, tool, note, detail in calls
+                ),
                 last_call_at=ended_at,
                 conversation_id=conversation or "",
             )

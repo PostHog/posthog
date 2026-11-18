@@ -48,6 +48,14 @@ from .agent_sessions import (
     stitch_chains,
     stitch_degraded,
 )
+from .conversation_classifier import (
+    CatalogNeed,
+    ConversationEvidence,
+    MotiveReading,
+    build_evidence as build_conversation_evidence,
+    classify_motive,
+    extract_motive,
+)
 from .metric_fingerprint import CatalogIndex
 from .usage_adjusted import (
     AgentQuery,
@@ -64,15 +72,7 @@ from .usage_adjusted import (
     select_for_judging,
 )
 from .usage_judge import JUDGE_MODEL, JudgeVerdict, MetricBrief
-from .usage_topics import (
-    SessionKind,
-    SessionLookups,
-    SessionReading,
-    decode_nested_json,
-    fetch_session_lookups,
-    merge_lookups,
-    read_session,
-)
+from .usage_topics import SessionLookups, decode_nested_json, fetch_session_lookups, merge_lookups
 
 logger = structlog.get_logger(__name__)
 
@@ -758,6 +758,19 @@ async def _agent_activity(
     )
 
 
+def _conversation_evidence(
+    sessions: Sequence[SessionText], chains: Sequence[Sequence[Piece]], stitched: StitchedSessions
+) -> dict[str, ConversationEvidence]:
+    pieces = {piece.piece_id: piece for chain in chains for piece in chain}
+    return {
+        session.session_id: build_conversation_evidence(
+            session.session_id,
+            [pieces[piece_id] for piece_id in stitched.members[session.session_id] if piece_id in pieces],
+        )
+        for session in sessions
+    }
+
+
 async def _session_listings(
     window: _TelemetryWindow, stitched: StitchedSessions, session_ids: set[str], heartbeat: Callable[[], None]
 ) -> dict[str, list[CatalogListing]]:
@@ -803,16 +816,27 @@ async def measure_team(
         fresh = [session for session in stitched.sessions if _queries_fresh_data(window_tools[session.session_id])]
         # Joined chains can hold more conversations than chains, so the read budget caps the sessions too.
         sessions = fresh[:EFFECTIVENESS_SESSION_LIMIT]
-        readings: list[SessionReading] = await gather_each(
-            (read_session(client, session) for session in sessions), heartbeat
+        evidence = _conversation_evidence(sessions, chains, stitched)
+        motives: list[MotiveReading] = await gather_each(
+            (extract_motive(client, evidence[session.session_id]) for session in sessions), heartbeat
         )
         # A week with every read failed would look like a week with no analysis, so the activity retries.
-        if sessions and all(reading.kind == SessionKind.UNREAD for reading in readings):
-            raise SessionReadsUnavailable(f"All {len(readings)} session reads failed.")
+        if sessions and all(motive.failed for motive in motives):
+            raise SessionReadsUnavailable(f"All {len(motives)} motive reads failed.")
+        # A scheduled routine runs without a person asking, so it repeats one need many times. A generic
+        # motive gives the classifier nothing to judge, so it would only guess.
+        kept = [
+            (session, motive)
+            for session, motive in zip(sessions, motives, strict=True)
+            if not motive.failed and not motive.scheduled and not motive.unclear
+        ]
+        needs: list[CatalogNeed] = await gather_each(
+            (classify_motive(client, motive.motive) for _session, motive in kept), heartbeat
+        )
         read_analysis = {
-            session.session_id: _AnalysisSession(session=session, question=reading.question)
-            for session, reading in zip(sessions, readings, strict=True)
-            if reading.kind == SessionKind.ANALYSIS and reading.catalog_check
+            session.session_id: _AnalysisSession(session=session, question=motive.motive)
+            for (session, motive), need in zip(kept, needs, strict=True)
+            if need.needs_catalog_check
         }
         activity = await _agent_activity(window, stitched, set(read_analysis), heartbeat)
         queried_sessions = {query.trace_id for query in activity.queries if not _is_metadata_search(query.sql)}
@@ -893,7 +917,7 @@ async def measure_team(
         chains_read=run.chains,
         pieces_read=run.pieces,
         stitch_failures=run.failed_calls,
-        unread_sessions=sum(reading.kind == SessionKind.UNREAD for reading in readings),
+        unread_sessions=sum(motive.failed or motive.unclear for motive in motives) + sum(need.failed for need in needs),
         analysis_sessions=len(analysis),
         unchecked_queries=count_unchecked_queries(verdicts, selection.over_cap),
         unchecked_sessions=sum(verdict.failed for verdict in coverage_verdicts),
