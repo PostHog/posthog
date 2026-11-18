@@ -15,6 +15,7 @@ before this runs, and it carries the unsuffixed idempotency key it has always ha
 from __future__ import annotations
 
 import time
+import datetime as dt
 from collections.abc import Iterable
 
 import structlog
@@ -22,6 +23,7 @@ from asgiref.sync import async_to_sync
 
 from products.warehouse_sources.backend.destination_health import record_delivery_failure, record_delivery_success
 from products.warehouse_sources.backend.models.external_data_destination import ExternalDataDestination
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
@@ -118,7 +120,17 @@ def destination_table_name(export_signal: ExportSignalMessage, config: dict) -> 
     return f"{config.get('table_prefix', '')}{base}"
 
 
-def _run_context(export_signal: ExportSignalMessage, destination: ExternalDataDestination) -> DestinationRunContext:
+def _run_started_at(export_signal: ExportSignalMessage) -> dt.datetime | None:
+    return (
+        ExternalDataJob.objects.filter(id=export_signal.job_id, team_id=export_signal.team_id)
+        .values_list("created_at", flat=True)
+        .first()
+    )
+
+
+def _run_context(
+    export_signal: ExportSignalMessage, destination: ExternalDataDestination, run_started_at: dt.datetime | None
+) -> DestinationRunContext:
     config = destination.config or {}
     return DestinationRunContext(
         team_id=export_signal.team_id,
@@ -140,6 +152,7 @@ def _run_context(export_signal: ExportSignalMessage, destination: ExternalDataDe
         primary_keys=tuple(normalize_column_name(key) for key in export_signal.primary_keys or ()),
         config=config,
         integration_id=destination.integration_id,
+        run_started_at=run_started_at,
     )
 
 
@@ -195,6 +208,7 @@ def deliver_batch_to_destinations(
     if not pending:
         return 0
 
+    run_started_at = _run_started_at(export_signal)
     written = 0
     for destination in pending:
         destination_id = str(destination.id)
@@ -220,7 +234,7 @@ def deliver_batch_to_destinations(
             )
             continue
 
-        run_ctx = _run_context(export_signal, destination)
+        run_ctx = _run_context(export_signal, destination, run_started_at)
         batch_ctx = DestinationBatchContext(
             run=run_ctx,
             batch_index=export_signal.batch_index,
@@ -325,7 +339,9 @@ def abort_destinations(export_signal: ExportSignalMessage, failure_reason: str =
     A destination that failed the run with a configuration error is skipped. The same settings
     refuse the abort's connection too, so a try costs connection attempts and drops nothing.
     """
-    for destination in external_destinations_for(export_signal):
+    destinations = external_destinations_for(export_signal)
+    run_started_at = _run_started_at(export_signal) if destinations else None
+    for destination in destinations:
         if failure_reason and is_configuration_failure_of(failure_reason, destination.name):
             logger.info(
                 "destination_abort_skipped_configuration_error",
@@ -333,7 +349,7 @@ def abort_destinations(export_signal: ExportSignalMessage, failure_reason: str =
                 destination_type=destination.type,
             )
             continue
-        run_ctx = _run_context(export_signal, destination)
+        run_ctx = _run_context(export_signal, destination, run_started_at)
         try:
             ensure_builtin_destination_writers_registered()
             writer = resolve_destination_writer(run_ctx)

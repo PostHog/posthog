@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as dt
 import dataclasses
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -161,3 +162,47 @@ class TestConfigurationErrors:
         await writer.write_batch(_batches(), DestinationBatchContext(run=ctx, batch_index=0, is_final_batch=False))
 
         assert client.put_object.call_args.kwargs["Bucket"] == "example-bucket"
+
+
+STARTED = dt.datetime(2026, 3, 5, 7, 8, 9, tzinfo=dt.UTC)
+
+
+@pytest.mark.asyncio
+class TestKeyPrefix:
+    @pytest.mark.parametrize(
+        ("prefix", "run_started_at", "expected_folder"),
+        [
+            ("posthog/", STARTED, "posthog/charges/run-a1"),
+            ("{year}/{month}/{day}/{table}/", STARTED, "2026/03/05/charges/run-a1"),
+            (
+                "exports/{year}-{month}-{day}T{hour}{minute}{second}",
+                STARTED,
+                "exports/2026-03-05T070809/charges/run-a1",
+            ),
+            (
+                "{year}/{month}/{day}",
+                dt.datetime(2026, 3, 5, 1, 0, tzinfo=dt.timezone(dt.timedelta(hours=2))),
+                "2026/03/04/charges/run-a1",
+            ),
+            ("{year}/{data_interval_end}/", STARTED, "{year}/{data_interval_end}/charges/run-a1"),
+            ("{year}/{table}/", None, "{year}/{table}/charges/run-a1"),
+            ("{0}/{table", STARTED, "{0}/{table/charges/run-a1"),
+        ],
+        ids=["plain", "date_and_table", "time", "utc", "unknown_variable", "no_start_time", "not_a_template"],
+    )
+    async def test_the_prefix_is_rendered_from_the_run_start(
+        self, prefix: str, run_started_at: dt.datetime | None, expected_folder: str
+    ) -> None:
+        ctx = dataclasses.replace(
+            _ctx(),
+            config={"bucket": "example-bucket", "region": "us-east-1", "prefix": prefix},
+            run_started_at=run_started_at,
+        )
+        client = mock.AsyncMock()
+        writer = LocalS3Writer(ctx, client, connection_error=None)
+
+        await writer.write_batch(_batches(), DestinationBatchContext(run=ctx, batch_index=0, is_final_batch=True))
+        await writer.finalize_run(ctx)
+
+        keys = [call.kwargs["Key"] for call in client.put_object.call_args_list]
+        assert keys == [f"{expected_folder}/part-0000.parquet", f"{expected_folder}/_manifest.json"]
