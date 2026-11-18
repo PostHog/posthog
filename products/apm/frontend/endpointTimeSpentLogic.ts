@@ -26,10 +26,10 @@ export interface endpointTimeSpentLogicValues {
 export interface endpointTimeSpentLogicActions {
     loadEndpointsHealthSuccess: (
         endpointsHealth: EndpointsHealthResponseApi,
-        payload?: void
+        payload?: void | undefined
     ) => {
         endpointsHealth: EndpointsHealthResponseApi
-        payload?: void
+        payload?: void | undefined
     } // applicationObservabilityLogic
     loadTimeSpent: (_: void) => void
     loadTimeSpentFailure: (
