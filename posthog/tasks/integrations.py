@@ -191,7 +191,7 @@ def _unverified_email_senders_oldest_first() -> Iterator[IntegrationRecord]:
 @skip_team_scope_audit
 def expire_unverified_email_senders() -> None:
     cutoff = timezone.now() - UNVERIFIED_EMAIL_SENDER_LIFETIME
-    expired = deleted = 0
+    expired = deleted = kept_in_use = 0
     for sender in _unverified_email_senders_oldest_first():
         # Rows come back in id order, which is creation order, so every later sender is younger too.
         if expired >= EXPIRED_EMAIL_SENDERS_PER_RUN or deleted >= DELETED_EMAIL_SENDERS_PER_RUN:
@@ -220,11 +220,12 @@ def expire_unverified_email_senders() -> None:
             # An active workflow that names a deleted sender fails each send with "sender not found". That error
             # reports no send failure, and the customer can no longer fix it by verifying the domain. Keep the
             # sender until nothing active uses it, so the failure stays an unverified-domain failure.
+            kept_in_use += 1
             continue
         deleted += 1
         if frees_identity:
             expired += 1
-    logger.info("expired_unverified_email_senders", count=expired)
+    logger.info("expired_unverified_email_senders", count=expired, kept_in_use=kept_in_use)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.INTEGRATIONS.value)
