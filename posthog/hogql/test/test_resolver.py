@@ -819,6 +819,40 @@ class TestResolver(BaseTest):
             )
         self.assertIn("Unable to resolve field: x", str(e.exception))
 
+    def test_ctes_scalar_alias_dotted_property_paths_in_joins(self):
+        # A multi-part scalar WITH alias over an unqualified JSON property or another scalar alias
+        # is staged once the underlying column or alias is in scope.
+        self.assertEqual(
+            self._print_hogql(
+                """
+                with properties.$browser as b
+                select b from events e
+                join numbers(1) n on b = 'Chrome'
+                """
+            ),
+            "WITH properties.$browser AS b SELECT b FROM events AS e JOIN numbers(1) AS n ON equals(b, 'Chrome') LIMIT 50000",
+        )
+        self.assertEqual(
+            self._print_hogql(
+                """
+                with properties as p, p.$browser as b
+                select b from events e
+                join numbers(1) n on b = 'Chrome'
+                """
+            ),
+            "WITH properties AS p, p.$browser AS b SELECT b FROM events AS e JOIN numbers(1) AS n ON equals(b, 'Chrome') LIMIT 50000",
+        )
+        self.assertEqual(
+            self._print_hogql(
+                """
+                with e.properties.$browser as b
+                select b from events e
+                join numbers(1) n on b = 'Chrome'
+                """
+            ),
+            "WITH e.properties.$browser AS b SELECT b FROM events AS e JOIN numbers(1) AS n ON equals(b, 'Chrome') LIMIT 50000",
+        )
+
     def test_ctes_subqueries(self):
         self.assertEqual(
             self._print_hogql("with my_table as (select event from events) select event from my_table"),

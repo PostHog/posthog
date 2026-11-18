@@ -55,6 +55,7 @@ from posthog.hogql.functions.traffic_type import (
 from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS, convert_to_hx
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import (
+    _folds_identifier_case,
     expand_hogqlx_query,
     lookup_field_by_name,
     lookup_table_by_name,
@@ -2019,7 +2020,7 @@ class Resolver(CloningVisitor):
         scope: ast.SelectQueryType | None,
         pending_ctes: dict[str, ast.CTE],
     ) -> bool:
-        """Check whether the tables and column references required by a scalar WITH alias
+        """Check whether the tables, columns, and alias references required by a scalar WITH alias
         are already available in scope, avoiding speculative attempts before those tables join."""
         if scope is None:
             return False
@@ -2030,41 +2031,43 @@ class Resolver(CloningVisitor):
         for field in collector.fields:
             if not field.chain:
                 continue
-            if len(field.chain) > 1:
-                table_name = str(field.chain[0])
-                curr: ast.SelectQueryType | None = scope
-                found_table = False
-                while curr is not None:
-                    if table_name in curr.tables:
-                        found_table = True
-                        break
-                    curr = curr.parent
-                if not found_table:
-                    return False
-            else:
-                name = str(field.chain[0])
-                if name in pending_ctes:
-                    return False
-                if name in self.ctes:
-                    continue
-                if name in scope.aliases:
-                    continue
-                if self.context.globals is not None and name in self.context.globals:
-                    continue
-                if self.dialect in SQL_TARGET_DIALECTS and name.lower() in POSTGRES_KEYWORD_TYPES:
-                    continue
 
-                curr = scope
-                has_column = False
-                while curr is not None:
-                    if any(_table_has_field(t, name, self.context) for t in curr.tables.values()) or any(
-                        _table_has_field(t, name, self.context) for t in curr.anonymous_tables
-                    ):
-                        has_column = True
-                        break
-                    curr = curr.parent
-                if not has_column:
-                    return False
+            name = str(field.chain[0])
+            if name in pending_ctes:
+                return False
+            if name in self.ctes:
+                continue
+            if name in scope.aliases:
+                continue
+            if self.context.globals is not None and name in self.context.globals:
+                continue
+            if self.dialect in SQL_TARGET_DIALECTS and name.lower() in POSTGRES_KEYWORD_TYPES:
+                continue
+
+            curr: ast.SelectQueryType | None = scope
+            is_available = False
+            while curr is not None:
+                if name in curr.tables:
+                    is_available = True
+                    break
+                if any(alias.lower() == name.lower() and _folds_identifier_case(t) for alias, t in curr.tables.items()):
+                    is_available = True
+                    break
+                if len(field.chain) > 1 and lookup_table_by_nested_name(curr, field):
+                    is_available = True
+                    break
+                if name in curr.aliases:
+                    is_available = True
+                    break
+                if any(_table_has_field(t, name, self.context) for t in curr.tables.values()) or any(
+                    _table_has_field(t, name, self.context) for t in curr.anonymous_tables
+                ):
+                    is_available = True
+                    break
+                curr = curr.parent
+
+            if not is_available:
+                return False
 
         return True
 
