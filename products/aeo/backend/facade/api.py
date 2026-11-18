@@ -375,10 +375,8 @@ def list_prompt_set_citations(
     fields = _CHECK_FIELDS if include_answer_text else tuple(f for f in _CHECK_FIELDS if f != "answer_text")
     page = (
         checks.annotate(
-            # A check with no answer text makes the regex match NULL, so default it to not mentioned.
-            mentioned=Coalesce(
-                ExpressionWrapper(mention_filter(target_domains), output_field=BooleanField()), Value(False)
-            )
+            # A failed check has no `names_brand`, which makes the filter NULL, so default it to not mentioned.
+            mentioned=Coalesce(ExpressionWrapper(mention_filter(), output_field=BooleanField()), Value(False))
         )
         .order_by("-created_at", "-id")
         .values(*fields, "prompt_id", "prompt_text", "prompt_topic", "mentioned")[offset : offset + limit]
@@ -408,13 +406,13 @@ MAX_OVERVIEW_SEARCHES = 20
 MAX_SEARCH_PROMPTS = 5
 
 
-def _check_counts(target_domains: list[str], *, prompts: bool = False) -> dict[str, Aggregate]:
+def _check_counts(*, prompts: bool = False) -> dict[str, Aggregate]:
     """Aggregates for a set of checks, with the distinct prompts behind them when `prompts` is set.
     `mentioned` and `prompts_cited` filter on the `cited` column, and an annotation named `cited`
     would shadow that column for every later annotation in the same call, so they must come first."""
     counts: dict[str, Aggregate] = {
         "checks": Count("id"),
-        "mentioned": Count("id", filter=Q(check_failed=False) & mention_filter(target_domains)),
+        "mentioned": Count("id", filter=Q(check_failed=False) & mention_filter()),
     }
     if prompts:
         counts["prompts_cited"] = Count("prompt_id", distinct=True, filter=Q(cited=True))
@@ -427,9 +425,7 @@ def _check_counts(target_domains: list[str], *, prompts: bool = False) -> dict[s
     return counts
 
 
-def _daily_engine_counts(
-    checks: QuerySet[AEOCitationCheck], tz: ZoneInfo, target_domains: list[str]
-) -> tuple[PromptDailyEngineStats, ...]:
+def _daily_engine_counts(checks: QuerySet[AEOCitationCheck], tz: ZoneInfo) -> tuple[PromptDailyEngineStats, ...]:
     return tuple(
         PromptDailyEngineStats(
             date=row["date"],
@@ -446,7 +442,7 @@ def _daily_engine_counts(
         # `cited` column, so it has to come before the annotation named `cited`.
         .annotate(
             checks=Count("id"),
-            mentioned=Count("id", filter=Q(check_failed=False) & mention_filter(target_domains)),
+            mentioned=Count("id", filter=Q(check_failed=False) & mention_filter()),
             cited=Count("id", filter=Q(cited=True)),
             failed=Count("id", filter=Q(check_failed=True)),
             avg_position=Avg("target_best_position"),
@@ -480,7 +476,7 @@ def get_prompt_stats(team_id: int, prompt_id: str, *, timezone_name: str, days: 
         # column for every later annotation in the same call, so it must come first.
         .annotate(
             checks=Count("id"),
-            mentioned=Count("id", filter=Q(check_failed=False) & mention_filter(target_domains)),
+            mentioned=Count("id", filter=Q(check_failed=False) & mention_filter()),
             cited=Count("id", filter=Q(cited=True)),
             failed=Count("id", filter=Q(check_failed=True)),
             avg_position=Avg("target_best_position"),
@@ -495,7 +491,7 @@ def get_prompt_stats(team_id: int, prompt_id: str, *, timezone_name: str, days: 
     daily_from = daily_to - dt.timedelta(days=days - 1)
     window_start = dt.datetime.combine(daily_from, dt.time.min, tzinfo=tz)
     in_window = checks.filter(created_at__gte=window_start)
-    daily = _daily_engine_counts(in_window, tz, target_domains)
+    daily = _daily_engine_counts(in_window, tz)
     answered = in_window.filter(check_failed=False)
     sentiment = tuple(
         PromptEngineSentiment(
@@ -510,7 +506,7 @@ def get_prompt_stats(team_id: int, prompt_id: str, *, timezone_name: str, days: 
             positive=Count("id", filter=Q(brand_sentiment="positive")),
             neutral=Count("id", filter=Q(brand_sentiment="neutral")),
             negative=Count("id", filter=Q(brand_sentiment="negative")),
-            unscored=Count("id", filter=Q(brand_sentiment__isnull=True) & mention_filter(target_domains)),
+            unscored=Count("id", filter=Q(brand_sentiment__isnull=True) & mention_filter()),
         )
         .order_by("engine")
     )
@@ -675,7 +671,7 @@ def get_prompt_set_overview(
     window_from = window_to - dt.timedelta(days=days - 1)
     window_start = dt.datetime.combine(window_from, dt.time.min, tzinfo=tz)
     previous_start = window_start - dt.timedelta(days=days)
-    counts = _check_counts(target_domains, prompts=True)
+    counts = _check_counts(prompts=True)
 
     # The branded split counts both sides, so it narrows by engine and topic only.
     all_checks = AEOCitationCheck.objects.for_team(team_id).filter(
@@ -716,7 +712,7 @@ def get_prompt_set_overview(
 
     current_counts = PromptSetCounts(**_set_counts(current.aggregate(**counts)))
     return PromptSetOverview(
-        daily=_daily_engine_counts(current, tz, target_domains),
+        daily=_daily_engine_counts(current, tz),
         days=days,
         window_from=window_from,
         window_to=window_to,
@@ -1310,12 +1306,10 @@ def _check_values(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _latest_checks(
-    team_id: int, prompt_ids: list[uuid.UUID], target_domains: list[str]
-) -> dict[uuid.UUID, tuple[PromptEngineCheck, ...]]:
+def _latest_checks(team_id: int, prompt_ids: list[uuid.UUID]) -> dict[uuid.UUID, tuple[PromptEngineCheck, ...]]:
     if not prompt_ids:
         return {}
-    # Pick each prompt and engine's latest check first, so the mention regex only reads those answers.
+    # Pick each prompt and engine's latest check first, so only those wide rows are read.
     latest_ids = (
         AEOCitationCheck.objects.for_team(team_id)
         .filter(prompt_id__in=prompt_ids)
@@ -1327,9 +1321,9 @@ def _latest_checks(
         AEOCitationCheck.objects.for_team(team_id)
         .filter(id__in=latest_ids)
         .annotate(
-            # A check with no answer text makes the regex match NULL, so default it to not mentioned.
+            # A failed check has no `names_brand`, which makes the filter NULL, so default it to not mentioned.
             mentioned=Coalesce(
-                ExpressionWrapper(Q(check_failed=False) & mention_filter(target_domains), output_field=BooleanField()),
+                ExpressionWrapper(Q(check_failed=False) & mention_filter(), output_field=BooleanField()),
                 Value(False),
             )
         )
@@ -1378,7 +1372,7 @@ def _version_counts(team_id: int, prompt_ids: list[uuid.UUID]) -> dict[uuid.UUID
 def _to_prompts(team_id: int, rows: list[AEOPrompt]) -> list[Prompt]:
     prompt_ids = [row.id for row in rows]
     target_domains = catalog.own_domains(team_id)
-    latest_checks = _latest_checks(team_id, prompt_ids, target_domains)
+    latest_checks = _latest_checks(team_id, prompt_ids)
     version_counts = _version_counts(team_id, prompt_ids)
     pattern = brand_pattern(target_domains)
     return [

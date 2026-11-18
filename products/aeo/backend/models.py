@@ -218,6 +218,11 @@ class AEOCitationCheck(TeamScopedRootMixin, CreatedMetaFields, UUIDTModel):
         help_text="Hash of the own domains that `cited`, `target_urls`, `target_best_position` and the sentiment were computed against. Null on checks recorded before it existed.",
     )
     top_cited_domains = models.JSONField(default=list, blank=True, help_text="Distinct hosts across the cited URLs.")
+    prompt_branded = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text="The prompt as it ran names one of the own brands, matched on whole words. Kept current by the own-citation reconcile. Null on checks recorded before it existed until that reconcile fills it.",
+    )
     names_brand = models.BooleanField(
         null=True,
         blank=True,
@@ -255,6 +260,29 @@ class AEOCitationCheck(TeamScopedRootMixin, CreatedMetaFields, UUIDTModel):
             models.Index(fields=["team_id", "created_at"], name="aeo_check_team_created_idx"),
             models.Index(fields=["team_id", "engine"], name="aeo_check_team_engine_idx"),
             models.Index(fields=["team_id", "run_id"], name="aeo_check_team_run_idx"),
+            # The set-level counts read only these columns, so they never touch the wide rows.
+            models.Index(
+                fields=["team_id", "created_at"],
+                include=[
+                    "id",
+                    "mode",
+                    "engine",
+                    "prompt_id",
+                    "prompt_topic",
+                    "check_failed",
+                    "cited",
+                    "names_brand",
+                    "prompt_branded",
+                    "target_best_position",
+                ],
+                name="aeo_check_window_cover_idx",
+            ),
+            # Finds each prompt and engine's latest check in index order, without a sort or a heap read.
+            models.Index(
+                fields=["team_id", "prompt_id", "engine", "-created_at"],
+                include=["id"],
+                name="aeo_check_latest_idx",
+            ),
         ]
 
     def __str__(self) -> str:

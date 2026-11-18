@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 import datetime as dt
 from collections import Counter, defaultdict
 from urllib.parse import urlparse
@@ -15,7 +16,7 @@ import tldextract
 from posthog.dataclasses import frozen
 from posthog.models.scoping.manager import resolve_effective_team_id
 
-from products.aeo.backend.brand import SEGMENT_SQL, brand_names, names_brand, segment_sql_params
+from products.aeo.backend.brand import SEGMENT_SQL, brand_names, branded_filter, names_brand, segment_sql_params
 from products.aeo.backend.engines import is_target_url, own_domains_key, target_position
 from products.aeo.backend.facade.contracts import (
     BRAND_DOMAIN_MAX_LENGTH,
@@ -105,7 +106,16 @@ def recompute_own_citations(team_id: int) -> int:
     changed = 0
     domains = own_domains(team_id)
     for _ in range(RECOMPUTE_MAX_PASSES):
-        changed += _recompute_with(team_id, domains)
+        recomputed = _recompute_with(team_id, domains)
+        changed += recomputed.changed
+        key = own_domains_key(domains)
+        failed_on_another_key = _failed_checks_on_another_key(team_id, key)
+        _recompute_branded_prompts(team_id, domains, whole_history=recomputed.rekeyed or bool(failed_on_another_key))
+        # Only the checks read before the prompt pass get the key. A failed check that a run records
+        # meanwhile keeps its own, so the next reconcile still sees it.
+        AEOCitationCheck.objects.for_team(team_id, canonical=True).filter(id__in=failed_on_another_key).update(
+            own_domains_key=key
+        )
         current = own_domains(team_id)
         if current == domains:
             break
@@ -113,7 +123,36 @@ def recompute_own_citations(team_id: int) -> int:
     return changed
 
 
-def _recompute_with(team_id: int, domains: list[str]) -> int:
+def _failed_checks_on_another_key(team_id: int, key: str) -> list[uuid.UUID]:
+    """Failed checks keyed for other own domains. A failed check has no citations to recompute, so the
+    citation pass leaves its key alone, and it still shows a change of the own domains when no answered
+    check does. The failed checks are found in the window index first, so only their rows are loaded."""
+    checks = AEOCitationCheck.objects.for_team(team_id, canonical=True)
+    failed = list(checks.filter(check_failed=True).values_list("id", flat=True))
+    return list(checks.filter(id__in=failed).exclude(own_domains_key=key).values_list("id", flat=True))
+
+
+@frozen
+class _Recomputed:
+    changed: int
+    # A check carried the key of other own domains, so the own domains changed since the last reconcile.
+    rekeyed: bool
+
+
+def _recompute_branded_prompts(team_id: int, domains: list[str], *, whole_history: bool) -> None:
+    """Set `prompt_branded` on the checks of the team, failed ones included, because the branded split
+    counts them too. The runner stores it against the own domains of the moment, so the whole history is
+    read again only when those changed. Otherwise only the checks that have none are read, from the
+    window index. Only the rows on the wrong side are written."""
+    checks = AEOCitationCheck.objects.for_team(team_id, canonical=True)
+    if not whole_history:
+        checks = checks.filter(prompt_branded__isnull=True)
+    branded = branded_filter(domains)
+    checks.filter(branded).exclude(prompt_branded=True).update(prompt_branded=True)
+    checks.exclude(branded).exclude(prompt_branded=False).update(prompt_branded=False)
+
+
+def _recompute_with(team_id: int, domains: list[str]) -> _Recomputed:
     key = own_domains_key(domains)
     checks = AEOCitationCheck.objects.for_team(team_id, canonical=True)
     # exclude() keeps the null keys of checks recorded before the key existed. A check on the current
@@ -125,6 +164,7 @@ def _recompute_with(team_id: int, domains: list[str]) -> int:
         .order_by("id")
     )
     changed = 0
+    rekeyed = False
     last_id = None
     # Keyset pages with a database limit: behind PgBouncer, iterator() would buffer the whole result.
     while page := list((stale.filter(id__gt=last_id) if last_id else stale)[:RECOMPUTE_BATCH_SIZE]):
@@ -146,10 +186,11 @@ def _recompute_with(team_id: int, domains: list[str]) -> int:
                 rescored.append(check)
             else:
                 kept.append(check)
+            rekeyed = rekeyed or check.own_domains_key != key
             check.own_domains_key = key
             changed += citations_moved
         _write_recomputed(checks, rescored, kept)
-    return changed
+    return _Recomputed(changed=changed, rekeyed=rekeyed)
 
 
 def _recompute_check(check: AEOCitationCheck, domains: list[str]) -> bool:
