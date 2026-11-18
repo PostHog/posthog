@@ -275,6 +275,7 @@ class SandboxConfig(BaseModel):
     memory_request_mb: int = BURSTABLE_REQUEST_MEMORY_MB
     vm_runtime: bool = False
     agent_egress_probe: bool = False
+    agent_egress_observation: bool = False
     outbound_domain_allowlist: list[str] | None = None
     network_policy_fingerprint: str | None = None
     # gVisor only. An empty domain allowlist means unrestricted network in
@@ -312,6 +313,24 @@ class SandboxConfig(BaseModel):
             or self.block_network
         ):
             raise ValueError("Egress probes require a fresh, credential-free development VM")
+        return self
+
+    @model_validator(mode="after")
+    def validate_agent_egress_observation(self) -> Self:
+        if self.agent_egress_observation and (
+            not (settings.DEBUG or settings.TEST)
+            or not self.vm_runtime
+            or self.memory_gb < 2
+            or self.agent_egress_probe
+            or self.outbound_domain_allowlist is not None
+            or self.block_network
+            or self.snapshot_id
+            or self.snapshot_external_id
+            or self.resume_snapshot_external_id
+            or self.snapshot_mount_path
+            or self.require_snapshot
+        ):
+            raise ValueError("Egress observation requires a fresh development VM with full network access")
         return self
 
     @model_validator(mode="before")
