@@ -144,6 +144,24 @@ attestations:
       # The prover's own manifest lists the default-branch paths it runs from. The engine reads it
       # from the default branch and ignores a proof whose marker does not pin every path in it.
       issuer: tools/change-prover/issuer.yml
+    - name: revert_proof
+      # The Revert proof workflow posts this check with the same posthog-dependency-proof token. It
+      # recomputes the revert of one PR merged into the default branch in the last 30 days, and
+      # confirms that the PR head holds exactly that tree. The restored code was reviewed and ran
+      # before, so the proof lifts the categories that ask whether code is safe to run. It lifts
+      # none that ask something a revert cannot answer: migrations (the database moved on),
+      # auth and crypto_secrets (a revert can bring back a fixed vulnerability), and the
+      # categories an owner decides or that hold the guards themselves (ci_workflows,
+      # agent_steering, workflows_delivery, devex_guardrails). stamphog_policy never lifts.
+      check: 'Revert proof'
+      app_id: 5697920
+      lifts: [billing, deps_toolchain, infra_cicd, public_api]
+      # A revert can touch any file. The trigger runs only for a title that starts with "Revert",
+      # so no other PR waits for this check.
+      title: '^Revert'
+      paths:
+          - '.*'
+      issuer: tools/change-prover/issuer.yml
 # Stamphog reviews PRs from these bots. It approves one only when an attestation that pins its
 # publisher, through `issuer` or `publisher_files`, proved every file the PR changes.
 bot_authors:

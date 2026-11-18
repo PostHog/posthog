@@ -88,17 +88,19 @@ def pinned_files(
 
 
 def pending_attestations(
-    attestations: Iterable[Attestation], check_runs: list[dict], pr_file_paths: list[str]
+    attestations: Iterable[Attestation], check_runs: list[dict], pr_file_paths: list[str], pr_title: str
 ) -> list[Attestation]:
     """Attestations whose check has not completed for a PR that touches their paths.
 
-    A publisher posts a result for every PR, so a missing completed run means CI has not finished.
-    An unusable entry is never pending, because its result could lift nothing.
+    A publisher posts a result for every PR its paths and title cover, so a missing completed run
+    means CI has not finished. An unusable entry is never pending, because its result could lift
+    nothing.
     """
     return [
         attestation
         for attestation in attestations
         if attestation.usable
+        and (not attestation.title or re.search(attestation.title, pr_title))
         and any(covers(attestation, path) for path in pr_file_paths)
         and _latest_completed(check_runs, attestation) is None
     ]

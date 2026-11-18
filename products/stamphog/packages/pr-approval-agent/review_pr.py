@@ -326,7 +326,7 @@ class Pipeline:
         unproven = self.classification.get("unattested_files", [])
         if not deny and not unproven:
             return []
-        pending = pending_attestations(self._attestations, self.pr.check_runs, self.pr.file_paths)
+        pending = pending_attestations(self._attestations, self.pr.check_runs, self.pr.file_paths, self.pr.title)
         if any(not any(covers(attestation, path) for attestation in pending) for path in unproven):
             return []
         if not pending or not deny <= set().union(*(set(a.lifts) for a in pending)):
@@ -493,11 +493,12 @@ class Pipeline:
         # A proof may name a rename's old path, so the old path is matched like a changed file.
         pinned = pinned_files(self._attestations, pr.check_runs, pr.deny_paths, reviewed)
         unattested = sorted(set(pr.deny_paths) - pinned) if self.admitted_bot else []
-        pending = pending_attestations(self._attestations, pr.check_runs, file_paths)
+        pending = pending_attestations(self._attestations, pr.check_runs, file_paths, pr.title)
         deny = detect_deny_categories(pr.deny_paths, lifted)
         exception_lifted = bool(POLICY.deny_exceptions) and (
             detect_deny_categories(pr.deny_paths, lifted, apply_exceptions=False) != deny
         )
+        attestation_lifted = bool(lifted) and detect_deny_categories(pr.deny_paths) != deny
         dep_manifests = dependency_manifests_without_lockfile(file_paths)
         # Deterministic first line for the manifest scripts risk: an edit to
         # scripts/lifecycle/build keys hard-denies rather than resting solely
@@ -532,16 +533,17 @@ class Pipeline:
         # Both checks matter: has_dependency_changes catches lockfile-paired
         # manifests, dependency_manifests_without_lockfile catches the rest
         # (tsconfig, setup.py/.cfg) that the reviewer's scripts guard covers.
-        # An owner-only exemption lifts the deny, not the review: a workflow is .yml,
-        # so without this it rides the allow-list to a T0 approval with no reviewer.
+        # An owner-only exemption or an attestation lifts the deny, not the review: a workflow is
+        # .yml, so without this it rides the allow-list to a T0 approval with no reviewer.
         allow_only = (
             is_allow_listed_only(file_paths)
             and not has_dependency_changes(file_paths)
             and not dep_manifests
             and not owner_exempted
             and not exception_lifted
+            and not attestation_lifted
         )
-        is_test = test_only(categories) and not owner_exempted and not exception_lifted
+        is_test = test_only(categories) and not owner_exempted and not exception_lifted and not attestation_lifted
         ownership_resolvers = build_ownership(REPO_ROOT, POLICY.ownership)
         ownership = detect_ownership(file_paths, ownership_resolvers)
 

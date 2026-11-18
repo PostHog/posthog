@@ -36,6 +36,7 @@ _UNUSABLE_ISSUER = replace(_ISSUED_PROOF, issuer_paths=())
 _REVIEWED = ReviewedHead(pr_number=7, head_sha="a" * 40, merge_base_sha="b" * 40)
 _MIGRATION = "posthog/migrations/1125_x.py"
 _MAX_MIGRATION = "posthog/migrations/max_migration.txt"
+_TITLE = "chore(deps): update a lockfile"
 _LOCKFILE = "pnpm-lock.yaml"
 
 
@@ -226,12 +227,12 @@ def test_each_attestation_lifts_only_its_own_categories() -> None:
     ],
 )
 def test_pending_when_pr_touches_the_paths_and_no_completed_check(check_runs: list[dict]) -> None:
-    assert pending_attestations([_MIGRATION_RISK, _DEPENDENCY_PROOF], check_runs, [_MIGRATION]) == [_MIGRATION_RISK]
+    assert pending_attestations([_MIGRATION_RISK, _DEPENDENCY_PROOF], check_runs, [_MIGRATION], _TITLE) == [_MIGRATION_RISK]
 
 
 @pytest.mark.parametrize("conclusion", ["success", "failure"])
 def test_not_pending_once_the_check_completed(conclusion: str) -> None:
-    assert pending_attestations([_MIGRATION_RISK], [_check(conclusion=conclusion)], [_MIGRATION]) == []
+    assert pending_attestations([_MIGRATION_RISK], [_check(conclusion=conclusion)], [_MIGRATION], _TITLE) == []
 
 
 @pytest.mark.parametrize(
@@ -243,11 +244,19 @@ def test_not_pending_once_the_check_completed(conclusion: str) -> None:
     ],
 )
 def test_not_pending_when_no_file_matches_the_paths(files: list[str]) -> None:
-    assert pending_attestations([_MIGRATION_RISK], [_check(status="in_progress", conclusion=None)], files) == []
+    assert pending_attestations([_MIGRATION_RISK], [_check(status="in_progress", conclusion=None)], files, _TITLE) == []
 
 
-def test_an_unusable_issuer_entry_is_never_pending() -> None:
-    assert pending_attestations([_UNUSABLE_ISSUER, _ISSUED_PROOF], [], [_LOCKFILE]) == [_ISSUED_PROOF]
+@pytest.mark.parametrize(
+    "silent, title",
+    [
+        pytest.param(_UNUSABLE_ISSUER, _TITLE, id="unusable-issuer"),
+        # A revert proof posts a result only for a PR titled as a revert, so any other PR would wait forever.
+        pytest.param(replace(_ISSUED_PROOF, name="revert", title="^Revert "), _TITLE, id="title-not-covered"),
+    ],
+)
+def test_an_entry_whose_result_is_not_coming_is_never_pending(silent: Attestation, title: str) -> None:
+    assert pending_attestations([silent, _ISSUED_PROOF], [], [_LOCKFILE], title) == [_ISSUED_PROOF]
 
 
 def test_pending_check_names_backticks_each_check() -> None:

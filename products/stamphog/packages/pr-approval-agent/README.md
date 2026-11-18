@@ -404,9 +404,12 @@ The manifest must cover itself, hold at most 32 unique plain paths, and stay und
 The check embeds the files it vouches for in a `<!-- stamphog:v1 ... -->` marker in its summary.
 The engine lifts only the listed files that are in the diff and match the entry's paths, by exact path, and only for the entry's categories.
 Those files still count toward every other deny category.
+A lifted file never rides the allow-list or the test-only route to a T0 approval, because an attestation lifts the deny, not the review.
+An entry may set `title`, a pattern for the PR titles its publisher posts a result for, such as `^Revert` for a revert proof.
+A PR whose title does not match never waits for that check.
 An entry that pins its publisher accepts only a result whose `blobs` hold every one of those paths, and only while the default branch still holds every object the result pins, so a proof made by an older publisher or under older rules lifts nothing.
 The shipped default names no attestation.
-This repository's `.stamphog/policy.yml` names `Migration risk` for the `migrations` category.
+This repository's `.stamphog/policy.yml` names `Migration risk` for the `migrations` category, `Dependency proof` for `deps_toolchain`, and `Revert proof` for the categories a clean revert may lift.
 The engine knows nothing about what a check proves. See `attestations.py` for the marker contract and the proof conditions.
 
 If a check that could lift every deny hasn't reported yet, `review_local.py` returns `WAIT` rather than a verdict, because its caller can retry on the next push.

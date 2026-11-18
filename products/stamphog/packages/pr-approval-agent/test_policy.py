@@ -348,6 +348,7 @@ def _set_attestations(d: dict, *, raw: object) -> None:
                 ("issuer-escapes-repo", [{**_ATTESTATION, "issuer": "../issuer.yml"}]),
                 ("issuer-is-a-directory", [{**_ATTESTATION, "issuer": "tools/proof/"}]),
                 ("issuer-glob", [{**_ATTESTATION, "issuer": "tools/*/issuer.yml"}]),
+                ("title-invalid-regex", [{**_ATTESTATION, "title": "^Revert ("}]),
             ]
         ],
         _unknown_top_level_key,
