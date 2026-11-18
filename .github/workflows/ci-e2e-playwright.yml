@@ -1160,9 +1160,10 @@ jobs:
                       exit 1
                   fi
             # Verdict: red a real failure the gate didn't clear as a quarantined flake, or a masked failure
-            # that the rerun confirmed. != 'success' also covers the skipped gate on fork/Dependabot.
+            # that the rerun did not clear. != 'success' also covers the skipped gate on fork/Dependabot
+            # and a rerun that timed out.
             - name: Fail on Playwright failure
-              if: ${{ !cancelled() && steps.playwright-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success' || steps.quarantine_rerun.outcome == 'failure') }}
+              if: ${{ !cancelled() && steps.playwright-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success' || steps.quarantine_rerun.outcome != 'success') }}
               shell: bash
               run: exit 1
 
