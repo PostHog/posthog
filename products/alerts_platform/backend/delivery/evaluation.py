@@ -34,6 +34,7 @@ from products.alerts_platform.backend.delivery.dispatch import (
 )
 from products.alerts_platform.backend.delivery.email import EmailTransport
 from products.alerts_platform.backend.delivery.in_app import InAppTransport
+from products.alerts_platform.backend.delivery.incident_io import IncidentIoTransport
 from products.alerts_platform.backend.delivery.message import INCIDENT_KINDS, AlertMessage
 from products.alerts_platform.backend.delivery.pagerduty import PagerDutyTransport, source_incident_key
 from products.alerts_platform.backend.delivery.slack import SlackTransport
@@ -97,6 +98,7 @@ _TRANSPORTS: Final[dict[DestinationType, type[DeliveryTransport]]] = {
     DestinationType.TEAMS: TeamsTransport,
     DestinationType.DISCORD: DiscordTransport,
     DestinationType.PAGERDUTY: PagerDutyTransport,
+    DestinationType.INCIDENT_IO: IncidentIoTransport,
     DestinationType.EMAIL: EmailTransport,
     DestinationType.IN_APP: InAppTransport,
 }
