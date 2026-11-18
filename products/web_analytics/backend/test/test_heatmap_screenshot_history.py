@@ -6,6 +6,7 @@ from threading import Barrier
 from uuid import UUID, uuid4
 
 import pytest
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -524,6 +525,7 @@ class TestHeatmapHistory(APIBaseTest):
             ),
         ]
     )
+    @time_machine.travel("2026-03-10T12:00:00Z", tick=False)
     def test_transient_failure_retries_until_the_final_attempt(
         self, _name: str, render_error: Exception | None, retried: bool, expected: RenderOutcome
     ) -> None:
