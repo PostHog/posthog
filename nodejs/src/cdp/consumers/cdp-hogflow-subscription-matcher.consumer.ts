@@ -509,12 +509,17 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             return
         }
 
+        const actionableFlowsByTeam = new Map<number, HogFlow[]>()
+        const actionableFlowsOf = (teamId: number): HogFlow[] => {
+            let flows = actionableFlowsByTeam.get(teamId)
+            if (!flows) {
+                flows = (hogFlowsByTeam[teamId] ?? []).filter(hasWaitUntilOrConversion)
+                actionableFlowsByTeam.set(teamId, flows)
+            }
+            return flows
+        }
         const parkedCheck = await this.checkFilters(filterFirst, 'parked', invocationGlobals, (globals, spent) =>
-            this.couldMoveRun(
-                (hogFlowsByTeam[globals.project.id] ?? []).filter(hasWaitUntilOrConversion),
-                filterGlobalsFor(globals),
-                spent
-            )
+            this.couldMoveRun(actionableFlowsOf(globals.project.id), filterGlobalsFor(globals), spent)
         )
         if (parkedCheck.lookup.length === 0) {
             return
@@ -1174,27 +1179,46 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         errorLog: string,
         parse: ParseBatchOptions['parse']
     ): Promise<HogFunctionInvocationGlobals[]> {
-        return await parseBatch(messages, {
-            errorLog,
-            parse,
-            onInvalidTeamId: () => counterHogflowMatcherEventSkipped.labels({ reason: 'invalid_team_id' }).inc(),
-            // Do not catch a lookup error here. A skipped event leaves the wait or conversion goal that it
-            // should satisfy to time out.
-            loadTeam: async (teamId) => {
-                // The vast majority of messages belong to teams with no wait_until_condition step and
-                // no conversion goal. Bail on those via the in-memory hogflow cache before paying for
-                // getTeam + full globals conversion.
-                if (!(await this.teamIsActionable(teamId))) {
-                    counterHogflowMatcherEventSkipped.labels({ reason: 'no_actionable_flow' }).inc()
-                    return null
+        // A batch carries many messages per team, so each team is looked up once and the skips are counted once.
+        const teams = new Map<number, Promise<Team | 'no_actionable_flow' | 'no_team'>>()
+        const skipped = { no_actionable_flow: 0, no_team: 0 }
+        const lookUp = async (teamId: number): Promise<Team | 'no_actionable_flow' | 'no_team'> => {
+            // The vast majority of messages belong to teams with no wait_until_condition step and
+            // no conversion goal. Bail on those via the in-memory hogflow cache before paying for
+            // getTeam + full globals conversion.
+            if (!(await this.teamIsActionable(teamId))) {
+                return 'no_actionable_flow'
+            }
+            return (await this.deps.teamManager.getTeam(teamId)) ?? 'no_team'
+        }
+        try {
+            return await parseBatch(messages, {
+                errorLog,
+                parse,
+                onInvalidTeamId: () => counterHogflowMatcherEventSkipped.labels({ reason: 'invalid_team_id' }).inc(),
+                // Do not catch a lookup error here. A skipped event leaves the wait or conversion goal that it
+                // should satisfy to time out.
+                loadTeam: async (teamId) => {
+                    let team = teams.get(teamId)
+                    if (!team) {
+                        team = lookUp(teamId)
+                        teams.set(teamId, team)
+                    }
+                    const result = await team
+                    if (typeof result === 'string') {
+                        skipped[result]++
+                        return null
+                    }
+                    return result
+                },
+            })
+        } finally {
+            for (const [reason, count] of Object.entries(skipped)) {
+                if (count > 0) {
+                    counterHogflowMatcherEventSkipped.labels({ reason }).inc(count)
                 }
-                const team = await this.deps.teamManager.getTeam(teamId)
-                if (!team) {
-                    counterHogflowMatcherEventSkipped.labels({ reason: 'no_team' }).inc()
-                }
-                return team
-            },
-        })
+            }
+        }
     }
 
     // Step resumes name their job, so they skip the person and team gates the event parser applies.
@@ -1689,8 +1713,17 @@ function exitsOnConversion(hogflow: HogFlow): boolean {
 // no event-based conversion goal. Event conversions are evaluated regardless of exit condition so
 // the `conversion` metric is tracked even for flows that don't exit on conversion — only the *wake*
 // decision (in wakeMatchingWorkflows) still depends on exitsOnConversion.
+// The hogflow cache keeps one object per flow version, so the answer is kept per object.
+const actionableFlows = new WeakMap<HogFlow, boolean>()
+
 function hasWaitUntilOrConversion(hogflow: HogFlow): boolean {
-    return hogflow.actions.some((a: HogFlowAction) => a.type === 'wait_until_condition') || hasConversionGoal(hogflow)
+    let actionable = actionableFlows.get(hogflow)
+    if (actionable === undefined) {
+        actionable =
+            hogflow.actions.some((a: HogFlowAction) => a.type === 'wait_until_condition') || hasConversionGoal(hogflow)
+        actionableFlows.set(hogflow, actionable)
+    }
+    return actionable
 }
 
 function hasConversionGoal(hogflow: HogFlow): boolean {

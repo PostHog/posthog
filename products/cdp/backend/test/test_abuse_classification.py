@@ -6,6 +6,7 @@ from parameterized import parameterized
 
 from posthog.utils import absolute_uri
 
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.tasks.abuse_classification import classify_hog_function_for_abuse
 from products.cdp.backend.test.abuse_support import (
     RULE_FREE_HOG,
@@ -131,6 +132,34 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                     "would_block": False,
                 },
             ),
+            (
+                "secret_input_runs_a_huge_range",
+                httpx.Response(503, json={"error": "busy"}),
+                None,
+                {"hog": RULE_FREE_HOG, "inputs": {"api_key": {"value": "{range(1000000)}"}}},
+                {"error": "gateway_error", "rule_hits": ["huge_range"], "would_alert": True, "would_block": False},
+            ),
+            (
+                "secret_mapping_input_amplifies_a_string",
+                httpx.Response(503, json={"error": "busy"}),
+                None,
+                {
+                    "hog": RULE_FREE_HOG,
+                    "mappings": [
+                        {
+                            "name": "Orders",
+                            "inputs_schema": [{"key": "token", "type": "string", "secret": True}],
+                            "inputs": {"token": {"value": "{replaceAll(event.event, '', 'xx')}"}},
+                        }
+                    ],
+                },
+                {
+                    "error": "gateway_error",
+                    "rule_hits": ["replace_amplification"],
+                    "would_alert": True,
+                    "would_block": False,
+                },
+            ),
         ]
     )
     def test_a_gateway_failure_is_captured_as_an_error_event_with_the_rule_verdict(
@@ -185,9 +214,36 @@ class TestAbuseClassification(AbuseClassificationTestCase):
         if padding_seen is not None:
             assert state["inputs"]["padding"]["value"] == padding_seen
 
-    @parameterized.expand([("name_only", {"name": "Renamed"}, 1), ("code", {"hog": "print('changed')"}, 2)])
+    @parameterized.expand(
+        [
+            ("name_only", {"name": "Renamed"}, 1),
+            ("code", {"hog": "print('changed')"}, 2),
+            (
+                "secret_rotated_to_a_benign_value",
+                {
+                    "inputs": {
+                        "url": {"value": "https://hooks.example.com/orders"},
+                        "api_key": {"value": "sk-live-rotated"},
+                        "body": {"value": {"bytecode": "https://collector.example.net"}},
+                    }
+                },
+                1,
+            ),
+            (
+                "secret_input_that_matches_a_rule",
+                {
+                    "inputs": {
+                        "url": {"value": "https://hooks.example.com/orders"},
+                        "api_key": {"value": "{range(1000000)}"},
+                        "body": {"value": {"bytecode": "https://collector.example.net"}},
+                    }
+                },
+                2,
+            ),
+        ]
+    )
     def test_a_resave_is_scored_again_only_when_its_content_changes(
-        self, _name: str, changes: dict[str, str], expected_requests: int
+        self, _name: str, changes: dict[str, Any], expected_requests: int
     ) -> None:
         hog_function = self.create_destination()
 
@@ -254,6 +310,17 @@ class TestAbuseClassification(AbuseClassificationTestCase):
         classify_hog_function_for_abuse(team_id=self.team.id, hog_function_id=str(hog_function.id))
 
         assert len(self.gateway.requests) == expected_requests
+
+    def test_an_undecryptable_secret_input_still_scores_the_public_config(self) -> None:
+        hog_function = self.create_destination(hog=RULE_FREE_HOG)
+        HogFunction.objects.filter(pk=hog_function.pk).update(
+            hog="print(event.event)", encrypted_inputs="ciphertext without its key"
+        )
+
+        classify_hog_function_for_abuse(team_id=self.team.id, hog_function_id=str(hog_function.id))
+
+        assert len(self.gateway.requests) == 2
+        assert "risk_score" in self.captured_events()[-1]["properties"]
 
     def test_enabling_a_function_that_was_never_scored_scores_it(self) -> None:
         hog_function = self.create_destination(enabled=False)
