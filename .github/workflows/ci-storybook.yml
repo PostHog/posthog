@@ -651,17 +651,16 @@ jobs:
             NODE_OPTIONS: --max-old-space-size=16384
             OPT_OUT_CAPTURE: 1
             JEST_JUNIT_SUITE_NAME: '{filepath}'
-            SPARSE_CHECKOUT: ${{ github.head_ref == 'pauldambra/storybook-checkout-crossover' && matrix.browser == 'chromium' && matrix.shard_count == 40 && ((matrix.shard <= 20) == (github.run_attempt == '1')) }}
         steps:
             - name: Full source checkout
-              if: env.SPARSE_CHECKOUT != 'true'
+              if: matrix.browser != 'chromium'
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ github.event.pull_request.head.sha || github.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
 
             - name: Sparse source checkout
-              if: env.SPARSE_CHECKOUT == 'true'
+              if: matrix.browser == 'chromium'
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ github.event.pull_request.head.sha || github.sha }}
