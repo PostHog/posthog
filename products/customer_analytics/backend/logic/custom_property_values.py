@@ -413,7 +413,7 @@ def list_custom_property_value_history(
     entries: list[CustomPropertyValue] = []
     for row in rows:
         row.definition = definition
-        if not entries or value_of(entries[-1]) != value_of(row):
+        if not entries or stored_value_of(entries[-1]) != stored_value_of(row):
             entries.append(row)
     has_current = bool(rows) and not rows[-1].is_deleted
     return [
@@ -580,6 +580,12 @@ def _coerce_to_column(definition: CustomPropertyDefinition, value: Any) -> tuple
         return "value_str", _coerce_link(definition, value)
     column, coerce = _HANDLER_BY_DATA_TYPE[definition.data_type]
     return column, coerce(definition, value)
+
+
+def stored_value_of(row: CustomPropertyValue) -> CoercedValue | None:
+    """The value in whichever column `row` filled. A past row keeps the column of the data type its
+    definition had when the row was written, which can differ from the definition's type today."""
+    return next((v for v in (row.value_str, row.value_bool, row.value_num, row.value_datetime) if v is not None), None)
 
 
 def value_of(row: CustomPropertyValue) -> CoercedValue | None:

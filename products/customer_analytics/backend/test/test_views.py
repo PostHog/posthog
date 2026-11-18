@@ -2595,6 +2595,9 @@ class TestCustomPropertyValueViewSet(APIBaseTest):
         self._set(self.text_def.id, "starter")
         self._set(self.text_def.id, "enterprise")
         self._set(self.number_def.id, 5)
+        self.text_def.display_type = DisplayType.NUMBER
+        self.text_def.save()
+        self._set(self.text_def.id, 42)
         if cleared:
             self._set(self.text_def.id, None)
 
@@ -2603,10 +2606,11 @@ class TestCustomPropertyValueViewSet(APIBaseTest):
         self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
         history = response.json()
         self.assertEqual(
-            [("starter", False), ("enterprise", not cleared)], [(e["value"], e["is_current"]) for e in history]
+            [("starter", False), ("enterprise", False), (42, not cleared)],
+            [(e["value"], e["is_current"]) for e in history],
         )
-        self.assertEqual(history[1]["set_at"], history[0]["replaced_at"])
-        self.assertIsNone(history[1]["replaced_at"])
+        self.assertEqual([e["set_at"] for e in history[1:]], [e["replaced_at"] for e in history[:-1]])
+        self.assertIsNone(history[-1]["replaced_at"])
         unknown = self.client.get(f"{self.endpoint}history/", {"definition": str(uuid4())})
         self.assertEqual(status.HTTP_400_BAD_REQUEST, unknown.status_code)
 

@@ -5401,7 +5401,7 @@ def list_custom_property_value_history(
     )
     return [
         contracts.CustomPropertyValueHistoryEntry(
-            value=_custom_property_values_logic.value_of(row),
+            value=_custom_property_values_logic.stored_value_of(row),
             set_at=row.created_at,
             set_by_id=row.created_by_id,
             replaced_at=replaced_at,
