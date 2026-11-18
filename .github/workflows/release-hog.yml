@@ -593,11 +593,18 @@ jobs:
                   set -euo pipefail
 
                   # Every master commit comes from a merged pull request. None listed means GitHub hasn't
-                  # linked it yet, and skipping would leave a release unpublished without a word.
-                  merged_prs=$(gh api --paginate "repos/$REPOSITORY/commits/$RELEASE_COMMIT/pulls" \
-                      --jq '.[] | select(.merged_at != null and .base.ref == "master") | "\(.number) \(.head.ref)"')
+                  # linked it yet, which takes a little while after the merge queue lands a commit, and
+                  # skipping would leave a release unpublished without a word.
+                  merged_prs=""
+                  for attempt in $(seq 1 12); do
+                      merged_prs=$(gh api --paginate "repos/$REPOSITORY/commits/$RELEASE_COMMIT/pulls" \
+                          --jq '.[] | select(.merged_at != null and .base.ref == "master") | "\(.number) \(.head.ref)"')
+                      [ -n "$merged_prs" ] && break
+                      echo "GitHub lists no merged pull request for $RELEASE_COMMIT yet (attempt $attempt of 12)"
+                      sleep 10
+                  done
                   if [ -z "$merged_prs" ]; then
-                      echo "::error::GitHub lists no merged pull request for $RELEASE_COMMIT yet. Re-run the failed jobs in a minute."
+                      echo "::error::GitHub lists no merged pull request for $RELEASE_COMMIT after 2 minutes. Re-run the failed jobs."
                       exit 1
                   fi
                   release_prs=$(awk -v branch="$RELEASE_BRANCH" '$2 == branch { print $1 }' <<<"$merged_prs")
