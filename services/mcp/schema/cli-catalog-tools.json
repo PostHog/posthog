@@ -40755,6 +40755,14 @@
                 {
                     "param": "insight_ids",
                     "key": "insight_ids"
+                },
+                {
+                    "param": "metric_insight_ids",
+                    "key": "metric_insight_ids"
+                },
+                {
+                    "param": "metric_goals",
+                    "key": "metric_goals"
                 }
             ],
             "injectBody": {},
@@ -40945,6 +40953,14 @@
                 {
                     "param": "insight_ids",
                     "key": "insight_ids"
+                },
+                {
+                    "param": "metric_insight_ids",
+                    "key": "metric_insight_ids"
+                },
+                {
+                    "param": "metric_goals",
+                    "key": "metric_goals"
                 }
             ],
             "injectBody": {},
