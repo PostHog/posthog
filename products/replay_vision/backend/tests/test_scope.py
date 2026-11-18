@@ -230,6 +230,34 @@ class TestScopeDualWrite(BaseTest):
 
         self.assertEqual(scanner.scope, {"kind": "experiment", "experiment_id": 32, "variants": ["control"]})
 
+    def test_a_native_scanner_that_samples_proportionally_carries_that_into_scope(self) -> None:
+        # The sampler reads `balance` from the scope, so a config that turned balancing off has to
+        # survive the derivation. Losing it would silently switch the scanner to balanced rates.
+        scanner = _make_scanner(
+            self.team,
+            scanner_type=ScannerType.EXPERIMENT,
+            scanner_config={"experiment_id": 32, "variants": ["control"], "balance_variants": False},
+        )
+        scanner.refresh_from_db()
+
+        self.assertEqual(
+            scanner.scope,
+            {"kind": "experiment", "experiment_id": 32, "variants": ["control"], "balance": False},
+        )
+
+    def test_a_default_balance_stays_out_of_the_mirrored_scope(self) -> None:
+        # The mirror decides whether it owns a row's scope by comparing the stored blob against a
+        # fresh derivation. A defaulted key written into the blob would move that shape under every
+        # row already mirrored, and the mirror would read them all as scopes set by hand.
+        scanner = _make_scanner(
+            self.team,
+            scanner_type=ScannerType.EXPERIMENT,
+            scanner_config={"experiment_id": 32, "variants": ["control"], "balance_variants": True},
+        )
+        scanner.refresh_from_db()
+
+        self.assertEqual(scanner.scope, {"kind": "experiment", "experiment_id": 32, "variants": ["control"]})
+
     def test_an_unscoped_scanner_keeps_a_null_scope(self) -> None:
         scanner = _make_scanner(self.team, scanner_type=ScannerType.MONITOR)
         scanner.refresh_from_db()
