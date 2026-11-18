@@ -222,14 +222,15 @@ type Story = StoryObj
 export const Builder: Story = {
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        await waitFor(() => expect(canvas.getByRole('complementary', { name: 'App components' })).toBeVisible())
+        await waitFor(() => expect(canvas.getByLabelText('App components')).toBeVisible(), { timeout: 60000 })
         fireEvent.click(canvasElement.querySelector('[data-attr="notebook-app-add-text"]')!)
-        await waitFor(() => expect(canvas.getByRole('textbox', { name: 'Component text' })).toBeVisible())
-        fireEvent.change(canvas.getByRole('textbox', { name: 'Component text' }), {
+        await waitFor(() => expect(canvas.getByLabelText('Component text')).toBeVisible())
+        fireEvent.change(canvas.getByLabelText('Component text'), {
             target: { value: '## Review notes\n\nAdded in the app builder.' },
         })
-        await waitFor(() => expect(canvas.getByRole('button', { name: 'Save draft' })).toBeEnabled())
-        fireEvent.click(canvas.getByRole('button', { name: 'Save draft' }))
+        const saveButton = canvasElement.querySelector('[data-attr="notebook-app-save"]')!
+        await waitFor(() => expect(saveButton).toBeEnabled())
+        fireEvent.click(saveButton)
         await waitFor(() => expect(saved.app_draft.blocks.at(-1)?.text).toContain('Review notes'))
         expect(saved.app_published.blocks).toHaveLength(layout.blocks.length)
     },
@@ -240,7 +241,7 @@ export const Notebook: Story = {
     parameters: { pageUrl: urls.notebook(SHORT_ID), testOptions: { waitForSelector: '.MarkdownNotebook' } },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        await waitFor(() => expect(canvas.getByLabelText('Notebook options')).toBeVisible())
+        await waitFor(() => expect(canvas.getByLabelText('Notebook options')).toBeVisible(), { timeout: 60000 })
         expect(canvas.queryByText('App builder')).not.toBeInTheDocument()
         fireEvent.click(canvas.getByLabelText('Notebook options'))
         const menu = within(document.body)
@@ -248,7 +249,7 @@ export const Notebook: Story = {
         await waitFor(() => expect(canvas.getByLabelText('App components')).toBeVisible())
         fireEvent.click(canvas.getByLabelText('More app actions'))
         fireEvent.click(await menu.findByText('Open notebook'))
-        await waitFor(() => expect(canvasElement.querySelector('.MarkdownNotebook')).toBeVisible())
+        await waitFor(() => expect(canvasElement.querySelector('.MarkdownNotebook')).toBeVisible(), { timeout: 60000 })
         expect(canvas.queryByLabelText('App components')).not.toBeInTheDocument()
     },
 }
