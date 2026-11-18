@@ -31,6 +31,7 @@ from temporalio.exceptions import (
 )
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from temporalio.workflow import ChildWorkflowCancellationType, ParentClosePolicy
 
 from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxBase, SandboxConfig, SandboxTemplate
 from products.tasks.backend.models import SandboxSnapshot, TaskRun
@@ -80,6 +81,7 @@ from products.tasks.backend.temporal.process_task.activities import (
     track_workflow_event,
     update_task_run_status,
 )
+from products.tasks.backend.temporal.process_task.activities.agent_egress import AgentEgressProbeInput
 from products.tasks.backend.temporal.process_task.activities.create_resume_snapshot import CreateResumeSnapshotOutput
 from products.tasks.backend.temporal.process_task.activities.emit_progress_activity import EmitProgressInput
 from products.tasks.backend.temporal.process_task.activities.persist_agent_memory import PersistAgentMemoryOutput
@@ -1992,19 +1994,45 @@ class TestProcessTaskWorkflowUnit:
         )
         assert wf._self_driving_quota_recheck_scheduled() is False
 
-    async def test_final_sandbox_cleanup_completes_the_run_stream(self, monkeypatch):
+    @pytest.mark.parametrize("observe", [False, True])
+    async def test_final_sandbox_cleanup_completes_the_run_stream(self, monkeypatch, observe: bool):
         cleanup_inputs: list[CleanupSandboxInput] = []
+        events: list[str] = []
+        observing = asyncio.Event()
+
+        async def child_workflow(workflow_fn, input: AgentEgressProbeInput, **kwargs):
+            assert input == AgentEgressProbeInput(
+                config_path="/run/egress/observation.json", team_id=1, run_id="run-id", sandbox_id="sandbox-123"
+            )
+            assert kwargs["cancellation_type"] == ChildWorkflowCancellationType.WAIT_CANCELLATION_COMPLETED
+            assert kwargs["parent_close_policy"] == ParentClosePolicy.REQUEST_CANCEL
+            observing.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                events.append("revoke")
 
         async def fake_execute_activity(activity_fn, activity_input, **kwargs):
             assert activity_fn is cleanup_sandbox
             cleanup_inputs.append(activity_input)
+            events.append("destroy")
 
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_child_workflow", child_workflow)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "uuid4", uuid.uuid4)
+        monkeypatch.setattr(
+            process_task_workflow_module.workflow, "info", lambda: SimpleNamespace(task_queue="egress-test")
+        )
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(github_integration_id=123)
+        if observe:
+            workflow._context.agent_egress_observation_config = "/run/egress/observation.json"
+            workflow._agent_egress_observation_task = asyncio.create_task(workflow._observe_egress("sandbox-123"))
+            await asyncio.wait_for(observing.wait(), timeout=5)
 
         await workflow._cleanup_sandbox("sandbox-123", complete_stream=True)
 
+        assert events == (["revoke", "destroy"] if observe else ["destroy"])
         assert cleanup_inputs == [
             CleanupSandboxInput(
                 sandbox_id="sandbox-123",
