@@ -1,6 +1,3 @@
-import { useActions, useValues } from 'kea'
-import { useState } from 'react'
-
 import { IconPencil, IconTrash } from '@posthog/icons'
 import {
     LemonBanner,
@@ -15,49 +12,47 @@ import {
 } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
-import { NEW_HOLDOUT, holdoutsLogic } from 'scenes/experiments/holdoutsLogic'
 
 import { AccessControlLevel, AccessControlResourceType, ExperimentHoldoutType } from '~/types'
 
+import {
+    DELETE_HOLDOUT_TITLE,
+    HOLDOUTS_EMPTY,
+    HOLDOUTS_INTRO,
+    HOLDOUT_NAME_PLACEHOLDER,
+    HOLDOUT_ROLLOUT_HELP,
+    useHoldoutsScene,
+} from './holdoutsSceneModel'
+import { QuillExperimentsHoldoutsScene } from './QuillExperimentsHoldoutsScene'
+
 export function ExperimentsHoldoutsScene(): JSX.Element {
-    const { holdouts, holdoutsLoading, holdout } = useValues(holdoutsLogic)
-    const { createHoldout, deleteHoldout, setHoldout, updateHoldout } = useActions(holdoutsLogic)
-
-    const [isHoldoutModalOpen, setIsHoldoutModalOpen] = useState(false)
-    const [editingHoldout, setEditingHoldout] = useState<ExperimentHoldoutType | null>(null)
-
-    const openEditModal = (holdout: ExperimentHoldoutType): void => {
-        setEditingHoldout(holdout)
-        setHoldout(holdout)
-        setIsHoldoutModalOpen(true)
+    const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    if (todayRailNav && resultsRedesign) {
+        return <QuillExperimentsHoldoutsScene />
     }
+    return <LemonExperimentsHoldoutsScene />
+}
 
-    const openCreateModal = (): void => {
-        setEditingHoldout(null)
-        setHoldout({ ...NEW_HOLDOUT })
-        setIsHoldoutModalOpen(true)
-    }
-
-    const closeModal = (): void => {
-        setIsHoldoutModalOpen(false)
-        setEditingHoldout(null)
-    }
-
-    const getDisabledReason = (): string | undefined => {
-        if (!holdout.name) {
-            return 'Name is required'
-        }
-        if (
-            holdout.filters?.[0]?.rollout_percentage === undefined ||
-            holdout.filters?.[0]?.rollout_percentage === null
-        ) {
-            return 'Rollout percentage is required'
-        }
-        if (holdout.filters[0].rollout_percentage < 0 || holdout.filters[0].rollout_percentage > 100) {
-            return 'Rollout percentage should be between 0 and 100'
-        }
-    }
+function LemonExperimentsHoldoutsScene(): JSX.Element {
+    const {
+        holdouts,
+        holdoutsLoading,
+        holdout,
+        setHoldout,
+        isModalOpen: isHoldoutModalOpen,
+        editingHoldout,
+        openEditModal,
+        openCreateModal,
+        closeModal,
+        save,
+        saveDisabledReason,
+        rolloutPercentage,
+        setRolloutPercentage,
+        deleteHoldout,
+    } = useHoldoutsScene()
 
     const columns = [
         {
@@ -109,7 +104,7 @@ export function ExperimentsHoldoutsScene(): JSX.Element {
                             status="danger"
                             onClick={() => {
                                 LemonDialog.open({
-                                    title: 'Delete this holdout?',
+                                    title: DELETE_HOLDOUT_TITLE,
                                     content: (
                                         <div className="text-sm">
                                             Are you sure you want to delete the holdout <b>"{record.name}"</b>? This
@@ -146,18 +141,7 @@ export function ExperimentsHoldoutsScene(): JSX.Element {
                 footer={
                     <>
                         <LemonButton onClick={closeModal}>Cancel</LemonButton>
-                        <LemonButton
-                            type="primary"
-                            onClick={() => {
-                                if (editingHoldout) {
-                                    updateHoldout(editingHoldout.id, holdout)
-                                } else {
-                                    createHoldout()
-                                }
-                                closeModal()
-                            }}
-                            disabledReason={getDisabledReason()}
-                        >
+                        <LemonButton type="primary" onClick={save} disabledReason={saveDisabledReason}>
                             {editingHoldout ? 'Update' : 'Save'}
                         </LemonButton>
                     </>
@@ -169,7 +153,7 @@ export function ExperimentsHoldoutsScene(): JSX.Element {
                         <LemonInput
                             value={holdout.name}
                             onChange={(name) => setHoldout({ name })}
-                            placeholder="e.g. 'Frontend holdout group 1'"
+                            placeholder={HOLDOUT_NAME_PLACEHOLDER}
                         />
                     </div>
                     <div>
@@ -183,21 +167,14 @@ export function ExperimentsHoldoutsScene(): JSX.Element {
                         <LemonDivider />
                         <LemonBanner type="info">
                             <div className="deprecated-space-y-2">
-                                <div>
-                                    Specify the percentage population that should be included in this holdout group.
-                                    This is stable across experiments.
-                                </div>
+                                <div>{HOLDOUT_ROLLOUT_HELP}</div>
                             </div>
                         </LemonBanner>
                         <div className="mt-4 flex flex-wrap items-center gap-1">
                             Roll out to{' '}
                             <LemonSlider
-                                value={holdout.filters?.[0]?.rollout_percentage || 100}
-                                onChange={(rollout_percentage) =>
-                                    setHoldout({
-                                        filters: [{ properties: [], rollout_percentage }],
-                                    })
-                                }
+                                value={rolloutPercentage}
+                                onChange={setRolloutPercentage}
                                 min={0}
                                 max={100}
                                 step={1}
@@ -207,12 +184,8 @@ export function ExperimentsHoldoutsScene(): JSX.Element {
                                 data-attr="rollout-percentage"
                                 type="number"
                                 className="ml-2 mr-1.5 max-w-30"
-                                value={holdout.filters?.[0]?.rollout_percentage || 100}
-                                onChange={(rollout_percentage) =>
-                                    setHoldout({
-                                        filters: [{ properties: [], rollout_percentage }],
-                                    })
-                                }
+                                value={rolloutPercentage}
+                                onChange={setRolloutPercentage}
                                 min={0}
                                 max={100}
                                 step="any"
@@ -226,12 +199,7 @@ export function ExperimentsHoldoutsScene(): JSX.Element {
 
             <LemonBanner type="info">
                 <div className="deprecated-space-y-2">
-                    <div>
-                        Holdouts are stable groups of users excluded from experiment variations.They act as a baseline,
-                        helping you see how users behave without any changes applied. This lets you directly compare
-                        their behavior to those exposed to the experiment variations. Once a holdout is configured, you
-                        can apply it to an experiment during creation.
-                    </div>
+                    <div>{HOLDOUTS_INTRO}</div>
                 </div>
             </LemonBanner>
             <div className="flex justify-end">
@@ -241,11 +209,7 @@ export function ExperimentsHoldoutsScene(): JSX.Element {
             </div>
 
             <LemonTable
-                emptyState={
-                    <div className="py-4 text-secondary text-sm text-center">
-                        You have not created any holdouts yet.
-                    </div>
-                }
+                emptyState={<div className="py-4 text-secondary text-sm text-center">{HOLDOUTS_EMPTY}</div>}
                 loading={holdoutsLoading}
                 dataSource={holdouts}
                 columns={columns as LemonTableColumns<ExperimentHoldoutType>}
