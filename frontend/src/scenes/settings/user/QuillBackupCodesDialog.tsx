@@ -38,7 +38,7 @@ export function QuillBackupCodesDialog({ onCopyBackupCodes }: { onCopyBackupCode
                                     sign in if you lose access to your authentication device. You won't be able to see
                                     them again after you close this window.
                                 </Text>
-                                <div className="flex items-start justify-between gap-2 rounded-md bg-muted p-4">
+                                <div className="ph-no-capture ph-replay-block flex items-start justify-between gap-2 rounded-md bg-muted p-4">
                                     <div className="flex flex-col gap-1 font-mono text-xs" translate="no">
                                         {generatingCodes.backup_codes.map((code) => (
                                             <span key={code}>{code}</span>

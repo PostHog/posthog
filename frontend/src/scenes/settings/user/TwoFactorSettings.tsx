@@ -138,7 +138,7 @@ export function TwoFactorSettings(): JSX.Element {
                                     sign in if you lose access to your authentication device. You won't be able to see
                                     them again after you close this window.
                                 </p>
-                                <div className="bg-primary p-4 rounded font-mono deprecated-space-y-1 relative">
+                                <div className="ph-no-capture ph-replay-block bg-primary p-4 rounded font-mono deprecated-space-y-1 relative">
                                     <LemonButton
                                         icon={<IconCopy />}
                                         size="small"
