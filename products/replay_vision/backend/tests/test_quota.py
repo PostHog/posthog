@@ -630,6 +630,27 @@ class TestBillingSyncedQuota(_VisionQuotaTestCase):
 
     @parameterized.expand(
         [
+            ("synced_free_allocation_wins", {"limit": None, "usage": 0, "free_allocation": 1_000}, 1_000),
+            ("zero_free_allocation_is_real", {"limit": None, "usage": 0, "free_allocation": 0}, 0),
+            ("missing_falls_back", {"limit": None, "usage": 0}, FREE_TIER_MONTHLY_CREDITS),
+            ("malformed_falls_back", {"limit": None, "usage": 0, "free_allocation": "1000"}, FREE_TIER_MONTHLY_CREDITS),
+            ("negative_falls_back", {"limit": None, "usage": 0, "free_allocation": -1}, FREE_TIER_MONTHLY_CREDITS),
+        ]
+    )
+    def test_free_credits_source(self, _name: str, summary: dict, expected_free: int) -> None:
+        self.organization.usage = {"replay_vision_credits": summary}
+        self.organization.save()
+        free = ReplayScanner.objects.create(
+            team=self.team, name="free-scanner", scanner_type=ScannerType.MONITOR, free_only=True
+        )
+
+        budget = compute_scanner_budgets(self.organization.id, [free.id])[free.id]
+        snapshot = compute_quota_snapshot(organization_id=self.organization.id)
+
+        assert (budget.credit_limit, snapshot.free_monthly_credits) == (expected_free, expected_free)
+
+    @parameterized.expand(
+        [
             # An unlimited plan (billing syncs no limit) gets the override as its cap.
             ("caps_an_uncapped_org", {"replay_vision_credits": {"limit": None, "usage": 0}}, 500, 500),
             ("tighter_override_wins", {"replay_vision_credits": {"limit": 42, "usage": 0}}, 10, 10),

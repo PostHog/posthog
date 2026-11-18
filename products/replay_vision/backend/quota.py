@@ -98,7 +98,7 @@ class QuotaState:
     credits_used: int
     period_start: datetime
     period_end: datetime
-    # Display-only: the slice of `credit_limit` that never bills; see FREE_TIER_MONTHLY_CREDITS.
+    # The org's free credits this period: the slice of `credit_limit` that never bills, and the free-only scanners' cap.
     free_monthly_credits: int = FREE_TIER_MONTHLY_CREDITS
     # Posted to the receipt ledger; deletes cannot refund it.
     credits_settled: int = 0
@@ -560,6 +560,21 @@ def _billing_synced_limit(organization: Organization | None) -> tuple[bool, int 
     return False, None
 
 
+def _billing_free_credits(organization: Organization | None) -> int:
+    """The org's free credits per period as billing synced them, else the free plan's allocation."""
+    usage = (organization.usage or {}).get(USAGE_KEY) if organization is not None else None
+    free_allocation = usage.get("free_allocation") if isinstance(usage, dict) else None
+    if isinstance(free_allocation, int) and not isinstance(free_allocation, bool) and free_allocation >= 0:
+        return free_allocation
+    if free_allocation is not None:
+        logger.warning(
+            "replay_vision.malformed_billing_free_allocation",
+            organization_id=str(organization.id) if organization is not None else None,
+            free_allocation=repr(free_allocation),
+        )
+    return FREE_TIER_MONTHLY_CREDITS
+
+
 def _monthly_rate_to_period_credits(monthly_credits: float, period_end: datetime, now: datetime) -> int:
     """The part of a 30-day credit rate that lands between `now` and `period_end`."""
     days_left = max((period_end - now).total_seconds() / 86400, 0)
@@ -670,6 +685,7 @@ class OrgCreditCap:
 
     period: BillingPeriod
     credit_limit: int | None
+    free_credits: int = FREE_TIER_MONTHLY_CREDITS
 
 
 def _org_credit_limit(organization: Organization | None, organization_id: UUID) -> int | None:
@@ -695,6 +711,7 @@ def org_credit_cap_for(organization: Organization | None, organization_id: UUID)
     return OrgCreditCap(
         period=_current_period_bounds(organization, datetime.now(UTC)),
         credit_limit=_org_credit_limit(organization, organization_id),
+        free_credits=_billing_free_credits(organization),
     )
 
 
@@ -729,6 +746,7 @@ def quota_state_for_cap(organization_id: UUID, cap: OrgCreditCap) -> QuotaState:
         credits_used=consumed + reserved,
         period_start=period.start,
         period_end=period.end,
+        free_monthly_credits=cap.free_credits,
         credits_settled=consumed,
         credits_reserved=reserved,
     )
@@ -737,8 +755,8 @@ def quota_state_for_cap(organization_id: UUID, cap: OrgCreditCap) -> QuotaState:
 def free_credits_ceiling(cap: OrgCreditCap) -> int:
     """The most a free-only scanner lets the org spend this period: the free credits, or less if billing caps lower."""
     if cap.credit_limit is None:
-        return FREE_TIER_MONTHLY_CREDITS
-    return min(cap.credit_limit, FREE_TIER_MONTHLY_CREDITS)
+        return cap.free_credits
+    return min(cap.credit_limit, cap.free_credits)
 
 
 FREE_CREDITS_USED_CODE = "scanner_free_credits_used"
@@ -763,9 +781,9 @@ def _free_credits_budget(organization_id: UUID, period: BillingPeriod) -> Scanne
 
 def _free_credits_budget_from_state(state: QuotaState) -> ScannerBudget:
     return ScannerBudget(
-        credit_limit=FREE_TIER_MONTHLY_CREDITS
+        credit_limit=state.free_monthly_credits
         if state.credit_limit is None
-        else min(state.credit_limit, FREE_TIER_MONTHLY_CREDITS),
+        else min(state.credit_limit, state.free_monthly_credits),
         credits_used=state.credits_used,
         period_start=state.period_start,
         period_end=state.period_end,

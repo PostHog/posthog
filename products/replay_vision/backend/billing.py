@@ -91,9 +91,7 @@ AVG_OUTPUT_TOKENS_PER_OBSERVATION = 200
 # (rasterizing, video cache storage, retries) plus margin.
 TARGET_MARGIN = 3.75
 
-# Mirrors the free plan's `free_allocation` in the billing service (billing/constants/plans/replay_vision).
-# Billing bakes it into the synced credit limit (the $ limit converts to credits on top of the free tier),
-# so this constant is display-only: it lets the UI report billed dollars as credits beyond the free tier.
+# The free plan's allocation, used only for orgs whose billing sync carries no per-org `free_allocation`.
 FREE_TIER_MONTHLY_CREDITS = 2500
 
 
