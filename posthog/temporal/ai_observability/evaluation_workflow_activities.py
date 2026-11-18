@@ -18,6 +18,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.api.capture import CaptureInternalError
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
+from posthog.ph_client import SYNC_SEND_MAX_RETRIES
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 from posthog.temporal.ai_observability.evaluation_errors import is_terminal_user_error_result
 from posthog.temporal.ai_observability.evaluation_event_io import (
@@ -389,7 +390,11 @@ def capture_evaluation_run_usage(
     from posthog.tasks.usage_report import get_ph_client  # noqa: PLC0415 - keeps billing imports off worker startup
 
     organization_id = str(Team.objects.filter(id=team_id).values_list("organization_id", flat=True).get())
-    ph_client = get_ph_client(sync_mode=True, disabled=bool(settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False)))
+    ph_client = get_ph_client(
+        sync_mode=True,
+        max_retries=SYNC_SEND_MAX_RETRIES,
+        disabled=bool(settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False)),
+    )
     ph_client.capture(
         distinct_id=f"org-{organization_id}",
         event="llm analytics evaluation executed",
