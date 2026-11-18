@@ -7,6 +7,9 @@ import { Button, Dimensions, Platform, Text, View } from 'react-native'
 import { queryClient } from '@/api/queryClient'
 import { inboxCacheKey, type SavedInbox } from '@/api/readCacheKeys'
 import type { ProjectScope } from '@/api/reports'
+import { useAuthStore } from '@/auth/authStore'
+import { postAccountNotice } from '@/features/accounts/accountNotices'
+import { EU_ACCOUNT, US_ACCOUNT } from '@/features/accounts/testAccounts'
 import { ViewsToast } from '@/features/views/ViewsToast'
 import { setAnalyticsClient } from '@/lib/analytics'
 import { FEATURE_FLAGS, setFeatureFlags } from '@/lib/featureFlags'
@@ -194,6 +197,7 @@ function InboxWithMenuStub(): ReactElement {
 }
 
 const ORIGINAL_WINDOW = Dimensions.get('window')
+const INITIAL_AUTH = useAuthStore.getState()
 
 describe.each(['ios', 'android'] as const)('TabsLayout (%s)', (platform) => {
     const originalPlatform = Platform.OS
@@ -215,6 +219,7 @@ describe.each(['ios', 'android'] as const)('TabsLayout (%s)', (platform) => {
         mockScope = null
         mockMaxNavPins = 0
         queryClient.clear()
+        act(() => useAuthStore.setState(INITIAL_AUTH, true))
     })
 
     test('exposes the regional status update from the main menu', async () => {
@@ -493,6 +498,7 @@ describe.each(['ios', 'android'] as const)('TabsLayout (%s)', (platform) => {
         expect(useNavPinStore.getState().pins).toEqual(['errors'])
         expect(capture.mock.calls).toEqual([
             ['mobile_inbox_opened', { had_unread: false }],
+            ['mobile_nav_menu_opened', { tab: 'errors' }],
             ['mobile_nav_pin_changed', { pin: 'errors', pinned: false, source: 'list_menu', replaced: false }],
             ['mobile_nav_pin_changed', { pin: 'errors', pinned: true, source: 'undo', replaced: false }],
         ])
@@ -532,4 +538,85 @@ describe.each(['ios', 'android'] as const)('TabsLayout (%s)', (platform) => {
         expect(screen.getByTestId('scene-menu')).toBeTruthy()
         expect(within(screen.getByTestId('inbox-screen')).queryByTestId('scene-menu')).toBeNull()
     })
+
+    test('after a switch to another account, the start page names the project and the account in a toast', async () => {
+        act(() =>
+            useAuthStore.setState({
+                status: 'signed_in',
+                signedIn: true,
+                accounts: [US_ACCOUNT, EU_ACCOUNT],
+                activeAccountKey: EU_ACCOUNT.key,
+                projectName: 'Bluebell web',
+            })
+        )
+        postAccountNotice({ kind: 'switched' })
+        await renderRouter(
+            {
+                '(tabs)/_layout': TabsLayout,
+                '(tabs)/inbox': InboxStub,
+                '(tabs)/chats': ChatsStub,
+                '(tabs)/views': ViewsStub,
+                ...LIST_TABS,
+            },
+            { initialUrl: '/inbox', wrapper }
+        )
+
+        const toast = screen.getByTestId('views-toast')
+        expect(within(toast).getByText('Switched to Bluebell web')).toBeTruthy()
+        expect(within(toast).getByTestId('views-toast-detail')).toHaveTextContent('maya@example.com (EU)')
+    })
+
+    test.each(['one', 'all'] as const)(
+        'with two accounts, the menu shows the account, and signing out of %s names what happens',
+        async (scope) => {
+            const signOutAccount = jest.fn(async () => undefined)
+            const signOutAll = jest.fn(async () => undefined)
+            act(() =>
+                useAuthStore.setState({
+                    status: 'signed_in',
+                    signedIn: true,
+                    accounts: [US_ACCOUNT, EU_ACCOUNT],
+                    activeAccountKey: US_ACCOUNT.key,
+                    projectName: 'Hedgebox web',
+                    signOutAccount,
+                    signOutAll,
+                })
+            )
+            await renderRouter(
+                {
+                    '(tabs)/_layout': TabsLayout,
+                    '(tabs)/inbox': InboxStub,
+                    '(tabs)/chats': ChatsStub,
+                    '(tabs)/views': ViewsStub,
+                    ...LIST_TABS,
+                },
+                { initialUrl: '/inbox', wrapper }
+            )
+            fireEvent.press(screen.getByTestId('tabs-more'))
+            const menu = screen.getByTestId('nav-menu')
+            expect(within(menu).getByTestId('nav-project').props.accessibilityLabel).toBe(
+                'Hedgebox web, maya@example.com (US)'
+            )
+
+            fireEvent.press(within(menu).getByTestId('nav-sign-out'))
+            expect(within(menu).getByText('Sign out of maya@example.com (US)?')).toBeTruthy()
+            expect(
+                within(menu).getByText(
+                    'The app switches to maya@example.com (EU), and notifications come from that account.'
+                )
+            ).toBeTruthy()
+            if (scope === 'all') {
+                fireEvent.press(within(menu).getByTestId('nav-sign-out-all'))
+                expect(within(menu).getByText('Sign out of all 2 accounts?')).toBeTruthy()
+            }
+            await act(async () => fireEvent.press(within(menu).getByTestId('nav-sign-out-confirm-button')))
+
+            if (scope === 'all') {
+                expect(signOutAll).toHaveBeenCalled()
+                expect(signOutAccount).not.toHaveBeenCalled()
+            } else {
+                expect(signOutAccount).toHaveBeenCalledWith(US_ACCOUNT.key)
+            }
+        }
+    )
 })

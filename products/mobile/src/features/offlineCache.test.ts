@@ -8,6 +8,7 @@ const mockDigestGates = new Map<string, Promise<void>>()
 const mockValues = new Map<string, string>()
 const mockReads: string[] = []
 const mockEndTasks = new Set<() => Promise<void>>()
+const mockRemovedTasks = new Set<(account: { key: string; host: string; userUuid: string }) => Promise<void>>()
 
 jest.mock('expo-crypto', () => ({
     CryptoDigestAlgorithm: { SHA256: 'SHA256' },
@@ -33,6 +34,12 @@ jest.mock('@/auth/authStore', () => {
             mockEndTasks.add(task)
             return () => {
                 mockEndTasks.delete(task)
+            }
+        },
+        addAccountRemovedTask: (task: (account: { key: string; host: string; userUuid: string }) => Promise<void>) => {
+            mockRemovedTasks.add(task)
+            return () => {
+                mockRemovedTasks.delete(task)
             }
         },
     }
@@ -138,7 +145,10 @@ describe('authenticated offline-cache lifecycle', () => {
         stop()
     })
 
-    it('purges the departing account after delayed hydration and leaves another account intact', async () => {
+    test.each([
+        { end: 'a switch', removed: false },
+        { end: 'a removal', removed: true },
+    ])('$end of the departing account after delayed hydration leaves another account intact', async ({ removed }) => {
         const key = seed(1)
         seed(1, 'user-2')
         let finish!: () => void
@@ -148,11 +158,18 @@ describe('authenticated offline-cache lifecycle', () => {
         const stop = installOfflineCache()
         await act(async () => undefined)
         mockTokens = false
-        const cleanup = Promise.all([...mockEndTasks].map((task) => task()))
+        const cleanup = Promise.all([
+            ...[...mockEndTasks].map((task) => task()),
+            ...(removed
+                ? [...mockRemovedTasks].map((task) =>
+                      task({ key: 'user-1-key', host: 'https://example.com', userUuid: 'user-1' })
+                  )
+                : []),
+        ])
         finish()
         await cleanup
         expect(queryClient.getQueryData(key)).toBeUndefined()
-        expect(mockValues.has(`${account()}.1`)).toBe(false)
+        expect(mockValues.has(`${account()}.1`)).toBe(!removed)
         expect(mockValues.has(`${account('user-2')}.1`)).toBe(true)
         stop()
     })

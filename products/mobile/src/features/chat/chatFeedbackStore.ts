@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 
-import { addSessionEndTask } from '@/auth/authStore'
+import { addAccountRemovedTask } from '@/auth/authStore'
 
 export type ChatRating = 'good' | 'bad'
 
@@ -12,6 +12,8 @@ interface ChatFeedbackState {
     setHydrated: () => void
     rate: (key: string, rating: ChatRating) => boolean
     markFeedbackSent: (key: string) => boolean
+    /** Removes the responses whose key `matches`. */
+    forget: (matches: (key: string) => boolean) => void
     clear: () => void
 }
 
@@ -36,6 +38,12 @@ export const useChatFeedbackStore = create<ChatFeedbackState>()(
                 set((state) => ({ responses: { ...state.responses, [key]: { ...response, feedbackSent: true } } }))
                 return true
             },
+            forget: (matches) => {
+                const responses = get().responses
+                if (Object.keys(responses).some(matches)) {
+                    set({ responses: Object.fromEntries(Object.entries(responses).filter(([key]) => !matches(key))) })
+                }
+            },
             clear: () => set({ responses: {} }),
         }),
         {
@@ -47,4 +55,8 @@ export const useChatFeedbackStore = create<ChatFeedbackState>()(
     )
 )
 
-addSessionEndTask(() => useChatFeedbackStore.getState().clear())
+// `MessageFeedbackActions` keys a response `{data mode}|{host}|{user uuid}|{project id}|...`.
+addAccountRemovedTask(({ host, userUuid }) => {
+    const account = `${host}|${userUuid}|`
+    useChatFeedbackStore.getState().forget((key) => key.slice(key.indexOf('|') + 1).startsWith(account))
+})

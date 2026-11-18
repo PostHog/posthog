@@ -98,8 +98,9 @@ export function usePins({
         refetchOnReconnect,
         retry: retryListRead,
     })
+    const account = useAuthStore((state) => state.activeAccountKey)
     const prefsKey = context.scope ? projectKey(context.scope) : null
-    const livePrefs = useProjectPinPrefs(prefsKey)
+    const livePrefs = useProjectPinPrefs(account, prefsKey)
     const demoState = useDemoViews(
         useShallow((state) => ({ rows: state.shortcuts, rank: state.rank, display: state.display }))
     )
@@ -109,15 +110,16 @@ export function usePins({
 
     const page = query.data
     useEffect(() => {
-        if (!page || demo || !prefsKey) {
+        if (!page || demo || !account || !prefsKey) {
             return
         }
         usePinPrefs.getState().prune(
+            account,
             prefsKey,
             page.results.map((row) => row.id),
             isCompleteShortcutPage(page)
         )
-    }, [page, demo, prefsKey])
+    }, [page, demo, account, prefsKey])
 
     const { refetch, dataUpdatedAt } = query
     const list = useMemo<RefreshList>(
@@ -327,26 +329,27 @@ export function usePinActions(): PinActions {
     const pinnedKeys = usePinnedKeys()
     const listKey = viewsKeys.shortcuts(scope)
     const prefsKey = scope ? projectKey(scope) : null
+    const account = useAuthStore((state) => state.activeAccountKey)
 
     const setDisplay = useCallback(
         (shortcutId: string, display: PinDisplay) => {
             if (demo) {
                 useDemoViews.getState().setDisplay(shortcutId, display)
-            } else if (prefsKey) {
-                usePinPrefs.getState().setDisplay(prefsKey, shortcutId, display)
+            } else if (account && prefsKey) {
+                usePinPrefs.getState().setDisplay(account, prefsKey, shortcutId, display)
             }
         },
-        [demo, prefsKey]
+        [demo, account, prefsKey]
     )
     const setOrder = useCallback(
         (ids: readonly string[]) => {
             if (demo) {
                 useDemoViews.getState().setOrder(ids)
-            } else if (prefsKey) {
-                usePinPrefs.getState().setOrder(prefsKey, ids)
+            } else if (account && prefsKey) {
+                usePinPrefs.getState().setOrder(account, prefsKey, ids)
             }
         },
-        [demo, prefsKey]
+        [demo, account, prefsKey]
     )
 
     const [writing, setWriting] = useState(0)
@@ -476,8 +479,10 @@ export function useRecentViews(pinnedKeys: ReadonlySet<string>): RecentState {
         staleTime: READ_FLOOR_MS,
         retry: retryListRead,
     })
+    const account = useAuthStore((state) => state.activeAccountKey)
     const liveDevice =
-        useDeviceRecent((state) => (scope ? state.entries[projectKey(scope)] : undefined)) ?? EMPTY_RECENT
+        useDeviceRecent((state) => (account && scope ? state.accounts[account]?.[projectKey(scope)] : undefined)) ??
+        EMPTY_RECENT
     const demoDevice = useDemoViews((state) => state.recent)
     const device = demo ? demoDevice : liveDevice
     const serverRows = server.data?.results
@@ -508,6 +513,7 @@ export function useRecordRecentView(entry: Omit<DeviceRecentEntry, 'viewedAt'> |
     const context = useViewsContext()
     const recorded = useRef<string | null>(null)
     const scope = context.scope
+    const account = useAuthStore((state) => state.activeAccountKey)
     const demo = context.mode === 'demo'
     const kind = entry?.kind
     const ref = entry?.ref ?? null
@@ -524,10 +530,10 @@ export function useRecordRecentView(entry: Omit<DeviceRecentEntry, 'viewedAt'> |
         const value: DeviceRecentEntry = { kind, ref, name, viewedAt: new Date().toISOString() }
         if (demo) {
             useDemoViews.getState().recordRecent(value)
-        } else if (scope) {
-            useDeviceRecent.getState().record(projectKey(scope), value)
+        } else if (account && scope) {
+            useDeviceRecent.getState().record(account, projectKey(scope), value)
         }
-    }, [kind, ref, name, demo, scope])
+    }, [kind, ref, name, demo, account, scope])
 }
 
 const VIEWABILITY_CONFIG = { itemVisiblePercentThreshold: 10 }

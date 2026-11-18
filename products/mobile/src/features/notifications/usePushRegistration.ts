@@ -2,11 +2,43 @@ import * as Notifications from 'expo-notifications'
 import { useEffect } from 'react'
 import { AppState } from 'react-native'
 
-import { addSignOutTask, useAuthStore } from '@/auth/authStore'
+import {
+    addAccountRemovedTask,
+    addAccountSwitchTask,
+    addInactiveSignOutTask,
+    addSignOutTask,
+    addSwitchRollbackTask,
+    useAuthStore,
+} from '@/auth/authStore'
 
-import { refreshPushPermission, syncPushRegistration, unregisterPush } from './pushRegistration'
+import {
+    forgetOwedRemovals,
+    refreshPushPermission,
+    releaseRegistration,
+    settleBeforeSignOut,
+    settleOwedRemovals,
+    syncPushRegistration,
+    unregisterPush,
+} from './pushRegistration'
 import { usePushStore } from './pushStore'
 import { pushUnavailableReason } from './pushSupport'
+
+/** Hooks push into the auth store's sign-out, switch and removal steps. Returns the function that unhooks it. */
+export function installPushAuthTasks(): () => void {
+    const stops = [
+        addSignOutTask(unregisterPush),
+        addAccountSwitchTask(releaseRegistration),
+        addInactiveSignOutTask(settleBeforeSignOut),
+        addAccountRemovedTask(forgetOwedRemovals),
+        // The switch task gave up this account's registration, and the account stays active.
+        addSwitchRollbackTask(() => void syncPushRegistration('never')),
+    ]
+    return () => {
+        for (const stop of stops) {
+            stop()
+        }
+    }
+}
 
 // Later launches re-register silently so the server's `last_seen_at` stays fresh.
 export function usePushRegistration(): void {
@@ -15,7 +47,7 @@ export function usePushRegistration(): void {
     const host = useAuthStore((state) => state.host)
     const signedIn = status === 'signed_in' && userUuid !== null
 
-    useEffect(() => addSignOutTask(unregisterPush), [])
+    useEffect(installPushAuthTasks, [])
 
     // biome-ignore lint/correctness/useExhaustiveDependencies: a new user or host needs its own registration.
     useEffect(() => {
@@ -43,6 +75,8 @@ export function usePushRegistration(): void {
                     (!push.token || push.error || push.registeredFor !== `${host}|${userUuid}`)
                 ) {
                     void syncPushRegistration('never')
+                } else if (push.owed.length > 0) {
+                    void settleOwedRemovals()
                 }
             })
         })

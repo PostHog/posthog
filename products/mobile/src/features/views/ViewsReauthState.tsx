@@ -2,7 +2,8 @@ import { type ReactElement, useEffect } from 'react'
 import { View } from 'react-native'
 
 import { FEATURE_SCOPES, type ScopedFeature } from '@/api/scopeErrors'
-import { useSignOutAction } from '@/features/settings/useSignOut'
+import { useAuthStore } from '@/auth/authStore'
+import { useOpenAddAccount } from '@/features/accounts/useOpenAddAccount'
 import { LockIcon } from '@/ui/icons/LockIcon'
 import { StateView } from '@/ui/StateView'
 import { createStyles, useColors } from '@/ui/theme'
@@ -52,9 +53,9 @@ function scopeList(scopes: readonly string[]): string {
 }
 
 /**
- * A feature needs scopes that an older sign-in did not grant, and a token refresh never adds them. One new sign-in fixes
- * it, so the state offers it. When the last sign-in asked for the scope
- * and still did not get it, a new sign-in gets the same grant, so the state explains that and offers no sign-in.
+ * A feature needs scopes that an older sign-in did not grant, and a token refresh never adds them. One new sign-in of
+ * the active account fixes it, so the state offers it, and the account stays active. When the last sign-in asked for
+ * the scope and still did not get it, a new sign-in gets the same grant, so the state explains that and offers none.
  */
 export function ViewsReauthState({
     access,
@@ -65,7 +66,7 @@ export function ViewsReauthState({
 }): ReactElement {
     const colors = useColors()
     const styles = useStyles()
-    const signOut = useSignOutAction()
+    const openSignIn = useOpenAddAccount()
     const { missingScope, state } = access
     useEffect(() => {
         if (state !== 'ok') {
@@ -98,7 +99,13 @@ export function ViewsReauthState({
             title={copy.reauthTitle}
             message={message}
             actionLabel="Sign in again"
-            onAction={() => void signOut.run()}
+            onAction={() => {
+                const { accounts, activeAccountKey } = useAuthStore.getState()
+                const active = accounts.find((account) => account.key === activeAccountKey)
+                if (active) {
+                    openSignIn('feature_reauth', active)
+                }
+            }}
             testID={`${feature}-reauth`}
         />
     )

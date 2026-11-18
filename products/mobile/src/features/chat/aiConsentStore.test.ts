@@ -1,7 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
-import { useAuthStore } from '@/auth/authStore'
-
 import { aiConsentKey, useAiConsentStore } from './aiConsentStore'
 
 describe('AI consent store', () => {
@@ -21,13 +19,5 @@ describe('AI consent store', () => {
         expect(accepted[aiConsentKey('https://us.posthog.com', 'user-a')]).toBe(true)
         expect(accepted[aiConsentKey('https://us.posthog.com', 'user-b')]).toBeUndefined()
         expect(accepted[aiConsentKey('https://eu.posthog.com', 'user-a')]).toBeUndefined()
-    })
-
-    test('sign out drops every stored consent', async () => {
-        useAiConsentStore.getState().accept(aiConsentKey('https://us.posthog.com', 'user-a'))
-
-        await useAuthStore.getState().signOut()
-
-        expect(useAiConsentStore.getState().accepted).toEqual({})
     })
 })

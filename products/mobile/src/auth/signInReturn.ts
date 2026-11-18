@@ -32,3 +32,16 @@ export function signInReturnParam(value: string | string[] | undefined): string 
     }
     return next
 }
+
+/**
+ * The return path once `activeAccountKey` signed in. A path that a screen of another account left behind is dropped,
+ * so a report never reopens in the session of an account that did not open it. `owner` is the `account` route param.
+ */
+export function signInReturnFor(
+    next: string | null,
+    owner: string | string[] | undefined,
+    activeAccountKey: string | null
+): string | null {
+    const account = Array.isArray(owner) ? owner[0] : owner
+    return account === undefined || account === activeAccountKey ? next : null
+}

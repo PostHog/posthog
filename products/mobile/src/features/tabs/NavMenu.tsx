@@ -1,6 +1,9 @@
 import { type ComponentType, type ReactElement, useEffect, useState } from 'react'
 import { ScrollView, Text, View } from 'react-native'
 import { useAuthStore } from '@/auth/authStore'
+import { useDemoMode } from '@/demo/demoMode'
+import { AccountAvatar } from '@/features/accounts/AccountAvatar'
+import { accountLabel } from '@/features/accounts/accountLabel'
 import { ProjectSheet } from '@/features/projects/ProjectSheet'
 import type { PostHogStatus } from '@/features/status/usePostHogStatus'
 import { track } from '@/lib/analytics'
@@ -17,6 +20,7 @@ import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useColors } from '@/ui/theme'
 import { iconSizes, radii, type } from '@/ui/tokens'
 import { useFloatingMenuStyle } from '@/ui/useFloatingMenuStyle'
+import { useLiquidGlass } from '@/ui/useLiquidGlass'
 import { useSceneDimensions } from '@/ui/useSceneDimensions'
 import { topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
@@ -39,8 +43,10 @@ interface NavMenuProps {
     onOpenStatus: () => void
     onSettings: () => void
     onSignOut: () => void
-    /** Replaces the rows with the sign-out confirmation. */
-    confirmingSignOut: boolean
+    /** With two or more accounts, swaps the confirmation for one that signs out of every account. */
+    onSignOutAll: () => void
+    /** Replaces the rows with the sign-out confirmation: for the active account, or for every account. */
+    confirmingSignOut: 'one' | 'all' | null
     signOutPending: boolean
     signOutError: string | null
     onCancelSignOut: () => void
@@ -84,20 +90,27 @@ export function NavMenu({
     status: { summary: statusUpdate, indicatorColor },
     onOpenStatus,
     onSignOut,
+    onSignOutAll,
     confirmingSignOut,
     signOutPending,
     signOutError,
     onCancelSignOut,
     onConfirmSignOut,
 }: NavMenuProps): ReactElement {
-    const colors = useColors()
-    const styles = useStyles()
+    const glass = useLiquidGlass()
+    const colors = useColors(glass)
+    const styles = useStyles(glass)
     const insets = useScreenInsets()
     const { width: windowWidth } = useSceneDimensions()
     // The handoff's 75% width is the content box; padding and border add 22pt.
     const width = Math.min(400, Math.round(windowWidth * 0.75) + 22)
     const cardStyle = useFloatingMenuStyle(topOffset(insets, 60), width)
     const [pickingProject, setPickingProject] = useState(false)
+    const demo = useDemoMode((state) => state.enabled)
+    const accounts = useAuthStore((state) => state.accounts)
+    const activeKey = useAuthStore((state) => state.activeAccountKey)
+    const active = accounts.find((account) => account.key === activeKey)
+    const multi = !demo && accounts.length >= 2
 
     useEffect(() => {
         if (!visible) {
@@ -106,7 +119,7 @@ export function NavMenu({
     }, [visible])
 
     const openPicker = (): void => {
-        track('mobile_project_picker_opened')
+        track('mobile_project_picker_opened', { account_count: accounts.length })
         setPickingProject(true)
     }
     const openSettings = (): void => {
@@ -127,17 +140,21 @@ export function NavMenu({
                 accessibilityLabel="Menu"
                 testID="nav-menu"
                 style={[styles.card, cardStyle]}
+                glass={glass}
             >
                 <ScrollView keyboardShouldPersistTaps="handled">
                     <Pressable44
                         onPress={openPicker}
                         disabled={signOutPending}
-                        accessibilityLabel={projectName}
+                        accessibilityLabel={
+                            multi && active ? `${projectName}, ${accountLabel(active, accounts)}` : projectName
+                        }
                         accessibilityHint="Switch project"
                         pressedBackground={colors.sunken}
                         style={styles.header}
                         testID="nav-project"
                     >
+                        {multi && active ? <AccountAvatar account={active} size={22} /> : null}
                         <Text style={styles.project} numberOfLines={1}>
                             {projectName}
                         </Text>
@@ -146,11 +163,22 @@ export function NavMenu({
                     <View style={styles.divider} />
                     {confirmingSignOut ? (
                         <SignOutConfirm
+                            key={confirmingSignOut}
                             from="nav_menu"
+                            target={confirmingSignOut === 'all' ? 'all' : (activeKey ?? '')}
                             pending={signOutPending}
                             error={signOutError}
                             onCancel={onCancelSignOut}
                             onConfirm={onConfirmSignOut}
+                            secondary={
+                                confirmingSignOut === 'one' && multi
+                                    ? {
+                                          label: 'Sign out of all accounts',
+                                          onPress: onSignOutAll,
+                                          testID: 'nav-sign-out-all',
+                                      }
+                                    : null
+                            }
                             style={styles.confirm}
                             testIDPrefix="nav"
                         />

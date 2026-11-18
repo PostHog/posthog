@@ -9,6 +9,8 @@ import { useOverlayPane } from '@/ui/useOverlayPane'
 import { bottomOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 const SHOW_MS = 2600
+/** Long enough to read a second line. */
+const SHOW_WITH_DETAIL_MS = 3600
 /** Long enough to reach Undo after reading the message. */
 const SHOW_WITH_UNDO_MS = 4500
 
@@ -16,11 +18,13 @@ export interface ToastMessage {
     id: number
     text: string
     undo?: () => void
+    /** A smaller second line under the message. */
+    detail?: string
 }
 
 export interface Toasts {
     toast: ToastMessage | null
-    show: (text: string, undo?: () => void) => void
+    show: (text: string, undo?: () => void, detail?: string) => void
     hide: () => void
 }
 
@@ -28,17 +32,20 @@ export interface Toasts {
 export function useToasts(): Toasts {
     const [toast, setToast] = useState<ToastMessage | null>(null)
     const counter = useRef(0)
-    const show = useCallback((text: string, undo?: () => void) => {
+    const show = useCallback((text: string, undo?: () => void, detail?: string) => {
         counter.current += 1
-        setToast({ id: counter.current, text, undo })
-        AccessibilityInfo.announceForAccessibility(text)
+        setToast({ id: counter.current, text, undo, detail })
+        AccessibilityInfo.announceForAccessibility(detail ? `${text}. ${detail}` : text)
     }, [])
     const hide = useCallback(() => setToast(null), [])
     useEffect(() => {
         if (!toast) {
             return undefined
         }
-        const timer = setTimeout(() => setToast(null), toast.undo ? SHOW_WITH_UNDO_MS : SHOW_MS)
+        const timer = setTimeout(
+            () => setToast(null),
+            toast.undo ? SHOW_WITH_UNDO_MS : toast.detail ? SHOW_WITH_DETAIL_MS : SHOW_MS
+        )
         return () => clearTimeout(timer)
     }, [toast])
     return { toast, show, hide }
@@ -52,7 +59,7 @@ interface ViewsToastProps {
 }
 
 /**
- * A dark pill that confirms a pin change and can undo it. It draws through the nearest `OverlayHost`, so a toast from
+ * A dark pill that confirms a pin change and can undo it, or confirms an account change with a second line. It draws through the nearest `OverlayHost`, so a toast from
  * a view's header still sits at the bottom of the screen, above the tab bar and any open sheet.
  */
 export function ViewsToast({
@@ -67,7 +74,7 @@ export function ViewsToast({
     if (!toast) {
         return null
     }
-    const { undo } = toast
+    const { undo, detail } = toast
     return (
         <OverlayPortal>
             <View
@@ -83,11 +90,21 @@ export function ViewsToast({
                         shadows.card,
                         { bottom: bottomOffset(insets, bottom) },
                         undo ? null : styles.solo,
+                        detail ? styles.twoLines : null,
                     ]}
                     accessibilityLiveRegion="polite"
                     testID="views-toast"
                 >
-                    <Text style={styles.text}>{toast.text}</Text>
+                    {detail ? (
+                        <View style={styles.lines}>
+                            <Text style={styles.text}>{toast.text}</Text>
+                            <Text style={styles.detail} testID="views-toast-detail">
+                                {detail}
+                            </Text>
+                        </View>
+                    ) : (
+                        <Text style={styles.text}>{toast.text}</Text>
+                    )}
                     {undo ? (
                         <Pressable44
                             onPress={() => {
@@ -127,12 +144,25 @@ const useStyles = createStyles(({ colors }) => ({
     solo: {
         paddingRight: 18,
     },
+    twoLines: {
+        paddingVertical: 10,
+        borderRadius: radii.sheet,
+    },
+    lines: {
+        flexShrink: 1,
+    },
     text: {
         flexShrink: 1,
         fontSize: 15,
         lineHeight: 20,
         fontWeight: '600',
         color: colors.onInk,
+    },
+    detail: {
+        fontSize: 13,
+        lineHeight: 18,
+        color: colors.onInk,
+        opacity: 0.75,
     },
     undo: {
         height: 30,

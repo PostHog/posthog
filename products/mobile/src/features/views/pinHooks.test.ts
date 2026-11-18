@@ -212,7 +212,8 @@ test('drag reorder saves per-project phone preferences without writing server sh
         access: { state: 'ok', missingScope: null },
         item: { client, scope, demo: false },
     })
-    usePinPrefs.getState().setOrder('https://example.com|8', ['other-pin'])
+    useAuthStore.setState({ activeAccountKey: 'example-account' })
+    usePinPrefs.getState().setOrder('example-account', 'https://example.com|8', ['other-pin'])
     jest.mocked(createShortcut).mockClear()
     jest.mocked(deleteShortcut).mockClear()
     const { result, unmount } = renderHook(() => usePinActions(), {
@@ -221,12 +222,14 @@ test('drag reorder saves per-project phone preferences without writing server sh
     act(() => result.current.reorder(['third', 'first', 'second']))
     await waitFor(async () => {
         const saved = JSON.parse((await AsyncStorage.getItem('views-pin-prefs:v2')) ?? '{}')
-        expect(saved.state.projects['https://example.com|7'].rank).toEqual({ third: 0, first: 1, second: 2 })
-        expect(saved.state.projects['https://example.com|8'].rank).toEqual({ 'other-pin': 0 })
+        const projects = saved.state.accounts['example-account']
+        expect(projects['https://example.com|7'].rank).toEqual({ third: 0, first: 1, second: 2 })
+        expect(projects['https://example.com|8'].rank).toEqual({ 'other-pin': 0 })
     })
     expect(createShortcut).not.toHaveBeenCalled()
     expect(deleteShortcut).not.toHaveBeenCalled()
     unmount()
     client.clear()
-    usePinPrefs.getState().clear()
+    usePinPrefs.setState({ accounts: {} })
+    useAuthStore.setState({ activeAccountKey: null })
 })

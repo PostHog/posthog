@@ -3,7 +3,10 @@ import * as Notifications from 'expo-notifications'
 import { router, useGlobalSearchParams, usePathname } from 'expo-router'
 import { AppState } from 'react-native'
 
-import { useAuthStore } from '@/auth/authStore'
+import { type StoredAccount, useAuthStore } from '@/auth/authStore'
+import { useSnoozeStore } from '@/features/snooze/snoozeStore'
+import { setAnalyticsClient } from '@/lib/analytics'
+import { waitForPersist } from '@/lib/persistHydration'
 import { foregroundNotificationBehavior, setViewedNotificationTask } from './foregroundNotifications'
 import { acknowledgeNotificationTap, getPendingNotificationTap } from './notificationIntents'
 import { findTask } from './taskLookup'
@@ -56,7 +59,22 @@ function notification(identifier: string): Notifications.Notification {
     }
 }
 
-beforeEach(() => {
+const switchAccount = useAuthStore.getState().switchAccount
+
+function storedAccount(key: string, needsSignIn = false): StoredAccount {
+    return { key, needsSignIn } as StoredAccount
+}
+
+let captured: string[] = []
+
+afterEach(() => {
+    useAuthStore.setState({ switchAccount, accounts: [], activeAccountKey: null })
+    setAnalyticsClient(null)
+})
+
+beforeEach(async () => {
+    await waitForPersist(useSnoozeStore)
+    useSnoozeStore.setState({ accounts: {}, legacy: null, reminderOwners: {} })
     jest.clearAllMocks()
     jest.mocked(Notifications.getLastNotificationResponse).mockReturnValue(null)
     jest.mocked(getPendingNotificationTap).mockReturnValue(undefined)
@@ -65,6 +83,12 @@ beforeEach(() => {
     mockNavigation.getCurrentRoute.mockReturnValue({ name: 'inbox' })
     setViewedNotificationTask(null)
     AppState.currentState = 'active'
+    captured = []
+    setAnalyticsClient({
+        capture: (event, properties) => captured.push(`${event} ${JSON.stringify(properties)}`),
+        identify: () => undefined,
+        reset: () => undefined,
+    })
     useAuthStore.setState({
         status: 'signed_in',
         signedIn: true,
@@ -201,6 +225,121 @@ test.each(['same-account', 'changed-account', 'newer-tap'] as const)(
         expect(router.replace).not.toHaveBeenCalled()
     }
 )
+
+test('a tap that an account switch interrupts is judged again, once, against the account active after it', async () => {
+    let resolveFirstLookup!: (value: { found: true; reportId: null }) => void
+    jest.mocked(findTask)
+        .mockReturnValueOnce(
+            new Promise((resolve) => {
+                resolveFirstLookup = resolve
+            })
+        )
+        .mockResolvedValueOnce({ found: false })
+    const response = { notification: notification('interrupted-by-switch'), actionIdentifier: 'default' }
+    response.notification.request.content.data = { type: 'task', taskId: 'task-1', projectId: 2 }
+    jest.mocked(Notifications.getLastNotificationResponse).mockReturnValue(response)
+    useAuthStore.setState({ activeAccountKey: 'account-a' })
+    renderHook(useNotificationRouting)
+    await waitFor(() => expect(findTask).toHaveBeenCalledTimes(1))
+    expect(captured).toEqual(['mobile_push_opened {"kind":"task"}'])
+
+    act(() => useAuthStore.setState({ status: 'loading', signedIn: false }))
+    act(() =>
+        useAuthStore.setState({
+            status: 'signed_in',
+            signedIn: true,
+            activeAccountKey: 'account-b',
+            user: { uuid: 'other-user' } as NonNullable<ReturnType<typeof useAuthStore.getState>['user']>,
+        })
+    )
+    await waitFor(() => expect(router.navigate).toHaveBeenCalledWith('/inbox'))
+    await act(async () => resolveFirstLookup({ found: true, reportId: null }))
+
+    expect(findTask).toHaveBeenCalledTimes(2)
+    expect(router.push).not.toHaveBeenCalled()
+    expect(acknowledgeNotificationTap).toHaveBeenCalledTimes(1)
+    expect(captured).toEqual(['mobile_push_opened {"kind":"task"}'])
+})
+
+describe('a snooze reminder of another account', () => {
+    let reminders = 0
+    let REMINDER = ''
+
+    beforeEach(() => {
+        REMINDER = `reminder-${++reminders}`
+        useSnoozeStore.getState().put('account-b', 'https://app.example.com|2|report-1', {
+            kind: 'until',
+            until: new Date(Date.now() - 1000).toISOString(),
+            at: new Date().toISOString(),
+            notificationId: REMINDER,
+        })
+        const response = { notification: notification(REMINDER), actionIdentifier: 'default' }
+        response.notification.request.content.data = { ...reportData, notificationKind: 'snooze_reminder' }
+        jest.mocked(Notifications.getLastNotificationResponse).mockReturnValue(response)
+    })
+
+    test('switches to that account, then opens the report there', async () => {
+        let finishSwitch!: () => void
+        const switching = jest.fn(
+            () =>
+                new Promise<void>((resolve) => {
+                    finishSwitch = resolve
+                })
+        )
+        useAuthStore.setState({
+            activeAccountKey: 'account-a',
+            accounts: [storedAccount('account-a'), storedAccount('account-b')],
+            switchAccount: switching,
+        })
+        renderHook(useNotificationRouting)
+        await waitFor(() => expect(switching).toHaveBeenCalledWith('account-b', { projectId: 2, from: 'push' }))
+        expect(router.push).not.toHaveBeenCalled()
+
+        act(() => useAuthStore.setState({ status: 'loading', signedIn: false }))
+        act(() =>
+            useAuthStore.setState({
+                status: 'signed_in',
+                signedIn: true,
+                activeAccountKey: 'account-b',
+                user: { uuid: 'other-user' } as NonNullable<ReturnType<typeof useAuthStore.getState>['user']>,
+            })
+        )
+        await act(async () => finishSwitch())
+
+        await waitFor(() => expect(router.push).toHaveBeenCalledWith('/report/report-1?from=push'))
+        expect(switching).toHaveBeenCalledTimes(1)
+        expect(acknowledgeNotificationTap).toHaveBeenCalledTimes(1)
+        expect(captured).toEqual([
+            'mobile_push_opened {"kind":"snooze_reminder"}',
+            'mobile_push_reminder_routed {"kind":"snooze_reminder","account":"switched"}',
+        ])
+    })
+
+    test.each([
+        { name: 'needs a new sign-in', accounts: [storedAccount('account-b', true)], switches: 0 },
+        { name: 'is no longer on the device', accounts: [], switches: 0 },
+        { name: 'cannot be switched to', accounts: [storedAccount('account-b')], switches: 1 },
+        { name: 'left the device', accounts: [storedAccount('account-b')], switches: 0, removed: true },
+    ])('opens the active account’s inbox when that account $name', async ({ accounts, switches, removed }) => {
+        const switching = jest.fn(async () => {
+            throw new Error('This account is no longer on this device.')
+        })
+        if (removed) {
+            useSnoozeStore.getState().removeAccount('account-b')
+        }
+        useAuthStore.setState({
+            activeAccountKey: 'account-a',
+            accounts: [storedAccount('account-a'), ...accounts],
+            switchAccount: switching,
+        })
+        renderHook(useNotificationRouting)
+
+        await waitFor(() => expect(router.navigate).toHaveBeenCalledWith('/inbox'))
+        expect(switching).toHaveBeenCalledTimes(switches)
+        expect(router.push).not.toHaveBeenCalled()
+        expect(acknowledgeNotificationTap).toHaveBeenCalledWith(REMINDER)
+    })
+})
 
 test.each(['before', 'after'] as const)(
     'ignores older Expo replay %s the newest response across sign-in',

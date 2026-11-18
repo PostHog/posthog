@@ -30,3 +30,20 @@ export function createPersistHydrationGate(): {
         wait: () => waitPromise,
     }
 }
+
+interface PersistedStore {
+    persist: { hasHydrated: () => boolean; onFinishHydration: (listener: () => void) => () => void }
+}
+
+/** Resolves once a zustand `persist` store has read its saved state. */
+export function waitForPersist(store: PersistedStore): Promise<void> {
+    if (store.persist.hasHydrated()) {
+        return Promise.resolve()
+    }
+    return new Promise((resolve) => {
+        const unsubscribe = store.persist.onFinishHydration(() => {
+            unsubscribe()
+            resolve()
+        })
+    })
+}

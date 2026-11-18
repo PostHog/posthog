@@ -16,6 +16,13 @@ jest.mock('react-native-gesture-handler', () => ({
     GestureDetector: jest.requireActual('react-native').View,
 }))
 
+// Liquid Glass is a native iOS 26 view. Tests get the solid card unless they report glass as available.
+jest.mock('expo-glass-effect', () => ({
+    GlassView: jest.requireActual('react-native').View,
+    isLiquidGlassAvailable: jest.fn(() => false),
+    isGlassEffectAPIAvailable: jest.fn(() => true),
+}))
+
 jest.mock('react-native-reserved-regions', () => ({
     ReservedRegionsProvider: jest.requireActual('react-native').View,
     useReservedRegions: jest.fn(() => []),

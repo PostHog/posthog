@@ -104,6 +104,7 @@ function shortcut(id: number, kind = 'dashboard'): FileSystemShortcutApi {
 }
 
 const projectKey = `${mockScope.host}|${mockScope.projectId}`
+const ACCOUNT = 'example-account'
 
 describe('automatic displays for actual Views pins', () => {
     beforeEach(() => {
@@ -116,10 +117,11 @@ describe('automatic displays for actual Views pins', () => {
             signedIn: true,
             host: mockScope.host,
             projectId: mockScope.projectId,
+            activeAccountKey: ACCOUNT,
         })
         client = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity, retry: false } } })
         viewsQueue.reset()
-        usePinPrefs.getState().clear()
+        usePinPrefs.setState({ accounts: {} })
         jest.mocked(fetchShortcuts).mockResolvedValue(page([]))
         jest.mocked(fetchRecentDashboards).mockResolvedValue(page([]))
         jest.mocked(fetchInsightPage).mockResolvedValue(page([]))
@@ -135,7 +137,7 @@ describe('automatic displays for actual Views pins', () => {
     afterEach(() => {
         viewsQueue.reset()
         client.clear()
-        usePinPrefs.getState().clear()
+        usePinPrefs.setState({ accounts: {} })
         useAuthStore.setState(previousAuth)
     })
 
@@ -154,7 +156,7 @@ describe('automatic displays for actual Views pins', () => {
                     return response
                 })
             }
-            usePinPrefs.getState().setDisplay(projectKey, 'pin-1', { mode: 'row' })
+            usePinPrefs.getState().setDisplay(ACCOUNT, projectKey, 'pin-1', { mode: 'row' })
             const rows = Array.from({ length: 8 }, (_, index) => shortcut(index + 1))
             let finishPins: (value: Awaited<ReturnType<typeof fetchShortcuts>>) => void = () => undefined
             jest.mocked(fetchShortcuts).mockReturnValue(
@@ -200,7 +202,9 @@ describe('automatic displays for actual Views pins', () => {
             expect(fetchInsightPage).not.toHaveBeenCalled()
             expect(createShortcut).not.toHaveBeenCalled()
             expect(deleteShortcut).not.toHaveBeenCalled()
-            expect(usePinPrefs.getState().projects[projectKey]?.display).toEqual({ 'pin-1': { mode: 'row' } })
+            expect(usePinPrefs.getState().accounts[ACCOUNT]?.[projectKey]?.display).toEqual({
+                'pin-1': { mode: 'row' },
+            })
             unmount()
         }
     )
@@ -221,16 +225,16 @@ describe('automatic displays for actual Views pins', () => {
         const { result, unmount } = renderHook(() => ({ list: useViewsList(), actions: usePinActions() }), { wrapper })
         await waitFor(() => expect(result.current.list.pins.data?.[0]?.display.mode).toBe('chart'))
         const automatic = result.current.list.pins.data?.[0] as PinView
-        expect(usePinPrefs.getState().projects[projectKey]?.display['pin-1']).toBeUndefined()
+        expect(usePinPrefs.getState().accounts[ACCOUNT]?.[projectKey]?.display['pin-1']).toBeUndefined()
         act(() => {
             result.current.actions.setDisplayMode(automatic, 'chart')
         })
-        expect(usePinPrefs.getState().projects[projectKey]?.display['pin-1']).toEqual(automatic.display)
+        expect(usePinPrefs.getState().accounts[ACCOUNT]?.[projectKey]?.display['pin-1']).toEqual(automatic.display)
         act(() => {
             result.current.actions.setDisplayMode(automatic, 'row')
         })
         await waitFor(() => expect(result.current.list.pins.data?.[0]?.display.mode).toBe('row'))
-        expect(usePinPrefs.getState().projects[projectKey]?.display['pin-1']?.mode).toBe('row')
+        expect(usePinPrefs.getState().accounts[ACCOUNT]?.[projectKey]?.display['pin-1']?.mode).toBe('row')
         expect(fetchDashboard).toHaveBeenCalledTimes(1)
         unmount()
     })
@@ -276,7 +280,7 @@ describe('automatic displays for actual Views pins', () => {
 
     test('an explicit dashboard preview still rechecks after five minutes inside a longer cache target', async () => {
         const display = { mode: 'chart' as const, tileId: 100, insightId: 10, insightShortId: 'ins-10' }
-        usePinPrefs.getState().setDisplay(projectKey, 'pin-1', display)
+        usePinPrefs.getState().setDisplay(ACCOUNT, projectKey, 'pin-1', display)
         jest.mocked(fetchShortcuts).mockResolvedValue(page([shortcut(1)]))
         const response = insight(10, valueResult())
         client.setQueryData(

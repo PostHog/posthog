@@ -4,6 +4,8 @@ import { Platform, ScrollView, Switch, Text, View } from 'react-native'
 import { useAuthStore } from '@/auth/authStore'
 import { useViewer } from '@/auth/useViewer'
 import { useDemoMode } from '@/demo/demoMode'
+import { AddAccountRow } from '@/features/accounts/AddAccountRow'
+import { useOpenAddAccount } from '@/features/accounts/useOpenAddAccount'
 import { track } from '@/lib/analytics'
 import { isInternalBuild } from '@/lib/environment'
 import { READING_WIDTH } from '@/ui/adaptiveLayout'
@@ -16,6 +18,7 @@ import { layout, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 import { useScrollTitle } from '@/ui/useScrollTitle'
 
+import { AccountsGroup } from './AccountsGroup'
 import { AppearanceGroup } from './AppearanceGroup'
 import { readAppVersion } from './appInfo'
 import { DefaultPageGroup } from './DefaultPageGroup'
@@ -41,11 +44,15 @@ export function SettingsScreen(): ReactElement {
     const host = useAuthStore((state) => state.host)
     const signedIn = useAuthStore((state) => state.signedIn)
     const email = useAuthStore((state) => state.user?.email)
+    const accountCount = useAuthStore((state) => state.accounts.length)
     const demo = useDemoMode((state) => state.enabled)
     const setDemo = useDemoMode((state) => state.setEnabled)
     const version = useMemo(readAppVersion, [])
     const sessionHost = signedIn ? host : null
     const scrollTitle = useScrollTitle('Settings')
+    const openAddAccount = useOpenAddAccount()
+    // Demo mode keeps the one-account layout: it shows sample data, not the accounts on this phone.
+    const multi = signedIn && !demo && accountCount >= 2
 
     const goBack = (): void => {
         if (router.canGoBack()) {
@@ -81,6 +88,7 @@ export function SettingsScreen(): ReactElement {
                         Settings
                     </Text>
                     <EnvironmentRibbon host={sessionHost} style={styles.ribbon} />
+                    {multi ? <AccountsGroup /> : null}
                     <DefaultPageGroup />
                     {signedIn && !demo ? <ProjectSwitcher /> : null}
                     {signedIn ? <PushStatusGroup /> : null}
@@ -114,11 +122,20 @@ export function SettingsScreen(): ReactElement {
                     <SettingsGroup title="App">
                         <SettingsRow label="Version" value={version} />
                     </SettingsGroup>
-                    <SettingsGroup title="Account" testID="settings-account">
-                        <SettingsRow label="Host" value={signedIn ? (host ?? 'Unknown') : 'Demo'} />
-                        {signedIn && email ? <SettingsRow label="Signed in as" value={email} /> : null}
-                        {demo ? <SettingsRow label="Project" value={viewer.projectName || 'None'} /> : null}
-                    </SettingsGroup>
+                    {multi ? null : (
+                        <SettingsGroup title="Account" testID="settings-account">
+                            <SettingsRow label="Host" value={signedIn ? (host ?? 'Unknown') : 'Demo'} />
+                            {signedIn && email ? <SettingsRow label="Signed in as" value={email} /> : null}
+                            {demo ? <SettingsRow label="Project" value={viewer.projectName || 'None'} /> : null}
+                            {signedIn && !demo ? (
+                                <AddAccountRow
+                                    onPress={() => openAddAccount('settings')}
+                                    style={styles.addRow}
+                                    testID="settings-add-account"
+                                />
+                            ) : null}
+                        </SettingsGroup>
+                    )}
                     {isInternalBuild ? <EnvironmentGroup host={sessionHost} /> : null}
                     <LegalGroup accountHost={signedIn && !demo ? host : null} />
                     <SignOutSection />
@@ -146,5 +163,10 @@ const useStyles = createStyles(({ colors }) => ({
     ribbon: {
         alignSelf: 'flex-start',
         marginTop: 12,
+    },
+    addRow: {
+        minHeight: 52,
+        paddingHorizontal: 16,
+        paddingVertical: 8,
     },
 }))

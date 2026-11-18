@@ -256,6 +256,11 @@ export class DraftStore {
     clear(scopes: string[]): Promise<void> {
         this.generation++
         this.pending.clear()
+        return this.remove(scopes)
+    }
+
+    /** Deletes the stored drafts of `scopes` only. Pending sends of other scopes, such as the active account's, go on. */
+    remove(scopes: string[]): Promise<void> {
         return this.enqueue(async () => {
             await Promise.all(scopes.map((scope) => this.storage.removeItem(scope)))
         })

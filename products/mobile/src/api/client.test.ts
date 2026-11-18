@@ -246,6 +246,39 @@ describe('api client send path', () => {
         await expect(request).resolves.toMatchObject({ status: 200 })
     })
 
+    test.each(['starts after its session ended', 'answers after the session changed'] as const)(
+        'a request that %s never resolves into its caller',
+        async (scenario) => {
+            // The client keeps which sessions ended, so this test takes a fresh copy of it.
+            let client!: typeof import('./client')
+            jest.isolateModules(() => {
+                client = require('./client')
+            })
+            let session = 1
+            client.setAuthProvider({
+                getAuth: () => ({ host: 'https://app.example.com', accessToken: 'token', projectId: 2, session }),
+                refreshAccessToken: async () => null,
+            })
+            let respond: () => void = () => undefined
+            fetchMock.mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        respond = () => resolve({ ok: true, status: 200, headers: undefined, text: async () => '{}' })
+                    })
+            )
+            if (scenario === 'starts after its session ended') {
+                await client.endSessionRequests()
+            }
+
+            const request = client.apiJson('/api/users/@me/')
+            session = 2
+            respond()
+
+            await expect(request).rejects.toBeInstanceOf(client.SessionEndedError)
+            expect(fetchMock).toHaveBeenCalledTimes(scenario === 'starts after its session ended' ? 0 : 1)
+        }
+    )
+
     test('sends nothing once a budget family has used its minute of tokens', async () => {
         const perMinute = BUDGETS.insights[0]?.capacity ?? 0
         for (let index = 0; index < perMinute; index += 1) {

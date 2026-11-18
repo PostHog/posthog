@@ -80,8 +80,8 @@ export async function refreshAiOrganization(
     if (fresh.id !== project.organizationId || !fresh.teams.some((team) => team.id === project.id)) {
         throw new Error('Project access changed')
     }
-    useAuthStore.setState((state) => ({
-        organizations: state.organizations.map((organization) =>
+    useAuthStore.getState().updateOrganizations((organizations) =>
+        organizations.map((organization) =>
             organization.id === fresh.id
                 ? {
                       ...organization,
@@ -92,8 +92,8 @@ export async function refreshAiOrganization(
                       membershipLevel: fresh.membership_level,
                   }
                 : organization
-        ),
-    }))
+        )
+    )
     return {
         name: fresh.name,
         status:

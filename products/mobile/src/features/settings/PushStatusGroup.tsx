@@ -1,6 +1,8 @@
 import { type ReactElement, useEffect } from 'react'
 import { ActivityIndicator, Linking, Text, View } from 'react-native'
 
+import { useAuthStore } from '@/auth/authStore'
+import { accountLabel } from '@/features/accounts/accountLabel'
 import { refreshPushPermission, syncPushRegistration } from '@/features/notifications/pushRegistration'
 import { type PushState, usePushStore } from '@/features/notifications/pushStore'
 import type { PushUnavailableReason } from '@/features/notifications/pushSupport'
@@ -50,6 +52,11 @@ export function PushStatusGroup(): ReactElement {
     const styles = useStyles()
     const colors = useColors()
     const push = usePushStore()
+    const accounts = useAuthStore((state) => state.accounts)
+    const activeKey = useAuthStore((state) => state.activeAccountKey)
+    const active = accounts.find((account) => account.key === activeKey)
+    const source =
+        accounts.length >= 2 && active ? `Notifications come from ${accountLabel(active, accounts)}.` : undefined
     const openSystemSettings = push.permission === 'denied' && !push.canAskAgain
     const canEnable =
         push.permission === 'unknown' ||
@@ -75,7 +82,7 @@ export function PushStatusGroup(): ReactElement {
         <SettingsGroup
             title="Notifications"
             footer={
-                push.error && push.permission === 'granted' ? `Couldn't register this device. ${push.error}` : undefined
+                push.error && push.permission === 'granted' ? `Couldn't register this device. ${push.error}` : source
             }
             testID="settings-push"
         >

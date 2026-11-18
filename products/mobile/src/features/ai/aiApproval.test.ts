@@ -82,13 +82,35 @@ test.each([1, 8, 15, null, undefined] as const)(
     }
 )
 
-test('freshly revoked approval blocks even with cached approval and individual consent', async () => {
+test('freshly revoked approval blocks even with cached approval and individual consent, in the account too', async () => {
+    const { organizations, projects } = useAuthStore.getState()
+    useAuthStore.setState({
+        activeAccountKey: 'account-1',
+        accounts: [
+            {
+                key: 'account-1',
+                host: HOST,
+                clientId: 'example-client',
+                method: 'oauth',
+                region: 'custom',
+                userUuid: USER.uuid,
+                user: USER,
+                organizations,
+                projects,
+                projectId: 7,
+                needsSignIn: false,
+                lastUsedAt: 1,
+            },
+        ],
+    })
     useAiConsentStore.getState().accept(aiConsentKey(HOST, USER.uuid))
     fetchOrg.mockResolvedValue({ ...ORG, is_ai_data_processing_approved: false })
     const result = requestAiApproval('chat')
     await shown('org_blocked')
     cancelAiApproval()
     await expect(result).resolves.toBe(false)
+    expect(useAuthStore.getState().accounts[0]?.organizations).toEqual(useAuthStore.getState().organizations)
+    expect(useAuthStore.getState().organizations[0]?.aiDataProcessingApproved).toBe(false)
 })
 
 test.each(['failed', 'unknown', 'removed_project'] as const)(

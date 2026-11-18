@@ -55,8 +55,21 @@ export default function RootLayout(): ReactElement {
     const demoEnabled = useDemoMode((state) => state.enabled)
     const appearanceHydrated = useAppearanceHydrated()
     const authStatus = useAuthStore((state) => state.status)
+    const activeAccountKey = useAuthStore((state) => state.activeAccountKey)
+    // The account the mounted screens belong to. A sign out keeps it, so signing in again to the same account reopens
+    // the screen that `next` names.
+    const [screensAccount, setScreensAccount] = useState(activeAccountKey)
+    // When another account becomes active, the stack stays unmounted for at least one commit. expo-router then seeds
+    // its navigation state again from the start route, so no screen, route param or stream of the earlier account
+    // survives the switch. A status change alone can happen without a commit in between.
+    const accountChanged = activeAccountKey !== null && screensAccount !== null && activeAccountKey !== screensAccount
+    useEffect(() => {
+        if (activeAccountKey !== null && activeAccountKey !== screensAccount) {
+            setScreensAccount(activeAccountKey)
+        }
+    }, [activeAccountKey, screensAccount])
     // Screens wait for the saved appearance too, so a Light or Dark override never paints a frame in the device scheme.
-    const ready = demoHydrated && appearanceHydrated && authStatus !== 'loading'
+    const ready = demoHydrated && appearanceHydrated && authStatus !== 'loading' && !accountChanged
     const firstScreenReady = useBootGate((state) => state.firstScreenReady)
     const segments = useSegments()
     const { colors, scheme } = useTheme()
@@ -105,7 +118,7 @@ export default function RootLayout(): ReactElement {
         }
     }, [ready, firstScreenReady, segments, timedOut, splashHidden])
 
-    useAuthRedirect()
+    useAuthRedirect(screensAccount)
     useScreenTracking(ready)
     usePushRegistration()
     useHedgehogWidgetSync()
@@ -153,6 +166,8 @@ export default function RootLayout(): ReactElement {
                                         <BootSplash />
                                     </View>
                                 )}
+                                {/* An account switch unmounts every screen until the next session is ready. */}
+                                {splashHidden && !ready ? <BootSplash /> : null}
                                 <AiApprovalDialog />
                             </QueryClientProvider>
                         </KeyboardProvider>

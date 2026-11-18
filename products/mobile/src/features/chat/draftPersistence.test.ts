@@ -8,6 +8,7 @@ jest.mock('@/auth/tokens', () => ({ getSessionTokens: () => ({ accessToken: 'fak
 jest.mock('@/auth/authStore', () => ({
     useAuthStore: { getState: () => mockAuth },
     addSessionEndTask: jest.fn(),
+    addAccountRemovedTask: jest.fn(),
 }))
 jest.mock('expo-crypto', () => ({
     CryptoDigestAlgorithm: { SHA256: 'sha256' },
@@ -41,6 +42,7 @@ beforeEach(async () => {
     mockSecure.clear()
     mockFailedRead = undefined
     mockAuth.projectId = 1
+    mockAuth.user.uuid = 'user-1'
 })
 
 describe('chat draft persistence', () => {
@@ -72,17 +74,28 @@ describe('chat draft persistence', () => {
         expect((await chatDrafts.loadQueue(scope, 'task:second')).rows).toHaveLength(1)
     })
 
-    it('wipes encrypted drafts for every project on session end and invalidates pending sends', async () => {
+    it("wipes a removed account's drafts in every project, keeps other accounts, and drops pending sends", async () => {
+        mockAuth.user.uuid = 'user-2'
+        const otherAccount = (await draftScope(draftIdentity() as string)) as string
+        await chatDrafts.save(otherAccount, 'task:9', { text: 'Other account', reportIds: [] })
+        mockAuth.user.uuid = 'user-1'
         const first = (await draftScope(draftIdentity() as string)) as string
         const settle = await chatDrafts.beginSend(first, 'new-chat', { text: 'Private', reportIds: [] })
         mockAuth.projectId = 2
         const second = (await draftScope(draftIdentity() as string)) as string
         await chatDrafts.save(second, 'task:1', { text: 'Other project', reportIds: [] })
-        const auth = jest.requireMock<{ addSessionEndTask: jest.Mock }>('@/auth/authStore')
+        const auth = jest.requireMock<{ addSessionEndTask: jest.Mock; addAccountRemovedTask: jest.Mock }>(
+            '@/auth/authStore'
+        )
         await Promise.all(auth.addSessionEndTask.mock.calls.map(([task]) => task()))
+        await Promise.all(
+            auth.addAccountRemovedTask.mock.calls.map(([task]) =>
+                task({ key: 'user-1-key', host: 'https://example.com', userUuid: 'user-1' })
+            )
+        )
         await settle(false)
-        expect(mockSecure.size).toBe(0)
         expect(await chatDrafts.load(first, 'new-chat')).toBeNull()
         expect(await chatDrafts.load(second, 'task:1')).toBeNull()
+        expect(await chatDrafts.load(otherAccount, 'task:9')).toMatchObject({ text: 'Other account' })
     })
 })

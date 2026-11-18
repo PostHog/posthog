@@ -2,13 +2,15 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 
-import { addSessionEndTask } from '@/auth/authStore'
+import { legacyEntriesFor } from '@/auth/accountKey'
+import { addAccountRemovedTask, launchAccount } from '@/auth/authStore'
+import { waitForPersist } from '@/lib/persistHydration'
 import type { PinDisplay } from '@/model/views'
 
 // How this phone arranges and shows its pins. Membership syncs with the web's starred rows; order and display mode
 // stay on the device. The server's `order` is never written: `reorder` is closed to OAuth, and a PATCH would move a
-// pin from a sibling environment into this one. Prefs are kept per project, because a complete pin list read prunes
-// the ids it does not hold, and the list holds one project's pins only.
+// pin from a sibling environment into this one. Prefs are kept per account and project, because a complete pin list
+// read prunes the ids it does not hold, and the list holds one account's pins in one project only.
 
 export interface PinPrefs {
     /** Dense local ranks, keyed by shortcut id. A pin without one sorts after the ranked pins. */
@@ -55,63 +57,104 @@ export function prunedPrefs(prefs: PinPrefs, presentIds: readonly string[], comp
     return { rank: keep(prefs.rank), display: keep(prefs.display) }
 }
 
+type ProjectPinPrefs = Record<string, PinPrefs>
+
 interface PinPrefsState {
-    /** Keyed by `{host}|{project id}`. */
-    projects: Record<string, PinPrefs>
-    setDisplay: (projectKey: string, shortcutId: string, display: PinDisplay) => void
+    /** Keyed by account key, then by `{host}|{project id}`. */
+    accounts: Record<string, ProjectPinPrefs>
+    /** Prefs that an app version before multi-account stored, until `adoptLegacy` gives them to their account. */
+    legacy: ProjectPinPrefs | null
+    setDisplay: (account: string, projectKey: string, shortcutId: string, display: PinDisplay) => void
     /** Rewrites dense ranks for the pins in the order shown. */
-    setOrder: (projectKey: string, shortcutIds: readonly string[]) => void
-    prune: (projectKey: string, presentIds: readonly string[], complete: boolean) => void
-    clear: () => void
+    setOrder: (account: string, projectKey: string, shortcutIds: readonly string[]) => void
+    prune: (account: string, projectKey: string, presentIds: readonly string[], complete: boolean) => void
+    removeAccount: (account: string) => void
 }
 
 function withProject(
     state: PinPrefsState,
+    account: string,
     projectKey: string,
     change: (prefs: PinPrefs) => PinPrefs
-): Pick<PinPrefsState, 'projects'> | PinPrefsState {
-    const prefs = state.projects[projectKey] ?? NO_PIN_PREFS
+): Pick<PinPrefsState, 'accounts'> | PinPrefsState {
+    const projects = state.accounts[account] ?? {}
+    const prefs = projects[projectKey] ?? NO_PIN_PREFS
     const next = change(prefs)
-    return next === prefs ? state : { projects: { ...state.projects, [projectKey]: next } }
+    return next === prefs ? state : { accounts: { ...state.accounts, [account]: { ...projects, [projectKey]: next } } }
 }
 
 export const usePinPrefs = create<PinPrefsState>()(
-    persist(
+    persist<PinPrefsState, [], [], Pick<PinPrefsState, 'accounts' | 'legacy'>>(
         (set, get) => ({
-            projects: {},
-            setDisplay: (projectKey, shortcutId, display) =>
+            accounts: {},
+            legacy: null,
+            setDisplay: (account, projectKey, shortcutId, display) =>
                 set((state) =>
-                    withProject(state, projectKey, (prefs) => ({
+                    withProject(state, account, projectKey, (prefs) => ({
                         ...prefs,
                         display: { ...prefs.display, [shortcutId]: display },
                     }))
                 ),
-            setOrder: (projectKey, shortcutIds) =>
+            setOrder: (account, projectKey, shortcutIds) =>
                 set((state) =>
-                    withProject(state, projectKey, (prefs) => ({ ...prefs, rank: denseRanks(shortcutIds) }))
+                    withProject(state, account, projectKey, (prefs) => ({ ...prefs, rank: denseRanks(shortcutIds) }))
                 ),
-            prune: (projectKey, presentIds, complete) => {
+            prune: (account, projectKey, presentIds, complete) => {
                 // A read that removes nothing must not call `set`: `persist` writes AsyncStorage on every `set`.
-                const prefs = get().projects[projectKey]
+                const prefs = get().accounts[account]?.[projectKey]
                 if (prefs && prunedPrefs(prefs, presentIds, complete) !== prefs) {
                     set((state) =>
-                        withProject(state, projectKey, (current) => prunedPrefs(current, presentIds, complete))
+                        withProject(state, account, projectKey, (current) => prunedPrefs(current, presentIds, complete))
                     )
                 }
             },
-            clear: () => set({ projects: {} }),
+            removeAccount: (account) => {
+                if (account in get().accounts) {
+                    set((state) => {
+                        const { [account]: _removed, ...rest } = state.accounts
+                        return { accounts: rest }
+                    })
+                }
+            },
         }),
         {
             name: 'views-pin-prefs:v2',
+            version: 1,
             storage: createJSONStorage(() => AsyncStorage),
-            partialize: (state) => ({ projects: state.projects }),
+            partialize: (state) => ({ accounts: state.accounts, legacy: state.legacy }),
+            // Version 0 kept one map for whoever was signed in.
+            migrate: (persisted, version) => {
+                const projects = (persisted as { projects?: ProjectPinPrefs } | null)?.projects
+                return { accounts: {}, legacy: version === 0 && projects ? projects : null }
+            },
         }
     )
 )
 
-/** One project's prefs. Null, such as in demo mode, reads none. */
-export function useProjectPinPrefs(projectKey: string | null): PinPrefs {
-    return usePinPrefs((state) => (projectKey ? state.projects[projectKey] : undefined) ?? NO_PIN_PREFS)
+/** One project's prefs in `account`. Null, such as in demo mode, reads none. */
+export function useProjectPinPrefs(account: string | null, projectKey: string | null): PinPrefs {
+    return usePinPrefs(
+        (state) => (account && projectKey ? state.accounts[account]?.[projectKey] : undefined) ?? NO_PIN_PREFS
+    )
 }
 
-addSessionEndTask(() => usePinPrefs.getState().clear())
+export function accountPinPrefs(account: string | null, projectKey: string): PinPrefs {
+    return (account ? usePinPrefs.getState().accounts[account]?.[projectKey] : undefined) ?? NO_PIN_PREFS
+}
+
+addAccountRemovedTask((account) => usePinPrefs.getState().removeAccount(account.key))
+
+void Promise.all([launchAccount(), waitForPersist(usePinPrefs)]).then(([account]) => {
+    const { legacy } = usePinPrefs.getState()
+    if (!legacy) {
+        return
+    }
+    const { owned } = legacyEntriesFor(legacy, account)
+    usePinPrefs.setState((state) => ({
+        legacy: null,
+        accounts:
+            account && Object.keys(owned).length > 0
+                ? { ...state.accounts, [account.key]: { ...owned, ...state.accounts[account.key] } }
+                : state.accounts,
+    }))
+})

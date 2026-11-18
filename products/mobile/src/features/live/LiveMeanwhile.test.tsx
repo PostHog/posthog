@@ -5,6 +5,7 @@ import type { InsightApi } from '@/api/insights'
 import { inboxCacheKey } from '@/api/readCacheKeys'
 import type { ProjectScope } from '@/api/reports'
 import type { FileSystemShortcutApi } from '@/api/shortcuts'
+import { useAuthStore } from '@/auth/authStore'
 import { insightQueryKey } from '@/features/views/items'
 import { usePinPrefs } from '@/features/views/pinPrefsStore'
 import type { ViewsContext } from '@/features/views/useViewsContext'
@@ -76,7 +77,10 @@ describe('LiveMeanwhile', () => {
             snapshot
         )
         client.setQueryData(inboxCacheKey(mockScope), { items: [], sourceUpdatedAt: Date.now() })
-        usePinPrefs.getState().setDisplay(`${mockScope.host}|${mockScope.projectId}`, 'shortcut-1', { mode: 'number' })
+        useAuthStore.setState({ activeAccountKey: 'example-account' })
+        usePinPrefs
+            .getState()
+            .setDisplay('example-account', `${mockScope.host}|${mockScope.projectId}`, 'shortcut-1', { mode: 'number' })
         mockContext = {
             identity: 'live',
             mode: 'live',

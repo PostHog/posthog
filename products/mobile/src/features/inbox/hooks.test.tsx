@@ -50,7 +50,7 @@ describe('inbox hooks', () => {
     beforeEach(() => {
         useScopeErrorStore.getState().clear()
         posted.length = 0
-        useSnoozeStore.setState({ entries: {} })
+        useSnoozeStore.setState({ accounts: {}, legacy: null })
         jest.spyOn(AppState, 'addEventListener').mockReturnValue({ remove: () => undefined })
         setAuthProvider({
             getAuth: () => ({ host: 'https://app.example.com', accessToken: 'token', projectId: 2, session: 1 }),
@@ -627,9 +627,12 @@ describe('inbox hooks', () => {
         const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
         const scope = scopeOf()
         const cached = inboxFromReports([reportFixture({ id: 'saved-report', status: 'pending_input' })])
-        useSnoozeStore
-            .getState()
-            .put(snoozeKey(scope, 'saved-report'), { kind: 'signals', threshold: 10, at: new Date().toISOString() })
+        useAuthStore.setState({ activeAccountKey: 'example-account' })
+        useSnoozeStore.getState().put('example-account', snoozeKey(scope, 'saved-report'), {
+            kind: 'signals',
+            threshold: 10,
+            at: new Date().toISOString(),
+        })
         const sourceUpdatedAt = Date.now() - 60_000
         queryClient.setQueryData<SavedInbox>(inboxCacheKey(scope), {
             items: cached,
@@ -662,5 +665,6 @@ describe('inbox hooks', () => {
         )
         hook.unmount()
         queryClient.clear()
+        useAuthStore.setState({ activeAccountKey: null })
     })
 })

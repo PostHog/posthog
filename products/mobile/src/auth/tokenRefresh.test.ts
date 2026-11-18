@@ -4,14 +4,16 @@ import { AppState, type AppStateStatus } from 'react-native'
 import { apiJson, NotSignedInError, projectPath } from '@/api/client'
 import { TransportError } from '@/api/transport'
 
-import { addSessionEndTask, addSignOutTask, installAuthProvider, useAuthStore } from './authStore'
+import { accountKey } from './accountKey'
+import { addSessionEndTask, addSignOutTask, installAuthProvider, type StoredAccount, useAuthStore } from './authStore'
 import { authorize, OAuthError, refreshTokens } from './oauth'
 import {
     getSessionIdentity,
     getSessionTokens,
+    loadAccounts,
     loadTokens,
+    type SessionIdentity,
     type SessionTokens,
-    saveTokens,
     setSessionTokens,
 } from './tokens'
 
@@ -27,18 +29,20 @@ jest.mock('expo-auth-session', () => ({
     })),
     makeRedirectUri: () => 'posthog://callback',
 }))
-jest.mock('expo-secure-store', () => {
-    const items = new Map<string, string>()
-    return {
-        getItemAsync: async (key: string) => items.get(key) ?? null,
-        setItemAsync: async (key: string, value: string) => {
-            items.set(key, value)
-        },
-        deleteItemAsync: async (key: string) => {
-            items.delete(key)
-        },
-    }
-})
+const mockSecureItems = new Map<string, string>()
+jest.mock('expo-secure-store', () => ({
+    getItemAsync: async (key: string) => mockSecureItems.get(key) ?? null,
+    setItemAsync: async (key: string, value: string) => {
+        mockSecureItems.set(key, value)
+    },
+    deleteItemAsync: async (key: string) => {
+        mockSecureItems.delete(key)
+    },
+}))
+jest.mock('expo-crypto', () => ({
+    CryptoDigestAlgorithm: { SHA256: 'SHA-256' },
+    digestStringAsync: async (_algorithm: string, value: string) => Buffer.from(value).toString('hex'),
+}))
 
 const HOST = 'https://us.posthog.com'
 const OLD_HOST = 'https://old-instance.example.com'
@@ -66,6 +70,41 @@ function authorization(init: RequestInit | undefined): string | undefined {
     return (init?.headers as Record<string, string> | undefined)?.Authorization
 }
 
+/** Stores `tokens` as the only account on the device, active, with the store showing it. */
+async function seedSession(tokens: SessionTokens, owner: SessionIdentity): Promise<void> {
+    mockSecureItems.clear()
+    const key = await accountKey(owner.host, owner.userUuid)
+    mockSecureItems.set(`posthog_mobile_session.${key}`, JSON.stringify({ version: 1, identity: owner, tokens }))
+    mockSecureItems.set('posthog_mobile_accounts', JSON.stringify({ version: 1, active: key, keys: [key] }))
+    await loadAccounts()
+    const account: StoredAccount = {
+        key,
+        host: owner.host,
+        clientId: owner.clientId,
+        method: owner.method,
+        region: 'us',
+        userUuid: owner.userUuid,
+        user: { uuid: owner.userUuid, distinctId: owner.userUuid, email: 'example@example.com', name: 'Example' },
+        organizations: [],
+        projects: [],
+        projectId: 2,
+        needsSignIn: false,
+        lastUsedAt: 1,
+    }
+    useAuthStore.setState({
+        status: 'signed_in',
+        signedIn: true,
+        host: owner.host,
+        clientId: owner.clientId,
+        method: owner.method,
+        user: account.user,
+        projectId: 2,
+        signedOutReason: null,
+        accounts: [account],
+        activeAccountKey: key,
+    })
+}
+
 describe('token refresh through the API client', () => {
     const fetchMock = jest.fn<Promise<Response>, [string, RequestInit | undefined]>()
 
@@ -73,15 +112,7 @@ describe('token refresh through the API client', () => {
         globalThis.fetch = fetchMock as unknown as typeof fetch
         fetchMock.mockReset()
         installAuthProvider()
-        useAuthStore.setState({
-            status: 'signed_in',
-            signedIn: true,
-            host: HOST,
-            clientId: 'test-client',
-            projectId: 2,
-            signedOutReason: null,
-        })
-        await saveTokens(
+        await seedSession(
             {
                 kind: 'oauth',
                 accessToken: 'old-access',
@@ -162,7 +193,7 @@ describe('token refresh through the API client', () => {
 
         await expect(apiJson('/api/users/@me/')).rejects.toBeInstanceOf(error)
 
-        expect(useAuthStore.getState()).toMatchObject({ status, signedOutReason: reason })
+        await waitFor(() => expect(useAuthStore.getState()).toMatchObject({ status, signedOutReason: reason }))
         expect(getSessionTokens()?.accessToken).toBe(accessToken)
     })
 
@@ -178,7 +209,10 @@ describe('token refresh through the API client', () => {
             tokenRequests.push(url)
             return json(200, { access_token: 'new-access', refresh_token: 'new-refresh', expires_in: 604800 })
         })
-        await saveTokens({ ...(getSessionTokens() as SessionTokens), expiresAt: Date.now() + expiresIn })
+        await seedSession(
+            { ...(getSessionTokens() as SessionTokens), expiresAt: Date.now() + expiresIn },
+            getSessionIdentity() as SessionIdentity
+        )
         let onAppState: ((state: AppStateStatus) => void) | undefined
         const subscribe = jest.spyOn(AppState, 'addEventListener').mockImplementation((_type, listener) => {
             onAppState = listener
@@ -218,7 +252,7 @@ describe('token refresh through the API client', () => {
             })
             const request = (): Promise<unknown> =>
                 operation === 'sign-in'
-                    ? authorize({ host: HOST, clientId: 'test-client' })
+                    ? authorize({ host: HOST, clientId: 'test-client' }).then(({ tokens }) => tokens)
                     : refreshTokens({ host: HOST, clientId: 'test-client', refreshToken: 'example-refresh' })
             const failure = expect(request()).rejects.toMatchObject({ name: 'OAuthError', kind: 'network' })
             await jest.advanceTimersByTimeAsync(5_000)
@@ -258,14 +292,22 @@ describe('token refresh through the API client', () => {
     )
 
     test.each([
-        { name: 'API response', held: `${OLD_HOST}/api/users/@me/`, answer: (): Response => json(401, {}) },
         {
-            name: 'token refresh',
+            name: 'API response held across signing out and in elsewhere',
+            held: `${OLD_HOST}/api/users/@me/`,
+            answer: (): Response => json(401, {}),
+            // Sign out ends the session's requests, so this response lands after the sign-in.
+            landsDuringSignOut: false,
+        },
+        {
+            name: 'token refresh that lands during the sign out',
             held: `${OLD_HOST}/oauth/token`,
             answer: (): Response =>
                 json(200, { access_token: 'rotated-access', refresh_token: 'rotated-refresh', expires_in: 3600 }),
+            // Sign out waits for the refresh, so it revokes the token the refresh rotated.
+            landsDuringSignOut: true,
         },
-    ])('an old host $name held across signing in elsewhere never gets the new session', async ({ held, answer }) => {
+    ])('an old host $name never gets the new session', async ({ held, answer, landsDuringSignOut }) => {
         const sent: { url: string; credentials: string }[] = []
         let release: (response: Response) => void = () => undefined
         let reached: () => void = () => undefined
@@ -306,11 +348,20 @@ describe('token refresh through the API client', () => {
             }
             throw new Error(`Unexpected request to ${url}`)
         })
-        useAuthStore.setState({ host: OLD_HOST, clientId: 'old-client', method: 'oauth' })
+        await seedSession(getSessionTokens() as SessionTokens, {
+            host: OLD_HOST,
+            clientId: 'old-client',
+            method: 'oauth',
+            userUuid: 'example-user',
+        })
 
         const reload = useAuthStore.getState().reloadAccount()
         await heldReached
-        await useAuthStore.getState().signOut()
+        const signingOut = useAuthStore.getState().signOut()
+        if (landsDuringSignOut) {
+            release(answer())
+        }
+        await signingOut
         await useAuthStore.getState().signIn(HOST, 'next-client')
         release(answer())
         await reload
@@ -394,27 +445,30 @@ describe('token refresh through the API client', () => {
         }
     })
 
-    test('a failed account switch commit reopens the old session cleanup', async () => {
-        const recover = jest.fn()
-        const cleanup = jest.fn().mockResolvedValue(recover)
-        const removeCleanup = addSignOutTask(cleanup)
+    test('a failed commit of an added account gives the session back to the earlier account', async () => {
+        const signOutCleanup = jest.fn().mockResolvedValue(undefined)
+        const removeCleanup = addSignOutTask(signOutCleanup)
         fetchMock.mockImplementation(async (url) => {
             if (url === `${NEW_HOST}/api/users/@me/`) {
                 return accountResponse('candidate-user')
             }
             return json(200, {})
         })
+        const originalWrite = SecureStore.setItemAsync
+        // The candidate's slot writes, then the index that would make it active fails.
         const storeWrite = jest
             .spyOn(SecureStore, 'setItemAsync')
+            .mockImplementationOnce(originalWrite)
             .mockRejectedValueOnce(new Error('Storage unavailable'))
         try {
             await expect(useAuthStore.getState().signInWithPersonalApiKey(NEW_HOST, 'candidate-key')).rejects.toThrow(
                 'Storage unavailable'
             )
-            expect(cleanup).toHaveBeenCalledTimes(1)
-            expect(recover).toHaveBeenCalledTimes(1)
-            expect(useAuthStore.getState().host).toBe(HOST)
+            expect(signOutCleanup).not.toHaveBeenCalled()
+            expect(useAuthStore.getState()).toMatchObject({ status: 'signed_in', host: HOST })
             expect(getSessionTokens()?.accessToken).toBe('old-access')
+            const candidateSlot = `posthog_mobile_session.${await accountKey(NEW_HOST, 'candidate-user')}`
+            expect(mockSecureItems.has(candidateSlot)).toBe(false)
         } finally {
             storeWrite.mockRestore()
             removeCleanup()

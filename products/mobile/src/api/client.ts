@@ -64,6 +64,15 @@ export class NotSignedInError extends Error {
     }
 }
 
+/** The request belongs to a session that left memory before its result arrived, so no caller may use the result. */
+export class SessionEndedError extends NotSignedInError {
+    constructor() {
+        super()
+        this.message = 'The account changed before this request finished.'
+        this.name = 'SessionEndedError'
+    }
+}
+
 export type QueryValue = string | number | boolean | null | undefined
 
 export interface ApiInit extends Omit<RequestInit, 'body' | 'headers'> {
@@ -124,14 +133,12 @@ export function buildQuery(query: Record<string, QueryValue> | undefined): strin
     return encoded ? `?${encoded}` : ''
 }
 
-export function apiUrl(path: string, query?: Record<string, QueryValue>): string {
-    const { host } = requireAuth()
+function urlFor(host: string, path: string, query?: Record<string, QueryValue>): string {
     return `${host}${path.startsWith('/') ? path : `/${path}`}${buildQuery(query)}`
 }
 
-/** The bearer header for a URL that a native loader, such as a video player, fetches instead of `send()`. */
-export function authorizationHeaders(): Record<string, string> {
-    return { Authorization: `Bearer ${requireAuth().accessToken as string}` }
+export function apiUrl(path: string, query?: Record<string, QueryValue>): string {
+    return urlFor(requireAuth().host, path, query)
 }
 
 /** The web app URL of a page in the current project, or undefined when no session or project is set. */
@@ -171,22 +178,124 @@ function isSameSession(a: ApiAuth, b: ApiAuth): boolean {
     return a.session === b.session && a.host === b.host
 }
 
-async function send(fetcher: Fetcher, path: string, init: ApiInit, accept: string): Promise<Response> {
-    const auth = requireAuth()
-    const url = apiUrl(path, init.query)
+interface SessionRequests {
+    session: number
+    controller: AbortController
+    pending: Set<Promise<unknown>>
+}
+
+let sessionRequests: SessionRequests | null = null
+/** The latest session whose requests ended. Every request of it or of an earlier session fails at once. */
+let endedSession = Number.NEGATIVE_INFINITY
+
+function requestsOf(session: number): SessionRequests {
+    if (sessionRequests?.session !== session) {
+        sessionRequests?.controller.abort()
+        sessionRequests = { session, controller: new AbortController(), pending: new Set() }
+    }
+    return sessionRequests
+}
+
+function isCurrent(auth: ApiAuth): boolean {
+    return auth.session > endedSession && provider !== null && isSameSession(auth, provider.getAuth())
+}
+
+/** Starts a request of `auth`'s session. Its promise rejects with `SessionEndedError` once that session ends. */
+function sessionRequest<T>(auth: ApiAuth, work: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    if (auth.session <= endedSession) {
+        return Promise.reject(new SessionEndedError())
+    }
+    const requests = requestsOf(auth.session)
+    const promise = work(requests.controller.signal).then(
+        (value) => {
+            if (!isCurrent(auth)) {
+                throw new SessionEndedError()
+            }
+            return value
+        },
+        (error: unknown) => {
+            throw isCurrent(auth) ? error : new SessionEndedError()
+        }
+    )
+    requests.pending.add(promise)
+    const settle = (): void => {
+        requests.pending.delete(promise)
+    }
+    promise.then(settle, settle)
+    return promise
+}
+
+/**
+ * Ends every request of the session that is leaving memory, before a switch, sign out or expiry starts the next one.
+ * Resolves after the callers of those requests ran their continuations, so a rollback, cache write or analytics event
+ * of the earlier session lands before its caches and analytics reset, never in the next session's.
+ */
+export async function endSessionRequests(): Promise<void> {
+    if (!provider) {
+        return
+    }
+    const { session } = provider.getAuth()
+    endedSession = Math.max(endedSession, session)
+    const requests = sessionRequests?.session === session ? sessionRequests : null
+    if (!requests) {
+        return
+    }
+    requests.controller.abort()
+    await Promise.allSettled([...requests.pending])
+    // Continuations run as microtasks, and a macrotask starts only after every queued microtask ran.
+    await new Promise<void>((resolve) => setTimeout(resolve, 0))
+}
+
+function linkSignals(
+    caller: AbortSignal | null | undefined,
+    session: AbortSignal
+): { signal: AbortSignal; release: () => void } {
+    if (!caller) {
+        return { signal: session, release: () => undefined }
+    }
+    const controller = new AbortController()
+    const abort = (): void => controller.abort()
+    if (caller.aborted || session.aborted) {
+        controller.abort()
+    }
+    caller.addEventListener('abort', abort, { once: true })
+    session.addEventListener('abort', abort, { once: true })
+    return {
+        signal: controller.signal,
+        release: () => {
+            caller.removeEventListener('abort', abort)
+            session.removeEventListener('abort', abort)
+        },
+    }
+}
+
+/** The URL and token of the request the server answered, so a reader can pair them without reading the session again. */
+export interface SentRequest {
+    url: string
+    accessToken: string
+}
+
+async function send(
+    fetcher: Fetcher,
+    auth: ApiAuth,
+    path: string,
+    init: ApiInit,
+    accept: string
+): Promise<{ response: Response; sent: SentRequest }> {
+    const url = urlFor(auth.host, path, init.query)
     const family = init.budgetFamily ?? budgetFamilyFor(path)
     if (family && !trySpend(family)) {
         throw new BudgetExceededError(family)
     }
-    const sent = auth.accessToken as string
-    const fetchResponse = (token: string): Promise<Response> => {
+    let token = auth.accessToken as string
+    const fetchResponse = (bearer: string): Promise<Response> => {
         if (init.signal?.aborted) {
             throw abortError()
         }
-        const options = buildInit(init, token, accept)
+        const options = buildInit(init, bearer, accept)
         return transport(() => fetcher(url, options))
     }
-    let response = await fetchResponse(sent)
+    let response = await fetchResponse(token)
     if (init.signal?.aborted) {
         throw abortError()
     }
@@ -197,22 +306,25 @@ async function send(fetcher: Fetcher, path: string, init: ApiInit, accept: strin
         // and possibly to a different host. Sending it to `url` would give it to the earlier host.
         const current = provider.getAuth()
         if (!isSameSession(auth, current)) {
-            throw new NotSignedInError()
+            throw new SessionEndedError()
         }
         // A refresh elsewhere may already have rotated the token this request used. Refreshing
         // again would revoke that newer token and 401 every other in-flight request.
-        const token =
-            current.accessToken && current.accessToken !== sent
+        const next =
+            current.accessToken && current.accessToken !== token
                 ? current.accessToken
                 : await provider.refreshAccessToken()
-        // The session can also change while the refresh is in flight.
-        if (!token || !isSameSession(auth, provider.getAuth())) {
+        if (!isCurrent(auth)) {
+            throw new SessionEndedError()
+        }
+        if (!next) {
             throw new NotSignedInError()
         }
+        token = next
         response = await fetchResponse(token)
         noteServerDate(response)
     }
-    return response
+    return { response, sent: { url, accessToken: token } }
 }
 
 async function parseBody(response: Response): Promise<unknown> {
@@ -230,22 +342,31 @@ async function parseBody(response: Response): Promise<unknown> {
 export async function apiReadResponse<T>(
     path: string,
     init: ApiInit,
-    read: (response: Response) => Promise<T>
+    read: (response: Response, sent: SentRequest) => Promise<T>
 ): Promise<T> {
-    return withAppReloadBlocked(() =>
-        requestWithDeadline(async (signal) => {
-            const response = await send(
-                (url, options) => fetch(url, options),
-                path,
-                { ...init, signal },
-                'application/json'
+    const auth = requireAuth()
+    return sessionRequest(auth, async (sessionSignal) => {
+        const { signal, release } = linkSignals(init.signal, sessionSignal)
+        try {
+            return await withAppReloadBlocked(() =>
+                requestWithDeadline(async (deadline) => {
+                    const { response, sent } = await send(
+                        (url, options) => fetch(url, options),
+                        auth,
+                        path,
+                        { ...init, signal: deadline },
+                        'application/json'
+                    )
+                    if (deadline.aborted) {
+                        throw abortError()
+                    }
+                    return read(response, sent)
+                }, signal)
             )
-            if (signal.aborted) {
-                throw abortError()
-            }
-            return read(response)
-        }, init.signal)
-    )
+        } finally {
+            release()
+        }
+    })
 }
 
 export async function apiJson<T>(path: string, init: ApiInit = {}): Promise<T> {
@@ -258,17 +379,37 @@ export async function apiJson<T>(path: string, init: ApiInit = {}): Promise<T> {
     })
 }
 
-/** Uses expo's fetch, which exposes `response.body` as a readable stream on native. */
+/**
+ * Uses expo's fetch, which exposes `response.body` as a readable stream on native. The stream ends when its session
+ * ends, because the session's signal aborts the fetch.
+ */
 export async function apiStream(path: string, init: ApiInit = {}): Promise<Response> {
-    const response = await send(
-        (url, options) => streamingFetch(url, options as Parameters<typeof streamingFetch>[1]) as Promise<Response>,
-        path,
-        init,
-        // JSON too, so content negotiation never answers 406 when the server replies in JSON, such as with an error.
-        'text/event-stream, application/json'
-    )
-    if (!response.ok) {
-        throw new ApiError(response.status, await parseBody(response), response.headers)
-    }
-    return response
+    const auth = requireAuth()
+    return sessionRequest(auth, async (sessionSignal) => {
+        const { signal } = linkSignals(init.signal, sessionSignal)
+        const ended = new Promise<never>((_resolve, reject) => {
+            const fail = (): void => reject(abortError())
+            if (signal.aborted) {
+                fail()
+            }
+            signal.addEventListener('abort', fail, { once: true })
+        })
+        ended.catch(() => undefined)
+        const { response } = await Promise.race([
+            send(
+                (url, options) =>
+                    streamingFetch(url, options as Parameters<typeof streamingFetch>[1]) as Promise<Response>,
+                auth,
+                path,
+                { ...init, signal },
+                // JSON too, so content negotiation never answers 406 when the server replies in JSON, such as with an error.
+                'text/event-stream, application/json'
+            ),
+            ended,
+        ])
+        if (!response.ok) {
+            throw new ApiError(response.status, await parseBody(response), response.headers)
+        }
+        return response
+    })
 }
