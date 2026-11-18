@@ -150,6 +150,7 @@ async def _run_full_review_pr_workflow(
     retryable_dedup_failures: int = 0,
     selection: PerspectiveSelectionDTO | None = None,
     fail_selection: bool = False,
+    fail_marker: bool = False,
     fail_review_units: frozenset[tuple[int, int]] = frozenset(),
     resolve_comments_setting: bool = False,
     input_resolve_comments: bool | None = None,
@@ -312,6 +313,8 @@ async def _run_full_review_pr_workflow(
     async def record_marker(input: RecordTurnMarkerInput) -> ReviewHogMarker:
         assert input.stamphog_review_run_id == stamphog_review_run_id
         assert input.queue_turn_id == "queued-turn"
+        if fail_marker:
+            raise ApplicationError("marker storage unavailable", non_retryable=True)
         devex_lens_calls.append(("marker", input.devex_lens))
         return _TURN_MARKER
 
@@ -1221,6 +1224,20 @@ async def test_deep_refusal_fallback_keeps_the_owners_resolution_opt_in(resolve_
     assert recorded["review"]
     assert recorded["publish"] == [7]
     assert recorded["resolve_dispatches"] == ([(7, 9, "stamphog")] if resolve_comments else [])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("request_id", [None, "refusal"])
+async def test_turn_marker_failure_stops_refusal_reviews(request_id: str | None) -> None:
+    recorded = await _run_full_review_pr_workflow(
+        publish=True,
+        stamphog_review_run_id=request_id,
+        fail_marker=True,
+        workflow_max_attempts=1,
+    )
+    assert recorded["failed"] is (request_id is not None)
+    assert bool(recorded["review"]) is (request_id is None)
+    assert recorded["publish"] == ([7] if request_id is None else [])
 
 
 @pytest.mark.asyncio
