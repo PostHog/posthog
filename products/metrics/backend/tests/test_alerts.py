@@ -1,3 +1,4 @@
+import io
 import json
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -218,8 +219,8 @@ def _response(status_code: int, body: dict[str, Any]) -> requests.Response:
     response = requests.Response()
     response.status_code = status_code
     response._content = json.dumps(body).encode()
-    # Lets a streamed read iterate the body set above.
-    response._content_consumed = True
+    # A streamed read iterates `raw`.
+    response.raw = io.BytesIO(response._content)
     return response
 
 
