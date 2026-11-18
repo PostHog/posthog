@@ -9,6 +9,8 @@ Choose the query method from the requested result and calculation rules, after a
 
 {replay_vision}
 
+{endpoints_routing}
+
 SQL discovery can inform the events, properties, and filters for a later typed query; typed tools cannot accept SQL result rows as input. Reassess the method when the task changes, regardless of the previous tool call. Save supported dashboard analyses as native query nodes rather than equivalent `HogQLQuery` nodes. Both methods support visualizations; a chart request or missing inline UI does not justify switching to SQL.
 
 Read the selected tool's description and schema when they are not already in context. You do not need to inspect every alternative before using SQL.

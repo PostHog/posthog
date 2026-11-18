@@ -7,10 +7,10 @@ from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.sources.deepsource.queries import (
+    ACCOUNT_CONNECTION_QUERIES,
     ANALYSIS_RUN_CHECKS_QUERY,
     CONNECTION_QUERIES,
     PER_REPOSITORY_QUERIES,
-    REPOSITORIES_QUERY,
     REPOSITORY_NAMES_QUERY,
     ROOT_CONNECTION_QUERIES,
     VALIDATE_QUERY,
@@ -214,34 +214,39 @@ def _account_variables(account_login: str, vcs_provider: str) -> dict[str, Any]:
     return {"login": account_login, "vcsProvider": vcs_provider}
 
 
-def _repositories_rows(
+def _account_connection_rows(
     session: requests.Session,
     account_login: str,
     vcs_provider: str,
+    endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[DeepsourceResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
+    """Walk one Relay connection on the configured account (repositories, members, suppressed issues)."""
+    connection_field = DEEPSOURCE_ENDPOINTS[endpoint].account_connection_field
+    assert connection_field is not None
+
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     start_cursor = resume.cursor if resume else None
     if start_cursor:
-        logger.debug("DeepSource: resuming repositories from saved cursor")
+        logger.debug(f"DeepSource: resuming {endpoint} from saved cursor")
 
     variables = {**_account_variables(account_login, vcs_provider), "pageSize": DEEPSOURCE_DEFAULT_PAGE_SIZE}
     for _parent, nodes, end_cursor, has_next_page in _iter_connection(
         session,
-        REPOSITORIES_QUERY,
+        ACCOUNT_CONNECTION_QUERIES[endpoint],
         variables,
         "account",
-        "repositories",
+        connection_field,
         logger,
         start_cursor=start_cursor,
         missing_parent_error=_account_not_found_error(account_login, vcs_provider),
     ):
-        if nodes:
-            yield nodes
-        # Checkpoint points at the next page; on resume the walk continues from there.
+        # Checkpoint points at the next page; staged before the yield so it commits with this page.
         if has_next_page:
             resumable_source_manager.save_state(DeepsourceResumeConfig(cursor=end_cursor))
+        if nodes:
+            yield nodes
 
 
 def _account_not_found_error(account_login: str, vcs_provider: str) -> str:
@@ -406,7 +411,7 @@ def _fan_out_connection_rows(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[DeepsourceResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
-    """Paginated per-repository fan-out (analysis runs, pull requests, issues, occurrences)."""
+    """Paginated per-repository fan-out (analysis runs, pull requests, issues, targets, ignore rules)."""
     query = CONNECTION_QUERIES[endpoint]
     endpoint_config = DEEPSOURCE_ENDPOINTS[endpoint]
     connection_field = endpoint_config.connection_field
@@ -535,8 +540,10 @@ def deepsource_source(
     def get_rows() -> Iterator[list[dict[str, Any]]]:
         session = _make_session(api_token)
         try:
-            if endpoint == "repositories":
-                yield from _repositories_rows(session, account_login, vcs_provider, logger, resumable_source_manager)
+            if endpoint_config.account_connection_field:
+                yield from _account_connection_rows(
+                    session, account_login, vcs_provider, endpoint, logger, resumable_source_manager
+                )
             elif endpoint_config.root_connection_field:
                 yield from _root_connection_rows(session, endpoint, logger, resumable_source_manager)
             elif endpoint_config.per_repository_object:

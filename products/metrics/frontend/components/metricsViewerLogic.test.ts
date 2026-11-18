@@ -188,6 +188,7 @@ describe('metricsViewerLogic', () => {
         ['queue_depth', null, 'sum'],
         ['request_duration', null, 'histogram_p95'],
         ['request_duration', 'rate', 'sum'],
+        ['posthog.derived.spans.apdex', null, 'avg'],
     ])(
         'adds an aggregation when grouping %s with range function %s and no aggregation: %s',
         (metricName, rangeFunction, expected) => {
@@ -1217,6 +1218,7 @@ describe('isBuilderCompatibleQuery', () => {
         ['a scoped filter', queryWith({ filters: [{ key: 'k', op: 'eq', value: 'v', scope: 'resource' }] }), false],
         ['a scoped group-by', queryWith({ groupBy: [{ key: 'k', scope: 'attribute' }] }), false],
         ['auto scopes', queryWith({ filters: [{ key: 'k', op: 'eq', value: 'v', scope: 'auto' }] }), true],
+        ['an Apdex threshold', queryWith({ aggregation: 'avg', apdexThresholdMs: 200 }), false],
     ])('%s', (_name, query, expected) => {
         expect(isBuilderCompatibleQuery(query)).toBe(expected)
     })
