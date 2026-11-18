@@ -80,6 +80,7 @@ class EmitSignalInputs:
     sync_with_source: bool = False
     source_match_signal_id: str | None = None
     source_match_report_id: str | None = None
+    buffered_at: str | None = None
 
 
 @dataclass

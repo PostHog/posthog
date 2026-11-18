@@ -3,7 +3,7 @@ import uuid
 import random
 import asyncio
 from dataclasses import asdict, dataclass, field
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import NoReturn
 
 from django.conf import settings
@@ -23,6 +23,7 @@ from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.temporal import metrics
+from products.signals.backend.temporal.grouping import _complete_signal_batch
 from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow
 from products.signals.backend.temporal.safety_filter import (
     PROVIDER_USAGE_LIMIT_ERROR_TYPE,
@@ -38,6 +39,7 @@ logger = structlog.get_logger(__name__)
 BUFFER_MAX_SIZE = 20
 BUFFER_FLUSH_TIMEOUT_SECONDS = 5
 SAFETY_FILTER_RETRY_DELAY_SECONDS = 5
+BUFFER_MAX_SIGNAL_AGE = timedelta(days=7)
 
 # Guards the ingestion quota gate so runs that recorded history before it was added replay
 # deterministically. Switch to workflow.deprecate_patch() once those have drained, then remove.
@@ -48,6 +50,13 @@ OBJECT_STORAGE_SIGNALS_PREFIX = "signals/signal_batches"
 
 def _is_provider_usage_limit(error: ActivityError) -> bool:
     return isinstance(error.cause, ApplicationError) and error.cause.type == PROVIDER_USAGE_LIMIT_ERROR_TYPE
+
+
+def _is_batch_expired(batch: list[EmitSignalInputs], now: datetime) -> bool:
+    return any(
+        signal.buffered_at is not None and now - datetime.fromisoformat(signal.buffered_at) > BUFFER_MAX_SIGNAL_AGE
+        for signal in batch
+    )
 
 
 @dataclass
@@ -167,6 +176,11 @@ class BufferSignalsWorkflow:
     def get_buffer_size(self) -> int:
         return len(self._signal_buffer)
 
+    def _buffer_signal(self, signal: EmitSignalInputs) -> None:
+        if signal.buffered_at is None:
+            signal.buffered_at = workflow.now().isoformat()
+        self._signal_buffer.append(signal)
+
     def _continue_as_new(self, team_id: int, *, provider_usage_limited: bool = False) -> NoReturn:
         workflow.continue_as_new(
             BufferSignalsInput(
@@ -196,7 +210,7 @@ class BufferSignalsWorkflow:
     async def submit_signal(self, signal: EmitSignalInputs) -> None:
         self._get_emitted_counter(signal.team_id, signal.source_product, signal.source_type).add(1)
         metrics.increment_funnel(metrics.FUNNEL_STAGE_EMITTED, signal.source_product)
-        self._signal_buffer.append(signal)
+        self._buffer_signal(signal)
 
     @temporalio.workflow.run
     async def run(self, input: BufferSignalsInput) -> None:
@@ -206,7 +220,8 @@ class BufferSignalsWorkflow:
             await self._run_impl(input)
 
     async def _run_impl(self, input: BufferSignalsInput) -> None:
-        self._signal_buffer.extend(input.pending_signals)
+        for signal in input.pending_signals:
+            self._buffer_signal(signal)
         if input.provider_usage_limited:
             # A fresh run keeps the cooldown inside the buffer's one-hour run timeout.
             await workflow.sleep(PROVIDER_USAGE_LIMIT_RETRY_DELAY)
@@ -228,6 +243,12 @@ class BufferSignalsWorkflow:
             # Drain buffer
             batch = list(self._signal_buffer)
             self._signal_buffer.clear()
+
+            if workflow.patched("signals-buffer-expire-batches-v1") and _is_batch_expired(batch, workflow.now()):
+                metrics.increment_dropped(stage="buffer", reason="expired", count=len(batch))
+                logger.warning("signals_buffer.expired_batch_dropped", team_id=input.team_id, signal_count=len(batch))
+                await _complete_signal_batch(batch, {})
+                self._continue_as_new(input.team_id)
 
             # Preserve the recorded command; admission already checked the limits.
             if workflow.patched(_PATCH_QUOTA_INGESTION_GATE):
