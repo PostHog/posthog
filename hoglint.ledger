@@ -236,6 +236,7 @@ export-shape	posthog.event_usage.AnalyticsProps	products.metrics.backend.facade.
 export-shape	posthog.event_usage.AnalyticsProps	products.subscriptions.backend.facade.api	export-shape(class)	1
 export-shape	posthog.hogql.context.HogQLContext	products.customer_analytics.backend.facade.hogql	export-shape(class)	1
 export-shape	posthog.hogql.context.HogQLContext	products.customer_analytics.backend.facade.queries	export-shape(class)	1
+export-shape	posthog.hogql.context.HogQLContext	products.data_modeling.backend.facade.api	export-shape(class)	1
 export-shape	posthog.hogql.context.HogQLContext	products.data_modeling.backend.facade.modeling	export-shape(class)	1
 export-shape	posthog.hogql.context.HogQLContext	products.data_warehouse.backend.facade.api	export-shape(class)	1
 export-shape	posthog.hogql.context.HogQLContext	products.error_tracking.backend.facade.queries	export-shape(class)	1
@@ -256,6 +257,7 @@ export-shape	posthog.hogql_queries.utils.query_date_range.QueryDateRange	product
 export-shape	posthog.hogql_queries.utils.query_date_range.QueryDateRange	products.logs.backend.facade.queries	export-shape(class)	1
 export-shape	posthog.hogql_queries.utils.query_date_range.QueryDateRange	products.marketing_analytics.backend.facade.queries	export-shape(class)	1
 export-shape	posthog.hogql_queries.utils.query_date_range.QueryDateRange	products.mcp_analytics.backend.facade.queries	export-shape(class)	1
+export-shape	posthog.hogql_queries.utils.query_date_range.QueryDateRange	products.metrics.backend.facade.queries	export-shape(class)	1
 export-shape	posthog.hogql_queries.utils.query_date_range.QueryDateRange	products.product_analytics.backend.facade.queries	export-shape(class)	1
 export-shape	posthog.hogql_queries.utils.query_date_range.QueryDateRange	products.signals.backend.facade.spend	export-shape(class)	1
 export-shape	posthog.hogql_queries.utils.query_date_range.QueryDateRangeWithIntervals	products.product_analytics.backend.facade.queries	export-shape(class)	1
@@ -581,8 +583,6 @@ export-shape	products.product_analytics.backend.temporal.WORKFLOWS	products.prod
 export-shape	products.product_analytics.backend.temporal.upgrade_queries_workflow.WorkflowState	products.product_analytics.backend.facade.temporal	export-shape(class)	1
 export-shape	products.review_hog.backend.facade.contracts.Unset	products.review_hog.backend.facade.api	export-shape(class)	1
 export-shape	products.review_hog.backend.facade.contracts.Unset	products.review_hog.backend.facade.contracts	export-shape(class)	1
-export-shape	products.review_hog.backend.temporal.ACTIVITIES	products.review_hog.backend.facade.temporal	export-unknown	1
-export-shape	products.review_hog.backend.temporal.WORKFLOWS	products.review_hog.backend.facade.temporal	export-unknown	1
 export-shape	products.security.backend.logic.hub_auth.INTERNAL_PURPOSE	products.security.backend.facade.hub	export-unknown	1
 export-shape	products.signals.backend.activity_summary.prompt.ActivitySummaryMode	products.signals.backend.facade.api	export-shape(class)	1
 export-shape	products.signals.backend.activity_summary.read.ActivitySummaryStatus	products.signals.backend.facade.api	export-shape(class)	1
@@ -897,6 +897,7 @@ facade-signature	products.actions.backend.facade.api	search_actions	return	typin
 facade-signature	products.actions.backend.facade.contracts	ActionStep.__init__	field:properties	builtins.dict	1
 facade-signature	products.ai_observability.backend.facade.api	resolve_evaluation_pass_markers	param:properties	products.ai_observability.backend.facade.api.P	1
 facade-signature	products.ai_observability.backend.facade.api	resolve_evaluation_pass_markers	return	products.ai_observability.backend.facade.api.P	1
+facade-signature	products.ai_observability.backend.facade.clustering_runtime	scope_key	param:event_filters	builtins.dict	1
 facade-signature	products.ai_observability.backend.facade.contracts	TraceJsonSide.__init__	field:value	typing.Any	1
 facade-signature	products.ai_observability.backend.facade.contracts	TraceNodeDatasetItem.__init__	field:input	typing.Any	1
 facade-signature	products.ai_observability.backend.facade.contracts	TraceNodeDatasetItem.__init__	field:source_output	typing.Any	1
@@ -1133,6 +1134,7 @@ facade-signature	products.data_catalog.backend.facade.api	validate_metric_defini
 facade-signature	products.data_modeling.backend.facade.api	apply_incremental_filter	param:since	typing.Any	1
 facade-signature	products.data_modeling.backend.facade.api	apply_saved_query_frequency_anchor	param:saved_query	products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery	1
 facade-signature	products.data_modeling.backend.facade.api	apply_saved_query_frequency_target	param:saved_query	products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery	1
+facade-signature	products.data_modeling.backend.facade.api	assert_user_can_read_saved_query	param:saved_query	products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery	1
 facade-signature	products.data_modeling.backend.facade.api	bind_window_start	param:since	typing.Any	1
 facade-signature	products.data_modeling.backend.facade.api	check_saved_query_frequency_target	param:saved_query	products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery	1
 facade-signature	products.data_modeling.backend.facade.api	clear_incremental_state	param:saved_query	?	1
@@ -1719,8 +1721,6 @@ facade-signature	products.tasks.backend.facade.api	get_task_run_living_artifact	
 facade-signature	products.tasks.backend.facade.api	get_task_summaries	param:analytics_context_reader	builtins.object	1
 facade-signature	products.tasks.backend.facade.api	idempotent_request	param:data	typing.Any	1
 facade-signature	products.tasks.backend.facade.api	is_finish_report_output	param:output	builtins.object	1
-facade-signature	products.tasks.backend.facade.api	latest_task_run_pr_merged_subquery	param:task_run_filter	?	1
-facade-signature	products.tasks.backend.facade.api	latest_task_run_pr_url_subquery	param:task_run_filter	?	1
 facade-signature	products.tasks.backend.facade.api	leave_task_presence	param:device_id	?	1
 facade-signature	products.tasks.backend.facade.api	list_task_run_living_artifacts	return	builtins.dict	1
 facade-signature	products.tasks.backend.facade.api	list_task_runs	param:analytics_context_reader	builtins.object	1
@@ -2433,6 +2433,7 @@ no-new-package-cycles	annotations	access_control	1
 no-new-package-cycles	annotations	dashboards	1
 no-new-package-cycles	annotations	error_tracking	1
 no-new-package-cycles	annotations	product_analytics	1
+no-new-package-cycles	apm	tracing	1
 no-new-package-cycles	approvals	access_control	1
 no-new-package-cycles	approvals	experiments	1
 no-new-package-cycles	approvals	feature_flags	1
@@ -2586,6 +2587,7 @@ no-new-package-cycles	knowledge_writer	tasks	1
 no-new-package-cycles	logs	access_control	1
 no-new-package-cycles	logs	alerts	1
 no-new-package-cycles	logs	alerts_platform	1
+no-new-package-cycles	logs	apm	1
 no-new-package-cycles	logs	exports	1
 no-new-package-cycles	logs	signals	1
 no-new-package-cycles	managed_warehouse	access_control	1
@@ -2743,6 +2745,9 @@ no-new-package-cycles	today	dashboards	1
 no-new-package-cycles	today	product_analytics	1
 no-new-package-cycles	today	signals	1
 no-new-package-cycles	today	subscriptions	1
+no-new-package-cycles	tracing	access_control	1
+no-new-package-cycles	tracing	alerts_platform	1
+no-new-package-cycles	tracing	logs	1
 no-new-package-cycles	warehouse_sources	access_control	1
 no-new-package-cycles	warehouse_sources	alerts	1
 no-new-package-cycles	warehouse_sources	alerts_platform	1
@@ -2907,7 +2912,6 @@ no-product-lists-in-core	posthog.management.commands.start_temporal_worker	produ
 no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.pulse.backend.temporal.registry	1
 no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.replay_vision.backend.temporal	1
 no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.replay_vision.backend.temporal.logs	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.review_hog.backend.temporal	1
 no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.security.backend.temporal	1
 no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.signals.backend.emission.temporal_settings	1
 no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.signals.backend.temporal	1
@@ -2980,7 +2984,6 @@ no-product-lists-in-core	posthog.tasks.scheduled	products.tasks.backend.tasks.ta
 no-product-lists-in-core	posthog.tasks.scheduled	products.ui_customization.backend.tasks.tasks	1
 no-product-lists-in-core	posthog.tasks.scheduled	products.visual_review.backend.tasks.tasks	1
 no-product-lists-in-core	posthog.tasks.scheduled	products.warehouse_sources.backend.tasks.tasks	1
-no-product-lists-in-core	posthog.tasks.scheduled	products.web_analytics.backend.achievements.tasks	1
 no-product-lists-in-core	posthog.tasks.scheduled	products.web_analytics.backend.tasks.heatmap_screenshot	1
 no-product-lists-in-core	posthog.tasks.scheduled	products.wizard.backend.tasks.reconciliation	1
 no-product-lists-in-core	posthog.tasks.scheduled	products.workflows.backend.tasks.email_sender_verification	1
@@ -3065,7 +3068,6 @@ no-product-lists-in-core	posthog.temporal.schedule	products.replay_vision.backen
 no-product-lists-in-core	posthog.temporal.schedule	products.replay_vision.backend.temporal.read_meter	1
 no-product-lists-in-core	posthog.temporal.schedule	products.replay_vision.backend.temporal.reconciler	1
 no-product-lists-in-core	posthog.temporal.schedule	products.replay_vision.backend.temporal.vision_alerts.schedule	1
-no-product-lists-in-core	posthog.temporal.schedule	products.review_hog.backend.temporal.outcomes_schedule	1
 no-product-lists-in-core	posthog.temporal.schedule	products.security.backend.temporal.schedule	1
 no-product-lists-in-core	posthog.temporal.schedule	products.signals.backend.activity_summary.schedule	1
 no-product-lists-in-core	posthog.temporal.schedule	products.signals.backend.anomaly_scores.schedule	1
@@ -3643,6 +3645,7 @@ public-surface	products.access_control.backend.models.access_control.AccessContr
 public-surface	products.access_control.backend.models.access_control.AccessControl	products.dashboards.backend.test.test_dashboard_facade	import	1
 public-surface	products.access_control.backend.models.access_control.AccessControl	products.dashboards.backend.tests.api.test_canvas_app_widget	import	1
 public-surface	products.access_control.backend.models.access_control.AccessControl	products.dashboards.backend.tests.api.test_dashboard_add_insight	import	1
+public-surface	products.access_control.backend.models.access_control.AccessControl	products.dashboards.backend.tests.api.test_dashboard_cached_tiles	import	1
 public-surface	products.access_control.backend.models.access_control.AccessControl	products.dashboards.backend.tests.api.test_dashboard_subscribe_nudge	import	1
 public-surface	products.access_control.backend.models.access_control.AccessControl	products.dashboards.backend.tests.api.test_dashboard_templates	import	1
 public-surface	products.access_control.backend.models.access_control.AccessControl	products.dashboards.backend.tests.api.test_experiment_widgets	import	1
@@ -3719,6 +3722,7 @@ public-surface	products.access_control.backend.models.access_control.AccessContr
 public-surface	products.access_control.backend.models.access_control.AccessControl	products.replay_vision.backend.tests.test_sweep	import	1
 public-surface	products.access_control.backend.models.access_control.AccessControl	products.replay_vision.backend.tests.test_vision_alerts_api	import	1
 public-surface	products.access_control.backend.models.access_control.AccessControl	products.review_hog.backend.tests.test_repositories_api	import	1
+public-surface	products.access_control.backend.models.access_control.AccessControl	products.review_hog.backend.tests.test_review_project_access	import	1
 public-surface	products.access_control.backend.models.access_control.AccessControl	products.signals.backend.test.test_auto_start	import	1
 public-surface	products.access_control.backend.models.access_control.AccessControl	products.signals.backend.test.test_default_owner	import	1
 public-surface	products.access_control.backend.models.access_control.AccessControl	products.signals.backend.test.test_feedback_scout_notes	import	1
@@ -3734,6 +3738,7 @@ public-surface	products.access_control.backend.models.access_control.AccessContr
 public-surface	products.access_control.backend.models.access_control.AccessControl	products.signals.backend.test.test_scout_suggestions	import	1
 public-surface	products.access_control.backend.models.access_control.AccessControl	products.signals.backend.test.test_signal_report_api	import	1
 public-surface	products.access_control.backend.models.access_control.AccessControl	products.signals.backend.test.test_slack_inbox_notifications	import	1
+public-surface	products.access_control.backend.models.access_control.AccessControl	products.signals.backend.test.test_slack_report_threads	import	1
 public-surface	products.access_control.backend.models.access_control.AccessControl	products.signals.backend.test.test_source_filter_preview	import	1
 public-surface	products.access_control.backend.models.access_control.AccessControl	products.skills.backend.api.test.test_community_skills	import	1
 public-surface	products.access_control.backend.models.access_control.AccessControl	products.skills.backend.api.test.test_marketplace_endpoints	import	1
@@ -3809,6 +3814,7 @@ public-surface	products.access_control.backend.models.property_access_control.Pr
 public-surface	products.access_control.backend.models.property_access_control.PropertyAccessControl	posthog.temporal.ai_observability.eval_reports.test.test_emit_signal	import	1
 public-surface	products.access_control.backend.models.property_access_control.PropertyAccessControl	posthog.temporal.ai_observability.test_run_trace_evaluation	import	1
 public-surface	products.access_control.backend.models.property_access_control.PropertyAccessControl	posthog.temporal.ai_observability.trace_summarization.tests.test_fetch_and_format	import	1
+public-surface	products.access_control.backend.models.property_access_control.PropertyAccessControl	products.ai_observability.backend.api.test.test_clustering_config	import	1
 public-surface	products.access_control.backend.models.property_access_control.PropertyAccessControl	products.ai_observability.backend.api.test.test_eval_suggestions	import	1
 public-surface	products.access_control.backend.models.property_access_control.PropertyAccessControl	products.ai_observability.backend.api.test.test_summarization	import	1
 public-surface	products.access_control.backend.models.property_access_control.PropertyAccessControl	products.ai_observability.backend.api.test.test_taggers	import	1
@@ -3821,6 +3827,7 @@ public-surface	products.access_control.backend.models.property_access_control.Pr
 public-surface	products.access_control.backend.models.property_access_control.PropertyAccessControl	products.batch_exports.backend.tests.temporal.test_record_batch_model	import	1
 public-surface	products.access_control.backend.models.property_access_control.PropertyAccessControl	products.customer_analytics.backend.hogql_queries.test.test_account_users_query_runner	import	1
 public-surface	products.access_control.backend.models.property_access_control.PropertyAccessControl	products.customer_analytics.backend.hogql_queries.test.test_book_activity_query_access	import	1
+public-surface	products.access_control.backend.models.property_access_control.PropertyAccessControl	products.dashboards.backend.tests.api.test_dashboard_cached_tiles	import	1
 public-surface	products.access_control.backend.models.property_access_control.PropertyAccessControl	products.experiments.backend.temporal.timeseries.test_cache_warming	import	1
 public-surface	products.access_control.backend.models.property_access_control.PropertyAccessControl	products.groups.backend.tests.test_clickhouse_groups	import	1
 public-surface	products.access_control.backend.models.property_access_control.PropertyAccessControl	products.mcp_analytics.backend.tests.test_api	import	1
@@ -3858,6 +3865,7 @@ public-surface	products.access_control.backend.models.role.Role	posthog.test.pro
 public-surface	products.access_control.backend.models.role.Role	posthog.test.test_middleware	import	1
 public-surface	products.access_control.backend.models.role.Role	posthog.test.test_permissions	import	1
 public-surface	products.access_control.backend.models.role.Role	posthog.test.test_user_permissions	import	1
+public-surface	products.access_control.backend.models.role.Role	products.ai_observability.backend.api.test.test_clustering_config	import	1
 public-surface	products.access_control.backend.models.role.Role	products.approvals.backend.models	import	1
 public-surface	products.access_control.backend.models.role.Role	products.approvals.backend.serializers	import	1
 public-surface	products.access_control.backend.models.role.Role	products.approvals.backend.tests.test_approvals_api	import	1
@@ -3896,6 +3904,7 @@ public-surface	products.access_control.backend.models.role.RoleMembership	postho
 public-surface	products.access_control.backend.models.role.RoleMembership	posthog.test.test_permissions	import	1
 public-surface	products.access_control.backend.models.role.RoleMembership	posthog.test.test_user_permissions	import	1
 public-surface	products.access_control.backend.models.role.RoleMembership	posthog.user_permissions	import	1
+public-surface	products.access_control.backend.models.role.RoleMembership	products.ai_observability.backend.api.test.test_clustering_config	import	1
 public-surface	products.access_control.backend.models.role.RoleMembership	products.approvals.backend.models	import	1
 public-surface	products.access_control.backend.models.role.RoleMembership	products.approvals.backend.permissions	import	1
 public-surface	products.access_control.backend.models.role.RoleMembership	products.approvals.backend.policies	import	1
@@ -3927,6 +3936,7 @@ public-surface	products.access_control.backend.property_access_control.PropertyA
 public-surface	products.access_control.backend.property_access_control.PropertyAccessLevel	posthog.hogql_queries.test.test_query_runner	import	1
 public-surface	products.access_control.backend.property_access_control.PropertyAccessLevel	posthog.models.person.test.test_divergence	import	1
 public-surface	products.access_control.backend.property_access_control.PropertyAccessLevel	posthog.models.person.test.test_point_in_time_properties_integration	import	1
+public-surface	products.access_control.backend.property_access_control.PropertyAccessLevel	products.dashboards.backend.tests.api.test_dashboard_cached_tiles	import	1
 public-surface	products.access_control.backend.property_access_control.PropertyAccessLevel	products.mcp_analytics.backend.tests.test_api	import	1
 public-surface	products.access_control.backend.property_access_control.PropertyAccessLevel	products.mcp_analytics.backend.tests.test_logic	import	1
 public-surface	products.access_control.backend.property_access_control.PropertyAccessLevel	products.surveys.backend.test_site_snapshot	import	1
@@ -5770,6 +5780,7 @@ public-surface	products.event_definitions.backend.models.PropertyDefinition	prod
 public-surface	products.event_definitions.backend.models.PropertyDefinition	products.access_control.backend.tests.test_property_access_control	import	1
 public-surface	products.event_definitions.backend.models.PropertyDefinition	products.access_control.backend.tests.test_property_access_control_api	import	1
 public-surface	products.event_definitions.backend.models.PropertyDefinition	products.access_control.backend.tests.test_property_access_control_viewset	import	1
+public-surface	products.event_definitions.backend.models.PropertyDefinition	products.ai_observability.backend.api.test.test_clustering_config	import	1
 public-surface	products.event_definitions.backend.models.PropertyDefinition	products.ai_observability.backend.api.test.test_summarization	import	1
 public-surface	products.event_definitions.backend.models.PropertyDefinition	products.ai_observability.backend.api.test.test_taggers	import	1
 public-surface	products.event_definitions.backend.models.PropertyDefinition	products.batch_exports.backend.tests.temporal.destinations.file_download.test_file_download_api	import	1
@@ -5781,6 +5792,7 @@ public-surface	products.event_definitions.backend.models.PropertyDefinition	prod
 public-surface	products.event_definitions.backend.models.PropertyDefinition	products.customer_analytics.backend.hogql_queries.test.test_book_activity_query_access	import	1
 public-surface	products.event_definitions.backend.models.PropertyDefinition	products.customer_analytics.backend.test.test_key_metrics	import	1
 public-surface	products.event_definitions.backend.models.PropertyDefinition	products.customer_analytics.backend.test.test_views	import	1
+public-surface	products.event_definitions.backend.models.PropertyDefinition	products.dashboards.backend.tests.api.test_dashboard_cached_tiles	import	1
 public-surface	products.event_definitions.backend.models.PropertyDefinition	products.dashboards.backend.widgets.activity_events_list	import	1
 public-surface	products.event_definitions.backend.models.PropertyDefinition	products.data_modeling.backend.test.test_view_column_refresh	import	1
 public-surface	products.event_definitions.backend.models.PropertyDefinition	products.demo.backend.logic.legacy.app_data_generator	import	1
@@ -6121,6 +6133,7 @@ public-surface	products.exports.backend.tasks.failure_handler.is_user_query_erro
 public-surface	products.exports.backend.tasks.failure_handler.rasterization_failure_message	posthog.temporal.session_replay.rasterize_recording.activities.record_failure	import	1
 public-surface	products.exports.backend.tasks.image_exporter	posthog.tasks.exporter	import	1
 public-surface	products.exports.backend.url_security.is_heatmap_url_allowed	posthog.api.sharing	import	1
+public-surface	products.feature_flags.backend.activity_log_config	posthog.models.activity_logging.activity_log_config_registry	import	1
 public-surface	products.feature_flags.backend.api.feature_flag.BEHAVIOURAL_COHORT_FOUND_ERROR_CODE	products.surveys.backend.api.survey	import	1
 public-surface	products.feature_flags.backend.api.feature_flag.FLAG_WRITE_APPROVAL_ACTIONS	products.approvals.backend.coverage	import	1
 public-surface	products.feature_flags.backend.api.feature_flag.FLAG_WRITE_APPROVAL_ACTIONS	products.approvals.backend.scheduled_changes	import	1
@@ -6488,6 +6501,7 @@ public-surface	products.feature_flags.backend.test.replay_gate_fixtures	posthog.
 public-surface	products.feature_flags.backend.test.usage_dashboard_fixtures.create_usage_dashboard	posthog.test.test_feature_flag_analytics	import	1
 public-surface	products.feature_flags.backend.types.PropertyFilterType	posthog.api.documentation	import	1
 public-surface	products.feature_flags.backend.user_blast_radius.BlastRadiusResult	products.workflows.backend.services.audience_v2	import	1
+public-surface	products.feature_flags.backend.user_blast_radius.BlastRadiusResult	products.workflows.backend.services.blast_radius	import	1
 public-surface	products.feature_flags.backend.user_blast_radius.BlastRadiusResult	products.workflows.backend.tests.api.test_hog_flow	import	1
 public-surface	products.feature_flags.backend.user_blast_radius.PERSON_BATCH_SIZE	products.workflows.backend.services.batch_audience	import	1
 public-surface	products.feature_flags.backend.user_blast_radius.PERSON_BATCH_SIZE	products.workflows.backend.test.test_batch_audience	import	1
@@ -6506,6 +6520,17 @@ public-surface	products.growth.backend.constants.SdkVersionEntry	posthog.api.sdk
 public-surface	products.growth.backend.constants.github_sdk_versions_key	posthog.api.sdk_health	import	1
 public-surface	products.growth.backend.constants.github_sdk_versions_key	posthog.api.test.test_health_issue	import	1
 public-surface	products.growth.backend.constants.team_sdk_versions_v3_key	posthog.api.sdk_health	import	1
+public-surface	products.growth.backend.enrichment.fit_score.IcpFitResult	ee.billing.salesforce_enrichment.enrichment	import	1
+public-surface	products.growth.backend.enrichment.fit_score.SCORE_VERSION	ee.billing.test.test_salesforce_enrichment	import	1
+public-surface	products.growth.backend.enrichment.fit_score.STATUS_DISQUALIFIED	ee.billing.salesforce_enrichment.enrichment	import	1
+public-surface	products.growth.backend.enrichment.fit_score.STATUS_NOT_FOUND	ee.billing.salesforce_enrichment.enrichment	import	1
+public-surface	products.growth.backend.enrichment.fit_score.STATUS_SCORED	ee.billing.salesforce_enrichment.enrichment	import	1
+public-surface	products.growth.backend.enrichment.fit_score.score_company	ee.billing.salesforce_enrichment.enrichment	import	1
+public-surface	products.growth.backend.enrichment.harmonic_adapter.normalize_graphql_company	ee.billing.salesforce_enrichment.enrichment	import	1
+public-surface	products.growth.backend.enrichment.icp_lists.CuratedLists	ee.billing.salesforce_enrichment.enrichment	import	1
+public-surface	products.growth.backend.enrichment.icp_lists.CuratedLists	ee.billing.test.test_salesforce_enrichment	import	1
+public-surface	products.growth.backend.enrichment.icp_lists.load_active_lists	ee.billing.salesforce_enrichment.enrichment	import	1
+public-surface	products.growth.backend.enrichment.scoring_rules.ScoringRules	ee.billing.test.test_salesforce_enrichment	import	1
 public-surface	products.growth.backend.models.EnrichmentPromptConfig	posthog.management.commands.ensure_migration_defaults	import	1
 public-surface	products.growth.backend.models.ProductPushCampaign	posthog.temporal.tests.weekly_digest.test_activities	import	1
 public-surface	products.growth.backend.models.ProductPushCampaign	posthog.temporal.weekly_digest.queries	import	1
@@ -7143,16 +7168,15 @@ public-surface	products.slack_app.backend.feature_flags.is_slack_app_agent_desig
 public-surface	products.slack_app.backend.feature_flags.is_slack_app_oauth_enabled	posthog.api.user_integration	import	1
 public-surface	products.slack_app.backend.feature_flags.is_slack_app_oauth_enabled	products.tasks.backend.logic.services.comment_slack_dm	import	1
 public-surface	products.slack_app.backend.helpers.slack_app_mention_queue_workflow_id	products.tasks.backend.facade.api	import	1
-public-surface	products.slack_app.backend.models.PRIVATE_CONVERSATION_TYPES	products.tasks.backend.facade.api	import	1
-public-surface	products.slack_app.backend.models.PUBLIC_CHANNEL_CONVERSATION_TYPES	products.tasks.backend.logic.team_task_summaries	import	1
 public-surface	products.slack_app.backend.models.SlackChannel	products.tasks.backend.tests.test_workflow_tasks_api	import	1
+public-surface	products.slack_app.backend.models.SlackThreadTaskMapping	posthog.hogql.database.schema.test.test_system_tables	import	1
 public-surface	products.slack_app.backend.models.SlackThreadTaskMapping	products.signals.backend.test.test_report_discussions	import	1
+public-surface	products.slack_app.backend.models.SlackThreadTaskMapping	products.signals.backend.test.test_slack_report_threads	import	1
 public-surface	products.slack_app.backend.models.SlackThreadTaskMapping	products.tasks.backend.facade.api	import	1
 public-surface	products.slack_app.backend.models.SlackThreadTaskMapping	products.tasks.backend.logic.services.living_artifacts	import	1
 public-surface	products.slack_app.backend.models.SlackThreadTaskMapping	products.tasks.backend.logic.services.slack_pr_cards	import	1
 public-surface	products.slack_app.backend.models.SlackThreadTaskMapping	products.tasks.backend.logic.services.tests.test_living_artifacts	import	1
 public-surface	products.slack_app.backend.models.SlackThreadTaskMapping	products.tasks.backend.logic.services.workflow_tasks	import	1
-public-surface	products.slack_app.backend.models.SlackThreadTaskMapping	products.tasks.backend.logic.team_task_summaries	import	1
 public-surface	products.slack_app.backend.models.SlackThreadTaskMapping	products.tasks.backend.temporal.process_task.activities.post_slack_update	import	1
 public-surface	products.slack_app.backend.models.SlackThreadTaskMapping	products.tasks.backend.temporal.process_task.activities.slack_agent_design	import	1
 public-surface	products.slack_app.backend.models.SlackThreadTaskMapping	products.tasks.backend.temporal.process_task.tests.test_slack_agent_design	import	1
@@ -7160,10 +7184,12 @@ public-surface	products.slack_app.backend.models.SlackThreadTaskMapping	products
 public-surface	products.slack_app.backend.models.SlackThreadTaskMapping	products.tasks.backend.temporal.slack_relay.activities	import	1
 public-surface	products.slack_app.backend.models.SlackThreadTaskMapping	products.tasks.backend.temporal.slack_relay.tests.test_activities	import	1
 public-surface	products.slack_app.backend.models.SlackThreadTaskMapping	products.tasks.backend.tests.test_api	import	1
+public-surface	products.slack_app.backend.models.SlackThreadTaskMapping	products.tasks.backend.tests.test_post_slack_update	import	1
 public-surface	products.slack_app.backend.models.SlackThreadTaskMapping	products.tasks.backend.tests.test_slack_pr_cards	import	1
 public-surface	products.slack_app.backend.models.SlackThreadTaskMapping	products.tasks.backend.tests.test_slack_thread_context	import	1
 public-surface	products.slack_app.backend.models.SlackThreadTaskMapping	products.tasks.backend.tests.test_task_capture	import	1
 public-surface	products.slack_app.backend.models.SlackThreadTaskMapping	products.tasks.backend.tests.test_workflow_tasks_api	import	1
+public-surface	products.slack_app.backend.models.SlackThreadTaskMapping	products.tasks.backend.visibility	import	1
 public-surface	products.slack_app.backend.services.slack_auth.SLACK_AUTH_FAILURE_CODES	posthog.api.integration	import	1
 public-surface	products.slack_app.backend.services.slack_messages.RunFooter	products.tasks.backend.tests.test_post_slack_update	import	1
 public-surface	products.slack_app.backend.services.slack_messages.RunFooter	products.tasks.backend.tests.test_slack_pr_cards	import	1
@@ -7182,13 +7208,11 @@ public-surface	products.slack_app.backend.slack_thread.SlackThreadContext	produc
 public-surface	products.slack_app.backend.slack_thread.SlackThreadContext	products.tasks.backend.logic.services.workflow_tasks	import	1
 public-surface	products.slack_app.backend.slack_thread.SlackThreadContext	products.tasks.backend.models	import	1
 public-surface	products.slack_app.backend.slack_thread.SlackThreadContext	products.tasks.backend.temporal.process_task.activities.post_slack_update	import	1
-public-surface	products.slack_app.backend.slack_thread.SlackThreadContext	products.tasks.backend.temporal.process_task.activities.send_permission_response_to_sandbox	import	1
 public-surface	products.slack_app.backend.slack_thread.SlackThreadContext	products.tasks.backend.temporal.process_task.activities.slack_agent_design	import	1
 public-surface	products.slack_app.backend.slack_thread.SlackThreadContext	products.tasks.backend.temporal.slack_relay.activities	import	1
 public-surface	products.slack_app.backend.slack_thread.SlackThreadContext	products.tasks.backend.tests.test_workflow_tasks_api	import	1
 public-surface	products.slack_app.backend.slack_thread.SlackThreadHandler	products.tasks.backend.logic.services.slack_pr_cards	import	1
 public-surface	products.slack_app.backend.slack_thread.SlackThreadHandler	products.tasks.backend.temporal.process_task.activities.post_slack_update	import	1
-public-surface	products.slack_app.backend.slack_thread.SlackThreadHandler	products.tasks.backend.temporal.process_task.activities.send_permission_response_to_sandbox	import	1
 public-surface	products.slack_app.backend.slack_thread.SlackThreadHandler	products.tasks.backend.temporal.process_task.activities.slack_agent_design	import	1
 public-surface	products.slack_app.backend.slack_thread.SlackThreadHandler	products.tasks.backend.temporal.process_task.tests.test_slack_agent_design	import	1
 public-surface	products.slack_app.backend.slack_thread.SlackThreadHandler	products.tasks.backend.temporal.slack_relay.activities	import	1
@@ -7385,11 +7409,13 @@ public-surface	products.tasks.backend.models.Task	products.signals.backend.test.
 public-surface	products.tasks.backend.models.Task	products.signals.backend.test.test_signal_report_api	import	1
 public-surface	products.tasks.backend.models.Task	products.signals.backend.test.test_signal_report_artefact_api	import	1
 public-surface	products.tasks.backend.models.Task	products.signals.backend.test.test_signal_report_artefact_model	import	1
+public-surface	products.tasks.backend.models.Task	products.signals.backend.test.test_slack_report_threads	import	1
 public-surface	products.tasks.backend.models.Task	products.signals.backend.test.test_spend	import	1
 public-surface	products.tasks.backend.models.Task	products.signals.backend.test.test_spend_recovery	import	1
 public-surface	products.tasks.backend.models.Task	products.signals.backend.test.test_spend_workflow	import	1
 public-surface	products.tasks.backend.models.Task	products.signals.backend.test.test_stack_plan	import	1
 public-surface	products.tasks.backend.models.Task	products.signals.backend.test.test_startup_failure	import	1
+public-surface	products.tasks.backend.models.Task	products.signals.backend.test.test_status_change_telemetry	import	1
 public-surface	products.tasks.backend.models.Task	products.signals.backend.test.test_supersede_handover	import	1
 public-surface	products.tasks.backend.models.Task	products.signals.backend.test.test_support_writeback	import	1
 public-surface	products.tasks.backend.models.Task	products.signals.backend.test.test_task_run_artefacts	import	1
@@ -7470,6 +7496,7 @@ public-surface	products.tasks.backend.models.TaskRun	products.signals.backend.te
 public-surface	products.tasks.backend.models.TaskRun	products.signals.backend.test.test_signal_admission	import	1
 public-surface	products.tasks.backend.models.TaskRun	products.signals.backend.test.test_signal_report_api	import	1
 public-surface	products.tasks.backend.models.TaskRun	products.signals.backend.test.test_signal_scout_models	import	1
+public-surface	products.tasks.backend.models.TaskRun	products.signals.backend.test.test_slack_report_threads	import	1
 public-surface	products.tasks.backend.models.TaskRun	products.signals.backend.test.test_spend	import	1
 public-surface	products.tasks.backend.models.TaskRun	products.signals.backend.test.test_spend_recovery	import	1
 public-surface	products.tasks.backend.models.TaskRun	products.signals.backend.test.test_stack_plan	import	1
@@ -7792,7 +7819,6 @@ public-surface	products.warehouse_sources_queue.backend.testing.truncate_queue_t
 public-surface	products.warehouse_sources_queue.backend.testing.truncate_queue_tables	products.warehouse_sources.backend.tests.management.test_manage_warehouse_queue	import	1
 public-surface	products.warehouse_sources_queue.backend.testing.truncate_queue_tables	products.warehouse_sources.backend.tests.management.test_unstick_external_data_jobs	import	1
 public-surface	products.warehouse_sources_queue.backend.testing.truncate_queue_tables	products.warehouse_sources.backend.tests.test_sync_teardown	import	1
-public-surface	products.web_analytics.backend.achievements.tasks.sweep_web_analytics_achievement_team_tracks	posthog.tasks.scheduled	import	1
 public-surface	products.web_analytics.backend.hogql_queries.bot_definitions.BOT_DEFINITIONS	livestream.bot.generate_definitions	import	1
 public-surface	products.web_analytics.backend.hogql_queries.bot_definitions.BOT_DEFINITIONS	posthog.hogql.functions.test.test_traffic_type_functions	import	1
 public-surface	products.web_analytics.backend.hogql_queries.bot_definitions.BOT_DEFINITIONS	posthog.hogql.functions.test.test_traffic_type_real_ua	import	1
@@ -8279,6 +8305,7 @@ temporal-placement	tests	posthog.temporal.tests.salesforce_enrichment	1
 temporal-placement	tests	posthog.temporal.tests.salesforce_enrichment.test_conversations_slack_workflow	1
 temporal-placement	tests	posthog.temporal.tests.salesforce_enrichment.test_stripe_workflow	1
 temporal-placement	tests	posthog.temporal.tests.salesforce_enrichment.test_usage_workflow	1
+temporal-placement	tests	posthog.temporal.tests.salesforce_enrichment.test_workflow	1
 temporal-placement	tests	posthog.temporal.tests.session_replay	1
 temporal-placement	tests	posthog.temporal.tests.session_replay.copy_recording	1
 temporal-placement	tests	posthog.temporal.tests.session_replay.copy_recording.test_activities	1
