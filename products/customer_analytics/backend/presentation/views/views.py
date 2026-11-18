@@ -118,6 +118,8 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     CustomPropertySyncRunListQuerySerializer,
     CustomPropertySyncRunSerializer,
     CustomPropertySyncTriggerResponseSerializer,
+    CustomPropertyValueHistoryEntrySerializer,
+    CustomPropertyValueHistoryQuerySerializer,
     CustomPropertyValueSerializer,
     CustomPropertyValueSuggestionsResponseSerializer,
     CustomPropertyValueWriteSerializer,
@@ -2773,6 +2775,23 @@ class CustomPropertyValueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         values = api.list_active_custom_property_values(self.team_id, account_id)
         return Response(CustomPropertyValueSerializer(values, many=True).data)
+
+    @validated_request(
+        query_serializer=CustomPropertyValueHistoryQuerySerializer,
+        responses={200: OpenApiResponse(response=CustomPropertyValueHistoryEntrySerializer(many=True))},
+    )
+    @action(detail=False, methods=["get"], url_path="history", required_scopes=["account:read"])
+    def history(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        account_id = self._accessible_account_id()
+        if account_id is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            entries = api.list_custom_property_value_history(
+                self.team_id, account_id, request.validated_query_data["definition"]
+            )
+        except api.CustomPropertyDefinitionNotFound:
+            raise ValidationError({"definition": "Custom property definition not found."})
+        return Response(CustomPropertyValueHistoryEntrySerializer(entries, many=True).data)
 
     @extend_schema(
         request=CustomPropertyValueWriteSerializer, responses={201: CustomPropertyValueSerializer, 204: None}

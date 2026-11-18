@@ -307,6 +307,38 @@ const accountsCustomPropertyValuesList = (): ToolBase<
     },
 })
 
+const AccountsCustomPropertyValuesHistorySchema = () => {
+    const AccountsCustomPropertyValuesHistoryRetrieveParams =
+        orvalSchemas.AccountsCustomPropertyValuesHistoryRetrieveParams()
+    const AccountsCustomPropertyValuesHistoryRetrieveQueryParams =
+        orvalSchemas.AccountsCustomPropertyValuesHistoryRetrieveQueryParams()
+    return AccountsCustomPropertyValuesHistoryRetrieveParams.omit({ project_id: true }).extend(
+        AccountsCustomPropertyValuesHistoryRetrieveQueryParams.shape
+    )
+}
+
+const accountsCustomPropertyValuesHistory = (): ToolBase<
+    ReturnType<typeof AccountsCustomPropertyValuesHistorySchema>,
+    WithPostHogUrl<Schemas.CustomPropertyValueHistoryEntry[]>
+> => ({
+    name: 'accounts-custom-property-values-history',
+    schema: AccountsCustomPropertyValuesHistorySchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof AccountsCustomPropertyValuesHistorySchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CustomPropertyValueHistoryEntry[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/custom_property_values/history/`,
+            query: {
+                definition: params.definition,
+            },
+        })
+        return await withPostHogUrl(context, result, '/customer_analytics')
+    },
+})
+
 const AccountsDestroySchema = () => {
     const AccountsDestroyParams = orvalSchemas.AccountsDestroyParams()
     return AccountsDestroyParams.omit({ project_id: true })
@@ -2378,6 +2410,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'accounts-create': accountsCreate,
     'accounts-custom-property-values-create': accountsCustomPropertyValuesCreate,
     'accounts-custom-property-values-list': accountsCustomPropertyValuesList,
+    'accounts-custom-property-values-history': accountsCustomPropertyValuesHistory,
     'accounts-destroy': accountsDestroy,
     'accounts-list': accountsList,
     'accounts-meetings-list': accountsMeetingsList,

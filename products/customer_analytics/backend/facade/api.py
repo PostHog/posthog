@@ -5391,6 +5391,26 @@ def list_active_custom_property_values(team_id: int, account_id: str | UUID) -> 
     return [_to_custom_property_value(row) for row in rows]
 
 
+def list_custom_property_value_history(
+    team_id: int, account_id: str | UUID, definition_id: str | UUID
+) -> list[contracts.CustomPropertyValueHistoryEntry]:
+    """Every value the account has held for the property, oldest first. Raises
+    `CustomPropertyDefinitionNotFound` for a definition outside the team."""
+    history = _custom_property_values_logic.list_custom_property_value_history(
+        team_id=team_id, account_id=account_id, definition_id=definition_id
+    )
+    return [
+        contracts.CustomPropertyValueHistoryEntry(
+            value=_custom_property_values_logic.value_of(row),
+            set_at=row.created_at,
+            set_by_id=row.created_by_id,
+            replaced_at=replaced_at,
+            is_current=is_current,
+        )
+        for row, replaced_at, is_current in history
+    ]
+
+
 # --- Account relationships ---
 
 

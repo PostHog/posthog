@@ -391,6 +391,41 @@ def list_active_custom_property_values(*, team_id: int, account_id: str | UUID) 
     )
 
 
+def list_custom_property_value_history(
+    *, team_id: int, account_id: str | UUID, definition_id: str | UUID
+) -> list[tuple[CustomPropertyValue, datetime | None, bool]]:
+    """Every value the account has held for the definition, oldest first, as
+    `(row, replaced_at, is_current)`.
+
+    Setting the same value again stores a new row, so a run of equal values collapses into its
+    first row. A clear stores no time, so a cleared value reads as held until the next value is
+    set, and a value cleared last has no `replaced_at`.
+    """
+    try:
+        definition = CustomPropertyDefinition.objects.for_team(team_id).get(id=definition_id)
+    except (CustomPropertyDefinition.DoesNotExist, ValidationError, ValueError) as exc:
+        raise CustomPropertyDefinitionNotFound(definition_id) from exc
+    rows = list(
+        CustomPropertyValue.objects.for_team(team_id)
+        .filter(account_id=account_id, definition=definition)
+        .order_by("created_at", "id")
+    )
+    entries: list[CustomPropertyValue] = []
+    for row in rows:
+        row.definition = definition
+        if not entries or value_of(entries[-1]) != value_of(row):
+            entries.append(row)
+    has_current = bool(rows) and not rows[-1].is_deleted
+    return [
+        (
+            row,
+            entries[index + 1].created_at if index + 1 < len(entries) else None,
+            has_current and index == len(entries) - 1,
+        )
+        for index, row in enumerate(entries)
+    ]
+
+
 VALUE_SUGGESTIONS_LIMIT = 50
 
 

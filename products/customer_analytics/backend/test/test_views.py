@@ -2589,6 +2589,27 @@ class TestCustomPropertyValueViewSet(APIBaseTest):
         values = {v["definition_id"]: v["value"] for v in response.json()}
         self.assertEqual({str(self.text_def.id): "enterprise", str(self.number_def.id): 42}, values)
 
+    @parameterized.expand([("current", False), ("cleared", True)])
+    def test_history_returns_each_distinct_value_oldest_first(self, _name: str, cleared: bool) -> None:
+        self._set(self.text_def.id, "starter")
+        self._set(self.text_def.id, "starter")
+        self._set(self.text_def.id, "enterprise")
+        self._set(self.number_def.id, 5)
+        if cleared:
+            self._set(self.text_def.id, None)
+
+        response = self.client.get(f"{self.endpoint}history/", {"definition": str(self.text_def.id)})
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        history = response.json()
+        self.assertEqual(
+            [("starter", False), ("enterprise", not cleared)], [(e["value"], e["is_current"]) for e in history]
+        )
+        self.assertEqual(history[1]["set_at"], history[0]["replaced_at"])
+        self.assertIsNone(history[1]["replaced_at"])
+        unknown = self.client.get(f"{self.endpoint}history/", {"definition": str(uuid4())})
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, unknown.status_code)
+
     @parameterized.expand([("write", "x"), ("clear", None)])
     def test_account_from_another_team_returns_404(self, _name: str, value: str | None) -> None:
         other_team = Team.objects.create(organization=self.organization)
