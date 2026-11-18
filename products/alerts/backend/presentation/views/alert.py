@@ -202,9 +202,14 @@ from products.alerts_platform.backend.facade.contracts import (
     PagerDutyRegion,
     PagerDutySeverity,
     PlatformAlertCreateRefused,
+    SourceKind,
     StoredAlertDestination,
 )
-from products.alerts_platform.backend.facade.delivery import delivery_test_destination_ids
+from products.alerts_platform.backend.facade.delivery import (
+    delivery_test_destination_ids,
+    has_legacy_webhook_body,
+    keeps_legacy_webhook_body,
+)
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_start_time
 from products.alerts_platform.backend.presentation.views.schedule_restriction import ScheduleRestrictionField
@@ -2879,8 +2884,17 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 hog_function_groups=list_alert_destination_groups(
                     team_id=alert.team_id, alert_id=str(alert.id), allowed_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS
                 ),
+                # A rollback that lands after `alert` was read would leave a row nothing sends.
+                only_while_platform_owned=not hog_function_ids,
             )
 
+        # Native delivery has no insight legacy webhook body, so a team that keeps it, or whose flag
+        # cannot be read, gets the body from a HogFunction.
+        sends_from_a_row = alert.platform_owned and not (
+            data["type"] == DestinationType.WEBHOOK
+            and keeps_legacy_webhook_body(alert.team) is not False
+            and not has_legacy_webhook_body(SourceKind.INSIGHT)
+        )
         hog_function_ids: tuple[uuid.UUID, ...] = ()
         try:
             with transaction.atomic():
@@ -2899,7 +2913,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         f"This alert already has {MAX_DESTINATIONS_PER_ALERT} destinations. Remove one to add another."
                     )
                 # A platform alert's destination gets HogFunctions only once someone customizes its message.
-                stored = record(()) if alert.platform_owned else None
+                stored = record(()) if sends_from_a_row else None
                 # Only the platform sends a row, so an alert it doesn't check sends through HogFunctions.
                 if stored is None:
                     hog_function_ids = create_alert_destination_hog_functions(
