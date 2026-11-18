@@ -1215,7 +1215,8 @@ class TestReserveUnits(BaseTest):
             self.assertEqual(response.headers["Retry-After"], "60")
 
     def test_a_reservation_counts_the_charge_a_lagging_reader_has_not_seen(self):
-        reader = urlsplit(settings.REDIS_URL)._replace(path="/15").geturl()
+        primary = urlsplit(settings.REDIS_URL)
+        reader = f"{primary.scheme}://{primary.netloc}/15"
         replicated = {
             "default": {
                 "BACKEND": "django_redis.cache.RedisCache",
