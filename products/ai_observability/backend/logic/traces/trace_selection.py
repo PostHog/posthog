@@ -24,6 +24,7 @@ from posthog.schema import (
 )
 
 from posthog.dataclasses import frozen
+from posthog.hogql_queries.ai.utils import HEAVY_PROPERTY_NAMES
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 from posthog.utils import get_delta_mapping_for, relative_date_parse_with_delta_mapping
@@ -133,6 +134,9 @@ def _check_filters(filters: Sequence[AnyPropertyFilterDiscriminated]) -> None:
             )
         if isinstance(prop, GroupPropertyFilter) and prop.group_type_index is None:
             raise InvalidTraceSelectionError("A group property filter needs a group type index.")
+        # Traces are selected on the shared events table, which ingestion stores without these properties.
+        if isinstance(prop, EventPropertyFilter) and prop.key in HEAVY_PROPERTY_NAMES:
+            raise InvalidTraceSelectionError(f"Filters on the {prop.key} property don't apply to traces. Remove them.")
 
 
 class _CalendarDayInclusiveDateRange(QueryDateRange):
