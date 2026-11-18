@@ -108,28 +108,26 @@ export class InsightPage {
             { timeout: 30000 }
         )
 
-        // Saving switches back to view mode, which re-fetches the insight. Drain that
-        // fetch before returning — left in flight, its response can land after a later
-        // edit and clobber it (see waitForInsightLoad).
+        // A save that stays on the insight switches to view mode, which re-fetches the insight.
+        // That response can arrive after a later edit and overwrite the edit. save() waits for it (see waitForInsightLoad).
+        // A save of an insight opened from a dashboard returns to the dashboard and does not re-fetch it.
+        // Nothing awaits the wait in that case. The empty handler keeps its timeout from failing the test.
         const insightReloaded = this.waitForInsightLoad()
-        // Saving an insight opened from a dashboard returns to the dashboard and does not re-fetch the insight.
-        // In that case nothing awaits this wait, and the handler stops its timeout from failing the test.
         insightReloaded.catch(() => {})
 
         await this.saveButton.click()
 
         const saveResponse = await saveRequestPromise
+        const errorToast = this.page.locator('[data-attr="error-toast"]').first()
 
         if (saveResponse.status() >= 400) {
-            const errorToast = this.page.locator('[data-attr="error-toast"]').first()
             const errorText = (await errorToast.textContent().catch(() => null))?.trim()
             throw new Error(`Insight save failed with ${saveResponse.status()}${errorText ? `: ${errorText}` : ''}`)
         }
 
-        const errorToast = this.page.locator('[data-attr="error-toast"]').first()
         const leftInsightPage = (): boolean => !new URL(this.page.url()).pathname.includes('/insights/')
 
-        // The "Insight saved" toast shows before the app navigates to a dashboard, so it does not mark the end of a save.
+        // The "Insight saved" toast shows before the app navigates to a dashboard. It does not mark the end of a save.
         await expect(async () => {
             if (await errorToast.isVisible().catch(() => false)) {
                 const errorText = (await errorToast.textContent().catch(() => null))?.trim()
