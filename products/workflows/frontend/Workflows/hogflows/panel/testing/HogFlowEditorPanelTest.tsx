@@ -14,6 +14,7 @@ import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import { HogFlowEditorTestEvent } from './HogFlowEditorTestEvent'
 import { hogFlowEditorTestLogic } from './hogFlowEditorTestLogic'
 import { testResultBanner } from './testResultBanner'
+import { WorkflowTestVariables } from './WorkflowTestVariables'
 
 export function HogFlowTestPanelNonSelected(): JSX.Element {
     return (
@@ -137,6 +138,11 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
             </div>
             <LemonDivider className="my-0" />
             <div className="flex flex-col flex-1 overflow-y-auto">
+                <div className="p-2">
+                    <LemonField name="variables" label="Test variables">
+                        {({ value, onChange }) => <WorkflowTestVariables value={value ?? '{}'} onChange={onChange} />}
+                    </LemonField>
+                </div>
                 {showTestEvent && (
                     <>
                         <HogFlowEditorTestEvent />

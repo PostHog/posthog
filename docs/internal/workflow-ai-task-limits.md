@@ -17,6 +17,11 @@ Keep both limits enabled when raising capacity. Set the per-workflow limit for t
 
 ## Waiting for the task to finish
 
+Step tests run one action at a time. A real-request test of an AI task starts the task and returns its IDs while the task runs.
+To test a later step with a finished or invented result, enter a JSON object in **Test variables** using the workflow variable names that step reads.
+These test values override defaults and values from earlier step tests without changing the saved workflow or a live run's wait.
+Email step tests can also select a person. Template test sends offer a person selector and test variables, with a preview for Liquid templates; delivery still goes only to the entered test address.
+
 A workflow run pauses at an AI task step or a scout step until the run it started reaches a terminal status.
 After success, the next step sees the dispatch IDs, `status: completed`, and a capped `final_message` (tasks) or `summary` (scouts). The result also includes `pr_urls` when present.
 A failed or cancelled run fails the step. The step's `on_error` setting decides whether the workflow continues.

@@ -3,10 +3,15 @@ import { useActions, useValues } from 'kea'
 import { IconExternal } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonSelect, Spinner } from '@posthog/lemon-ui'
 
+import { DistinctIdSelect } from 'lib/components/PropertyFilters/components/DistinctIdSelect'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { urls } from 'scenes/urls'
 
+import { PropertyOperator } from '~/types'
+
+import { WorkflowTestVariables } from '../Workflows/hogflows/panel/testing/WorkflowTestVariables'
 import { MessageTemplateLogicProps } from './messageTemplateLogic'
+import { MessageTemplateTestPreview } from './MessageTemplateTestPreview'
 import { messageTemplateTestSendLogic } from './messageTemplateTestSendLogic'
 
 export function SendTestEmailModal(props: MessageTemplateLogicProps & { isOpen: boolean }): JSX.Element {
@@ -21,12 +26,25 @@ export function SendTestEmailModal(props: MessageTemplateLogicProps & { isOpen: 
         testSendResult,
         testSendResultLoading,
         testSendSkipReason,
+        previewDistinctId,
+        previewPersonLoading,
+        variables,
+        variablesError,
+        previewEmail,
     } = useValues(logic)
-    const { setModalOpen, setRecipientEmail, setSenderIntegrationId, sendTestEmail } = useActions(logic)
+    const {
+        setModalOpen,
+        setRecipientEmail,
+        setSenderIntegrationId,
+        sendTestEmail,
+        setPreviewDistinctId,
+        setVariables,
+    } = useActions(logic)
 
     return (
         <LemonModal
             title="Send test email"
+            width="40rem"
             isOpen={isOpen}
             onClose={() => setModalOpen(false)}
             footer={
@@ -87,6 +105,25 @@ export function SendTestEmailModal(props: MessageTemplateLogicProps & { isOpen: 
                         </div>
                     )}
                 </div>
+                <div className="flex flex-col gap-1">
+                    <LemonLabel>Preview as person</LemonLabel>
+                    <DistinctIdSelect
+                        value={previewDistinctId}
+                        operator={PropertyOperator.Exact}
+                        forceSingleSelect
+                        onChange={(value) => setPreviewDistinctId(typeof value === 'string' ? value : null)}
+                    />
+                    <span className="text-xs text-muted">
+                        Uses this person's properties for the preview and test. The email is sent only to the address
+                        above.
+                    </span>
+                </div>
+                <div className="flex flex-col gap-1">
+                    <LemonLabel>Test variables</LemonLabel>
+                    <WorkflowTestVariables value={variables} onChange={setVariables} />
+                    {variablesError && <LemonBanner type="error">{variablesError}</LemonBanner>}
+                </div>
+                {!variablesError && <MessageTemplateTestPreview email={previewEmail} loading={previewPersonLoading} />}
                 {testSendSkipReason ? (
                     <LemonBanner type="warning">{testSendSkipReason}</LemonBanner>
                 ) : testSendResult && testSendResult.status === 'error' ? (

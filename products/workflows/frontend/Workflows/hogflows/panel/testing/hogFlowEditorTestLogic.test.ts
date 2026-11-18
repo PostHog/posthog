@@ -812,6 +812,52 @@ describe('hogFlowEditorTestLogic', () => {
         })
     })
 
+    describe('test variable overrides', () => {
+        it('merges defaults, prior results, globals and explicit test values without changing the workflow', async () => {
+            let sentVariables: Record<string, any> | undefined
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/hog_flows/:id/invocations': async ({ request }) => {
+                        sentVariables = ((await request.json()) as any).globals.variables
+                        return [200, { status: 'success', logs: [], variables: sentVariables }]
+                    },
+                },
+            })
+            logic = hogFlowEditorTestLogic({ id: 'test-workflow' })
+            logic.mount()
+            const workflow = workflowLogic({ id: 'test-workflow' })
+            await expectLogic(workflow).toDispatchActions(['loadWorkflowSuccess'])
+            workflow.actions.setWorkflowValue('variables', [
+                { key: 'count', type: 'number', default: 1 },
+                { key: 'untouched', type: 'string', default: 'default' },
+            ])
+            logic.actions.setTestResult({ status: 'success', nextActionId: null, variables: { count: 2, prior: true } })
+            logic.actions.setTestInvocationValue('globals', '{"variables":{"count":3,"from_globals":true}}')
+            logic.actions.setTestInvocationValue('variables', '{"count":0,"task_output":{"summary":"A sample result"}}')
+            await expectLogic(logic, () => logic.actions.submitTestInvocation()).toDispatchActions([
+                'submitTestInvocationSuccess',
+            ])
+            expect(sentVariables).toEqual({
+                count: 0,
+                untouched: 'default',
+                prior: true,
+                from_globals: true,
+                task_output: { summary: 'A sample result' },
+            })
+            expect(workflow.values.workflow.variables?.[0].default).toBe(1)
+        })
+
+        it.each(['{', 'null', '[]', 'false'])('rejects invalid variable overrides %s', async (variables) => {
+            logic = hogFlowEditorTestLogic({ id: 'test-workflow' })
+            logic.mount()
+            logic.actions.setTestInvocationValues({ globals: '{}', variables })
+            await expectLogic(logic, () => logic.actions.submitTestInvocation()).toDispatchActions([
+                'submitTestInvocationFailure',
+            ])
+            expect(logic.values.testInvocationErrors.variables).toContain('JSON object')
+        })
+    })
+
     describe('next step after a test run', () => {
         it.each([
             ['an unmet wait returns the selected step', 'wait_step', null],

@@ -32,6 +32,7 @@ import { SandboxTestRecipientSelect } from '../../steps/email/SandboxTestRecipie
 import { hogFlowEditorNotificationTestLogic } from './hogFlowEditorNotificationTestLogic'
 import { reorderGlobalsForEmailAction } from './hogFlowEditorNotificationTestLogic'
 import { testResultBanner } from './testResultBanner'
+import { WorkflowTestVariables } from './WorkflowTestVariables'
 
 export function EmailActionTestContent(): JSX.Element | null {
     const { workflow, selectedNode } = useValues(hogFlowEditorLogic)
@@ -207,6 +208,11 @@ export function EmailActionTestContent(): JSX.Element | null {
             </div>
             <LemonDivider className="my-0" />
             <div className="flex flex-col flex-1 overflow-y-auto">
+                <div className="p-2">
+                    <LemonField name="variables" label="Test variables">
+                        {({ value, onChange }) => <WorkflowTestVariables value={value ?? '{}'} onChange={onChange} />}
+                    </LemonField>
+                </div>
                 <div className="flex-0 bg-surface-secondary p-2">
                     {sampleGlobalsError ? (
                         <div>

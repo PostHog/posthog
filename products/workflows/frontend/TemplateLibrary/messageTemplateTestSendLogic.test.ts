@@ -92,6 +92,65 @@ describe('messageTemplateTestSendLogic', () => {
         })
     })
 
+    it('previews and sends with a chosen person and variables while keeping the test recipient', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/persons/': {
+                    results: [
+                        {
+                            id: 42,
+                            uuid: 'preview-person',
+                            distinct_ids: ['preview-id'],
+                            name: 'Alex',
+                            properties: { name: 'Alex', email: 'alex@example.com' },
+                        },
+                    ],
+                },
+            },
+        })
+        templateLogic.actions.setTemplateValue('content.email.subject', 'Hello {{person.properties.name}}')
+        templateLogic.actions.setTemplateValue('content.email.text', '{{variables.task_output.summary}}')
+        logic.actions.setVariables('{"task_output":{"summary":"A sample result"}}')
+        logic.actions.setRecipientEmail('tester@example.com')
+        await expectLogic(logic, () => logic.actions.setPreviewDistinctId('preview-id')).toDispatchActions([
+            'setPreviewDistinctIdSuccess',
+        ])
+
+        expect(logic.values.previewEmail).toMatchObject({ subject: 'Hello Alex', text: 'A sample result' })
+        await expectLogic(logic, () => logic.actions.sendTestEmail()).toDispatchActions(['sendTestEmailSuccess'])
+        expect(capturedBody.globals).toMatchObject({
+            event: { distinct_id: 'preview-id' },
+            person: { id: 'preview-person', properties: { email: 'alex@example.com', name: 'Alex' } },
+            variables: { task_output: { summary: 'A sample result' } },
+        })
+        expect(
+            capturedBody.configuration.actions.find((action: any) => action.id === 'send_test_email').config.inputs
+                .email.value
+        ).toMatchObject({
+            to: { email: 'tester@example.com', name: '' },
+            cc: '',
+            bcc: '',
+        })
+    })
+
+    it.each(['{', 'null', '[]', '"text"'])('blocks invalid variables %s before sending', async (variables) => {
+        logic.actions.setVariables(variables)
+        logic.actions.setRecipientEmail('tester@example.com')
+        expect(logic.values.sendDisabledReason).toContain('JSON object')
+        await expectLogic(logic, () => logic.actions.sendTestEmail()).toDispatchActions(['sendTestEmailFailure'])
+        expect(capturedBody).toBeNull()
+    })
+
+    it('blocks a send when a newly selected person could not be loaded', async () => {
+        useMocks({ get: { '/api/environments/:team_id/persons/': { results: [] } } })
+        await expectLogic(logic, () => logic.actions.setPreviewDistinctId('missing-id')).toDispatchActions([
+            'setPreviewDistinctIdFailure',
+        ])
+        expect(logic.values.sendDisabledReason).toContain('Choose a person')
+        await expectLogic(logic, () => logic.actions.sendTestEmail()).toDispatchActions(['sendTestEmailFailure'])
+        expect(capturedBody).toBeNull()
+    })
+
     it('sends a one-step synthetic workflow carrying the typed recipient and template content, stripping any cc/bcc', async () => {
         templateLogic.actions.setTemplateValue('content.email.from', {
             integrationId: 7,
