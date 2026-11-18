@@ -97,6 +97,7 @@ describe('host-run-card.sh', () => {
             writeFileSync(path.join(bin, command), RECORD_ARGS, { mode: 0o755 })
         }
         return spawn('bash', [WRAPPER], {
+            cwd: dir,
             env: {
                 ...process.env,
                 PATH: `${bin}:${process.env.PATH}`,
@@ -134,6 +135,7 @@ describe('host-run-card.sh', () => {
         ['the evidence upload fails', { FAKE_CARD_EXIT: '1', FAKE_UPLOAD_FAILS: '1' }, 1, false],
         ['the evidence cannot be copied', { FAKE_CARD_EXIT: '0', FAKE_CARD_BLOCKS_COPY: '1' }, 0, false],
         ['the evidence cannot be listed', { FAKE_CARD_EXIT: '0', FAKE_FAILS: 'find' }, 0, false],
+        ['the host root is relative', { FAKE_CARD_EXIT: '0', SCENARIO_HOST_ROOT: 'host' }, 0, true],
     ])('marks done with the runner exit code when %s', async (_, env, exitCode, uploaded) => {
         await exited(start(env))
 
