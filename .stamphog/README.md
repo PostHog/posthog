@@ -39,6 +39,6 @@ The loader also hard-fails if that self-governance entry is missing or loses a s
 
 A policy change takes effect when it merges, because the server reads `policy.yml` from the default branch.
 An engine change takes effect only when the stamphog worker redeploys.
-So a policy that uses a new engine feature must merge after the engine change, in a separate PR.
+So a policy that uses a new engine feature must merge in a separate PR, after the engine change reaches the stamphog worker.
 Otherwise the deployed engine rejects the policy at startup, and every review fails until the redeploy.
-CI checks this: the `Check the base branch's stamphog engine loads this policy` step loads the changed `policy.yml` with the engine from the base branch.
+CI loads a changed `policy.yml` with the engine from the base branch, which catches the change that does both in one PR.

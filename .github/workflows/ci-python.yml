@@ -66,6 +66,7 @@ jobs:
             owners: ${{ steps.filter.outputs.owners || 'true' }}
             query_perf: ${{ steps.filter.outputs.query_perf || 'true' }}
             stamphog: ${{ steps.filter.outputs.stamphog || 'true' }}
+            stamphog_policy: ${{ steps.filter.outputs.stamphog_policy || 'true' }}
             bin_scripts: ${{ steps.filter.outputs.bin_scripts || 'true' }}
             api_ratchet: ${{ steps.filter.outputs.api_ratchet || 'true' }}
             mypy_cache_key: ${{ steps.filter.outputs.mypy_cache_key || 'false' }}
@@ -246,6 +247,8 @@ jobs:
                         - 'pyproject.toml'
                         - 'uv.lock'
                         - .github/workflows/ci-python.yml
+                      stamphog_policy:
+                        - '.stamphog/policy.yml'
                       bin_scripts:
                         - 'bin/**'
                         # test_package_exists checks that each LOCAL_PACKAGES root is a package
@@ -303,6 +306,7 @@ jobs:
             RUN_OWNERS: ${{ needs.changes.outputs.owners }}
             RUN_QUERY_PERF: ${{ needs.changes.outputs.query_perf }}
             RUN_STAMPHOG: ${{ needs.changes.outputs.stamphog }}
+            RUN_STAMPHOG_POLICY: ${{ needs.changes.outputs.stamphog_policy }}
             RUN_BIN_SCRIPTS: ${{ needs.changes.outputs.bin_scripts }}
 
         steps:
@@ -547,29 +551,19 @@ jobs:
                           exit 1
                         fi
 
-                  # The stamphog server reads .stamphog/policy.yml from the default branch as soon as
-                  # it merges, but the engine that parses it ships only with the next stamphog worker
-                  # deploy. A policy that needs a new engine feature in the same PR stops every review
-                  # until that deploy, because the old engine rejects the policy at import. So the
-                  # engine on the base branch must load this branch's policy.
+                  # A policy takes effect at merge, the engine only at the worker redeploy (see
+                  # .stamphog/README.md), so the base branch's engine must load this branch's policy.
                   - name: Check the base branch's stamphog engine loads this policy
                     shell: bash
                     env:
                         BASE_SHA: ${{ github.event.pull_request.base.sha }}
                     run: |
-                        [ "$RUN_STAMPHOG" = "true" ] || { echo "pr-approval-agent unchanged — skipping"; exit 0; }
+                        [ "$RUN_STAMPHOG_POLICY" = "true" ] || { echo "policy unchanged — skipping"; exit 0; }
                         [ -n "$BASE_SHA" ] || { echo "not a pull request — skipping"; exit 0; }
                         policy=.stamphog/policy.yml
                         engine=products/stamphog/packages/pr-approval-agent
+                        [ -f "$policy" ] || { echo "no $policy on this branch — skipping"; exit 0; }
                         git fetch --no-tags --depth=1 --filter=blob:none origin "$BASE_SHA"
-                        if [ -z "$(git diff --name-only --no-renames "$BASE_SHA" HEAD -- "$policy")" ]; then
-                          echo "$policy is unchanged — skipping"
-                          exit 0
-                        fi
-                        if [ ! -f "$policy" ] || [ -z "$(git ls-tree "$BASE_SHA" -- "$engine")" ]; then
-                          echo "no $policy on this branch, or no engine at $engine on the base branch — skipping"
-                          exit 0
-                        fi
                         base=$(mktemp -d)/base
                         git worktree add --detach --no-checkout "$base" "$BASE_SHA"
                         trap 'git worktree remove --force "$base"' EXIT
@@ -577,8 +571,8 @@ jobs:
                         git -C "$base" checkout --quiet
                         mkdir -p "$base/.stamphog"
                         cp "$policy" "$base/.stamphog/policy.yml"
-                        if ! (cd "$base" && STAMPHOG_REPO_ROOT="$base" python "$engine/review_local.py" --help >/dev/null); then
-                          echo "::error file=$policy::The stamphog engine on the base branch cannot load this policy, so every review would fail from the merge until the stamphog worker redeploys. Merge the engine change first, then change the policy in a later PR."
+                        if ! STAMPHOG_REPO_ROOT="$base" python "$base/$engine/review_local.py" --help >/dev/null; then
+                          echo "::error file=$policy::The stamphog engine on the base branch cannot load this policy, so every review would fail from the merge until the stamphog worker redeploys. Merge the engine change first, and change the policy after the stamphog worker redeploys."
                           exit 1
                         fi
 
