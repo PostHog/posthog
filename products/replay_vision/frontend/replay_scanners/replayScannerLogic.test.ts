@@ -296,8 +296,15 @@ describe('replayScannerLogic', () => {
                 left: 800,
                 expected: { mode: 'budget', spend: { monthlyCreditBudget: 3000 } },
             },
+            {
+                case: 'every credit free',
+                mode: 'free' as const,
+                left: null,
+                expected: { mode: 'budget', spend: { monthlyCreditBudget: 3000 } },
+            },
         ])('picks the spend for a goal draft: $case', ({ mode, left, expected }) => {
-            expect(goalSpendChoice(mode, 3000, left)).toMatchObject(expected)
+            const quota = makeQuota({ credit_limit: null, free_monthly_credits: left, credits_used: 0 })
+            expect(goalSpendChoice(mode, 3000, quota)).toMatchObject(expected)
         })
 
         it('keeps the default query (every session) when the draft has no session filter', async () => {

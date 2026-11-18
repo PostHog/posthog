@@ -45,24 +45,41 @@ describe('visionQuotaLogic', () => {
         expect(logic.values.quota?.projected_monthly_credits).toBe(0)
     })
 
-    it('treats an org billing has not synced as still loading, and polls until billing lands', async () => {
+    it('stays loading while billing syncs the org, and keeps polling through a failed request', async () => {
         await expectLogic(logic).toDispatchActions(['loadQuotaSuccess'])
         logic.unmount()
         let synced = false
         const unsynced = makeQuota({ credit_limit: 0, free_monthly_credits: 0, awaiting_billing_sync: true })
-        useMocks({ get: { '/api/projects/:team/vision/quota/': () => [200, synced ? quota : unsynced] } })
+        let failNext = false
+        useMocks({
+            get: {
+                '/api/projects/:team/vision/quota/': () => {
+                    if (failNext) {
+                        failNext = false
+                        return [500, {}]
+                    }
+                    return [200, synced ? quota : unsynced]
+                },
+            },
+        })
         jest.useFakeTimers()
         try {
             logic = visionQuotaLogic()
             logic.mount()
             await jest.advanceTimersByTimeAsync(100)
-            await expectLogic(logic).toDispatchActions(['billingSyncPending', 'loadQuotaSuccess'])
             expect(logic.values.quota).toBeNull()
+            expect(logic.values.quotaLoading).toBe(true)
+
+            // A failed poll mid-sync keeps polling rather than settling on the placeholder.
+            failNext = true
+            await jest.advanceTimersByTimeAsync(3100)
+            expect(logic.values.quotaLoading).toBe(true)
 
             synced = true
             await jest.advanceTimersByTimeAsync(3100)
-            await expectLogic(logic).toDispatchActions(['loadQuota', 'loadQuotaSuccess'])
+            await expectLogic(logic).toDispatchActions(['loadQuotaSuccess'])
             expect(logic.values.quota?.credit_limit).toBe(1000)
+            expect(logic.values.quotaLoading).toBe(false)
         } finally {
             jest.useRealTimers()
         }

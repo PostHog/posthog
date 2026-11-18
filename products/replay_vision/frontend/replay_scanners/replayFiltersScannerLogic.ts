@@ -118,7 +118,7 @@ export interface replayFiltersScannerLogicMeta {
         spendChoice: (
             creditCap: ReplayFiltersCreditCap,
             budget: number | null,
-            freeCreditsLeft: number | null
+            quota: VisionQuotaApi | null
         ) => GoalSpendChoice
         draftInputDisabledReason: (goal: string, spendChoice: GoalSpendChoice, budget: number | null) => string | null
     }
@@ -196,12 +196,9 @@ export const replayFiltersScannerLogic = kea<replayFiltersScannerLogicType>([
                 edit ? edit.budget : defaultGoalBudget(quota),
         ],
         spendChoice: [
-            (s) => [s.creditCap, s.budget, s.freeCreditsLeft],
-            (
-                creditCap: ReplayFiltersCreditCap,
-                budget: number | null,
-                freeCreditsLeft: number | null
-            ): GoalSpendChoice => goalSpendChoice(creditCap === 'free' ? 'free' : 'budget', budget, freeCreditsLeft),
+            (s) => [s.creditCap, s.budget, s.quota],
+            (creditCap: ReplayFiltersCreditCap, budget: number | null, quota: VisionQuotaApi | null): GoalSpendChoice =>
+                goalSpendChoice(creditCap === 'free' ? 'free' : 'budget', budget, quota),
         ],
         draftInputDisabledReason: [
             (s) => [s.goal, s.spendChoice, s.budget],

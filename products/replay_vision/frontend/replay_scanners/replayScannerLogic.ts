@@ -65,6 +65,7 @@ import { refreshVisionQuota, visionQuotaLogic } from '../logics/visionQuotaLogic
 import { neighborFilterParams } from '../observations/replayObservationLogic'
 import { lastObservationsPage } from '../observations/replayObservationSceneLogic'
 import { observationClipboardText } from '../utils/observation'
+import { freeCreditsLeft } from '../utils/quotaProjection'
 import {
     type UrlSorting,
     parseCsvParam,
@@ -471,12 +472,16 @@ export interface GoalSpendChoice {
 export function goalSpendChoice(
     mode: GoalSpendMode,
     budgetInput: number | null,
-    freeCreditsLeft: number | null
+    quota: VisionQuotaApi | null
 ): GoalSpendChoice {
+    const left = freeCreditsLeft(quota)
+    // No free ceiling and no limit means every credit is free, which gives a free-only draft nothing to size to.
     const freeDisabledReason =
-        freeCreditsLeft != null && freeCreditsLeft <= 0
-            ? 'Your organization has used its free credits for this billing period'
-            : null
+        quota?.free_monthly_credits === null && quota.credit_limit === null
+            ? 'Every credit is free on your plan, so set a monthly budget to size this scanner'
+            : left !== null && left <= 0
+              ? 'Your organization has used its free credits for this billing period'
+              : null
     const effectiveMode = freeDisabledReason ? 'budget' : mode
     return {
         mode: effectiveMode,
@@ -2294,7 +2299,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                             goalSpendChoice(
                                 values.goalSpendMode,
                                 values.goalBudgetInput,
-                                visionQuotaLogic.findMounted()?.values.freeCreditsLeft ?? null
+                                visionQuotaLogic.findMounted()?.values.quota ?? null
                             ).spend
                         // With no budget to size it to, the goal stays in the box for the person to finish.
                         if (spend) {
