@@ -5472,6 +5472,10 @@ export type MetricsAggregation =
     | 'rate'
     | 'increase'
     | 'histogram_quantile'
+    /** Rate of a histogram's or summary's observation count, not its running sum: requests per second from a latency histogram */
+    | 'count_rate'
+    /** Increase of a histogram's or summary's observation count per bucket */
+    | 'count_increase'
 
 /** Counter-aware transform applied to each series before any aggregation */
 export type MetricsRangeFunction = 'rate' | 'increase'
@@ -5545,6 +5549,8 @@ export interface MetricsQueryClause {
     groupBy?: MetricsQueryGroupBy[]
     /** In (0, 1); required for `quantile` / `histogram_quantile` aggregations */
     quantile?: number
+    /** Apdex threshold T in milliseconds for `posthog.derived.spans.apdex`: a request is satisfied at or under T and tolerating up to 4T. Defaults to 500. */
+    apdexThresholdMs?: number
 }
 
 export interface MetricsQueryPoint {
