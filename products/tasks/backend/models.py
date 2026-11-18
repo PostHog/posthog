@@ -22,7 +22,7 @@ from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.core.exceptions import ValidationError
-from django.db import connection, models, transaction
+from django.db import DatabaseError, connection, models, transaction
 from django.db.models.fields.json import KeyTransform
 from django.utils import timezone as django_timezone
 
@@ -3216,17 +3216,37 @@ class TaskRun(models.Model):
             return persisted
         return self.get_workflow_id(self.task_id, self.id)
 
+    @staticmethod
+    def write_liveness(
+        run_id: uuid.UUID | str,
+        team_id: int,
+        *,
+        heartbeat_at: datetime | None = None,
+        agent_status: "TaskRun.AgentStatus | None" = None,
+    ) -> bool:
+        updates: dict[str, Any] = {}
+        if heartbeat_at is not None:
+            updates["last_heartbeat_at"] = heartbeat_at
+        if agent_status is not None:
+            updates["agent_status"] = agent_status
+        try:
+            TaskRun.objects.filter(id=run_id, team_id=team_id).update(**updates)
+        except DatabaseError:
+            logger.warning("task_run.liveness_write_failed", task_run_id=str(run_id), exc_info=True)
+            return False
+        return True
+
     def set_agent_status(self, agent_status: "TaskRun.AgentStatus") -> None:
-        TaskRun.objects.filter(pk=self.pk, team_id=self.team_id).update(agent_status=agent_status)
-        self.agent_status = agent_status
+        if TaskRun.write_liveness(self.pk, self.team_id, agent_status=agent_status):
+            self.agent_status = agent_status
 
     def record_heartbeat(self) -> None:
         heartbeat_at = django_timezone.now()
-        TaskRun.objects.filter(pk=self.pk, team_id=self.team_id).update(
-            last_heartbeat_at=heartbeat_at, agent_status=TaskRun.AgentStatus.BUSY
-        )
-        self.last_heartbeat_at = heartbeat_at
-        self.agent_status = TaskRun.AgentStatus.BUSY
+        if TaskRun.write_liveness(
+            self.pk, self.team_id, heartbeat_at=heartbeat_at, agent_status=TaskRun.AgentStatus.BUSY
+        ):
+            self.last_heartbeat_at = heartbeat_at
+            self.agent_status = TaskRun.AgentStatus.BUSY
 
     def record_client_heartbeat(self) -> None:
         heartbeat_at = django_timezone.now()
