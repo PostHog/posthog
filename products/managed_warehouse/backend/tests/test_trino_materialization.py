@@ -238,7 +238,7 @@ class TestTrinoShadowMaterialization(BaseTest):
                 "guard_names_inner_columns",
                 "SELECT event, count(), max(timestamp), timestamp AS ts FROM events GROUP BY event, timestamp",
                 dt.datetime(2026, 10, 1, tzinfo=dt.UTC),
-                ("count()", "max(timestamp)"),
+                ("count()", "max(toTimeZone(timestamp, 'UTC'))"),
             ),
             (
                 "string_constant",
@@ -263,6 +263,24 @@ class TestTrinoShadowMaterialization(BaseTest):
                 "SELECT event, countIf(match(event, 'sign.?up')), timestamp AS ts FROM events GROUP BY event, timestamp",
                 dt.datetime(2026, 10, 1, tzinfo=dt.UTC),
                 ("countIf(match(event, 'sign.?up'))",),
+            ),
+            (
+                "repeated_name_full_build",
+                "SELECT a.event, a.timestamp AS ts, a.event AS event FROM events AS a",
+                None,
+                ("a.event", "ts", "event"),
+            ),
+            (
+                "array_join_alias_merge_stage",
+                "SELECT event, n, timestamp AS ts FROM events ARRAY JOIN [1, 2] AS n",
+                dt.datetime(2026, 10, 1, tzinfo=dt.UTC),
+                ("n",),
+            ),
+            (
+                "repeated_name_merge_stage",
+                "SELECT a.event, a.timestamp AS ts, a.event AS event FROM events AS a",
+                dt.datetime(2026, 10, 1, tzinfo=dt.UTC),
+                ("a.event", "ts", "event"),
             ),
         ]
     )
