@@ -70,9 +70,6 @@ export function overrideWithEnv(
 
     newConfig.BEHAVIORAL_COHORTS_DATABASE_URL = buildBehavioralCohortsDatabaseUrl(newConfig)
 
-    newConfig.KAFKA_WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER_METADATA_BROKER_LIST ||=
-        newConfig.KAFKA_WARPSTREAM_CYCLOTRON_PRODUCER_METADATA_BROKER_LIST
-
     return newConfig
 }
 

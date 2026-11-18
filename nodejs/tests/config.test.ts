@@ -196,18 +196,6 @@ describe('config', () => {
             expect(config.DATABASE_URL).toEqual('my_db_url')
         })
     })
-
-    test.each([
-        ['falls back to the cyclotron brokers', undefined, 'cyclotron:9092'],
-        ['keeps its own brokers', 'intake:9092', 'intake:9092'],
-    ])('the intake producer %s', (_name, intakeBrokers, expected) => {
-        const config = overrideWithEnv(getDefaultConfig(), {
-            KAFKA_WARPSTREAM_CYCLOTRON_PRODUCER_METADATA_BROKER_LIST: 'cyclotron:9092',
-            KAFKA_WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER_METADATA_BROKER_LIST: intakeBrokers,
-        })
-
-        expect(config.KAFKA_WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER_METADATA_BROKER_LIST).toEqual(expected)
-    })
 })
 
 describe('buildIntegerMatcher', () => {
