@@ -1,3 +1,5 @@
+import { initKeaTests } from '~/test/init'
+
 import type { ReplayObservationApi } from '../generated/api.schemas'
 import { buildObservationContext } from './agentPrompts'
 
@@ -19,6 +21,10 @@ function makeObservation(
 }
 
 describe('buildObservationContext', () => {
+    beforeEach(() => {
+        initKeaTests()
+    })
+
     it.each<{ name: string; obs: ReplayObservationApi; result: string | null }>([
         {
             name: 'monitor verdict and reasoning with plain timestamps',

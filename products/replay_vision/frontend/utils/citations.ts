@@ -77,10 +77,15 @@ export function citedMarkdown(text: string, segments: unknown): string {
         // Glued to the preceding word, except after a `!`, where that would make the pair an image.
         // Whole non-negative digits only: LemonMarkdown reads nothing else, and would leave a dead label.
         const timestampMs = Math.max(0, Math.round(segment.timestamp_ms))
-        const label = colonDelimitedDuration(Math.floor(timestampMs / 1000), null)
+        const label = msToTimestamp(timestampMs)
         out += `${out.endsWith('!') ? ' ' : ''}[${label}](${TIMESTAMP_REF_PREFIX}${timestampMs})`
     }
     return out
+}
+
+/** A recording position as `mm:ss`, the form citation chips and chapter times share. */
+export function msToTimestamp(ms: number): string {
+    return colonDelimitedDuration(Math.max(0, Math.floor(ms / 1000)), null)
 }
 
 /** Plain-text rendering of a cited field for the clipboard: citation chips become readable `(mm:ss)` timestamps. */
@@ -95,8 +100,7 @@ export function citedTextToPlainText(text: string, segments: unknown): string {
             out += segment.value
             continue
         }
-        const label = colonDelimitedDuration(Math.max(0, Math.floor(segment.timestamp_ms / 1000)), null)
-        out += `${out && !/\s$/.test(out) ? ' ' : ''}(${label})`
+        out += `${out && !/\s$/.test(out) ? ' ' : ''}(${msToTimestamp(segment.timestamp_ms)})`
     }
     return out
 }

@@ -214,7 +214,11 @@ const AGENTS: AgentDef[] = [
         name: 'PostHog AI',
         logo: <IconSparkles className="size-4 shrink-0 text-ai" />,
         verb: 'Open',
-        open: (prompt) => newInternalTab(urls.ai(undefined, prompt)),
+        // The rail gives PostHog AI its own home under Spaces, so the chat opens there in this tab, not a new one.
+        open: (prompt) =>
+            todayShellLogic.findMounted()?.values.todayRailEnabled
+                ? router.actions.push(urls.ai(undefined, prompt))
+                : newInternalTab(urls.ai(undefined, prompt)),
     },
     {
         key: 'posthog-code',
@@ -320,7 +324,6 @@ export function AgentPromptButton({
     const { rememberedAgentKey, rememberedActionKeys } = useValues(agentPromptButtonLogic)
     const { rememberAgent, rememberAction } = useActions(agentPromptButtonLogic)
     const [open, setOpen] = useState(defaultOpen)
-    const { todayRailEnabled } = useValues(todayShellLogic)
     const { currentProjectId } = useValues(projectLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
     const availableAgents = AGENTS.filter((agent) => !excludeAgentKeys?.includes(agent.key))
@@ -340,7 +343,6 @@ export function AgentPromptButton({
         labelMode === 'destination' && activeAgent.key !== 'clipboard'
             ? `Open in ${activeAgent.name}`
             : `${activeAgent.verb} ${activeAction.label}`
-    const buttonLabel = label ?? comboLabel
 
     const selectAction = (actionKey: string): void => {
         rememberAction(actionSetKey, actionKey)
@@ -352,11 +354,6 @@ export function AgentPromptButton({
         onRun?.({ actionKey, agentKey })
         const agent = availableAgents.find((a) => a.key === agentKey)
         if (!agent) {
-            return
-        }
-        // The rail gives PostHog AI its own home under Spaces, so the chat opens there in this tab, not a new one.
-        if (agentKey === 'posthog-ai' && todayRailEnabled) {
-            router.actions.push(urls.ai(undefined, prompt))
             return
         }
         agent.open(prompt, { actionLabel: action.label, repository })
@@ -423,7 +420,7 @@ export function AgentPromptButton({
                         },
                     }}
                 >
-                    <span className="truncate max-w-64">{buttonLabel}</span>
+                    <span className="truncate max-w-64">{label ?? comboLabel}</span>
                 </LemonButton>
             </div>
         )
@@ -447,7 +444,7 @@ export function AgentPromptButton({
                     title={`Run: ${comboLabel}`}
                 >
                     <AgentLogo logo={activeAgent.logo} logoClassName={activeAgent.logoClassName} />
-                    <span className="truncate max-w-64">{buttonLabel}</span>
+                    <span className="truncate max-w-64">{label ?? comboLabel}</span>
                 </QuillButton>
                 <QuillButtonGroupSeparator />
                 <DropdownMenuTrigger asChild>

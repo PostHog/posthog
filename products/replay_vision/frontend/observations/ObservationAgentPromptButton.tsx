@@ -1,3 +1,5 @@
+import { useMemo } from 'react'
+
 import { IconDocument } from '@posthog/icons'
 
 import { AgentPromptButton } from 'lib/components/AgentPromptButton'
@@ -13,7 +15,7 @@ export function ObservationAgentPromptButton({
     observation: ReplayObservationApi
     appearance: 'quill' | 'lemon'
 }): JSX.Element | null {
-    const context = buildObservationContext(observation)
+    const context = useMemo(() => buildObservationContext(observation), [observation])
     if (!context) {
         return null
     }
