@@ -27,10 +27,25 @@ describe("run policy", () => {
 
   it("reads a server policy that carries fields it does not know", () => {
     const parsed = parseServerRunPolicy(
-      JSON.stringify({ ...SERVER_POLICY, billing_product: "posthog_code" }),
+      JSON.stringify({ ...SERVER_POLICY, future_field: true }),
     );
 
     expect([parsed?.runId, parsed?.policy.threadLink]).toEqual([RUN_ID, true]);
+  });
+
+  it.each<[string, unknown, string | undefined]>([
+    ["a product it knows", "workflows", "workflows"],
+    ["a product it does not know", "future_product", undefined],
+    ["no product", undefined, undefined],
+  ])("reads the billing product from %s", (_, billing_product, expected) => {
+    const parsed = parseServerRunPolicy(
+      JSON.stringify({ ...SERVER_POLICY, billing_product }),
+    );
+
+    expect([parsed?.policy.billingProduct, parsed?.policy.threadLink]).toEqual([
+      expected,
+      true,
+    ]);
   });
 
   it.each<[string, string]>([
