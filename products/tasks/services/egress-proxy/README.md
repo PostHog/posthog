@@ -258,12 +258,22 @@ Tests allow three seconds. Capability, certificate-chain and lease expiry stay s
 
 Trusted workers use `AgentEgressRegistry` in `backend/logic/services/agent_egress.py` to register, renew, revoke and issue capabilities.
 Registration binds one execution to its team, actor, relay key, exact hostname and region, with a 30-second lease.
+It also binds the execution to its sandbox. Lookup, renewal and capability issuance check that the run still owns that sandbox. Standalone development probes use their saved execution state; registrations without a sandbox binding are denied.
+Workers must save the new sandbox binding before registering its execution. Registration rejects a sandbox that the run does not yet own. Saving the same binding again leaves the registration active.
 It keeps the run's exact team ID, including for child environments.
 Reads and registration retries do not renew it. Renewal requires a live lease; an expired or revoked execution cannot be reused.
 Replacement requires the previous execution ID and keeps the old registration revoked.
 Workers recover that ID through `latest`, which includes expired and revoked registrations but cannot authorize requests.
 The registry assigns actor epochs under the run lock: one for the first execution, increasing on each replacement and unchanged on retries.
 Cancellation requests stop lookup, renewal and issuance even before the run reaches a terminal status.
+
+Changing or clearing the run's sandbox, or preparing a cloud resume, revokes its existing registration in the same transaction. If revocation fails, the state change fails too: otherwise restoring earlier run state could revive the old registration. Unrelated state updates do not access the egress table.
+
+Sandbox cleanup revokes matching registrations before contacting the provider; delayed cleanup of an old sandbox leaves its replacement alone. A revocation failure is logged and provider teardown still runs. Connection metadata stays in run state until cleanup succeeds; strict cleanup reports the failure for retry. A later retry can revoke and clear that state even when the VM is already gone. The proxy can still use a cached lease until its existing deadline.
+
+Registrations created before sandbox binding was added remain unbound and are denied, even if their stored `revoked` flag is false. In-flight development probes need a fresh execution after deployment. Replacement revokes the old row without inventing a historical revocation timestamp.
+
+These checks apply to the current development enrollment path. Production enrollment still needs regional deployment, private registry access and managed certificate issuance and renewal. They do not route agent traffic through the proxy or remove agentsh.
 
 Capabilities last five minutes, with `iss=posthog:tasks`, `aud=posthog:agent_egress`, `sub` set to the run ID and a separate `execution_id`.
 Issuance checks current registration and pins the signing key in the run's existing `sandbox_jwt_kid` state.

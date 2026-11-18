@@ -7777,18 +7777,29 @@ export namespace Schemas {
       Preset15: 'preset-15',
     } as const;
 
+    export type YAxisPosition2 = typeof YAxisPosition2[keyof typeof YAxisPosition2];
+
+
+    export const YAxisPosition2 = {
+      Auto: 'auto',
+      Left: 'left',
+      Right: 'right',
+    } as const;
+
     export interface ResultCustomizationByValue {
       assignmentBy?: 'value';
       color?: DataColorToken | null;
       customColor?: string | null;
       hidden?: boolean | null;
       label?: string | null;
+      yAxisPosition?: YAxisPosition2 | null;
     }
 
     export interface ResultCustomizationByPosition {
       assignmentBy?: 'position';
       color?: DataColorToken | null;
       hidden?: boolean | null;
+      yAxisPosition?: YAxisPosition2 | null;
     }
 
     export type YAxisScaleType = typeof YAxisScaleType[keyof typeof YAxisScaleType];
@@ -8084,6 +8095,7 @@ export namespace Schemas {
       showAnnotations?: boolean | null;
       /** Whether to show a legend describing the series. The legend only renders when the funnel has multiple series. Only applies to historical-trends funnels. */
       showLegend?: boolean | null;
+      showSummaryOnDashboards?: boolean | null;
       /** Display linear regression trend lines on the chart (only for historical trends viz) */
       showTrendLines?: boolean | null;
       showValuesOnSeries?: boolean | null;
@@ -12693,6 +12705,8 @@ export namespace Schemas {
       boxPlot?: BoxPlotSettings | null;
       /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
       chartStyle?: ChartStyle | null;
+      /** Color each X-axis category in single-series bar charts. */
+      colorBarsByCategory?: boolean | null;
       goalLines?: GoalLine[] | null;
       heatmap?: HeatmapSettings | null;
       leftYAxisSettings?: YAxisSettings | null;
@@ -12717,6 +12731,8 @@ export namespace Schemas {
       /** Whether we fill the bars to 100% in stacked mode */
       stackBars100?: boolean | null;
       valueLabelBackground?: boolean | null;
+      valueLabelBackgroundColor?: string | null;
+      valueLabelColor?: string | null;
       valueLabelFontSize?: number | null;
       valueLabelPosition?: ValueLabelPosition | null;
       valueLabelRotation?: number | null;
@@ -74046,6 +74062,34 @@ export namespace Schemas {
     }
 
     /**
+     * * `at_least` - At least the target
+     * * `at_most` - At most the target
+     */
+    export type ReleaseGoalDirectionEnum = typeof ReleaseGoalDirectionEnum[keyof typeof ReleaseGoalDirectionEnum];
+
+
+    export const ReleaseGoalDirectionEnum = {
+      AtLeast: 'at_least',
+      AtMost: 'at_most',
+    } as const;
+
+    export interface MetricGoal {
+      /**
+         * ID of the metric insight the goal is for.
+         * @minimum 1
+         * @maximum 2147483647
+         */
+      insight_id: number;
+      /** at_least when the metric should reach the value, at_most when it should stay at or below it.
+       *
+       * * `at_least` - At least the target
+       * * `at_most` - At most the target */
+      direction: ReleaseGoalDirectionEnum;
+      /** Target value of the metric. */
+      value: number;
+    }
+
+    /**
      * * `precise` - Precise
      * * `coarse` - Coarse
      * * `partial` - Partial
@@ -81053,6 +81097,10 @@ export namespace Schemas {
       readonly insights: readonly LinkedInsightDTO[];
       /** ID, name and status of each linked broadcast the caller can see. Deleted broadcasts are left out. */
       readonly broadcasts: readonly LinkedBroadcastDTO[];
+      /** IDs of the insights that are the release's metrics. The first is the primary metric. */
+      readonly metric_insight_ids: readonly number[];
+      /** Target for each metric that has one. Metrics without a goal are left out. */
+      readonly metric_goals: readonly MetricGoal[];
       /** True when the release links flags the caller cannot see. Their IDs are left out of feature_flag_ids. */
       readonly has_hidden_flags: boolean;
       id: string;
@@ -98354,6 +98402,18 @@ export namespace Schemas {
          * @items.maximum 2147483647
          */
       insight_ids?: number[];
+      /**
+         * IDs of the saved trends insights that are the release's metrics, at most 5. The first is the primary metric, the rest are secondary. Replaces the current list.
+         * @maxItems 5
+         * @items.minimum 1
+         * @items.maximum 2147483647
+         */
+      metric_insight_ids?: number[];
+      /**
+         * Targets for the release's metrics, at most one per metric. Each insight_id must be one of the metric_insight_ids. Replaces the current goals.
+         * @maxItems 5
+         */
+      metric_goals?: MetricGoal[];
     }
 
     /**
@@ -129484,6 +129544,18 @@ export namespace Schemas {
          * @items.maximum 2147483647
          */
       insight_ids?: number[];
+      /**
+         * IDs of the saved trends insights that are the release's metrics, at most 5. The first is the primary metric, the rest are secondary. Replaces the current list.
+         * @maxItems 5
+         * @items.minimum 1
+         * @items.maximum 2147483647
+         */
+      metric_insight_ids?: number[];
+      /**
+         * Targets for the release's metrics, at most one per metric. Each insight_id must be one of the metric_insight_ids. Replaces the current goals.
+         * @maxItems 5
+         */
+      metric_goals?: MetricGoal[];
     }
 
     export interface ZendeskImportError {
@@ -130932,6 +131004,12 @@ export namespace Schemas {
          * @nullable
          */
       quantile?: number | null;
+      /**
+         * Apdex threshold T in milliseconds for 'posthog.derived.spans.apdex': a request is satisfied at or under T and tolerating up to 4T. Defaults to 500. Ignored for other metrics.
+         * @minimum 0.001
+         * @nullable
+         */
+      apdexThresholdMs?: number | null;
       /** Label predicates ANDed together for this clause. */
       filters?: _MetricFilter[];
       /** Labels to split this clause into separate series by. */
@@ -131075,6 +131153,12 @@ export namespace Schemas {
          * @nullable
          */
       quantile?: number | null;
+      /**
+         * Apdex threshold T in milliseconds for 'posthog.derived.spans.apdex': a request is satisfied at or under T and tolerating up to 4T. Defaults to 500. Ignored for other metrics.
+         * @minimum 0.001
+         * @nullable
+         */
+      apdexThresholdMs?: number | null;
       /** Label predicates ANDed together. Rows must satisfy every filter. */
       filters?: _MetricFilter[];
       /** Labels to split the result into separate series by. Series share one time grid and are capped at the 100 largest. */
