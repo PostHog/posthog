@@ -1094,6 +1094,10 @@ describe('scenario environment', () => {
                 if (!stack.running || Number(flags.timeout ?? 300) < answersAfterS) {
                     process.exit(3)
                 }
+                if (stack.firstStartS !== undefined && Number(flags.timeout ?? 300) < stack.firstStartS) {
+                    process.stderr.write('timeout: still not ready: capture (pending)\\n')
+                    process.exit(2)
+                }
                 fs.writeFileSync(stateFile, JSON.stringify({ running: true, ready: true }))
             } else if (verb === 'dev:generate') {
                 const units = ['backend', 'frontend', 'nodejs', ...flags.with].filter((unit) => !flags.without.includes(unit))
@@ -1112,7 +1116,10 @@ describe('scenario environment', () => {
                 if (started) {
                     fail('The config at ' + flags.custom + ' starts ' + started[1])
                 }
-                fs.writeFileSync(stateFile, JSON.stringify({ running: true, ready: false }))
+                fs.writeFileSync(
+                    stateFile,
+                    JSON.stringify({ running: true, ready: false, firstStartS: stack.firstStartS })
+                )
             } else if (verb === 'dev:sync-hog-templates') {
                 const { Client } = require(${JSON.stringify(require.resolve('pg'))})
                 const client = new Client({ connectionString: ${JSON.stringify(templatesUrl)} })
@@ -1282,7 +1289,7 @@ describe('scenario environment', () => {
                 (error: Error) => error.message
             ),
         })
-        const writeStack = (stack: { running: boolean; ready: boolean; busy?: boolean }): void =>
+        const writeStack = (stack: { running: boolean; ready: boolean; busy?: boolean; firstStartS?: number }): void =>
             writeFileSync(path.join(fakes, 'stack.json'), JSON.stringify(stack))
         const stackOf = (): { running: boolean; ready: boolean } =>
             parseJSON(readFileSync(path.join(fakes, 'stack.json'), 'utf8'))
@@ -1453,7 +1460,7 @@ describe('scenario environment', () => {
             })
         }, 45_000)
 
-        it.each<[string, { running: boolean; ready: boolean; busy?: boolean }, string[]]>([
+        it.each<[string, { running: boolean; ready: boolean; busy?: boolean; firstStartS?: number }, string[]]>([
             ['a running stack', { running: true, ready: true }, STACK.templates],
             [
                 'a running stack whose phrocs answers slowly, without starting it again',
@@ -1466,6 +1473,11 @@ describe('scenario environment', () => {
                 STACK.templates,
             ],
             ['a stack hogli cannot reach', { running: false, ready: false }, STACK.templates],
+            [
+                'a stack hogli cannot reach, whose first start builds for longer than the default wait',
+                { running: false, ready: false, firstStartS: 1800 },
+                STACK.templates,
+            ],
             ['a stack whose Django lacks the templates', { running: true, ready: true }, []],
         ])(
             'brings up %s through hogli and ends with the templates in Django',

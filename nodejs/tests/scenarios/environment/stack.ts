@@ -53,6 +53,7 @@ async function runHogli(hogli: Hogli, args: string[], logFile: string, env: Node
 }
 
 const NOT_REACHABLE = 3
+const FIRST_START_TIMEOUT_S = 3600
 
 export async function startStack(hogli: Hogli, stateDir: string, env: NodeJS.ProcessEnv): Promise<void> {
     const config = path.join(stateDir, 'mprocs.yaml')
@@ -72,7 +73,7 @@ export async function startStack(hogli: Hogli, stateDir: string, env: NodeJS.Pro
         hogliEnv
     )
     await runHogli(hogli, ['up', '-d', '--custom', config], logFile, hogliEnv)
-    await runHogli(hogli, ['wait'], logFile, hogliEnv)
+    await runHogli(hogli, ['wait', '--timeout', String(FIRST_START_TIMEOUT_S)], logFile, hogliEnv)
 }
 
 export async function syncTemplates(hogli: Hogli, stateDir: string, env: NodeJS.ProcessEnv): Promise<void> {
