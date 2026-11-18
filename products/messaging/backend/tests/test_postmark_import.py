@@ -47,6 +47,21 @@ class TestSuppressionMerge(SimpleTestCase):
 
         assert merged["a@example.com"].origin == "Customer"
 
+    def test_the_address_budget_stops_a_dump_before_it_holds_more_addresses(self) -> None:
+        rows = [
+            {"EmailAddress": f"a{index}@example.com", "SuppressionReason": "HardBounce", "Origin": "Recipient"}
+            for index in range(5)
+        ]
+        merged: dict[str, Any] = {}
+
+        with patch("products.messaging.backend.provider_imports.postmark.MAX_SUPPRESSED_ADDRESSES", 2):
+            _merge(merged, rows[:2], is_transactional=False)
+            _merge(merged, rows[:2], is_transactional=True)
+            with self.assertRaises(ImportTooLarge):
+                _merge(merged, rows, is_transactional=False)
+
+        assert len(merged) == 2
+
 
 class TestPostmarkImport(BaseTest):
     def setUp(self) -> None:
@@ -235,7 +250,8 @@ class TestPostmarkImport(BaseTest):
         [
             ("told how long", {"Retry-After": "7"}, [7.0]),
             ("not told", {}, [1.0]),
-            ("told too long", {"Retry-After": "9000"}, [60.0]),
+            ("told an hour", {"Retry-After": "3600"}, [3600.0]),
+            ("told too long", {"Retry-After": "9000"}, [3600.0]),
             ("told nonsense", {"Retry-After": "soon"}, [1.0]),
         ]
     )
@@ -341,6 +357,29 @@ class TestPostmarkImport(BaseTest):
 
         assert "ImportTooLarge" in (STEP_RETRY_POLICY.non_retryable_error_types or [])
         assert self._sources() == {}
+
+    def test_an_unsubscribe_counts_each_recipient_once_however_many_spellings_it_has(self) -> None:
+        data = json.loads(FIXTURE.read_text())
+        data["servers"] = data["servers"][:1]
+        unsubscribe = {"SuppressionReason": "ManualSuppression", "Origin": "Recipient", "CreatedAt": ""}
+        data["servers"][0]["suppressions"] = {
+            "broadcast": [
+                {**unsubscribe, "EmailAddress": "New.Reader@example.com"},
+                {**unsubscribe, "EmailAddress": "new.reader@example.com"},
+                {**unsubscribe, "EmailAddress": "old.reader@example.com"},
+            ]
+        }
+        self.fake.data = data
+        MessageRecipientPreference.objects.create(
+            team_id=self.team.id,
+            identifier="old.reader@example.com",
+            preferences={ALL_MESSAGE_PREFERENCE_CATEGORY_ID: "OPTED_OUT"},
+        )
+
+        run = self._run(["suppressions"], token=PRODUCTION_TOKEN)
+
+        counts = run.progress["suppressions"]["counts"]
+        assert (counts["unsubscribed"], counts["already_present"]) == (1, 1)
 
     def test_a_passing_server_error_is_retried_inside_the_step(self) -> None:
         self.fake.fail("/webhooks", 503)

@@ -46,7 +46,7 @@ from products.messaging.backend.services.imported_data import (
     ImportedCategory,
     ImportedSuppression,
     import_categories,
-    import_opt_outs,
+    import_opt_outs_changed,
     import_suppressions,
 )
 from products.messaging.backend.services.postmark_client import (
@@ -407,8 +407,6 @@ def _fetch_suppressions(
         for stream in _sending_streams(server_client):
             rows = _dump_rows(server_client, str(stream.get("ID")))
             invalid += _merge(merged, rows, stream.get("MessageStreamType") == "Transactional")
-            if len(merged) > MAX_SUPPRESSED_ADDRESSES:
-                raise ImportTooLarge(TOO_MANY_SUPPRESSIONS_MESSAGE)
 
     after = str(checkpoint.get("after_address", "")) if checkpoint else ""
     addresses = [address for address in sorted(merged) if address > after]
@@ -438,6 +436,8 @@ def _merge(merged: dict[str, _Suppression], rows: list[dict[str, Any]], is_trans
             invalid += 1
             continue
         current = merged.get(address)
+        if current is None and len(merged) >= MAX_SUPPRESSED_ADDRESSES:
+            raise ImportTooLarge(TOO_MANY_SUPPRESSIONS_MESSAGE)
         on_transactional_stream = is_transactional or (current is not None and current.on_transactional_stream)
         spellings = frozenset({exact_email(row.get("EmailAddress")) or address}) | (
             current.original_addresses if current else frozenset()
@@ -474,7 +474,9 @@ def _save_suppressions(context: ImportContext, batch: list[_Suppression]) -> Sav
         for row in unsubscribed
         for address in (row.address, *row.original_addresses)
     }
-    opted_out = min(import_opt_outs(context.team_id, opt_outs, context.created_by_id), len(unsubscribed))
+    changed = import_opt_outs_changed(context.team_id, opt_outs, context.created_by_id)
+    # Each spelling has its own preference row, so a recipient counts once however many of its spellings changed.
+    opted_out = sum(1 for row in unsubscribed if changed & {row.address, *row.original_addresses})
     return SavedPage(
         imported=result.total_added + opted_out,
         counts={

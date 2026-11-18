@@ -24,7 +24,8 @@ MAX_RATE_LIMIT_WAITS = 5
 # A long import sees the odd timeout or 5xx. Retrying here keeps them from using up the whole step's retries.
 MAX_TRANSIENT_RETRIES = 3
 TRANSIENT_RETRY_BASE_SECONDS = 2
-MAX_RATE_LIMIT_WAIT_SECONDS = 60
+# The step keeps heartbeating while it waits, so it waits out Postmark's whole cooldown. Five waits fit in a step.
+MAX_RATE_LIMIT_WAIT_SECONDS = 60 * 60
 DEFAULT_TIMEOUT_SECONDS = 30
 # A suppression dump has no pages, so one response holds the whole list.
 DUMP_TIMEOUT_SECONDS = 120
