@@ -1,4 +1,5 @@
 import { hasScopes } from '@/lib/api'
+import { RUN_TOKEN_EXCLUDED_TOOLS } from '@/lib/run-token-excluded-tools'
 import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 
 // AI observability
@@ -203,7 +204,7 @@ export const getToolsFromContext = async (
     const candidates = tools.filter(
         (tool) =>
             hasScopes(scopes, tool.scopes) &&
-            (!scopes.includes('internal_run:read') || !['tasks-run-create', 'tasks-create-and-run'].includes(tool.name))
+            (!scopes.includes('internal_run:read') || !RUN_TOKEN_EXCLUDED_TOOLS.includes(tool.name))
     )
 
     return filterStaffOnlyTools(candidates, apiKey ?? { scopes: [] }, () => context.stateManager.getUser())
