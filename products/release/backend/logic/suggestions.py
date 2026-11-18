@@ -33,15 +33,25 @@ GENERIC_TERMS = frozenset(
     }
 )
 SUMMARY_FIELDS = ("id", "name", "description", "auto_named", "feature_flag_ids", "created_at")
+MAX_TEXT_LENGTH = 500
+MAX_SEARCH_TERMS = 12
+
+
+def _ordered_terms(texts: tuple[str, ...]) -> list[str]:
+    found: list[str] = []
+    for text in texts:
+        for term in TERM.findall(CAMEL_BOUNDARY.sub(r"\1 \2", (text or "")[:MAX_TEXT_LENGTH]).lower()):
+            if len(term) >= 3 and not term.isdigit() and term not in GENERIC_TERMS and term not in found:
+                found.append(term)
+    return found
 
 
 def terms(*texts: str) -> set[str]:
-    found: set[str] = set()
-    for text in texts:
-        for term in TERM.findall(CAMEL_BOUNDARY.sub(r"\1 \2", text or "").lower()):
-            if len(term) >= 3 and not term.isdigit() and term not in GENERIC_TERMS:
-                found.add(term)
-    return found
+    return set(_ordered_terms(texts))
+
+
+def search_terms(*texts: str) -> set[str]:
+    return set(_ordered_terms(texts)[:MAX_SEARCH_TERMS])
 
 
 def releases_with_flag(team_id: int, flag_id: int) -> list[Release]:

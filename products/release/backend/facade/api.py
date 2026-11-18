@@ -239,7 +239,7 @@ def releases_for_flag(
     label = labels([flag_id]).get(flag_id)
     if label is None or flag_id not in flags([flag_id]).visible:
         raise contracts.FlagNotFoundError(flag_id)
-    words = suggestions.terms(label.key, label.name)
+    words = suggestions.search_terms(label.key, label.name)
     current = suggestions.releases_with_flag(team_id, flag_id)
     candidates: list[Release] = []
     if words:
