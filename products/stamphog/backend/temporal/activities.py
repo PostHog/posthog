@@ -79,6 +79,7 @@ from products.stamphog.backend.logic.decision_fingerprint import (
     decision_fingerprint,
     engine_package_digest,
 )
+from products.stamphog.backend.logic.deep_review import warrants_deep_review
 from products.stamphog.backend.logic.engine_pregate import (
     ENGINE_DIR,
     GateAttestation,
@@ -2115,13 +2116,14 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     # Right after the save wins: the GitHub steps below can still fail the activity, and the
     # outcome must not wait on them. Running it before the save would hand a stale refusal to
     # ReviewHog after a superseding delivery overrode it (a newer run might approve the same head).
+    request_deep_review = repo_config.deep_review_on_refusal and warrants_deep_review(parsed)
     _notify_finished_review(
         run,
         input.team_id,
         ReviewRunStatus(run.status),
-        request_external_review=is_refusal
-        and (repo_config.deep_review_on_refusal or trigger == ReviewTrigger.SELF_DRIVING.value),
-        request_deep_review=is_refusal and repo_config.deep_review_on_refusal,
+        request_external_review=request_deep_review or (is_refusal and trigger == ReviewTrigger.SELF_DRIVING.value),
+        request_deep_review=request_deep_review,
+        self_driving=trigger == ReviewTrigger.SELF_DRIVING.value,
     )
 
     # Close the merge-before-approval race only AFTER this run's APPROVED verdict is durably saved. If
@@ -2171,6 +2173,7 @@ def _notify_finished_review(
     *,
     request_external_review: bool = False,
     request_deep_review: bool = False,
+    self_driving: bool = False,
 ) -> None:
     """Tell the registered callbacks the outcome the run just saved. Called after the terminal save."""
     pull_request = run.pull_request
@@ -2186,6 +2189,7 @@ def _notify_finished_review(
         head_branch=pull_request.head_branch,
         request_external_review=request_external_review,
         request_deep_review=request_deep_review,
+        self_driving=self_driving,
     )
     for hook in get_finished_review_hooks():
         # A callback belongs to another product, and the outcome is already saved and posted.

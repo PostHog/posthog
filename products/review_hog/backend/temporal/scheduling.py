@@ -13,7 +13,6 @@ from posthog.temporal.common.client import async_connect
 from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, REVIEW_MODE_FULL
 from products.review_hog.backend.temporal.types import (
     TRIGGER_AUTOMATIC,
-    CompleteJoinedStamphogRequestsInput,
     ReviewPRQueueInputs,
     ReviewPRWorkflowInputs,
     SilentStamphogRequest,
@@ -22,7 +21,7 @@ from products.review_hog.backend.temporal.types import (
 
 SILENT_STAMPHOG_PATCH = "reviewhog-silent-stamphog-2026-11"
 STAMPHOG_REPORT_AFTER_TURN_PATCH = "reviewhog-stamphog-report-after-turn-2026-11"
-STAMPHOG_JOINED_REQUESTS_PATCH = "reviewhog-stamphog-joined-requests-2026-11"
+REVIEW_TURN_ID_PATCH = "reviewhog-review-turn-id-2026-11"
 
 
 async def request_silent_stamphog(request: ReviewPRWorkflowInputs, head_sha: str) -> None:
@@ -50,12 +49,11 @@ class ReviewRequestQueue:
     def __init__(self, active: ReviewPRWorkflowInputs | None = None) -> None:
         self.active = active
         self.pending: dict[str, ReviewPRWorkflowInputs] = {}
-        self.joined_refusals: dict[str, ReviewPRWorkflowInputs] = {}
 
     @staticmethod
     def _key(request: ReviewPRWorkflowInputs) -> str:
         if request.stamphog_review_run_id is not None:
-            return f"stamphog:{request.stamphog_review_run_id}"
+            return "stamphog"
         return TRIGGER_AUTOMATIC if request.trigger_source == TRIGGER_AUTOMATIC else request.review_mode
 
     def _same_turn(self, request: ReviewPRWorkflowInputs) -> bool:
@@ -66,19 +64,9 @@ class ReviewRequestQueue:
             and request.publish == active.publish
             and request.acting_user_id == active.acting_user_id
             and request.resolve_comments == active.resolve_comments
+            and (request.stamphog_review_run_id is not None) == (active.stamphog_review_run_id is not None)
             and (request.trigger_source == TRIGGER_AUTOMATIC) == (active.trigger_source == TRIGGER_AUTOMATIC)
         )
-
-    def _join_refusal(self, request: ReviewPRWorkflowInputs) -> bool:
-        if (
-            request.stamphog_review_run_id is not None
-            and request.requested_head_sha is not None
-            and request.review_mode == REVIEW_MODE_FULL
-            and self._same_turn(request)
-        ):
-            self.joined_refusals[request.stamphog_review_run_id] = request
-            return True
-        return False
 
     def add(self, request: ReviewPRWorkflowInputs) -> None:
         if self.active is not None:
@@ -89,8 +77,6 @@ class ReviewRequestQueue:
                 or request.head_branch != self.active.head_branch
             ):
                 return
-            if self._join_refusal(request):
-                return
             if request.stamphog_review_run_id is None and self._same_turn(request):
                 # The running turn reviews this head, but its own request can predate the PR being ready.
                 if request.marks_ready:
@@ -98,6 +84,14 @@ class ReviewRequestQueue:
                 return
         key = self._key(request)
         waiting = self.pending.get(key)
+        if (
+            waiting is not None
+            and request.stamphog_review_run_id is not None
+            and waiting.stamphog_review_run_id is not None
+            and request.stamphog_review_run_id < waiting.stamphog_review_run_id
+        ):
+            # Stamphog run IDs are UUIDv7: a delayed delivery must not replace a newer refusal.
+            return
         # A later request for the same head replaces the waiting one, but the PR stays ready for review.
         if waiting is not None and waiting.requested_head_sha == request.requested_head_sha and waiting.marks_ready:
             request = replace(request, marks_ready=True)
@@ -114,20 +108,13 @@ class ReviewRequestQueue:
         # Explicit requests take precedence over another automatic follow-up.
         keys = (
             REVIEW_MODE_FULL,
-            *(key for key in self.pending if key.startswith("stamphog:")),
+            "stamphog",
             REVIEW_MODE_FLASH,
             TRIGGER_AUTOMATIC,
         )
         key = next(key for key in keys if key in self.pending)
         self.active = self.pending.pop(key)
-        for key, request in list(self.pending.items()):
-            if self._join_refusal(request):
-                del self.pending[key]
         return self.active
-
-    def retry_joined(self, requests: list[ReviewPRWorkflowInputs]) -> None:
-        for request in requests:
-            self.pending[self._key(request)] = request
 
 
 @activity.defn
@@ -169,29 +156,6 @@ class ReviewPRQueueWorkflow:
     def requested_heads(self) -> dict[str, list[str | None]]:
         return self._requests.requested_heads()
 
-    async def _complete_joined_refusals(self, request: ReviewPRWorkflowInputs, report_id: str | None) -> None:
-        while self._requests.joined_refusals:
-            joined = list(self._requests.joined_refusals.values())
-            self._requests.joined_refusals.clear()
-            completed = False
-            if report_id and request.queue_turn_id is not None and request.requested_head_sha is not None:
-                completed = await workflow.execute_activity(
-                    "complete_joined_stamphog_requests_activity",
-                    CompleteJoinedStamphogRequestsInput(
-                        team_id=request.team_id,
-                        report_id=report_id,
-                        queue_turn_id=request.queue_turn_id,
-                        head_sha=request.requested_head_sha,
-                        request_ids=[
-                            item.stamphog_review_run_id for item in joined if item.stamphog_review_run_id is not None
-                        ],
-                    ),
-                    result_type=bool,
-                    start_to_close_timeout=timedelta(seconds=30),
-                )
-            if not completed:
-                self._requests.retry_joined(joined)
-
     async def _answer_ready_event(self, request: ReviewPRWorkflowInputs, *, turn_succeeded: bool) -> None:
         """Ask stamphog about the head of a ready event once the turn for it ended.
 
@@ -223,7 +187,7 @@ class ReviewPRQueueWorkflow:
         result = ""
         while self._requests.pending:
             request = self._requests.take()
-            if workflow.patched(STAMPHOG_JOINED_REQUESTS_PATCH):
+            if workflow.patched(REVIEW_TURN_ID_PATCH):
                 request = replace(request, queue_turn_id=str(workflow.uuid4()))
             while await workflow.execute_activity(
                 review_resolution_running_activity,
@@ -246,10 +210,8 @@ class ReviewPRQueueWorkflow:
                     retry_policy=RetryPolicy(maximum_attempts=2),
                 )
                 await self._answer_ready_event(request, turn_succeeded=True)
-                await self._complete_joined_refusals(request, result)
             except ChildWorkflowError:
                 await self._answer_ready_event(request, turn_succeeded=False)
-                await self._complete_joined_refusals(request, None)
                 if not self._requests.pending:
                     raise
                 workflow.logger.exception("Review failed; processing the next requested review")

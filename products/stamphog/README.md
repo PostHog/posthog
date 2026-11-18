@@ -296,12 +296,13 @@ Later pushes re-review through the normal webhook path via a positively identifi
 See [AGENTS.md](AGENTS.md) for the carve-out's invariants.
 
 **Deep review after a refusal.** A repository manager can set `deep_review_on_refusal` through the repository config API or MCP tools. It defaults to `false` and is independent of the review mode and clean-review trigger.
-When enabled, a final refusal or escalation requests a Deep PostHog Review, including size and restricted-path gate refusals and silent reviews.
-Waits, technical failures, superseded runs, and approvals do not request one.
-An earlier completed review does not suppress the request. An active Deep review absorbs a request for the same known head and publication settings; other requests wait in the queue.
-Each refusal can request a fresh turn, but retrying the same handoff cannot repeat a completed turn.
-The repository must already be connected to PostHog Review in the same canonical project. The PR owner's existing opt-in still governs automatic fixes.
-Repositories without this setting retain the self-driving handoff: Standard by default, Deep after a published Deep review, and no repeat for a head already pending or completed.
+It requests extra scrutiny when Stamphog refuses for size, restricted paths, tier limits, or structured risk findings. It does not aim to obtain approval or merge the PR.
+Concern-only refusals, waits, technical failures (including gate-attestation errors), superseded runs, and approvals do not qualify.
+A silent refusal can request an independent Deep review whose findings appear on GitHub; Stamphog's withheld verdict stays private.
+The queue keeps the newest pending refusal, waits for active reviews or fixes, and skips closed PRs and requests for an older head.
+A completed Deep review already covers its head. Otherwise, there is at most one automatic fallback attempt per head and two per PR, including failed attempts. Retries reuse the same turn; manual reviews remain available after the limit.
+The repository must already be connected to PostHog Review in the same canonical project. The PR owner's review-off and draft preferences and the `skip-agent-review` label are honored. Automatic fixes still require the owner's existing opt-in.
+This one-off Deep review does not upgrade later Standard reviews. Repositories without this setting retain the self-driving handoff: Standard by default, Deep after an explicitly requested Deep review, and no repeat for a head already pending or completed.
 
 ## Security model
 

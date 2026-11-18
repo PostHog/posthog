@@ -943,8 +943,7 @@ class TestWorkingState(BaseTest):
 
         assert load_chunk_set(team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa") is None
 
-    @parameterized.expand([(None,), ("refusal",)])
-    def test_perspective_results_round_trip_keyed_by_pass_chunk_and_arm(self, request_id: str | None) -> None:
+    def test_perspective_results_round_trip_keyed_by_pass_chunk_and_arm(self) -> None:
         results = {
             (1, 1): IssuesReview(issues=[_issue("1-1-1")]),
             (2, 1): IssuesReview(issues=[_issue("2-1-1")]),
@@ -968,12 +967,7 @@ class TestWorkingState(BaseTest):
             == {}
         )
         persist_perspective_results(
-            team_id=self.team.id,
-            report_id=self.report_id,
-            head_sha="sha-aaa",
-            results=results,
-            review_arm=FLASH_ARM,
-            stamphog_review_run_id=request_id,
+            team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa", results=results, review_arm=FLASH_ARM
         )
         stronger_arm = replace(FLASH_ARM, reasoning_effort=ReasoningEffort.XHIGH)
         assert (
@@ -1033,28 +1027,6 @@ class TestWorkingState(BaseTest):
         )
         assert set(stronger_results) == {(1, 1)}
         assert stronger_results[(1, 1)].issues[0].id == "1-1-xhigh"
-        assert (
-            load_perspective_results(
-                team_id=self.team.id,
-                report_id=self.report_id,
-                head_sha="sha-aaa",
-                review_arm=FLASH_ARM,
-                review_design=REVIEW_DESIGN_PIPELINE,
-                stamphog_review_run_id="another-refusal",
-            )
-            == {}
-        )
-        assert (
-            load_perspective_results(
-                team_id=self.team.id,
-                report_id=self.report_id,
-                head_sha="sha-aaa",
-                review_arm=FLASH_ARM,
-                review_design=REVIEW_DESIGN_PIPELINE,
-                stamphog_review_run_id=request_id,
-            )
-            == results
-        )
 
     def test_perspective_results_of_one_arm_stay_apart_by_design(self) -> None:
         # A Full turn and a single-agent Flash turn at one head can run on the same arm. Without the

@@ -168,10 +168,9 @@ from products.review_hog.backend.reviewer.skill_loader import (
     load_validation_skill_for_run,
 )
 from products.review_hog.backend.reviewer.stamphog_requests import (
-    complete_joined_stamphog_requests,
     finalize_stamphog_request,
+    refusal_review_skip_reason,
     resume_stamphog_turn,
-    stamphog_request_completed,
 )
 from products.review_hog.backend.reviewer.status_comment import (
     FinalizeStatusCommentInput,
@@ -251,7 +250,6 @@ from products.review_hog.backend.temporal.types import (
     TRIGGER_LABEL,
     TRIGGER_MANUAL,
     TRIGGER_STAMPHOG,
-    CompleteJoinedStamphogRequestsInput,
     FinishedStandardAutomaticTurn,
     SilentStamphogRequest,
 )
@@ -303,6 +301,7 @@ class FetchPRDataInput:
     review_mode: str = REVIEW_MODE_FULL
     stamphog_review_run_id: str | None = None
     queue_turn_id: str | None = None
+    requested_head_sha: str | None = None
 
 
 @dataclass(frozen=False)
@@ -334,6 +333,7 @@ class ReviewMeta:
     # self-skips the turn before any sandbox spend.
     empty_diff: bool = False
     already_completed: bool = False
+    refusal_skip_reason: str | None = None
     resume_publication: bool = False
     resume_urgency_threshold: str | None = None
     resume_marker: ReviewHogMarker | None = None
@@ -396,6 +396,7 @@ class ResolveActingUserInput:
     head_branch: str | None = None
     # Full in older payloads, which keeps them off the Flash-after-Full check below.
     review_mode: str = REVIEW_MODE_FULL
+    refusal_review: bool = False
 
 
 @dataclass(frozen=False)
@@ -419,6 +420,7 @@ class ResolveActingUserResult:
     # Whether the repository rules allow this automatic review. False for every other trigger. The
     # name predates the rules and stays, because recorded workflow histories carry it.
     review_authored_prs: bool = False
+    refusal_review_allowed: bool = True
     # Always the default effort. The field stays, because recorded workflow histories carry it.
     flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
     # The PR owner (`pr_owner.py`): the resolution stage runs under their criteria. None when the PR has no owner.
@@ -477,7 +479,6 @@ class SandboxStageInput:
     # Names the single-agent sessions' arms (`single_agent_arms`). Control on payloads from before the field.
     arm_set: str = field(default=CONTROL_ARM_SET, kw_only=True)
     devex_lens: bool = field(default=False, kw_only=True)
-    stamphog_review_run_id: str | None = field(default=None, kw_only=True)
 
 
 @dataclass
@@ -584,7 +585,7 @@ class BuildBodyInput:
     # idle write to publish so the report never reads at-rest with the post still in flight.
     # Defaulted False so pre-field payloads keep the finalize-goes-idle behavior.
     will_publish: bool = False
-    stamphog_review_run_id: str | None = None
+    queue_turn_id: str | None = None
 
 
 @dataclass(frozen=False)
@@ -601,6 +602,7 @@ class PublishInput:
     review_mode: str = REVIEW_MODE_FULL
     trigger_source: str = TRIGGER_MANUAL
     capped_lens_parts: int | None = None
+    queue_turn_id: str | None = None
 
 
 @dataclass
@@ -961,25 +963,29 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         signal_priority=ReportPriority(input.signal_priority) if input.signal_priority is not None else None,
         # A flash trigger never lifts: the lift rewrites the persisted arm, and the person asking for
         # the cheap review would raise what every later normal turn costs.
-        lift_tier_on_human_trigger=input.review_mode != REVIEW_MODE_FLASH,
+        lift_tier_on_human_trigger=input.review_mode != REVIEW_MODE_FLASH and input.stamphog_review_run_id is None,
     )
     # Read the report's watermark BEFORE persist_commit_snapshot advances it, so the parent can decide
     # whether this turn has anything to do. `published_head_sha == head_sha` means we already reviewed
     # and posted this exact head; new comments are surfaced for visibility but don't gate yet.
     report = ReviewReport.objects.for_team(input.team_id).get(id=report_id)
-    already_published = (
-        stamphog_request_completed(report, input.stamphog_review_run_id)
-        if input.stamphog_review_run_id is not None
-        else review_already_published(report, head_sha, input.review_mode)
-    )
+    already_published = review_already_published(report, head_sha, input.review_mode)
     already_completed = bool(head_sha) and report.automatic_reviewed_head_sha == head_sha
-    refusal_turn = (
-        resume_stamphog_turn(report, input.stamphog_review_run_id, input.queue_turn_id)
-        if input.stamphog_review_run_id is not None and not already_published
-        else None
-    )
+    refusal_turn = None
+    refusal_skip_reason = None
+    if input.stamphog_review_run_id is not None:
+        if input.queue_turn_id is None:
+            raise ValueError("A refusal review needs a durable turn identity")
+        refusal_turn = resume_stamphog_turn(report, input.queue_turn_id)
+        refusal_skip_reason = refusal_review_skip_reason(
+            report,
+            head_sha=head_sha,
+            requested_head_sha=input.requested_head_sha,
+            queue_turn_id=input.queue_turn_id,
+            pr_open=fetched.pr_metadata.state == "open",
+        )
     run_index = refusal_turn.run_index if refusal_turn is not None else report.run_count + 1
-    resume_publication = bool(refusal_turn is not None and refusal_turn.publishes and run_index <= report.run_count)
+    resume_publication = bool(refusal_turn is not None and refusal_turn.finalized_urgency_threshold is not None)
     max_comment_id = max((c.id for c in fetched.pr_comments if c.id is not None), default=None)
     new_comment_count = sum(
         1
@@ -1005,14 +1011,19 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
     lens_plan = plan_lens_chunks(fetched.pr_files) if single_agent else None
     # Checked on the fetched labels, because `gh pr create --label` adds labels after the `opened`
     # delivery, so the webhook payload can miss the label.
-    skip_agent_review = input.trigger_source == TRIGGER_AUTOMATIC and has_skip_agent_review_label(
-        fetched.pr_metadata.labels
-    )
+    skip_agent_review = (
+        input.trigger_source == TRIGGER_AUTOMATIC or input.stamphog_review_run_id is not None
+    ) and has_skip_agent_review_label(fetched.pr_metadata.labels)
     if skip_agent_review:
         observe_dispatch("label_skipped")
-    turn_skipped = already_published or (
-        input.trigger_source == TRIGGER_AUTOMATIC
-        and (already_completed or skip_agent_review or fetched.pr_metadata.state != "open")
+    turn_skipped = (
+        already_published
+        or bool(refusal_skip_reason)
+        or skip_agent_review
+        or (
+            input.trigger_source == TRIGGER_AUTOMATIC
+            and (already_completed or skip_agent_review or fetched.pr_metadata.state != "open")
+        )
     )
     if turn_skipped:
         ReviewReport.objects.for_team(input.team_id).filter(id=report_id).update(
@@ -1032,7 +1043,7 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         if devex_owned_files and pr_number is not None and devex_lens_on(input.repository, pr_number)
         else []
     )
-    if not resume_publication:
+    if not resume_publication and not (input.stamphog_review_run_id is not None and turn_skipped):
         persist_pr_snapshot(
             team_id=input.team_id,
             report_id=report_id,
@@ -1062,6 +1073,7 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         pr_url=pr_url,
         empty_diff=pr_number is None and not fetched.pr_files,
         already_completed=already_completed,
+        refusal_skip_reason=refusal_skip_reason,
         resume_publication=resume_publication,
         resume_urgency_threshold=(
             refusal_turn.finalized_urgency_threshold
@@ -1235,6 +1247,15 @@ def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResu
     defaults = ReviewPreferences.resolve({}, ReviewProjectSettings.load(input.team_id).defaults)
     preferences = defaults if borrowed else preferences_by_user[acting_user_id]
     owner_preferences = preferences_by_user[owner.user_id] if owner.user_id is not None else defaults
+    refusal_review_allowed = owner_preferences.default_review_mode != "off" and (
+        not input.draft or owner_preferences.review_drafts
+    )
+    if input.refusal_review and not refusal_review_allowed:
+        if input.report_id is not None:
+            ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(
+                status=ReviewReport.Status.IDLE
+            )
+        return ResolveActingUserResult(acting_user_id=None, refusal_review_allowed=False)
     resolution = ResolutionGate(owner_user_id=owner.user_id, owner_opted_in=owner_preferences.resolve_comments)
     return ResolveActingUserResult(
         acting_user_id=acting_user_id,
@@ -1248,6 +1269,7 @@ def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResu
         # it to "your pull requests". Only a PR without an owner falls back to the default.
         celebrate_clean_reviews=owner_preferences.celebrate_clean_reviews,
         review_authored_prs=automatic_allowed,
+        refusal_review_allowed=refusal_review_allowed,
         flash_reasoning_effort=ReasoningEffort.MEDIUM.value,
         owner_user_id=owner.user_id,
     )
@@ -1344,13 +1366,6 @@ async def record_turn_marker_activity(input: RecordTurnMarkerInput) -> ReviewHog
     Deep reviews require it to distinguish a fresh request from a retried handoff.
     """
     return await database_sync_to_async(_record_turn_marker_safe, thread_sensitive=False)(input)
-
-
-@activity.defn
-@scoped_temporal()
-@close_db_connections
-async def complete_joined_stamphog_requests_activity(input: CompleteJoinedStamphogRequestsInput) -> bool:
-    return await database_sync_to_async(complete_joined_stamphog_requests, thread_sensitive=False)(input)
 
 
 # --- Chunking --------------------------------------------------------------------------------------
@@ -1532,7 +1547,6 @@ def _prepare_review_prompt(
     blind_spot_check: bool,
     wave_perspectives: list[LoadedPerspectiveDTO],
     review_arm: ReviewArm,
-    stamphog_review_run_id: str | None = None,
 ) -> str | None:
     """Build the review prompt for one (perspective, chunk), or None if already reviewed this turn."""
     done = load_perspective_results(
@@ -1541,7 +1555,6 @@ def _prepare_review_prompt(
         head_sha=head_sha,
         review_arm=review_arm,
         review_design=REVIEW_DESIGN_PIPELINE,
-        stamphog_review_run_id=stamphog_review_run_id,
     )
     if (pass_number, chunk_id) in done:
         return None
@@ -1602,7 +1615,6 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
         input.blind_spot_check,
         input.wave_perspectives,
         arm,
-        stamphog_review_run_id=input.stamphog_review_run_id,
     )
     if prompt is None:
         return True
@@ -1641,7 +1653,6 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
         head_sha=input.head_sha,
         results={(input.pass_number, input.chunk_id): review},
         review_arm=arm,
-        stamphog_review_run_id=input.stamphog_review_run_id,
     )
     await _refresh_status_comment(input.team_id, input.report_id, input.review_mode)
     return True
@@ -1966,7 +1977,6 @@ def _combine_and_clean(
     review_design: str,
     arm_set: str,
     devex_lens: bool,
-    stamphog_review_run_id: str | None = None,
 ) -> list[Issue]:
     if review_design == REVIEW_DESIGN_SINGLE_AGENT:
         perspective_results = load_single_agent_results(
@@ -1984,7 +1994,6 @@ def _combine_and_clean(
             head_sha=head_sha,
             review_arm=review_arm,
             review_design=review_design,
-            stamphog_review_run_id=stamphog_review_run_id,
         )
     snapshot = load_pr_snapshot(team_id=team_id, report_id=report_id, head_sha=head_sha, review_design=review_design)
     pr_files = snapshot.pr_files if snapshot is not None else []
@@ -2073,7 +2082,6 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
         input.review_design,
         input.arm_set,
         input.devex_lens,
-        input.stamphog_review_run_id,
     )
     snapshot = await database_sync_to_async(load_pr_snapshot, thread_sensitive=False)(
         team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha, review_design=input.review_design
@@ -2369,9 +2377,11 @@ def _build_and_finalize(input: BuildBodyInput) -> None:
             urgency_threshold=input.urgency_threshold,
             will_publish=input.will_publish,
         )
-        if input.stamphog_review_run_id is not None:
+        if input.queue_turn_id is not None:
             report = ReviewReport.objects.for_team(input.team_id).get(id=input.report_id)
-            finalize_stamphog_request(report, input.stamphog_review_run_id, input.run_index, input.urgency_threshold)
+            finalize_stamphog_request(
+                report, input.queue_turn_id, input.run_index, input.head_sha, input.urgency_threshold
+            )
 
 
 @activity.defn
@@ -2409,6 +2419,7 @@ def _publish(input: PublishInput) -> PublishResult:
         installation_id=installation_id,
         review_mode=input.review_mode,
         capped_lens_parts=input.capped_lens_parts,
+        queue_turn_id=input.queue_turn_id,
         draft_notice=draft_notice,
         first_review_note=intro_note,
         answers_request=input.trigger_source in REQUESTED_TRIGGERS,

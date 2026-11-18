@@ -240,6 +240,7 @@ def _parse_rich(obj: dict) -> ReviewerVerdict:
         "gates": gates,
         "classification": obj.get("classification") or {},
         "policy": obj.get("policy") or {},
+        "reviewer_facts": reviewer.get("facts"),
     }
     return ReviewerVerdict(
         verdict=verdict,

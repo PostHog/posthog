@@ -289,7 +289,6 @@ class ReviewPerspectivesWorkflow:
                         skill_version=skill_version,
                         blind_spot_check=blind_spot_check,
                         wave_perspectives=wave_perspectives,
-                        stamphog_review_run_id=inputs.stamphog_review_run_id,
                     ),
                     start_to_close_timeout=_SANDBOX_TIMEOUT,
                     heartbeat_timeout=_SANDBOX_HEARTBEAT,
@@ -493,6 +492,7 @@ class ReviewPRWorkflow:
         )
 
         workflow.logger.info("STAGE 1/7 · Fetch PR data")
+        turn_id = inputs.queue_turn_id or (workflow.info().workflow_id if inputs.stamphog_review_run_id else None)
         meta: ReviewMeta = await workflow.execute_activity(
             fetch_pr_data_activity,
             FetchPRDataInput(
@@ -509,7 +509,8 @@ class ReviewPRWorkflow:
                 signal_priority=inputs.signal_priority,
                 review_mode=inputs.review_mode,
                 stamphog_review_run_id=inputs.stamphog_review_run_id,
-                queue_turn_id=inputs.queue_turn_id,
+                queue_turn_id=turn_id,
+                requested_head_sha=inputs.requested_head_sha,
             ),
             start_to_close_timeout=_FETCH_TIMEOUT,
             retry_policy=_RETRY,
@@ -532,6 +533,9 @@ class ReviewPRWorkflow:
                 f"Review already published for {repository} {target} at {head_sha[:12]}; "
                 f"nothing changed this turn ({meta.new_comment_count} new comment(s), not yet acted on) — skipping"
             )
+            return report_id
+        if meta.refusal_skip_reason:
+            workflow.logger.info("Refusal review skipped: %s", meta.refusal_skip_reason)
             return report_id
         if meta.empty_diff:
             workflow.logger.info(
@@ -577,10 +581,14 @@ class ReviewPRWorkflow:
                 pr_number=meta.pr_number,
                 head_branch=branch,
                 review_mode=inputs.review_mode,
+                refusal_review=inputs.stamphog_review_run_id is not None,
             ),
             start_to_close_timeout=_QUICK_TIMEOUT,
             retry_policy=_RETRY,
         )
+        if inputs.stamphog_review_run_id is not None and not acting.refusal_review_allowed:
+            workflow.logger.info("Refusal review skipped: the author opted out")
+            return report_id
         if acting.acting_user_id is None:
             workflow.logger.info(
                 f"PR author '{meta.author_login}' is not a PostHog org user on team {inputs.team_id}; "
@@ -589,7 +597,7 @@ class ReviewPRWorkflow:
             return report_id
         # Trigger-aware opt-outs, read off the resolve-time settings snapshot (mid-run edits can't
         # flip gates). Inbox re-checks the receiver-side gate here for snapshot-at-resolve
-        # consistency. A Stamphog handoff and manual stay ungated.
+        # consistency. Legacy self-driving handoffs and manual requests keep their existing policy.
         # Histories that carry the patch marker replay with deprecate_patch; delete it once those runs drain.
         workflow.deprecate_patch("reviewhog-label-always-runs-2026-10")
         if inputs.trigger_source == TRIGGER_INBOX and not acting.review_inbox_prs:
@@ -755,7 +763,7 @@ class ReviewPRWorkflow:
                                 arm_set=meta.arm_set,
                                 devex_lens=devex_lens,
                                 stamphog_review_run_id=inputs.stamphog_review_run_id,
-                                queue_turn_id=inputs.queue_turn_id,
+                                queue_turn_id=turn_id,
                             ),
                             start_to_close_timeout=_QUICK_TIMEOUT,
                             retry_policy=_RETRY,
@@ -780,7 +788,6 @@ class ReviewPRWorkflow:
                     delta_since_head_sha=delta_since_head_sha,
                     arm_set=meta.arm_set,
                     devex_lens=devex_lens,
-                    stamphog_review_run_id=inputs.stamphog_review_run_id,
                 )
 
                 # The patch keeps a history from before the coordinator existed on separate sessions when it replays.
@@ -841,7 +848,7 @@ class ReviewPRWorkflow:
                         urgency_threshold=urgency_threshold,
                         # Publishing runs stay ACTIVE through stage 7; publish/failure return them to rest.
                         will_publish=publishes_to_pr,
-                        stamphog_review_run_id=inputs.stamphog_review_run_id,
+                        queue_turn_id=turn_id if inputs.stamphog_review_run_id else None,
                     ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
                     retry_policy=_RETRY,
@@ -857,6 +864,7 @@ class ReviewPRWorkflow:
                         report_id=report_id,
                         head_sha=head_sha,
                         run_index=meta.run_index,
+                        queue_turn_id=turn_id if inputs.stamphog_review_run_id else None,
                         owner=inputs.owner,
                         repo=inputs.repo,
                         # The resolved destination: the input PR, or the open PR fetch discovered
@@ -1256,7 +1264,6 @@ class ReviewPRWorkflow:
                 flash_reasoning_effort=stage.flash_reasoning_effort,
                 chunk_ids=chunk_ids,
                 acting_user_id=acting_user_id,
-                stamphog_review_run_id=stage.stamphog_review_run_id,
             ),
             id=f"{workflow.info().workflow_id}/review",
             retry_policy=_RETRY,

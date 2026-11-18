@@ -167,9 +167,10 @@ class CodeReviewApprovalRepositorySerializer(DataclassSerializer):
             "deep_review_on_refusal": {
                 "read_only": True,
                 "help_text": (
-                    "Whether a final Stamphog refusal or escalation requests a Deep PostHog Review, including "
-                    "size and restricted-path refusals. Completed reviews do not suppress it; an active Deep "
-                    "review does. Waits, errors and superseded runs do not trigger it. Defaults to false."
+                    "Whether size, restricted-path, tier or risk refusals request extra Deep PostHog Review scrutiny. "
+                    "At most one automatic attempt per head and two per PR; a completed Deep review covers its head. "
+                    "Honors author opt-outs and skip-agent-review. Silent refusals may trigger published findings. "
+                    "Concern-only refusals and technical failures do not qualify. Defaults to false."
                 ),
             },
             "provider": {
@@ -943,9 +944,10 @@ class CodeReviewApprovalRepositoryWriteSerializer(serializers.Serializer):
     deep_review_on_refusal = serializers.BooleanField(
         required=False,
         help_text=(
-            "Whether a final Stamphog refusal or escalation requests a Deep PostHog Review, including "
-            "size and restricted-path refusals. Completed reviews do not suppress it; an active Deep "
-            "review does. Waits, errors and superseded runs do not trigger it. Defaults to false."
+            "Whether size, restricted-path, tier or risk refusals request extra Deep PostHog Review scrutiny. "
+            "At most one automatic attempt per head and two per PR; a completed Deep review covers its head. "
+            "Honors author opt-outs and skip-agent-review. Silent refusals may trigger published findings. "
+            "Concern-only refusals and technical failures do not qualify. Defaults to false."
         ),
     )
 

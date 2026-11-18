@@ -9,7 +9,11 @@ from django.db import transaction
 from posthog.egress.github.transport import GitHubRateLimitError
 
 from products.review_hog.backend.models import ReviewReport
-from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
+from products.review_hog.backend.reviewer.artefact_content import (
+    ReviewIssueFinding,
+    TurnMarkerArtefact,
+    ValidationVerdict,
+)
 from products.review_hog.backend.reviewer.constants import (
     LEGACY_FLASH_MODE_MESSAGE_PREFIX,
     REVIEW_MODE_FLASH,
@@ -30,11 +34,7 @@ from products.review_hog.backend.reviewer.persistence import (
     load_valid_findings,
 )
 from products.review_hog.backend.reviewer.review_state import published_heads_by_mode, review_already_published
-from products.review_hog.backend.reviewer.stamphog_requests import (
-    complete_stamphog_request,
-    stamphog_request_completed,
-    stamphog_request_for_turn,
-)
+from products.review_hog.backend.reviewer.stamphog_requests import complete_review_turn, publication_turn
 from products.review_hog.backend.reviewer.status_comment import large_pr_note, render_review_summary
 from products.review_hog.backend.reviewer.tools.github_client import (
     GitHubAPIError,
@@ -105,6 +105,7 @@ def publish_persisted_review(
     first_review_note: str = "",
     comment_commands_on: bool = False,
     answers_request: bool = False,
+    queue_turn_id: str | None = None,
 ) -> PublishOutcome:
     """Publish an already-computed review for `report_id` at `head_sha`, idempotently.
 
@@ -125,15 +126,20 @@ def publish_persisted_review(
     `answers_request` is set when a person asked for this turn (see `publish_review`).
     """
     report = ReviewReport.objects.for_team(team_id).get(id=report_id)
-    request_id = stamphog_request_for_turn(report, run_index)
+    turn = publication_turn(report, run_index, head_sha, queue_turn_id)
+    if queue_turn_id is not None and turn is None:
+        raise ValueError("The review's turn identity no longer owns this publication")
+    marker_content = TurnMarkerArtefact.model_validate_json(turn.content) if turn is not None else None
+    fallback = marker_content is not None and marker_content.stamphog_review_run_id is not None
     already_published = (
-        stamphog_request_completed(report, request_id)
-        if request_id is not None
+        bool(marker_content and marker_content.publication_completed)
+        or (report.published_head_shas or {}).get(str(run_index)) == head_sha
+        if fallback
         else review_already_published(report, head_sha, review_mode)
     )
     if already_published:
         if (report.published_head_shas or {}).get(str(run_index)) == head_sha:
-            complete_stamphog_request(report, run_index, required=request_id is not None)
+            complete_review_turn(report, run_index, head_sha, queue_turn_id)
         logger.info(f"Review for {owner}/{repo}#{pr_number} already published at {head_sha}; skipping")
         _mark_report_idle(team_id, report_id)
         return PublishOutcome(posted=False)
@@ -167,7 +173,6 @@ def publish_persisted_review(
         answers_request=answers_request,
         budget_note=budget_note(over_budget, comment_commands_on) if over_budget else "",
         round_note=round_note(review_round) if review_round.asks_for_a_rethink else "",
-        request_id=request_id,
     )
     if outcome.posted:
         if report.outcomes_emitted_at is not None:
@@ -189,7 +194,11 @@ def publish_persisted_review(
         # other's mode watermark. Nothing slow runs inside the lock — the posting is already done.
         with transaction.atomic():
             locked = ReviewReport.objects.for_team(team_id).select_for_update().get(id=report_id)
-            locked.published_heads_by_mode = {**published_heads_by_mode(locked), review_mode: head_sha}
+            # A bounded fallback adds scrutiny without opting the PR out of later Standard reviews.
+            locked.published_heads_by_mode = {
+                **published_heads_by_mode(locked),
+                **({} if fallback else {review_mode: head_sha}),
+            }
             locked.published_head_sha = head_sha
             # Recorded per turn, never overwritten: this turn posted only its own findings, so an
             # earlier turn's threshold stays the truth about what that turn put on the PR.
@@ -215,19 +224,17 @@ def publish_persisted_review(
             )
     else:
         _mark_report_idle(team_id, report_id)
-    complete_stamphog_request(report, run_index, required=request_id is not None)
+    complete_review_turn(report, run_index, head_sha, queue_turn_id)
     return outcome
 
 
-def _review_marker(report_id: str, head_sha: str, review_mode: str | None = None, request_id: str | None = None) -> str:
+def _review_marker(report_id: str, head_sha: str, review_mode: str | None = None) -> str:
     """A hidden marker (HTML comment) embedded in the review body for publish idempotency.
 
     Posting isn't atomic with saving the `published_head_sha` watermark; if we crash between them, the
     marker lets the retry spot its own already-posted review and skip.
     """
     suffix = f":{review_mode}" if review_mode is not None else ""
-    if request_id is not None:
-        suffix += f":{request_id}"
     return f"<!-- reviewhog:published:{report_id}:{head_sha}{suffix} -->"
 
 
@@ -278,7 +285,6 @@ def publish_review(
     budget_note: str = "",
     round_note: str = "",
     answers_request: bool = False,
-    request_id: str | None = None,
 ) -> PublishOutcome:
     """Publish the review to GitHub: the stored body plus inline comments from the durable rows.
 
@@ -312,7 +318,7 @@ def publish_review(
     logger.info(f"Publishing review for {owner}/{repo}#{pr_number}")
 
     report = ReviewReport.objects.for_team(team_id).get(id=report_id)
-    marker = _review_marker(report_id, head_sha, review_mode, request_id)
+    marker = _review_marker(report_id, head_sha, review_mode)
     standard = review_mode == REVIEW_MODE_FLASH
     large_pr_parts = capped_lens_parts if standard else None
     # `footer` closes the review whichever body posts, so the inline-only body keeps it too.
@@ -391,7 +397,7 @@ def publish_review(
         marker=marker,
         installation_id=installation_id,
         inline_body=inline_body,
-        legacy_marker=_review_marker(report_id, head_sha) if request_id is None else None,
+        legacy_marker=_review_marker(report_id, head_sha),
         review_mode=review_mode,
     )
     return PublishOutcome(posted=True, review_url=review_url)

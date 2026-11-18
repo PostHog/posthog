@@ -64,6 +64,7 @@ def process_stamphog_handoff(
     head_branch: str,
     stamphog_review_run_id: str | None = None,
     stamphog_team_id: int | None = None,
+    self_driving: bool = False,
 ) -> None:
     StamphogHandoff(
         repository=repository,
@@ -73,6 +74,7 @@ def process_stamphog_handoff(
         head_branch=head_branch,
         stamphog_review_run_id=stamphog_review_run_id,
         stamphog_team_id=stamphog_team_id,
+        self_driving=self_driving,
     ).start()
 
 

@@ -7,7 +7,8 @@ save. The callback queues a Celery task, and the task starts the review here.
   A repository's Deep opt-in only applies within that same canonical project.
 - It runs as the pull request owner (`pr_owner.py`). Without an owner it runs as the person who
   connected the installation, with default settings and no resolution.
-- Opted-in repositories request Deep even after a completed review. The queue joins an active Deep turn.
+- Opted-in repositories request bounded Deep scrutiny, unless Deep already reviewed the head.
+- The queue waits for active work; the turn rechecks the live head, opt-outs, and attempt budget.
 - Other self-driving handoffs keep their existing mode and skip pending or completed reviews.
 """
 
@@ -67,6 +68,7 @@ class StamphogHandoff:
     head_branch: str
     stamphog_review_run_id: str | None = None
     stamphog_team_id: int | None = None
+    self_driving: bool = False
 
     def start(self) -> None:
         # The temporal package registers the activities, which pull in the sandbox runtime.
@@ -85,21 +87,26 @@ class StamphogHandoff:
             _observe("repository_not_added")
             return
         team_id = owner.team_id
-        if self.stamphog_review_run_id is not None and (
+        deep_request = self.stamphog_review_run_id
+        if deep_request is not None and (
             self.stamphog_team_id is None
             or resolve_effective_team_id(self.stamphog_team_id) != resolve_effective_team_id(team_id)
         ):
-            _observe("project_mismatch")
-            return
+            if not self.self_driving:
+                _observe("project_mismatch")
+                return
+            deep_request = None
         if not IntegrationManager.github.oauth.exists(team_id, external_id=owner.installation_id):
             _observe("integration_missing")
             return
         # A lookup that fails raises, so the task retries instead of reading an outage as "no review".
-        if self.stamphog_review_run_id is None:
-            status = HeadReviewStatusLookup(team_id, self.repository, self.pr_number, self.head_sha).status()
-            if status is not None and status.state in (HeadReviewState.PENDING, HeadReviewState.COMPLETED):
-                _observe("head_already_reviewed")
-                return
+        status = HeadReviewStatusLookup(team_id, self.repository, self.pr_number, self.head_sha).status()
+        if status is not None and (
+            (deep_request is None and status.state in (HeadReviewState.PENDING, HeadReviewState.COMPLETED))
+            or (status.state == HeadReviewState.COMPLETED and status.review_kind == "Deep")
+        ):
+            _observe("head_already_reviewed")
+            return
         pr_owner = PullRequestOwnerResolver.resolve(
             team_id, repository=self.repository, author_login=self.author_login, head_branch=self.head_branch
         )
@@ -109,7 +116,7 @@ class StamphogHandoff:
             return
         github_owner, _, github_repo = self.repository.partition("/")
         # The busy-guard (CONTEXT.md): a review waits until this PR's resolution run is done.
-        if self.stamphog_review_run_id is None and workflow_running(
+        if deep_request is None and workflow_running(
             resolve_pr_workflow_id(team_id=team_id, owner=github_owner, repo=github_repo, pr_number=self.pr_number)
         ):
             _observe("resolution_running")
@@ -121,7 +128,7 @@ class StamphogHandoff:
         )
         review_mode = (
             REVIEW_MODE_FULL
-            if self.stamphog_review_run_id is not None
+            if deep_request is not None
             else trigger_review_mode(team_id, self.repository, self.pr_number)
         )
         start_review_pr_workflow(
@@ -132,10 +139,10 @@ class StamphogHandoff:
             trigger_source=TRIGGER_STAMPHOG,
             review_mode=review_mode,
             requested_head_sha=self.head_sha,
-            stamphog_review_run_id=self.stamphog_review_run_id,
+            stamphog_review_run_id=deep_request,
         )
         # Standard is excluded for the same reason as on the comment path: the lift rewrites the
         # persisted arm, so the cheaper review must not raise what later turns cost.
-        if joins_running_review and review_mode == REVIEW_MODE_FULL:
+        if joins_running_review and review_mode == REVIEW_MODE_FULL and deep_request is None:
             lift_review_tier_for_joined_trigger(team_id=team_id, repository=self.repository, pr_number=self.pr_number)
         _observe("started")

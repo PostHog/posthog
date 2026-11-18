@@ -53,32 +53,36 @@ def _pr_metadata() -> PRMetadata:
 class TestFetchDecidesTheTier(BaseTest):
     @parameterized.expand(
         [
-            ("new_refusal", "new", 1, True, False, 2, False, False),
-            ("completed_refusal_retry", "old", 1, True, True, 2, False, False),
-            ("joined_refusal_retry", "joined", 1, True, True, 2, False, False),
-            ("unfinished_refusal_retry", "old", 0, False, False, 1, False, False),
-            ("failed_publish_retry", "old", 1, False, False, 1, True, False),
-            ("ordinary_review", None, 1, True, True, 2, False, False),
-            ("replaced_turn", "old", 1, False, False, 2, False, True),
+            ("new", "none", None, "new-turn", None),
+            ("completed_deep", "manual", "full", "new-turn", "head_already_reviewed"),
+            ("completed_standard", "manual", "flash", "new-turn", None),
+            ("duplicate_refusal", "completed", "full", "new-turn", "head_already_attempted"),
+            ("failed_refusal", "failed", "full", "new-turn", "head_already_attempted"),
+            ("activity_retry", "failed", "full", "old-turn", None),
+            ("workflow_retry", "finalized", "full", "old-turn", None),
+            ("completed_retry", "completed", "full", "old-turn", "completed"),
+            ("budget", "budget", "full", "new-turn", "pr_budget_exhausted"),
+            ("reused_index", "replaced", "full", "old-turn", "head_already_attempted"),
+            ("closed", "closed", None, "new-turn", "closed"),
+            ("stale", "stale", None, "new-turn", "superseded"),
+            ("label", "label", None, "new-turn", None),
         ]
     )
     @patch(f"{_MODULE}._installation_auth", return_value=("tok", None))
     @patch(f"{_MODULE}.PRFetcher")
-    def test_refusal_can_repeat_a_completed_deep_review_once(
+    def test_refusal_reviews_are_bounded_by_head_and_turn(
         self,
         _name: str,
-        request_id: str | None,
-        completed_turns: int,
-        published: bool,
-        expected_skip: bool,
-        expected_run_index: int,
-        expected_resume: bool,
-        replaced: bool,
+        prior: str,
+        mode: str | None,
+        turn_id: str,
+        expected_skip: str | None,
         fetcher: MagicMock,
         _auth: MagicMock,
     ) -> None:
+        metadata = _pr_metadata()
         fetcher.return_value.fetch_pr_data.return_value = FetchedPR(
-            pr_metadata=_pr_metadata(), pr_comments=[], pr_files=[], diff=""
+            pr_metadata=metadata, pr_comments=[], pr_files=[], diff=""
         )
         request = FetchPRDataInput(
             team_id=self.team.id,
@@ -88,45 +92,59 @@ class TestFetchDecidesTheTier(BaseTest):
             repo="r",
             pr_number=9,
             trigger_source="stamphog",
+            requested_head_sha="sha1",
+            queue_turn_id=turn_id,
         )
         first = _fetch_and_persist(request)
-        ReviewReport.objects.for_team(self.team.id).filter(id=first.report_id).update(
-            published_heads_by_mode={"full": "sha1"},
-            run_count=completed_turns,
-            completed_head_sha="sha1" if completed_turns else None,
-            run_urgency_threshold="must_fix",
-        )
-        marker = ReviewReportArtefact.add_turn_marker(
-            team_id=self.team.id,
-            report_id=first.report_id,
-            content=TurnMarkerArtefact(
-                head_sha="sha1",
+        if mode:
+            content = TurnMarkerArtefact(
+                head_sha="sha1" if prior != "budget" else "old-head",
                 run_index=1,
-                review_mode="full",
+                review_mode=mode,
                 reviewhog_version="test",
                 reviewhog_fingerprint="test",
-                stamphog_review_run_id="old",
-                stamphog_review_completed=published,
-                joined_stamphog_review_run_ids=["joined"],
+                stamphog_review_run_id=None if prior == "manual" else "old-refusal",
+                publication_completed=prior in ("manual", "completed"),
+                queue_turn_id="old-turn",
                 publishes=True,
-            ),
-            attribution=ArtefactAttribution.system(),
-        )
-        if replaced:
-            content = TurnMarkerArtefact.model_validate_json(marker.content)
+                finalized_urgency_threshold="must_fix" if prior == "finalized" else None,
+            )
             ReviewReportArtefact.add_turn_marker(
                 team_id=self.team.id,
                 report_id=first.report_id,
-                content=content.model_copy(update={"stamphog_review_run_id": None}),
+                content=content,
                 attribution=ArtefactAttribution.system(),
             )
+            if prior in ("budget", "replaced"):
+                ReviewReportArtefact.add_turn_marker(
+                    team_id=self.team.id,
+                    report_id=first.report_id,
+                    content=content.model_copy(
+                        update={
+                            "queue_turn_id": "another-turn",
+                            "head_sha": "older-head" if prior == "budget" else "sha1",
+                            "stamphog_review_run_id": "another-refusal" if prior == "budget" else None,
+                        }
+                    ),
+                    attribution=ArtefactAttribution.system(),
+                )
+            if prior in ("finalized", "completed", "manual"):
+                ReviewReport.objects.for_team(self.team.id).filter(id=first.report_id).update(run_count=1)
+        if prior == "closed":
+            metadata.state = "closed"
+        if prior == "stale":
+            metadata.head_sha = "sha2"
+        if prior == "label":
+            metadata.labels = ["Skip-Agent-Review"]
 
-        result = _fetch_and_persist(replace(request, stamphog_review_run_id=request_id))
+        result = _fetch_and_persist(replace(request, stamphog_review_run_id="new-refusal"))
 
-        assert result.already_published is expected_skip
-        assert result.run_index == expected_run_index
-        assert result.resume_publication is expected_resume
-        assert result.resume_urgency_threshold == ("must_fix" if expected_resume else None)
+        assert result.refusal_skip_reason == expected_skip
+        assert result.skip_agent_review is (prior == "label")
+        assert result.resume_publication is (prior == "finalized")
+        if prior == "finalized":
+            assert result.run_index == 1
+            assert result.resume_urgency_threshold == "must_fix"
 
     @parameterized.expand([("same_head", 1, "sha1"), ("new_head", 1, "sha2"), ("later_turn", 2, "sha2")])
     @patch(f"{_MODULE}._installation_auth", return_value=("tok", None))
@@ -147,7 +165,8 @@ class TestFetchDecidesTheTier(BaseTest):
             pr_number=9,
             trigger_source="stamphog",
             stamphog_review_run_id="refusal",
-            queue_turn_id="retry-queue",
+            queue_turn_id="original-queue",
+            requested_head_sha="sha1",
         )
         first = _fetch_and_persist(request)
         ReviewReportArtefact.add_turn_marker(
@@ -174,7 +193,7 @@ class TestFetchDecidesTheTier(BaseTest):
                 issue_ids=[],
                 urgency_threshold="must_fix",
                 will_publish=True,
-                stamphog_review_run_id="refusal",
+                queue_turn_id="original-queue",
             )
         )
         ReviewReport.objects.for_team(self.team.id).filter(id=first.report_id).update(
@@ -185,6 +204,7 @@ class TestFetchDecidesTheTier(BaseTest):
 
         result = _fetch_and_persist(request)
 
+        assert result.refusal_skip_reason == (None if live_head == "sha1" else "superseded")
         assert result.resume_publication is True
         assert result.run_index == 1
         assert result.head_sha == "sha1"
@@ -194,7 +214,7 @@ class TestFetchDecidesTheTier(BaseTest):
         marker = ReviewReportArtefact.objects.for_team(self.team.id).get(
             report_id=first.report_id, type=ReviewReportArtefact.ArtefactType.TURN_MARKER
         )
-        assert TurnMarkerArtefact.model_validate_json(marker.content).queue_turn_id == "retry-queue"
+        assert TurnMarkerArtefact.model_validate_json(marker.content).queue_turn_id == "original-queue"
         snapshot = load_pr_snapshot(team_id=self.team.id, report_id=first.report_id, head_sha="sha1")
         assert snapshot is not None
         assert snapshot.pr_metadata.title != "Changed after finalization"

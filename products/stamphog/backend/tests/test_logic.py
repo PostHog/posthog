@@ -21,6 +21,7 @@ from products.stamphog.backend.logic.approval_retention import approved_diff_unc
 from products.stamphog.backend.logic.attestation_pins import get_check_runs_with_pins
 from products.stamphog.backend.logic.audiences import resolve_audiences
 from products.stamphog.backend.logic.decision_fingerprint import decision_fingerprint
+from products.stamphog.backend.logic.deep_review import warrants_deep_review
 from products.stamphog.backend.logic.digest import DigestPRSummary, DigestSummary, _build_selection_prompt
 from products.stamphog.backend.logic.digest_config import RepoDigestConfig, load_repo_digest_config
 from products.stamphog.backend.logic.familiarity_facts import FamiliarityStatus, ReviewHistory, fetch_review_history
@@ -58,6 +59,55 @@ T = TypeVar("T")
 
 
 class ParseReviewerOutputTests(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("size", "REFUSED", "size", False, False, None, True),
+            ("restricted", "REFUSED", "deny-list", False, False, None, True),
+            ("tier", "REFUSED", "tier", False, False, None, True),
+            ("prerequisite", "REFUSED", "prerequisites", False, False, None, False),
+            ("risk", "ESCALATE", None, True, False, None, True),
+            ("risk_and_concern", "REFUSED", None, True, True, None, True),
+            ("concern_only", "REFUSED", None, False, True, None, False),
+            ("invalid_facts", "ESCALATE", None, True, False, "invalid_facts", False),
+            ("attestation_failure", "ESCALATE", "size", True, False, "error", False),
+            ("wait", "WAIT", "size", True, False, None, False),
+            ("error", "ERROR", "size", True, False, None, False),
+            ("approval", "APPROVED", None, True, False, None, False),
+        ]
+    )
+    def test_deep_review_eligibility(
+        self,
+        _name: str,
+        final: str,
+        gate: str | None,
+        risky: bool,
+        concern: bool,
+        failure: str | None,
+        expected: bool,
+    ) -> None:
+        facts = {
+            "risky_areas": ["Changes transaction boundaries"] if risky else [],
+            "reviews_on_current_head": [],
+            "owning_team_author": False,
+            "strong_familiarity": False,
+            "unresolved_substantive_concerns": ["Handle absent values"] if concern else [],
+            "other_refusal_grounds": [],
+        }
+        if failure == "invalid_facts":
+            del facts["owning_team_author"]
+        verdict = parse_reviewer_output(
+            json.dumps(
+                {
+                    "final_verdict": final,
+                    "gates": [{"gate": gate, "passed": False}] if gate else [],
+                    "reviewer": {"facts": facts},
+                }
+            )
+        )
+        if failure == "error":
+            verdict.gate_result["attestation"] = {"reason": "error"}
+        assert warrants_deep_review(verdict) is expected
+
     def test_parses_rich_final_verdict_contract(self) -> None:
         raw = (
             '{"stamphog_version": "2.0.0b1", "final_verdict": "APPROVED", '

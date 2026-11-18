@@ -1010,12 +1010,14 @@ The Stamphog handoff queues `process_stamphog_handoff`, which finds the project 
 The per-repository `deep_review_on_refusal` opt-in requires Stamphog and ReviewHog to use the same canonical project; the existing self-driving policy can cross projects.
 The review runs as the PR owner, else as the user who connected the installation (`Integration.created_by`) with default settings and no resolution.
 A running resolution drops a default self-driving handoff; opted-in refusals wait in the queue.
-An opted-in refusal joins a Deep turn only for the same known head and publication settings.
-The queue records joined refusal identities against that turn's completed publication marker, including clean results, so redelivery cannot start another review.
-A refusal retry reuses its unfinished turn index. After finalization it resumes publication from the saved findings, diff snapshot, and urgency threshold, without repeating analysis or deduplication.
-Finalization saves the threshold and turn watermark atomically.
-A resumed turn keeps its original head and updates its queue identity for joined refusals.
-A failed or skipped turn leaves joined refusals queued for their own review. Human requests keep their own identity.
+The opted-in handoff adds scrutiny for size, restricted-path, tier, and structured-risk refusals, including silent refusals; it does not promise approval or merge.
+One pending fallback holds the newest Stamphog run (UUIDv7 order), so delayed delivery cannot replace it with an older refusal. Manual requests keep their own queue entry.
+Before analysis, the turn skips closed PRs, superseded heads, the `skip-agent-review` label, and the owner's review-off or draft opt-out. The owner's resolution preference still governs fixes.
+A completed Deep review covers its head. Automatic fallback attempts are limited to one per head and two per PR, including failed attempts; activity and workflow retries keep their queue UUID.
+The UUID and head must still own the latest turn marker at its run index. A reused index cannot adopt another turn's snapshot or publication state.
+After finalization, retries resume publication from saved findings, diff snapshot, and urgency threshold, without repeating analysis or deduplication. Finalization saves the threshold and turn watermark atomically.
+Completed publication, including a clean result, is recorded on the turn marker. A fallback updates per-turn publication watermarks but does not set the persistent Full watermark or lift the review tier, so later automatic Standard reviews remain enabled.
+A canonical-project mismatch skips the repository opt-in while preserving the original self-driving policy.
 Counters: `posthog_review_hog_authored_pr_review_total` and `posthog_review_hog_stamphog_handoff_total`, keyed by outcome.
 `facade/github.py::owning_team_id(installation_id, repository)` answers the same ownership question for other products, for example a PR comment command dispatcher.
 The UI and MCP paths are one surface: the viewset carries the grantable `code_review` scope (`code_review:read` for list /

@@ -173,7 +173,7 @@ narrow:
   the gate, and the App's machine user is not a collaborator (the permission lookup would always
   deny). `review_mode` keeps governing human PRs only.
 - A refused or escalated verdict requests an external review for these runs, or when the repository has opted into `deep_review_on_refusal`. `[review]`
-  The repository opt-in requests Deep for every final refusal, including gate refusals; waits and failures do not qualify.
+  The repository opt-in requests Deep for size, restricted-path, tier, or structured-risk refusals; concern-only refusals, waits, and technical failures do not qualify.
   Without the opt-in, the derived `ReviewTrigger` keeps the self-driving handoff aligned with the reviewer prompt.
 
 ## Bot admission (the other exception to the bot-author refusal)

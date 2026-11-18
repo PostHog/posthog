@@ -14,7 +14,6 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.review_hog.backend.temporal.scheduling import ReviewPRQueueWorkflow, ReviewRequestQueue
 from products.review_hog.backend.temporal.types import (
-    CompleteJoinedStamphogRequestsInput,
     ReviewPRQueueInputs,
     ReviewPRWorkflowInputs,
     SilentStamphogRequest,
@@ -35,84 +34,9 @@ class ScheduledReviewStub:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("covered,failed", [(True, False), (False, False), (False, True)])
-async def test_joined_refusals_complete_with_the_covering_turn_or_retry(covered: bool, failed: bool) -> None:
-    entered = asyncio.Event()
-    release = asyncio.Event()
-    reviews: list[ReviewPRWorkflowInputs] = []
-    completions: list[CompleteJoinedStamphogRequestsInput] = []
-    first = ReviewPRWorkflowInputs(
-        team_id=1,
-        user_id=1,
-        owner="PostHog",
-        repo="posthog",
-        pr_number=7,
-        requested_head_sha="a",
-        publish=True,
-        trigger_source="ui",
-    )
-
-    @activity.defn(name="record_scheduled_review")
-    async def record(inputs: ReviewPRWorkflowInputs) -> str:
-        reviews.append(inputs)
-        if inputs.stamphog_review_run_id is None:
-            entered.set()
-            await release.wait()
-            if failed:
-                raise ApplicationError("Review unavailable", non_retryable=True)
-        return "report"
-
-    @activity.defn(name="review_resolution_running_activity")
-    async def resolution_running(inputs: ReviewPRWorkflowInputs) -> bool:
-        return False
-
-    @activity.defn(name="complete_joined_stamphog_requests_activity")
-    async def complete(inputs: CompleteJoinedStamphogRequestsInput) -> bool:
-        completions.append(inputs)
-        return covered
-
-    async with await WorkflowEnvironment.start_time_skipping() as env:
-        queue = str(uuid.uuid4())
-        async with Worker(
-            env.client,
-            task_queue=queue,
-            workflows=[ReviewPRQueueWorkflow, ScheduledReviewStub],
-            activities=[record, resolution_running, complete],
-            workflow_runner=UnsandboxedWorkflowRunner(),
-        ):
-            handle = await env.client.start_workflow(
-                ReviewPRQueueWorkflow.run,
-                ReviewPRQueueInputs(requests=[first]),
-                id=queue,
-                task_queue=queue,
-            )
-            await asyncio.wait_for(entered.wait(), timeout=10)
-            refusal = replace(first, trigger_source="stamphog", stamphog_review_run_id="refusal")
-            await handle.signal("request_review", refusal)
-            await handle.query("requested_heads")
-            release.set()
-            assert await handle.result() == "report"
-
-    assert [review.stamphog_review_run_id for review in reviews if review.stamphog_review_run_id] == (
-        [] if covered else ["refusal"]
-    )
-    if not failed:
-        assert reviews[0].queue_turn_id is not None
-        assert completions == [
-            CompleteJoinedStamphogRequestsInput(
-                team_id=1,
-                report_id="report",
-                queue_turn_id=reviews[0].queue_turn_id,
-                head_sha="a",
-                request_ids=["refusal"],
-            )
-        ]
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("fail_first,request_id", [(False, None), (True, None), (False, "refusal")])
+@pytest.mark.parametrize("fail_first,fallback", [(False, False), (True, False), (False, True), (True, True)])
 async def test_pushes_coalesce_and_full_requests_survive_an_active_flash_review(
-    fail_first: bool, request_id: str | None
+    fail_first: bool, fallback: bool
 ) -> None:
     entered = asyncio.Event()
     release = asyncio.Event()
@@ -165,16 +89,23 @@ async def test_pushes_coalesce_and_full_requests_survive_an_active_flash_review(
             await asyncio.wait_for(entered.wait(), timeout=10)
             for request in (
                 first,
+                *(
+                    (
+                        replace(
+                            first,
+                            review_mode="full",
+                            trigger_source="stamphog",
+                            requested_head_sha=head,
+                            stamphog_review_run_id=head,
+                        )
+                        for head in ("b", "c")
+                    )
+                    if fallback
+                    else ()
+                ),
                 replace(first, requested_head_sha="b", trigger_action="synchronize"),
                 replace(first, requested_head_sha="c", trigger_action="ready_for_review"),
-                replace(
-                    first,
-                    review_mode="full",
-                    trigger_source="stamphog" if request_id else "ui",
-                    requested_head_sha="c",
-                    trigger_action=None,
-                    stamphog_review_run_id=request_id,
-                ),
+                replace(first, review_mode="full", trigger_source="ui", requested_head_sha="c", trigger_action=None),
             ):
                 await env.client.start_workflow(
                     ReviewPRQueueWorkflow.run,
@@ -187,14 +118,22 @@ async def test_pushes_coalesce_and_full_requests_survive_an_active_flash_review(
                 )
             # Stamphog reads the waiting heads from this query, because they exist only in the queue.
             heads = await handle.query("requested_heads")
-            assert (heads["active"], sorted(heads["pending"])) == (["a"], ["c", "c"])
+            assert (heads["active"], sorted(heads["pending"])) == (["a"], ["c", "c", "c"] if fallback else ["c", "c"])
             release.set()
             assert await handle.result() == "report"
 
     completed = [(review.review_mode, review.requested_head_sha, review.trigger_action) for review in reviews]
-    assert completed[-2:] == [("full", "c", None), ("flash", "c", "ready_for_review")]
-    assert all(item == ("flash", "a", "opened") for item in completed[:-2])
-    assert len(completed) == (4 if fail_first else 3)
+    if not fallback:
+        assert completed[-2:] == [("full", "c", None), ("flash", "c", "ready_for_review")]
+    assert all(item == ("flash", "a", "opened") for item in completed[: -(3 if fallback else 2)])
+    assert all(review.queue_turn_id is not None for review in reviews)
+    if fail_first:
+        assert reviews[0].queue_turn_id == reviews[1].queue_turn_id
+    if fallback:
+        assert completed[-3:] == [("full", "c", None), ("full", "c", "opened"), ("flash", "c", "ready_for_review")]
+        assert reviews[-2].stamphog_review_run_id == "c"
+        assert reviews[-3].stamphog_review_run_id is None
+    assert len(completed) == (4 if fail_first else 3) + int(fallback)
 
 
 @pytest.mark.asyncio
@@ -316,11 +255,9 @@ async def test_automatic_review_waits_for_resolution_before_starting() -> None:
     assert probes == 2
 
 
-@pytest.mark.parametrize(
-    "resolve_comments,request_id,expect_pending", [(False, None, False), (None, None, True), (None, "refusal", True)]
-)
+@pytest.mark.parametrize("resolve_comments,expect_pending", [(False, False), (None, True)])
 def test_a_repeated_full_request_waits_when_it_changes_comment_resolution(
-    resolve_comments: bool | None, request_id: str | None, expect_pending: bool
+    resolve_comments: bool | None, expect_pending: bool
 ) -> None:
     active = ReviewPRWorkflowInputs(
         team_id=1,
@@ -335,36 +272,12 @@ def test_a_repeated_full_request_waits_when_it_changes_comment_resolution(
         acting_user_id=1,
         resolve_comments=False,
     )
-    request = replace(active, resolve_comments=resolve_comments, stamphog_review_run_id=request_id)
+    request = replace(active, resolve_comments=resolve_comments)
     queue = ReviewRequestQueue(active=active)
 
     queue.add(request)
 
-    assert list(queue.pending.values()) == ([request] if expect_pending else [])
-
-
-@pytest.mark.parametrize("head_sha,publish", [("a", True), ("b", True), ("a", False), (None, True)])
-def test_a_refusal_only_joins_a_deep_review_that_covers_its_head_and_publication(
-    head_sha: str | None, publish: bool
-) -> None:
-    refusal = ReviewPRWorkflowInputs(
-        team_id=1,
-        user_id=1,
-        owner="PostHog",
-        repo="posthog",
-        pr_number=7,
-        requested_head_sha="a",
-        publish=True,
-        trigger_source="stamphog",
-        stamphog_review_run_id="refusal",
-    )
-    queue = ReviewRequestQueue(
-        active=replace(refusal, requested_head_sha=head_sha, publish=publish, stamphog_review_run_id=None)
-    )
-
-    queue.add(refusal)
-
-    assert list(queue.pending.values()) == ([] if head_sha == "a" and publish else [refusal])
+    assert queue.pending == ({"full": request} if expect_pending else {})
 
 
 def test_a_later_request_for_the_same_waiting_head_keeps_the_pr_ready() -> None:
@@ -389,24 +302,30 @@ def test_a_later_request_for_the_same_waiting_head_keeps_the_pr_ready() -> None:
     assert queue.pending == {"automatic": replace(same_head_push, marks_ready=True)}
 
 
-@pytest.mark.parametrize("head_sha", ["a", "b", None])
-def test_a_manual_request_does_not_inherit_a_waiting_refusals_identity(head_sha: str | None) -> None:
-    refusal = ReviewPRWorkflowInputs(
+@pytest.mark.parametrize("manual_first", [False, True])
+def test_refusals_coalesce_without_consuming_manual_requests(manual_first: bool) -> None:
+    active = ReviewPRWorkflowInputs(
         team_id=1,
         user_id=1,
-        owner="PostHog",
-        repo="posthog",
+        owner="o",
+        repo="r",
         pr_number=7,
-        review_mode="full",
         trigger_source="stamphog",
+        review_mode="full",
         requested_head_sha="a",
-        publish=True,
-        stamphog_review_run_id="refusal",
+        stamphog_review_run_id="first",
     )
-    queue = ReviewRequestQueue(active=replace(refusal, review_mode="flash", stamphog_review_run_id=None))
-    manual = replace(refusal, trigger_source="ui", requested_head_sha=head_sha, stamphog_review_run_id=None)
-
-    queue.add(refusal)
-    queue.add(manual)
+    queue = ReviewRequestQueue(active=active)
+    manual = replace(active, trigger_source="ui", stamphog_review_run_id=None)
+    if manual_first:
+        queue.add(manual)
+    queue.add(replace(active, requested_head_sha="b", stamphog_review_run_id="second"))
+    latest = replace(active, requested_head_sha="c", stamphog_review_run_id="third")
+    queue.add(latest)
+    queue.add(replace(active, requested_head_sha="b", stamphog_review_run_id="second"))
+    if not manual_first:
+        queue.add(manual)
 
     assert queue.take() == manual
+    assert queue.take() == latest
+    assert not queue.pending

@@ -594,7 +594,7 @@ class TestStamphogHandoffTask(BaseTest):
             ("resolution_running", None, True),
         ]
     )
-    def test_opted_in_refusal_requests_deep_despite_previous_review(
+    def test_opted_in_refusal_reuses_completed_deep_reviews(
         self, _name: str, state: HeadReviewState | None, busy: bool
     ) -> None:
         finished = self._finished("octocat", request_deep_review=True)
@@ -611,6 +611,9 @@ class TestStamphogHandoffTask(BaseTest):
             queue_stamphog_handoff(finished)
             process_stamphog_handoff.run(**enqueue.call_args.kwargs)
 
+        if state == HeadReviewState.COMPLETED:
+            assert not self.start.call_args_list
+            return
         self.start.assert_called_once_with(
             pr_url="https://github.com/PostHog/posthog/pull/42",
             team_id=self.team.id,
@@ -622,14 +625,26 @@ class TestStamphogHandoffTask(BaseTest):
             stamphog_review_run_id=str(finished.run_id),
         )
 
-    @parameterized.expand([("same", True), ("child", True), ("other", False), ("missing", False)])
-    def test_deep_handoff_requires_the_repository_owners_canonical_project(self, scope: str, expected: bool) -> None:
+    @parameterized.expand(
+        [
+            ("same", True, False),
+            ("child", True, False),
+            ("other", False, False),
+            ("missing", False, False),
+            ("other", True, True),
+        ]
+    )
+    def test_deep_handoff_requires_the_repository_owners_canonical_project(
+        self, scope: str, expected: bool, self_driving: bool
+    ) -> None:
         source_team_id = self.team.id
         if scope in ("child", "other"):
             source_team_id = Team.objects.create(
                 organization=self.organization, parent_team=self.team if scope == "child" else None
             ).id
-        finished = replace(self._finished("octocat", request_deep_review=True), team_id=source_team_id)
+        finished = replace(
+            self._finished("octocat", request_deep_review=True), team_id=source_team_id, self_driving=self_driving
+        )
         with patch(_HANDOFF_QUEUE) as enqueue:
             queue_stamphog_handoff(finished)
             payload = dict(enqueue.call_args.kwargs)
@@ -638,6 +653,9 @@ class TestStamphogHandoffTask(BaseTest):
             process_stamphog_handoff.run(**payload)
 
         assert bool(self.start.call_args_list) is expected
+        if self_driving:
+            assert self.start.call_args.kwargs["stamphog_review_run_id"] is None
+            assert self.start.call_args.kwargs["review_mode"] == "flash"
 
     def test_a_handoff_after_a_published_deep_review_runs_deep(self) -> None:
         # A Standard request after a published Deep review is dropped, so the handoff would do nothing.

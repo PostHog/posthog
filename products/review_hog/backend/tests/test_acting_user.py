@@ -58,6 +58,33 @@ class TestResolveActingUser(BaseTest):
         assert result.review_authored_prs is False
         assert result.flash_reasoning_effort == "medium"
 
+    @parameterized.expand(
+        [
+            ("follow", False, True, True),
+            ("off", False, True, False),
+            ("flash", False, True, True),
+            ("follow", True, False, False),
+        ]
+    )
+    def test_refusal_reviews_honor_the_owners_opt_out(
+        self, mode: str, draft: bool, review_drafts: bool, expected: bool
+    ) -> None:
+        ReviewUserSettings.objects.for_team(self.team.id).create(
+            team=self.team, user=self.user, preferences={"default_review_mode": mode, "review_drafts": review_drafts}
+        )
+        result = _resolve_acting_user(
+            ResolveActingUserInput(
+                team_id=self.team.id,
+                author_login="octocat",
+                override_user_id=None,
+                trigger_source=TRIGGER_STAMPHOG,
+                draft=draft,
+                refusal_review=True,
+            )
+        )
+        assert result.refusal_review_allowed is expected
+        assert (result.acting_user_id is not None) is expected
+
     def test_project_defaults_reach_authors_and_borrowed_runs(self) -> None:
         ReviewProjectSettings.objects.for_team(self.team.id).create(
             team=self.team, preferences={"urgency_threshold": "must_fix", "celebrate_clean_reviews": False}

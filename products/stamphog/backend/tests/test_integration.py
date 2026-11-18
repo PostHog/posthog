@@ -326,13 +326,18 @@ def test_signed_webhook_drives_review_and_posts_approval(
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_a_sandbox_approval_the_worker_gates_do_not_confirm_is_escalated(team, stamphog_chain: StamphogChain) -> None:
+@pytest.mark.parametrize("reason", ["gate_failed", "error"])
+def test_a_sandbox_approval_the_worker_gates_do_not_confirm_is_escalated(
+    team, stamphog_chain: StamphogChain, handoff: MagicMock, reason: str
+) -> None:
     repo_config = _repo_config(team.id)
+    repo_config.deep_review_on_refusal = True
+    repo_config.save()
     recorder = stamphog_chain.recorder
     author, head_sha = "devex-dev", "sha102a"
     recorder.register_pr(REPO, 102, _pr_object(102, author, head_sha), [_api_file("src/util.py")])
     stamphog_chain.attest_gates.return_value = GateAttestation(
-        attested=False, reason="gate_failed", gates=[{"gate": "deny-list", "passed": False, "message": "denied"}]
+        attested=False, reason=reason, gates=[{"gate": "deny-list", "passed": False, "message": "denied"}]
     )
 
     stamphog_chain.post_webhook(_opened_event(102, author, head_sha), delivery_id=str(uuid.uuid4()))
@@ -344,9 +349,9 @@ def test_a_sandbox_approval_the_worker_gates_do_not_confirm_is_escalated(team, s
         ReviewVerdict.ESCALATE,
         None,
     )
-    assert run.output["gate_attestation"]["reason"] == "gate_failed"
+    assert run.output["gate_attestation"]["reason"] == reason
     assert run.gate_result is not None
-    assert run.gate_result["attestation"]["reason"] == "gate_failed"
+    assert run.gate_result["attestation"]["reason"] == reason
     (review,) = [w for w in recorder.github_writes if w["kind"] == "comment_review"]
     assert "could not confirm its own checks" in review["body"]["body"]
 
@@ -356,6 +361,7 @@ def test_a_sandbox_approval_the_worker_gates_do_not_confirm_is_escalated(team, s
 
     stamphog_chain.attest_gates.assert_not_called()
     assert [w for w in recorder.github_writes if w["kind"] == "approve_review"] == []
+    assert _external_review_requests(handoff) == []
 
 
 def _api_file(filename: str) -> dict:
@@ -3098,7 +3104,10 @@ def test_refused_verdict_hands_off_when_self_driving_or_repo_opted_in(
     pull_request = PullRequest.objects.for_team(team.id).create(
         team_id=team.id, repo_config=repo_config, pr_number=101, author_login="devex-dev"
     )
-    output: dict = {"reviewer_raw": _refused_engine_output()}
+    payload = json.loads(_refused_engine_output())
+    if deep_review_on_refusal:
+        payload["gates"] = [{"gate": "size", "passed": False}]
+    output: dict = {"reviewer_raw": json.dumps(payload)}
     if inbox_review is not None:
         output["inbox_review"] = inbox_review
     run = ReviewRun.objects.for_team(team.id).create(
@@ -3112,7 +3121,7 @@ def test_refused_verdict_hands_off_when_self_driving_or_repo_opted_in(
     _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
 
     run.refresh_from_db()
-    assert run.verdict == ReviewVerdict.REFUSED
+    assert run.verdict == (ReviewVerdict.WAIT if deep_review_on_refusal else ReviewVerdict.REFUSED)
     requests = [(r.repository, r.pr_number, r.head_sha) for r in _external_review_requests(handoff)]
     assert requests == ([(REPO, 101, head_sha)] if expect_handoff else [])
     assert [r.request_deep_review for r in _external_review_requests(handoff)] == (
@@ -3125,7 +3134,8 @@ def test_refused_verdict_hands_off_when_self_driving_or_repo_opted_in(
     "verdict,blocked_gate,expected",
     [
         ("REFUSED", "size", True),
-        ("REFUSED", "restricted_paths", True),
+        ("REFUSED", "deny-list", True),
+        ("REFUSED", None, False),
         ("ESCALATE", None, True),
         ("WAIT", None, False),
         ("ERROR", None, False),
@@ -3151,8 +3161,17 @@ def test_deep_fallback_only_follows_final_refusals(
     )
     payload = json.loads(_refused_engine_output())
     payload["final_verdict"] = verdict
+    if verdict == "ESCALATE":
+        payload["reviewer"]["facts"] = {
+            "risky_areas": ["Changes transaction boundaries"],
+            "reviews_on_current_head": [],
+            "unresolved_substantive_concerns": [],
+            "other_refusal_grounds": [],
+            "owning_team_author": False,
+            "strong_familiarity": False,
+        }
     if blocked_gate:
-        payload["gates"] = [{"name": blocked_gate, "passed": False}]
+        payload["gates"] = [{"gate": blocked_gate, "passed": False}]
     run = ReviewRun.objects.for_team(team.id).create(
         team_id=team.id,
         pull_request=pull_request,

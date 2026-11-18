@@ -17,6 +17,7 @@ from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.instance_setting import override_instance_config
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
+from products.review_hog.backend.review_request_rules import full_review_published
 from products.review_hog.backend.reviewer.artefact_content import (
     PRSnapshotArtefact,
     ReviewIssueFinding,
@@ -27,10 +28,6 @@ from products.review_hog.backend.reviewer.constants import LEGACY_FLASH_MODE_MES
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import DroppedIssue, Issue, IssuePriority
 from products.review_hog.backend.reviewer.persistence import replace_dropped_findings, upsert_review_report
-from products.review_hog.backend.reviewer.stamphog_requests import (
-    complete_joined_stamphog_requests,
-    stamphog_request_completed,
-)
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
 from products.review_hog.backend.reviewer.tools.publish_review import (
     PublishOutcome,
@@ -38,7 +35,6 @@ from products.review_hog.backend.reviewer.tools.publish_review import (
     _review_marker,
 )
 from products.review_hog.backend.temporal.activities import PublishInput, _publish, publish_review_activity
-from products.review_hog.backend.temporal.types import CompleteJoinedStamphogRequestsInput
 from products.signals.backend.facade.taxonomy import ArtefactAttribution
 
 # `_publish` now delegates to `publish_persisted_review` in the tool, so the GitHub-post seam and the
@@ -177,7 +173,7 @@ class TestPublishIdempotency(BaseTest):
         ]
     )
     @patch(_AUTH, return_value=("tok", None))
-    def test_new_refusal_publishes_again_at_the_same_head_but_its_retry_does_not(
+    def test_refusal_publication_is_retryable_without_disabling_standard_reviews(
         self,
         _name: str,
         posted: bool,
@@ -187,8 +183,8 @@ class TestPublishIdempotency(BaseTest):
     ) -> None:
         report_id = self._report()
         ReviewReport.objects.for_team(self.team.id).filter(id=report_id).update(
-            published_heads_by_mode={"full": "sha1"} if request_id else {},
-            published_head_shas={"1": "sha1"} if request_id else {},
+            published_heads_by_mode={"flash": "sha0"},
+            published_head_shas={"1": "sha0"},
             run_count=1,
         )
         ReviewReportArtefact.add_turn_marker(
@@ -234,18 +230,15 @@ class TestPublishIdempotency(BaseTest):
             report_id=report_id,
             head_sha="sha1",
             run_index=2,
+            queue_turn_id="turn" if request_id else None,
             owner="PostHog",
             repo="posthog",
             pr_number=1,
         )
 
-        old_reviews = [
-            {"body": _review_marker(report_id, "sha1", mode), "user": {"type": "Bot", "login": "posthog[bot]"}}
-            for mode in (None, "full")
-        ]
         with (
             patch("products.review_hog.backend.reviewer.tools.publish_review.github_api_request") as github,
-            patch(_PAGINATED, side_effect=lambda *args, **kwargs: iter(old_reviews if request_id else [])),
+            patch(_PAGINATED, side_effect=lambda *args, **kwargs: iter([])),
             patch("products.review_hog.backend.reviewer.tools.publish_review.remove_own_pr_reactions"),
         ):
             github.return_value.json.return_value = {"html_url": "https://github.com/PostHog/posthog/pull/1#review-2"}
@@ -255,72 +248,47 @@ class TestPublishIdempotency(BaseTest):
                     report_id=report_id, type=ReviewReportArtefact.ArtefactType.TURN_MARKER
                 )
                 content = TurnMarkerArtefact.model_validate_json(marker.content)
-                marker.content = content.model_copy(update={"stamphog_review_completed": False}).model_dump_json()
+                marker.content = content.model_copy(update={"publication_completed": False}).model_dump_json()
                 marker.save(update_fields=["content"])
                 assert _publish(request).posted is False
             report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
-            for turn, head, completed in [
-                ("other-turn", "sha1", False),
-                ("turn", "other-head", False),
-                ("turn", "sha1", True),
-            ]:
-                assert (
-                    complete_joined_stamphog_requests(
-                        CompleteJoinedStamphogRequestsInput(
-                            team_id=self.team.id,
-                            report_id=report_id,
-                            queue_turn_id=turn,
-                            head_sha=head,
-                            request_ids=["joined"],
-                        )
-                    )
-                    is completed
-                )
-                assert stamphog_request_completed(report, "joined") is completed
+            marker = ReviewReportArtefact.objects.for_team(self.team.id).get(
+                report_id=report_id, type=ReviewReportArtefact.ArtefactType.TURN_MARKER
+            )
+            assert TurnMarkerArtefact.model_validate_json(marker.content).publication_completed
+            assert full_review_published(report) is (posted and request_id is None)
+            assert (report.published_heads_by_mode or {}).get("flash") == "sha0"
             assert _publish(request).posted is False
 
         posts = [call.kwargs["json"] for call in github.call_args_list if call.args[0] == "POST"]
         assert len(posts) == int(posted)
         if posts:
-            assert _review_marker(report_id, "sha1", "full", request_id) in posts[0]["body"]
+            assert _review_marker(report_id, "sha1", "full") in posts[0]["body"]
 
-    @parameterized.expand([("other_turn", {"1": "sha1"}), ("other_head", {"2": "other-head"})])
+    @parameterized.expand([("same_head", "sha1"), ("other_head", "sha2")])
     @patch(_AUTH, return_value=("tok", None))
-    def test_skipped_turn_cannot_complete_joined_refusals(
-        self, _name: str, published_head_shas: dict[str, str], _auth: MagicMock
-    ) -> None:
+    def test_reused_run_index_cannot_publish_another_turn(self, _name: str, head: str, _auth: MagicMock) -> None:
         report_id = self._report()
-        ReviewReport.objects.for_team(self.team.id).filter(id=report_id).update(
-            published_heads_by_mode={"full": "sha1"}, published_head_shas=published_head_shas
-        )
-        ReviewReportArtefact.add_turn_marker(
-            team_id=self.team.id,
-            report_id=report_id,
-            content=TurnMarkerArtefact(
-                head_sha="sha1",
-                run_index=2,
-                review_mode="full",
-                reviewhog_version="test",
-                reviewhog_fingerprint="test",
-                queue_turn_id="turn",
-                publishes=True,
-            ),
-            attribution=ArtefactAttribution.system(),
-        )
-
-        assert _publish(replace(_publish_input(self.team.id, report_id, "sha1"), run_index=2)).posted is False
-        assert (
-            complete_joined_stamphog_requests(
-                CompleteJoinedStamphogRequestsInput(
-                    team_id=self.team.id,
-                    report_id=report_id,
-                    queue_turn_id="turn",
-                    head_sha="sha1",
-                    request_ids=["joined"],
-                )
+        for turn_id, marker_head in [("abandoned", "sha1"), ("replacement", head)]:
+            ReviewReportArtefact.add_turn_marker(
+                team_id=self.team.id,
+                report_id=report_id,
+                content=TurnMarkerArtefact(
+                    head_sha=marker_head,
+                    run_index=1,
+                    review_mode="full",
+                    reviewhog_version="test",
+                    reviewhog_fingerprint="test",
+                    stamphog_review_run_id="refusal",
+                    queue_turn_id=turn_id,
+                    publishes=True,
+                ),
+                attribution=ArtefactAttribution.system(),
             )
-            is False
-        )
+        with pytest.raises(ValueError, match="turn identity"):
+            _publish(replace(_publish_input(self.team.id, report_id, "sha1"), queue_turn_id="abandoned"))
+        report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
+        assert not report.published_head_shas
 
     def _report(self, *, published_head_sha: str | None = None) -> str:
         report_id = upsert_review_report(

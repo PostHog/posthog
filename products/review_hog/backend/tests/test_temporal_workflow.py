@@ -141,6 +141,8 @@ async def _run_full_review_pr_workflow(
     input_acting_user_id: int | None = None,
     trigger_source: str = "manual",
     stamphog_review_run_id: str | None = None,
+    refusal_skip_reason: str | None = None,
+    refusal_review_allowed: bool = True,
     signal_report_id: str | None = None,
     input_pr_number: int | None = 7,
     input_head_branch: str | None = None,
@@ -259,6 +261,7 @@ async def _run_full_review_pr_workflow(
             pr_url="u" if meta_pr_number is not None else None,
             empty_diff=empty_diff,
             already_completed=already_completed,
+            refusal_skip_reason=refusal_skip_reason,
             resume_publication=resume,
             resume_urgency_threshold=finalized_turns[-1].urgency_threshold if resume else None,
             resume_marker=_TURN_MARKER if resume else None,
@@ -303,6 +306,7 @@ async def _run_full_review_pr_workflow(
             resolve_comments=resolve_comments_setting,
             flash_reasoning_effort=flash_reasoning_effort,
             review_authored_prs=review_authored_prs,
+            refusal_review_allowed=refusal_review_allowed,
             owner_user_id=owner_user_id,
         )
 
@@ -356,7 +360,6 @@ async def _run_full_review_pr_workflow(
 
     @activity.defn(name="review_chunk_activity")
     async def review(input: ReviewChunkInput) -> bool:
-        assert input.stamphog_review_run_id == stamphog_review_run_id
         effort_calls.setdefault("review", set()).add(input.flash_reasoning_effort)
         _saw_mode("review", input.review_mode)
         review_calls.append(
@@ -396,7 +399,6 @@ async def _run_full_review_pr_workflow(
 
     @activity.defn(name="dedup_activity")
     async def dedup(input: SandboxStageInput) -> DedupResult:
-        assert input.stamphog_review_run_id == stamphog_review_run_id
         _saw_design("dedup", input.review_design)
         devex_lens_calls.append(("dedup", input.devex_lens))
         if fail_dedup:
@@ -1213,10 +1215,16 @@ async def test_push_gate_judges_only_automatic_follow_ups(
 
 
 @pytest.mark.asyncio
-async def test_review_pr_workflow_early_exits_when_already_published():
+@pytest.mark.parametrize("reason", [None, "head_already_attempted", "pr_budget_exhausted", "superseded", "closed"])
+async def test_review_pr_workflow_early_exits_when_already_published(reason: str | None):
     # A re-trigger at an already-published head: the gate returns the report id without running any
     # downstream stage — no re-chunk/review/dedup/validate and no re-publish.
-    recorded = await _run_full_review_pr_workflow(publish=True, already_published=True)
+    recorded = await _run_full_review_pr_workflow(
+        publish=True,
+        already_published=reason is None,
+        refusal_skip_reason=reason,
+        stamphog_review_run_id="refusal" if reason else None,
+    )
     assert recorded["result"] == "rep-1"
     assert recorded["split"] == []
     assert recorded["review"] == []
@@ -1227,18 +1235,19 @@ async def test_review_pr_workflow_early_exits_when_already_published():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("resolve_comments", [False, True])
-async def test_deep_refusal_fallback_keeps_the_owners_resolution_opt_in(resolve_comments: bool) -> None:
+@pytest.mark.parametrize("resolve_comments,allowed", [(False, True), (True, True), (True, False)])
+async def test_deep_refusal_fallback_keeps_the_owners_resolution_opt_in(resolve_comments: bool, allowed: bool) -> None:
     recorded = await _run_full_review_pr_workflow(
         publish=True,
         trigger_source="stamphog",
         stamphog_review_run_id="refusal",
         resolve_comments_setting=resolve_comments,
         owner_user_id=9,
+        refusal_review_allowed=allowed,
     )
-    assert recorded["review"]
-    assert recorded["publish"] == [7]
-    assert recorded["resolve_dispatches"] == ([(7, 9, "stamphog")] if resolve_comments else [])
+    assert bool(recorded["review"]) is allowed
+    assert recorded["publish"] == ([7] if allowed else [])
+    assert recorded["resolve_dispatches"] == ([(7, 9, "stamphog")] if resolve_comments and allowed else [])
 
 
 @pytest.mark.asyncio
