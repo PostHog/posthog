@@ -612,6 +612,7 @@ describe('Self-driving activation guidance', () => {
                 )
                 expect(notice?.text).toContain('Agents triaged errors in this project on 29 of the past 30 days.')
                 expect(notice?.text).toContain("Answer the customer's current question first")
+                expect(notice?.text).toContain('PostHog Self-driving can investigate new errors in the background')
                 expect(notice?.text).toContain('The primary setup route connects GitHub.')
                 expect(notice?.text).not.toContain('poll')
                 expect(notice?.text).not.toContain('inbox-reports-list')
@@ -629,14 +630,13 @@ describe('Self-driving activation guidance', () => {
         }
     )
 
-    it.each(['production', 'staging', undefined])('omits simulated history in %s', async (environment) => {
+    it.each(['production', 'staging', undefined])('does not offer simulated guidance in %s', async (environment) => {
         vi.stubEnv('NODE_ENV', environment)
         try {
-            const notice = await new GuidanceEngine(makeGuidanceRedis()).evaluate(activationState(), issueCall)
-            expect(notice?.text).toContain('https://example.com/project/2/inbox/activate')
-            expect(notice?.text).not.toContain('29')
-            expect(notice?.text).not.toContain('project history')
-            expect(notice?.text).not.toContain('observed frequency')
+            const state = activationState()
+            const notice = await new GuidanceEngine(makeGuidanceRedis()).evaluate(state, issueCall)
+            expect(notice).toBeUndefined()
+            expect(state.context.api.request).not.toHaveBeenCalled()
         } finally {
             vi.unstubAllEnvs()
         }
