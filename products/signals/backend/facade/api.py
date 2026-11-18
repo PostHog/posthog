@@ -65,6 +65,7 @@ from products.signals.backend.artefact_schemas import (
     # Re-exported so the Slack mention handler can label the task it starts from a report's
     # notification thread without naming the relationship vocabulary itself.
     TASK_RUN_TYPE_DISCUSSION as TASK_RUN_TYPE_DISCUSSION,
+    TASK_RUN_TYPE_IMPLEMENTATION,
 )
 from products.signals.backend.briefing_reports import (
     IMPLEMENTATION_PR_STATES as IMPLEMENTATION_PR_STATES,
@@ -533,6 +534,26 @@ def notify_implementation_prs_opened(team_id: int, task_id: str, pr_urls: list[s
 
 def notify_implementation_pr_opened(team_id: int, task_id: str, pr_url: str) -> None:
     notify_implementation_prs_opened(team_id, task_id, [pr_url])
+
+
+def notify_report_slack_thread_created(team_id: int, report_id: str) -> None:
+    from products.signals.backend.models import SignalReportTask  # noqa: PLC0415 - keeps model imports off the facade import path
+    from products.tasks.backend.facade.api import (
+        get_pull_requests_for_tasks,  # noqa: PLC0415 - avoids the signals/tasks facade cycle
+    )
+
+    try:
+        task_ids = SignalReportTask.objects.filter(
+            team_id=team_id,
+            report_id=report_id,
+            report__team_id=team_id,
+            task__team_id=team_id,
+            relationship=TASK_RUN_TYPE_IMPLEMENTATION,
+        ).values_list("task_id", flat=True)
+        for task_id, pull_requests in get_pull_requests_for_tasks(team_id, task_ids).items():
+            notify_implementation_prs_opened(team_id, task_id, [pr.url for pr in pull_requests])
+    except Exception:
+        logger.exception("signals_inbox_existing_pr_notification_failed", team_id=team_id, report_id=report_id)
 
 
 def report_id_for_slack_thread(*, team_id: int, slack_workspace_id: str, channel: str, thread_ts: str) -> str | None:

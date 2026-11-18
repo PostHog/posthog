@@ -142,7 +142,10 @@ def test_re_recording_the_same_thread_keeps_the_first_report(team, second_worksp
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("source", ["run_output", "set_output", "github_webhook"])
-def test_implementation_pr_reaches_report_threads_once(team, django_capture_on_commit_callbacks, source: str) -> None:
+@pytest.mark.parametrize("thread_timing", ["before_pr", "after_pr"])
+def test_implementation_pr_reaches_report_threads_once(
+    team, django_capture_on_commit_callbacks, source: str, thread_timing: str
+) -> None:
     report = _report(team)
     integration = _integration(team)
     task = Task.objects.create(
@@ -161,16 +164,21 @@ def test_implementation_pr_reaches_report_threads_once(team, django_capture_on_c
     )
     record_implementation_task(team_id=team.id, report_id=str(report.id), task_id=str(task.id), run_id=str(run.id))
     targets = {("CTEAM", "1700000000.000100"), ("COTHER", "1700000000.000200")}
-    for channel, thread_ts in targets:
-        record_report_slack_thread(
-            team_id=team.id,
-            report_id=str(report.id),
-            integration_id=integration.id,
-            slack_workspace_id="T123",
-            channel=channel,
-            thread_ts=thread_ts,
-            kind=SignalReportSlackThread.Kind.INBOX_NOTIFICATION,
-        )
+
+    def record_threads() -> None:
+        for channel, thread_ts in targets:
+            record_report_slack_thread(
+                team_id=team.id,
+                report_id=str(report.id),
+                integration_id=integration.id,
+                slack_workspace_id="T123",
+                channel=channel,
+                thread_ts=thread_ts,
+                kind=SignalReportSlackThread.Kind.INBOX_NOTIFICATION,
+            )
+
+    if thread_timing == "before_pr":
+        record_threads()
     Integration.objects.create(team=team, kind="github", integration_id="12345", config={})
     pr_url = "https://github.com/example/repo/pull/42"
     other_pr_url = "https://github.com/example/repo/pull/43"
@@ -215,6 +223,13 @@ def test_implementation_pr_reaches_report_threads_once(team, django_capture_on_c
         client.chat_postMessage.assert_not_called()
         for job in queued.call_args_list:
             deliver_implementation_pr_notifications.apply(kwargs=job.kwargs, throw=True)
+        if thread_timing == "after_pr":
+            assert not client.chat_postMessage.call_args_list
+            previous_jobs = len(queued.call_args_list)
+            with django_capture_on_commit_callbacks(execute=True):
+                record_threads()
+            for job in queued.call_args_list[previous_jobs:]:
+                deliver_implementation_pr_notifications.apply(kwargs=job.kwargs, throw=True)
 
         assert client.chat_postMessage.call_count == 4
         assert {
@@ -397,9 +412,17 @@ def test_pr_notification_rechecks_dm_recipient(team, recipient: str) -> None:
 
 
 @pytest.mark.django_db
-def test_completed_mapped_run_announces_a_promoted_primary_pr(team) -> None:
+@pytest.mark.parametrize(
+    ("other_pr_url", "delivered"),
+    [
+        ("https://github.com/example/repo/pull/43", True),
+        ("https://example.com/pr", False),
+        ("https://github.com/other/repo/pull/43", False),
+        ("http://github.com/example/repo/pull/43", False),
+    ],
+)
+def test_completed_mapped_run_announces_a_promoted_primary_pr(team, other_pr_url: str, delivered: bool) -> None:
     pr_url = "https://github.com/example/repo/pull/42"
-    other_pr_url = "https://github.com/example/repo/pull/43"
     task = Task.objects.create(team=team, title="Implement report", repository="example/repo")
     run = TaskRun.objects.create(
         task=task,
@@ -424,8 +447,9 @@ def test_completed_mapped_run_announces_a_promoted_primary_pr(team) -> None:
     ):
         update_task_run(run.id, task.id, team.id, validated_data={"output": {"pr_url": other_pr_url}})
         posts = slack_cls.return_value.client.chat_postMessage.call_args_list
-        assert len(posts) == 1
-        assert other_pr_url in str(posts[0].kwargs["blocks"])
+        assert len(posts) == int(delivered)
+        if delivered:
+            assert other_pr_url in str(posts[0].kwargs["blocks"])
 
 
 @pytest.mark.django_db

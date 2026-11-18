@@ -14,7 +14,7 @@ import logging
 from collections.abc import Sequence
 from uuid import NAMESPACE_URL, uuid5
 
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.db.models import Func, Q, Value
 
 from celery.exceptions import SoftTimeLimitExceeded
@@ -219,7 +219,7 @@ def record_report_slack_thread(
 ) -> None:
     """Record that `thread_ts` in `channel` is a notification thread for this report."""
     try:
-        SignalReportSlackThread.objects.for_team(team_id).get_or_create(
+        _, created = SignalReportSlackThread.objects.for_team(team_id).get_or_create(
             slack_workspace_id=slack_workspace_id,
             channel=channel,
             thread_ts=thread_ts,
@@ -232,6 +232,12 @@ def record_report_slack_thread(
                 "recipient_user_id": recipient_user_id,
             },
         )
+        if created:
+            from products.signals.backend.facade.api import (  # noqa: PLC0415 - avoids the signals facade cycle
+                notify_report_slack_thread_created,
+            )
+
+            transaction.on_commit(lambda: notify_report_slack_thread_created(team_id, report_id))
     except IntegrityError:
         # The thread is already claimed — by a concurrent delivery of the same message, or by
         # another project connected to the same workspace. Either way the first claim stands.

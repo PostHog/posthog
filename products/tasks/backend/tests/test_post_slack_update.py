@@ -54,6 +54,8 @@ class TestPostSlackUpdate(TestCase):
         # Default the task-level dedupe to unset so the comparison is real, not a
         # truthy MagicMock; skip-path tests override it.
         mock_run.task.slack_notified_pr_url = None
+        mock_run.task.repository = "org/repo"
+        mock_run.task.repositories = []
         for k, v in kwargs.items():
             setattr(mock_run, k, v)
         return mock_run
