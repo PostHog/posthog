@@ -3348,7 +3348,7 @@ jobs:
               if: needs.changes.outputs.backend == 'true'
               uses: ./.depot/actions/install-hogql-parser-rs
               with:
-                  save-cache: ${{ env.IS_MASTER == 'true' }}
+                  trusted: ${{ env.IS_MASTER == 'true' }}
             - name: Set up needed files
               shell: bash
               run: |

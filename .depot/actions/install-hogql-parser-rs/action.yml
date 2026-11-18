@@ -5,12 +5,14 @@ description: |
     rust-py is the production parser, so its tests must run against this checkout's crate.
     Publishing is a manual step after merge, so master can carry a crate version that the pin
     does not name yet, and that version is installed from source too.
-    The wheel is cached by a hash of the crate and its workspace inputs, so only a cache miss
-    compiles it. Callers run this after `uv sync`, which installs the pinned PyPI wheel.
+    The wheel is cached by a hash of the crate and its workspace inputs. Depot Cache has no branch
+    isolation, so a pull request can write any key. Trusted runs therefore never restore: they
+    always build and then save. Untrusted runs restore, build only on a miss, and never save.
+    Callers run this after `uv sync`, which installs the pinned PyPI wheel.
 
 inputs:
-    save-cache:
-        description: 'Save a freshly built wheel to the cache. Pass true only on master runs.'
+    trusted:
+        description: 'true on runs with master trust. They build from source, never restore, and save the wheel.'
         required: false
         default: 'false'
     toolchain:
@@ -24,7 +26,10 @@ runs:
         - name: Decide whether hogql-parser-rs needs the in-repo crate
           id: detect
           shell: bash
+          env:
+              WHEEL_CACHE_KEY: hogql-parser-rs-wheel-${{ hashFiles('rust/hogql/parser/**', 'rust/Cargo.toml', 'rust/Cargo.lock', 'rust/.cargo/config.toml') }}-rust${{ inputs.toolchain }}-${{ runner.os }}-${{ runner.arch }}
           run: |
+              echo "key=$WHEEL_CACHE_KEY" >> "$GITHUB_OUTPUT"
               needed=false
               if [[ -f rust/hogql/parser/pyproject.toml ]]; then
                   crate_version=$(grep -m1 '^version = ' rust/hogql/parser/pyproject.toml | sed -E 's/version = "(.*)"/\1/')
@@ -40,13 +45,13 @@ runs:
 
         - name: Restore hogql-parser-rs wheel from cache
           id: wheel-cache
-          if: steps.detect.outputs.needed == 'true'
+          if: steps.detect.outputs.needed == 'true' && inputs.trusted != 'true'
           timeout-minutes: 2
           continue-on-error: true
           uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
           with:
               path: ~/.cache/hogql-parser-rs-wheel
-              key: hogql-parser-rs-wheel-${{ hashFiles('rust/hogql/parser/**', 'rust/Cargo.toml', 'rust/Cargo.lock', 'rust/.cargo/config.toml') }}-rust${{ inputs.toolchain }}-${{ runner.os }}-${{ runner.arch }}
+              key: ${{ steps.detect.outputs.key }}
 
         - name: Install Rust to build hogql-parser-rs
           if: steps.detect.outputs.needed == 'true' && steps.wheel-cache.outputs.cache-hit != 'true'
@@ -55,7 +60,7 @@ runs:
               toolchain: ${{ inputs.toolchain }}
               components: cargo
 
-        - name: Build hogql-parser-rs wheel on cache miss
+        - name: Build hogql-parser-rs wheel
           if: steps.detect.outputs.needed == 'true' && steps.wheel-cache.outputs.cache-hit != 'true'
           shell: bash
           run: |
@@ -64,12 +69,12 @@ runs:
               python -m pip wheel --no-deps --wheel-dir "$HOME/.cache/hogql-parser-rs-wheel" ./rust/hogql/parser
 
         - name: Save hogql-parser-rs wheel to cache
-          if: steps.detect.outputs.needed == 'true' && steps.wheel-cache.outputs.cache-hit != 'true' && inputs.save-cache == 'true'
+          if: steps.detect.outputs.needed == 'true' && inputs.trusted == 'true'
           continue-on-error: true
           uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
           with:
               path: ~/.cache/hogql-parser-rs-wheel
-              key: ${{ steps.wheel-cache.outputs.cache-primary-key }}
+              key: ${{ steps.detect.outputs.key }}
 
         - name: Install hogql-parser-rs wheel
           if: steps.detect.outputs.needed == 'true'
