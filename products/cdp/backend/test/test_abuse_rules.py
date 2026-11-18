@@ -14,11 +14,13 @@ def content(
     inputs: dict[str, Any] | None = None,
     mappings: list[Any] | None = None,
     filters: dict[str, Any] | None = None,
+    template_id: str | None = None,
+    code_modified_from_template: bool | None = None,
 ) -> HogFunctionContent:
     return HogFunctionContent(
         type=function_type,
-        template_id=None,
-        code_modified_from_template=None,
+        template_id=template_id,
+        code_modified_from_template=code_modified_from_template,
         hog=hog,
         inputs_schema=[],
         inputs=inputs if inputs is not None else {"url": {"value": "https://hooks.example.com/orders"}},
@@ -26,6 +28,10 @@ def content(
         mappings=mappings or [],
         masking=None,
     )
+
+
+def liquid(template: str) -> HogFunctionContent:
+    return content(inputs={"body": {"value": template, "templating": "liquid"}})
 
 
 class TestAbuseRules(SimpleTestCase):
@@ -186,6 +192,166 @@ class TestAbuseRules(SimpleTestCase):
                 content(mappings=[{"inputs": {"padding": {"value": {"nested": "B" * 70_000}}}}]),
                 (Rule.OVERSIZED_INPUT,),
             ),
+            (
+                "workflow_function_called_from_a_destination",
+                content(hog="postHogAddToStaticCohort({'cohort_id': 4242})"),
+                (Rule.INTERNAL_FUNCTION,),
+            ),
+            (
+                "workflow_function_called_from_a_transformation",
+                content(
+                    hog="postHogReplayVisionScan({'session_id': event.properties.$session_id})\nreturn event",
+                    function_type="transformation",
+                    inputs={},
+                ),
+                (Rule.INTERNAL_FUNCTION,),
+            ),
+            ("warehouse_webhook_function", content(hog="produceToWarehouseWebhooks(event)"), (Rule.INTERNAL_FUNCTION,)),
+            (
+                "internal_function_passed_by_name",
+                content(hog="let run := postHogCreateTask\nrun({'title': event.event})"),
+                (Rule.INTERNAL_FUNCTION,),
+            ),
+            (
+                "internal_function_name_in_a_string",
+                content(hog="print('postHogCreateTask runs in workflows')\nfetch(inputs.url)"),
+                (),
+            ),
+            (
+                "property_named_like_an_internal_function",
+                content(hog="fetch(inputs.url, {'body': event.properties.postHogGetTicket})"),
+                (),
+            ),
+            (
+                "internal_function_in_unchanged_template_code",
+                content(
+                    hog="postHogUpdateAccount({'external_id': inputs.account_id, 'updates': inputs.updates})",
+                    template_id="template-posthog-update-account",
+                    code_modified_from_template=False,
+                ),
+                (),
+            ),
+            (
+                "internal_function_in_edited_template_code",
+                content(
+                    hog="postHogUpdateAccount({'external_id': '1', 'updates': {}})",
+                    template_id="template-posthog-update-account",
+                    code_modified_from_template=True,
+                ),
+                (Rule.INTERNAL_FUNCTION,),
+            ),
+            (
+                "posthog_capture",
+                content(hog="postHogCapture({'event': 'copied', 'distinct_id': event.distinct_id})"),
+                (),
+            ),
+            (
+                "huge_liquid_range_in_a_filter",
+                content(inputs={"body": {"value": "{{ (1..400000) | sort | size }}", "templating": "liquid"}}),
+                (Rule.HUGE_RANGE,),
+            ),
+            (
+                "huge_liquid_for_loop",
+                content(
+                    inputs={"body": {"value": "{% for i in ( 0 .. 1000000 ) %}x{% endfor %}", "templating": "liquid"}}
+                ),
+                (Rule.HUGE_RANGE,),
+            ),
+            (
+                "huge_liquid_range_in_a_mapping_input",
+                content(
+                    mappings=[
+                        {
+                            "inputs": {
+                                "body": {"value": "{% for i in (-5000..5000) %}x{% endfor %}", "templating": "liquid"}
+                            }
+                        }
+                    ]
+                ),
+                (Rule.HUGE_RANGE,),
+            ),
+            (
+                "liquid_range_at_the_limit",
+                content(inputs={"body": {"value": "{% for i in (1..10000) %}{% endfor %}", "templating": "liquid"}}),
+                (),
+            ),
+            (
+                "liquid_range_with_a_variable_end",
+                content(
+                    inputs={
+                        "body": {
+                            "value": "{% for i in (1..event.properties.count) %}{% endfor %}",
+                            "templating": "liquid",
+                        }
+                    }
+                ),
+                (),
+            ),
+            (
+                "liquid_range_with_a_very_long_number",
+                content(inputs={"body": {"value": "{{ (1.." + "9" * 5_000 + ") | size }}", "templating": "liquid"}}),
+                (Rule.HUGE_RANGE,),
+            ),
+            *(
+                (f"liquid_range_bounds_{name}", liquid(f"{{{{ ({low}..{high}) | size }}}}"), (Rule.HUGE_RANGE,))
+                for name, low, high in [
+                    ("with_a_sign", "+1", "10001"),
+                    ("with_decimals", "1.0", "10001.0"),
+                    ("quoted", "'1'", "'10001'"),
+                    ("quoted_in_exponent_notation", '"1"', '"1e5"'),
+                    ("with_a_trailing_point", "1", "10001."),
+                    ("with_a_trailing_point_and_a_space", "1. ", "10001"),
+                ]
+            ),
+            *(
+                (f"liquid_range_after_{name}", liquid(template), (Rule.HUGE_RANGE,))
+                for name, template in [
+                    ("a_quoted_tag_closer", '{{ "}}" | concat: (1..20000) | size }}'),
+                    ("an_escaped_quote", '{{ "a\\"b" | concat: (1..20000) | size }}'),
+                    ("a_quote_in_an_inline_comment", "{% # ' %}{{ (1..20000) | size }}"),
+                    ("a_raw_block_with_a_loose_end_tag", "{% raw %}x{% endraw ignored %}{{ (1..20000) | size }}"),
+                ]
+            ),
+            *(
+                (f"liquid_range_{name}", liquid(template), ())
+                for name, template in [
+                    ("in_a_quoted_string", "{{ '(1..20000)' }}"),
+                    ("in_an_inline_comment", "{% # {{ (1..20000) | size }} %}"),
+                    ("in_a_comment_block", "{% comment %}{{ (1..20000) | size }}{% endcomment %}"),
+                    ("in_a_raw_block", "{%- raw -%}{% for i in (1..20000) %}{% endfor %}{% endraw %}"),
+                    ("after_an_unclosed_quote", "{{ 'Hi }}{{ (1..20000) | size }}"),
+                ]
+            ),
+            ("liquid_range_with_zero_padded_bounds", liquid("{{ (" + "0" * 19 + ".." + "0" * 18 + "1) | size }}"), ()),
+            ("reversed_liquid_range", liquid("{{ (" + "9" * 20 + "..1) | size }}"), ()),
+            ("range_in_plain_liquid_text", liquid("Pick a number (1..20000)"), ()),
+            ("range_in_a_liquid_comment", liquid("{% # (1..20000) %}{{ event.event }}"), ()),
+            (
+                "range_in_a_hog_template",
+                content(inputs={"body": {"value": "{% for i in (1..20000) %}{% endfor %}", "templating": "hog"}}),
+                (),
+            ),
+            (
+                "huge_hog_range",
+                content(hog="for (let i in range(1000000)) {\n  print(i)\n}\nfetch(inputs.url)"),
+                (Rule.HUGE_RANGE,),
+            ),
+            ("huge_hog_range_with_a_start", content(hog="let ids := range(-5000, 5001)"), (Rule.HUGE_RANGE,)),
+            ("hog_range_at_the_limit", content(hog="let ids := range(10000)"), ()),
+            ("hog_range_with_a_float_bound", content(hog="print(range(10001.0))"), (Rule.HUGE_RANGE,)),
+            ("hog_range_with_a_string_bound", content(hog="print(range('1', '20000'))"), (Rule.HUGE_RANGE,)),
+            (
+                "replace_all_with_an_empty_search",
+                content(hog="fetch(inputs.url, {'body': replaceAll(event.event, '', 'xxxxxxxx')})"),
+                (Rule.REPLACE_AMPLIFICATION,),
+            ),
+            (
+                "replace_all_with_a_computed_replacement",
+                content(hog="let body := replaceAll(event.event, '', event.event)"),
+                (Rule.REPLACE_AMPLIFICATION,),
+            ),
+            ("replace_all_removing_a_character", content(hog="let phone := replaceAll(inputs.phone, '-', '')"), ()),
+            ("replace_all_of_nothing_with_nothing", content(hog="let name := replaceAll(event.event, '', '')"), ()),
             (
                 "several_rules",
                 content(
