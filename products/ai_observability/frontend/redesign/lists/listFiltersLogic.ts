@@ -34,6 +34,8 @@ interface FilterInput {
 
 const NO_FILTERS: ListFilters = { propertyFilters: [], filterTestAccounts: null, search: '', quickFilter: null }
 const NO_INPUT: FilterInput = { filters: NO_FILTERS, searchDraft: '' }
+// Clearing turns test account filtering off, because a null choice falls back to a default that may filter them out.
+const CLEARED_INPUT: FilterInput = { filters: { ...NO_FILTERS, filterTestAccounts: false }, searchDraft: '' }
 
 function testAccountsChoice(raw: string | null): boolean | null {
     return raw === 'true' ? true : raw === 'false' ? false : null
@@ -140,7 +142,7 @@ export const listFiltersLogic = kea<listFiltersLogicType>([
                     changeWithDraft(input, { quickFilter: input.filters.quickFilter === id ? null : id }),
                 setSearchDraft: (input, { search }) => ({ ...input, searchDraft: search }),
                 setSearch: (input, { search }) => ({ searchDraft: search, filters: { ...input.filters, search } }),
-                resetFilters: () => NO_INPUT,
+                resetFilters: () => CLEARED_INPUT,
                 applyUrlFilters: (_, { filters }) => ({ filters, searchDraft: filters.search }),
             },
         ],

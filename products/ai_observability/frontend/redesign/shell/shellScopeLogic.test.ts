@@ -5,6 +5,7 @@ import { urls } from 'scenes/urls'
 import { initKeaTests } from '~/test/init'
 
 import { pageLoad } from '../shared/testPageLoad'
+import { rawSearchParam } from '../trace/rawSearchParam'
 import { shellScopeLogic } from './shellScopeLogic'
 
 const TRACES = urls.aiObservabilityTraces()
@@ -81,19 +82,25 @@ describe('shellScopeLogic', () => {
         expect(router.values.searchParams).toEqual({ date_from: '-90d', date_to: '-1d' })
     })
 
-    it('writes the range to the url in place and keeps the other params as typed', () => {
-        mountAt(
-            `${TRACES}?date_from=-24h&date_to=-1h&trace_search=1.50&filters=${encodeURIComponent('[{"key":"model"}]')}`
-        )
+    it.each(['1.50', '{"answer": 1}'])(
+        'writes the range to the url in place and keeps the other params as typed, with search %s',
+        (search) => {
+            mountAt(
+                `${TRACES}?date_from=-24h&date_to=-1h&trace_search=${encodeURIComponent(search)}&filters=${encodeURIComponent('[{"key":"model"}]')}`
+            )
 
-        logic.actions.setDateRange('-1h', null)
+            logic.actions.setDateRange('-1h', null)
 
-        expect(router.values.location.pathname).toContain(TRACES)
-        expect(router.values.searchParams).toEqual({
-            date_from: '-1h',
-            trace_search: '1.50',
-            filters: [{ key: 'model' }],
-        })
-        expect(router.values.lastMethod).toEqual('REPLACE')
-    })
+            expect(router.values.location.pathname).toContain(TRACES)
+            expect({
+                ...router.values.searchParams,
+                trace_search: rawSearchParam(router.values.location.search, 'trace_search'),
+            }).toEqual({
+                date_from: '-1h',
+                trace_search: search,
+                filters: [{ key: 'model' }],
+            })
+            expect(router.values.lastMethod).toEqual('REPLACE')
+        }
+    )
 })
