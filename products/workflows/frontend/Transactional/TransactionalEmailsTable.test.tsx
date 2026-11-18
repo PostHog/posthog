@@ -192,20 +192,23 @@ describe('TransactionalEmailsTable', () => {
         ['tells a cloud team with emails that transactional emails never wait for the sending allowance', false],
         ['says nothing about a sending allowance on a self-hosted instance, which has none', true],
     ])('%s', async (_case, selfHosted) => {
-        renderWithCodeSends(
-            {
-                '/api/projects/:team_id/transactional_code_emails/': [
-                    codeEmail('password-reset', AccessControlLevel.Editor),
-                ],
-            },
-            { selfHosted }
-        )
+        renderWithCodeSends({
+            '/api/projects/:team_id/transactional_code_emails/': [
+                codeEmail('password-reset', AccessControlLevel.Editor),
+            ],
+            '/_preflight': { cloud: !selfHosted, is_debug: false },
+        })
         expect(await screen.findByText('password-reset')).toBeInTheDocument()
 
         await waitFor(() =>
-            expect(Boolean(screen.queryByText(/count toward your daily sending allowance and are still sent/))).toBe(
-                !selfHosted
-            )
+            expect(
+                Boolean(
+                    screen.queryByText(
+                        "Transactional emails count toward your daily sending allowance and are still sent after it's used up.",
+                        { exact: false }
+                    )
+                )
+            ).toBe(!selfHosted)
         )
         expect(screen.queryByText('How sending allowances work')?.closest('a')?.getAttribute('href')).toBe(
             selfHosted
