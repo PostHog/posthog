@@ -1,10 +1,3 @@
-"""Temporal patch gates shared by the task-run workflow stacks.
-
-Patch IDs are scoped to a single workflow execution's history, so the legacy
-``process-task`` workflow and the ``task-management`` orchestrator can share
-one gate without colliding.
-"""
-
 from temporalio import workflow
 
 # Gates the actionable-state check in the CI follow-up decision: a fingerprint
