@@ -161,6 +161,8 @@ _ISSUER_POLICY = f"attestations:\n  - name: proof\n    issuer: {_ISSUER}\n"
         pytest.param("attestations:\n  - issuer: tools/proof/argparse.py\n", (), id="not-yaml"),
         pytest.param("attestations:\n  - issuer: tools/pr-approval-agent/x.yml\n", (), id="beside-the-engine"),
         pytest.param("attestations:\n  - issuer: tools/owners/owners_yaml/x.yml\n", (), id="beside-owners"),
+        # A URL decodes `%2e%2e` to `..`, which would read another repository's file.
+        pytest.param("attestations:\n  - issuer: '%2e%2e/%2e%2e/victim/contents/x.yml'\n", (), id="percent-escape"),
     ],
 )
 def test_issuer_manifest_paths_names_only_plain_files(policy_text: str | None, expected: tuple[str, ...]) -> None:

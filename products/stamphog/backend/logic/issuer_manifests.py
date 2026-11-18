@@ -23,7 +23,9 @@ from products.stamphog.backend.temporal.constants import (
 # chose. A `.py` file there, or any file beside the engine or owners modules, would be imported by
 # the worker's engine subprocess as code. So only a YAML file outside those directories is written,
 # and the engine then refuses the policy that names any other path.
-_GLOB_CHARACTERS_RE = re.compile(r"[*?\[\]{}\\]")
+# Letters, digits, `.`, `_`, `-` and `/` only. A `%` escape such as `%2e%2e` would pass the segment
+# check below and still turn into `..` when a URL is decoded.
+_ISSUER_PATH_RE = re.compile(r"[A-Za-z0-9._/-]+")
 _MANIFEST_SUFFIXES = (".yml", ".yaml")
 _ENGINE_TREE_PREFIXES = tuple(
     f"{PurePosixPath(directory).relative_to(STAMPHOG_SANDBOX_REPO_DIR).as_posix()}/"
@@ -32,7 +34,7 @@ _ENGINE_TREE_PREFIXES = tuple(
 
 
 def _is_plain_file_path(path: object) -> TypeGuard[str]:
-    if not isinstance(path, str) or not path.endswith(_MANIFEST_SUFFIXES) or _GLOB_CHARACTERS_RE.search(path):
+    if not isinstance(path, str) or not _ISSUER_PATH_RE.fullmatch(path) or not path.endswith(_MANIFEST_SUFFIXES):
         return False
     if path.startswith(_ENGINE_TREE_PREFIXES):
         return False
