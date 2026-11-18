@@ -25,7 +25,8 @@ export const scene: SceneExport = {
 }
 
 export function ApplicationObservabilityScene(): JSX.Element {
-    const { environments, resolvedEnvironment, timeRange, tab, paused } = useValues(applicationObservabilityLogic)
+    const { environments, resolvedEnvironment, timeRange, tab, paused, refreshing } =
+        useValues(applicationObservabilityLogic)
     const { setEnvironment, setTimeRange, setTab, setPaused, refresh } = useActions(applicationObservabilityLogic)
 
     return (
@@ -64,6 +65,7 @@ export function ApplicationObservabilityScene(): JSX.Element {
                     type="secondary"
                     icon={<IconRefresh />}
                     onClick={refresh}
+                    loading={refreshing}
                     tooltip="Refresh now"
                     data-attr="apm-refresh"
                 />

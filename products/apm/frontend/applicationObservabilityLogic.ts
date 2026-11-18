@@ -92,6 +92,7 @@ export interface applicationObservabilityLogicValues {
     environments: string[]
     hasLoadError: boolean
     paused: boolean
+    refreshing: boolean
     resolvedEnvironment: string
     selectedMapService: ServiceHealthApi | null
     selectedMapServiceName: string | null
@@ -236,6 +237,12 @@ export interface applicationObservabilityLogicMeta {
             hasLoadError: boolean
         ) => ServiceMapWarning
         usageRows: (serviceUsage: ServiceUsageResponseApi | null) => ServiceUsageApi[]
+        refreshing: (
+            servicesHealthLoading: boolean,
+            endpointsHealthLoading: boolean,
+            serviceMapLoading: boolean,
+            serviceUsageLoading: boolean
+        ) => boolean
         attentionCount: (services: ServiceHealthApi[]) => number
     }
 }
@@ -436,6 +443,15 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
             (s) => [s.serviceMapLoadError, s.serviceMapLayoutError, s.hasLoadError],
             (serviceMapLoadError: boolean, serviceMapLayoutError: boolean, hasLoadError: boolean): ServiceMapWarning =>
                 serviceMapLoadError ? 'map' : serviceMapLayoutError ? 'layout' : hasLoadError ? 'health' : null,
+        ],
+        refreshing: [
+            (s) => [s.servicesHealthLoading, s.endpointsHealthLoading, s.serviceMapLoading, s.serviceUsageLoading],
+            (
+                servicesHealthLoading: boolean,
+                endpointsHealthLoading: boolean,
+                serviceMapLoading: boolean,
+                serviceUsageLoading: boolean
+            ): boolean => servicesHealthLoading || endpointsHealthLoading || serviceMapLoading || serviceUsageLoading,
         ],
         usageRows: [
             (s) => [s.serviceUsage],
