@@ -1,42 +1,39 @@
-import { useValues } from 'kea'
-
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
-import { urls } from 'scenes/urls'
 
-import { PropertyFilterType, PropertyOperator } from '~/types'
-
-import { experimentLogic } from '../experimentLogic'
+import {
+    EXPERIMENT_NOTIFICATION_SUB_TEMPLATES,
+    NOTIFICATIONS_DESCRIPTION,
+    NOTIFICATIONS_TITLE,
+    useExperimentNotificationsConfig,
+} from './experimentNotificationsModel'
+import { QuillExperimentNotifications } from './QuillExperimentNotifications'
 
 export function SettingsTab(): JSX.Element {
-    const { experiment } = useValues(experimentLogic)
+    const { shouldShow, forceFilterGroups, returnTo } = useExperimentNotificationsConfig()
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
 
-    const returnTo = urls.experiment(experiment.id)
-
-    // Only show alerts section for saved experiments, as the alert relies on experiment.id for filtering
-    const shouldShowSignificanceAlerts = typeof experiment.id === 'number'
+    if (todayRailNav && resultsRedesign) {
+        return (
+            <div className="flex flex-col gap-8">
+                {shouldShow && (
+                    <QuillExperimentNotifications forceFilterGroups={forceFilterGroups} returnTo={returnTo} />
+                )}
+            </div>
+        )
+    }
 
     return (
         <div className="flex flex-col gap-8">
-            {shouldShowSignificanceAlerts && (
+            {shouldShow && (
                 <div>
-                    <h2 className="font-semibold text-lg">Notifications</h2>
-                    <p className="text-muted text-xs mt-1">Get notified when a metric reaches significance.</p>
+                    <h2 className="font-semibold text-lg">{NOTIFICATIONS_TITLE}</h2>
+                    <p className="text-muted text-xs mt-1">{NOTIFICATIONS_DESCRIPTION}</p>
                     <LinkedHogFunctions
                         type="internal_destination"
-                        subTemplateIds={['experiment-significant']}
-                        forceFilterGroups={[
-                            {
-                                events: [{ id: '$experiment_metric_significant', type: 'events' }],
-                                properties: [
-                                    {
-                                        key: 'experiment_id',
-                                        type: PropertyFilterType.Event,
-                                        value: experiment.id,
-                                        operator: PropertyOperator.Exact,
-                                    },
-                                ],
-                            },
-                        ]}
+                        subTemplateIds={EXPERIMENT_NOTIFICATION_SUB_TEMPLATES}
+                        forceFilterGroups={forceFilterGroups}
                         queryParams={{ returnTo }}
                     />
                 </div>

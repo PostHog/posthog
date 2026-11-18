@@ -2,7 +2,7 @@ import { LemonDropdown, LemonTag, LemonTagProps } from '@posthog/lemon-ui'
 
 import { HogFunctionType, HogWatcherState } from '~/types'
 
-type DisplayOptions = { tagType: LemonTagProps['type']; display: string; description: JSX.Element }
+export type DisplayOptions = { tagType: LemonTagProps['type']; display: string; description: JSX.Element }
 const displayMap: Record<HogWatcherState, DisplayOptions> = {
     [HogWatcherState.healthy]: {
         tagType: 'success',
@@ -69,16 +69,23 @@ export type HogFunctionStatusIndicatorProps = {
 
 const HIDE_STATUS_FOR_TYPES: HogFunctionType['type'][] = ['site_destination', 'site_app']
 
-export function HogFunctionStatusIndicator({ hogFunction }: HogFunctionStatusIndicatorProps): JSX.Element | null {
+export function hogFunctionStatusDisplay(hogFunction: HogFunctionType | null | undefined): DisplayOptions | null {
     if (!hogFunction || HIDE_STATUS_FOR_TYPES.includes(hogFunction.type)) {
         return null
     }
-
-    const { tagType, display, description } = !hogFunction.enabled
+    return !hogFunction.enabled
         ? DISABLED_MANUALLY_DISPLAY
         : hogFunction.status?.state
           ? displayMap[hogFunction.status.state]
           : DEFAULT_DISPLAY
+}
+
+export function HogFunctionStatusIndicator({ hogFunction }: HogFunctionStatusIndicatorProps): JSX.Element | null {
+    const status = hogFunctionStatusDisplay(hogFunction)
+    if (!status) {
+        return null
+    }
+    const { tagType, display, description } = status
 
     return (
         <LemonDropdown
