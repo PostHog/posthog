@@ -5641,13 +5641,21 @@ class TestSignalReportContentUpdateAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not report.artefacts.exists()
 
-    def test_repository_edit_appends_attributed_selection_and_keeps_research_context(self) -> None:
+    @parameterized.expand(
+        [
+            ("agent_named_a_repository", "acme/website", True),
+            ("agent_found_no_repository", None, False),
+        ]
+    )
+    def test_repository_edit_appends_attributed_selection_and_keeps_research_context(
+        self, _name: str, previous_repository: str | None, expected_autostart_eligible: bool
+    ) -> None:
         report = self._create_report()
         previous = SignalReportArtefact.append_status(
             team_id=self.team.id,
             report_id=str(report.id),
             content=RepoSelectionResult(
-                repository="acme/website",
+                repository=previous_repository,
                 reason="Stack trace paths match this repository.",
                 research_context={"mode": "code", "repository_status": "available"},
                 autostart_eligible=True,
@@ -5677,7 +5685,7 @@ class TestSignalReportContentUpdateAPI(APIBaseTest):
             "repository": "acme/checkout",
             "research_context": {"mode": "code", "repository_status": "available"},
             "task_id": None,
-            "autostart_eligible": True,
+            "autostart_eligible": expected_autostart_eligible,
         }
 
     @parameterized.expand(

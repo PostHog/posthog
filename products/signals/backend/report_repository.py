@@ -13,8 +13,9 @@ def update_report_repository(*, report: SignalReport, repository: str, attributi
     """Append an attributed `repo_selection` that names `repository`, and return whether it changed.
 
     `repository` must already be a lowercased 'owner/repo' that the project's GitHub integration can
-    reach. The new row keeps the previous selection's research context and autostart eligibility, so
-    a correction changes where the work goes but neither grants nor withdraws an automatic PR.
+    reach. The new row keeps the previous selection's research context, and its autostart eligibility
+    when that selection named a repository, so a correction changes where the work goes but neither
+    grants nor withdraws an automatic PR.
     """
     with transaction.atomic():
         SignalReport.objects.select_for_update().get(id=report.id, team_id=report.team_id)
@@ -33,8 +34,12 @@ def update_report_repository(*, report: SignalReport, repository: str, attributi
                 repository=repository,
                 reason=INBOX_REPOSITORY_REASON,
                 research_context=previous.research_context if previous is not None else None,
-                # With no earlier selection there is no agent decision to start a PR to inherit.
-                autostart_eligible=previous.autostart_eligible if previous is not None else False,
+                # Auto-start never runs on a selection without a repository, and such a selection keeps
+                # the default True stamp. Inheriting that stamp would let this correction start a PR that
+                # nobody asked for, so only a selection that named a repository passes its stamp on.
+                autostart_eligible=(
+                    previous.autostart_eligible if previous is not None and previous.repository else False
+                ),
             ),
         )
         report.save(update_fields=["updated_at"])

@@ -280,7 +280,8 @@ A single permitted repository is selected without running the agent, and re-rese
 A person can change the report's repository with `PUT /api/projects/:id/signals/reports/:report_id/repository/`.
 The repository must be one the project's own GitHub installation reaches and that is not archived.
 The change appends an attributed `repo_selection` artefact, so the work log keeps the earlier selection.
-The new row keeps the earlier row's `research_context` and `autostart_eligible`, so it changes where work goes without granting or withdrawing an automatic pull request.
+The new row keeps the earlier row's `research_context`.
+It keeps the earlier `autostart_eligible` only when that row named a repository, and is otherwise not autostart eligible, so it changes where work goes without granting or withdrawing an automatic pull request.
 Selecting the current repository adds no row.
 The report detail response returns each decision (repository, priority, actionability, already addressed) under `decisions`, with the stored reason and who set it.
 
