@@ -10,11 +10,27 @@ use async_trait::async_trait;
 use common_posthog::capture_outcomes::{event_outcome, request_outcome, EventOutcome};
 use common_types::{InternallyCapturedEvent, RawEvent};
 use metrics::counter;
-use posthog::{CaptureSummary, Client, Error as PosthogError, Event};
+use posthog::{
+    CaptureCompression, CaptureSummary, Client, ClientOptions, ClientOptionsBuilder,
+    Error as PosthogError, Event,
+};
 use tracing::{info, warn};
 use uuid::Uuid;
 
 use super::{Emitter, Transaction};
+
+pub fn client_options(api_key: String, host: &str) -> Result<ClientOptions, Error> {
+    ClientOptionsBuilder::default()
+        .api_key(api_key)
+        .host(host)
+        .request_timeout_seconds(30u64)
+        .max_capture_attempts(6u32)
+        .retry_initial_backoff_ms(1000u64)
+        .retry_max_backoff_ms(30000u64)
+        .capture_compression(CaptureCompression::Zstd)
+        .build()
+        .map_err(|e| Error::msg(format!("Failed to build capture client options: {e}")))
+}
 
 pub struct CaptureEmitter {
     client: Client,
@@ -148,7 +164,7 @@ impl<'a> Transaction<'a> for CaptureTransaction<'a> {
         let txn_elapsed = self.start.elapsed();
         let to_sleep = min_duration.saturating_sub(txn_elapsed);
 
-        // Split into sub-batches under capture's 10 MiB body limit. Capture rejects an
+        // Split into sub-batches under `MAX_BATCH_PAYLOAD_BYTES`. Capture rejects an
         // over-limit batch without producing anything to Kafka, so the size failure this
         // prevents never half-commits a chunk. Capture does not dedupe by UUID alone (events
         // without a source id get a fresh UUID per parse): if a later sub-batch fails after
@@ -276,12 +292,8 @@ fn get_min_txn_duration(send_rate: u64, count: usize) -> Duration {
     Duration::from_secs_f64(batch_size / max_send_rate)
 }
 
-/// Capture's `/batch/` endpoint rejects any request body larger than 10 MiB with
-/// `payload_too_large`. We pack events into sub-batches that stay under this budget so a
-/// chunk whose serialized events exceed the limit is split across several requests
-/// instead of wedging the import. The headroom below 10 MiB absorbs the batch envelope
-/// and the per-event `api_key` / `$lib*` fields capture injects into each event.
-const MAX_BATCH_PAYLOAD_BYTES: usize = 9 * 1024 * 1024;
+/// Uncompressed budget per request (capture v1 allows 10 MiB compressed, 50 MiB decompressed).
+const MAX_BATCH_PAYLOAD_BYTES: usize = 5 * 1024 * 1024;
 
 /// Overhead capture adds per event beyond its own JSON (injected `api_key`, `$lib*`
 /// properties and separators). Counted toward every event so a flood of tiny events
@@ -612,6 +624,45 @@ mod tests {
                 "{moved} must leave properties"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn test_production_client_sends_zstd_bodies_capture_can_decode() {
+        let uuid = Uuid::now_v7();
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("POST", "/i/v1/analytics/events")
+            .match_header("content-encoding", "zstd")
+            .match_request(move |request| {
+                let Ok(body) = request.body() else {
+                    return false;
+                };
+                let Ok(json) = zstd::stream::decode_all(&body[..]) else {
+                    return false;
+                };
+                let batch: serde_json::Value = serde_json::from_slice(&json).unwrap();
+                batch["historical_migration"] == true
+                    && batch["batch"][0]["uuid"] == uuid.to_string()
+            })
+            .with_status(200)
+            .with_body(V1_OK_BODY)
+            .expect(1)
+            .create();
+
+        let options = client_options("test_api_key".to_string(), &server.url()).unwrap();
+        let client = posthog::client(options).await;
+        let mut event = Event::new("test", "user1");
+        event.set_uuid(uuid);
+        let txn = Box::new(CaptureTransaction {
+            client: &client,
+            send_rate: 10_000,
+            start: Instant::now(),
+            events: Mutex::new(vec![event]),
+            seen_uuids: Mutex::new(HashSet::new()),
+        });
+        txn.commit_write().await.unwrap();
+
+        mock.assert();
     }
 
     #[tokio::test]
