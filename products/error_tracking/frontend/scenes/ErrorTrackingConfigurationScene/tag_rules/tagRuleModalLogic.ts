@@ -177,7 +177,7 @@ export interface tagRuleModalLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         hasFilters: (rule: EditableTagRule) => boolean
         hasLabel: (rule: EditableTagRule) => boolean
-        removesExistingTags: (savedFilters: any, rule: EditableTagRule) => boolean
+        removesExistingTags: (savedFilters: UniversalFiltersGroup | null, rule: EditableTagRule) => boolean
     }
 }
 
