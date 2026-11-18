@@ -16,6 +16,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_program
 from posthog.hogql.visitor import TraversingVisitor
 
+from posthog.dataclasses import frozen
 from posthog.security.oob_domains import matched_oob_domain
 from posthog.security.url_validation import canonicalize_host, internal_host_name
 
@@ -252,14 +253,23 @@ def _liquid_templates(content: HogFunctionContent) -> Iterator[str]:
 
 def _has_huge_liquid_range(template: str) -> bool:
     for tag in _liquid_tags(_decode_liquid_tags(template)):
-        for low, high in map(_liquid_number_pair, _liquid_ranges(tag)):
-            # LiquidJS builds the list from `low` while the value stays below `high + 1`.
-            if high - low + 1 > MAX_RANGE_SIZE:
-                return True
+        if any(liquid_range.length > MAX_RANGE_SIZE for liquid_range in _liquid_ranges(tag)):
+            return True
     return False
 
 
-def _liquid_ranges(tag: str) -> Iterator[tuple[str, str]]:
+@frozen
+class _LiquidRange:
+    low: float
+    high: float
+
+    @property
+    def length(self) -> float:
+        # LiquidJS builds the list from `low` while the value stays below `high + 1`.
+        return self.high - self.low + 1
+
+
+def _liquid_ranges(tag: str) -> Iterator[_LiquidRange]:
     """The bounds of each range literal in a tag, skipping quoted strings. An unterminated string ends the scan,
     because LiquidJS cannot parse the tag, and that keeps a failed string from being scanned again."""
     position = 0
@@ -268,7 +278,7 @@ def _liquid_ranges(tag: str) -> Iterator[tuple[str, str]]:
             literal = _LIQUID_RANGE.match(tag, stop.start())
             position = stop.end() if literal is None else literal.end()
             if literal is not None:
-                yield literal.group(1), literal.group(2)
+                yield _LiquidRange(low=_liquid_number(literal.group(1)), high=_liquid_number(literal.group(2)))
             continue
         string = _LIQUID_STRING.match(tag, stop.start())
         if string is None:
@@ -363,11 +373,6 @@ def _output_tag_end(template: str, start: int) -> int:
         if position > close:
             close = template.find("}}", position)
     return -1
-
-
-def _liquid_number_pair(bounds: tuple[str, str]) -> tuple[float, float]:
-    low, high = bounds
-    return _liquid_number(low), _liquid_number(high)
 
 
 def _liquid_number(bound: str) -> float:
