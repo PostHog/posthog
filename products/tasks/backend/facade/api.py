@@ -3751,8 +3751,8 @@ def signal_workflow_completion(
 
 
 def _post_slack_update_for_pr(run: TaskRun, *, pr_url: str | None = None) -> None:
-    pr_url = pr_url or ((run.output or {}).get("pr_url") if isinstance(run.output, dict) else None)
-    if not pr_url:
+    pr_urls = [pr_url] if pr_url else read_pr_urls(run.output)
+    if not pr_urls:
         return
 
     from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off the api import path
@@ -3775,7 +3775,8 @@ def _post_slack_update_for_pr(run: TaskRun, *, pr_url: str | None = None) -> Non
                 notify_implementation_pr_opened,
             )
 
-            transaction.on_commit(lambda: notify_implementation_pr_opened(run.team_id, str(run.task_id), pr_url))
+            for url in pr_urls:
+                notify_implementation_pr_opened(run.team_id, str(run.task_id), url)
             return
         post_slack_update(
             PostSlackUpdateInput(
@@ -4028,6 +4029,7 @@ def update_task_run(
         old_output = run.output
         old_branch = run.branch
         old_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
+        old_pr_urls = set(read_pr_urls(run.output))
         old_commit_head = _commit_push_head_sha(run.output)
 
         for key, value in validated_data.items():
@@ -4158,9 +4160,10 @@ def update_task_run(
 
             notify_task_run_cancelled(run)
     new_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
+    if set(read_pr_urls(run.output)) - old_pr_urls:
+        _post_slack_update_for_pr(run)
     if new_pr_url and new_pr_url != old_pr_url:
         _refresh_self_driving_quota_for_pr(run, old_pr_url)
-        _post_slack_update_for_pr(run)
         _send_wizard_pr_ready_email_for_pr(run)
         post_pr_created_thread_update(run, new_pr_url)
         # Surface the PR in the run's progress timeline the moment the agent reports it, so the install

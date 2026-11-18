@@ -9,30 +9,84 @@ Writes are best-effort: a report must still reach Slack when the link cannot be 
 
 from __future__ import annotations
 
+import re
 import logging
 from collections.abc import Sequence
 from uuid import NAMESPACE_URL, uuid5
 
 from django.db import IntegrityError
-from django.db.models import Func, Value
+from django.db.models import Func, Q, Value
+
+from slack_sdk.errors import SlackApiError
 
 from posthog.dataclasses import frozen
 from posthog.integrations import IntegrationManager
+from posthog.models import Team
 from posthog.models.integration import SlackIntegration
+from posthog.models.user_integration import UserIntegration
 
 from products.signals.backend.artefact_schemas import TASK_RUN_TYPE_IMPLEMENTATION
 from products.signals.backend.models import SignalReportSlackThread, SignalReportTask
-from products.signals.backend.slack_formatting import is_safe_slack_http_url
+from products.signals.backend.slack_notification_targets import is_slack_member_target
 
 logger = logging.getLogger(__name__)
 
 
-def dispatch_implementation_pr_notifications(*, team_id: int, task_id: str, pr_url: str) -> int:
-    if not is_safe_slack_http_url(pr_url) or len(pr_url) > 2000:
+class ImplementationPRNotificationRetry(Exception):
+    def __init__(self, retry_after: int) -> None:
+        super().__init__("Slack PR notification needs a retry")
+        self.retry_after = retry_after
+
+
+def _notification_retry_after(error: Exception) -> int | None:
+    if not isinstance(error, SlackApiError):
         return 0
-    report_ids = SignalReportTask.objects.filter(
-        team_id=team_id, task_id=task_id, relationship=TASK_RUN_TYPE_IMPLEMENTATION
-    ).values("report_id")
+    status = error.response.status_code
+    transient = error.response.get("error") in {
+        "ratelimited",
+        "internal_error",
+        "request_timeout",
+        "service_unavailable",
+    }
+    if status != 429 and status < 500 and not transient:
+        return None
+    wait = str(error.response.headers.get("Retry-After", "0"))
+    return int(wait) if wait.isdigit() else 0
+
+
+def _thread_recipient_can_receive_pr(slack: SlackIntegration, thread: SignalReportSlackThread) -> bool:
+    target = thread.target or ""
+    if not is_slack_member_target(target):
+        return not thread.channel.startswith(("D", "U", "W"))
+    member = slack.get_user_by_id(target)
+    if member is None:
+        return False
+    linked_users = UserIntegration.objects.filter(
+        kind=UserIntegration.IntegrationKind.SLACK,
+        integration_id=target,
+        config__slack_team_id=thread.slack_workspace_id,
+    ).values("user_id")
+    identity = Q(id__in=linked_users)
+    if email := (member.get("profile") or {}).get("email"):
+        identity |= Q(email__iexact=email)
+    team = Team.objects.get(id=thread.team_id)
+    return team.all_users_with_access().filter(is_active=True).filter(identity).exists()
+
+
+def dispatch_implementation_pr_notifications(*, team_id: int, task_id: str, pr_url: str) -> int:
+    if len(pr_url) > 2000:
+        return 0
+    parsed_pr = re.fullmatch(r"https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/[1-9][0-9]*/?", pr_url)
+    if parsed_pr is None:
+        return 0
+    repository = parsed_pr[1].lower()
+    report_ids = (
+        SignalReportTask.objects.filter(
+            team_id=team_id, task_id=task_id, task__team_id=team_id, relationship=TASK_RUN_TYPE_IMPLEMENTATION
+        )
+        .filter(Q(task__repository__iexact=repository) | Q(task__repositories__contains=[repository]))
+        .values("report_id")
+    )
     threads = list(
         SignalReportSlackThread.objects.for_team(team_id)
         .filter(report_id__in=report_ids, report__team_id=team_id, integration_id__isnull=False)
@@ -44,12 +98,16 @@ def dispatch_implementation_pr_notifications(*, team_id: int, task_id: str, pr_u
         team_id, {thread.integration_id for thread in threads if thread.integration_id is not None}
     )
     sent = 0
+    retry_after: int | None = None
     for thread in threads:
         integration = integrations.get(thread.integration_id) if thread.integration_id is not None else None
         if integration is None or integration.integration_id != thread.slack_workspace_id:
             continue
         try:
-            SlackIntegration(integration, source="signals_inbox").client.chat_postMessage(
+            slack = SlackIntegration(integration, source="signals_inbox", timeout_seconds=10)
+            if not _thread_recipient_can_receive_pr(slack, thread):
+                continue
+            slack.client.chat_postMessage(
                 channel=thread.channel,
                 thread_ts=thread.thread_ts,
                 text=f"Pull request opened: <{pr_url}|View pull request>",
@@ -61,7 +119,9 @@ def dispatch_implementation_pr_notifications(*, team_id: int, task_id: str, pr_u
                 notified_pr_urls__contains=[pr_url]
             ).update(notified_pr_urls=Func("notified_pr_urls", Value(pr_url), function="array_append"))
             sent += 1
-        except Exception:
+        except Exception as error:
+            if (wait := _notification_retry_after(error)) is not None:
+                retry_after = max(retry_after or 0, wait)
             logger.exception(
                 "Failed to post an implementation PR to a report Slack thread",
                 extra={"team_id": team_id, "task_id": task_id, "thread_id": str(thread.id)},
@@ -70,6 +130,8 @@ def dispatch_implementation_pr_notifications(*, team_id: int, task_id: str, pr_u
         "signals_inbox_pr_notifications_complete",
         extra={"team_id": team_id, "task_id": task_id, "messages_sent": sent},
     )
+    if retry_after is not None:
+        raise ImplementationPRNotificationRetry(retry_after)
     return sent
 
 

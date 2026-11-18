@@ -516,12 +516,14 @@ def remove_reviewer_from_slack(
 
 
 def notify_implementation_pr_opened(team_id: int, task_id: str, pr_url: str) -> None:
-    from products.signals.backend.slack_report_threads import (  # noqa: PLC0415 - avoids the signals/tasks facade cycle
-        dispatch_implementation_pr_notifications,
+    from products.signals.backend.implementation_pr_notification_tasks import (  # noqa: PLC0415 - avoids the signals/tasks facade cycle
+        deliver_implementation_pr_notifications,
     )
 
     try:
-        dispatch_implementation_pr_notifications(team_id=team_id, task_id=task_id, pr_url=pr_url)
+        transaction.on_commit(
+            lambda: deliver_implementation_pr_notifications.delay(team_id=team_id, task_id=task_id, pr_url=pr_url)
+        )
     except Exception:
         logger.exception("signals_inbox_pr_notification_failed", team_id=team_id, task_id=task_id)
 

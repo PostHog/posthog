@@ -1,6 +1,6 @@
 # Report completion and late PR attachments
 
-Implementations started in the app send a pull request link to the report's saved Slack notification threads when task output or an opened GitHub webhook records the PR. Tasks with a Slack conversation mapping keep their existing notification path. Each report thread records the PR URLs it receives, so repeated callbacks skip successful sends and can retry failed sends. Disconnected workspaces do not receive updates. Report messages sent before thread recording was available have no saved destination.
+Implementations started in the app send each pull request link to the report's saved Slack notification threads when task output or an opened GitHub webhook records the PR. Delivery runs on a worker after commit, with bounded Slack timeouts and retries with backoff for transient failures. Rate-limit retries honor Slack's Retry-After header. Tasks with a Slack conversation mapping keep their existing notification path. Each report thread records the PR URLs it receives, so retries skip successful sends. Direct messages require a saved recipient who remains eligible in Slack and has project access. Disconnected workspaces do not receive updates. Report messages without a saved destination or an identifiable DM recipient cannot receive these updates.
 
 The inbox includes Closed reports in All statuses. The Closed filter appears when the project has closed reports, or when it is selected.
 

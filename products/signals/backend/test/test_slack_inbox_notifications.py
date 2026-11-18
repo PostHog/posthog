@@ -700,6 +700,8 @@ def test_dispatch_records_the_notification_thread_for_the_report(org_and_team, t
         thread_ts="1700000000.000100",
     ) == str(report.id)
 
+    assert report.slack_threads.get(thread_ts="1700000000.000100").target == target.split("|", 1)[0]
+
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(("min_priority", "expected_sent"), [(None, 1), ("P1", 0), ("P2", 1)])
