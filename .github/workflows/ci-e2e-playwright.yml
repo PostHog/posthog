@@ -177,6 +177,9 @@ jobs:
                         # into the same bundle the suite drives. tools/playwright_area_map.json
                         # narrows the run from here.
                         - 'products/*/frontend/**'
+                        # The hosted message preferences page renders from these templates and views.
+                        # tools/playwright_area_map.json narrows the run to its spec.
+                        - 'products/messaging/backend/**'
                         - .github/workflows/ci-e2e-playwright.yml
                         - 'ee/**'
                         - 'posthog/!(temporal/**)/**'
@@ -221,6 +224,8 @@ jobs:
                         - '!posthog/**/conftest.py'
                         - '!ee/**/test_*.py'
                         - '!ee/**/conftest.py'
+                        - '!products/messaging/backend/**/test_*.py'
+                        - '!products/messaging/backend/**/conftest.py'
                         # Dagster code never loads in the E2E stack. No Dagster process runs there,
                         # and no web app or worker module imports posthog.dags, because its
                         # __init__.py calls django.setup() again. ci-dagster.yml runs its tests.
