@@ -3,6 +3,8 @@
 from datetime import datetime
 from typing import Any, cast
 
+from django.db.models import OuterRef, Subquery
+
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
@@ -12,6 +14,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import SerializedField, serialize_fields
 
 from posthog.api.shared import UserBasicSerializer
+from posthog.dataclasses import frozen
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.data_modeling.backend.facade.api import get_incremental_config
@@ -82,27 +85,54 @@ class ViewEngineSerializer(serializers.Serializer):
 VIEW_ENGINE_HELP_TEXT = "The engine that runs this view, and what the product can do with it."
 
 
+@frozen
+class ServingRun:
+    status: str
+    last_run_at: datetime
+    error: str | None
+
+
+SERVING_RUN_FIELDS = ("status", "last_run_at", "error")
+
+
+def serving_run_annotations() -> dict[str, Subquery]:
+    return {
+        f"serving_run_{field}": Subquery(
+            DataModelingJob.objects.filter(saved_query_id=OuterRef("pk"), engine=DataModelingJobEngine.CLICKHOUSE)
+            .order_by("-last_run_at")
+            .values(field)[:1]
+        )
+        for field in SERVING_RUN_FIELDS
+    }
+
+
+def _load_serving_run(view: DataWarehouseSavedQuery) -> None:
+    run = (
+        DataModelingJob.objects.filter(saved_query_id=view.id, engine=DataModelingJobEngine.CLICKHOUSE)
+        .order_by("-last_run_at")
+        .values(*SERVING_RUN_FIELDS)
+        .first()
+    )
+    for field in SERVING_RUN_FIELDS:
+        setattr(view, f"serving_run_{field}", run[field] if run else None)
+
+
 class DataWarehouseSavedQuerySerializerMixin:
     """Shared methods for DataWarehouseSavedQuery serializers.
 
     This mixin is intended to be used with serializers.ModelSerializer subclasses.
     """
 
-    def _serving_run(self, view: DataWarehouseSavedQuery) -> DataModelingJob | None:
+    def _serving_run(self, view: DataWarehouseSavedQuery) -> ServingRun | None:
         """The newest materialization run that serves this view, or None if it has never run.
 
         Prefers the prefetched job so a list of views costs one query. Falls back to a lookup for
         the detail route, which has no prefetch.
         """
-        try:
-            jobs = view.jobs  # type: ignore[attr-defined]
-            return jobs[0] if jobs else None
-        except AttributeError:
-            return (
-                DataModelingJob.objects.filter(saved_query_id=view.id, engine=DataModelingJobEngine.CLICKHOUSE)
-                .order_by("-last_run_at")
-                .first()
-            )
+        if not hasattr(view, "serving_run_status"):
+            _load_serving_run(view)
+        annotated_run = {field: getattr(view, f"serving_run_{field}") for field in SERVING_RUN_FIELDS}
+        return ServingRun(**annotated_run) if annotated_run["status"] is not None else None
 
     @extend_schema_field(serializers.DateTimeField(allow_null=True))
     def get_last_run_at(self, view: DataWarehouseSavedQuery) -> datetime | None:

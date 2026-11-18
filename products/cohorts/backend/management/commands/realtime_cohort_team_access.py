@@ -127,7 +127,7 @@ class Command(BaseCommand):
         if stale_flags_cache:
             failures.append(
                 f"Flags cache rebuild not enqueued for {', '.join(str(team_id) for team_id in stale_flags_cache)}, "
-                "so enqueue update_team_flags_cache and update_team_service_flags_cache for them."
+                "so enqueue update_team_flags_cache and invalidate_team_flags_cache_for_cohorts for them."
             )
         if failures:
             raise CommandError(" ".join(failures))

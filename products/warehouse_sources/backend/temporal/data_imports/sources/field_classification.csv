@@ -862,6 +862,7 @@ Netlify,api_token,,,,,netlify
 NewRelic,api_key account_id region,,,,,new-relic
 NewYorkTimes,api_key,,,article_search_query,,new-york-times
 NewsApi,api_key,,,query language,,news-api
+NewsBreak,access_token,,org_ids,report_timezone,,newsbreak
 NewsData,api_key,,,,,news-data
 Nexhealth,,,,,,nexhealth
 Nexiopay,,,,,,nexiopay

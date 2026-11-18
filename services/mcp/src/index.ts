@@ -5,7 +5,7 @@ import { isIdJagAccessToken } from '@/lib/id-jag'
 import { RequestLogger, withLogging } from '@/lib/logging'
 import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
 import { corsHeadersForOAuthMetadata, oauthMetadataPreflightResponse } from '@/lib/oauth-metadata-cors'
-import { isProjectSecretKey, validateProjectSecretKeyProject } from '@/lib/project-secret-key'
+import { isProjectSecretKey, validateCredentialForPath } from '@/lib/project-secret-key'
 import { RequestProperties } from '@/lib/request-properties'
 import { buildRedirectUrl, getPublicUrl, getRegionFromRequest, matchAuthServerRedirect } from '@/lib/routing'
 import { extractBearerToken, hash, parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
@@ -148,6 +148,12 @@ const handleRequest = async (
     const token = extractBearerToken(request)
     const sessionId = url.searchParams.get('sessionId')
 
+    const wrongPath = validateCredentialForPath(token, request)
+    if (wrongPath) {
+        log.extend({ authError: 'credential_on_wrong_path' })
+        return wrongPath
+    }
+
     if (!token) {
         // Return 401 with WWW-Authenticate header per RFC 9728.
         // The resource_metadata URL tells OAuth-capable clients where to discover auth server.
@@ -189,12 +195,6 @@ const handleRequest = async (
     const organizationId =
         request.headers.get('x-posthog-organization-id') || url.searchParams.get('organization_id') || undefined
     const projectId = request.headers.get('x-posthog-project-id') || url.searchParams.get('project_id') || undefined
-
-    const missingProject = validateProjectSecretKeyProject(token, projectId)
-    if (missingProject) {
-        log.extend({ authError: 'project_secret_key_without_project' })
-        return missingProject
-    }
 
     const rawUserAgent = request.headers.get('User-Agent') || undefined
     const clientUserAgent = sanitizeHeaderValue(rawUserAgent)
@@ -294,7 +294,7 @@ const handleRequest = async (
     }
 
     if (url.pathname.startsWith('/mcp')) {
-        const region = await resolveProxyRegion(token, ctx.props.userHash, env.MCP_KV, projectId)
+        const region = await resolveProxyRegion(token, ctx.props.userHash, env.MCP_KV)
         log.extend({ proxy: 'hono', region })
         const response = await proxyToHono(request, region)
         const authError = isRejectedTokenChallenge(response)

@@ -64,6 +64,11 @@ describe('IdempotencyKeys', () => {
             { current: 'request-a', previousShape: 'request-a-before' },
             { current: 'request-a', previousShape: 'request-a-before-other-sender' },
         ],
+        [
+            'an old pod queued an unkeyed hash, a new pod retries with a keyed one',
+            'request-a-unkeyed',
+            { current: 'request-a', previousShape: 'request-a-before', alsoMatches: ['request-a-unkeyed'] },
+        ],
     ] as const)('replays a run across a fingerprint shape change when %s', async (_desc, first, retry) => {
         await keys.reserve(1, key, first, 'run-1')
         await keys.markQueued(1, key, first, 'run-1', 'run-1')

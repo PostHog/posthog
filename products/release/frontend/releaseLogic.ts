@@ -1066,8 +1066,8 @@ export const releaseLogic = kea<releaseLogicType>([
             [urls.releases()]: (_, __, ___, payload, previousLocation) => {
                 if (openedPage(payload, previousLocation)) {
                     posthog.capture('release view all opened')
+                    actions.reload()
                 }
-                actions.reload()
             },
             [urls.releaseCalendar()]: (_, __, ___, payload, previousLocation) => {
                 if (openedPage(payload, previousLocation)) {

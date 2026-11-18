@@ -87,7 +87,8 @@ class AnomalySearchQuerySerializer(serializers.Serializer):
         default=AnomalyOrder.UNUSUAL,
         help_text=(
             "`unusual` puts the series that flagged most above its usual rate first. `recent` puts the newest flagged "
-            "bucket first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series."
+            "bucket first, then sorts as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts "
+            "as `unusual`. With `group_by: insight`, each insight sorts by its first series."
         ),
     )
     search = serializers.CharField(
@@ -149,6 +150,11 @@ class AnomalySeriesPointSerializer(serializers.Serializer):
     flag = serializers.BooleanField(help_text="Whether the detector flagged the bucket.")
 
 
+class AnomalyDashboardSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="The numeric id of the dashboard.")
+    name = serializers.CharField(allow_null=True, help_text="The name of the dashboard. Null when it has none.")
+
+
 class AnomalySeriesSerializer(serializers.Serializer):
     insight_id = serializers.IntegerField(source="summary.insight_id", help_text="The numeric id of the insight.")
     insight_name = serializers.CharField(
@@ -207,6 +213,10 @@ class AnomalySeriesSerializer(serializers.Serializer):
     )
     flagged_points = AnomalyFlaggedPointSerializer(
         many=True, help_text="Up to 5 flagged buckets in the range, newest first."
+    )
+    dashboards = AnomalyDashboardSerializer(
+        many=True,
+        help_text="The dashboards the insight sits on that the caller may view, oldest tile first. Empty when none.",
     )
     points = AnomalySeriesPointSerializer(
         many=True,
