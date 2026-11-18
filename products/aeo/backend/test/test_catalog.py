@@ -261,11 +261,9 @@ class TestSyncBrandsFromRun(BaseTest):
         )
         checks = AEOCitationCheck.objects.for_team(self.team.id)
         unfilled = self._check(str(uuid.uuid4()), [], failed=failed)
-        # Stored against other own domains, which an answered check with their key shows.
         stale = self._check(
             str(uuid.uuid4()), [], failed=failed, prompt_branded=True, own_domains_key=own_domains_key(["other.com"])
         )
-        self._check(str(uuid.uuid4()), [], prompt_branded=False, own_domains_key=own_domains_key(["other.com"]))
         checks.filter(id=unfilled.id).update(prompt_text="Is Example good for funnels?")
         checks.filter(id=stale.id).update(prompt_text="Best funnel tool?")
 

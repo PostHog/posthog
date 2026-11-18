@@ -107,7 +107,15 @@ def recompute_own_citations(team_id: int) -> int:
     for _ in range(RECOMPUTE_MAX_PASSES):
         recomputed = _recompute_with(team_id, domains)
         changed += recomputed.changed
-        _recompute_branded_prompts(team_id, domains, whole_history=recomputed.rekeyed)
+        # A failed check has no citations to recompute, so the pass above leaves its key alone. It
+        # still shows a change of the own domains when no answered check does.
+        failed_on_another_key = (
+            AEOCitationCheck.objects.for_team(team_id, canonical=True)
+            .filter(check_failed=True)
+            .exclude(own_domains_key=own_domains_key(domains))
+        )
+        _recompute_branded_prompts(team_id, domains, whole_history=recomputed.rekeyed or failed_on_another_key.exists())
+        failed_on_another_key.update(own_domains_key=own_domains_key(domains))
         current = own_domains(team_id)
         if current == domains:
             break
