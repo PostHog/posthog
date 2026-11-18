@@ -49,6 +49,48 @@ def stamphog_request_for_turn(report: ReviewReport, run_index: int) -> str | Non
     return TurnMarkerArtefact.model_validate_json(content).stamphog_review_run_id if content is not None else None
 
 
+def resume_stamphog_turn(report: ReviewReport, request_id: str, queue_turn_id: str | None) -> TurnMarkerArtefact | None:
+    marker = (
+        _markers(report)
+        .annotate(payload=Cast("content", JSONField()))
+        .filter(payload__stamphog_review_run_id=request_id)
+        .order_by("-created_at", "-id")
+        .first()
+    )
+    if marker is None:
+        return None
+    content = TurnMarkerArtefact.model_validate_json(marker.content)
+    latest_turn_marker = (
+        _markers(report)
+        .annotate(payload=Cast("content", JSONField()))
+        .filter(payload__run_index=content.run_index)
+        .order_by("-created_at", "-id")
+        .first()
+    )
+    if latest_turn_marker is None or latest_turn_marker.id != marker.id:
+        return None
+    if queue_turn_id is not None and queue_turn_id != content.queue_turn_id:
+        content = content.model_copy(update={"queue_turn_id": queue_turn_id})
+        marker.content = content.model_dump_json()
+        marker.save(update_fields=["content"])
+    return content
+
+
+def finalize_stamphog_request(report: ReviewReport, request_id: str, run_index: int, urgency_threshold: str) -> None:
+    marker = (
+        _markers(report)
+        .annotate(payload=Cast("content", JSONField()))
+        .filter(payload__stamphog_review_run_id=request_id, payload__run_index=run_index)
+        .order_by("-created_at", "-id")
+        .first()
+    )
+    if marker is None:
+        raise ValueError("The refusal review's turn marker is missing")
+    content = TurnMarkerArtefact.model_validate_json(marker.content)
+    marker.content = content.model_copy(update={"finalized_urgency_threshold": urgency_threshold}).model_dump_json()
+    marker.save(update_fields=["content"])
+
+
 def complete_stamphog_request(report: ReviewReport, run_index: int, *, required: bool = True) -> None:
     marker = (
         _markers(report)

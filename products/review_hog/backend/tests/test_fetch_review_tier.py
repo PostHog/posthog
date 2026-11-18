@@ -18,7 +18,12 @@ from products.review_hog.backend.reviewer.constants import (
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.persistence import load_pr_snapshot, load_review_arm
 from products.review_hog.backend.reviewer.tools.github_meta import FetchedPR
-from products.review_hog.backend.temporal.activities import FetchPRDataInput, _fetch_and_persist
+from products.review_hog.backend.temporal.activities import (
+    BuildBodyInput,
+    FetchPRDataInput,
+    _build_and_finalize,
+    _fetch_and_persist,
+)
 from products.review_hog.backend.temporal.types import TRIGGER_INBOX, TRIGGER_UI
 from products.signals.backend.facade.taxonomy import ArtefactAttribution
 from products.signals.backend.models import SignalReport
@@ -48,12 +53,13 @@ def _pr_metadata() -> PRMetadata:
 class TestFetchDecidesTheTier(BaseTest):
     @parameterized.expand(
         [
-            ("new_refusal", "new", 1, True, False),
-            ("completed_refusal_retry", "old", 1, True, True),
-            ("joined_refusal_retry", "joined", 1, True, True),
-            ("unfinished_refusal_retry", "old", 0, False, False),
-            ("failed_publish_retry", "old", 1, False, False),
-            ("ordinary_review", None, 1, True, True),
+            ("new_refusal", "new", 1, True, False, 2, False, False),
+            ("completed_refusal_retry", "old", 1, True, True, 2, False, False),
+            ("joined_refusal_retry", "joined", 1, True, True, 2, False, False),
+            ("unfinished_refusal_retry", "old", 0, False, False, 1, False, False),
+            ("failed_publish_retry", "old", 1, False, False, 1, True, False),
+            ("ordinary_review", None, 1, True, True, 2, False, False),
+            ("replaced_turn", "old", 1, False, False, 2, False, True),
         ]
     )
     @patch(f"{_MODULE}._installation_auth", return_value=("tok", None))
@@ -65,6 +71,9 @@ class TestFetchDecidesTheTier(BaseTest):
         completed_turns: int,
         published: bool,
         expected_skip: bool,
+        expected_run_index: int,
+        expected_resume: bool,
+        replaced: bool,
         fetcher: MagicMock,
         _auth: MagicMock,
     ) -> None:
@@ -82,9 +91,12 @@ class TestFetchDecidesTheTier(BaseTest):
         )
         first = _fetch_and_persist(request)
         ReviewReport.objects.for_team(self.team.id).filter(id=first.report_id).update(
-            published_heads_by_mode={"full": "sha1"}, run_count=completed_turns
+            published_heads_by_mode={"full": "sha1"},
+            run_count=completed_turns,
+            completed_head_sha="sha1" if completed_turns else None,
+            run_urgency_threshold="must_fix",
         )
-        ReviewReportArtefact.add_turn_marker(
+        marker = ReviewReportArtefact.add_turn_marker(
             team_id=self.team.id,
             report_id=first.report_id,
             content=TurnMarkerArtefact(
@@ -96,13 +108,96 @@ class TestFetchDecidesTheTier(BaseTest):
                 stamphog_review_run_id="old",
                 stamphog_review_completed=published,
                 joined_stamphog_review_run_ids=["joined"],
+                publishes=True,
             ),
             attribution=ArtefactAttribution.system(),
         )
+        if replaced:
+            content = TurnMarkerArtefact.model_validate_json(marker.content)
+            ReviewReportArtefact.add_turn_marker(
+                team_id=self.team.id,
+                report_id=first.report_id,
+                content=content.model_copy(update={"stamphog_review_run_id": None}),
+                attribution=ArtefactAttribution.system(),
+            )
 
         result = _fetch_and_persist(replace(request, stamphog_review_run_id=request_id))
 
         assert result.already_published is expected_skip
+        assert result.run_index == expected_run_index
+        assert result.resume_publication is expected_resume
+        assert result.resume_urgency_threshold == ("must_fix" if expected_resume else None)
+
+    @parameterized.expand([("same_head", 1, "sha1"), ("new_head", 1, "sha2"), ("later_turn", 2, "sha2")])
+    @patch(f"{_MODULE}._installation_auth", return_value=("tok", None))
+    @patch(f"{_MODULE}.PRFetcher")
+    def test_finalized_refusal_keeps_its_publication_snapshot(
+        self, _name: str, run_count: int, live_head: str, fetcher: MagicMock, _auth: MagicMock
+    ) -> None:
+        metadata = _pr_metadata()
+        fetcher.return_value.fetch_pr_data.return_value = FetchedPR(
+            pr_metadata=metadata, pr_comments=[], pr_files=[], diff=""
+        )
+        request = FetchPRDataInput(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            repository="o/r",
+            owner="o",
+            repo="r",
+            pr_number=9,
+            trigger_source="stamphog",
+            stamphog_review_run_id="refusal",
+            queue_turn_id="retry-queue",
+        )
+        first = _fetch_and_persist(request)
+        ReviewReportArtefact.add_turn_marker(
+            team_id=self.team.id,
+            report_id=first.report_id,
+            content=TurnMarkerArtefact(
+                head_sha="sha1",
+                run_index=1,
+                review_mode="full",
+                reviewhog_version="original-version",
+                reviewhog_fingerprint="original-fingerprint",
+                stamphog_review_run_id="refusal",
+                queue_turn_id="original-queue",
+                publishes=True,
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
+        _build_and_finalize(
+            BuildBodyInput(
+                team_id=self.team.id,
+                report_id=first.report_id,
+                head_sha="sha1",
+                run_index=1,
+                issue_ids=[],
+                urgency_threshold="must_fix",
+                will_publish=True,
+                stamphog_review_run_id="refusal",
+            )
+        )
+        ReviewReport.objects.for_team(self.team.id).filter(id=first.report_id).update(
+            run_count=run_count, run_urgency_threshold="consider"
+        )
+        metadata.head_sha = live_head
+        metadata.title = "Changed after finalization"
+
+        result = _fetch_and_persist(request)
+
+        assert result.resume_publication is True
+        assert result.run_index == 1
+        assert result.head_sha == "sha1"
+        assert result.resume_urgency_threshold == "must_fix"
+        assert result.resume_marker is not None
+        assert result.resume_marker.version == "original-version"
+        marker = ReviewReportArtefact.objects.for_team(self.team.id).get(
+            report_id=first.report_id, type=ReviewReportArtefact.ArtefactType.TURN_MARKER
+        )
+        assert TurnMarkerArtefact.model_validate_json(marker.content).queue_turn_id == "retry-queue"
+        snapshot = load_pr_snapshot(team_id=self.team.id, report_id=first.report_id, head_sha="sha1")
+        assert snapshot is not None
+        assert snapshot.pr_metadata.title != "Changed after finalization"
 
     @parameterized.expand(
         [

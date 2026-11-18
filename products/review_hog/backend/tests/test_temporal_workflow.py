@@ -177,6 +177,7 @@ async def _run_full_review_pr_workflow(
     fail_gate: bool = False,
     workflow_max_attempts: int | None = None,
     publish_posts: bool = True,
+    retryable_publish_failures: int = 0,
     fail_nudge: bool = False,
     fail_finish: bool = False,
     marks_ready: bool = False,
@@ -197,6 +198,9 @@ async def _run_full_review_pr_workflow(
     publish_calls: list[int] = []
     publish_capped_lens_parts: list[int | None] = []
     finalize_will_publish: list[bool] = []
+    finalized_turns: list[BuildBodyInput] = []
+    publish_indices: list[int] = []
+    published_findings: list[list[str]] = []
     # Each code_review receipt appended to the signals report, as (outcome, review_url).
     receipt_calls: list[tuple[str, str | None]] = []
     # The outcome edit of the PR status comment, as (urgency_threshold, resolved_from, review_url) —
@@ -240,6 +244,7 @@ async def _run_full_review_pr_workflow(
     async def fetch(input: FetchPRDataInput) -> ReviewMeta:
         assert input.stamphog_review_run_id == stamphog_review_run_id
         _saw_mode("fetch", input.review_mode)
+        resume = bool(retryable_publish_failures and finalized_turns and stamphog_review_run_id)
         return ReviewMeta(
             report_id="rep-1",
             head_sha="sha1",
@@ -254,6 +259,9 @@ async def _run_full_review_pr_workflow(
             pr_url="u" if meta_pr_number is not None else None,
             empty_diff=empty_diff,
             already_completed=already_completed,
+            resume_publication=resume,
+            resume_urgency_threshold=finalized_turns[-1].urgency_threshold if resume else None,
+            resume_marker=_TURN_MARKER if resume else None,
             pr_open=pr_open,
             review_design=review_design,
             lens_chunk_count=lens_chunk_count,
@@ -289,7 +297,7 @@ async def _run_full_review_pr_workflow(
         # dataclass defaults.
         return ResolveActingUserResult(
             acting_user_id=acting_user_id,
-            urgency_threshold="must_fix",
+            urgency_threshold="consider" if retryable_publish_failures and finalized_turns else "must_fix",
             review_inbox_prs=review_inbox_prs,
             resolved_from="override",
             resolve_comments=resolve_comments_setting,
@@ -416,10 +424,15 @@ async def _run_full_review_pr_workflow(
     async def build_body(input: BuildBodyInput) -> None:
         threshold_calls.append(("body", input.urgency_threshold))
         finalize_will_publish.append(input.will_publish)
+        finalized_turns.append(input)
         return None
 
     @activity.defn(name="publish_review_activity")
     async def publish_act(input: PublishInput) -> PublishResult:
+        publish_indices.append(input.run_index)
+        if len(publish_indices) <= retryable_publish_failures:
+            raise ApplicationError("GitHub publication unavailable")
+        published_findings.append(finalized_turns[-1].issue_ids)
         _saw_mode("publish", input.review_mode)
         publish_calls.append(input.pr_number)
         publish_capped_lens_parts.append(input.capped_lens_parts)
@@ -621,6 +634,8 @@ async def _run_full_review_pr_workflow(
         "review": review_calls,
         "validate": validate_calls,
         "publish": publish_calls,
+        "publish_indices": publish_indices,
+        "published_findings": published_findings,
         "publish_capped_lens_parts": publish_capped_lens_parts,
         "finalize_will_publish": finalize_will_publish,
         "receipts": receipt_calls,
@@ -1238,6 +1253,30 @@ async def test_turn_marker_failure_stops_refusal_reviews(request_id: str | None)
     assert recorded["failed"] is (request_id is not None)
     assert bool(recorded["review"]) is (request_id is None)
     assert recorded["publish"] == ([7] if request_id is None else [])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("resolve_comments", [False, True])
+async def test_refusal_workflow_retry_resumes_publication_after_finalization(resolve_comments: bool) -> None:
+    recorded = await _run_full_review_pr_workflow(
+        publish=True,
+        trigger_source="stamphog",
+        stamphog_review_run_id="refusal",
+        run_index=3,
+        retryable_publish_failures=4,
+        workflow_max_attempts=2,
+        resolve_comments_setting=resolve_comments,
+        owner_user_id=9,
+    )
+    assert recorded["failed"] is False
+    assert recorded["publish_indices"] == [3] * 5
+    assert recorded["published_findings"] == [["1-1-1", "1-2-1"]]
+    assert ("publish", "must_fix") in recorded["thresholds"]
+    assert ("publish", "consider") not in recorded["thresholds"]
+    assert recorded["publish"] == [7]
+    assert len(recorded["review"]) == 8
+    assert recorded["finalize_will_publish"] == [True]
+    assert recorded["resolve_dispatches"] == ([(7, 9, "stamphog")] if resolve_comments else [])
 
 
 @pytest.mark.asyncio

@@ -21,6 +21,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 from uuid import NAMESPACE_URL, uuid5
 
+from django.db import transaction
+
 import requests
 import posthoganalytics
 from temporalio import activity
@@ -167,6 +169,8 @@ from products.review_hog.backend.reviewer.skill_loader import (
 )
 from products.review_hog.backend.reviewer.stamphog_requests import (
     complete_joined_stamphog_requests,
+    finalize_stamphog_request,
+    resume_stamphog_turn,
     stamphog_request_completed,
 )
 from products.review_hog.backend.reviewer.status_comment import (
@@ -298,6 +302,7 @@ class FetchPRDataInput:
     # what the PR's next normal review runs on. Defaulted so pre-field payloads stay full reviews.
     review_mode: str = REVIEW_MODE_FULL
     stamphog_review_run_id: str | None = None
+    queue_turn_id: str | None = None
 
 
 @dataclass(frozen=False)
@@ -329,6 +334,9 @@ class ReviewMeta:
     # self-skips the turn before any sandbox spend.
     empty_diff: bool = False
     already_completed: bool = False
+    resume_publication: bool = False
+    resume_urgency_threshold: str | None = None
+    resume_marker: ReviewHogMarker | None = None
     pr_open: bool = True
     # Only forwarded to the acting-user re-check; the workflow does not branch on it.
     draft: bool = False
@@ -576,6 +584,7 @@ class BuildBodyInput:
     # idle write to publish so the report never reads at-rest with the post still in flight.
     # Defaulted False so pre-field payloads keep the finalize-goes-idle behavior.
     will_publish: bool = False
+    stamphog_review_run_id: str | None = None
 
 
 @dataclass(frozen=False)
@@ -964,9 +973,13 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         else review_already_published(report, head_sha, input.review_mode)
     )
     already_completed = bool(head_sha) and report.automatic_reviewed_head_sha == head_sha
-    # This turn's index. run_count (completed turns) only bumps at finalize, so a turn that fails and
-    # resumes reuses the same index while a fresh turn gets a new one.
-    run_index = report.run_count + 1
+    refusal_turn = (
+        resume_stamphog_turn(report, input.stamphog_review_run_id, input.queue_turn_id)
+        if input.stamphog_review_run_id is not None and not already_published
+        else None
+    )
+    run_index = refusal_turn.run_index if refusal_turn is not None else report.run_count + 1
+    resume_publication = bool(refusal_turn is not None and refusal_turn.publishes and run_index <= report.run_count)
     max_comment_id = max((c.id for c in fetched.pr_comments if c.id is not None), default=None)
     new_comment_count = sum(
         1
@@ -1019,21 +1032,22 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         if devex_owned_files and pr_number is not None and devex_lens_on(input.repository, pr_number)
         else []
     )
-    persist_pr_snapshot(
-        team_id=input.team_id,
-        report_id=report_id,
-        head_sha=head_sha,
-        pr_metadata=fetched.pr_metadata,
-        pr_comments=fetched.pr_comments,
-        pr_files=fetched.pr_files,
-        review_design=design_choice.design,
-        merge_base_sha=fetched.merge_base_sha,
-        skipped_paths=fetched.skipped_paths,
-        devex_lens_files=devex_lens_files,
-    )
+    if not resume_publication:
+        persist_pr_snapshot(
+            team_id=input.team_id,
+            report_id=report_id,
+            head_sha=head_sha,
+            pr_metadata=fetched.pr_metadata,
+            pr_comments=fetched.pr_comments,
+            pr_files=fetched.pr_files,
+            review_design=design_choice.design,
+            merge_base_sha=fetched.merge_base_sha,
+            skipped_paths=fetched.skipped_paths,
+            devex_lens_files=devex_lens_files,
+        )
     return ReviewMeta(
         report_id=report_id,
-        head_sha=head_sha,
+        head_sha=refusal_turn.head_sha if refusal_turn is not None and resume_publication else head_sha,
         # Sandboxes check out this branch by name. The Tasks checkout only resolves refs/heads/<name>;
         # a pull ref like `pull/N/head` falls through to a fresh branch on the base tip, so every
         # sandbox would review the base branch instead of the PR.
@@ -1048,6 +1062,18 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         pr_url=pr_url,
         empty_diff=pr_number is None and not fetched.pr_files,
         already_completed=already_completed,
+        resume_publication=resume_publication,
+        resume_urgency_threshold=(
+            refusal_turn.finalized_urgency_threshold
+            or (report.run_urgency_threshold if run_index == report.run_count else None)
+            if refusal_turn is not None and resume_publication
+            else None
+        ),
+        resume_marker=(
+            ReviewHogMarker(version=refusal_turn.reviewhog_version, fingerprint=refusal_turn.reviewhog_fingerprint)
+            if refusal_turn is not None and resume_publication
+            else None
+        ),
         pr_open=fetched.pr_metadata.state == "open",
         draft=fetched.pr_metadata.draft,
         review_design=design_choice.design,
@@ -2331,17 +2357,21 @@ def _build_and_finalize(input: BuildBodyInput) -> None:
         pr_files=pr_files,
         published_priorities=published_priorities_for(IssuePriority(input.urgency_threshold)),
     )
-    finalize_review_report(
-        team_id=input.team_id,
-        report_id=input.report_id,
-        body_markdown=body,
-        run_index=input.run_index,
-        head_sha=input.head_sha,
-        # The same snapshot the body above and the publish gate consume — stamped so the detail view
-        # buckets this turn's findings by the gate that actually ran.
-        urgency_threshold=input.urgency_threshold,
-        will_publish=input.will_publish,
-    )
+    with transaction.atomic():
+        finalize_review_report(
+            team_id=input.team_id,
+            report_id=input.report_id,
+            body_markdown=body,
+            run_index=input.run_index,
+            head_sha=input.head_sha,
+            # The same snapshot the body above and the publish gate consume — stamped so the detail view
+            # buckets this turn's findings by the gate that actually ran.
+            urgency_threshold=input.urgency_threshold,
+            will_publish=input.will_publish,
+        )
+        if input.stamphog_review_run_id is not None:
+            report = ReviewReport.objects.for_team(input.team_id).get(id=input.report_id)
+            finalize_stamphog_request(report, input.stamphog_review_run_id, input.run_index, input.urgency_threshold)
 
 
 @activity.defn

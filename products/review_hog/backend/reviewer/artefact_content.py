@@ -345,6 +345,7 @@ class TurnMarkerArtefact(BaseModel):
     )
     queue_turn_id: str | None = None
     joined_stamphog_review_run_ids: list[str] = Field(default_factory=list)
+    finalized_urgency_threshold: str | None = None
     run_index: int = Field(description="The review turn (1-based) this marker belongs to.")
     review_mode: str = Field(description="What the turn ran on (full or flash).")
     reviewhog_version: str = Field(description="The version id of the turn's review mode, e.g. reviewhog-flash-1-0.")

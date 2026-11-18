@@ -509,6 +509,7 @@ class ReviewPRWorkflow:
                 signal_priority=inputs.signal_priority,
                 review_mode=inputs.review_mode,
                 stamphog_review_run_id=inputs.stamphog_review_run_id,
+                queue_turn_id=inputs.queue_turn_id,
             ),
             start_to_close_timeout=_FETCH_TIMEOUT,
             retry_policy=_RETRY,
@@ -600,7 +601,7 @@ class ReviewPRWorkflow:
         acting_user_id = acting.acting_user_id
         # Flash publishes every kept finding: the threshold is a Full review setting. Recording
         # "consider" keeps the outcome classification of a Flash turn truthful.
-        urgency_threshold = (
+        urgency_threshold = meta.resume_urgency_threshold or (
             IssuePriority.CONSIDER.value if inputs.review_mode == REVIEW_MODE_FLASH else acting.urgency_threshold
         )
 
@@ -711,138 +712,140 @@ class ReviewPRWorkflow:
         if reacts and publishes_to_pr and meta.pr_number is not None:
             eyes_reaction_id = await self._add_eyes_reaction(inputs.team_id, repository, meta.pr_number)
         publish_result: PublishResult | None = None
-        marker: ReviewHogMarker | None = None
+        marker: ReviewHogMarker | None = meta.resume_marker
         flash_sessions: FlashSessionStats | None = None
         dedup: DedupResult | None = None
         try:
-            await workflow.execute_activity(
-                sync_review_skills_activity,
-                SyncReviewSkillsInput(team_id=inputs.team_id),
-                start_to_close_timeout=_FETCH_TIMEOUT,
-                retry_policy=_RETRY,
-            )
-            await workflow.execute_activity(
-                generate_schemas_activity,
-                GenerateSchemasInput(),
-                start_to_close_timeout=_QUICK_TIMEOUT,
-                retry_policy=_RETRY,
-            )
-            # The patch goes before the recorded value, so an older history keeps its sessions on replay.
-            devex_lens = (
-                review_design == REVIEW_DESIGN_SINGLE_AGENT
-                and workflow.patched("flash-devex-lens-2026-11")
-                and meta.devex_lens
-                and delta_since_head_sha is None
-            )
-            # After the skill sync and schema generation, so the fingerprint hashes what the stages use.
-            if workflow.patched("record-turn-marker-2026-10"):
-                try:
-                    marker = await workflow.execute_activity(
-                        record_turn_marker_activity,
-                        RecordTurnMarkerInput(
-                            team_id=inputs.team_id,
-                            report_id=report_id,
-                            head_sha=head_sha,
-                            run_index=meta.run_index,
-                            acting_user_id=acting_user_id,
-                            review_mode=inputs.review_mode,
-                            flash_reasoning_effort=acting.flash_reasoning_effort,
-                            review_design=review_design,
-                            coordinator=review_design == REVIEW_DESIGN_SINGLE_AGENT and meta.coordinator,
-                            publishes=publishes_to_pr,
-                            arm_set=meta.arm_set,
-                            devex_lens=devex_lens,
-                            stamphog_review_run_id=inputs.stamphog_review_run_id,
-                            queue_turn_id=inputs.queue_turn_id,
-                        ),
-                        start_to_close_timeout=_QUICK_TIMEOUT,
-                        retry_policy=_RETRY,
-                    )
-                except ActivityError:
-                    if inputs.stamphog_review_run_id is not None:
-                        raise
-                    workflow.logger.warning("Could not record the turn marker; continuing without it")
-
-            stage = SandboxStageInput(
-                team_id=inputs.team_id,
-                user_id=inputs.user_id,
-                report_id=report_id,
-                head_sha=head_sha,
-                repository=repository,
-                branch=branch,
-                run_index=meta.run_index,
-                review_mode=inputs.review_mode,
-                flash_reasoning_effort=acting.flash_reasoning_effort,
-                review_design=review_design,
-                trigger_source=inputs.trigger_source,
-                delta_since_head_sha=delta_since_head_sha,
-                arm_set=meta.arm_set,
-                devex_lens=devex_lens,
-                stamphog_review_run_id=inputs.stamphog_review_run_id,
-            )
-
-            # The patch keeps a history from before the coordinator existed on separate sessions when it replays.
-            if (
-                review_design == REVIEW_DESIGN_SINGLE_AGENT
-                and workflow.patched("flash-coordinator-2026-10")
-                and meta.coordinator
-            ):
-                flash_sessions = await self._review_with_coordinator(stage, meta.lens_chunk_count)
-            elif review_design == REVIEW_DESIGN_SINGLE_AGENT:
-                lens_parts = 1 if delta_since_head_sha is not None else meta.lens_chunk_count
-                flash_sessions = await self._review_with_single_agent(stage, lens_parts)
-            else:
-                await self._review_with_pipeline(stage, acting_user_id)
-
-            # Combine + scope-clean run inside the dedup activity (local flatten over the persisted
-            # perspective results) — only the survivors' ids come back, never the issue JSON.
-            workflow.logger.info("STAGE 4/7 · Combine, scope-clean & deduplicate issues")
-            dedup = await workflow.execute_activity(
-                dedup_activity,
-                stage,
-                start_to_close_timeout=_SANDBOX_TIMEOUT,
-                heartbeat_timeout=_SANDBOX_HEARTBEAT,
-                retry_policy=_ONESHOT_RETRY,
-            )
-            workflow.logger.info(f"Persisted {len(dedup.issue_ids)} finding(s) to the review report")
-
-            if review_design != REVIEW_DESIGN_SINGLE_AGENT:
-                workflow.logger.info("STAGE 5/7 · Validate issues")
-                await workflow.execute_child_workflow(
-                    ValidateIssuesWorkflow.run,
-                    ValidateIssuesInputs(
-                        team_id=stage.team_id,
-                        user_id=stage.user_id,
-                        report_id=stage.report_id,
-                        head_sha=stage.head_sha,
-                        repository=stage.repository,
-                        branch=stage.branch,
-                        run_index=stage.run_index,
-                        review_mode=stage.review_mode,
-                        flash_reasoning_effort=stage.flash_reasoning_effort,
-                        issue_ids=dedup.issue_ids,
-                        acting_user_id=acting_user_id,
-                    ),
-                    id=f"{workflow.info().workflow_id}/validate",
+            if not meta.resume_publication:
+                await workflow.execute_activity(
+                    sync_review_skills_activity,
+                    SyncReviewSkillsInput(team_id=inputs.team_id),
+                    start_to_close_timeout=_FETCH_TIMEOUT,
                     retry_policy=_RETRY,
                 )
+                await workflow.execute_activity(
+                    generate_schemas_activity,
+                    GenerateSchemasInput(),
+                    start_to_close_timeout=_QUICK_TIMEOUT,
+                    retry_policy=_RETRY,
+                )
+                # The patch goes before the recorded value, so an older history keeps its sessions on replay.
+                devex_lens = (
+                    review_design == REVIEW_DESIGN_SINGLE_AGENT
+                    and workflow.patched("flash-devex-lens-2026-11")
+                    and meta.devex_lens
+                    and delta_since_head_sha is None
+                )
+                # After the skill sync and schema generation, so the fingerprint hashes what the stages use.
+                if workflow.patched("record-turn-marker-2026-10"):
+                    try:
+                        marker = await workflow.execute_activity(
+                            record_turn_marker_activity,
+                            RecordTurnMarkerInput(
+                                team_id=inputs.team_id,
+                                report_id=report_id,
+                                head_sha=head_sha,
+                                run_index=meta.run_index,
+                                acting_user_id=acting_user_id,
+                                review_mode=inputs.review_mode,
+                                flash_reasoning_effort=acting.flash_reasoning_effort,
+                                review_design=review_design,
+                                coordinator=review_design == REVIEW_DESIGN_SINGLE_AGENT and meta.coordinator,
+                                publishes=publishes_to_pr,
+                                arm_set=meta.arm_set,
+                                devex_lens=devex_lens,
+                                stamphog_review_run_id=inputs.stamphog_review_run_id,
+                                queue_turn_id=inputs.queue_turn_id,
+                            ),
+                            start_to_close_timeout=_QUICK_TIMEOUT,
+                            retry_policy=_RETRY,
+                        )
+                    except ActivityError:
+                        if inputs.stamphog_review_run_id is not None:
+                            raise
+                        workflow.logger.warning("Could not record the turn marker; continuing without it")
 
-            workflow.logger.info("STAGE 6/7 · Build report")
-            await workflow.execute_activity(
-                build_body_activity,
-                BuildBodyInput(
+                stage = SandboxStageInput(
                     team_id=inputs.team_id,
+                    user_id=inputs.user_id,
                     report_id=report_id,
                     head_sha=head_sha,
-                    run_index=stage.run_index,
-                    issue_ids=dedup.issue_ids,
-                    urgency_threshold=urgency_threshold,
-                    # Publishing runs stay ACTIVE through stage 7; publish/failure return them to rest.
-                    will_publish=publishes_to_pr,
-                ),
-                start_to_close_timeout=_QUICK_TIMEOUT,
-                retry_policy=_RETRY,
-            )
+                    repository=repository,
+                    branch=branch,
+                    run_index=meta.run_index,
+                    review_mode=inputs.review_mode,
+                    flash_reasoning_effort=acting.flash_reasoning_effort,
+                    review_design=review_design,
+                    trigger_source=inputs.trigger_source,
+                    delta_since_head_sha=delta_since_head_sha,
+                    arm_set=meta.arm_set,
+                    devex_lens=devex_lens,
+                    stamphog_review_run_id=inputs.stamphog_review_run_id,
+                )
+
+                # The patch keeps a history from before the coordinator existed on separate sessions when it replays.
+                if (
+                    review_design == REVIEW_DESIGN_SINGLE_AGENT
+                    and workflow.patched("flash-coordinator-2026-10")
+                    and meta.coordinator
+                ):
+                    flash_sessions = await self._review_with_coordinator(stage, meta.lens_chunk_count)
+                elif review_design == REVIEW_DESIGN_SINGLE_AGENT:
+                    lens_parts = 1 if delta_since_head_sha is not None else meta.lens_chunk_count
+                    flash_sessions = await self._review_with_single_agent(stage, lens_parts)
+                else:
+                    await self._review_with_pipeline(stage, acting_user_id)
+
+                # Combine + scope-clean run inside the dedup activity (local flatten over the persisted
+                # perspective results) — only the survivors' ids come back, never the issue JSON.
+                workflow.logger.info("STAGE 4/7 · Combine, scope-clean & deduplicate issues")
+                dedup = await workflow.execute_activity(
+                    dedup_activity,
+                    stage,
+                    start_to_close_timeout=_SANDBOX_TIMEOUT,
+                    heartbeat_timeout=_SANDBOX_HEARTBEAT,
+                    retry_policy=_ONESHOT_RETRY,
+                )
+                workflow.logger.info(f"Persisted {len(dedup.issue_ids)} finding(s) to the review report")
+
+                if review_design != REVIEW_DESIGN_SINGLE_AGENT:
+                    workflow.logger.info("STAGE 5/7 · Validate issues")
+                    await workflow.execute_child_workflow(
+                        ValidateIssuesWorkflow.run,
+                        ValidateIssuesInputs(
+                            team_id=stage.team_id,
+                            user_id=stage.user_id,
+                            report_id=stage.report_id,
+                            head_sha=stage.head_sha,
+                            repository=stage.repository,
+                            branch=stage.branch,
+                            run_index=stage.run_index,
+                            review_mode=stage.review_mode,
+                            flash_reasoning_effort=stage.flash_reasoning_effort,
+                            issue_ids=dedup.issue_ids,
+                            acting_user_id=acting_user_id,
+                        ),
+                        id=f"{workflow.info().workflow_id}/validate",
+                        retry_policy=_RETRY,
+                    )
+
+                workflow.logger.info("STAGE 6/7 · Build report")
+                await workflow.execute_activity(
+                    build_body_activity,
+                    BuildBodyInput(
+                        team_id=inputs.team_id,
+                        report_id=report_id,
+                        head_sha=head_sha,
+                        run_index=stage.run_index,
+                        issue_ids=dedup.issue_ids,
+                        urgency_threshold=urgency_threshold,
+                        # Publishing runs stay ACTIVE through stage 7; publish/failure return them to rest.
+                        will_publish=publishes_to_pr,
+                        stamphog_review_run_id=inputs.stamphog_review_run_id,
+                    ),
+                    start_to_close_timeout=_QUICK_TIMEOUT,
+                    retry_policy=_RETRY,
+                )
 
             workflow.logger.info("STAGE 7/7 · Publish review")
             # The pr_number check is implied by the gate; restated so mypy narrows it to int.
@@ -853,7 +856,7 @@ class ReviewPRWorkflow:
                         team_id=inputs.team_id,
                         report_id=report_id,
                         head_sha=head_sha,
-                        run_index=stage.run_index,
+                        run_index=meta.run_index,
                         owner=inputs.owner,
                         repo=inputs.repo,
                         # The resolved destination: the input PR, or the open PR fetch discovered

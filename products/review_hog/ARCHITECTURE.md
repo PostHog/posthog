@@ -1012,6 +1012,9 @@ The review runs as the PR owner, else as the user who connected the installation
 A running resolution drops a default self-driving handoff; opted-in refusals wait in the queue.
 An opted-in refusal joins a Deep turn only for the same known head and publication settings.
 The queue records joined refusal identities against that turn's completed publication marker, including clean results, so redelivery cannot start another review.
+A refusal retry reuses its unfinished turn index. After finalization it resumes publication from the saved findings, diff snapshot, and urgency threshold, without repeating analysis or deduplication.
+Finalization saves the threshold and turn watermark atomically.
+A resumed turn keeps its original head and updates its queue identity for joined refusals.
 A failed or skipped turn leaves joined refusals queued for their own review. Human requests keep their own identity.
 Counters: `posthog_review_hog_authored_pr_review_total` and `posthog_review_hog_stamphog_handoff_total`, keyed by outcome.
 `facade/github.py::owning_team_id(installation_id, repository)` answers the same ownership question for other products, for example a PR comment command dispatcher.
