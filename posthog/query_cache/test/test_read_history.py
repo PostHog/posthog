@@ -4,7 +4,7 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from posthog.query_cache.read_history import days_read_at_this_time, record_read
+from posthog.query_cache.read_history import days_read_at_this_time, read_since, record_read
 
 NOW = datetime(2026, 11, 10, 14, 20, tzinfo=UTC)
 
@@ -27,3 +27,18 @@ class TestReadHistory(BaseTest):
         days = days_read_at_this_time(team_id=self.team.pk, identifiers=["7:9", "7:"], now=NOW)
 
         assert days == {"7:9": expected, "7:": 0}
+
+    @parameterized.expand(
+        [
+            ("this_hour", timedelta(minutes=5), True),
+            ("earlier_in_the_window", timedelta(hours=23), True),
+            ("before_the_window", timedelta(hours=26), False),
+        ]
+    )
+    def test_read_since_returns_identifiers_read_in_the_window(self, _name: str, age: timedelta, expected: bool):
+        record_read(team_id=self.team.pk, insight_id=7, dashboard_id=9, at=NOW - age)
+
+        read = read_since(team_id=self.team.pk, since=NOW - timedelta(hours=24), now=NOW)
+
+        assert ("7:9" in read) is expected
+        assert "7:" not in read

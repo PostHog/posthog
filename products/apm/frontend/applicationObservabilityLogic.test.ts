@@ -12,6 +12,7 @@ import {
     drillDownParams,
     metricsDrillDownUrl,
 } from './applicationObservabilityLogic'
+import { deploymentsLogic } from './deploymentsLogic'
 import type {
     EndpointsHealthResponseApi,
     ServiceMapResponseApi,
@@ -315,6 +316,43 @@ describe('applicationObservabilityLogic', () => {
 
             expect(logic.values.usageLoadError).toBe(true)
             expect(logic.values.usageRows).toHaveLength(2)
+        })
+
+        it('loads deployments once per refresh while the deployments tab is open', async () => {
+            const deploymentRequests: string[] = []
+            useMocks({
+                get: {
+                    // A real services response lands after the deployments request has gone out.
+                    '/api/projects/:team_id/apm/services/': async () => {
+                        await new Promise((resolve) => setTimeout(resolve, 20))
+                        return [200, RESPONSE]
+                    },
+                    '/api/projects/:team_id/apm/deployments/': ({ request }) => {
+                        deploymentRequests.push(new URL(request.url).search)
+                        return [200, { results: [], service: 'queue', environment: 'prod', date_from: '', date_to: '' }]
+                    },
+                },
+            })
+            await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+            logic.actions.setTab('deployments')
+            const deployments = deploymentsLogic()
+            deployments.mount()
+            await expectLogic(deployments).toFinishAllListeners()
+            deploymentRequests.length = 0
+
+            logic.actions.setTimeRange('-24h')
+            await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+            await expectLogic(deployments).toFinishAllListeners()
+            expect(deploymentRequests).toHaveLength(1)
+            expect(deploymentRequests[0]).toContain('service=queue')
+
+            useMocks({ get: { '/api/projects/:team_id/apm/services/': () => [500, { detail: 'boom' }] } })
+            logic.actions.setEnvironment('staging')
+            await expectLogic(logic).toDispatchActions(['loadServicesHealthFailure'])
+            await expectLogic(deployments).toFinishAllListeners()
+            expect(deploymentRequests).toHaveLength(2)
+            expect(deploymentRequests[1]).toContain('environment=staging')
+            deployments.unmount()
         })
 
         it('ignores an unknown tab in the URL', async () => {

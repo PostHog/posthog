@@ -22,11 +22,18 @@ export const APPLICATION_OBSERVABILITY_PATH = '/application-observability'
 
 export type TimeRange = '-1h' | '-6h' | '-24h' | '-7d'
 
-export type ApplicationObservabilityTab = 'services' | 'endpoints' | 'map' | 'dependencies' | 'usage'
+export type ApplicationObservabilityTab = 'services' | 'endpoints' | 'map' | 'dependencies' | 'deployments' | 'usage'
 
 export type ServiceMapWarning = 'map' | 'layout' | 'health' | null
 
-export const TABS: ApplicationObservabilityTab[] = ['services', 'endpoints', 'map', 'dependencies', 'usage']
+export const TABS: ApplicationObservabilityTab[] = [
+    'services',
+    'endpoints',
+    'map',
+    'dependencies',
+    'deployments',
+    'usage',
+]
 
 export const TIME_RANGE_LABELS: Record<TimeRange, string> = {
     '-1h': 'Last hour',
