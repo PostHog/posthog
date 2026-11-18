@@ -9896,7 +9896,7 @@
         }
     },
     "llma-clustering-config-get": {
-        "description": "Retrieve the team's clustering event-filter configuration for automated AI observability clustering. New scheduled clustering should usually use clustering jobs, but this remains useful when auditing existing automation.",
+        "description": "Retrieve the team's clustering opt-in status and event-filter configuration. Clustering is off by default. Enable it with llma-clustering-config-set-enabled before expecting automatic runs. New scheduled clustering should usually use clustering jobs, but this remains useful when auditing existing automation.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Get clustering config",
@@ -9908,6 +9908,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "llma-clustering-config-set-enabled": {
+        "description": "Enable or disable automated clustering for the current project. Enabling requires organization AI data processing consent. Enabled jobs run on the existing schedule. Disabling prevents future processing and keeps historical results.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Enable or disable clustering",
+        "title": "Enable or disable clustering",
+        "required_scopes": ["ai_observability_clusters:write"],
+        "api_operations": ["POST /api/projects/{project_id}/llm_analytics/clustering_config/set_enabled/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "llma-clustering-config-set-event-filters": {
