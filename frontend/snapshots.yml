@@ -11178,6 +11178,10 @@ snapshots:
         hash: v1.k794b7964.1aed4f182db96074e86ac3ccc68ce6f2aa5542d731bd01ae6888f4c044d50c06.7c-6yEky1tN7l87W_v2JLRUcecJxd5VBu8FM-fnrxMU
     scenes-app-customer-analytics-track-rules--preview--light:
         hash: v1.k794b7964.283aaee2fee72892b918c583c603b95d15444ee8007ff272e3261f1e397c72e8.YDGJHALZf_iyRSZ_yUc5EM4kEgLddY1yet3W8QlD0UI
+    scenes-app-dashboards-visible-tiles--offscreen-tiles-wait-to-load--dark:
+        hash: v1.k794b7964.6841ed7873801c4d2a2a0144bbb9ab779d3147ef65643dc37f7f65f8a028979e.0ULKITHCuAtNKBT6L48irJvn59fjdXA4XLKIqupbSxA
+    scenes-app-dashboards-visible-tiles--offscreen-tiles-wait-to-load--light:
+        hash: v1.k794b7964.48a2ffa5da96b98b83db4c53a141145980163f4372dc4e8405fc5ba83827826a.iL2g5Ot3mBOVIAtR8hZeob3qbv59vwSuv02mjdB59BU
     scenes-app-data-management--data-warehouse-managed-viewsets--dark:
         hash: v1.k794b7964.c8b8c112665a993ec00602d6f00602775548a3aa782ae541e4738e879b5a1107.KTg2KYEs4UHmHOuVj0Py_3WERNbAjQ1UQHf5n6yxhSc
     scenes-app-data-management--data-warehouse-managed-viewsets--light:
