@@ -1,35 +1,34 @@
+import { BuiltLogic, useActions, useValues } from 'kea'
+
 import { useComponentPanelState } from 'lib/components/MarkdownNotebook/componentPanelContext'
 
-import type { NotebookStaleReason } from '../../Notebook/notebookNodeStalenessLogic'
+import type { notebookNodeSQLV2LogicType } from '../notebookNodeSQLV2LogicType'
 import { NotebookRunDownstreamBanner } from './NotebookRunDownstreamBanner'
 import { NotebookStaleCellBanner } from './NotebookStaleCellBanner'
 
 export function NotebookCellStaleness({
-    isStale,
-    reason,
-    downstreamCount,
-    isChainRunning,
-    onRun,
-    disabledReason,
+    logic,
 }: {
-    isStale: boolean
-    reason: NotebookStaleReason | null
-    downstreamCount: number
-    isChainRunning: boolean
-    onRun: () => void
-    disabledReason?: string
+    logic: BuiltLogic<notebookNodeSQLV2LogicType>
 }): JSX.Element | null {
+    const { isStale, staleReason, staleDownstreamCount, isChainRunning, isRunning, operationBlockReason } =
+        useValues(logic)
+    const { runStaleChain } = useActions(logic)
     const outputOnly = useComponentPanelState()?.outputOnly
-    if (outputOnly || (!isStale && (downstreamCount === 0 || isChainRunning))) {
+    if (outputOnly || (!isStale && (staleDownstreamCount === 0 || isChainRunning))) {
         return null
     }
 
     return (
         <div className="shrink-0 pb-2" onClick={(event) => event.stopPropagation()}>
             {isStale ? (
-                <NotebookStaleCellBanner reason={reason ?? undefined} />
+                <NotebookStaleCellBanner reason={staleReason ?? undefined} />
             ) : (
-                <NotebookRunDownstreamBanner count={downstreamCount} onRun={onRun} disabledReason={disabledReason} />
+                <NotebookRunDownstreamBanner
+                    count={staleDownstreamCount}
+                    onRun={() => runStaleChain(logic.props.getContent?.() ?? null, logic.props.nodeId)}
+                    disabledReason={isRunning ? 'This cell is running' : (operationBlockReason ?? undefined)}
+                />
             )}
         </div>
     )

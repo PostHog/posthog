@@ -73,14 +73,10 @@ const Component = ({
         pageResult,
         pageLoading,
         operationBlockReason,
-        isStale,
-        staleReason,
-        isChainRunning,
-        staleDownstreamCount,
         pendingKernelStart,
         result: runResult,
     } = useValues(dataLogic)
-    const { setPage, setPageSize, runStaleChain } = useActions(dataLogic)
+    const { setPage, setPageSize } = useActions(dataLogic)
     const isJupyterMode = !!useNotebookJupyterCommands()
     const { executionCounts } = useValues(notebookJupyterLogic({ shortId: notebookLogic.props.shortId }))
 
@@ -177,14 +173,7 @@ const Component = ({
                 onMouseDown={(event) => event.stopPropagation()}
                 onDragStart={(event) => event.stopPropagation()}
             >
-                <NotebookCellStaleness
-                    isStale={isStale}
-                    reason={staleReason}
-                    downstreamCount={staleDownstreamCount}
-                    isChainRunning={isChainRunning}
-                    onRun={() => runStaleChain(notebookLogic.values.content ?? null, nodeId)}
-                    disabledReason={isRunning ? 'This cell is running' : (operationBlockReason ?? undefined)}
-                />
+                <NotebookCellStaleness logic={dataLogic} />
                 {isRunning && pendingKernelStart ? (
                     <div className="shrink-0 px-2 pt-1 pb-2 text-xs text-muted">Starting compute sandbox…</div>
                 ) : null}

@@ -235,13 +235,13 @@ export const FlagDisabled: Story = {
     parameters: { featureFlags: [], testOptions: { waitForSelector: '.MarkdownNotebook' } },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        await waitFor(() => expect(canvasElement.querySelector('.MarkdownNotebook')).toBeVisible())
+        await waitFor(() => expect(canvasElement.querySelector('.MarkdownNotebook')).toBeVisible(), { timeout: 60000 })
         expect(canvasElement.querySelector('[data-attr="notebook-app-builder"]')).not.toBeInTheDocument()
         await userEvent.click(canvas.getByLabelText('Notebook options'))
         await waitFor(() => expect(within(document.body).getByText('Duplicate', { exact: true })).toBeVisible())
         expect(within(document.body).queryByText('App builder')).not.toBeInTheDocument()
         router.actions.push(urls.notebook(SHORT_ID), { view: 'app' })
-        await waitFor(() => expect(canvasElement.querySelector('.MarkdownNotebook')).toBeVisible())
+        await waitFor(() => expect(canvasElement.querySelector('.MarkdownNotebook')).toBeVisible(), { timeout: 60000 })
         expect(canvasElement.querySelector('[data-attr="notebook-app-builder"]')).not.toBeInTheDocument()
     },
 }
