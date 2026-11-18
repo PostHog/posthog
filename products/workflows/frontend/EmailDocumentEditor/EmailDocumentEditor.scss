@@ -265,10 +265,14 @@
         border-radius: 4px;
     }
 
+    // It sits on the email's own colors, and a secondary button is see-through, so it brings the app's surface.
     .email-canvas-html-edit {
         position: absolute;
         top: 4px;
         right: 4px;
+        color: var(--color-text-primary);
+        background-color: var(--color-bg-surface-primary);
+        border-radius: var(--radius);
         opacity: 0;
     }
 

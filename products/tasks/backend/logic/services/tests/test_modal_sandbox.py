@@ -1934,19 +1934,55 @@ class TestModalSandboxCreateAllowlist:
 
         assert mock_create.call_args.kwargs["outbound_domain_allowlist"] == []
 
-    @pytest.mark.parametrize("probe", [False, True])
-    def test_create_sets_vm_runtime_experimental_option(self, probe: bool) -> None:
-        config = SandboxConfig(name="t", vm_runtime=True, template=SandboxTemplate.SLIM_BASE, agent_egress_probe=probe)
+    @pytest.mark.parametrize("probe,observation", [(False, False), (True, False), (False, True)])
+    def test_create_sets_vm_runtime_experimental_option(self, probe: bool, observation: bool) -> None:
+        config = SandboxConfig(
+            name="t",
+            vm_runtime=True,
+            template=SandboxTemplate.SLIM_BASE,
+            agent_egress_probe=probe,
+            agent_egress_observation=observation,
+        )
 
         mock_create = self._create_with_config(config)
 
-        expected = {"vm_runtime": True, "vm_sidecar_memory_reserve_mib": 1024} if probe else {"vm_runtime": True}
+        expected = (
+            {"vm_runtime": True, "vm_sidecar_memory_reserve_mib": 1024}
+            if probe or observation
+            else {"vm_runtime": True}
+        )
         assert mock_create.call_args.kwargs["experimental_options"] == expected
         if probe:
+            assert mock_create.call_args.kwargs["name"] == "t"
             assert mock_create.call_args.kwargs["outbound_cidr_allowlist"] == []
             assert "secrets" not in mock_create.call_args.kwargs
         else:
+            assert mock_create.call_args.kwargs["name"].startswith("t-")
             assert "outbound_cidr_allowlist" not in mock_create.call_args.kwargs
+
+    @pytest.mark.parametrize(
+        "override",
+        [
+            {"vm_runtime": False},
+            {"agent_egress_probe": True},
+            {"outbound_domain_allowlist": []},
+            {"block_network": True},
+            {"memory_gb": 1},
+            {"snapshot_external_id": "im-example"},
+            {"resume_snapshot_external_id": "im-example"},
+            {"require_snapshot": True},
+        ],
+    )
+    def test_observation_rejects_incompatible_profiles(self, override: dict[str, object]) -> None:
+        values = {
+            "name": "observation",
+            "template": SandboxTemplate.SLIM_BASE,
+            "vm_runtime": True,
+            "agent_egress_observation": True,
+            **override,
+        }
+        with pytest.raises(ValueError):
+            SandboxConfig.model_validate(values)
 
     @pytest.mark.parametrize(
         "override",
@@ -1975,9 +2011,16 @@ class TestModalSandboxCreateAllowlist:
             SandboxConfig(**(values | override))
 
     @override_settings(DEBUG=False, TEST=False)
-    def test_probe_rejects_production_launch(self) -> None:
-        with pytest.raises(ValueError, match="fresh, credential-free development VM"):
-            SandboxConfig(name="probe", template=SandboxTemplate.SLIM_BASE, vm_runtime=True, agent_egress_probe=True)
+    @pytest.mark.parametrize("observation", [False, True])
+    def test_egress_profiles_reject_production_launch(self, observation: bool) -> None:
+        with pytest.raises(ValueError, match="development VM"):
+            SandboxConfig(
+                name="probe",
+                template=SandboxTemplate.SLIM_BASE,
+                vm_runtime=True,
+                agent_egress_probe=not observation,
+                agent_egress_observation=observation,
+            )
 
     def test_create_attaches_an_exec_readiness_probe_and_waits_on_it(self):
         # Modal raises on wait_until_ready when no probe was attached, so the two must stay paired.
