@@ -69,20 +69,27 @@ test.describe('Message preferences page', () => {
         const eventInvites = recipientPage.getByRole('checkbox', { name: 'Event invites' })
         const allMarketing = recipientPage.getByRole('checkbox', { name: 'All marketing communications' })
         const offNote = recipientPage.getByText('These topics are off because all marketing communications are off.')
+        const status = (id: string): ReturnType<Page['locator']> => recipientPage.locator(`[data-status-for="${id}"]`)
 
         try {
             await recipientPage.goto(path)
             await eventInvites.click()
+            await expect(status(eventInvitesId)).toHaveText('Not subscribed')
             await expect
                 .poll(() => storedPreferences('event_invites'))
                 .toEqual({ $all: 'OPTED_IN', [productNewsId]: 'OPTED_IN', [eventInvitesId]: 'OPTED_OUT' })
 
             await test.step('all marketing off greys out every topic and keeps the topic choices', async () => {
                 await allMarketing.click()
+                await expect(status('$all')).toHaveText('Not subscribed')
                 await expect(offNote).toBeVisible()
-                for (const topic of [productNews, eventInvites]) {
+                for (const [topic, id] of [
+                    [productNews, productNewsId],
+                    [eventInvites, eventInvitesId],
+                ] as const) {
                     await expect(topic).not.toBeChecked()
                     await expect(topic).toBeDisabled()
+                    await expect(status(id)).toHaveText('Not subscribed')
                 }
                 await expect
                     .poll(() => storedPreferences())
@@ -99,7 +106,9 @@ test.describe('Message preferences page', () => {
 
             await test.step('all marketing on restores each topic to its saved choice', async () => {
                 await allMarketing.click()
+                await expect(status('$all')).toHaveText('Subscribed')
                 await expect(offNote).toBeHidden()
+                await expect(status(productNewsId)).toHaveText('Subscribed')
                 await expect(productNews).toBeChecked()
                 await expect(productNews).toBeEnabled()
                 await expect(eventInvites).not.toBeChecked()
