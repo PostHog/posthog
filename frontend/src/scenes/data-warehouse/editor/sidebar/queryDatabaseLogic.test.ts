@@ -1202,11 +1202,15 @@ describe('queryDatabaseLogic', () => {
                 savedQuery('orders', 'models.marts.orders'),
                 savedQuery('marts-revenue', 'models.marts.revenue'),
                 savedQuery('filed', 'models.finance.arr', 'folder-1'),
+                savedQuery('filed-child', 'models.bt_child', 'folder-2'),
                 savedQuery('plain', 'scratchpad'),
             ]
             const listedNames: Record<string, string> = { legacy: 'models.revenue' }
             viewsLogic.actions.loadDataWarehouseSavedQueriesSuccess(views)
-            viewsLogic.actions.loadDataWarehouseSavedQueryFoldersSuccess([{ id: 'folder-1', name: 'Finance' }])
+            viewsLogic.actions.loadDataWarehouseSavedQueryFoldersSuccess([
+                { id: 'folder-1', name: 'Finance' },
+                { id: 'folder-2', name: 'marts' },
+            ])
             dbLogic.actions.loadDatabaseSuccess({
                 tables: Object.fromEntries(
                     views.map((view) => {
@@ -1223,7 +1227,7 @@ describe('queryDatabaseLogic', () => {
             jest.clearAllMocks()
         })
 
-        it('nests models by namespace segment and shows the leaf name', () => {
+        it('drops the models root, nests the namespaces below it, and keeps the listed name', () => {
             const { items } = groupModelsByNamespace(
                 [
                     viewNode('models.marts.revenue'),
@@ -1234,38 +1238,44 @@ describe('queryDatabaseLogic', () => {
                 false
             )
 
-            expect(shape(items)).toEqual([{ models: [{ marts: ['orders', 'revenue'] }, 'revenue'] }, 'scratchpad'])
-            const leaves = items[0].children!.flatMap((child) => child.children ?? [child])
+            expect(shape(items)).toEqual([{ marts: ['orders', 'revenue'] }, 'revenue', 'scratchpad'])
+            const leaves = items.flatMap((item) => (item.record?.type === 'model-namespace' ? item.children! : [item]))
             expect(leaves.map((leaf) => leaf.name)).toEqual([
                 'models.marts.orders',
                 'models.marts.revenue',
                 'models.revenue',
+                'scratchpad',
             ])
         })
 
-        it('groups a legacy bare row by its listed name and keeps user folders as they are', () => {
+        it('shows models without the root, in user folders too, and never merges a folder into a namespace', () => {
             const views = findViews(logic.values.treeData)
 
             expect(shape(views?.children)).toEqual([
-                { Finance: ['models.finance.arr'] },
-                { models: [{ marts: ['orders', 'revenue'] }, 'revenue'] },
+                { Finance: ['finance.arr'] },
+                { marts: ['orders', 'revenue'] },
+                { marts: ['bt_child'] },
+                'revenue',
                 'scratchpad',
             ])
-            const legacy = views?.children?.find((item) => item.name === 'models')?.children?.[1]
+            const legacy = views?.children?.find((item) => item.displayName === 'revenue')
+            expect(legacy?.name).toEqual('models.revenue')
             expect(legacy?.record?.view?.name).toEqual('revenue')
+            const filed = views?.children?.find((item) => item.record?.type === 'folder' && item.name === 'marts')
+            expect(filed?.children?.[0]?.name).toEqual('models.bt_child')
         })
 
-        it('finds a model inside a group when searching and opens the groups above it', () => {
+        it('finds a model inside a group when searching and opens the group above it', () => {
             jest.useFakeTimers()
             try {
                 logic.actions.setSearchTerm('orders')
                 const views = findViews(logic.values.searchTreeData)
-                expect(shape(views?.children)).toEqual([{ models: [{ marts: ['orders'] }] }])
+                expect(shape(views?.children)).toEqual([{ marts: ['orders'] }])
 
                 // The search tree opens its matching groups on the next tick.
                 jest.runOnlyPendingTimers()
                 expect(logic.values.expandedSearchFolders).toEqual(
-                    expect.arrayContaining(['search-model-namespace-models', 'search-model-namespace-models.marts'])
+                    expect.arrayContaining(['search-model-namespace-models.marts'])
                 )
             } finally {
                 jest.useRealTimers()
