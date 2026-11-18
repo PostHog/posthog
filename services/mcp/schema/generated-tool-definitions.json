@@ -14747,7 +14747,7 @@
         "feature_flag": "scout-trials"
     },
     "self-driving-status-get": {
-        "description": "Check Self-driving setup in the current project. A non-null completed_at means setup finished; it does not prove monitoring is currently running or a report is ready. After sharing an activation link, poll this tool every 10 seconds for up to five minutes for the same project. Stop when completed_at is set, on an error, or when the time limit expires. If setup is still pending, ask the customer to let you know when it finishes. Continue their current task while waiting. After completion, check existing reports before repeating research, then resume the task or follow their next request.",
+        "description": "Check Self-driving setup for the current project. If the customer asks for status, check once. While they are actively setting up, poll every 10 seconds for up to 5 minutes and continue their original task. Stop when completed_at is set, the project changes, a call fails, or time expires. If setup is still pending at the deadline, ask the customer to let you know when it finishes.\ncompleted_at confirms setup only. For error triage, search inbox-reports-list using specific issue or error terms and limit=3. Read relevant reports and work logs, check freshness and linked PR status, then investigate the remaining gaps. If there is no relevant match, continue the original investigation.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Get Self-driving setup status",

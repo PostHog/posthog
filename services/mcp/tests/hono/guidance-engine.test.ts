@@ -608,9 +608,13 @@ describe('Self-driving activation guidance', () => {
             )
             if (enabled) {
                 expect(notice?.text).toContain(
-                    'poll `self-driving-status-get` for the same project every 10 seconds for up to five minutes'
+                    'If they start setup or ask you to check it, use `self-driving-status-get`'
                 )
-                expect(notice?.text).toContain('Continue helping with the current task')
+                expect(notice?.text).toContain('Agents triaged errors in this project on 29 of the past 30 days.')
+                expect(notice?.text).toContain("Answer the customer's current question first")
+                expect(notice?.text).toContain('The primary setup route connects GitHub.')
+                expect(notice?.text).not.toContain('poll')
+                expect(notice?.text).not.toContain('inbox-reports-list')
                 expect(notice?.text?.includes('https://example.com/project/2/inbox/activate/without-github')).toBe(
                     githubOptional === true
                 )
@@ -624,6 +628,20 @@ describe('Self-driving activation guidance', () => {
             })
         }
     )
+
+    it.each(['production', 'staging', undefined])('omits simulated history in %s', async (environment) => {
+        vi.stubEnv('NODE_ENV', environment)
+        try {
+            const notice = await new GuidanceEngine(makeGuidanceRedis()).evaluate(activationState(), issueCall)
+            expect(notice?.text).toContain('Self-driving setup has not started for this project.')
+            expect(notice?.text).toContain('https://example.com/project/2/inbox/activate')
+            expect(notice?.text).not.toContain('29')
+            expect(notice?.text).not.toContain('project history')
+            expect(notice?.text).not.toContain('observed frequency')
+        } finally {
+            vi.unstubAllEnvs()
+        }
+    })
 
     it.each([
         [true, 'error-tracking-sd-activation:shown'],

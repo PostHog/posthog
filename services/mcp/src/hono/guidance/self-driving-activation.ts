@@ -5,6 +5,7 @@ import type { Schemas } from '@/api/generated'
 import { isCustomerAgentCaller } from '@/lib/event-source'
 import { resolveScopePreset } from '@/lib/scope-preset'
 import { formatPrompt } from '@/lib/utils'
+import DEFAULT_ACTIVATION_PROMPT from '@/templates/guidance/self-driving-activation-default.md'
 import WITHOUT_GITHUB_OFFER from '@/templates/guidance/self-driving-activation-without-github.md'
 import ACTIVATION_PROMPT from '@/templates/guidance/self-driving-activation.md'
 
@@ -13,6 +14,9 @@ import type { ResolvedState } from '../request-state-resolver'
 import type { GuidanceCall, GuidanceNotice } from './engine'
 import type { GuidanceProductState } from './product-state'
 import { MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG } from './rules'
+
+const TRIAGE_LOOKBACK_DAYS = 30
+const DISTINCT_TRIAGE_DAYS = 29
 
 const RULE_ID = 'error-tracking-sd-activation'
 const SESSION_TTL_SECONDS = 24 * 60 * 60
@@ -73,8 +77,16 @@ function ineligibleKey(state: ResolvedState, projectId: string): string {
 }
 
 function activationText(projectUrl: string, githubOptional: boolean): string {
-    const vars = { project_url: projectUrl }
-    return formatPrompt(ACTIVATION_PROMPT, {
+    const vars = {
+        project_url: projectUrl,
+        lookback_days: String(TRIAGE_LOOKBACK_DAYS),
+        distinct_triage_days: String(DISTINCT_TRIAGE_DAYS),
+    }
+    const prompt =
+        process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test'
+            ? ACTIVATION_PROMPT
+            : DEFAULT_ACTIVATION_PROMPT
+    return formatPrompt(prompt, {
         ...vars,
         github_optional_offer: githubOptional ? formatPrompt(WITHOUT_GITHUB_OFFER, vars) : '',
     }).replace(/\n{3,}/g, '\n\n')

@@ -275,13 +275,13 @@ describe('ToolExecutor guidance notices', () => {
             if (fails) {
                 expect(first.isError).not.toBe(true)
                 expect(first.content).toEqual(second.content)
-                expect(
-                    first.content.some((item) => item.text?.includes('[Connect GitHub and activate Self-driving]'))
-                ).toBe(false)
+                expect(first.content.some((item) => item.text?.includes('[background error investigations]'))).toBe(
+                    false
+                )
                 expect(capture.mock.calls[0]?.[0].properties?.mcp_guidance_rule).toBeUndefined()
                 return
             }
-            expect(first.content[json ? 1 : 0]?.text).toContain('[Connect GitHub and activate Self-driving]')
+            expect(first.content[json ? 1 : 0]?.text).toContain('[background error investigations]')
             expect(first.content).toHaveLength(second.content.length + 1)
             expect(first.content[json ? 0 : 1]).toEqual(second.content[0])
             if (json) {
