@@ -41,15 +41,16 @@ export function RunLinkTagHint(): JSX.Element | null {
         <span className="text-xs text-secondary" data-attr="workflows-run-link-tag-hint">
             <span>
                 {enabled
-                    ? 'Tracked link clicks are connected to the sessions they start, including session replays when recording is on.'
+                    ? 'Tracked clicks on links to the domain you send from are connected to the sessions they start, including session replays when recording is on.'
                     : "Tracked link clicks aren't connected to sessions or session replays."}
             </span>{' '}
             <Link
                 to={urls.settings('environment-workflows', 'workflows-email-run-link-tag')}
                 target="_blank"
-                // Capture also sees Cmd/Ctrl-clicks, and middle-clicks only fire auxclick.
+                // Capture also sees Cmd/Ctrl-clicks, middle-clicks only fire auxclick, and "Open in new tab" from a context menu fires neither.
                 onClickCapture={refreshOnReturn}
                 onAuxClick={refreshOnReturn}
+                onContextMenu={refreshOnReturn}
                 data-attr="workflows-run-link-tag-settings-link"
             >
                 {enabled ? 'Turn it off in settings' : 'Turn it on in settings'}

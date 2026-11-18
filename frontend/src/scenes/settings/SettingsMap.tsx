@@ -1959,7 +1959,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'workflows-email-run-link-tag',
                 title: 'Connect email clicks to sessions',
                 description:
-                    'Connects each tracked link click in your workflow and broadcast emails to the session it starts on your site, so you can see what the person did next, including the session replay when recording is on. Your site needs posthog-js for this. Tracked links carry an extra URL parameter to make the connection.',
+                    'Connects each tracked link click in your workflow and broadcast emails to the session it starts on your site, so you can see what the person did next, including the session replay when recording is on. It works for links to the domain you send email from, and your site needs posthog-js. Tracked links carry an extra URL parameter to make the connection.',
                 component: <WorkflowsRunLinkTagSettings />,
                 keywords: [
                     'workflows',

@@ -48,6 +48,7 @@ describe('<RunLinkTagHint />', () => {
             opened: 'a middle-click',
             open: (link: HTMLElement) => fireEvent(link, new MouseEvent('auxclick', { bubbles: true, button: 1 })),
         },
+        { opened: 'a context menu', open: (link: HTMLElement) => fireEvent.contextMenu(link) },
     ])('shows the new setting after returning from settings opened with $opened', async ({ open }) => {
         useMocks({
             get: {
@@ -73,27 +74,34 @@ describe('<RunLinkTagHint />', () => {
             get: {
                 '/api/projects/:id/': ({ request }) => {
                     teamRequests.push(request.url)
-                    return [200, MOCK_DEFAULT_TEAM]
+                    return [
+                        200,
+                        {
+                            ...MOCK_DEFAULT_TEAM,
+                            workflows_config: { email_workflow_run_link_tag_enabled: teamRequests.length !== 1 },
+                        },
+                    ]
                 },
             },
         })
         const { unmount } = render(<RunLinkTagHint />)
-        const link = screen.getByText('Turn it off in settings')
 
-        fireEvent.click(link)
-        fireEvent.click(link)
+        fireEvent.click(screen.getByText('Turn it off in settings'))
+        fireEvent.click(screen.getByText('Turn it off in settings'))
         await act(async () => {
             window.dispatchEvent(new Event('focus'))
         })
+        expect(await screen.findByText(/aren't connected to sessions/)).toBeInTheDocument()
         expect(teamRequests).toHaveLength(1)
 
-        fireEvent.click(link)
+        fireEvent.click(screen.getByText('Turn it on in settings'))
         await act(async () => {
             window.dispatchEvent(new Event('focus'))
         })
+        expect(await screen.findByText(/are connected to the sessions they start/)).toBeInTheDocument()
         expect(teamRequests).toHaveLength(2)
 
-        fireEvent.click(link)
+        fireEvent.click(screen.getByText('Turn it off in settings'))
         unmount()
         await act(async () => {
             window.dispatchEvent(new Event('focus'))
