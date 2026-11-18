@@ -67381,8 +67381,11 @@ export namespace Schemas {
          * @maxLength 40
          */
       label: string;
-      /** The library this key reads. It cannot be changed later. */
-      library_id: string;
+      /**
+         * The library this key reads. Send null for a key that reads all business knowledge in the project. It cannot be changed later.
+         * @nullable
+         */
+      library_id: string | null;
     }
 
     export interface KnowledgeLibrary {
