@@ -344,10 +344,13 @@ _PNPM_SKIP=0
 
 # Native addons that an older pnpm launcher built for another Node stay that way:
 # `pnpm install` reports the tree as up to date and restores them from its cache.
-# re2 links nothing but Node, so a failed load means the ABI is wrong, not a library.
+# A native addon exports node_register_module_v<ABI>, so reading the re2 binary tells which
+# Node it was built for without running dependency code outside bin/dev-sandbox.
 _PNPM_COMMAND="pnpm install"
-if [[ -d "$FLOX_ENV_PROJECT/nodejs/node_modules/re2" ]] &&
-  ! (cd "$FLOX_ENV_PROJECT/nodejs" && node -e 'try { require("re2") } catch (e) { process.exit(e.code === "ERR_DLOPEN_FAILED" ? 1 : 0) }') 2>/dev/null; then
+_RE2_BINARY="$FLOX_ENV_PROJECT/nodejs/node_modules/re2/build/Release/re2.node"
+_NODE_ABI="$(node -p process.versions.modules 2>/dev/null || true)"
+if [[ -f "$_RE2_BINARY" && -n "$_NODE_ABI" ]] &&
+  ! grep -aqE "node_register_module_v${_NODE_ABI}([^0-9]|\$)" "$_RE2_BINARY"; then
   _PNPM_COMMAND="pnpm install && pnpm -r rebuild re2 node-rdkafka lz4 cpu-features"
   _PNPM_SKIP=0
 fi
