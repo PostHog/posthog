@@ -23,6 +23,7 @@ from products.tasks.backend.models import LIVE_RUN_STALE_AFTER, Task, TaskRun
 logger = structlog.get_logger(__name__)
 
 STALE_RUN_GRACE = timedelta(minutes=15)
+STARTUP_ALLOWANCE = timedelta(hours=2)
 SWEEP_FLAG = "tasks-stale-run-sweep"
 SWEEP_MODE_CACHE_SECONDS = 60
 NO_PROFILE = "none"
@@ -84,7 +85,7 @@ def stale_rules(
     now: datetime,
 ) -> frozenset[StaleRule]:
     rules: set[StaleRule] = set()
-    last_sign_of_life = max(at for at in (last_heartbeat_at, queued_at, created_at) if at is not None)
+    last_sign_of_life = max(at for at in (last_heartbeat_at, queued_at, created_at, updated_at) if at is not None)
     if now - last_sign_of_life > idle_timeout + STALE_RUN_GRACE:
         rules.add(StaleRule.HEARTBEAT)
     if environment == TaskRun.Environment.CLOUD and now - updated_at > LIVE_RUN_STALE_AFTER:
@@ -97,6 +98,7 @@ def quiet_since_q(cutoff: datetime) -> Q:
         (Q(last_heartbeat_at__lt=cutoff) | Q(last_heartbeat_at__isnull=True))
         & (Q(queued_at__lt=cutoff) | Q(queued_at__isnull=True))
         & Q(created_at__lt=cutoff)
+        & Q(updated_at__lt=cutoff)
     )
 
 
@@ -170,6 +172,7 @@ def _live_runs(*, sweepable_only: bool = False) -> Iterator[_LiveRun]:
             "state__inactivity_timeout_seconds",
             "state__await_user_message",
             "state__warm_activation_started",
+            "agent_status",
             "last_heartbeat_at",
             "queued_at",
             "created_at",
@@ -187,12 +190,19 @@ def _live_runs(*, sweepable_only: bool = False) -> Iterator[_LiveRun]:
         run_timeout_seconds,
         awaits_first_message,
         warm_activation_started,
+        agent_status,
         last_heartbeat_at,
         queued_at,
         created_at,
         updated_at,
     ) in runs:
         idle_timeout = _idle_timeout(profile_key, origin_product, run_timeout_seconds)
+        if (
+            environment == TaskRun.Environment.CLOUD
+            and status == TaskRun.Status.IN_PROGRESS
+            and agent_status in (None, TaskRun.AgentStatus.STARTING)
+        ):
+            idle_timeout = max(idle_timeout, STARTUP_ALLOWANCE)
         yield _LiveRun(
             run_id=run_id,
             team_id=team_id,
