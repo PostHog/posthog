@@ -285,7 +285,9 @@ def is_publicly_shared(artifact: GatedDashboard | Notebook | Insight) -> bool:
         # shares per team are scanned rather than joined.
         return any(
             artifact.short_id in extract_referenced_insight_short_ids(content)
-            for content in team_shares.filter(notebook__isnull=False).values_list("notebook__content", flat=True)
+            for content in team_shares.filter(notebook__isnull=False, notebook__team_id=artifact.team_id).values_list(
+                "notebook__content", flat=True
+            )
         )
     shared_artifact = {"notebook": artifact} if isinstance(artifact, Notebook) else {"dashboard_id": artifact.id}
     return SharingConfiguration.objects.filter(

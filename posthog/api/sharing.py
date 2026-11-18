@@ -566,6 +566,8 @@ class SharingConfigurationViewSet(
             instance = self._get_sharing_configuration(context, dedupe=True)
             if share_denied_message and not instance.enabled:
                 raise ValidationError(share_denied_message)
+            if gate_applies and instance.notebook is not None:
+                instance.notebook.refresh_from_db(fields=["content", "deleted"])
             if (
                 gate_applies
                 and not instance.enabled

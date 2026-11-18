@@ -3791,7 +3791,11 @@ class DashboardsViewSet(
 
             # The destination's public link must not expose a query the editor can't run.
             check_can_add_insight_to_dashboard(
-                cast(User, request.user), destination, tile.insight.query, user_access_control
+                cast(User, request.user),
+                destination,
+                tile.insight.query,
+                user_access_control,
+                insight=tile.insight,
             )
         elif tile.text is not None:
             if DashboardTile.objects.filter(dashboard=destination, text=tile.text).exists():
@@ -3847,7 +3851,9 @@ class DashboardsViewSet(
                     raise exceptions.ValidationError(
                         "An insight in this group is already on the destination dashboard."
                     )
-                check_can_add_insight_to_dashboard(cast(User, request.user), destination, insight.query, access)
+                check_can_add_insight_to_dashboard(
+                    cast(User, request.user), destination, insight.query, access, insight=insight
+                )
             elif tile.text_id:
                 if DashboardTile.objects.filter(dashboard=destination, text_id=tile.text_id).exists():
                     raise exceptions.ValidationError(
