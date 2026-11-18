@@ -235,7 +235,8 @@ class _ReadCollector:
         names = _output_names(initial) if pushed else None
         for subsequent in node.subsequent_select_queries:
             branch = subsequent.select_query
-            self.query(branch, branch_ctes, _map_to_branch(pushed, names, branch, self.budget))
+            by_name = "BY NAME" in subsequent.set_operator
+            self.query(branch, branch_ctes, _map_to_branch(pushed, names, branch, by_name, self.budget))
 
     def select(self, node: ast.SelectQuery, outer_ctes: dict[str, ast.CTE], pushed: list[ast.Expr]) -> None:
         if pushed and _blocks_pushed_filters(node):
@@ -433,29 +434,55 @@ def _output_names(node: _Query) -> list[str] | None:
     return names
 
 
-class _ReplaceColumns(CloningVisitor):
-    def __init__(self, columns: dict[str, ast.Expr], budget: _Budget) -> None:
+class _BudgetedClone(CloningVisitor):
+    def __init__(self, budget: _Budget) -> None:
         super().__init__(clear_types=True, clear_locations=True)
-        self.columns = columns
         self.budget = budget
 
     def visit(self, node: ast.AST | None) -> ast.Expr:
         self.budget.spend()
         return super().visit(node)
 
+
+class _ReplaceColumns(_BudgetedClone):
+    """Replace a set query's column names with one branch's outputs, leaving nested queries to their own scope."""
+
+    def __init__(self, columns: dict[str, ast.Expr], budget: _Budget) -> None:
+        super().__init__(budget)
+        self.columns = columns
+
     def visit_field(self, node: ast.Field) -> ast.Expr:
         name = node.chain[0] if len(node.chain) == 1 else None
         if isinstance(name, str) and name in self.columns:
-            return clone_expr(self.columns[name], clear_types=True, clear_locations=True)
+            return _BudgetedClone(self.budget).visit(self.columns[name])
         return super().visit_field(node)
 
+    def visit_select_query(self, node: ast.SelectQuery) -> ast.Expr:
+        return _BudgetedClone(self.budget).visit(node)
 
-def _map_to_branch(pushed: list[ast.Expr], names: list[str] | None, branch: _Query, budget: _Budget) -> list[ast.Expr]:
-    """Rewrite filters on a set query's columns as filters on one branch's outputs, or drop them if unmappable."""
-    if not pushed or names is None or not isinstance(branch, ast.SelectQuery) or len(branch.select) != len(names):
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> ast.Expr:
+        return _BudgetedClone(self.budget).visit(node)
+
+
+def _map_to_branch(
+    pushed: list[ast.Expr], names: list[str] | None, branch: _Query, by_name: bool, budget: _Budget
+) -> list[ast.Expr]:
+    """Rewrite filters on a set query's columns as filters on one branch's outputs, or drop them if unmappable.
+
+    A BY NAME branch matches the set query's columns by output name, any other branch by position."""
+    branch_names = _output_names(branch)
+    if not pushed or names is None or branch_names is None or not isinstance(branch, ast.SelectQuery):
         return []
     outputs = [selected.expr if isinstance(selected, ast.Alias) else selected for selected in branch.select]
-    replace = _ReplaceColumns(dict(zip(names, outputs)), budget)
+    if by_name:
+        if not set(names) <= set(branch_names):
+            return []
+        columns = dict(zip(branch_names, outputs))
+    elif len(outputs) != len(names):
+        return []
+    else:
+        columns = dict(zip(names, outputs))
+    replace = _ReplaceColumns(columns, budget)
     return [replace.visit(condition) for condition in pushed]
 
 

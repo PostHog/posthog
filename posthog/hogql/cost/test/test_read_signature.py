@@ -81,6 +81,16 @@ class TestReadSignature(SimpleTestCase):
                 "SELECT count() FROM (SELECT event FROM events WHERE event = 'a' UNION ALL SELECT distinct_id FROM events WHERE distinct_id = 'a')",
             ),
             (
+                "union_by_name_filter_mapped_by_name",
+                "SELECT count() FROM (SELECT event AS name, distinct_id AS id FROM events UNION ALL BY NAME SELECT distinct_id AS id, event AS name FROM events) WHERE name = 'a'",
+                "SELECT count() FROM (SELECT event AS name, distinct_id AS id FROM events WHERE event = 'a' UNION ALL BY NAME SELECT distinct_id AS id, event AS name FROM events WHERE event = 'a')",
+            ),
+            (
+                "union_filter_with_a_nested_query",
+                "SELECT count() FROM (SELECT event FROM events WHERE event = 'x' UNION ALL SELECT properties.foo AS foo FROM events WHERE event = 'x') WHERE event IN (SELECT event FROM events WHERE event = 'a')",
+                "SELECT count() FROM (SELECT event FROM events WHERE event = 'x' AND event IN (SELECT event FROM events WHERE event = 'a') UNION ALL SELECT properties.foo AS foo FROM events WHERE event = 'x' AND properties.foo IN (SELECT event FROM events WHERE event = 'a'))",
+            ),
+            (
                 "unused_cte",
                 "WITH unused AS (SELECT event FROM events WHERE event = 'x') SELECT count() FROM persons",
                 "SELECT count() FROM persons",
