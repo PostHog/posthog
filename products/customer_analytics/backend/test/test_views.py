@@ -2650,6 +2650,21 @@ class TestCustomPropertyValueViewSet(APIBaseTest):
         self.assertEqual(expected, [(e["value"], e["set_at"][:10]) for e in history])
         self.assertEqual([False] * (len(history) - 1) + [True], [e["is_current"] for e in history])
 
+    def test_history_over_the_limit_asks_for_a_later_since(self) -> None:
+        for day, plan in [("2024-01-01", "starter"), ("2024-01-10", "enterprise"), ("2024-02-01", "growth")]:
+            with time_machine.travel(day, tick=False):
+                self._set(self.text_def.id, plan)
+
+        with patch("products.customer_analytics.backend.logic.custom_property_values.HISTORY_ENTRY_LIMIT", 2):
+            full = self.client.get(f"{self.endpoint}history/", {"definition": str(self.text_def.id)})
+            recent = self.client.get(
+                f"{self.endpoint}history/", {"definition": str(self.text_def.id), "since": "2024-01-15"}
+            )
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, full.status_code)
+        self.assertEqual("since", full.json()["attr"])
+        self.assertEqual(["enterprise", "growth"], [e["value"] for e in recent.json()])
+
     @parameterized.expand([("write", "x"), ("clear", None)])
     def test_account_from_another_team_returns_404(self, _name: str, value: str | None) -> None:
         other_team = Team.objects.create(organization=self.organization)

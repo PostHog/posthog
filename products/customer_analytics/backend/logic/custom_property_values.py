@@ -49,6 +49,14 @@ class InvalidCustomPropertyValue(ValueError):
     field: str | None = None
 
 
+class CustomPropertyValueHistoryTooLong(Exception):
+    """Raised when a property's history in the requested window has more values than one response holds."""
+
+    def __init__(self, limit: int):
+        super().__init__(f"More than {limit} values.")
+        self.limit = limit
+
+
 class CustomPropertyDefinitionNotFound(Exception):
     """Raised when the target custom property definition does not exist for the team.
 
@@ -407,9 +415,10 @@ HISTORY_ENTRY_LIMIT = 1000
 def list_custom_property_value_history(
     *, team_id: int, account_id: str | UUID, definition_id: str | UUID, since: datetime | None = None
 ) -> list[CustomPropertyValueHistoryRow]:
-    """Every value the account has held for an account definition, oldest first, capped to the
-    `HISTORY_ENTRY_LIMIT` most recent. With `since`, only the values held from then on, starting with
-    the one in place at `since`.
+    """Every value the account has held for an account definition, oldest first. With `since`, only
+    the values held from then on, starting with the one in place at `since`. Raises
+    `CustomPropertyValueHistoryTooLong` when more than `HISTORY_ENTRY_LIMIT` values remain, rather than
+    return a history with a silent gap.
 
     Setting the same value again stores a new row, so a run of equal values collapses into its
     first row. A clear stores no time, so a cleared value reads as held until the next value is
@@ -423,11 +432,13 @@ def list_custom_property_value_history(
         raise CustomPropertyDefinitionNotFound(definition_id) from exc
     values = CustomPropertyValue.objects.for_team(team_id).filter(account_id=account_id, definition=definition)
     if since is None:
-        entries = _list_value_run_starts(values, definition, HISTORY_ENTRY_LIMIT)
+        entries = _list_value_run_starts(values, definition, HISTORY_ENTRY_LIMIT + 1)
+        _raise_when_too_long(entries)
     else:
         held_at_since = _list_value_run_starts(values.filter(created_at__lt=since), definition, 1)
-        entries = _list_value_run_starts(values.filter(created_at__gte=since), definition, HISTORY_ENTRY_LIMIT)
-        if held_at_since and entries and stored_value_of(entries[0]) == stored_value_of(held_at_since[0]):
+        entries = _list_value_run_starts(values.filter(created_at__gte=since), definition, HISTORY_ENTRY_LIMIT + 1)
+        _raise_when_too_long(entries)
+        if held_at_since and entries and _stored_key(entries[0]) == _stored_key(held_at_since[0]):
             entries[0] = held_at_since[0]
         elif held_at_since and not (entries and entries[0].created_at <= since):
             entries = held_at_since + entries
@@ -450,7 +461,7 @@ def _list_value_run_starts(
     starts: list[CustomPropertyValue] = []
     for row in values.order_by("-created_at", "-id").iterator(chunk_size=50):
         row.definition = definition
-        if starts and stored_value_of(row) == stored_value_of(starts[-1]):
+        if starts and _stored_key(row) == _stored_key(starts[-1]):
             starts[-1] = row
             continue
         if len(starts) == limit:
@@ -458,6 +469,16 @@ def _list_value_run_starts(
         starts.append(row)
     starts.reverse()
     return starts
+
+
+def _raise_when_too_long(entries: list[CustomPropertyValue]) -> None:
+    if len(entries) > HISTORY_ENTRY_LIMIT:
+        raise CustomPropertyValueHistoryTooLong(HISTORY_ENTRY_LIMIT)
+
+
+def _stored_key(row: CustomPropertyValue) -> tuple:
+    """Includes the column, so a `true` stored before a type change never equals a later `1`."""
+    return (row.value_str, row.value_bool, row.value_num, row.value_datetime)
 
 
 VALUE_SUGGESTIONS_LIMIT = 50

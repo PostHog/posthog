@@ -2794,6 +2794,10 @@ class CustomPropertyValueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
             )
         except api.CustomPropertyDefinitionNotFound:
             raise ValidationError({"definition": "Custom property definition not found."})
+        except api.CustomPropertyValueHistoryTooLong as exc:
+            raise ValidationError(
+                {"since": f"This property has more than {exc.limit} values in this range. Pass a later since date."}
+            )
         return Response(CustomPropertyValueHistoryEntrySerializer(entries, many=True).data)
 
     @extend_schema(
