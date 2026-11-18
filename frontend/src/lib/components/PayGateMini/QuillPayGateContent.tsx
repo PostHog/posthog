@@ -58,7 +58,7 @@ export function QuillPayGateContent({
 
     const content = (
         <div className="flex flex-col items-center gap-2 text-center">
-            <div className="flex text-4xl text-warning-foreground">{renderProductIcon(featureInfo.icon_key)}</div>
+            {renderProductIcon(featureInfo.icon_key)}
             <Heading size="sm" render={<h3 className="m-0" />}>
                 {featureInfo.name}
             </Heading>
