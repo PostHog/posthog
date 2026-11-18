@@ -20,12 +20,26 @@ export default meta
 
 type Story = StoryObj<{}>
 
-export const PlainRotatedLabels: Story = {
+export const IndependentColors: Story = {
     render: () => {
         const theme = useReactiveTheme()
         const series: Series[] = [
-            { key: 'visits', label: 'Visits', color: '', data: [20, 35, 28, 60, 45, 70, 52] },
+            { key: 'visits', label: 'Visits', color: '#2563eb', data: [20, 35, 28, 60, 45, 70, 52] },
         ]
+        return (
+            <Stage>
+                <LineChart series={series} labels={LABELS} config={CONFIG} theme={theme}>
+                    <ValueLabels color="#111827" backgroundColor="#fde68a" />
+                </LineChart>
+            </Stage>
+        )
+    },
+}
+
+export const PlainRotatedLabels: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const series: Series[] = [{ key: 'visits', label: 'Visits', color: '', data: [20, 35, 28, 60, 45, 70, 52] }]
         return (
             <Stage>
                 <LineChart series={series} labels={LABELS} config={CONFIG} theme={theme}>
