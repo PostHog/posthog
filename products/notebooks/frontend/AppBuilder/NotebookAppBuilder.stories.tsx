@@ -186,6 +186,7 @@ const meta: Meta = {
                 '/api/oauth/connected-apps': [],
                 '/api/organizations/:id/product_push_campaign/active': () => [204, null],
                 '/api/projects/:team_id/notebooks/app-builder-demo': () => [200, saved],
+                '/api/projects/:team_id/notebooks/app-builder-demo/collab/stream': () => [503, {}],
                 '/api/projects/:team_id/notebooks/app-builder-demo/kernel/status': {
                     backend: null,
                     status: 'stopped',

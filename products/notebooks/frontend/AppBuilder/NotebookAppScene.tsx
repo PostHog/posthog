@@ -7,6 +7,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 
+import { NotebookAppAgentIntegration } from './NotebookAppAgentIntegration'
 import { NotebookAppBuilder } from './NotebookAppBuilder'
 
 export function NotebookAppScene({ shortId, children }: { shortId: string; children: ReactNode }): JSX.Element {
@@ -61,5 +62,10 @@ function NotebookAppSceneEnabled({ shortId, children }: { shortId: string; child
         observer.observe(document.body, { childList: true, subtree: true })
         return () => observer.disconnect()
     }, [view, hashParams.node, markdownEditorValue])
-    return <>{view === 'notebook' ? children : <NotebookAppBuilder shortId={shortId} published={view === 'app'} />}</>
+    return (
+        <>
+            <NotebookAppAgentIntegration shortId={shortId} />
+            {view === 'notebook' ? children : <NotebookAppBuilder shortId={shortId} published={view === 'app'} />}
+        </>
+    )
 }

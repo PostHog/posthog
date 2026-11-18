@@ -3,7 +3,7 @@ import './NotebookAppBuilder.scss'
 import { useActions, useValues } from 'kea'
 
 import { IconPlus } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInput, LemonMenu, LemonTabs, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDialog, LemonInput, LemonMenu, LemonTabs, Spinner } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
@@ -11,6 +11,10 @@ import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { NotebookRunAllButton } from 'scenes/notebooks/Notebook/NotebookRunAllButton'
 import { urls } from 'scenes/urls'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { SidePanelTab } from '~/types'
+
+import { NotebookAppEditorAgentContext } from './NotebookAppAgentIntegration'
 import { NotebookAppCanvas } from './NotebookAppCanvas'
 import { NotebookAppInspector } from './NotebookAppInspector'
 import { notebookAppLogic } from './notebookAppLogic'
@@ -24,6 +28,7 @@ export function NotebookAppBuilder({
     published?: boolean
 }): JSX.Element {
     const logic = notebookAppLogic({ shortId })
+    const { openSidePanel } = useActions(sidePanelStateLogic)
     const { notebookLoading, localContent } = useValues(notebookLogic({ shortId }))
     const sourceSavingReason =
         notebookLoading || localContent !== null ? 'Wait for the notebook to finish saving.' : undefined
@@ -43,6 +48,7 @@ export function NotebookAppBuilder({
         dirty,
         history,
         notebook,
+        agentUpdatePending,
     } = useValues(logic)
     const {
         changeLayout,
@@ -95,6 +101,7 @@ export function NotebookAppBuilder({
     }
     return (
         <div className="NotebookAppBuilder mt-4" data-attr="notebook-app-builder">
+            <NotebookAppEditorAgentContext shortId={shortId} />
             <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
                 <div className="flex flex-wrap items-center gap-2">
                     <h2 className="m-0">{published ? 'App' : 'App builder'}</h2>
@@ -107,6 +114,19 @@ export function NotebookAppBuilder({
                 <div className="flex flex-wrap items-center gap-2">
                     {canEditNotebook && !isTemplate && !published && (
                         <>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                disabledReason={
+                                    sourceSavingReason ||
+                                    (savedNotebookLoading ? 'Wait for the app to finish saving.' : undefined) ||
+                                    (dirty ? 'Save your draft before asking AI to edit it.' : undefined)
+                                }
+                                onClick={() => openSidePanel(SidePanelTab.Max)}
+                                data-attr="notebook-app-ask-ai"
+                            >
+                                Ask AI
+                            </LemonButton>
                             <LemonButton
                                 type="secondary"
                                 size="small"
@@ -196,6 +216,24 @@ export function NotebookAppBuilder({
             {error && (
                 <LemonBanner type="error" className="mb-4">
                     {error}
+                </LemonBanner>
+            )}
+            {agentUpdatePending && (
+                <LemonBanner
+                    type="info"
+                    className="mb-4"
+                    action={{
+                        children: 'Load saved draft',
+                        onClick: () =>
+                            LemonDialog.open({
+                                title: 'Load the saved app?',
+                                description: 'This replaces your unsaved layout changes with the saved app.',
+                                primaryButton: { children: 'Load saved draft', onClick: loadApp },
+                                secondaryButton: { children: 'Keep editing' },
+                            }),
+                    }}
+                >
+                    AI updated this app. Your local changes have been kept.
                 </LemonBanner>
             )}
             <fieldset disabled={savedNotebookLoading} className="border-0 p-0 m-0 min-w-0">
