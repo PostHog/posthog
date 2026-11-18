@@ -1,6 +1,7 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useMemo, useRef } from 'react'
 
+import { useComponentPanelState } from 'lib/components/MarkdownNotebook/componentPanelContext'
 import { useNotebookJupyterCommands, useNotebookJupyterStoreValue } from 'lib/components/MarkdownNotebook/jupyterMode'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
@@ -60,6 +61,7 @@ const Component = ({
     attributes,
     updateAttributes,
 }: NotebookNodeProps<NotebookNodePythonV2Attributes>): JSX.Element | null => {
+    const outputOnly = !!useComponentPanelState()?.outputOnly
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { nodeId, notebookLogic, expanded, isEditable } = useValues(nodeLogic)
 
@@ -178,11 +180,11 @@ const Component = ({
                 onMouseDown={(event) => event.stopPropagation()}
                 onDragStart={(event) => event.stopPropagation()}
             >
-                {isStale ? (
+                {!outputOnly && isStale ? (
                     <div className="shrink-0 pb-2" onClick={(event) => event.stopPropagation()}>
                         <NotebookStaleCellBanner reason={staleReason ?? undefined} />
                     </div>
-                ) : staleDownstreamCount > 0 && !isChainRunning ? (
+                ) : !outputOnly && staleDownstreamCount > 0 && !isChainRunning ? (
                     <div className="shrink-0 pb-2" onClick={(event) => event.stopPropagation()}>
                         <NotebookRunDownstreamBanner
                             count={staleDownstreamCount}

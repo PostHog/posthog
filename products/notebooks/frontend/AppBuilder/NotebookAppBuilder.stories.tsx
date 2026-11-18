@@ -178,20 +178,28 @@ export const Published: Story = {
         await waitFor(() => expect(metric('1485')).toBeVisible(), {
             timeout: 60000,
         })
+        expect(app.queryByRole('button', { name: 'Run' })).not.toBeInTheDocument()
+        expect(app.queryByRole('tab', { name: 'Visualization' })).not.toBeInTheDocument()
+        expect(app.queryByRole('tab', { name: 'Results' })).not.toBeInTheDocument()
+        expect(app.queryByRole('button', { name: /export/i })).not.toBeInTheDocument()
+        expect(appElement.querySelector('.MarkdownNotebook__component-header')).not.toBeInTheDocument()
         fireEvent.click(app.getByLabelText('Region', { exact: true }))
         fireEvent.click(await within(document.body).findByText('Europe', { exact: true }))
         fireEvent.change(app.getByRole('slider', { name: 'Lookback (weeks)' }), { target: { value: '2' } })
+        const staleTag = await app.findByText('STALE', { exact: true })
+        await userEvent.hover(staleTag)
         await waitFor(() =>
-            expect(app.getByText('Inputs changed. Run all to update the charts and calculated values.')).toBeVisible()
+            expect(
+                within(document.body).getByText('Inputs changed. Run all to update the charts and calculated values.')
+            ).toBeVisible()
         )
+        await userEvent.unhover(staleTag)
         fireEvent.click(appElement.querySelector('[data-attr="notebook-run-all"]') as HTMLElement)
         await waitFor(() => expect(metric('222')).toBeVisible(), {
             timeout: 60000,
         })
         await waitFor(() => expect(metric('64.9%')).toBeVisible())
-        await waitFor(() =>
-            expect(app.queryByText('Inputs changed. Run all to update the charts and calculated values.')).toBeNull()
-        )
+        await waitFor(() => expect(app.queryByText('STALE', { exact: true })).toBeNull())
         await waitFor(
             () =>
                 expect(saved.content).toEqual(
@@ -215,10 +223,10 @@ export const Notebook: Story = {
         expect(canvas.queryByText('App builder')).not.toBeInTheDocument()
         await userEvent.click(canvas.getByLabelText('Notebook options'))
         const menu = within(document.body)
-        fireEvent.click(await menu.findByText('App builder'))
+        await userEvent.click(await menu.findByText('App builder'))
         await waitFor(() => expect(canvas.getByLabelText('App components')).toBeVisible())
-        fireEvent.click(canvas.getByLabelText('More app actions'))
-        fireEvent.click(await menu.findByText('Open notebook'))
+        await userEvent.click(canvas.getByLabelText('More app actions'))
+        await userEvent.click(await menu.findByText('Open notebook'))
         await waitFor(() => expect(canvasElement.querySelector('.MarkdownNotebook')).toBeVisible(), { timeout: 60000 })
         expect(canvas.queryByLabelText('App components')).not.toBeInTheDocument()
     },

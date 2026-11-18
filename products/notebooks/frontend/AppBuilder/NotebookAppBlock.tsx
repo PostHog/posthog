@@ -1,6 +1,7 @@
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { MarkdownNotebook } from 'lib/components/MarkdownNotebook'
+import { ComponentPanelContext } from 'lib/components/MarkdownNotebook/componentPanelContext'
 import { serializeNode } from 'lib/components/MarkdownNotebook/markdown'
 import type { NotebookBlockNode } from 'lib/components/MarkdownNotebook/types'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -65,13 +66,22 @@ export function NotebookAppBlock({
                 </pre>
             ) : null}
             {block.display !== 'source' && (
-                <MarkdownNotebook
-                    value={appCellMarkdown(cell)}
-                    onChange={canInteract ? (markdown) => onCellOutput(cell.id, markdown) : undefined}
-                    registry={NOTEBOOK_MARKDOWN_REGISTRY}
-                    mode="view"
-                    className="NotebookAppBuilder__cell"
-                />
+                <ComponentPanelContext.Provider
+                    value={{
+                        componentPanels: { filters: false, results: true },
+                        showEditPanel: false,
+                        showViewPanel: true,
+                        outputOnly: true,
+                    }}
+                >
+                    <MarkdownNotebook
+                        value={appCellMarkdown(cell)}
+                        onChange={canInteract ? (markdown) => onCellOutput(cell.id, markdown) : undefined}
+                        registry={NOTEBOOK_MARKDOWN_REGISTRY}
+                        mode="view"
+                        className="NotebookAppBuilder__cell"
+                    />
+                </ComponentPanelContext.Provider>
             )}
         </div>
     )
