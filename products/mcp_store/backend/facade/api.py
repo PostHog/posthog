@@ -29,6 +29,7 @@ from products.mcp_store.backend.agents import (
     get_built_in_agent,
     is_builtin_agent_enforcement_enabled,
 )
+from products.mcp_store.backend.borrowed_credential import is_posthog_connection as is_posthog_connection
 from products.mcp_store.backend.connector_approvals import (
     ConnectorApprovalBinding,
     consume_connector_approval,

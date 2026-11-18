@@ -6,8 +6,11 @@ from django.db.models import Q
 
 from posthog.models import Team, User
 
-from products.mcp_store.backend.borrowed_credential import is_posthog_connection
-from products.mcp_store.backend.facade.api import resolve_member_tool_states, resolve_member_unlisted_tool_state
+from products.mcp_store.backend.facade.api import (
+    is_posthog_connection,
+    resolve_member_tool_states,
+    resolve_member_unlisted_tool_state,
+)
 from products.mcp_store.backend.models import MCPServerInstallation, MCPServerInstallationTool
 from products.mcp_store.backend.oauth import refresh_installation_token
 
