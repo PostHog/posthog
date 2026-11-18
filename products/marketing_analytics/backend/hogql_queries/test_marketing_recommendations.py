@@ -792,6 +792,7 @@ class TestMarketingRecommendations(SimpleTestCase):
         assert [step.copyValue for step in leak.steps or [] if step.copyValue] == ["PMax", "example"]
         scale = next(rec for rec in recs if rec.rule == "scale_campaign")
         assert "target CPA" in (scale.steps or [])[1].text
+        assert [step.linkText for step in scale.steps or [] if step.linkText] == ["Campaigns", "Asset groups"]
         policy = next(rec for rec in recs if rec.rule == "policy_limited")
         assert [step.linkText for step in policy.steps or [] if step.linkText] == [
             "Campaigns",
