@@ -37,6 +37,8 @@ class ComputeSurface(StrEnum):
     DASHBOARD_STREAM = "dashboard_stream"
     DASHBOARD_RUN_INSIGHTS = "dashboard_run_insights"
     DASHBOARD_MUTATE = "dashboard_mutate"
+    # Must stay cache-only: a computing default would run every missed tile of a board inside one request.
+    DASHBOARD_CACHED_TILES = "dashboard_cached_tiles"
     SHARED = "shared"
     LEGACY_UNKNOWN = "legacy_unknown"
 
@@ -54,6 +56,7 @@ SURFACE_DEFAULT_EXECUTION_MODE: dict[ComputeSurface, ExecutionMode] = {
     ComputeSurface.DASHBOARD_STREAM: ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
     ComputeSurface.DASHBOARD_RUN_INSIGHTS: ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
     ComputeSurface.DASHBOARD_MUTATE: ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+    ComputeSurface.DASHBOARD_CACHED_TILES: ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
     ComputeSurface.SHARED: ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
     ComputeSurface.LEGACY_UNKNOWN: ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
 }

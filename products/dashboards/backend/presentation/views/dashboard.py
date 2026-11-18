@@ -30,6 +30,7 @@ from django.db.models import (
     Q,
     QuerySet,
     Subquery,
+    TextChoices,
     UUIDField,
     Value,
 )
@@ -106,6 +107,7 @@ from posthog.models.quick_filter import QuickFilter
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.permissions import posthog_feature_flag_enabled
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.session_recordings.session_recording_api import get_replay_listing_throttle_error
@@ -135,6 +137,7 @@ from products.alerts.backend.models.alert import AlertConfiguration
 from products.dashboards.backend.access import dashboard_access_method, record_dashboard_access, record_dashboard_view
 from products.dashboards.backend.constants import (
     DASHBOARD_GRID_COLUMN_COUNT,
+    MAX_CACHED_TILES_BATCH_SIZE,
     MAX_GROUP_KEY_LENGTH,
     MAX_GROUP_TITLE_LENGTH,
     MAX_GROUPS,
@@ -1322,6 +1325,67 @@ class RunInsightsResponseSerializer(serializers.Serializer):
         many=True,
         help_text="Results for each insight tile on the dashboard.",
     )
+
+
+class CachedTileStatus(TextChoices):
+    HIT = "hit", "Hit"
+    MISS = "miss", "Miss"
+    FORBIDDEN = "forbidden", "Forbidden"
+    NOT_FOUND = "not_found", "Not found"
+
+
+class CachedTileInsightResultSerializer(InsightSerializer):
+    """The result fields of an insight tile, without the insight's own metadata.
+
+    Results come from `InsightSerializer.insight_result`, the same computation as the per-tile insight
+    endpoint, so the cache key, dashboard and tile filters, variables and access restrictions match it.
+    """
+
+    class Meta:
+        model = Insight
+        fields = [
+            "id",
+            "result",
+            "hasMore",
+            "columns",
+            "types",
+            "timezone",
+            "last_refresh",
+            "cache_target_age",
+            "next_allowed_client_refresh",
+            "is_cached",
+            "query_status",
+            "resolved_date_range",
+            "resolved_compare_date_range",
+            "action_names",
+            "warnings",
+        ]
+        read_only_fields = fields
+
+    def to_representation(self, instance: Insight) -> dict[str, Any]:
+        # InsightSerializer.to_representation rebuilds the insight's `query` and reads fields this serializer
+        # drops. The view checks insight access before any tile reaches this serializer.
+        return serializers.ModelSerializer.to_representation(self, instance)
+
+
+class CachedTileResultSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="Dashboard tile ID.")
+    status = serializers.ChoiceField(
+        choices=CachedTileStatus.choices,
+        help_text=(
+            "'hit' carries the cached result in `insight`, even when it is older than its target age. "
+            "'miss' means nothing usable is cached, so load the tile through the insight endpoint. "
+            "'forbidden' means the caller can't view the tile's insight. "
+            "'not_found' means the ID isn't an insight tile on this dashboard."
+        ),
+    )
+    insight = CachedTileInsightResultSerializer(
+        required=False, help_text="The cached result. Present only when status is 'hit'."
+    )
+
+
+class CachedTilesResponseSerializer(serializers.Serializer):
+    results = CachedTileResultSerializer(many=True, help_text="One entry per requested tile ID, in request order.")
 
 
 class DashboardWidgetRunResultSerializer(serializers.Serializer):
@@ -4241,20 +4305,7 @@ class DashboardsViewSet(
             (order, tile, tile.insight) for order, tile in ordered_tiles if tile.insight and tile.insight.query
         ]
 
-        # Insight access is independent of dashboard access: a viewer of this dashboard may still be
-        # restricted on individual insights. Mask those tiles before any query runs. Dashboards are project-wide,
-        # so each insight is resolved against its own environment's rules, not the URL's.
-        insights_by_team: dict[int, list[Model]] = {}
-        for _, _, insight in insight_tiles:
-            insights_by_team.setdefault(insight.team_id, []).append(insight)
-        access_by_team = self.user_access_control.for_team_ids(insights_by_team.keys())
-        for team_id, team_insights in insights_by_team.items():
-            access_by_team[team_id].preload_object_access_controls(team_insights)
-        restricted_levels: dict[int, str] = {}
-        for _, tile, insight in insight_tiles:
-            user_access_level = access_by_team[insight.team_id].get_user_access_level(insight)
-            if user_access_level and not access_level_satisfied_for_resource("insight", user_access_level, "viewer"):
-                restricted_levels[tile.id] = user_access_level
+        restricted_levels = self._restricted_insight_levels([(tile, insight) for _, tile, insight in insight_tiles])
 
         tile_results = []
         used_chars = 0
@@ -4309,6 +4360,103 @@ class DashboardsViewSet(
             tile_results.append(tile_data)
 
         return Response({"results": tile_results})
+
+    def _restricted_insight_levels(self, tiles: builtins.list[tuple[DashboardTile, Insight]]) -> dict[int, str]:
+        """Access levels below viewer, keyed by tile ID, for the insights of these tiles."""
+        # Insight access is independent of dashboard access: a viewer of this dashboard may still be
+        # restricted on individual insights. Mask those tiles before any query runs. Dashboards are project-wide,
+        # so each insight is resolved against its own environment's rules, not the URL's.
+        insights_by_team: dict[int, list[Model]] = {}
+        for _, insight in tiles:
+            insights_by_team.setdefault(insight.team_id, []).append(insight)
+        access_by_team = self.user_access_control.for_team_ids(insights_by_team.keys())
+        for team_id, team_insights in insights_by_team.items():
+            access_by_team[team_id].preload_object_access_controls(team_insights)
+        restricted_levels: dict[int, str] = {}
+        for tile, insight in tiles:
+            user_access_level = access_by_team[insight.team_id].get_user_access_level(insight)
+            if user_access_level and not access_level_satisfied_for_resource("insight", user_access_level, "viewer"):
+                restricted_levels[tile.id] = user_access_level
+        return restricted_levels
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "tile_ids",
+                OpenApiTypes.STR,
+                required=True,
+                description=(
+                    "Comma-separated dashboard tile IDs to read, at most "
+                    f"{MAX_CACHED_TILES_BATCH_SIZE}. Results come back in this order."
+                ),
+            ),
+            VARIABLES_OVERRIDE_PARAM,
+            FILTERS_OVERRIDE_PARAM,
+        ],
+        responses={200: CachedTilesResponseSerializer},
+    )
+    @action(
+        methods=["GET"],
+        detail=True,
+        url_path="cached_tiles",
+        required_scopes=["dashboard:read", "insight:read"],
+        renderer_classes=[SafeJSONRenderer],
+    )
+    def cached_tiles(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Read the cached results of several insight tiles in one request. Never runs a query: a tile with
+        nothing cached comes back as a miss, to be loaded through the insight endpoint."""
+        if not posthog_feature_flag_enabled(
+            "dashboard-v2",
+            str(cast(User, request.user).distinct_id),
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+            only_evaluate_locally=True,
+        ):
+            raise exceptions.NotFound()
+        if request.query_params.get("refresh") is not None:
+            raise exceptions.ValidationError({"refresh": "This endpoint only reads cached results."})
+        tile_ids = parse_tile_ids(request.query_params.get("tile_ids"))
+        if not tile_ids:
+            raise exceptions.ValidationError({"tile_ids": "tile_ids is required."})
+        if len(tile_ids) > MAX_CACHED_TILES_BATCH_SIZE:
+            raise exceptions.ValidationError(
+                {"tile_ids": f"Request at most {MAX_CACHED_TILES_BATCH_SIZE} tiles at a time."}
+            )
+
+        dashboard = self.get_object()
+        tiles_by_id: dict[int, DashboardTile] = {
+            tile.id: tile
+            for tile in DashboardTile.dashboard_queryset(dashboard.tiles.filter(id__in=tile_ids))
+            if tile.insight is not None and tile.insight.query is not None
+        }
+        restricted_levels = self._restricted_insight_levels(
+            [(tile, cast(Insight, tile.insight)) for tile in tiles_by_id.values()]
+        )
+
+        context = self.get_serializer_context()
+        context["dashboard"] = dashboard
+        context["dashboard_access_method"] = dashboard_access_method(request)
+        context["compute_surface"] = ComputeSurface.DASHBOARD_CACHED_TILES
+        # Built once: a serializer per tile deep-copies every declared insight field each time.
+        insight_serializer = CachedTileInsightResultSerializer(context=context)
+
+        results: list[dict[str, Any]] = []
+        for tile_id in tile_ids:
+            tile = tiles_by_id.get(tile_id)
+            if tile is None:
+                results.append({"id": tile_id, "status": CachedTileStatus.NOT_FOUND})
+                continue
+            if tile_id in restricted_levels:
+                results.append({"id": tile_id, "status": CachedTileStatus.FORBIDDEN})
+                continue
+            context["dashboard_tile"] = tile
+            insight_data = insight_serializer.to_representation(cast(Insight, tile.insight))
+            if not insight_data.get("is_cached"):
+                results.append({"id": tile_id, "status": CachedTileStatus.MISS})
+                continue
+            results.append({"id": tile_id, "status": CachedTileStatus.HIT, "insight": insight_data})
+
+        return Response({"results": results})
 
     @extend_schema(
         parameters=[
