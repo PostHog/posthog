@@ -117,7 +117,8 @@ describe('applicationObservabilityLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
         expect(logic.values.attentionCount).toBe(1)
         expect(logic.values.environments).toEqual(['prod', 'staging'])
-        expect(logic.values.resolvedEnvironment).toBe('prod')
+        expect(logic.values.environment).toBeNull()
+        expect(requests[0]).not.toContain('environment=')
         // Mounting with no URL params must load exactly once: a prior bug fired both the
         // urlToAction initial sync and afterMount's own load.
         expect(requests.length).toBe(1)
@@ -136,6 +137,20 @@ describe('applicationObservabilityLogic', () => {
 
         logic.actions.setTimeRange('-6h')
         expect(router.values.searchParams).toMatchObject({ environment: 'staging', range: '-6h' })
+    })
+
+    it('sends an empty environment for spans with no environment, and keeps it in the URL', async () => {
+        await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+
+        logic.actions.setEnvironment('')
+        await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+        expect(requests[requests.length - 1]).toMatch(/environment=(&|$)/)
+        expect(router.values.searchParams).toMatchObject({ environment: '' })
+        expect(logic.values.environment).toBe('')
+
+        logic.actions.setEnvironment(null)
+        await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+        expect(requests[requests.length - 1]).not.toContain('environment=')
     })
 
     it('reloads when a picker action fires directly, not only via a URL round-trip', async () => {

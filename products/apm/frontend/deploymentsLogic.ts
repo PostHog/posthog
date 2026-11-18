@@ -127,7 +127,7 @@ export const deploymentsLogic = kea<deploymentsLogicType>([
                         date_from: dateFrom.toISOString(),
                         date_to: dateTo.toISOString(),
                         service: values.deploymentsService,
-                        ...(values.environment ? { environment: values.environment } : {}),
+                        ...(values.environment !== null ? { environment: values.environment } : {}),
                     })
                     breakpoint()
                     return response

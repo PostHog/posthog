@@ -17,7 +17,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
 
-from products.apm.backend.logic.health.sources import environment_expr, window_where
+from products.apm.backend.logic.health.sources import environment_where, window_where
 
 DEPLOYMENTS_LIMIT = 200
 MAX_BYTES_TO_READ = 10_000_000_000
@@ -39,7 +39,9 @@ class DeploymentVersion:
     active: bool
 
 
-def _deployments_query(date_from: datetime, date_to: datetime, environment: str, service: str) -> ast.SelectQuery:
+def _deployments_query(
+    date_from: datetime, date_to: datetime, environment: str | None, service: str
+) -> ast.SelectQuery:
     query = parse_select(
         """
         SELECT
@@ -53,7 +55,7 @@ def _deployments_query(date_from: datetime, date_to: datetime, environment: str,
                quantileIf(0.95)(duration_nano, kind IN (2, 5)),
                quantileIf(0.95)(duration_nano, is_root_span)) / 1e6 AS p95_ms
         FROM posthog.trace_spans
-        WHERE {where} AND {env_expr} = {environment} AND service_name = {service}
+        WHERE {where} AND {env_where} AND service_name = {service}
         GROUP BY version
         HAVING version != '' AND requests > 0
         ORDER BY first_seen DESC, version DESC
@@ -61,8 +63,7 @@ def _deployments_query(date_from: datetime, date_to: datetime, environment: str,
         """,
         placeholders={
             "where": window_where(date_from, date_to),
-            "env_expr": environment_expr(),
-            "environment": ast.Constant(value=environment),
+            "env_where": environment_where(environment),
             "service": ast.Constant(value=service),
             "limit": ast.Constant(value=DEPLOYMENTS_LIMIT),
         },
@@ -105,7 +106,7 @@ def compare_versions(rows: list[tuple]) -> list[DeploymentVersion]:
 
 
 def list_deployments(
-    *, team: Team, date_from: datetime, date_to: datetime, environment: str, service: str
+    *, team: Team, date_from: datetime, date_to: datetime, environment: str | None, service: str
 ) -> list[DeploymentVersion]:
     rows = execute_hogql_query(
         query_type="ApmDeploymentsQuery",

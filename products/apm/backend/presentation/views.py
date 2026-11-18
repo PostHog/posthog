@@ -33,6 +33,7 @@ from posthog.models import Team
 from posthog.models.user import User
 
 from products.apm.backend.facade.api import (
+    get_dependencies,
     get_service_map,
     is_apm_enabled,
     list_deployments,
@@ -43,6 +44,8 @@ from products.apm.backend.facade.api import (
 from products.apm.backend.presentation.serializers import (
     DeploymentsRequestSerializer,
     DeploymentsResponseSerializer,
+    DependenciesRequestSerializer,
+    DependenciesResponseSerializer,
     EndpointsHealthRequestSerializer,
     EndpointsHealthResponseSerializer,
     ServiceMapResponseSerializer,
@@ -56,7 +59,6 @@ logger = structlog.get_logger(__name__)
 
 DEFAULT_WINDOW = timedelta(hours=1)
 MAX_WINDOW = timedelta(days=7)
-DEFAULT_ENVIRONMENT = "default"
 
 
 def _check_flag(team: Team, user: User) -> None:
@@ -69,7 +71,8 @@ def _check_flag(team: Team, user: User) -> None:
 class HealthWindow:
     date_from: datetime
     date_to: datetime
-    environment: str
+    # None reads every environment. An empty string reads spans that set no environment.
+    environment: str | None
 
 
 def _window(params: WindowRequestSerializer) -> HealthWindow:
@@ -82,27 +85,36 @@ def _window(params: WindowRequestSerializer) -> HealthWindow:
     return HealthWindow(
         date_from=date_from,
         date_to=date_to,
-        environment=params.validated_data.get("environment") or DEFAULT_ENVIRONMENT,
+        environment=params.validated_data.get("environment"),
     )
 
 
-class LogsApiConcurrencySlotMixin:
-    """An API key takes a slot from the same per-team cap as the logs API, for scans that run on the logs workload."""
+class _LogsClusterSlotMixin:
+    """Takes a slot from the logs API's per-team concurrency cap for the whole request.
 
+    APM reads the logs cluster through the same ClickHouse user as the logs API, so a burst of
+    requests here can refuse logs queries for every team. By default only API keys take a slot,
+    as in the logs API. A route whose single query is heavy takes one on every authenticator.
+    """
+
+    team_id: int
+    slot_for_every_authenticator = False
     _logs_api_slot: ConcurrencySlot | None = None
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)  # type: ignore[misc]
-        if not isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
+        if not self.slot_for_every_authenticator and not isinstance(
+            request.successful_authenticator, PersonalAPIKeyAuthentication
+        ):
             return
-        team_id = self.team_id  # type: ignore[attr-defined]
         try:
-            self._logs_api_slot = get_logs_api_team_rate_limiter().use(team_id=team_id)
+            self._logs_api_slot = get_logs_api_team_rate_limiter().use(team_id=self.team_id)
         except ConcurrencyLimitExceeded as error:
-            logger.warning("apm_logs_api_concurrency_limit_exceeded", team_id=team_id, detail=str(error))
+            logger.warning("apm_concurrency_limit_exceeded", team_id=self.team_id, detail=str(error))
             raise Throttled(wait=1, detail=CONCURRENCY_LIMIT_USER_MESSAGE) from error
         except RedisError:
-            logger.exception("apm_logs_api_concurrency_limiter_unavailable", team_id=team_id)
+            # The cap protects ClickHouse capacity. A Redis outage must not also make APM fail.
+            logger.exception("apm_concurrency_limiter_unavailable", team_id=self.team_id)
 
     def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponseBase:
         # DRF skips finalize_response when the exception handler re-raises, so only a finally block always releases.
@@ -113,7 +125,7 @@ class LogsApiConcurrencySlotMixin:
                 try:
                     get_logs_api_team_rate_limiter().release(self._logs_api_slot)
                 except RedisError:
-                    logger.exception("apm_logs_api_concurrency_slot_release_failed")
+                    logger.exception("apm_concurrency_slot_release_failed", team_id=self.team_id)
                 self._logs_api_slot = None
 
 
@@ -201,7 +213,7 @@ class ServiceMapViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response(ServiceMapResponseSerializer(payload).data, status=status.HTTP_200_OK)
 
 
-class DeploymentsViewSet(LogsApiConcurrencySlotMixin, TeamAndOrgViewSetMixin, viewsets.ViewSet):
+class DeploymentsViewSet(_LogsClusterSlotMixin, TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """One service's versions in an environment and window, each compared with the one before. Same gate and window as services."""
 
     scope_object = "tracing"
@@ -234,7 +246,43 @@ class DeploymentsViewSet(LogsApiConcurrencySlotMixin, TeamAndOrgViewSetMixin, vi
         return Response(DeploymentsResponseSerializer(payload).data, status=status.HTTP_200_OK)
 
 
-class ServiceUsageViewSet(LogsApiConcurrencySlotMixin, TeamAndOrgViewSetMixin, viewsets.ViewSet):
+class DependenciesViewSet(_LogsClusterSlotMixin, TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    """Caller to callee edges over the whole window, including inferred dependencies. Same gate and window as services."""
+
+    scope_object = "tracing"
+    # The whole-window self-join is the heaviest APM query, and the default throttles skip session requests.
+    slot_for_every_authenticator = True
+
+    @extend_schema(parameters=[DependenciesRequestSerializer], responses={200: DependenciesResponseSerializer})
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        _check_flag(self.team, cast(User, request.user))
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
+        params = DependenciesRequestSerializer(data=request.query_params)
+        window = _window(params)
+        service = params.validated_data.get("service")
+
+        try:
+            result = get_dependencies(
+                team=self.team,
+                date_from=window.date_from,
+                date_to=window.date_to,
+                environment=window.environment,
+                service=service,
+            )
+        except CHQueryErrorTooManyBytes:
+            raise ValidationError("This window reads too many spans. Pick a shorter window or one service.")
+        payload = {
+            "edges": [{**asdict(edge), "kind": edge.kind.value} for edge in result.edges],
+            "truncated": result.truncated,
+            "environment": window.environment,
+            "service": service,
+            "date_from": window.date_from,
+            "date_to": window.date_to,
+        }
+        return Response(DependenciesResponseSerializer(payload).data, status=status.HTTP_200_OK)
+
+
+class ServiceUsageViewSet(_LogsClusterSlotMixin, TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """How much each service sends across logs, traces, and metrics in a window. Same gate and window as services.
 
     Usage covers every environment: logs and metrics often carry no environment attribute, so a

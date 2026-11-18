@@ -9,6 +9,89 @@
  */
 import { z as zod } from 'zod'
 
+export const DependencyKindEnumApi = zod
+    .enum(['service', 'database', 'queue', 'external'])
+    .describe('\* `service` - Service\n\* `database` - Database\n\* `queue` - Queue\n\* `external` - External')
+
+export type DependencyKindEnumApi = zod.input<typeof DependencyKindEnumApi>
+export type DependencyKindEnumApiOutput = zod.output<typeof DependencyKindEnumApi>
+
+export const DependencyEdgeApi = zod.object({
+    caller: zod.string().describe('The calling service.'),
+    callee: zod
+        .string()
+        .describe(
+            'The called service, or for an inferred dependency the peer service, database, queue or host it names.'
+        ),
+    inferred: zod
+        .boolean()
+        .describe("True when the callee sends no spans and is named by the caller's client span attributes."),
+    kind: zod
+        .enum(['service', 'database', 'queue', 'external'])
+        .describe('\* `service` - Service\n\* `database` - Database\n\* `queue` - Queue\n\* `external` - External')
+        .describe(
+            'What the callee is.\n\n\* `service` - Service\n\* `database` - Database\n\* `queue` - Queue\n\* `external` - External'
+        ),
+    requests: zod.number().describe('Calls from the caller into the callee in the window.'),
+    error_count: zod.number().describe("Calls with an error status, on the caller's client span when it has one."),
+    p95_ms: zod
+        .number()
+        .nullable()
+        .describe("95th percentile call duration in ms, on the caller's client span when it has one."),
+})
+
+export type DependencyEdgeApi = zod.input<typeof DependencyEdgeApi>
+export type DependencyEdgeApiOutput = zod.output<typeof DependencyEdgeApi>
+
+export const DependenciesResponseApi = zod.object({
+    edges: zod
+        .array(
+            zod.object({
+                caller: zod.string().describe('The calling service.'),
+                callee: zod
+                    .string()
+                    .describe(
+                        'The called service, or for an inferred dependency the peer service, database, queue or host it names.'
+                    ),
+                inferred: zod
+                    .boolean()
+                    .describe(
+                        "True when the callee sends no spans and is named by the caller's client span attributes."
+                    ),
+                kind: zod
+                    .enum(['service', 'database', 'queue', 'external'])
+                    .describe(
+                        '\* `service` - Service\n\* `database` - Database\n\* `queue` - Queue\n\* `external` - External'
+                    )
+                    .describe(
+                        'What the callee is.\n\n\* `service` - Service\n\* `database` - Database\n\* `queue` - Queue\n\* `external` - External'
+                    ),
+                requests: zod.number().describe('Calls from the caller into the callee in the window.'),
+                error_count: zod
+                    .number()
+                    .describe("Calls with an error status, on the caller's client span when it has one."),
+                p95_ms: zod
+                    .number()
+                    .nullable()
+                    .describe("95th percentile call duration in ms, on the caller's client span when it has one."),
+            })
+        )
+        .describe('One edge per caller and callee, most requests first.'),
+    truncated: zod.boolean().describe('True when more edges matched than the response holds.'),
+    environment: zod
+        .string()
+        .nullable()
+        .describe(
+            'The environment filter the edges were computed for: null for every environment, empty for spans with no environment.'
+        ),
+    service: zod.string().nullable().describe('The service filter applied, if any.'),
+    date_from: zod.iso.datetime({ offset: true }).describe('Start of the window used.'),
+    date_to: zod.iso.datetime({ offset: true }).describe('End of the window used.'),
+})
+
+export type DependenciesResponseApi = zod.input<typeof DependenciesResponseApi>
+export type DependenciesResponseApiOutput = zod.output<typeof DependenciesResponseApi>
+
 export const DeploymentVersionApi = zod.object({
     version: zod.string().describe('The service.version resource attribute.'),
     first_seen: zod.iso.datetime({ offset: true }).describe('First span of this version in the window.'),
@@ -57,7 +140,12 @@ export const DeploymentsResponseApi = zod.object({
         )
         .describe('One row per version, oldest first.'),
     service: zod.string().describe('The service the versions belong to.'),
-    environment: zod.string().describe('The environment the rows were computed for.'),
+    environment: zod
+        .string()
+        .nullable()
+        .describe(
+            'The environment filter the rows were computed for: null for every environment, empty for spans with no environment.'
+        ),
     date_from: zod.iso.datetime({ offset: true }).describe('Start of the window used.'),
     date_to: zod.iso.datetime({ offset: true }).describe('End of the window used.'),
 })
@@ -86,7 +174,12 @@ export type HealthRowApiOutput = zod.output<typeof HealthRowApi>
 export const EndpointHealthApi = zod.object({
     service_name: zod.string().describe('The service.name resource attribute.'),
     endpoint: zod.string().describe('The entry span name, for example the HTTP route or the job name.'),
-    environment: zod.string().describe('The environment the row was computed for.'),
+    environment: zod
+        .string()
+        .nullable()
+        .describe(
+            'The environment filter the row was computed for: null for every environment, empty for spans with no environment.'
+        ),
     status: zod
         .enum(['good', 'warning', 'serious', 'critical'])
         .describe('\* `good` - Good\n\* `warning` - Warning\n\* `serious` - Serious\n\* `critical` - Critical')
@@ -113,7 +206,12 @@ export const EndpointsHealthResponseApi = zod.object({
             zod.object({
                 service_name: zod.string().describe('The service.name resource attribute.'),
                 endpoint: zod.string().describe('The entry span name, for example the HTTP route or the job name.'),
-                environment: zod.string().describe('The environment the row was computed for.'),
+                environment: zod
+                    .string()
+                    .nullable()
+                    .describe(
+                        'The environment filter the row was computed for: null for every environment, empty for spans with no environment.'
+                    ),
                 status: zod
                     .enum(['good', 'warning', 'serious', 'critical'])
                     .describe(
@@ -134,7 +232,12 @@ export const EndpointsHealthResponseApi = zod.object({
             })
         )
         .describe('One row per service and endpoint, worst status first.'),
-    environment: zod.string().describe('The environment the rows were computed for.'),
+    environment: zod
+        .string()
+        .nullable()
+        .describe(
+            'The environment filter the rows were computed for: null for every environment, empty for spans with no environment.'
+        ),
     service: zod.string().nullable().describe('The service filter applied, if any.'),
     date_from: zod.iso.datetime({ offset: true }).describe('Start of the window used.'),
     date_to: zod.iso.datetime({ offset: true }).describe('End of the window used.'),
@@ -167,7 +270,12 @@ export const ServiceMapResponseApi = zod.object({
         )
         .describe('One edge per calling and called service, most calls first.'),
     trace_count: zod.number().describe('Traces sampled to build the map.'),
-    environment: zod.string().describe('The environment the map was built for.'),
+    environment: zod
+        .string()
+        .nullable()
+        .describe(
+            'The environment filter the map was built for: null for every environment, empty for spans with no environment.'
+        ),
     date_from: zod.iso.datetime({ offset: true }).describe('Start of the window used.'),
     date_to: zod.iso.datetime({ offset: true }).describe('End of the window used.'),
 })
@@ -177,7 +285,12 @@ export type ServiceMapResponseApiOutput = zod.output<typeof ServiceMapResponseAp
 
 export const ServiceHealthApi = zod.object({
     service_name: zod.string().describe('The service.name resource attribute.'),
-    environment: zod.string().describe('The environment the row was computed for.'),
+    environment: zod
+        .string()
+        .nullable()
+        .describe(
+            'The environment filter the row was computed for: null for every environment, empty for spans with no environment.'
+        ),
     status: zod
         .enum(['good', 'warning', 'serious', 'critical'])
         .describe('\* `good` - Good\n\* `warning` - Warning\n\* `serious` - Serious\n\* `critical` - Critical')
@@ -204,7 +317,12 @@ export const ServicesHealthResponseApi = zod.object({
         .array(
             zod.object({
                 service_name: zod.string().describe('The service.name resource attribute.'),
-                environment: zod.string().describe('The environment the row was computed for.'),
+                environment: zod
+                    .string()
+                    .nullable()
+                    .describe(
+                        'The environment filter the row was computed for: null for every environment, empty for spans with no environment.'
+                    ),
                 status: zod
                     .enum(['good', 'warning', 'serious', 'critical'])
                     .describe(
@@ -228,8 +346,15 @@ export const ServicesHealthResponseApi = zod.object({
             })
         )
         .describe('One row per service, worst status first.'),
-    environments: zod.array(zod.string()).describe('Environments seen in the window.'),
-    environment: zod.string().describe('The environment the rows were computed for.'),
+    environments: zod
+        .array(zod.string().nullable())
+        .describe('Environments seen in the window. Null stands for spans that set no environment.'),
+    environment: zod
+        .string()
+        .nullable()
+        .describe(
+            'The environment filter the rows were computed for: null for every environment, empty for spans with no environment.'
+        ),
     date_from: zod.iso.datetime({ offset: true }).describe('Start of the window used.'),
     date_to: zod.iso.datetime({ offset: true }).describe('End of the window used.'),
 })
