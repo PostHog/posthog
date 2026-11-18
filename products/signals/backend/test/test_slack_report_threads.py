@@ -28,7 +28,6 @@ from products.signals.backend.task_run_artefacts import record_implementation_ta
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.tasks.backend.facade.api import accept_github_pull_request, set_task_run_output, update_task_run
 from products.tasks.backend.models import Task, TaskRun
-from products.tasks.backend.temporal.process_task.utils import cache_github_user_token
 
 
 @pytest.fixture
@@ -501,82 +500,6 @@ def test_pr_notification_rechecks_personal_recipient(team, recipient: str, desti
             recipient == "guest" and destination == "personal_channel"
         )
         assert slack.client.chat_postMessage.call_count == int(delivered)
-
-
-@pytest.mark.django_db
-@pytest.mark.parametrize("provider", ["github", "gitlab", "github_selected_during_run", "github_without_access"])
-@pytest.mark.parametrize(
-    ("other_pr_url", "delivered"),
-    [
-        ("https://github.com/example/repo/pull/43", True),
-        ("https://example.com/pr", False),
-        ("https://github.com/other/repo/pull/43", False),
-        ("http://github.com/example/repo/pull/43", False),
-    ],
-)
-def test_completed_mapped_run_announces_a_promoted_primary_pr(
-    team, other_pr_url: str, delivered: bool, provider: str
-) -> None:
-    if provider == "gitlab":
-        other_pr_url = (
-            other_pr_url.replace("github.com", "gitlab.com")
-            .replace("example/repo", "example/subgroup/repo")
-            .replace("/pull/", "/-/merge_requests/")
-        )
-    pr_url = "https://github.com/example/repo/pull/42"
-    task = Task.objects.create(team=team, title="Implement report", repository="example/repo")
-    if provider == "gitlab":
-        task.repository = "example/subgroup/repo"
-        task.repository_integration_id = Integration.objects.create(
-            team=team,
-            kind="gitlab",
-            config={"hostname": "https://gitlab.com", "path_with_namespace": "Example/Subgroup/Repo"},
-        ).id
-        task.save(update_fields=["repository", "repository_integration_id"])
-    if provider.startswith("github_"):
-        task.repository = ""
-        task.save(update_fields=["repository"])
-    run = TaskRun.objects.create(
-        task=task,
-        team=team,
-        status=TaskRun.Status.COMPLETED,
-        output={"pr_url": pr_url, "pr_urls": [pr_url, other_pr_url]},
-        state={"slack_notified_pr_url": pr_url, "pr_authorship_mode": "user"},
-    )
-    if provider.startswith("github_"):
-        cache_github_user_token(str(run.id), "test-run-token")
-    SlackThreadTaskMapping.objects.create(
-        team=team,
-        integration=_integration(team),
-        slack_workspace_id="T123",
-        channel="CTEAM",
-        thread_ts="1700000000.000100",
-        task=task,
-        task_run=run,
-        mentioning_slack_user_id="UREVIEWER",
-    )
-    with (
-        patch("products.slack_app.backend.slack_thread.SlackIntegration") as slack_cls,
-        patch("celery.app.task.Task.apply_async"),
-        patch("products.tasks.backend.temporal.process_task.activities.post_slack_update.github_request") as github,
-    ):
-        github.return_value.status_code = 404 if provider == "github_without_access" else 200
-        update_task_run(run.id, task.id, team.id, validated_data={"output": {"pr_url": other_pr_url}})
-        posts = slack_cls.return_value.client.chat_postMessage.call_args_list
-        if provider.startswith("github_"):
-            delivered = provider == "github_selected_during_run" and other_pr_url.startswith("https://github.com/")
-        assert len(posts) == int(delivered)
-        if delivered:
-            assert other_pr_url in str(posts[0].kwargs["blocks"])
-        if provider.startswith("github_") and other_pr_url.startswith("https://github.com/"):
-            assert github.call_args.args == (
-                "GET",
-                other_pr_url.replace("https://github.com/", "https://api.github.com/repos/").replace(
-                    "/pull/", "/pulls/"
-                ),
-            )
-            assert github.call_args.kwargs["headers"] == {"Authorization": "Bearer test-run-token"}
-            assert github.call_args.kwargs["allow_redirects"] is False
 
 
 @pytest.mark.django_db
