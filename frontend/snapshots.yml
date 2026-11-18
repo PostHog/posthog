@@ -6854,6 +6854,14 @@ snapshots:
         hash: v1.k794b7964.0184f9ca79fe2726f803b9050b013dd0b44a260bb0a6f490400f818ffc27bb55.Y7wikoBvp2ZhegOiwx-qU2WNklUo6ycXa0yGL2beoQo
     products-alerts-simulation-summary--sub-detector-scores--light:
         hash: v1.k794b7964.0a77535b3969cac543ed48fdcd1117a5fe0305a6d7aa38c7bd8af446d4b1e422.ErlO5Qkh3fOCJ8BDf3qU9EkgKb_AUPbuFPhJpFrPr7M
+    products-apm-dependencies--all-services--dark:
+        hash: v1.k794b7964.3fcd5d961ead4185c5ab6a304a9b641cfcc53ae6851be0ae454f37a19eb3cf7b.Gpdd3rMUuq50FfSp_ajfrwIyqqnsa7F-wgts0O9ic2Y
+    products-apm-dependencies--all-services--light:
+        hash: v1.k794b7964.6b8942edc3cfb54643e576f6eeea96649cb347f6416b8d5e862ac3749a13fe15.kv-YQmLN5axEqeqAURna96NPbHgtzOxES-W1E99moRE
+    products-apm-dependencies--empty--dark:
+        hash: v1.k794b7964.96b9017c5bfbf086f37c0bbb9eb4a1eb869899e5dcbab6e51e0434ab9e1425ca.LvAkwF2gCZqE3mhLjWp_ZwwTXL0XTr73L3Me5c9Rqu4
+    products-apm-dependencies--empty--light:
+        hash: v1.k794b7964.cb37f6fa38cf583faa145e6e6bbb926e17ca72c58ef301e255adbef3f90ed2a0.qBZxNsKdIp91blXh5cS3op5NBl7Oh2tLaXvjryZ8IPE
     products-autoresearch-daily-volume-chart--sparse-days--dark:
         hash: v1.k794b7964.47b1e118bc8c9e9c27efac87a76591e9d2d31a6e2d0c728e9f71180bf65dbd68._gnh7qhODKrYgIH_Ec2BOaeKSqU-OFl8NQYJxMbXL4Y
     products-autoresearch-daily-volume-chart--sparse-days--light:
