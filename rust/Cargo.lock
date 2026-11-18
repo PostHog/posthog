@@ -9922,6 +9922,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "posthog"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "892a0c38f5cd9a635693171807a6e2ff48137cb12283cf35d1ea17dcca3f8daa"
+dependencies = [
+ "backtrace",
+ "brotli 9.1.1",
+ "bytes",
+ "chrono",
+ "derive_builder",
+ "findshlibs",
+ "flate2",
+ "os_info",
+ "regex",
+ "reqwest 0.13.5",
+ "serde",
+ "serde_json",
+ "sha1 0.11.0",
+ "sha2 0.10.9",
+ "tokio",
+ "tracing",
+ "uuid",
+ "zstd 0.14.3",
+]
+
+[[package]]
 name = "posthog-replay-anonymizer"
 version = "0.15.0"
 dependencies = [
@@ -9946,29 +9972,11 @@ dependencies = [
 
 [[package]]
 name = "posthog-rs"
-version = "0.33.1"
+version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3949f96688c0661cb43bde67b585a2974351ac998b1bef25af02d218b0bba2b"
+checksum = "9796db14219026fd38df480fda8dcc3aae17e159ca7dab4e66e44c21157a03ee"
 dependencies = [
- "backtrace",
- "brotli 9.1.1",
- "bytes",
- "chrono",
- "derive_builder",
- "findshlibs",
- "flate2",
- "os_info",
- "regex",
- "reqwest 0.13.5",
- "semver",
- "serde",
- "serde_json",
- "sha1 0.11.0",
- "sha2 0.10.9",
- "tokio",
- "tracing",
- "uuid",
- "zstd 0.14.3",
+ "posthog",
 ]
 
 [[package]]
