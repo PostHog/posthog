@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
 
+import { IconWarning } from '@posthog/icons'
 import { LemonBadge, LemonBanner, LemonTab, LemonTabs } from '@posthog/lemon-ui'
+import { Item, ItemContent, ItemDescription, ItemMedia, ItemTitle } from '@posthog/quill'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -51,8 +53,12 @@ import { LoadingState } from './LoadingState'
 import { MultiVariantBiasWarning } from './MultiVariantBiasWarning'
 import { PageHeaderCustom } from './PageHeader'
 import { type ExperimentTabDefinition, QuillExperimentTabs } from './QuillExperimentTabs'
+import { QuillLoadingState } from './QuillLoadingState'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
 import { SettingsTab } from './SettingsTab'
+
+const NO_METRICS_WARNING =
+    'Your experiment is running and events are being collected, but no metric is defined. Add at least one metric to see results. Metrics can be added, removed, or changed at any time.'
 
 const MetricsTab = (): JSX.Element => {
     const { experiment, hasMetrics, isExperimentLaunched, healthFindings, browserNoMetricsWarning } =
@@ -102,17 +108,25 @@ const MetricsTab = (): JSX.Element => {
             {/* Modern metrics view */}
             {!hasMetrics ? (
                 <div className="flex flex-col gap-4">
-                    {showNoMetricsWarning && (
-                        <LemonBanner type="warning">
-                            <div>
-                                <strong>No metrics defined</strong>
-                            </div>
-                            <div>
-                                Your experiment is running and events are being collected, but no metric is defined. Add
-                                at least one metric to see results. Metrics can be added, removed, or changed at any
-                                time.
-                            </div>
-                        </LemonBanner>
+                    {showNoMetricsWarning && todayRailNav && resultsRedesign ? (
+                        <Item variant="outline" size="sm" tone="warning" data-attr="experiment-no-metrics-warning">
+                            <ItemMedia variant="icon" aria-hidden>
+                                <IconWarning />
+                            </ItemMedia>
+                            <ItemContent className="min-w-0">
+                                <ItemTitle>No metrics defined</ItemTitle>
+                                <ItemDescription>{NO_METRICS_WARNING}</ItemDescription>
+                            </ItemContent>
+                        </Item>
+                    ) : (
+                        showNoMetricsWarning && (
+                            <LemonBanner type="warning">
+                                <div>
+                                    <strong>No metrics defined</strong>
+                                </div>
+                                <div>{NO_METRICS_WARNING}</div>
+                            </LemonBanner>
+                        )
                     )}
                     {todayRailNav && resultsRedesign ? (
                         <QuillEmptyMetricsPanel
@@ -232,7 +246,11 @@ export function ExperimentView(): JSX.Element {
         <SceneContent>
             <PageHeaderCustom />
             {experimentLoading ? (
-                <LoadingState />
+                todayRailNav && resultsRedesign ? (
+                    <QuillLoadingState />
+                ) : (
+                    <LoadingState />
+                )
             ) : (
                 <>
                     <DeletedFlagBanner />
