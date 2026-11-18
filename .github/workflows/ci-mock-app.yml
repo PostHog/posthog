@@ -10,9 +10,8 @@ on:
         paths:
             - '.github/workflows/ci-mock-app.yml'
             - 'frontend/**'
-            - 'products/*/frontend/**'
-            - 'products/*/manifest.tsx'
-            - 'products/*/package.json'
+            - 'products/**'
+            - 'services/mcp/src/ui-apps/**'
             - 'common/storybook/.storybook/**'
             - 'common/hogvm/typescript/**'
             - 'packages/**'
@@ -37,28 +36,9 @@ jobs:
         runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 30
         steps:
+            # Not sparse: the build follows the app's whole import graph, which reaches files in product
+            # backends (SQL and Markdown loaded as text), docs and services.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  sparse-checkout: |
-                      /*
-                      !/*/
-                      /frontend/
-                      /products/
-                      !/products/*/backend/
-                      !/products/desktop/
-                      !/products/mobile/
-                      /common/
-                      /packages/
-                      /playwright/
-                      /bin/
-                      /patches/
-                      /.github/actions/
-                      /.husky/
-                      /docs/onboarding/
-                      /services/mcp/src/ui-apps/lib/
-                      /posthog/templates/replay_player_frame/
-                      **/package.json
-                  sparse-checkout-cone-mode: false
 
             - name: Install pnpm dependencies
               uses: ./.github/actions/pnpm-install
