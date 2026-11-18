@@ -58,32 +58,27 @@ Do the lookups that support would otherwise ask for.
 When a lookup finds nothing, or fails, say so in the ticket, such as "No flag with the key `checkout-v2` in project 12345".
 Ask the person only for what you cannot look up and support needs, such as the exact error, when it started, or what they expected.
 
-If `posthog:posthog-support-tickets-list` is in your tool list, check it for an open ticket about the same problem.
-If there is one, show it to the person instead of writing a second ticket, so they can reply on it in PostHog.
-
 ## 3. Write it
 
 Write in the person's voice, because they send it.
-Use this shape, and leave out any part you have nothing real for:
+Use this shape, and leave out any part you have nothing real for.
+Keep the labels plain, without Markdown bold, because the person reviews the ticket in a plain text box.
 
-```markdown
-**Request:** <what they need PostHog to do or answer, in their words>
+```text
+Request: <what they need PostHog to do or answer, in their words>
 
-**Details:**
-
+Details:
 - Project: <name>, ID <id>, <US or EU> Cloud, <link>
 - <a required detail, a link to the object, or a fact>
 
-**Already checked:**
-
+Already checked:
 - Docs: <link> says <what it says, in one line>
 - <your name> checked: <the lookup, and what it showed>
 - I tried: <a step the person took, and what happened>
 
-**Left for support:** <the one thing only PostHog can do or confirm>
+Left for support: <the one thing only PostHog can do or confirm>
 
-**Error:**
-
+Error:
 <exact text, top frames only>
 ```
 
@@ -110,7 +105,7 @@ Show the person the full ticket.
 Tell them nothing is sent until they send it, and never say that a ticket was filed.
 Do not promise a response time.
 
-- If `posthog:posthog-support-draft-create` is in your tool list, draft the ticket with it, and fill each field from the matching part of the ticket. Give the person the `review_url` it returns. They open it, check the ticket, and send it from PostHog.
+- If `posthog:posthog-support-draft-create` is in your tool list, draft the ticket with it. Each part of the ticket is one field: `request`, `details`, `already_checked`, `left_for_support` and `error`, without their headings. Give the person the `review_url` it returns. They open it, check the ticket, and send it from PostHog.
 - Otherwise, they paste it into the Support panel in the PostHog app, which attaches their project and session to the ticket.
 
 Say which details or links you could not find, so they can add them before they send it.

@@ -13,6 +13,7 @@ from temporalio.converter import JSONPlainPayloadConverter
 
 from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
 from posthog.scopes.catalog import MCP_BUILT_IN_AGENT_SCOPE, SLACK_RUN_SCOPE
+from posthog.scopes.exposure import INTERNAL_API_SCOPE_OBJECTS
 from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
     CONTEXT_LAYER_INTERNAL_SCOPE,
@@ -22,6 +23,7 @@ from posthog.temporal.oauth import (
     MCP_WRITE_SCOPES,
     POSTHOG_AI_APP_CLIENT_ID_DEV,
     RESEARCH_WITHHELD_SCOPES,
+    SANDBOX_EXCLUDED_SCOPE_OBJECTS,
     SCOUT_DEFAULT_WRITE_SCOPES,
     SCOUT_GRANTABLE_INTERNAL_SCOPES,
     SCOUT_GRANTABLE_WRITE_SCOPES,
@@ -335,15 +337,18 @@ class TestResolveScopes(SimpleTestCase):
         # First-seen order is preserved
         assert result.index("feature_flag:read") < result.index("task:write")
 
-    def test_internal_scope_objects_disjoint_from_mcp_scope_lists(self) -> None:
-        from posthog.scopes.exposure import INTERNAL_API_SCOPE_OBJECTS
-
+    @parameterized.expand(
+        [
+            ("internal", INTERNAL_API_SCOPE_OBJECTS),
+            ("kept_off_sandboxes", SANDBOX_EXCLUDED_SCOPE_OBJECTS),
+        ]
+    )
+    def test_excluded_scope_objects_disjoint_from_mcp_scope_lists(self, _name: str, excluded: frozenset[str]) -> None:
         mcp_scope_objects: set[str] = {scope.split(":", 1)[0] for scope in [*MCP_READ_SCOPES, *MCP_WRITE_SCOPES]}
-        internal: set[str] = set(INTERNAL_API_SCOPE_OBJECTS)
-        overlap = internal & mcp_scope_objects
+        overlap = set(excluded) & mcp_scope_objects
         assert overlap == set(), (
-            f"{overlap} are in INTERNAL_API_SCOPE_OBJECTS and also in MCP_READ_SCOPES / MCP_WRITE_SCOPES; "
-            "a `read_only` MCP token would silently grant them."
+            f"{overlap} are excluded and also in MCP_READ_SCOPES / MCP_WRITE_SCOPES; "
+            "a sandbox MCP token would silently grant them."
         )
 
 

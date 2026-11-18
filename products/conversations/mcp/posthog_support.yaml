@@ -1,0 +1,23 @@
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product conversations
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product conversations --file ../../products/conversations/mcp/posthog_support.yaml
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
+category: PostHog support
+feature: conversations
+url_prefix: /my-tickets
+ui_apps: {}
+tools:
+    posthog-support-draft-create:
+        operation: posthog_support_drafts_create
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Draft a PostHog support ticket
+        description: >
+            Draft a ticket to PostHog's human support team for the person to review and send. It sends nothing.
+            Load the writing-posthog-support-tickets skill first, and draft only after you checked the docs and did
+            the lookups it asks for. Each field is one part of the ticket. Afterwards, show the person the message and
+            the review_url, and tell them nothing is sent until they send it from PostHog.
+        feature_flag: mcp-posthog-support-tickets
