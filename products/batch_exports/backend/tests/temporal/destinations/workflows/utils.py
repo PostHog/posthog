@@ -22,8 +22,8 @@ TeamId = str
 HogFunctionId = str
 Body = bytes
 
-EVENT_JSON_TEXT_FIELDS = frozenset(("properties", "person_properties"))
-JSON_TEXT_FIELDS = EVENT_JSON_TEXT_FIELDS | {f"group{i}_properties" for i in range(5)}
+CDP_EMPTY_AS_OBJECT_FIELDS = frozenset(("properties", "person_properties"))
+JSON_TEXT_FIELDS = CDP_EMPTY_AS_OBJECT_FIELDS | {f"group{i}_properties" for i in range(5)}
 
 
 def parse_json_text_fields(record: dict[str, typing.Any]) -> dict[str, typing.Any]:
@@ -33,7 +33,7 @@ def parse_json_text_fields(record: dict[str, typing.Any]) -> dict[str, typing.An
     # consumer reads both as an empty object, so the comparison does the same.
     parsed: dict[str, typing.Any] = {}
     for k, v in record.items():
-        if k in EVENT_JSON_TEXT_FIELDS and v == "":
+        if k in CDP_EMPTY_AS_OBJECT_FIELDS and v == "":
             parsed[k] = {}
         elif k in JSON_TEXT_FIELDS and isinstance(v, str) and v:
             parsed[k] = json.loads(v)
