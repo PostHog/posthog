@@ -10,7 +10,10 @@ import type { Context } from '@/tools/types'
 const FLAG = { id: 42, key: 'checkout-redesign', filters: { groups: [{ properties: [], rollout_percentage: 100 }] } }
 const SUGGESTION = { id: 'release-1', name: 'Checkout redesign', matched_terms: ['checkout', 'redesign'] }
 
-function contextWith(request: () => Promise<unknown>): { context: Context; request: ReturnType<typeof vi.fn> } {
+function contextWith(request: (opts: { signal?: AbortSignal }) => Promise<unknown>): {
+    context: Context
+    request: ReturnType<typeof vi.fn>
+} {
     const requestMock = vi.fn(request)
     const context = {
         stateManager: { getProjectId: async () => '7' },
@@ -43,6 +46,7 @@ describe('createFeatureFlagHooks.afterResponse', () => {
                 method: 'GET',
                 path: '/api/projects/7/releases/flag_suggestions/',
                 query: { feature_flag_id: 42 },
+                signal: expect.any(AbortSignal),
             })
             expect(result.release_suggestions).toEqual([SUGGESTION])
             expect(result.release_suggestions_note).toBe(note)
@@ -79,13 +83,23 @@ describe('createFeatureFlagHooks.afterResponse', () => {
         expect(result.key).toBe(FLAG.key)
     })
 
-    it('adds nothing when the lookup outlasts the timeout', async () => {
+    it('cancels the lookup and adds nothing when it outlasts the timeout', async () => {
         vi.useFakeTimers()
-        const { context } = contextWith(() => new Promise(() => {}))
+        let aborted = false
+        const { context } = contextWith(
+            ({ signal }) =>
+                new Promise((_resolve, reject) =>
+                    signal?.addEventListener('abort', () => {
+                        aborted = true
+                        reject(new Error('aborted'))
+                    })
+                )
+        )
 
         const pending = createFeatureFlagHooks.afterResponse(context, {}, FLAG)
         await vi.advanceTimersByTimeAsync(RELEASE_SUGGESTIONS_TIMEOUT_MS)
 
         await expect(pending).resolves.not.toHaveProperty('release_suggestions')
+        expect(aborted).toBe(true)
     })
 })

@@ -19,25 +19,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-async function withinTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const timeout = new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new Error(`Timed out after ${timeoutMs}ms`)), timeoutMs)
-    })
+async function fetchFlagReleases(context: Context, flagId: number): Promise<Schemas.FlagReleases> {
+    const projectId = await context.stateManager.getProjectId()
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), RELEASE_SUGGESTIONS_TIMEOUT_MS)
     try {
-        return await Promise.race([promise, timeout])
+        return await context.api.request<Schemas.FlagReleases>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/releases/flag_suggestions/`,
+            query: { feature_flag_id: flagId },
+            signal: controller.signal,
+        })
     } finally {
         clearTimeout(timer)
     }
-}
-
-async function fetchFlagReleases(context: Context, flagId: number): Promise<Schemas.FlagReleases> {
-    const projectId = await context.stateManager.getProjectId()
-    return context.api.request<Schemas.FlagReleases>({
-        method: 'GET',
-        path: `/api/projects/${encodeURIComponent(String(projectId))}/releases/flag_suggestions/`,
-        query: { feature_flag_id: flagId },
-    })
 }
 
 async function afterResponse(context: Context, _params: unknown, result: unknown): Promise<unknown> {
@@ -45,9 +40,7 @@ async function afterResponse(context: Context, _params: unknown, result: unknown
     if (!isRecord(flag) || typeof flag.id !== 'number') {
         return flag
     }
-    const releases = await withinTimeout(fetchFlagReleases(context, flag.id), RELEASE_SUGGESTIONS_TIMEOUT_MS).catch(
-        () => null
-    )
+    const releases = await fetchFlagReleases(context, flag.id).catch(() => null)
     if (!releases || releases.current.length > 0 || releases.suggestions.length === 0) {
         return flag
     }
