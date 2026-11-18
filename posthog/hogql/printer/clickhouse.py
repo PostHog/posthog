@@ -1,4 +1,5 @@
 import re
+import dataclasses
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from datetime import date, datetime
@@ -35,6 +36,7 @@ from posthog.hogql.escape_sql import (
     safe_identifier,
 )
 from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
+from posthog.hogql.functions.clickhouse.conversions import STRING_INPUT_CONVERSIONS
 from posthog.hogql.functions.clickhouse.json import JSON_FUNCTIONS
 from posthog.hogql.functions.embed_text import resolve_embed_text
 from posthog.hogql.functions.prompt_jev import is_decision_call
@@ -1114,6 +1116,16 @@ class ClickHousePrinter(BasePrinter):
     def visit_call(self, node: ast.Call):
         if is_decision_call(node.name):
             raise QueryError(f"{node.name} must run through the HogQL query executor. It cannot be embedded in SQL.")
+        if (
+            node.name in STRING_INPUT_CONVERSIONS
+            and node.args
+            and node.args[0].type is not None
+            and not isinstance(node.args[0].type, ast.PropertyType)
+        ):
+            first_type = node.args[0].type.resolve_constant_type(self.context)
+            if isinstance(first_type, (ast.IntegerType, ast.FloatType, ast.DecimalType)):
+                # ClickHouse's parser functions require String inputs even when the inferred argument type is numeric.
+                node = dataclasses.replace(node, args=[ast.Call(name="toString", args=[node.args[0]]), *node.args[1:]])
         serialized = self._serialize_to_json_string_call(node)
         if serialized is not None:
             return serialized

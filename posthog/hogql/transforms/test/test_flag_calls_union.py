@@ -1703,7 +1703,7 @@ class TestReadFlagCallsWithUnion(BaseTest):
         )
 
         assert "accurateCastOrNull(accurateCastOrNull" not in sql
-        assert "toFloat64OrZero(events.properties___amount)" in sql
+        assert "toFloat64OrZero(toString(events.properties___amount))" in sql
         for branch in self._branches(sql):
             projection, _, where = branch.partition(" FROM ")
             assert "accurateCastOrNull" not in projection

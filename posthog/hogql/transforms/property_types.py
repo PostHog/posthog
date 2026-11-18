@@ -8,11 +8,11 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DateTimeDatabaseField,
-    StringDatabaseField,
     StringJSONDatabaseField,
+    StructDatabaseField,
 )
 from posthog.hogql.database.s3_table import S3Table
-from posthog.hogql.database.schema.ai_events import AI_PROPERTY_TO_COLUMN, AiEventsTable
+from posthog.hogql.database.schema.ai_events import AiEventsTable
 from posthog.hogql.database.schema.events import EVENTS_TABLE_TYPES, EventsGroupSubTable, EventsPersonSubTable
 from posthog.hogql.database.schema.events_with_flag_calls import (
     EVENT_ROW_TABLES,
@@ -23,6 +23,7 @@ from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsPerson
 from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.escape_sql import escape_hogql_identifier
+from posthog.hogql.functions.clickhouse.conversions import STRING_INPUT_CONVERSIONS
 from posthog.hogql.functions.clickhouse.json import JSON_FUNCTIONS, JSON_KEY_PATH_FUNCTIONS, JSON_TYPED_PATH_FUNCTIONS
 from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
 from posthog.hogql.property_metadata import load_property_metadata
@@ -60,8 +61,6 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
         group_property_names=property_finder.group_properties,
     )
     context.property_metadata = metadata
-    # CTE definitions stay on the AST; rebuild their inferred fields with the loaded property types.
-    context.cte_database_table_cache = {}
 
     if context.type_observability is not None:
         context.type_observability.record_property_definition_lookup(
@@ -149,13 +148,6 @@ class ToTimeZoneParts:
 
 
 _PERSON_PROPERTIES_TABLES = (*EVENTS_TABLE_TYPES, EventsWithFlagCallsTable)
-
-# ClickHouse string-parsing conversions (toFloat64OrZero, toInt64OrZero,
-# toFloat64OrDefault, toInt64OrDefault) require a String first argument and raise
-# ILLEGAL_TYPE_OF_ARGUMENT on numeric input. When a user explicitly wraps a
-# Numeric-typed property in one of these, we must not auto-convert the property
-# to Float, the raw String value has to flow through for the parser to work.
-STRING_INPUT_CONVERSIONS = frozenset({"toFloatOrZero", "toIntOrZero", "toFloatOrDefault", "toIntOrDefault"})
 
 # These functions return one of their arguments unchanged, so the call around them receives the property itself.
 # A property that the outer call needs as its stored string must stay unconverted through them, as in
@@ -283,6 +275,27 @@ class PropertySwapper(CloningVisitor):
             settings=node.settings.model_copy() if node.settings is not None else None,
             view_name=node.view_name,
         )
+
+    def visit_alias(self, node: ast.Alias) -> ast.Alias:
+        result = super().visit_alias(node)
+        if (
+            isinstance(result.type, ast.FieldAliasType)
+            and isinstance(result.type.type, ast.PropertyType)
+            and not isinstance(result.type.type.field_type.resolve_database_field(self.context), StructDatabaseField)
+            and result.expr.type is not None
+        ):
+            value_type = result.expr.type
+            if isinstance(value_type, ast.PropertyType) and value_type.joined_subquery is None:
+                constant_type = dataclasses.replace(
+                    value_type.field_type.resolve_constant_type(self.context), nullable=True
+                )
+            else:
+                constant_type = value_type.resolve_constant_type(self.context)
+            if result.type.constant_type != constant_type:
+                result.type.constant_type = constant_type
+                # CTE fields cache alias types before property conversion; the updated expression may have another type.
+                self.context.cte_database_table_cache = {}
+        return result
 
     def _visit_json_function_call(self, node: ast.Call) -> ast.Call:
         # ClickHouse reads the first argument of a JSON function as JSON text and raises ILLEGAL_TYPE_OF_ARGUMENT on
@@ -826,8 +839,8 @@ class PropertySwapper(CloningVisitor):
                         return ("person", property_name)
                 elif isinstance(resolved_table, _EVENT_PROPERTY_TABLES):
                     # Detection can misclassify IDs, so native String AI columns keep their schema types.
-                    if isinstance(resolved_table, AiEventsTable) and isinstance(
-                        resolved_table.fields.get(AI_PROPERTY_TO_COLUMN.get(property_name, "")), StringDatabaseField
+                    if isinstance(resolved_table, AiEventsTable) and resolved_table.maps_to_native_string_column(
+                        property_name
                     ):
                         return None
                     if property_name in self.event_properties:

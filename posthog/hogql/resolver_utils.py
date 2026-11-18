@@ -486,6 +486,9 @@ def _recursively_resolve_column(
     context: HogQLContext,
 ) -> None:
     if isinstance(column, ast.FieldAliasType):
+        if column.constant_type is not None:
+            fields[name] = _constant_type_to_database_field(name, column.constant_type)
+            return
         return _recursively_resolve_column(name, column.type, fields, context)
     elif isinstance(column, ast.FieldType):
         db_field = column.resolve_database_field(context)
@@ -512,9 +515,6 @@ def _recursively_resolve_column(
                 if subquery_column:
                     return _recursively_resolve_column(name, subquery_column, fields, context)
 
-        if not column.as_json and context.property_swapper is not None and context.property_swapper.converts(column):
-            fields[name] = _constant_type_to_database_field(name, column.resolve_constant_type(context))
-            return
         return _recursively_resolve_column(name, column.field_type, fields, context)
     elif isinstance(column, ast.CallType):
         fields[name] = _constant_type_to_database_field(name, column.return_type)
