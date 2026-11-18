@@ -1,4 +1,5 @@
 {
+  "comment": "Shared run policy contract. Consumed by both packages/agent/packages/agent/src/server/launch/run-policy.test.ts and products/tasks/backend/tests/test_agent_run_policy.py, so the agent's origin table and the server's copy cannot drift while both suites stay green.",
   "policy_from_origin": [
     {
       "name": "a run a person started",
