@@ -6,6 +6,7 @@ from urllib.parse import quote
 from posthog.dataclasses import frozen
 from posthog.models.integration import GitHubIntegration
 
+from .docs_pages import ancestor_directories
 from .writer_change import WriterChange
 
 REGULAR_FILE_MODE = 0o100644
@@ -50,11 +51,6 @@ def docs_branch_head(github: GitHubIntegration, docs_repository: str) -> str | N
     target = ((repository or {}).get("defaultBranchRef") or {}).get("target") or {}
     oid = target.get("oid")
     return oid if isinstance(oid, str) else None
-
-
-def ancestor_directories(path: str) -> list[str]:
-    segments = path.split("/")[:-1]
-    return ["/".join(segments[:depth]) for depth in range(len(segments) + 1)]
 
 
 def base_tree(github: GitHubIntegration, docs_repository: str, base_sha: str, paths: frozenset[str]) -> BaseTree:

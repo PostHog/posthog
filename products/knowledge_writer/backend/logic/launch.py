@@ -26,6 +26,7 @@ from .records import (
     DOCS_CONTENT_ROOT_STATE_KEY,
     HEAD_BRANCH_STATE_KEY,
     REQUEST_STATE_KEY,
+    ROUTED_PAGE_KEYS_STATE_KEY,
     SOURCE_CHANGE_FIELDS,
     SOURCE_CHANGE_STATE_KEY,
     request_json,
@@ -33,7 +34,14 @@ from .records import (
     source_change_of,
 )
 from .routing import PageRouting
-from .writer_change import MAX_PATH_BYTES, MAX_WRITER_CHANGE_BYTES, WRITER_CHANGE_ARTIFACT_NAME, docs_folders_of
+from .writer_change import (
+    MAX_BASE_TREE_LOOKUPS,
+    MAX_CHANGED_FILES,
+    MAX_PATH_BYTES,
+    MAX_WRITER_CHANGE_BYTES,
+    WRITER_CHANGE_ARTIFACT_NAME,
+    docs_folders_of,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -70,6 +78,8 @@ def change_manifest_script(
         docs_url_path=docs_url_path,
         max_path_bytes=MAX_PATH_BYTES,
         max_change_bytes=MAX_WRITER_CHANGE_BYTES,
+        max_changed_files=MAX_CHANGED_FILES,
+        max_base_tree_lookups=MAX_BASE_TREE_LOOKUPS,
         manifest_path=WRITER_CHANGE_MANIFEST_PATH,
         routed_page_keys=routed_page_keys,
     )
@@ -177,6 +187,8 @@ def start_writer(
     start_workflow: bool = True,
     before_task_create: Callable[[], None] | None = None,
 ) -> UUID:
+    docs_folders = docs_folders_of(writer, request.docs_content_root)
+    docs_url_path = urlparse(docs_source_for(writer.docs_repository).docs_url_prefix).path
     state_entries = {
         REQUEST_STATE_KEY: request_json.dump_python(
             request, mode="json", exclude={"docs_content_root", *SOURCE_CHANGE_FIELDS}
@@ -185,9 +197,8 @@ def start_writer(
         SOURCE_CHANGE_STATE_KEY: source_change_json.dump_python(source_change_of(request), mode="json"),
         HEAD_BRANCH_STATE_KEY: f"{HEAD_BRANCH_PREFIX}{secrets.token_hex(6)}",
         BASE_SHA_STATE_KEY: base_sha,
+        ROUTED_PAGE_KEYS_STATE_KEY: sorted(routed_page_keys_of(routing, docs_url_path)),
     }
-    docs_folders = docs_folders_of(writer, request.docs_content_root)
-    docs_url_path = urlparse(docs_source_for(writer.docs_repository).docs_url_prefix).path
     description = build_writer_prompt(
         request, routing, base_sha=base_sha, docs_folders=docs_folders, docs_url_path=docs_url_path
     )

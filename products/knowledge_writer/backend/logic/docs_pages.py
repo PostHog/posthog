@@ -19,6 +19,7 @@ SOURCE_DIFF_ATTACHMENT_NAME = "knowledge-writer-source.diff"
 HARNESS_FOLDER = ".posthog"
 WRITER_QUOTES_PATH = ".git/writer-quotes.json"
 COMPANION_PATHS = frozenset({"vercel.json", "src/navs/index.js"})
+MAX_COMPANION_PATCH_CHARACTERS = 16_384
 PAGE_CHANGING_STATUSES = frozenset({"added", "removed"})
 SITE_PATH_PATTERN = re.compile(r"/(?![/\\])[^\s\\\x00-\x1f\x7f]*")
 INDEX_FILE_STEMS = frozenset({"index", "readme"})
@@ -595,6 +596,8 @@ def companion_check(
     for changed_file in companion_files:
         filename = changed_file["filename"]
         base_text, head_text = base_texts.get(filename), head_texts.get(filename)
+        if is_companion_edit_too_large(changed_file, base_text, head_text):
+            return companion_refused(filename)
         file_flags = (
             redirect_flags(filename, base_text, head_text, page_paths, removed_page_paths, docs_url_path)
             if filename.endswith(".json")
@@ -604,6 +607,13 @@ def companion_check(
             return companion_refused(filename)
         flags.extend(file_flags)
     return CompanionCheck(refusal=None, flags=tuple(dict.fromkeys(flags)))
+
+
+def is_companion_edit_too_large(changed_file: dict, base_text: str | None, head_text: str | None) -> bool:
+    return (
+        len(changed_file.get("patch") or "") > MAX_COMPANION_PATCH_CHARACTERS
+        or len(head_text or "") > len(base_text or "") + MAX_COMPANION_PATCH_CHARACTERS
+    )
 
 
 def nav_flags(
@@ -769,6 +779,15 @@ def is_groundable_line(line: str) -> bool:
     return not line.startswith(CODE_FENCE) and any(character.isalnum() for character in line)
 
 
+def ancestor_directories(path: str) -> list[str]:
+    segments = path.split("/")[:-1]
+    return ["/".join(segments[:depth]) for depth in range(len(segments) + 1)]
+
+
+def base_tree_lookup_count(paths: list[str]) -> int:
+    return len(paths) + len({directory for path in paths for directory in ancestor_directories(path)})
+
+
 def routed_page_key(page_url: str, docs_url_path: str) -> str | None:
     page_path = urlparse(page_url).path
     if not page_path.startswith(docs_url_path):
@@ -802,6 +821,8 @@ class SandboxChangeSettings:
     docs_url_path: str
     max_path_bytes: int
     max_change_bytes: int
+    max_changed_files: int
+    max_base_tree_lookups: int
     manifest_path: str
     routed_page_keys: frozenset[str]
 
@@ -834,11 +855,14 @@ def sandbox_change_check(settings: SandboxChangeSettings) -> int:
     for warning in companion.flags:
         show_agent(f"warning: {warning}")
     if companion.refused_path is not None:
-        change.problems.append(companion_problem(companion.refused_path, change.changed_files, settings))
+        change.problems.append(companion_problem(companion.refused_path, change, settings))
     for line in ungrounded_lines(change.changed_files):
         show_agent(f"warning: no quote from the source change backs this added line: {line}")
     for page_path in extra_pages(change.changed_files, settings.docs_folders, settings.routed_page_keys):
         show_agent(f"warning: {page_path}: edits an existing page outside the pages likely affected")
+    spread_problem = change_spread_problem([*change.written, *change.deleted], settings)
+    if spread_problem is not None:
+        change.problems.append(spread_problem)
     manifest = json.dumps({"written": change.written, "deleted": change.deleted, "patches": change.patches})
     manifest_bytes = len(manifest.encode())
     if manifest_bytes > settings.max_change_bytes:
@@ -885,6 +909,17 @@ def git_output(*arguments: str) -> bytes:
     return subprocess.run(["git", *arguments], check=True, capture_output=True).stdout
 
 
+def change_spread_problem(changed_paths: list[str], settings: SandboxChangeSettings) -> str | None:
+    if len(changed_paths) > settings.max_changed_files:
+        return f"the change touches {len(changed_paths)} files, over the {settings.max_changed_files} file limit, make it smaller"
+    if base_tree_lookup_count(changed_paths) > settings.max_base_tree_lookups:
+        return (
+            f"the change spreads across too many folders, over the {settings.max_base_tree_lookups} lookup limit, "
+            "touch fewer folders"
+        )
+    return None
+
+
 def read_staged_path(change: SandboxChange, settings: SandboxChangeSettings, raw_entry: bytes, path: bytes) -> None:
     name = path.decode("utf-8", "replace")
     old_mode_field, new_mode_field, old_blob, new_blob = raw_entry.lstrip(b":").split()[:4]
@@ -919,6 +954,8 @@ def read_staged_path(change: SandboxChange, settings: SandboxChangeSettings, raw
         change.problems.append(f"{name}: submodules cannot be part of the change, remove it")
         return
     is_deleted = new_mode == 0
+    if is_deleted:
+        change.deleted.append(name)
     head_text = "" if is_deleted else staged_head_text(change, name, new_blob.decode())
     if head_text is None:
         return
@@ -963,10 +1000,17 @@ def staged_patch(change: SandboxChange, base_sha: str, name: str) -> str | None:
     return patch
 
 
-def companion_problem(refused_path: str, changed_files: list[dict], settings: SandboxChangeSettings) -> str:
-    refused_status = next(entry["status"] for entry in changed_files if entry["filename"] == refused_path)
+def companion_problem(refused_path: str, change: SandboxChange, settings: SandboxChangeSettings) -> str:
+    refused_entry = next(entry for entry in change.changed_files if entry["filename"] == refused_path)
+    refused_status = refused_entry["status"]
+    base_texts, head_texts = change.base_texts, change.head_texts
     if refused_status != "modified":
         return f"{refused_path}: this file can only be edited, not added or removed, undo this change"
+    if is_companion_edit_too_large(refused_entry, base_texts.get(refused_path), head_texts.get(refused_path)):
+        return (
+            f"{refused_path}: the edit is larger than {MAX_COMPANION_PATCH_CHARACTERS} characters, "
+            "keep it to the entries for the pages this change adds, removes or renames"
+        )
     if refused_path.endswith(".json"):
         return (
             f"{refused_path}: the publish check refuses this edit. Only add or remove whole redirects, "

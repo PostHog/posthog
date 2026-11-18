@@ -30,13 +30,13 @@ from .docs_pages import (
     DOCS_SOURCE_EXTENSIONS,
     CompanionCheck,
     PatchMismatch,
+    ancestor_directories,
     changed_file_entry,
     changed_file_status,
     companion_check,
     decoded_text,
     extra_pages,
     is_editable_base_mode,
-    routed_page_key,
 )
 from .grounding import MAX_GROUNDED_LINES, GroundingResult, ground_draft
 from .launch import HEAD_BRANCH_PREFIX, replace_entry_with
@@ -47,6 +47,7 @@ from .records import (
     PULL_REQUEST_FAILURE_STATE_KEY,
     PULL_REQUEST_STATE_KEY,
     REQUEST_STATE_KEY,
+    ROUTED_PAGE_KEYS_STATE_KEY,
     SOURCE_CHANGE_STATE_KEY,
     SourceChange,
     WriterPullRequest,
@@ -54,14 +55,13 @@ from .records import (
     stored_request,
     stored_source_change,
 )
-from .routing import SOURCE_REPOSITORY, page_location
+from .routing import SOURCE_REPOSITORY
 from .server_commit import (
     DIRECTORY_MODE,
     BaseEntry,
     BaseTree,
     CommitIdentity,
     DocsCommitFailed,
-    ancestor_directories,
     base_tree,
     build_commit,
     publish_ref,
@@ -99,6 +99,7 @@ OPEN_PULL_REQUESTS_OFF = "open_pull_requests_off"
 NO_HUMAN_AUTHOR = "no_human_author"
 REVIEW_REQUEST_FAILED = "review_request_failed"
 REVIEW_REQUEST_REJECTED = "review_request_rejected"
+MAINTAINER_ASSOCIATIONS = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
 DraftOutcome = Literal["refused", "logged", "opened", "failed"]
 CloseReason = Literal["merged", "closed_by_reviewer", "closed_stale"]
 MAX_LISTED_UNSUPPORTED_LINES = 50
@@ -282,7 +283,9 @@ class PublishedPullRequest:
     number: int
 
 
-def open_pull_request_for_run(task_run_id: UUID, *, team_id: int) -> PublishedPullRequest | None:
+def open_pull_request_for_run(
+    task_run_id: UUID, *, team_id: int, is_final_attempt: bool = True
+) -> PublishedPullRequest | None:
     writer = writer_settings()
     if writer is None or writer.team_id != team_id:
         log_skipped_publication(task_run_id, team_id, "unconfigured")
@@ -293,8 +296,10 @@ def open_pull_request_for_run(task_run_id: UUID, *, team_id: int) -> PublishedPu
         return None
     published = tasks_facade.read_task_state_entry(run.task_id, team_id, PULL_REQUEST_STATE_KEY)
     if isinstance(published, dict):
-        return finish_published_pull_request(run, team_id, writer, pull_request_json.validate_python(published))
-    return publish_change(run, team_id, writer)
+        return finish_published_pull_request(
+            run, team_id, writer, pull_request_json.validate_python(published), is_final_attempt=is_final_attempt
+        )
+    return publish_change(run, team_id, writer, is_final_attempt=is_final_attempt)
 
 
 def log_skipped_publication(task_run_id: UUID, team_id: int, reason: str) -> None:
@@ -320,7 +325,7 @@ class DraftAttempt:
 
 
 def finish_published_pull_request(
-    run: TaskRunDTO, team_id: int, writer: WriterSettings, pull_request: WriterPullRequest
+    run: TaskRunDTO, team_id: int, writer: WriterSettings, pull_request: WriterPullRequest, *, is_final_attempt: bool
 ) -> PublishedPullRequest:
     published = PublishedPullRequest(repository=writer.docs_repository, number=pull_request.number)
     if not pull_request.is_review_pending:
@@ -336,7 +341,7 @@ def finish_published_pull_request(
         team_id=team_id,
         changed_files=published_changed_files(run, team_id, github, writer.docs_repository),
     )
-    request_review_and_capture_opened(github, writer, draft, pull_request)
+    request_review_and_capture_opened(github, writer, draft, pull_request, is_final_attempt=is_final_attempt)
     return published
 
 
@@ -356,17 +361,26 @@ def store_pull_request(task_id: UUID, team_id: int, pull_request: WriterPullRequ
 
 
 def request_review_and_capture_opened(
-    github: GitHubIntegration, writer: WriterSettings, draft: DraftAttempt, pull_request: WriterPullRequest
+    github: GitHubIntegration,
+    writer: WriterSettings,
+    draft: DraftAttempt,
+    pull_request: WriterPullRequest,
+    *,
+    is_final_attempt: bool,
 ) -> None:
     source = stored_source_change(
         tasks_facade.read_task_state_entry(draft.task_id, draft.team_id, SOURCE_CHANGE_STATE_KEY)
     )
     review = request_author_review(github, writer.docs_repository, pull_request.number, source.author_login)
+    if not is_final_attempt and is_transient_review_failure(review):
+        raise WriterPullRequestFailed(f"knowledge writer could not request the author's review: {review.status_code}")
     capture_draft(draft, outcome="opened", pull_request_url=pull_request.url, review=review)
     store_pull_request(draft.task_id, draft.team_id, replace(pull_request, is_review_pending=False))
 
 
-def publish_change(run: TaskRunDTO, team_id: int, writer: WriterSettings) -> PublishedPullRequest | None:
+def publish_change(
+    run: TaskRunDTO, team_id: int, writer: WriterSettings, *, is_final_attempt: bool
+) -> PublishedPullRequest | None:
     task_id, task_run_id = run.task_id, run.id
     request = stored_request(tasks_facade.read_task_state_entry(task_id, team_id, REQUEST_STATE_KEY))
     docs_owner = writer.docs_repository.split("/", 1)[0]
@@ -412,9 +426,7 @@ def publish_change(run: TaskRunDTO, team_id: int, writer: WriterSettings) -> Pub
         return None
     flags = DraftFlags(
         grounding=ground_draft(source_github(team_id, source_change), source_change, changed_files),
-        extra_pages=extra_pages(
-            changed_files, docs_folders, routed_page_keys(writer.docs_repository, request, team_id)
-        ),
+        extra_pages=extra_pages(changed_files, docs_folders, routed_page_keys(task_id, team_id)),
         companion_flags=publication.flags,
     )
     draft = replace(draft, flags=flags)
@@ -450,7 +462,7 @@ def publish_change(run: TaskRunDTO, team_id: int, writer: WriterSettings) -> Pub
         raise reported_step_failure(pull_request, team_id, task_run_id)
     store_pull_request(task_id, team_id, replace(pull_request, is_review_pending=True))
     tasks_facade.update_task_state_entry(task_id, team_id, PULL_REQUEST_FAILURE_STATE_KEY, replace_entry_with(None))
-    request_review_and_capture_opened(github, writer, draft, pull_request)
+    request_review_and_capture_opened(github, writer, draft, pull_request, is_final_attempt=is_final_attempt)
     logger.info(
         "knowledge_writer_pull_request_published",
         task_id=str(task_id),
@@ -493,6 +505,12 @@ def request_author_review(
     if author_login.lower() not in requested_logins:
         return AuthorReview(requested_login=None, skip_reason=REVIEW_REQUEST_REJECTED)
     return AuthorReview(requested_login=author_login)
+
+
+def is_transient_review_failure(review: AuthorReview) -> bool:
+    if review.skip_reason != REVIEW_REQUEST_FAILED:
+        return False
+    return review.status_code is None or is_transient_status(review.status_code)
 
 
 def is_review_requested_from(
@@ -659,17 +677,11 @@ def is_page_source_or_companion(path: str) -> bool:
     return path.endswith(DOCS_SOURCE_EXTENSIONS) or path in COMPANION_PATHS
 
 
-def routed_page_keys(docs_repository: str, request: DocsRequest, team_id: int) -> frozenset[str]:
-    if not request.suggested_page_urls:
+def routed_page_keys(task_id: UUID, team_id: int) -> frozenset[str]:
+    stored = tasks_facade.read_task_state_entry(task_id, team_id, ROUTED_PAGE_KEYS_STATE_KEY)
+    if not isinstance(stored, list):
         return frozenset()
-    docs_url_path = urlparse(docs_source_for(docs_repository).docs_url_prefix).path
-    github = source_repository_github(team_id)
-    return frozenset(
-        page_key
-        for page_url in request.suggested_page_urls
-        if page_location(github, page_url) != "source_repository"
-        and (page_key := routed_page_key(page_url, docs_url_path)) is not None
-    )
+    return frozenset(page_key for page_key in stored if isinstance(page_key, str))
 
 
 def reported_step_failure(step_failed: GitHubStepFailed, team_id: int, task_run_id: UUID) -> WriterPullRequestFailed:
@@ -777,7 +789,9 @@ def pull_request_approval_times(github: GitHubIntegration, repository: str, pull
         approval_times.extend(
             github_time(review["submitted_at"])
             for review in reviews
-            if review.get("state") == "APPROVED" and review.get("submitted_at")
+            if review.get("state") == "APPROVED"
+            and review.get("submitted_at")
+            and review.get("author_association") in MAINTAINER_ASSOCIATIONS
         )
         if len(reviews) < REVIEWS_PER_PAGE:
             return approval_times

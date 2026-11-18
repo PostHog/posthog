@@ -1,4 +1,5 @@
 import dataclasses
+from uuid import UUID
 
 from django.db import IntegrityError, connection
 
@@ -6,6 +7,7 @@ import structlog
 from pydantic import TypeAdapter, ValidationError
 
 from posthog.egress.limiter.policies import Priority
+from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 
 from products.tasks.backend.facade import api as tasks_facade
@@ -31,7 +33,7 @@ from .pull_requests import (
     source_github,
     source_repository_github,
 )
-from .records import source_change_of
+from .records import LEGACY_HELD_REQUESTS_STATE_KEY, DocsRequest, source_change_of, stored_request
 from .routing import route_request
 from .server_commit import docs_branch_head
 
@@ -79,9 +81,12 @@ def intake_outcome(verdict: AdapterVerdict, *, team_id: int) -> IntakeOutcome:
 
 
 def launch_outcome(verdict: AdapterVerdict, writer: WriterSettings, *, team_id: int) -> IntakeOutcome:
-    request = verdict.request
-    if request is None:
+    if verdict.request is None:
         return IntakeOutcome(status="no_docs")
+    return launch_request(verdict.request, writer, team_id=team_id)
+
+
+def launch_request(request: DocsRequest, writer: WriterSettings, *, team_id: int) -> IntakeOutcome:
     existing_task = tasks_facade.get_task_by_origin_key(team_id, request.dedupe_id)
     if existing_task is not None:
         return IntakeOutcome(status="duplicate", task_id=existing_task.id)
@@ -122,6 +127,55 @@ def launch_outcome(verdict: AdapterVerdict, writer: WriterSettings, *, team_id: 
     except IntegrityError:
         return IntakeOutcome(status="duplicate")
     return IntakeOutcome(status="started", task_id=task_id)
+
+
+def drain_legacy_held_requests() -> None:
+    writer = writer_settings()
+    if writer is None:
+        return
+    held_task_ids = tasks_facade.owner_origin_task_ids_with_state_entry(
+        team_id=writer.team_id,
+        created_by_id=writer.user_id,
+        origin_product=tasks_facade.TaskOriginProduct.KNOWLEDGE_WRITER,
+        key=LEGACY_HELD_REQUESTS_STATE_KEY,
+    )
+    for task_id in held_task_ids:
+        if not relaunch_requests_held_on(task_id, writer):
+            return
+
+
+def relaunch_requests_held_on(task_id: UUID, writer: WriterSettings) -> bool:
+    held = tasks_facade.read_task_state_entry(task_id, writer.team_id, LEGACY_HELD_REQUESTS_STATE_KEY)
+    for entry in held if isinstance(held, list) else []:
+        if not is_held_entry_settled(task_id, entry, writer):
+            return False
+        remove_held_entry(task_id, entry, writer.team_id)
+    return True
+
+
+def is_held_entry_settled(task_id: UUID, entry: object, writer: WriterSettings) -> bool:
+    log = logger.bind(held_on_task_id=str(task_id), team_id=writer.team_id)
+    try:
+        request = stored_request(entry)
+    except ValidationError:
+        log.warning("knowledge_writer_held_request_unreadable")
+        return True
+    try:
+        outcome = launch_request(request, writer, team_id=writer.team_id)
+    except Exception as error:
+        log.warning("knowledge_writer_held_request_failed", error_type=type(error).__name__)
+        capture_exception(error, {"team_id": writer.team_id, "dedupe_id": request.dedupe_id})
+        return False
+    log.info("knowledge_writer_held_request_launched", dedupe_id=request.dedupe_id, status=outcome.status)
+    return outcome.status not in ("capped", "shadow")
+
+
+def remove_held_entry(task_id: UUID, entry: object, team_id: int) -> None:
+    def remove(current: object) -> tuple[object, None]:
+        held = current if isinstance(current, list) else []
+        return [kept for kept in held if kept != entry] or None, None
+
+    tasks_facade.update_task_state_entry(task_id, team_id, LEGACY_HELD_REQUESTS_STATE_KEY, remove)
 
 
 def admit_under_open_pull_request_cap(writer: WriterSettings, open_pull_request_count: int) -> None:

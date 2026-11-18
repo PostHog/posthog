@@ -1405,6 +1405,8 @@ def test_the_sandbox_change_check_runs_without_posthog_on_the_path(
     page = tmp_path / DOCS_PAGE_PATH
     page.parent.mkdir(parents=True)
     page.write_text("Retention lasts 30 days.\n")
+    removed_page = page.parent / "legacy-export.mdx"
+    removed_page.write_text("Legacy export.\n")
     nav = tmp_path / "src" / "navs" / "index.js"
     nav.parent.mkdir(parents=True)
     nav.write_text(NAV_BASE_TEXT)
@@ -1420,6 +1422,7 @@ def test_the_sandbox_change_check_runs_without_posthog_on_the_path(
         text=True,
     ).stdout.strip()
     page.write_text("Retention lasts 90 days.\n")
+    removed_page.unlink()
     if is_adding_page_with_nav_edit:
         (page.parent / "exports.mdx").write_text("Export your recordings.\n")
         nav.write_text(NAV_HEAD_TEXT)
@@ -1441,6 +1444,6 @@ def test_the_sandbox_change_check_runs_without_posthog_on_the_path(
 
     assert (check.returncode, check.stderr) == (0, "")
     assert [line for line in check.stdout.splitlines() if line.startswith("warning:")] == expected_warnings
-    assert json.loads((tmp_path / ".git" / WRITER_CHANGE_ARTIFACT_NAME).read_text())["patches"][DOCS_PAGE_PATH] == (
-        "@@ -1 +1 @@\n-Retention lasts 30 days.\n+Retention lasts 90 days.\n"
-    )
+    manifest = json.loads((tmp_path / ".git" / WRITER_CHANGE_ARTIFACT_NAME).read_text())
+    assert manifest["patches"][DOCS_PAGE_PATH] == "@@ -1 +1 @@\n-Retention lasts 30 days.\n+Retention lasts 90 days.\n"
+    assert manifest["deleted"] == [str(removed_page.relative_to(tmp_path))]

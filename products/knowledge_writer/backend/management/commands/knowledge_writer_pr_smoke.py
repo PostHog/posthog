@@ -146,6 +146,7 @@ def run_scratch_request(
     change = {
         "written": {f"contents/docs/{section}/{SCRATCH_PAGE_NAME}": base64.b64encode(page).decode()},
         "deleted": [],
+        "patches": {},
     }
     for run_id in tasks_facade.list_task_run_ids(task_id, team.id):
         tasks_facade.upload_task_run_artifacts(

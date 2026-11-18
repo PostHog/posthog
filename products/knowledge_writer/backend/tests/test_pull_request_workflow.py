@@ -52,7 +52,7 @@ def _pull_request(*, state: str = "open", merged_at: str | None = None, closed_a
 
 
 MERGED = _pull_request(state="closed", merged_at=MERGED_AT, closed_at=MERGED_AT)
-APPROVAL = {"state": "APPROVED", "submitted_at": APPROVED_AT}
+APPROVAL = {"state": "APPROVED", "submitted_at": APPROVED_AT, "author_association": "MEMBER"}
 
 
 class DocsPullRequestGitHub:
@@ -152,7 +152,10 @@ def _outcomes(scoped_capture: MagicMock) -> list[dict]:
         ),
         pytest.param(
             _pull_request(),
-            [{"state": "COMMENTED", "submitted_at": APPROVED_AT}],
+            [
+                {"state": "COMMENTED", "submitted_at": APPROVED_AT, "author_association": "MEMBER"},
+                {**APPROVAL, "author_association": "NONE"},
+            ],
             False,
             204,
             [("PATCH", PULL_REQUEST_PATH), ("DELETE", f"/repos/{DOCS_REPOSITORY}/git/refs/heads/{WRITER_BRANCH}")],
@@ -163,7 +166,7 @@ def _outcomes(scoped_capture: MagicMock) -> list[dict]:
                 "hours_to_first_approval": None,
                 "hours_open": 168.0,
             },
-            id="unapproved_and_stale",
+            id="unapproved_by_a_maintainer_and_stale",
         ),
         pytest.param(
             _pull_request(),

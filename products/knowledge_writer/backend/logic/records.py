@@ -10,6 +10,9 @@ PULL_REQUEST_STATE_KEY = "knowledge_writer_pull_request"
 PULL_REQUEST_FAILURE_STATE_KEY = "knowledge_writer_pull_request_failure"
 DOCS_CONTENT_ROOT_STATE_KEY = "knowledge_writer_docs_content_root"
 SOURCE_CHANGE_STATE_KEY = "knowledge_writer_source_change"
+ROUTED_PAGE_KEYS_STATE_KEY = "knowledge_writer_routed_page_keys"
+# Written only by the held-request intake this release removed; delete once no task state holds it.
+LEGACY_HELD_REQUESTS_STATE_KEY = "knowledge_writer_held_requests"
 SOURCE_CHANGE_FIELDS = frozenset({"source_repository", "source_commit_sha", "source_author_login"})
 
 

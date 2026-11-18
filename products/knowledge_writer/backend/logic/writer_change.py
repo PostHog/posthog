@@ -7,10 +7,13 @@ from typing import TypeGuard
 from posthog.dataclasses import frozen
 
 from ..settings import DEFAULT_DOCS_PATHS, WriterSettings
+from .docs_pages import base_tree_lookup_count
 
 WRITER_CHANGE_ARTIFACT_NAME = "writer-change.json"
 MAX_WRITER_CHANGE_BYTES = 30 * 1024 * 1024
 MAX_PATH_BYTES = 255
+MAX_CHANGED_FILES = 300
+MAX_BASE_TREE_LOOKUPS = 1_000
 
 
 def docs_folders_of(writer: WriterSettings, docs_content_root: object) -> tuple[str, ...]:
@@ -68,8 +71,12 @@ def parse_writer_change(raw: bytes) -> WriterChange:
     if not is_patches_shape(patch_entries, written_entries):
         raise WriterChangeRefused("manifest_unreadable")
     all_paths = [*written_entries, *deleted_entries]
+    if len(all_paths) > MAX_CHANGED_FILES:
+        raise WriterChangeRefused("too_many_changed_files")
     if any(is_unsafe_path(path) for path in all_paths) or has_colliding_paths(all_paths):
         raise WriterChangeRefused("unsafe_path")
+    if base_tree_lookup_count(all_paths) > MAX_BASE_TREE_LOOKUPS:
+        raise WriterChangeRefused("too_many_changed_files")
     written = {path: decoded_content(content) for path, content in written_entries.items()}
     return WriterChange(written=written, deleted=frozenset(deleted_entries), patches=patch_entries)
 

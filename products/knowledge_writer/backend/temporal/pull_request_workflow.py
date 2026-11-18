@@ -119,7 +119,7 @@ async def start_pull_request_workflow(client: Client, inputs: PullRequestInputs)
             inputs,
             id=pull_request_workflow_id(inputs.repository, inputs.pull_request_number),
             task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-            id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
+            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
             id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
         )
     except WorkflowAlreadyStartedError:
