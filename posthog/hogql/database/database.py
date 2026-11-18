@@ -137,6 +137,7 @@ from posthog.hogql.database.schema.preaggregation_results import PreaggregationR
 from posthog.hogql.database.schema.precalculated_events import PrecalculatedEventsTable
 from posthog.hogql.database.schema.precalculated_person_properties import PrecalculatedPersonPropertiesTable
 from posthog.hogql.database.schema.query_log_archive import QueryLogArchiveTable, RawQueryLogArchiveTable
+from posthog.hogql.database.schema.series_values_preaggregated import SeriesValuesPreaggregatedTable
 from posthog.hogql.database.schema.session_replay_events import RawSessionReplayEventsTable, SessionReplayEventsTable
 from posthog.hogql.database.schema.sessions_v1 import RawSessionsTableV1, SessionsTableV1
 from posthog.hogql.database.schema.sessions_v2 import RawSessionsTableV2, SessionsTableV2
@@ -693,6 +694,9 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                     ),
                     "web_goals_preaggregated": TableNode(
                         name="web_goals_preaggregated", table=WebGoalsPreaggregatedTable()
+                    ),
+                    "series_values_preaggregated": TableNode(
+                        name="series_values_preaggregated", table=SeriesValuesPreaggregatedTable()
                     ),
                 },
             ),
