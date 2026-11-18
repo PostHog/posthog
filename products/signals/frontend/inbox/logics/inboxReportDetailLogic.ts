@@ -345,9 +345,9 @@ export interface inboxReportDetailLogicValues {
     chartIdsKey: string
     chartPlacements: ChartPlacements
     chartsById: Map<string, ReportChartApi>
-    decisionAttributions: ReportDecisionAttributions | null
     claimSaving: boolean
     currentUserGithubLogin: string | null
+    decisionAttributions: ReportDecisionAttributions | null
     detailTab: ReportDetailTab
     diffArtefactId: string | null
     displayReviewers: EnrichedReviewer[] | null
