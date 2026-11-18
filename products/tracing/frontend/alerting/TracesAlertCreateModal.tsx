@@ -18,6 +18,7 @@ import { TracesAlertTriggerFields } from './TracesAlertTriggerFields'
 import {
     GROUP_BY_OPTIONS,
     NEW_ALERT_DESTINATIONS,
+    TracesAlertFormType,
     describeTracesCondition,
     describeTracesScope,
     errorText,
@@ -27,13 +28,25 @@ import {
 interface TracesAlertCreateModalProps {
     isOpen: boolean
     onClose: () => void
-    viewerFilters: { serviceNames: string[]; filterGroup: UniversalFiltersGroup }
+    viewerFilters?: { serviceNames: string[]; filterGroup: UniversalFiltersGroup }
+    initialForm?: TracesAlertFormType
 }
 
-export function TracesAlertCreateModal({ isOpen, onClose, viewerFilters }: TracesAlertCreateModalProps): JSX.Element {
+export function TracesAlertCreateModal({
+    isOpen,
+    onClose,
+    viewerFilters,
+    initialForm,
+}: TracesAlertCreateModalProps): JSX.Element {
     return (
         <LemonModal isOpen={isOpen} onClose={onClose} title="" simple width={900}>
-            {isOpen ? <TracesAlertCreateModalContent onClose={onClose} viewerFilters={viewerFilters} /> : null}
+            {isOpen ? (
+                <TracesAlertCreateModalContent
+                    onClose={onClose}
+                    viewerFilters={viewerFilters}
+                    initialForm={initialForm}
+                />
+            ) : null}
         </LemonModal>
     )
 }
@@ -41,8 +54,9 @@ export function TracesAlertCreateModal({ isOpen, onClose, viewerFilters }: Trace
 function TracesAlertCreateModalContent({
     onClose,
     viewerFilters,
+    initialForm,
 }: Omit<TracesAlertCreateModalProps, 'isOpen'>): JSX.Element {
-    const formLogicProps = { alert: null, viewerFilters, onSubmitSuccess: onClose }
+    const formLogicProps = { alert: null, viewerFilters, initialForm, onSubmitSuccess: onClose }
     const { isAlertFormSubmitting, alertFormChanged, alertForm, alertFormValidationErrors } = useValues(
         tracesAlertFormLogic(formLogicProps)
     )

@@ -30,6 +30,8 @@ export interface EmailBlockStyle {
     padding?: EmailSides
     borderRadius?: number
     borderWidth?: number
+    /** Button only: a border whose width differs by side, such as a thicker bottom edge. Replaces `borderWidth`. */
+    borderSides?: EmailSides
     borderColor?: string
     width?: number
     columnGap?: number

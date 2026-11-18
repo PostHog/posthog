@@ -28,10 +28,6 @@ pytestmark = [pytest.mark.asyncio]
 
 
 class TestShouldRunCIFollowUpDecision:
-    # Direct decision tests for ProcessTaskWorkflow's copy of the CI follow-up
-    # gate (task_management has its own copy with an equivalent suite). Guards
-    # against re-introducing "nothing to report" wake-ups: a fingerprint change
-    # must only fire when the PR state is actionable.
     @pytest.mark.parametrize(
         "ci_status,changes_requested,expected_decision,expected_fingerprint",
         [
