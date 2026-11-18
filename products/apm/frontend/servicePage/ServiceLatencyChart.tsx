@@ -34,12 +34,13 @@ export function ServiceLatencyChart({ timeBuckets, percentiles, loading }: Servi
         () => ({
             xAxis: { timezone: TRACING_DISPLAY_TIMEZONE },
             yAxis: { format: 'duration_ms', showGrid: true },
+            legend: { show: true, position: 'bottom', align: 'start' },
         }),
         []
     )
 
     return (
-        <div className="relative h-48 flex flex-col" data-attr="apm-service-latency-chart">
+        <div className="relative h-56 flex flex-col" data-attr="apm-service-latency-chart">
             {timeBuckets.length > 0 ? (
                 <TimeSeriesLineChart
                     series={series}

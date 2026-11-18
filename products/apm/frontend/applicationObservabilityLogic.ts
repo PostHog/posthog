@@ -60,6 +60,18 @@ export function drillDownParams(serviceName: string, timeRange: TimeRange): stri
     return `serviceNames=${encodeURIComponent(serviceNames)}&dateRange=${encodeURIComponent(dateRange)}`
 }
 
+export function applicationObservabilityTabUrl(
+    tab: ApplicationObservabilityTab,
+    { service, timeRange, environment }: { service: string; timeRange: TimeRange; environment: string | null }
+): string {
+    return combineUrl(APPLICATION_OBSERVABILITY_PATH, {
+        ...(environment !== null ? { environment } : {}),
+        ...(timeRange !== '-1h' ? { range: timeRange } : {}),
+        tab,
+        service,
+    }).url
+}
+
 // Uses the two-level `filterGroup` that the Metrics filter bar writes, so the viewer opens on this service.
 export function metricsDrillDownUrl(serviceName: string, timeRange: TimeRange): string {
     const filterGroup = {

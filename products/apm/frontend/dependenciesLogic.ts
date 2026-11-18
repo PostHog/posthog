@@ -1,9 +1,14 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { urlToAction } from 'kea-router'
 
 import { teamLogic } from 'scenes/teamLogic'
 
-import { TIME_RANGE_MS, applicationObservabilityLogic } from './applicationObservabilityLogic'
+import {
+    APPLICATION_OBSERVABILITY_PATH,
+    TIME_RANGE_MS,
+    applicationObservabilityLogic,
+} from './applicationObservabilityLogic'
 import type { TimeRange } from './applicationObservabilityLogic'
 import {
     DependencyGraph,
@@ -186,6 +191,15 @@ export const dependenciesLogic = kea<dependenciesLogicType>([
         requestReload: () => actions.loadDependencies(),
         loadDependenciesSuccess: () => actions.layoutDependencies(),
         setDependencyService: () => actions.layoutDependencies(),
+    })),
+
+    urlToAction(({ actions, values }) => ({
+        [APPLICATION_OBSERVABILITY_PATH]: (_, searchParams) => {
+            const service = typeof searchParams.service === 'string' ? searchParams.service : null
+            if (searchParams.tab === 'dependencies' && service && service !== values.dependencyService) {
+                actions.setDependencyService(service)
+            }
+        },
     })),
 
     afterMount(({ actions }) => {

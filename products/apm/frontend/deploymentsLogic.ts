@@ -1,9 +1,14 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { urlToAction } from 'kea-router'
 
 import { teamLogic } from 'scenes/teamLogic'
 
-import { TIME_RANGE_MS, applicationObservabilityLogic } from './applicationObservabilityLogic'
+import {
+    APPLICATION_OBSERVABILITY_PATH,
+    TIME_RANGE_MS,
+    applicationObservabilityLogic,
+} from './applicationObservabilityLogic'
 import type { ApplicationObservabilityTab, TimeRange } from './applicationObservabilityLogic'
 import { apmDeploymentsList } from './generated/api'
 import type { DeploymentsResponseApi, DeploymentVersionApi } from './generated/api.schemas'
@@ -175,6 +180,15 @@ export const deploymentsLogic = kea<deploymentsLogicType>([
             }
         },
         setDeploymentsService: () => actions.loadDeployments(),
+    })),
+
+    urlToAction(({ actions, values }) => ({
+        [APPLICATION_OBSERVABILITY_PATH]: (_, searchParams) => {
+            const service = typeof searchParams.service === 'string' ? searchParams.service : null
+            if (searchParams.tab === 'deployments' && service && service !== values.pickedService) {
+                actions.setDeploymentsService(service)
+            }
+        },
     })),
 
     afterMount(({ actions }) => {
