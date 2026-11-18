@@ -196,16 +196,16 @@ class TestScoreWindow(SimpleTestCase):
     @parameterized.expand(
         [
             ("before_the_edit", EDITED_AT - HOUR, HourErrors(active=PEOPLE, with_errors=80), BASELINE_RATES),
-            ("without_a_baseline", EDITED_AT + HOUR, HourErrors(active=PEOPLE, with_errors=80), ()),
+            ("without_a_baseline", EDITED_AT + HOUR, HourErrors(active=PEOPLE, with_errors=80), None),
             ("with_one_earlier_week", EDITED_AT + HOUR, HourErrors(active=PEOPLE, with_errors=80), BASELINE_RATES[:1]),
             ("below_the_minimum_activity", EDITED_AT + HOUR, HourErrors(active=1, with_errors=1), BASELINE_RATES),
         ]
     )
     def test_an_hour_that_cant_show_an_error_rise_adds_no_strength(
-        self, _name: str, start: datetime, counts: HourErrors, baseline_rates: Sequence[float]
+        self, _name: str, start: datetime, counts: HourErrors, baseline_rates: Sequence[float] | None
     ) -> None:
         hours = {**_hours([BASELINE_RATE]), start: counts}
-        baseline = _baseline(hours, baseline_rates)
+        baseline = _baseline([EDITED_AT] if baseline_rates is None else hours, baseline_rates or BASELINE_RATES)
 
         result = score_window(EDIT, _exposure([0.5]), _errors(40, 40), hours, baseline, PARAMETERS)
 
@@ -214,7 +214,7 @@ class TestScoreWindow(SimpleTestCase):
 
     def test_an_earlier_week_below_the_minimum_activity_is_left_out_of_the_baseline(self) -> None:
         hours = _hours([RISE_RATE])
-        weeks = (*_baseline(hours)[0].weeks, HourErrors(active=2, with_errors=1))
+        weeks = (*_baseline(hours)[0].weeks[:2], HourErrors(active=2, with_errors=1))
 
         result = score_window(
             EDIT, _exposure([0.5]), _errors(40, 40), hours, [BaselineHour(start=EDITED_AT, weeks=weeks)], PARAMETERS
