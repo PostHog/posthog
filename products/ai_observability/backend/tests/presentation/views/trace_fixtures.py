@@ -1,5 +1,5 @@
 import base64
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Collection, Iterator, Mapping
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
@@ -96,6 +96,7 @@ class TraceEvents:
         self.team = team
         self.start = start
         self._events: list[dict[str, object]] = []
+        self._trace_ids: list[str] = []
 
     def add(
         self,
@@ -118,10 +119,13 @@ class TraceEvents:
                 **({"person_id": person_id} if person_id is not None else {}),
             }
         )
+        self._trace_ids.append(trace_id)
 
-    def seed(self) -> None:
+    def seed(self, *, aged_out: Collection[str] = ()) -> None:
         bulk_create_events(self._events)
-        bulk_create_ai_events(self._events)
+        bulk_create_ai_events(
+            [event for event, trace_id in zip(self._events, self._trace_ids) if trace_id not in aged_out]
+        )
 
     def seed_traces(self, *trace_ids: str) -> None:
         for minutes, trace_id in enumerate(trace_ids):

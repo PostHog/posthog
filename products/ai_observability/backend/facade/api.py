@@ -217,7 +217,7 @@ def load_trace_list(
     page = load_selection_page(team, user, selection, after=after, limit=limit)
     loaded = _load_page_rows(team, user, page.positions)
     return lambda: contracts.TraceList(
-        items=_list_items(team, user, page.positions, loaded),
+        items=_list_items(team, user, selection.window, page.positions, loaded),
         counts=_to_list_counts(page.counts) if cursor is None else None,
         next_cursor=encode_cursor(page.positions[-1]) if page.has_more else None,
     )
@@ -235,16 +235,32 @@ def _load_page_rows(team: Team, user: User, positions: Sequence[TracePosition]) 
 
 
 def _list_items(
-    team: Team, user: User, positions: Sequence[TracePosition], loaded: Mapping[str, PageTraceRows]
+    team: Team,
+    user: User,
+    window: TraceWindow,
+    positions: Sequence[TracePosition],
+    loaded: Mapping[str, PageTraceRows],
 ) -> list[contracts.TraceListItem]:
-    found = [position.trace_id for position in positions if position.trace_id in loaded]
-    reviews = load_trace_review_states(team, user, found)
+    found = [position for position in positions if position.trace_id in loaded]
+    reviews = load_trace_review_states(team, user, [position.trace_id for position in found])
     return [
         _to_list_item(
-            Trace(trace_id, loaded[trace_id].rows, None, partial=loaded[trace_id].truncated), reviews[trace_id]
+            Trace(
+                position.trace_id,
+                loaded[position.trace_id].rows,
+                None,
+                partial=_is_partial(window, position, loaded[position.trace_id]),
+            ),
+            reviews[position.trace_id],
         )
-        for trace_id in found
+        for position in found
     ]
+
+
+def _is_partial(window: TraceWindow, position: TracePosition, rows: PageTraceRows) -> bool:
+    # A trace read from `posthog.ai_events` is read by id without a time bound, so only a shared table read, which is
+    # bounded by the trace's first timestamp, can miss the events before it.
+    return rows.truncated or (rows.from_shared_table and window.may_read_a_suffix_of(position.first_timestamp))
 
 
 def load_trace_previews(

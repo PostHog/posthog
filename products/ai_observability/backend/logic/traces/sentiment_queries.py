@@ -128,7 +128,8 @@ def _read_rows(
         ai_events_placeholders(column_in("trace_id", trace_ids)),
     )
     # A trace with no sentiment result looks the same as one whose results aged out, so only a page old enough to
-    # have lost rows reads the shared events table.
+    # have lost rows reads the shared events table. That read ends now, not at the window's end, because a manual run
+    # stamps its results with the time it ran, which can be any time after the trace.
     if window.may_hold_aged_out_events(now):
         found = {str(row[0]) for row in results}
         missing = [trace_id for trace_id in trace_ids if trace_id not in found]
@@ -139,7 +140,9 @@ def _read_rows(
                 team,
                 user,
                 _settings(),
-                events_placeholders(column_in("trace_id", missing), (_EVALUATION_EVENT,), window),
+                events_placeholders(
+                    column_in("trace_id", missing), (_EVALUATION_EVENT,), FallbackWindow(start=window.start, end=now)
+                ),
             )
     return [
         _GenerationSentimentRow(
@@ -165,7 +168,7 @@ def load_sentiments(
 ) -> dict[str, TraceSentimentRow]:
     """The sentiment of each trace that has one, keyed by trace id, from the latest result per generation. When the
     window starts before `posthog.ai_events` may have dropped rows, traces with no result there are read from the shared
-    events table inside the window."""
+    events table from the window's start until `now`."""
     requested = list(dict.fromkeys(trace_ids))
     if not requested:
         return {}
