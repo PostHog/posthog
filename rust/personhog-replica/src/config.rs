@@ -8,6 +8,9 @@ pub struct Config {
     #[envconfig(default = "127.0.0.1:50051")]
     pub grpc_address: SocketAddr,
 
+    #[envconfig(nested = true)]
+    pub follower: crate::follower_mode::FollowerSettings,
+
     /// Storage backend to use. Currently supported: "postgres"
     #[envconfig(default = "postgres")]
     pub storage_backend: String,
