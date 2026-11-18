@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, patch
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.db import OperationalError, connection
+from django.db import DatabaseError, OperationalError, connection
 from django.test import TestCase
 from django.utils import timezone as django_timezone
 
@@ -2763,6 +2763,18 @@ class TestTaskRun(TestCase):
         handle.signal.assert_awaited_once_with(milestone)
         run.refresh_from_db()
         self.assertEqual(run.agent_status, TaskRun.AgentStatus.BUSY)
+
+    @patch("posthog.temporal.common.client.sync_connect")
+    def test_a_failed_liveness_write_does_not_stop_the_turn_completed_signal(self, mock_connect):
+        run = TaskRun.objects.create(task=self.task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        handle = mock_connect.return_value.get_workflow_handle.return_value
+        handle.signal = AsyncMock()
+
+        with patch("django.db.models.query.QuerySet.update", side_effect=DatabaseError("connection lost")):
+            run.signal_agent_turn_completed(succeeded=True)
+
+        self.assertEqual(handle.signal.await_count, 2)
+        self.assertIsNone(run.agent_status)
 
     @patch("posthog.temporal.common.client.sync_connect")
     def test_signal_agent_turn_completed_marks_agent_ready(self, mock_connect):
