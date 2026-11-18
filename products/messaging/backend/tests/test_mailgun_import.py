@@ -1,6 +1,8 @@
 import base64
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import quote
+from uuid import uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -17,7 +19,9 @@ from products.messaging.backend.models.message_preferences import (
     MessageRecipientPreference,
 )
 from products.messaging.backend.models.message_suppression import MessageSuppression, SuppressionSource
+from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.provider_import_run import ProviderImportRun
+from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
 from products.messaging.backend.provider_imports import runs
 from products.messaging.backend.provider_imports.base import ImportCredentialsInvalid, ImportProviderUnavailable
 from products.messaging.backend.provider_imports.mailgun import COMPLAINT_REASON_PREFIX, MailgunImportProvider
@@ -196,6 +200,72 @@ class TestMailgunImport(BaseTest):
         assert next(call for call in member_calls if "acme" in call["path"])["on_behalf_of"] == "sub-acme"
         assert run.progress["mailing_lists"]["counts"]["members"] == 4
 
+    def test_a_key_a_code_email_sends_under_is_left_to_it(self) -> None:
+        TransactionalEmailKey.objects.for_team(self.team.id).create(team=self.team, key="welcome", hog_flow_id=uuid4())
+
+        self._run(["templates"])
+
+        assert not MessageTemplate.objects.filter(team_id=self.team.id, key="welcome").exists()
+
+    def test_templates_keep_their_scope_and_never_send_on_their_own(self) -> None:
+        run = self._run(["templates"])
+
+        templates = {row.key: row for row in MessageTemplate.objects.filter(team_id=self.team.id)}
+        assert set(templates) >= {"welcome", "mg-example-com-5b21c8439f-welcome", "eu-welcome"}
+        assert all(row.transactional_hog_flow_id is None for row in templates.values())
+        assert templates["welcome"].content["email"]["subject"] == "Welcome {{ variables.name }}"
+        assert templates["welcome"].content["email"]["replyTo"] == '{{ "{{" }}help}}@mg.example.com'
+        assert "{{ variables.city | raw }}" in templates["welcome"].content["email"]["html"]
+        assert "{{ unsubscribe_url }}" in templates["welcome"].content["email"]["html"]
+        assert templates["welcome"].content["email"]["design"]["body"]["rows"]
+        assert "Hi {{ variables.Name }}" in templates["mg-example-com-5b21c8439f-welcome"].content["email"]["html"]
+        assert "Hallo" in templates["eu-welcome"].content["email"]["html"]
+        assert not any("Old hello" in row.content["email"]["html"] for row in templates.values())
+
+        items = {item["label"]: item for item in run.progress["templates"]["items"]}
+        assert any("Still in Mailgun: v1" in note for note in items["welcome"]["notes"])
+        assert any("Go templates" in note for note in items["welcome (mg.example.com)"]["notes"])
+        unicode_item = items["reçu 🧾 mensuel (mg.example.com)"]
+        assert any("{{lookup a b}}" in note for note in unicode_item["notes"])
+        assert any("MJML" in note for note in unicode_item["notes"])
+        assert items["empty.template"]["status"] == "skipped"
+        assert run.progress["templates"]["counts"]["no_content"] == 1
+
+    def test_every_version_imports_when_asked(self) -> None:
+        self._run(["templates"], region="us", template_versions="all")
+
+        old = MessageTemplate.objects.get(team_id=self.team.id, key="welcome-version-v1")
+        assert "Old hello" in old.content["email"]["html"]
+        assert "Hello" in MessageTemplate.objects.get(team_id=self.team.id, key="welcome").content["email"]["html"]
+        list_calls = [call for call in self.mailgun.calls if call["path"].endswith("/templates")]
+        assert list_calls and all(call["query"]["limit"] == "10" for call in list_calls)
+
+    def test_a_version_mailgun_lost_skips_only_that_version(self) -> None:
+        self.mailgun.failures = [Failure(r"/v4/templates/welcome/versions/v1$", 404)]
+
+        run = self._run(["templates"], region="us", template_versions="all")
+
+        assert not MessageTemplate.objects.filter(team_id=self.team.id, key="welcome-version-v1").exists()
+        active = MessageTemplate.objects.get(team_id=self.team.id, key="welcome")
+        assert "Hello" in active.content["email"]["html"]
+        items = {item["label"]: item for item in run.progress["templates"]["items"]}
+        assert any("couldn't find the versions v1" in note for note in items["welcome"]["notes"])
+
+    def test_templates_from_domains_with_similar_names_both_import(self) -> None:
+        us = self.mailgun.data["us"]
+        welcome = us["domain_templates"]["mg.example.com"][0]
+        for index, name in enumerate(("a.b.example.com", "a-b.example.com")):
+            us["domains"].append({**us["domains"][0], "name": name, "id": f"similar-{index}"})
+            us["domain_templates"][name] = [
+                {**welcome, "versions": [{**welcome["versions"][0], "template": f"<p>From {name}</p>"}]}
+            ]
+
+        self._run(["templates"], region="us")
+
+        html = {row.key: row.content["email"]["html"] for row in MessageTemplate.objects.filter(team_id=self.team.id)}
+        assert html["a-b-example-com-532e2dc4fb-welcome"] == "<p>From a.b.example.com</p>"
+        assert html["a-b-example-com-68d7a9476c-welcome"] == "<p>From a-b.example.com</p>"
+
     def test_every_request_is_a_documented_read_with_basic_auth(self) -> None:
         self._run(region="both")
 
@@ -258,10 +328,16 @@ class TestMailgunImport(BaseTest):
             self._start(ALL_STEPS, "both", EMPTY_KEY)
         assert not ProviderImportRun.objects.for_team(self.team.id).exists()
 
+    def test_both_regions_say_which_one_has_no_domains(self) -> None:
+        run = self._run(["bounces", "domains"], region="both", key=EU_ONLY_KEY)
+
+        assert run.status == "completed"
+        assert "no domains in the US region" in run.progress["domains"]["warnings"][0]
+
     @parameterized.expand(
         [
             ("wrong_key", "nope", ALL_STEPS, "rejected this API key"),
-            ("analyst_for_suppressions", ANALYST_KEY, ["bounces"], "can't read bounces"),
+            ("analyst_for_suppressions", ANALYST_KEY, ["templates", "bounces"], "can't read bounces"),
         ]
     )
     def test_a_key_with_too_little_access_stops_before_any_run(
@@ -270,6 +346,11 @@ class TestMailgunImport(BaseTest):
         with self.assertRaisesRegex(ImportCredentialsInvalid, message):
             self._start(steps, "us", key)
         assert not ProviderImportRun.objects.for_team(self.team.id).exists()
+
+    def test_an_analyst_key_can_still_import_what_it_can_read(self) -> None:
+        run = self._run(["templates", "domains"], region="us", key=ANALYST_KEY)
+
+        assert run.status == "completed"
 
     @parameterized.expand(
         [
@@ -377,23 +458,64 @@ class TestMailgunImport(BaseTest):
         assert first.status == "completed"
 
         remove_suppressions(self.team.id, ["both@example.com"], confirm_complaints=False)
+        MessageTemplate.objects.filter(team_id=self.team.id, key="welcome").update(name="Edited here")
+        MessageTemplate.objects.filter(team_id=self.team.id, key="eu-welcome").update(deleted=True)
         MessageCategory.objects.filter(team_id=self.team.id, name="Developers").update(name="Renamed")
         MessageRecipientPreference.objects.filter(team_id=self.team.id, identifier="no-tags@example.com").update(
             preferences={ALL_MESSAGE_PREFERENCE_CATEGORY_ID: "OPTED_IN"}
         )
+        template_count = MessageTemplate.objects.filter(team_id=self.team.id).count()
 
         second = self._run()
 
         assert second.status == "completed"
         assert "both@example.com" not in self._suppressions()
+        assert MessageTemplate.objects.get(team_id=self.team.id, key="welcome").name == "Edited here"
+        assert MessageTemplate.objects.get(team_id=self.team.id, key="eu-welcome").deleted is True
+        assert MessageTemplate.objects.filter(team_id=self.team.id).count() == template_count
         assert MessageCategory.objects.filter(team_id=self.team.id, name="Renamed").exists()
         assert self._preferences()["no-tags@example.com"] == {ALL_MESSAGE_PREFERENCE_CATEGORY_ID: "OPTED_IN"}
+        assert second.progress["templates"]["counts"].get("created", 0) == 0
         assert second.progress["bounces"]["counts"]["bounced"] == 0
         for step in ("unsubscribes", "mailing_lists"):
             assert second.progress[step]["counts"]["opted_out"] == 0
             assert (
                 second.progress[step]["counts"]["already_opted_out"] == first.progress[step]["counts"]["opted_out"] > 0
             )
+
+    def test_domains_list_their_records_and_what_breaks(self) -> None:
+        run = self._run(["domains"])
+
+        items = {item["label"]: item for item in run.progress["domains"]["items"]}
+        assert set(items) == {
+            "mg.example.com",
+            "news.example.com",
+            "sandbox123.mailgun.example.com",
+            "acme.example.com",
+            "eu.example.com",
+        }
+        assert any("TXT mx._domainkey.mg.example.com" in note for note in items["mg.example.com"]["notes"])
+        assert not any("unsubscribe footer" in note for note in items["mg.example.com"]["notes"])
+        assert any("unsubscribe footer" in note for note in items["news.example.com"]["notes"])
+        assert any("feedback subdomain" in note for note in items["news.example.com"]["notes"])
+        assert any("unverified" in note for note in items["news.example.com"]["notes"])
+        assert any("sandbox" in note for note in items["sandbox123.mailgun.example.com"]["notes"])
+        assert any("EU" in note for note in items["eu.example.com"]["notes"])
+        assert run.progress["domains"]["counts"] == {"needs_setup": 4, "sandbox": 1}
+
+    def test_names_with_slashes_and_unicode_stay_inside_their_path(self) -> None:
+        self.mailgun.data["us"]["account_templates"][""].append(
+            {
+                "name": "a/b?c#d",
+                "id": "x",
+                "versions": [{"tag": "v/1", "active": True, "headers": {"Subject": "S"}, "template": "<p>x</p>"}],
+            }
+        )
+        self._run(["templates"], region="us", template_versions="all")
+
+        name = quote("a/b?c#d", safe="")
+        assert any(call["path"] == f"/v4/templates/{name}" for call in self.mailgun.calls)
+        assert MessageTemplate.objects.filter(team_id=self.team.id, name="a/b?c#d").exists()
 
 
 class TestMailgunSettings(SimpleTestCase):
@@ -402,6 +524,7 @@ class TestMailgunSettings(SimpleTestCase):
             ("region_missing", {}, "Choose a value for Mailgun region"),
             ("region_wrong", {"region": "mars"}, "isn't a valid value"),
             ("unknown_setting", {"region": "us", "color": "red"}, "no setting named color"),
+            ("versions_wrong", {"region": "us", "template_versions": "some"}, "isn't a valid value"),
         ]
     )
     def test_settings_are_checked_before_the_key_goes_anywhere(self, _name: str, settings: dict, message: str) -> None:

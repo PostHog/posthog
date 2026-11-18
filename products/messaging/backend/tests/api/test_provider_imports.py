@@ -210,7 +210,7 @@ class TestProviderImportFlag(APIBaseTest):
         mailgun = next(row for row in self.client.get(f"{url}providers/").json() if row["key"] == "mailgun")
         response = self.client.post(url, body)
 
-        assert [setting["key"] for setting in mailgun["settings"]] == ["region"]
+        assert [setting["key"] for setting in mailgun["settings"]] == ["region", "template_versions"]
         assert any("names on the email preferences page" in step for step in mailgun["next_steps"])
         assert response.status_code == 400
         assert "Mailgun region" in response.json()["detail"]

@@ -1,25 +1,29 @@
-"""Imports suppressions and mailing list opt-outs from Mailgun.
+"""Imports suppressions, mailing list opt-outs, templates and the domain list from Mailgun.
 
-Mailgun keeps suppressions and mailing lists per region and mostly per domain, while PostHog keeps them per team. So
-every step walks a sorted list of targets (a domain or a list) and its checkpoint names the target and the page inside
-it. Merging domains can only block more email than Mailgun does, never less.
+Mailgun keeps suppressions, mailing lists and templates per region and mostly per domain, while PostHog keeps them per
+team. So every step walks a sorted list of targets (a domain, a list, or an account's templates) and its checkpoint
+names the target and the page inside it. Merging domains can only block more email than Mailgun does, never less.
 
 Mailgun's API has no automations, so nothing here makes a workflow. People never move: list steps read only who left.
 """
 
+import re
 import hashlib
+from collections import Counter
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import field
 from datetime import datetime
-from email.utils import parsedate_to_datetime
+from email.utils import parseaddr, parsedate_to_datetime
 from functools import partial
 from typing import Any
 
 from posthog.dataclasses import frozen
+from posthog.integrations import IntegrationManager, IntegrationRecord
 
 from products.messaging.backend.models.message_preferences import ALL_MESSAGE_PREFERENCE_CATEGORY_ID
 from products.messaging.backend.models.message_suppression import SuppressionSource
+from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.provider_import_run import ImportProviderKey
 from products.messaging.backend.provider_imports.base import (
     ImportContext,
@@ -38,9 +42,13 @@ from products.messaging.backend.provider_imports.base import (
     UnknownImportStep,
 )
 from products.messaging.backend.provider_imports.emails import exact_email, normalized_email
+from products.messaging.backend.provider_imports.imported_senders import apply_sender
+from products.messaging.backend.provider_imports.liquid_text import literal_liquid
+from products.messaging.backend.provider_imports.mailgun_templates import ConvertedVersion, convert_version
 from products.messaging.backend.services.imported_data import (
     ImportedCategory,
     ImportedSuppression,
+    code_email_keys,
     import_categories,
     import_opt_outs,
     import_suppressions,
@@ -56,6 +64,7 @@ from products.messaging.backend.services.mailgun_client import (
     MailgunRegion,
     quoted,
 )
+from products.messaging.backend.services.message_templates import create_template, with_editor_design
 
 # The key check runs on the request path, so it gets a short timeout and doesn't wait out a rate limit.
 CREDENTIAL_CHECK_TIMEOUT_SECONDS = 10
@@ -77,11 +86,21 @@ NO_DOMAINS_MESSAGE = (
     "Mailgun has no domains for this key in the {regions} region. Everything PostHog imports belongs to a domain, so "
     "nothing would come across. Check which region your domains are in on Mailgun's domains page and choose it."
 )
+IMPORT_TAG = "imported-from-mailgun"
 COMPLAINT_REASON_PREFIX = "Imported from Mailgun (spam complaint on "
 REGION_SETTING = "region"
+VERSIONS_SETTING = "template_versions"
 ALL_REGIONS = "both"
+ALL_VERSIONS = "all"
+ACTIVE_VERSION = "active"
 ALL_TAGS = "*"
+# The label PostHog uses for a sender's MAIL FROM subdomain unless the person picks another.
+MAIL_FROM_DEFAULT = "feedback"
+TEMPLATE_KEY_MAX_LENGTH = 400
+VERSIONED_TEMPLATE_PAGE_SIZE = 10
+_MAX_KEY_NAME_LENGTH = 150
 CATEGORY_KEY_MAX_LENGTH = 64
+_UNSAFE_IN_KEY = re.compile(r"[^A-Za-z0-9_-]+")
 _MAX_NOTED_ITEMS = 5
 _STEPS_NEEDING_SUPPRESSION_ROLE = {step: step for step in ("bounces", "complaints", "unsubscribes")}
 
@@ -133,6 +152,11 @@ class MailgunImportProvider(ImportProvider):
     next_steps = (
         "Add each sending domain in PostHog and publish its DNS records. PostHog signs mail with its own keys, so "
         "this needs new records. Leave your Mailgun records in place while you move.",
+        "Open each template with notes and fix what they mention, then send yourself a test.",
+        "Mailgun automatically adds an unsubscribe footer on some domains, and PostHog doesn't. Add an unsubscribe "
+        "link to marketing templates if the domain list mentions this.",
+        "Make a template transactional and change your app to send it through PostHog. Pass the values Mailgun took "
+        "from t:variables and recipient-variables as variables. Start with a low-risk email.",
         "Recipients see the imported list and tag names on the email preferences page. Rename any you don't want "
         "them to see.",
         "If you send a lot of email, move it over several days. Mailbox providers slow down mail from a sender "
@@ -152,6 +176,19 @@ class MailgunImportProvider(ImportProvider):
                 ImportSettingChoice(value=MailgunRegion.EU.value, label="EU (api.eu.mailgun.net)"),
                 ImportSettingChoice(value=ALL_REGIONS, label="Both US and EU"),
             ),
+        ),
+        ImportSettingSpec(
+            key=VERSIONS_SETTING,
+            label="Template versions",
+            help=(
+                "Mailgun sends a template's active version unless a send names another. Import the rest if your app "
+                "names a version when it sends."
+            ),
+            choices=(
+                ImportSettingChoice(value=ACTIVE_VERSION, label="Active version only"),
+                ImportSettingChoice(value=ALL_VERSIONS, label="Every version, each as its own template"),
+            ),
+            default=ACTIVE_VERSION,
         ),
     )
     steps = (
@@ -225,6 +262,37 @@ class MailgunImportProvider(ImportProvider):
                 ("missing_lists", "Lists Mailgun couldn't find, skipped"),
             ),
         ),
+        ImportStepSpec(
+            key="templates",
+            label="Templates",
+            description=(
+                "Copies account and domain templates into your PostHog library, converted to Liquid, and notes "
+                "anything to review. Templates you already have here stay as they are, and none of them send on "
+                "their own."
+            ),
+            count_labels=(
+                ("created", "New templates"),
+                ("needs_review", "New templates to review"),
+                ("already_present", "Already in PostHog, left as they are"),
+                ("no_content", "Skipped because they have no content"),
+                ("missing", "Mailgun couldn't find these, skipped"),
+                ("missing_domains", "Domains Mailgun couldn't find, skipped"),
+            ),
+        ),
+        ImportStepSpec(
+            key="domains",
+            label="Sending domains",
+            description=(
+                "Lists your Mailgun domains, their DNS records, and which of them can already send from PostHog. "
+                "Domains can't be copied, because PostHog signs mail with its own keys."
+            ),
+            count_labels=(
+                ("ready", "Ready to send from PostHog"),
+                ("needs_setup", "Need new DNS records"),
+                ("sandbox", "Mailgun sandbox domains, not for PostHog"),
+                ("missing_domains", "Domains Mailgun couldn't find, skipped"),
+            ),
+        ),
     )
 
     def check_credentials(
@@ -270,6 +338,10 @@ class MailgunImportProvider(ImportProvider):
                     yield from _fetch_suppression_list(clients, context, checkpoint, "whitelists", _save_allowlist)
                 case "mailing_lists":
                     yield from _fetch_mailing_lists(clients, context, checkpoint)
+                case "templates":
+                    yield from _fetch_templates(clients, context, checkpoint)
+                case "domains":
+                    yield from _fetch_domains(clients, context, checkpoint)
                 case _:
                     raise UnknownImportStep(f"Mailgun has no import step named {step}.")
 
@@ -391,8 +463,18 @@ def _timestamp(value: Any) -> datetime | None:
         return None
 
 
+def _as_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
 def _clean(value: Any) -> str:
     return str(value or "").replace("\x00", "")
+
+
+def _as_sentence(value: Any) -> str:
+    # Notes follow in the same paragraph, so a description without end punctuation would run into them.
+    text = _clean(value).strip()
+    return text if not text or text[-1] in ".!?" else f"{text}."
 
 
 def _fetch_suppression_list(
@@ -634,3 +716,370 @@ def _save_list_members(context: ImportContext, target: _Target, items: list[dict
             ),
         )
     return SavedPage(imported=changed, counts=counts, items=items_out)
+
+
+def _template_owner_targets(clients: Mapping[MailgunRegion, MailgunClient], all_versions: bool) -> list[_Target]:
+    # A page holds every version's content until it saves, so pages are smaller when every version imports.
+    params = {"limit": VERSIONED_TEMPLATE_PAGE_SIZE if all_versions else TEMPLATE_PAGE_SIZE}
+    # An empty name sorts first, so account templates run before any domain's.
+    account = [
+        _Target(region=region, owner=owner, name="", path="/v4/templates", params=params)
+        for region, client in clients.items()
+        for owner in _owners(client)
+    ]
+    return [*account, *_domain_targets(clients, "templates", params)]
+
+
+def _fetch_templates(
+    clients: Mapping[MailgunRegion, MailgunClient], context: ImportContext, checkpoint: StepCheckpoint | None
+) -> Iterator[ImportPage]:
+    all_versions = context.settings.get(VERSIONS_SETTING) == ALL_VERSIONS
+    yield from _read_targets(
+        clients,
+        _template_owner_targets(clients, all_versions),
+        checkpoint,
+        partial(_read_template_versions, all_versions=all_versions),
+        partial(_save_templates, context),
+        _missing_domain,
+    )
+
+
+def _read_template_versions(
+    client: MailgunClient, target: _Target, items: list[dict[str, Any]], *, all_versions: bool
+) -> list[dict[str, Any]]:
+    # The list has no content, so each template costs more requests.
+    templates: list[dict[str, Any]] = []
+    for item in items:
+        name = str(item.get("name") or "")
+        path = f"{target.path}/{quoted(name)}"
+        try:
+            body = client.get(path, {"active": "yes"}, target.on_behalf_of)
+            versions = client.versions(path, target.on_behalf_of)
+            detail = _as_dict(body.get("template"))
+            active = _as_dict(detail.get("version")) or None
+            selected: list[dict[str, Any]] = [active] if active else []
+            missing_versions: list[str] = []
+            if all_versions:
+                active_tag = active.get("tag") if active else None
+                for version in versions:
+                    if version.get("tag") and version.get("tag") != active_tag:
+                        try:
+                            selected.append(_read_version(client, path, version, target))
+                        except MailgunNotFound:
+                            missing_versions.append(str(version["tag"]))
+            templates.append(
+                {
+                    **item,
+                    **detail,
+                    "selected": selected,
+                    "version_tags": [v.get("tag") for v in versions],
+                    "missing_versions": missing_versions,
+                }
+            )
+        except MailgunNotFound:
+            templates.append({**item, "missing": True})
+    return templates
+
+
+def _read_version(client: MailgunClient, path: str, version: dict[str, Any], target: _Target) -> dict[str, Any]:
+    body = client.get(f"{path}/versions/{quoted(str(version['tag']))}", None, target.on_behalf_of)
+    template = _as_dict(body.get("template"))
+    detail = _as_dict(template.get("version")) or None
+    return detail or version
+
+
+def _template_key(target: _Target, name: str, version_tag: str | None) -> str:
+    """Stable across imports, so a rerun finds what it made. Mailgun names repeat across domains and regions and can
+    hold characters a key can't, so a name or domain that lost characters also carries a hash of the original."""
+    scope = [part for part in ("eu" if target.region == MailgunRegion.EU else "", target.owner, target.name) if part]
+    return "-".join(
+        [
+            *(_hashed_key_part(part) for part in scope),
+            _hashed_key_part(name),
+            *(["version", _hashed_key_part(version_tag)] if version_tag else []),
+        ]
+    )[:TEMPLATE_KEY_MAX_LENGTH]
+
+
+def _key_part(value: str) -> str:
+    return _UNSAFE_IN_KEY.sub("-", value).strip("-")
+
+
+def _hashed_key_part(value: str) -> str:
+    safe = _key_part(value)
+    if safe == value and len(safe) <= _MAX_KEY_NAME_LENGTH:
+        return safe
+    digest = hashlib.sha256(value.encode()).hexdigest()[:10]
+    return f"{safe[:_MAX_KEY_NAME_LENGTH]}-{digest}".lstrip("-")
+
+
+def _template_label(target: _Target, name: str, version_tag: str | None) -> str:
+    place = target.name or ("EU account" if target.region == MailgunRegion.EU else "")
+    suffix = f" (version {version_tag})" if version_tag else ""
+    return f"{name} ({place}){suffix}"[:400] if place else f"{name}{suffix}"[:400]
+
+
+def _save_templates(
+    context: ImportContext, target: _Target, templates: list[dict[str, Any]], _first: bool
+) -> SavedPage:
+    senders = _senders(context.team_id)
+    keys = [
+        _template_key(target, _clean(template.get("name")), _version_suffix(template, version))
+        for template in templates
+        for version in template.get("selected", [])
+    ]
+    # A deleted template counts too: importing again must not bring back one someone deleted.
+    taken = set(
+        MessageTemplate.objects.filter(team_id=context.team_id, key__in=keys).values_list("key", flat=True)
+    ) | code_email_keys(context.team_id, keys)
+    items: list[ImportItem] = []
+    counts: Counter[str] = Counter()
+    for template in templates:
+        name = _clean(template.get("name"))
+        if template.get("missing"):
+            counts["missing"] += 1
+            items.append(ImportItem(label=name, status="failed", notes=("Mailgun couldn't find this template.",)))
+            continue
+        selected = template.get("selected", [])
+        if not selected:
+            counts["no_content"] += 1
+            items.append(ImportItem(label=name, status="skipped", notes=("This template has no active version.",)))
+            continue
+        for version in selected:
+            version_tag = _version_suffix(template, version)
+            key = _template_key(target, name, version_tag)
+            label = _template_label(target, name, version_tag)
+            if key in taken:
+                counts["already_present"] += 1
+                items.append(
+                    ImportItem(
+                        label=label,
+                        status="skipped",
+                        notes=(
+                            f"A template with the key {key} is already in PostHog, or was deleted there, so it stays as it is.",
+                        ),
+                    )
+                )
+                continue
+            taken.add(key)
+            converted = convert_version(version)
+            if not converted.has_content:
+                counts["no_content"] += 1
+                items.append(
+                    ImportItem(
+                        label=label,
+                        status="skipped",
+                        notes=("This version has no HTML. If it's written in MJML, export the HTML from Mailgun.",),
+                    )
+                )
+                continue
+            email, sender_notes = _email_content(version, converted, senders, target)
+            notes = (
+                *converted.notes,
+                *converted.send_notes,
+                *sender_notes,
+                *_other_versions_note(template, version),
+                *_missing_versions_note(template, version),
+            )
+            created = create_template(
+                context.team_id,
+                context.created_by_id,
+                {
+                    "name": label,
+                    "key": key,
+                    "description": " ".join(
+                        part
+                        for part in ("Imported from Mailgun.", _as_sentence(template.get("description")), *notes)
+                        if part
+                    ),
+                    "type": "email",
+                    "content": {"templating": "liquid", "email": email},
+                    "tags": [IMPORT_TAG],
+                },
+            )
+            counts["needs_review" if notes else "created"] += 1
+            items.append(
+                ImportItem(label=label, status="created", url=f"/workflows/library/templates/{created.id}", notes=notes)
+            )
+    return SavedPage(imported=counts["created"] + counts["needs_review"], counts=dict(counts), items=tuple(items))
+
+
+def _version_suffix(template: dict[str, Any], version: dict[str, Any]) -> str | None:
+    # The active version keeps the plain key, because that's what a send without a version gets.
+    return None if version.get("active") or len(template.get("selected", [])) == 1 else _clean(version.get("tag"))
+
+
+def _other_versions_note(template: dict[str, Any], version: dict[str, Any]) -> tuple[str, ...]:
+    tags = [_clean(tag) for tag in template.get("version_tags") or [] if tag]
+    others = [tag for tag in tags if tag != version.get("tag")]
+    if not others or len(template.get("selected", [])) > 1:
+        return ()
+    shown = ", ".join(others[:_MAX_NOTED_ITEMS])
+    more = f" and {len(others) - _MAX_NOTED_ITEMS} more" if len(others) > _MAX_NOTED_ITEMS else ""
+    return (f"PostHog imported the active version, {version.get('tag')}. Still in Mailgun: {shown}{more}.",)
+
+
+def _missing_versions_note(template: dict[str, Any], version: dict[str, Any]) -> tuple[str, ...]:
+    missing = template.get("missing_versions") or []
+    selected = template.get("selected") or []
+    if not missing or version is not selected[0]:
+        return ()
+    shown = ", ".join(_clean(tag) for tag in missing[:_MAX_NOTED_ITEMS])
+    more = f" and {len(missing) - _MAX_NOTED_ITEMS} more" if len(missing) > _MAX_NOTED_ITEMS else ""
+    return (f"Mailgun couldn't find the versions {shown}{more}, so they didn't import. Import again.",)
+
+
+def _senders(team_id: int) -> dict[str, IntegrationRecord]:
+    return {
+        str(sender.config.get("email", "")).lower(): sender
+        for sender in IntegrationManager.email.credentials.list(team_id)
+    }
+
+
+def _email_content(
+    version: Mapping[str, Any], converted: ConvertedVersion, senders: Mapping[str, IntegrationRecord], target: _Target
+) -> tuple[dict[str, Any], tuple[str, ...]]:
+    email: dict[str, Any] = with_editor_design({"subject": converted.subject, "html": converted.html})
+    headers = _as_dict(version.get("headers"))
+    by_name = {str(key).lower(): value for key, value in headers.items()}
+    if reply_to := by_name.get("reply-to"):
+        email["replyTo"] = literal_liquid(_clean(reply_to))
+    display_name, address = parseaddr(_clean(by_name.get("from")))
+    if not address:
+        fallback = f"postmaster@{target.name}" if target.name else "postmaster at your sending domain"
+        return email, (f"This template has no From header, so Mailgun sent it from {fallback}. Choose a sender.",)
+    return email, apply_sender(email, display_name, address, senders)
+
+
+def _fetch_domains(
+    clients: Mapping[MailgunRegion, MailgunClient], context: ImportContext, checkpoint: StepCheckpoint | None
+) -> Iterator[ImportPage]:
+    empty_regions = []
+    targets: list[_Target] = []
+    for region, client in clients.items():
+        region_targets = _domain_targets({region: client}, "")
+        targets.extend(region_targets)
+        if not region_targets:
+            empty_regions.append(region)
+    if empty_regions and not checkpoint:
+        warnings = tuple(
+            f"Mailgun has no domains in the {region.value.upper()} region for this key. If your domains are in the "
+            "other region, import again and choose it."
+            for region in empty_regions
+        )
+        first = sorted(targets, key=lambda target: target.position)[0] if targets else None
+        yield ImportPage(
+            processed=0,
+            save=lambda: SavedPage(imported=0, warnings=warnings),
+            checkpoint=_position(first) if first else None,
+        )
+    remaining, _ = _remaining_targets(targets, checkpoint)
+    if not remaining:
+        if not empty_regions or checkpoint:
+            yield ImportPage(processed=0, save=lambda: SavedPage(imported=0))
+        return
+    for index, target in enumerate(remaining):
+        following = remaining[index + 1] if index + 1 < len(remaining) else None
+        client = clients[target.region]
+        try:
+            detail = client.get(f"/v4/domains/{quoted(target.name)}", None, target.on_behalf_of)
+        except MailgunNotFound:
+            yield ImportPage(
+                processed=1,
+                save=partial(_missing_domain, target),
+                checkpoint=_position(following) if following else None,
+            )
+            continue
+        tracking = _read_tracking(client, target)
+        yield ImportPage(
+            processed=1,
+            save=partial(_save_domain, context, target, detail, tracking),
+            checkpoint=_position(following) if following else None,
+        )
+
+
+def _read_tracking(client: MailgunClient, target: _Target) -> dict[str, Any]:
+    try:
+        body = client.get(f"/v3/domains/{quoted(target.name)}/tracking", None, target.on_behalf_of)
+    except MailgunNotFound:
+        return {}
+    tracking = body.get("tracking")
+    return tracking if isinstance(tracking, dict) else {}
+
+
+def _save_domain(
+    context: ImportContext, target: _Target, detail: dict[str, Any], tracking: dict[str, Any]
+) -> SavedPage:
+    domain = _as_dict(detail.get("domain")) or target.details
+    senders = [
+        sender
+        for sender in IntegrationManager.email.credentials.list(context.team_id)
+        if str(sender.config.get("domain", "")).lower() == target.name.lower()
+    ]
+    ready = any(sender.config.get("verified") for sender in senders)
+    is_sandbox = domain.get("type") == "sandbox"
+    notes: list[str] = [f"Mailgun region: {target.region.value.upper()}."]
+    if is_sandbox:
+        notes.append("This is a Mailgun sandbox domain. It can't send from PostHog.")
+    elif not ready:
+        notes.append(
+            "Waiting for DNS. Check the records on this domain's page."
+            if senders
+            else "Add this domain in PostHog to get its DNS records."
+        )
+    if domain.get("is_disabled") or isinstance(domain.get("disabled"), dict):
+        notes.append("Mailgun has disabled this domain.")
+    if domain.get("state") and domain.get("state") != "active":
+        notes.append(f"Mailgun lists this domain as {_clean(domain.get('state'))}.")
+    if target.owner:
+        notes.append(f"It belongs to the Mailgun subaccount {target.owner}.")
+    records = [*(detail.get("sending_dns_records") or []), *(detail.get("receiving_dns_records") or [])]
+    if _uses_mail_from_label(records, MAIL_FROM_DEFAULT):
+        notes.append(
+            f"Mailgun already uses the {MAIL_FROM_DEFAULT} subdomain here. Choose a different MAIL FROM subdomain in "
+            "PostHog, or both tools will share one MX record and one of them will break."
+        )
+    if described := _describe_records(records):
+        notes.append(f"Mailgun DNS records to remove after you move: {described}.")
+    if _adds_unsubscribe_footer(tracking):
+        notes.append(
+            "Mailgun adds an unsubscribe footer to mail from this domain. PostHog doesn't, so add an unsubscribe link "
+            "to its marketing templates."
+        )
+    counts = {"sandbox" if is_sandbox else "ready" if ready else "needs_setup": 1}
+    return SavedPage(
+        imported=0,
+        counts=counts,
+        items=(
+            ImportItem(
+                label=target.name,
+                status="listed",
+                url=f"/workflows/channels/email/{senders[0].id}" if senders else "/workflows/channels",
+                notes=tuple(notes),
+            ),
+        ),
+    )
+
+
+def _uses_mail_from_label(records: list[Any], label: str) -> bool:
+    return any(
+        isinstance(record, dict)
+        and str(record.get("record_type", "")).upper() == "MX"
+        and str(record.get("name", "")).split(".")[0].lower() == label
+        for record in records
+    )
+
+
+def _describe_records(records: list[Any]) -> str:
+    return "; ".join(
+        f"{_clean(record.get('record_type'))} {_clean(record.get('name') or '(domain)')}"
+        for record in records
+        if isinstance(record, dict)
+    )
+
+
+def _adds_unsubscribe_footer(tracking: dict[str, Any]) -> bool:
+    unsubscribe = tracking.get("unsubscribe")
+    if not isinstance(unsubscribe, dict) or not unsubscribe.get("active"):
+        return False
+    return any(unsubscribe.get(footer) not in (None, "", "off") for footer in ("html_footer", "text_footer"))
