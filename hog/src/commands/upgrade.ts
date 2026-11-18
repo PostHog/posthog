@@ -275,7 +275,7 @@ export default defineCommand({
                         result.method === 'npx'
                             ? `This copy is in a package runner's cache at ${path}. Run ${command} to use the latest version.`
                             : result.method === 'project'
-                              ? `This copy is a dependency of ${escapeControls(result.project ?? '')}. Update @posthog/hog in its package.json.`
+                              ? `This copy is a dependency of ${escapeControls(result.project ?? '')}. Update the hog dependency in its package.json.`
                               : 'This copy runs from source. Pull the latest changes instead.',
                     ],
                 })

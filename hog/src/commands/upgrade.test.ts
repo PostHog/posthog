@@ -199,11 +199,11 @@ describe('setup on an outdated hog', () => {
     test.each([
         ['a standalone binary', '/usr/local/bin/hog', 'Run `hog upgrade`, then run `hog setup` again.'],
         ['Homebrew', '/opt/homebrew/Cellar/hog/0.1.0/bin/hog', 'Run `brew upgrade hog`, then run `hog setup` again.'],
-        ['npm', NPM_PATH, 'Run `npm install -g @posthog/hog@latest`, then run `hog setup` again.'],
+        ['npm', NPM_PATH, 'Run `npm install -g hog@latest`, then run `hog setup` again.'],
         [
             'npx',
             '/home/test/.npm/_npx/1a2b/node_modules/@posthog/hog-linux-x64/bin/hog',
-            'Run `npx @posthog/hog@latest setup` to use the latest version.',
+            'Run `npx hog@latest setup` to use the latest version.',
         ],
     ])('stops with the command for %s, even one patch behind', async (_name, execPath, hint) => {
         const result = await runHog(['setup'], {
@@ -304,7 +304,7 @@ describe('hog upgrade', () => {
         ],
         ['/home/test/.bun/install/global/node_modules/@posthog/hog-linux-x64/bin/hog', 'bun-global'],
         ['/home/test/.npm/_npx/1a2b/node_modules/@posthog/hog-linux-x64/bin/hog', 'npx'],
-        ['/tmp/bunx-501-@posthog/hog@latest/node_modules/@posthog/hog-linux-x64/bin/hog', 'npx'],
+        ['/tmp/bunx-501-hog@latest/node_modules/@posthog/hog-linux-x64/bin/hog', 'npx'],
         [
             '/work/app/node_modules/.pnpm/@posthog+hog-linux-x64@0.1.0/node_modules/@posthog/hog-linux-x64/bin/hog',
             'project',
