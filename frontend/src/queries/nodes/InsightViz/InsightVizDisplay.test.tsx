@@ -1,12 +1,47 @@
-import { InsightType } from '~/types'
+import '@testing-library/jest-dom'
+
+import { cleanup, screen, waitFor } from '@testing-library/react'
+
+import { ensureJsdom } from '@posthog/quill-charts/testing'
+
+import funnelSteps from '~/mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json'
+import { NodeKind } from '~/queries/schema/schema-general'
+import { buildFunnelsQuery, renderInsight } from '~/test/insight-testing'
+import { FunnelVizType, InsightType } from '~/types'
 
 import { hasResultRows, shouldShowAIAnalysisSection, shouldShowDashboardInsightRefreshHint } from './InsightVizDisplay'
 
 const ALL_INSIGHT_TYPES = Object.values(InsightType) as InsightType[]
+ensureJsdom()
 /** Insight types that use the dashboard refresh hint (excludes web analytics — separate UX). */
 const DASHBOARD_HINT_INSIGHT_TYPES = ALL_INSIGHT_TYPES.filter((t) => t !== InsightType.WEB_ANALYTICS)
 
 describe('InsightVizDisplay', () => {
+    afterEach(cleanup)
+
+    it.each([undefined, false, true])('renders an embedded funnel summary only when opted in (%s)', async (enabled) => {
+        renderInsight({
+            embedded: true,
+            query: buildFunnelsQuery({
+                funnelsFilter: { funnelVizType: FunnelVizType.Steps, showSummaryOnDashboards: enabled },
+            }),
+            mocks: {
+                additionalMockResponses: [
+                    {
+                        match: (query) => query.kind === NodeKind.FunnelsQuery,
+                        response: { results: funnelSteps.result },
+                    },
+                ],
+            },
+        })
+        await waitFor(() => expect(screen.getAllByLabelText(/chart with/i).length).toBeGreaterThan(0))
+        if (enabled) {
+            expect(await screen.findByText('Total conversion')).toBeVisible()
+        } else {
+            expect(screen.queryByText('Total conversion')).not.toBeInTheDocument()
+        }
+    })
+
     it.each([
         ...DASHBOARD_HINT_INSIGHT_TYPES.flatMap((activeView) => [
             {

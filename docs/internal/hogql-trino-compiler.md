@@ -442,6 +442,7 @@ Additional build-oriented mappings cover UTF-8 string aliases, URL encoding,
 array enumeration and predicates, supported hashes and domain extraction, UUID
 conversion, dynamic JSON paths, and scalar tuple membership. Numeric
 and UUID values are aligned with string branches in subqueries and set operations.
+A column that gets such a cast keeps its name, so an outer query can still read it from the set operation.
 Date/time inputs to `toFloat` and `_toUInt64` use Unix epoch conversion rather than
 casts that Trino rejects.
 String rewrites also cover byte-based `locate`, Unicode tokens, subsequences,

@@ -75,8 +75,8 @@ export function AreaExpandedRow({ row }: { row: AreaRow }): JSX.Element {
                     className="mt-2"
                     panels={[
                         {
-                            key: 'routing',
-                            header: 'Routing details',
+                            key: 'details',
+                            header: 'Details',
                             content: (
                                 <Section>
                                     <Field label="Run ID">
@@ -84,7 +84,7 @@ export function AreaExpandedRow({ row }: { row: AreaRow }): JSX.Element {
                                             {run.id.slice(0, 8)}
                                         </CopyToClipboardInline>
                                     </Field>
-                                    <TimeField label="Routed" time={run.created_at} />
+                                    <TimeField label="Checked" time={run.created_at} />
                                     <Field label="Trigger">{run.trigger}</Field>
                                     <Field label="Scope">{run.scope}</Field>
                                     <Field label="Model">{run.model || null}</Field>

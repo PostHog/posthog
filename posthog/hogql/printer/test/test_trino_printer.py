@@ -611,6 +611,10 @@ def test_prints_core_trino_expression_mappings(expression: str, expected: str) -
             'WHERE CAST("x" AS BOOLEAN)',
         ),
         (
+            "WITH u AS (SELECT is_active FROM flagged UNION ALL SELECT 2 AS is_active) SELECT u.is_active FROM u",
+            'CAST("flagged"."is_active" AS BIGINT) AS "is_active"',
+        ),
+        (
             "SELECT properties.color FROM (SELECT properties FROM users)",
             'json_extract_scalar("properties", \'$["color"]\')',
         ),
