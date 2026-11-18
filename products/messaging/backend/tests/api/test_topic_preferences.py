@@ -48,10 +48,8 @@ class TestTopicPreferences(APIBaseTest):
         client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_token}")
         return client
 
-    def _set(self, body: dict[str, Any], client: APIClient | None = None, path: str | None = None):
-        return (client or self.psak).post(
-            path or f"/api/projects/{self.team.id}/messaging/preferences/", body, format="json"
-        )
+    def _set(self, body: dict[str, Any], client: APIClient | None = None):
+        return (client or self.psak).post(f"/api/projects/{self.team.id}/messaging/preferences/", body, format="json")
 
     def _stored(self, identifier: str = "jane@example.com") -> dict[str, str]:
         return MessageRecipientPreference.objects.get(team=self.team, identifier=identifier).preferences
@@ -61,10 +59,19 @@ class TestTopicPreferences(APIBaseTest):
             team=self.team, identifier="jane@example.com", preferences=preferences
         )
 
-    @parameterized.expand([("project_path", None), ("key_scoped_path", "/api/messaging/preferences/")])
-    def test_opts_a_recipient_out_of_one_topic(self, _flag: MagicMock, _name: str, path: str | None) -> None:
+    @parameterized.expand(
+        [
+            ("project_path", "/api/projects/{team_id}/messaging/preferences/"),
+            ("key_scoped_path", "/api/messaging/preferences/"),
+        ]
+    )
+    def test_opts_a_recipient_out_of_one_topic(self, _flag: MagicMock, _name: str, path: str) -> None:
         identifier = " jane@example.com "
-        response = self._set({"identifier": identifier, "topics": {"newsletter": False}}, path=path)
+        response = self.psak.post(
+            path.format(team_id=self.team.id),
+            {"identifier": identifier, "topics": {"newsletter": False}},
+            format="json",
+        )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json() == {

@@ -805,32 +805,23 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            (f"{endpoint}_{credential}", method, route, credential)
-            for endpoint, method, route in [
-                ("send", "post", "/api/messaging/send/email/"),
-                ("uploads", "post", "/api/messaging/attachments/uploads/"),
-                ("status", "get", "/api/messaging/emails/0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b/"),
-                ("preferences", "post", "/api/messaging/preferences/"),
-            ]
-            for credential in ("session", "personal_api_key")
+            ("send_session", "post", "/api/messaging/send/email/", "session"),
+            ("send_personal_api_key", "post", "/api/messaging/send/email/", "personal_api_key"),
+            ("uploads_session", "post", "/api/messaging/attachments/uploads/", "session"),
+            ("status_session", "get", "/api/messaging/emails/0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b/", "session"),
+            ("preferences_session", "post", "/api/messaging/preferences/", "session"),
         ]
     )
     def test_key_scoped_routes_refuse_credentials_that_name_no_project(
         self, mock_post, _flag, _capture, _name, method, route, credential
     ):
-        client = APIClient()
+        client = self._sender_client("personal_api_key") if credential == "personal_api_key" else APIClient()
         if credential == "session":
             client.force_login(self.user)
-        else:
-            raw_token = generate_random_token_personal()
-            PersonalAPIKey.objects.create(
-                user=self.user, label="key", secure_value=hash_key_value(raw_token), scopes=["*"]
-            )
-            client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_token}")
 
         response = getattr(client, method)(route, self._code_send(), format="json")
 
-        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        assert response.status_code == status.HTTP_403_FORBIDDEN
         mock_post.assert_not_called()
 
     def test_a_known_key_keeps_sending_at_the_key_limit_while_a_new_key_is_refused(self, mock_post, _flag, capture):

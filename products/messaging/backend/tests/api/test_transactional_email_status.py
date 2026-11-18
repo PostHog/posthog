@@ -53,9 +53,7 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
         client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_token}")
         return client
 
-    def _url(self, message_id: str, key_scoped: bool = False) -> str:
-        if key_scoped:
-            return f"/api/messaging/emails/{message_id}/"
+    def _url(self, message_id: str) -> str:
         return f"/api/projects/{self.team.id}/messaging/emails/{message_id}/"
 
     def _at(self, seconds: int) -> datetime:
@@ -139,13 +137,18 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
             "reason": reason,
         }
 
-    @parameterized.expand([("project_path", False), ("key_scoped_path", True)])
-    def test_reports_a_keyed_send_whose_id_holds_no_time(self, _flag, _name, key_scoped):
+    @parameterized.expand(
+        [
+            ("project_path", "/api/projects/{team_id}/messaging/emails/{message_id}/"),
+            ("key_scoped_path", "/api/messaging/emails/{message_id}/"),
+        ]
+    )
+    def test_reports_a_keyed_send_whose_id_holds_no_time(self, _flag, _name, path):
         # A keyed send's id is a name-based UUID, so only its stored rows say when it was queued.
         self.message_id = str(uuid5(NAMESPACE_URL, "a-key"))
         self._status_rows([("queued", 0, ""), ("sent", 2, "")])
 
-        response = self.client.get(self._url(self.message_id, key_scoped=key_scoped))
+        response = self.client.get(path.format(team_id=self.team.id, message_id=self.message_id))
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {

@@ -1,11 +1,10 @@
 """The transactional email viewsets at /api/messaging/, with the project taken from the project secret API key."""
 
-from typing import Literal, Optional
+from rest_framework.permissions import BasePermission, IsAuthenticated
+from rest_framework.request import Request
+from rest_framework.views import APIView
 
-from rest_framework.authentication import BaseAuthentication
-
-from posthog.api.documentation import PostHogAutoSchema
-from posthog.auth import ProjectSecretAPIKeyAuthentication
+from posthog.permissions import is_authenticated_via_project_secret_api_key
 
 from products.messaging.backend.presentation.views.attachment_uploads import MessagingAttachmentsViewSet
 from products.messaging.backend.presentation.views.message_templates import MessagingSendViewSet
@@ -13,35 +12,31 @@ from products.messaging.backend.presentation.views.topic_preferences import Topi
 from products.messaging.backend.presentation.views.transactional_email_status import MessagingEmailsViewSet
 
 
-class KeyScopedAutoSchema(PostHogAutoSchema):
-    # Both routes of a view would otherwise derive the same operation id from the path after the project.
-    def get_operation_id(self) -> str:
-        return f"key_scoped_{super().get_operation_id()}"
+# Each view takes its project from the authenticated user, and a project secret API key's user is pinned to the
+# key's project. Any credential that carries a real user would resolve to the project that user last opened, so these
+# views refuse every other credential.
+class ProjectSecretAPIKeyOnly(BasePermission):
+    message = "This endpoint accepts project secret API keys only."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        return is_authenticated_via_project_secret_api_key(request)
 
 
-class KeyScopedViewMixin:
-    # The project comes from the authenticated user, and a project secret API key's user is pinned to the key's
-    # project. Any credential that carries a real user would resolve to the project that user last opened, so these
-    # routes accept project secret API keys and nothing else.
-    param_derived_from_user_current_team: Optional[Literal["team_id", "project_id"]] = "team_id"
-    force_include_in_api_docs = True
-    schema = KeyScopedAutoSchema()
-
-    def get_authenticators(self) -> list[BaseAuthentication]:
-        return [ProjectSecretAPIKeyAuthentication()]
+class KeyScopedMessagingSendViewSet(MessagingSendViewSet):
+    param_derived_from_user_current_team = "team_id"
+    permission_classes = [IsAuthenticated, ProjectSecretAPIKeyOnly]
 
 
-class KeyScopedMessagingSendViewSet(KeyScopedViewMixin, MessagingSendViewSet):
-    pass
+class KeyScopedMessagingAttachmentsViewSet(MessagingAttachmentsViewSet):
+    param_derived_from_user_current_team = "team_id"
+    permission_classes = [IsAuthenticated, ProjectSecretAPIKeyOnly]
 
 
-class KeyScopedMessagingAttachmentsViewSet(KeyScopedViewMixin, MessagingAttachmentsViewSet):
-    pass
+class KeyScopedMessagingEmailsViewSet(MessagingEmailsViewSet):
+    param_derived_from_user_current_team = "team_id"
+    permission_classes = [IsAuthenticated, ProjectSecretAPIKeyOnly]
 
 
-class KeyScopedMessagingEmailsViewSet(KeyScopedViewMixin, MessagingEmailsViewSet):
-    pass
-
-
-class KeyScopedTopicPreferencesViewSet(KeyScopedViewMixin, TopicPreferencesViewSet):
-    pass
+class KeyScopedTopicPreferencesViewSet(TopicPreferencesViewSet):
+    param_derived_from_user_current_team = "team_id"
+    permission_classes = [IsAuthenticated, ProjectSecretAPIKeyOnly]
