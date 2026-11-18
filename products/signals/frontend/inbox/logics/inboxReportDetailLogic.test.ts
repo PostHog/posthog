@@ -344,7 +344,8 @@ describe('inboxReportDetailLogic', () => {
             expect(logic.values.expandedTaskIds).toEqual([])
         })
 
-        it('saves the priority and ignores another edit while the request is in flight', async () => {
+        it('saves the priority, records the change, and ignores another edit while the request is in flight', async () => {
+            const capture = jest.spyOn(posthog, 'capture')
             let completeSave: () => void = () => {}
             const pendingSave = new Promise<void>((resolve) => {
                 completeSave = resolve
@@ -367,6 +368,22 @@ describe('inboxReportDetailLogic', () => {
             logic.actions.updatePriority('P2')
             await expectLogic(logic).toFinishAllListeners()
             expect(save).toHaveBeenCalledTimes(1)
+            const decisionEvents = capture.mock.calls.filter(
+                ([event]) => event === INBOX_EVENTS.REPORT_DECISION_CHANGED
+            )
+            expect(decisionEvents).toEqual([
+                [
+                    INBOX_EVENTS.REPORT_DECISION_CHANGED,
+                    expect.objectContaining({
+                        decision: 'priority',
+                        previous_value: 'P1',
+                        new_value: 'P2',
+                        surface: 'detail_pane',
+                    }),
+                    undefined,
+                ],
+            ])
+            capture.mockRestore()
         })
 
         it.each([200, 500])(

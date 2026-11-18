@@ -15803,20 +15803,6 @@ export namespace Schemas {
       last_seen: string | null;
     }
 
-    /**
-     * * `trace` - trace
-     * * `generation` - generation
-     * * `evaluation` - evaluation
-     */
-    export type AnalysisLevelEnum = typeof AnalysisLevelEnum[keyof typeof AnalysisLevelEnum];
-
-
-    export const AnalysisLevelEnum = {
-      Trace: 'trace',
-      Generation: 'generation',
-      Evaluation: 'evaluation',
-    } as const;
-
     export interface AnalyticsAlertFiringSignalExtra {
       alert_id: string;
       alert_name: string;
@@ -28784,13 +28770,34 @@ export namespace Schemas {
       truncated: boolean;
     }
 
+    /**
+     * * `trace` - trace
+     * * `generation` - generation
+     * * `evaluation` - evaluation
+     */
+    export type ClusteringAnalysisLevelEnum = typeof ClusteringAnalysisLevelEnum[keyof typeof ClusteringAnalysisLevelEnum];
+
+
+    export const ClusteringAnalysisLevelEnum = {
+      Trace: 'trace',
+      Generation: 'generation',
+      Evaluation: 'evaluation',
+    } as const;
+
     export type ClusteringConfigEventFiltersItem = { [key: string]: unknown };
 
     export interface ClusteringConfig {
+      /** Whether this project has opted in to automated clustering. */
+      enabled: boolean;
       /** PostHog property filters that scope automated clustering jobs. Empty array means no saved filters. */
       event_filters: ClusteringConfigEventFiltersItem[];
       readonly created_at: string;
       readonly updated_at: string;
+    }
+
+    export interface ClusteringConfigSetEnabled {
+      /** Enable or disable automated clustering for this project. */
+      enabled: boolean;
     }
 
     export type ClusteringConfigSetEventFiltersEventFiltersItem = { [key: string]: unknown };
@@ -28806,7 +28813,7 @@ export namespace Schemas {
       readonly id: string;
       /** @maxLength 100 */
       name: string;
-      analysis_level: AnalysisLevelEnum;
+      analysis_level: ClusteringAnalysisLevelEnum;
       /** PostHog property filters that scope this clustering job. Empty array means no filters. */
       event_filters?: ClusteringJobEventFiltersItem[];
       enabled?: boolean;
@@ -38323,9 +38330,10 @@ export namespace Schemas {
     }
 
     /**
-     * * `datasets` - datasets
-     * * `dataset_items` - dataset_items
-     * * `dataset_item_versions` - dataset_item_versions
+     * * `datasets` - Datasets
+     * * `dataset_items` - Dataset Items
+     * * `dataset_item_versions` - Dataset Item Versions
+     * * `project_dataset_item_versions` - Project Dataset Item Versions
      */
     export type DatasetConflictResponseResourceEnum = typeof DatasetConflictResponseResourceEnum[keyof typeof DatasetConflictResponseResourceEnum];
 
@@ -38334,6 +38342,7 @@ export namespace Schemas {
       Datasets: 'datasets',
       DatasetItems: 'dataset_items',
       DatasetItemVersions: 'dataset_item_versions',
+      ProjectDatasetItemVersions: 'project_dataset_item_versions',
     } as const;
 
     export interface DatasetConflictResponse {
@@ -38361,9 +38370,10 @@ export namespace Schemas {
       current_item_id?: string | null;
       /** Resource whose configured limit was reached.
        *
-       * * `datasets` - datasets
-       * * `dataset_items` - dataset_items
-       * * `dataset_item_versions` - dataset_item_versions */
+       * * `datasets` - Datasets
+       * * `dataset_items` - Dataset Items
+       * * `dataset_item_versions` - Dataset Item Versions
+       * * `project_dataset_item_versions` - Project Dataset Item Versions */
       resource?: DatasetConflictResponseResourceEnum;
       /** Number of resources that already exist. */
       current_count?: number;
@@ -45133,6 +45143,8 @@ export namespace Schemas {
       per_issue_rate_limit_bucket_size_minutes?: number | null;
       /** Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered. */
       ingestion_enabled?: boolean;
+      /** Whether PostHog writes an AI summary of each new issue in this project. Each summary uses the organization's AI credits. Setting it to true fails until the organization approves AI data processing. Setting it to false always succeeds. */
+      ai_issue_summaries_enabled?: boolean;
     }
 
     /**
@@ -56054,6 +56066,33 @@ export namespace Schemas {
       Number2: 2,
     } as const;
 
+    export interface ReleaseRef {
+      /** ID of the release. */
+      id: string;
+      /** Name of the release. */
+      name: string;
+    }
+
+    export interface ReleaseSuggestion {
+      /** ID of the release. */
+      id: string;
+      /** Name of the release. */
+      name: string;
+      /** Words the flag shares with the release's name, description or linked flags. */
+      matched_terms: string[];
+    }
+
+    export interface FlagReleases {
+      /** ID of the feature flag. */
+      feature_flag_id: number;
+      /** True when this project puts each new flag in a release of its own about a minute after it is created, unless the flag is already in a release. */
+      auto_release: boolean;
+      /** Releases that already link this flag. */
+      current: ReleaseRef[];
+      /** Up to 5 existing releases this flag probably belongs to, best match first. Empty when nothing matches. */
+      suggestions: ReleaseSuggestion[];
+    }
+
     export interface FlagValueItem {
       name: unknown;
     }
@@ -62134,6 +62173,8 @@ export namespace Schemas {
       filterGroup?: PropertyGroupFilter | null;
       /** Return the matching spans themselves, one row per span (root and child), instead of the whole-trace grouping. Streams the matches under `ORDER BY … LIMIT` rather than grouping every matching span by trace, so a filter on a hot child attribute (e.g. `code.filepath`) stays bounded. Distinct from `rootSpans`, which scopes whole-trace selection. The single-trace waterfall never sets this. */
       flatSpans?: boolean | null;
+      /** Include each span's OpenTelemetry events. The column is large, so only set this on small lists */
+      includeEvents?: boolean | null;
       kind?: 'TraceSpansQuery';
       limit?: number | null;
       /** Modifiers used when performing the query */
@@ -82288,6 +82329,12 @@ export namespace Schemas {
       SourceSuggestion: 'source_suggestion',
     } as const;
 
+    /**
+     * * `user` - User
+     * * `task` - Task
+     * * `agent` - Agent
+     * * `system` - System
+     */
     export type SignalActorKindEnum = typeof SignalActorKindEnum[keyof typeof SignalActorKindEnum];
 
 
@@ -82777,6 +82824,110 @@ export namespace Schemas {
       reason: string;
     }
 
+    export interface ReportDecisionSetBy {
+      /** Who set the value. `user`: a person in PostHog. `agent`: a person's external coding agent. `task`: a PostHog agent task, such as report research. `system`: the pipeline, or an older row with no recorded attribution.
+       *
+       * * `user` - User
+       * * `task` - Task
+       * * `agent` - Agent
+       * * `system` - System */
+      kind: SignalActorKindEnum;
+      /** The person who set the value, or whose external agent did. Null for task and system writes. */
+      user: _User | null;
+      /**
+         * External agent client name when kind is `agent`, otherwise null.
+         * @nullable
+         */
+      agent: string | null;
+      /**
+         * PostHog task that set the value when kind is `task`.
+         * @nullable
+         */
+      task_id: string | null;
+    }
+
+    export interface ReportRepositoryDecision {
+      /**
+         * The reason stored with the value by whoever set it. Null when none was stored.
+         * @nullable
+         */
+      reason: string | null;
+      /** Who set the current value. */
+      set_by: ReportDecisionSetBy;
+      /** When the current value was set. */
+      set_at: string;
+      /**
+         * 'owner/repo' the report's work targets. Null when repository selection chose no repository.
+         * @nullable
+         */
+      value: string | null;
+    }
+
+    export interface ReportPriorityDecision {
+      /**
+         * The reason stored with the value by whoever set it. Null when none was stored.
+         * @nullable
+         */
+      reason: string | null;
+      /** Who set the current value. */
+      set_by: ReportDecisionSetBy;
+      /** When the current value was set. */
+      set_at: string;
+      /** Report priority, from P0 (critical) to P4.
+       *
+       * * `P0` - P0
+       * * `P1` - P1
+       * * `P2` - P2
+       * * `P3` - P3
+       * * `P4` - P4 */
+      value: AutonomyPriorityEnum | null;
+    }
+
+    export interface ReportActionabilityDecision {
+      /**
+         * The reason stored with the value by whoever set it. Null when none was stored.
+         * @nullable
+         */
+      reason: string | null;
+      /** Who set the current value. */
+      set_by: ReportDecisionSetBy;
+      /** When the current value was set. */
+      set_at: string;
+      /**
+         * `immediately_actionable`, `requires_human_input`, or `not_actionable`: whether the report can be acted on now, needs a person's input first, or needs no action.
+         * @nullable
+         */
+      value: string | null;
+    }
+
+    export interface ReportAlreadyAddressedDecision {
+      /**
+         * The reason stored with the value by whoever set it. Null when none was stored.
+         * @nullable
+         */
+      reason: string | null;
+      /** Who set the current value. */
+      set_by: ReportDecisionSetBy;
+      /** When the current value was set. */
+      set_at: string;
+      /**
+         * Whether the issue is already fixed, or has a fix in flight that someone else is working on.
+         * @nullable
+         */
+      value: boolean | null;
+    }
+
+    export interface ReportDecisions {
+      /** From the latest repo_selection artefact. Null when there is none. */
+      repository: ReportRepositoryDecision | null;
+      /** From the latest priority_judgment artefact. Null when there is none. */
+      priority: ReportPriorityDecision | null;
+      /** From the latest actionability_judgment artefact. Null when there is none. */
+      actionability: ReportActionabilityDecision | null;
+      /** From the latest actionability_judgment artefact, so it shares the reason and the setter with actionability. Null when there is none. */
+      already_addressed: ReportAlreadyAddressedDecision | null;
+    }
+
     export type SignalReportSuppressionSourceEnum = typeof SignalReportSuppressionSourceEnum[keyof typeof SignalReportSuppressionSourceEnum];
 
 
@@ -83251,6 +83402,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly already_addressed: boolean | null;
+      /** The current value of each decision made about the report (repository, priority, actionability, already addressed), with the reason stored with it and who set it. Always null in list responses. */
+      readonly decisions: ReportDecisions | null;
       /**
          * Reason code from the latest dismissal artefact, set when the report was suppressed (when present).
          * @nullable
@@ -88884,7 +89037,7 @@ export namespace Schemas {
       readonly id?: string;
       /** @maxLength 100 */
       name?: string;
-      analysis_level?: AnalysisLevelEnum;
+      analysis_level?: ClusteringAnalysisLevelEnum;
       /** PostHog property filters that scope this clustering job. Empty array means no filters. */
       event_filters?: PatchedClusteringJobEventFiltersItem[];
       enabled?: boolean;
@@ -90394,6 +90547,8 @@ export namespace Schemas {
       per_issue_rate_limit_bucket_size_minutes?: number | null;
       /** Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered. */
       ingestion_enabled?: boolean;
+      /** Whether PostHog writes an AI summary of each new issue in this project. Each summary uses the organization's AI credits. Setting it to true fails until the organization approves AI data processing. Setting it to false always succeeds. */
+      ai_issue_summaries_enabled?: boolean;
     }
 
     /**
@@ -109154,6 +109309,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly already_addressed: boolean | null;
+      /** The current value of each decision made about the report (repository, priority, actionability, already addressed), with the reason stored with it and who set it. Always null in list responses. */
+      readonly decisions: ReportDecisions | null;
       /**
          * Reason code from the latest dismissal artefact, set when the report was suppressed (when present).
          * @nullable
@@ -117420,6 +117577,15 @@ export namespace Schemas {
       status: SignalReportReingestionStatusStatusEnum;
       /** Report being re-ingested. */
       report_id: string;
+    }
+
+    export interface SignalReportRepositoryUpdate {
+      /**
+         * Repository the report's work targets, in 'owner/repo' format (case-insensitive). It must be a repository the project's GitHub integration can reach. Later implementation runs use it.
+         * @minLength 1
+         * @maxLength 140
+         */
+      repository: string;
     }
 
     export interface SignalReportSearchHit {
@@ -131156,6 +131322,23 @@ export namespace Schemas {
     export type _SpanResourceAttributes = {[key: string]: string};
 
     /**
+     * Event attributes. Keys are whatever the instrumentation set.
+     */
+    export type _SpanEventAttributes = {[key: string]: string};
+
+    export interface _SpanEvent {
+      /** Event name, for example `exception`. */
+      name: string;
+      /**
+         * When the event occurred. Null when the SDK did not set a time.
+         * @nullable
+         */
+      timestamp: string | null;
+      /** Event attributes. Keys are whatever the instrumentation set. */
+      attributes: _SpanEventAttributes;
+    }
+
+    /**
      * One span row as the query and trace actions return it.
      *
      * The runner assembles these from HogQL result columns by position, so the key set is fixed even
@@ -131197,23 +131380,8 @@ export namespace Schemas {
       attributes: _SpanAttributes;
       /** Resource attributes of the emitting service. Keys are whatever the instrumentation set. */
       resource_attributes: _SpanResourceAttributes;
-    }
-
-    /**
-     * Event attributes. Keys are whatever the instrumentation set.
-     */
-    export type _SpanEventAttributes = {[key: string]: string};
-
-    export interface _SpanEvent {
-      /** Event name, for example `exception`. */
-      name: string;
-      /**
-         * When the event occurred. Null when the SDK did not set a time.
-         * @nullable
-         */
-      timestamp: string | null;
-      /** Event attributes. Keys are whatever the instrumentation set. */
-      attributes: _SpanEventAttributes;
+      /** OpenTelemetry span events, earliest first. The trace action returns them, and list queries only with `includeEvents`. Omitted when `excludeAttributes` is true. */
+      events?: _SpanEvent[];
     }
 
     /**
@@ -131460,7 +131628,7 @@ export namespace Schemas {
     export type _TraceSpanResourceAttributes = {[key: string]: string};
 
     /**
-     * A span in a single trace. The trace action adds self time and span events, which the list does not return.
+     * A span in a single trace. The trace action adds self time, which the list does not return.
      */
     export interface _TraceSpan {
       /** Span's own UUID. */
@@ -131497,10 +131665,10 @@ export namespace Schemas {
       attributes: _TraceSpanAttributes;
       /** Resource attributes of the emitting service. Keys are whatever the instrumentation set. */
       resource_attributes: _TraceSpanResourceAttributes;
+      /** OpenTelemetry span events, earliest first. The trace action returns them, and list queries only with `includeEvents`. Omitted when `excludeAttributes` is true. */
+      events?: _SpanEvent[];
       /** Span duration minus the time spent in its children, in nanoseconds. */
       self_time_nano: number;
-      /** OpenTelemetry span events, earliest first. Omitted when `excludeAttributes` is true. */
-      events?: _SpanEvent[];
     }
 
     /**
@@ -131970,6 +132138,8 @@ export namespace Schemas {
       prefetchSpans?: number;
       /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
       excludeAttributes?: boolean;
+      /** Include each span's OpenTelemetry events, such as recorded exceptions. The events are large, so keep `limit` small. Ignored when `excludeAttributes` is true. Defaults to false. */
+      includeEvents?: boolean;
     }
 
     export interface _TracingQueryRequest {
@@ -146069,6 +146239,11 @@ export namespace Schemas {
      */
     cursor?: string;
     /**
+     * Only releases that link this feature flag.
+     * @minimum 1
+     */
+    feature_flag_id?: number;
+    /**
      * How many releases to return, at most 100.
      * @minimum 1
      * @maximum 100
@@ -146092,6 +146267,14 @@ export namespace Schemas {
      * @maxLength 200
      */
     search?: string;
+    };
+
+    export type ReleasesFlagSuggestionsRetrieveParams = {
+    /**
+     * ID of the feature flag to find releases for.
+     * @minimum 1
+     */
+    feature_flag_id: number;
     };
 
     export type SandboxCustomImagesListParams = {
