@@ -60,15 +60,12 @@ class RecentRenders:
     expires_at: datetime | None
     default_branch_runs: int
     renders: int
-    # Only `changed`, as in automatic quarantine: `new` and `removed` are problems of the baseline file.
-    # Counted whatever the row's quarantine, approval or toleration state.
+    # Only `changed`, whatever the row's review state: `new` and `removed` are problems of the baseline file.
     changed_renders: int
-    # Distinct pictures among the `changed` renders
     changed_pictures: int
 
 
 def is_due(expires_at: datetime | None, now: datetime) -> bool:
-    # A quarantine without an expiry never lapses, so it needs no extension.
     if expires_at is None:
         return False
     return now < expires_at <= now + timedelta(hours=AUTO_EXTEND_BEFORE_EXPIRY_HOURS)
@@ -254,8 +251,7 @@ def extend_differing_quarantines(run_id: UUID) -> None:
     if not due:
         return
     recent = _recent_renders(run, run.branch, due)
-    # Soonest expiry first, so the cap keeps the stories that lapse first. A story left over gets a later
-    # hourly check inside its window.
+    # Soonest expiry first, so the cap keeps the stories that lapse first.
     to_extend = sorted(
         (entry for entry in due if should_extend(recent[entry.id], now)),
         key=lambda entry: entry.expires_at or now,

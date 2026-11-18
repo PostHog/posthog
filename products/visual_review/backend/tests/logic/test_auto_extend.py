@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -150,17 +150,17 @@ class TestExtendDifferingQuarantines:
             yield
 
     @pytest.fixture
-    def capture(self):
+    def captured(self):
+        events: list[str] = []
         with patch("products.visual_review.backend.logic.auto_extend.ph_scoped_capture") as scoped:
-            capture = MagicMock()
-            scoped.return_value.__enter__.return_value = capture
-            yield capture
+            scoped.return_value.__enter__.return_value = lambda **kwargs: events.append(kwargs["event"])
+            yield events
 
     @pytest.mark.parametrize(
         "mode,extended,events",
         [(AutoQuarantineMode.OFF, False, 0), (AutoQuarantineMode.PREVIEW, False, 1), (AutoQuarantineMode.ON, True, 1)],
     )
-    def test_the_mode_decides_what_a_differing_story_does(self, repo, capture, mode, extended, events):
+    def test_the_mode_decides_what_a_differing_story_does(self, repo, captured, mode, extended, events):
         repo.auto_quarantine_mode = mode
         repo.save()
         entry = _quarantine(repo, expires_in_hours=24)
@@ -173,7 +173,7 @@ class TestExtendDifferingQuarantines:
             auto_extend.extend_differing_quarantines(finishing.id)
 
         rows = list(QuarantinedIdentifier.objects.filter(identifier=_IDENTIFIER).order_by("created_at"))
-        assert capture.call_count == events
+        assert captured == ["vr_quarantine_extend"] * events
         if not extended:
             assert [row.id for row in rows] == [entry.id]
             assert rows[0].expires_at == entry.expires_at
@@ -192,7 +192,7 @@ class TestExtendDifferingQuarantines:
         "case",
         ["change_only_outside_default_branch_runs", "new_is_no_difference", "expiry_outside_the_window"],
     )
-    def test_a_story_without_a_default_branch_change_or_a_distant_expiry_lapses_as_planned(self, repo, capture, case):
+    def test_a_story_without_a_default_branch_change_or_a_distant_expiry_lapses_as_planned(self, repo, captured, case):
         entry = _quarantine(repo, expires_in_hours=24 if case != "expiry_outside_the_window" else 72)
         master_result = SnapshotResult.NEW if case == "new_is_no_difference" else SnapshotResult.UNCHANGED
         _run(repo, "master", "a" * 40, master_result, hours_ago=48)
@@ -207,4 +207,4 @@ class TestExtendDifferingQuarantines:
         assert list(QuarantinedIdentifier.objects.filter(identifier=_IDENTIFIER).values_list("id", flat=True)) == [
             entry.id
         ]
-        assert capture.call_count == 0
+        assert captured == []
