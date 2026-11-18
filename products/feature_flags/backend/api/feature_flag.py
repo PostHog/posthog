@@ -1983,7 +1983,7 @@ class FeatureFlagSerializer(
             else:
                 message = (
                     f"Cannot depend on flag (ID: {dependency.id}) because it does not evaluate in every runtime "
-                    f"this flag evaluates in. Set flag {dependency.id} to evaluate on both client and server, or set "
+                    f"this flag evaluates in. Set flag {dependency.id} to evaluate {_RUNTIME_DESCRIPTIONS['all']}, or set "
                     f"this flag to evaluate in the same runtime as flag {dependency.id}."
                 )
             raise serializers.ValidationError({attr: ErrorDetail(message, code=DEPENDENCY_RUNTIME_MISMATCH)})
