@@ -100,6 +100,7 @@ export const AccountsEvents = {
     DotMatrixRetried: 'customer analytics account dot matrix retried',
     AccountEditorOpened: 'customer analytics account editor opened',
     AccountEdited: 'customer analytics account edited',
+    AgentWriteRefreshed: 'customer analytics account refreshed after agent write',
     EventStreamModalOpened: 'customer analytics account event stream modal opened',
     EventStreamMembershipToggled: 'customer analytics account event stream toggled',
     EventStreamConfigSaved: 'customer analytics event stream config saved',
