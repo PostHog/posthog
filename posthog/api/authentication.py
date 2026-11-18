@@ -917,6 +917,19 @@ class TwoFactorSerializer(serializers.Serializer):
     token = serializers.CharField(write_only=True)
 
 
+def _set_remember_device_cookie(response: HttpResponse, user: User, otp_device_id: str) -> None:
+    response.set_cookie(
+        REMEMBER_COOKIE_PREFIX + str(uuid4()),
+        get_remember_device_cookie(user=user, otp_device_id=otp_device_id),
+        max_age=settings.TWO_FACTOR_REMEMBER_COOKIE_AGE,
+        domain=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_DOMAIN", None),
+        path=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_PATH", "/"),
+        secure=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_SECURE", True),
+        httponly=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_HTTPONLY", True),
+        samesite=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_SAMESITE", "Strict"),
+    )
+
+
 class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     serializer_class = TwoFactorSerializer
     queryset = User.objects.none()
@@ -934,19 +947,8 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         request.session.pop("user_authenticated_but_no_2fa", None)
         request.session.pop("user_authenticated_time", None)
 
-        cookie_key = REMEMBER_COOKIE_PREFIX + str(uuid4())
-        cookie_value = get_remember_device_cookie(user=user, otp_device_id=device.persistent_id)
         response = Response({"success": True})
-        response.set_cookie(
-            cookie_key,
-            cookie_value,
-            max_age=settings.TWO_FACTOR_REMEMBER_COOKIE_AGE,
-            domain=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_DOMAIN", None),
-            path=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_PATH", "/"),
-            secure=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_SECURE", True),
-            httponly=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_HTTPONLY", True),
-            samesite=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_SAMESITE", "Strict"),
-        )
+        _set_remember_device_cookie(response, user, device.persistent_id)
         return response
 
     def _handle_passkey_2fa(self, request: Request, user: User, credential_id: str, response_data: dict) -> Response:
@@ -1016,19 +1018,8 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
             request.session.pop("user_authenticated_time", None)
 
             # Set remember device cookie for passkey 2FA
-            cookie_key = REMEMBER_COOKIE_PREFIX + str(uuid4())
-            cookie_value = get_remember_device_cookie(user=user, otp_device_id="passkey_2fa")
             response = Response({"success": True})
-            response.set_cookie(
-                cookie_key,
-                cookie_value,
-                max_age=settings.TWO_FACTOR_REMEMBER_COOKIE_AGE,
-                domain=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_DOMAIN", None),
-                path=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_PATH", "/"),
-                secure=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_SECURE", True),
-                httponly=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_HTTPONLY", True),
-                samesite=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_SAMESITE", "Strict"),
-            )
+            _set_remember_device_cookie(response, user, "passkey_2fa")
             return response
         except serializers.ValidationError:
             raise
@@ -1372,18 +1363,7 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
         if not sso:
             # Only a password login may skip the code this way. An identity provider login would
             # otherwise grant the remember cookie that exempts the same account's password logins.
-            cookie_key = REMEMBER_COOKIE_PREFIX + str(uuid4())
-            cookie_value = get_remember_device_cookie(user=user, otp_device_id="code_based_verification")
-            response.set_cookie(
-                cookie_key,
-                cookie_value,
-                max_age=settings.TWO_FACTOR_REMEMBER_COOKIE_AGE,  # 30 days
-                domain=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_DOMAIN", None),
-                path=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_PATH", "/"),
-                secure=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_SECURE", True),
-                httponly=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_HTTPONLY", True),
-                samesite=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_SAMESITE", "Strict"),
-            )
+            _set_remember_device_cookie(response, user, "code_based_verification")
 
         if not sso:
             # The SSO notification worker must inspect the previous fingerprint before caching it.
