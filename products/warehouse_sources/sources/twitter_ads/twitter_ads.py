@@ -57,6 +57,7 @@ _MAX_LOGGED_BODY = 2000
 # X's own retry example waits at least a minute, so a missing or already-passed reset never retries straight back
 # into the same window.
 _MIN_RATE_LIMIT_WAIT_SECONDS = 60.0
+_RATE_LIMIT_RESET_PADDING_SECONDS = 5.0
 
 
 def _account_midnight(day: date, account_timezone: ZoneInfo) -> datetime:
@@ -132,12 +133,21 @@ def _error_detail(response: requests.Response) -> str:
 
 def _rate_limit_wait(response: requests.Response) -> float:
     # X documents only the epoch when its 15-minute window resets. A Retry-After wins if X ever sends one.
+    # Entity endpoints count per ad account, so their reset comes in the account header, which X's own SDKs
+    # read first and pad by a few seconds.
     retry_after = response.headers.get("Retry-After", "")
-    reset = response.headers.get("x-rate-limit-reset", "")
+    reset = next(
+        (
+            value
+            for name in ("x-account-rate-limit-reset", "x-rate-limit-reset")
+            if (value := response.headers.get(name, "")).isdecimal()
+        ),
+        "",
+    )
     if retry_after.isdecimal():
         wait = float(retry_after)
     elif reset.isdecimal():
-        wait = float(reset) - datetime.now(UTC).timestamp()
+        wait = float(reset) - datetime.now(UTC).timestamp() + _RATE_LIMIT_RESET_PADDING_SECONDS
     else:
         wait = 0.0
     return max(wait, _MIN_RATE_LIMIT_WAIT_SECONDS)
@@ -169,7 +179,7 @@ class TwitterAdsClient:
             # inside it. The raw headers in the message are the only record of what X actually sends.
             headers = [
                 f"{name}={response.headers[name]}"
-                for name in ("Retry-After", "x-rate-limit-reset")
+                for name in ("Retry-After", "x-account-rate-limit-reset", "x-rate-limit-reset")
                 if name in response.headers
             ]
             message = ". ".join(

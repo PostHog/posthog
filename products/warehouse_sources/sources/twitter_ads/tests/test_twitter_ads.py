@@ -287,7 +287,12 @@ def _reset_in(seconds: int) -> str:
 @pytest.mark.parametrize(
     "headers, expected_retry_after",
     [
-        pytest.param({"x-rate-limit-reset": _reset_in(900)}, 900.0, id="reset header"),
+        pytest.param({"x-rate-limit-reset": _reset_in(900)}, 905.0, id="reset header"),
+        pytest.param(
+            {"x-account-rate-limit-reset": _reset_in(600), "x-rate-limit-reset": _reset_in(900)},
+            605.0,
+            id="account reset wins",
+        ),
         pytest.param({"x-rate-limit-reset": _reset_in(10)}, 60.0, id="reset under a minute away"),
         pytest.param({}, 60.0, id="no reset header"),
         pytest.param({"Retry-After": "120", "x-rate-limit-reset": _reset_in(900)}, 120.0, id="retry-after wins"),
