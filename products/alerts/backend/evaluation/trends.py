@@ -36,8 +36,16 @@ from products.alerts.backend.evaluation.contract import (
 )
 from products.alerts.backend.evaluation.delay import apply_evaluation_delay
 from products.alerts.backend.evaluation.formatting import make_trends_value_formatter
+from products.alerts.backend.evaluation.series_values_shadow import compare_series_values_shadow
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
+
+
+def threshold_filters_override(query: TrendsQuery, condition: AlertCondition, delay: int) -> dict | None:
+    # Non-time-series aggregates over the full interval; time-series looks back N intervals.
+    if _is_non_time_series_trend(query):
+        return None
+    return _date_range_override_for_intervals(query, last_x_intervals=lookback_intervals_for(condition) + delay)
 
 
 class TrendsExtractor:
@@ -87,21 +95,15 @@ class TrendsExtractor:
                 "(DateRange.excludeIncompletePeriods): the ongoing interval is clipped from the query results"
             )
         delay = alert.evaluation_delay_intervals
-        lookback_intervals = lookback_intervals_for(condition) + delay
+        filters_override = threshold_filters_override(query, condition, delay)
         interval_type = None if is_non_time_series else query.interval
 
         match condition.type:
             case AlertConditionType.ABSOLUTE_VALUE:
                 if threshold.type != InsightThresholdType.ABSOLUTE:
                     raise ValueError("Absolute threshold not configured for alert condition ABSOLUTE_VALUE")
-                # Non-time-series aggregates over the full interval; time-series looks back N intervals.
-                filters_override = (
-                    None
-                    if is_non_time_series
-                    else _date_range_override_for_intervals(query, last_x_intervals=lookback_intervals)
-                )
                 calculation_result = self._calculate(
-                    alert, insight, execution_mode, cache_age_seconds, filters_override
+                    alert, insight, query, execution_mode, cache_age_seconds, filters_override
                 )
                 if (
                     empty := self._empty_result(
@@ -119,10 +121,9 @@ class TrendsExtractor:
                 if is_non_time_series:
                     raise ValueError("Relative alerts not supported for non time series trends")
                 # When the current interval is incomplete we compare the previous interval
-                # against the one before it, so we need the extra lookback interval.
-                filters_override = _date_range_override_for_intervals(query, last_x_intervals=lookback_intervals)
+                # against the one before it, so the override carries the extra lookback interval.
                 calculation_result = self._calculate(
-                    alert, insight, execution_mode, cache_age_seconds, filters_override
+                    alert, insight, query, execution_mode, cache_age_seconds, filters_override
                 )
                 if (
                     empty := self._empty_result(
@@ -139,9 +140,8 @@ class TrendsExtractor:
             case AlertConditionType.RELATIVE_DECREASE:
                 if is_non_time_series:
                     raise ValueError("Relative alerts not supported for non time series trends")
-                filters_override = _date_range_override_for_intervals(query, last_x_intervals=lookback_intervals)
                 calculation_result = self._calculate(
-                    alert, insight, execution_mode, cache_age_seconds, filters_override
+                    alert, insight, query, execution_mode, cache_age_seconds, filters_override
                 )
                 if (
                     empty := self._empty_result(
@@ -183,11 +183,12 @@ class TrendsExtractor:
         self,
         alert: AlertConfiguration,
         insight: Insight,
+        query: TrendsQuery,
         execution_mode: ExecutionMode,
         cache_age_seconds: int | None,
         filters_override: dict | None,
     ) -> InsightResult:
-        return calculate_for_query_based_insight(
+        result = calculate_for_query_based_insight(
             insight,
             team=alert.team,
             execution_mode=execution_mode,
@@ -198,6 +199,8 @@ class TrendsExtractor:
             filters_override=filters_override,
             analytics_props={"source": EventSource.ALERT},
         )
+        compare_series_values_shadow(alert, query, filters_override, result, alert_kind="threshold")
+        return result
 
     def _empty_result(
         self,
