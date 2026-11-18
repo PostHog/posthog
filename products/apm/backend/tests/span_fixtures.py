@@ -55,13 +55,16 @@ class SpanWriter:
         env: str = "",
         trace: int | None = None,
         parent: str = "",
+        attributes: dict[str, str] | None = None,
     ) -> str:
         self.n += 1
         span_id = b64(self.n.to_bytes(8, "big"))
         trace_id = b64((trace if trace is not None else self.n).to_bytes(16, "big"))
         start = self.base + dt.timedelta(seconds=self.n)
         end = start + dt.timedelta(milliseconds=ms)
-        attrs = f"map('deployment.environment.name', '{env}')" if env else "map()"
+        resource = {"deployment.environment.name": env} if env else {}
+        resource.update(attributes or {})
+        attrs = "map(" + ", ".join(f"'{key}', '{value}'" for key, value in resource.items()) + ")"
         fmt = "%Y-%m-%d %H:%M:%S.%f"
         self.rows.append(
             f"('{self.uuid_prefix}-0000-0000-0000-{self.n:012d}', {self.team_id}, '{trace_id}', '{span_id}', "

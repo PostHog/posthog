@@ -30,7 +30,12 @@ export type HealthRowApiOutput = zod.output<typeof HealthRowApi>
 export const EndpointHealthApi = zod.object({
     service_name: zod.string().describe('The service.name resource attribute.'),
     endpoint: zod.string().describe('The entry span name, for example the HTTP route or the job name.'),
-    environment: zod.string().describe('The environment the row was computed for.'),
+    environment: zod
+        .string()
+        .nullable()
+        .describe(
+            'The environment filter the row was computed for: null for every environment, empty for spans with no environment.'
+        ),
     status: zod
         .enum(['good', 'warning', 'serious', 'critical'])
         .describe('\* `good` - Good\n\* `warning` - Warning\n\* `serious` - Serious\n\* `critical` - Critical')
@@ -57,7 +62,12 @@ export const EndpointsHealthResponseApi = zod.object({
             zod.object({
                 service_name: zod.string().describe('The service.name resource attribute.'),
                 endpoint: zod.string().describe('The entry span name, for example the HTTP route or the job name.'),
-                environment: zod.string().describe('The environment the row was computed for.'),
+                environment: zod
+                    .string()
+                    .nullable()
+                    .describe(
+                        'The environment filter the row was computed for: null for every environment, empty for spans with no environment.'
+                    ),
                 status: zod
                     .enum(['good', 'warning', 'serious', 'critical'])
                     .describe(
@@ -78,7 +88,12 @@ export const EndpointsHealthResponseApi = zod.object({
             })
         )
         .describe('One row per service and endpoint, worst status first.'),
-    environment: zod.string().describe('The environment the rows were computed for.'),
+    environment: zod
+        .string()
+        .nullable()
+        .describe(
+            'The environment filter the rows were computed for: null for every environment, empty for spans with no environment.'
+        ),
     service: zod.string().nullable().describe('The service filter applied, if any.'),
     date_from: zod.iso.datetime({ offset: true }).describe('Start of the window used.'),
     date_to: zod.iso.datetime({ offset: true }).describe('End of the window used.'),
@@ -111,7 +126,12 @@ export const ServiceMapResponseApi = zod.object({
         )
         .describe('One edge per calling and called service, most calls first.'),
     trace_count: zod.number().describe('Traces sampled to build the map.'),
-    environment: zod.string().describe('The environment the map was built for.'),
+    environment: zod
+        .string()
+        .nullable()
+        .describe(
+            'The environment filter the map was built for: null for every environment, empty for spans with no environment.'
+        ),
     date_from: zod.iso.datetime({ offset: true }).describe('Start of the window used.'),
     date_to: zod.iso.datetime({ offset: true }).describe('End of the window used.'),
 })
@@ -121,7 +141,12 @@ export type ServiceMapResponseApiOutput = zod.output<typeof ServiceMapResponseAp
 
 export const ServiceHealthApi = zod.object({
     service_name: zod.string().describe('The service.name resource attribute.'),
-    environment: zod.string().describe('The environment the row was computed for.'),
+    environment: zod
+        .string()
+        .nullable()
+        .describe(
+            'The environment filter the row was computed for: null for every environment, empty for spans with no environment.'
+        ),
     status: zod
         .enum(['good', 'warning', 'serious', 'critical'])
         .describe('\* `good` - Good\n\* `warning` - Warning\n\* `serious` - Serious\n\* `critical` - Critical')
@@ -148,7 +173,12 @@ export const ServicesHealthResponseApi = zod.object({
         .array(
             zod.object({
                 service_name: zod.string().describe('The service.name resource attribute.'),
-                environment: zod.string().describe('The environment the row was computed for.'),
+                environment: zod
+                    .string()
+                    .nullable()
+                    .describe(
+                        'The environment filter the row was computed for: null for every environment, empty for spans with no environment.'
+                    ),
                 status: zod
                     .enum(['good', 'warning', 'serious', 'critical'])
                     .describe(
@@ -172,8 +202,15 @@ export const ServicesHealthResponseApi = zod.object({
             })
         )
         .describe('One row per service, worst status first.'),
-    environments: zod.array(zod.string()).describe('Environments seen in the window.'),
-    environment: zod.string().describe('The environment the rows were computed for.'),
+    environments: zod
+        .array(zod.string().nullable())
+        .describe('Environments seen in the window. Null stands for spans that set no environment.'),
+    environment: zod
+        .string()
+        .nullable()
+        .describe(
+            'The environment filter the rows were computed for: null for every environment, empty for spans with no environment.'
+        ),
     date_from: zod.iso.datetime({ offset: true }).describe('Start of the window used.'),
     date_to: zod.iso.datetime({ offset: true }).describe('End of the window used.'),
 })

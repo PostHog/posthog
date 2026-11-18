@@ -91,6 +91,7 @@ class TestServicesHealthAPI(ClickhouseTestMixin, APIBaseTest):
 
     def _list(self, **params) -> dict:
         query = {"date_from": DATE_FROM, "date_to": DATE_TO, "environment": "prod", **params}
+        query = {key: value for key, value in query.items() if value is not None}
         with patch(FLAG_PATCH, return_value=True):
             response = self.client.get(f"/api/projects/{self.team.id}/apm/services/", query)
         self.assertEqual(response.status_code, 200, response.content)
@@ -184,6 +185,48 @@ class TestServicesHealthAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(worker["health"]["span_count"], 4)
         self.assertEqual(worker["health"]["error_count"], 1)
         self.assertEqual(sum(worker["sparkline"]), 4)
+
+    def _write_environment_mix(self, day: int, uuid_prefix: str) -> dict[str, str]:
+        writer = SpanWriter(team_id=self.team.id, base=dt.datetime(2026, 6, day, 8, 0, 0), uuid_prefix=uuid_prefix)
+        for _ in range(2):
+            writer.span("mixed", env="prod")
+        for _ in range(3):
+            writer.span("mixed", env="staging")
+        for _ in range(4):
+            writer.span("mixed", env="default")
+        for _ in range(5):
+            writer.span("mixed")
+        writer.span("mixed", env="prod", attributes={"deployment.environment": "staging"})
+        writer.insert()
+        return {"date_from": f"2026-06-{day:02d}T07:00:00Z", "date_to": f"2026-06-{day:02d}T09:00:00Z"}
+
+    def _span_count(self, data: dict) -> int:
+        return sum(row["health"]["span_count"] for row in data["results"])
+
+    def test_no_environment_reads_every_environment_and_equals_their_sum(self) -> None:
+        window = self._write_environment_mix(5, "019e8775")
+
+        everything = self._list(environment=None, **window)
+        self.assertIsNone(everything["environment"])
+        self.assertEqual(self._span_count(everything), 15)
+
+        per_environment = [self._list(environment=env or "", **window) for env in everything["environments"]]
+        self.assertEqual(sum(self._span_count(data) for data in per_environment), 15)
+
+    def test_unset_environment_is_null_and_apart_from_default(self) -> None:
+        window = self._write_environment_mix(6, "019e8776")
+
+        self.assertEqual(self._list(environment=None, **window)["environments"], [None, "default", "prod", "staging"])
+        self.assertEqual(self._span_count(self._list(environment="default", **window)), 4)
+        unset = self._list(environment="", **window)
+        self.assertEqual(unset["environment"], "")
+        self.assertEqual(self._span_count(unset), 5)
+
+    def test_a_span_with_two_environment_keys_counts_once_under_the_first(self) -> None:
+        window = self._write_environment_mix(7, "019e8777")
+
+        self.assertEqual(self._span_count(self._list(environment="prod", **window)), 3)
+        self.assertEqual(self._span_count(self._list(environment="staging", **window)), 3)
 
     def test_defaults_to_the_last_hour_when_no_range_is_given(self) -> None:
         with patch(FLAG_PATCH, return_value=True):

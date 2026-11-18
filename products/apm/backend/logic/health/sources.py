@@ -3,7 +3,9 @@
 A service's request rate comes from its entry spans: server spans and consumer spans. A service
 that emits neither, such as a scheduled job, falls back to its root spans so it still gets a row.
 The environment is the first non-empty resource attribute in the resolution order below, with the
-cluster name as the last fallback and `default` when nothing is set.
+cluster name as the last fallback. A span that sets none of them has the empty environment, which
+the API returns as null, so it stays apart from an environment literally named `default`. Every
+query filters and groups by the one expression, so a span lands in exactly one environment.
 """
 
 from dataclasses import dataclass
@@ -34,7 +36,7 @@ MAP_TRACE_LIMIT = 2000
 MAP_EDGES_LIMIT = 1000
 # Caps the rows the self-join holds in memory, however many spans the sampled traces carry.
 MAP_SPAN_LIMIT = 200_000
-DEFAULT_ENVIRONMENT = "default"
+NO_ENVIRONMENT = ""
 
 ENVIRONMENT_ATTRIBUTES = (
     "deployment.environment.name",
@@ -56,7 +58,7 @@ _TIME_BUCKET_DATE_RANGE_WHERE = (
 @dataclass(frozen=True)
 class ServicesHealthResult:
     services: list[ServiceHealth]
-    environments: list[str]
+    environments: list[str | None]
 
 
 @dataclass(frozen=True)
@@ -67,8 +69,16 @@ class ServiceMapResult:
 
 def environment_expr() -> ast.Expr:
     parts = ", ".join(f"nullIf(resource_attributes['{key}'], '')" for key in ENVIRONMENT_ATTRIBUTES)
+    return parse_expr(f"coalesce({parts}, {{unset}})", placeholders={"unset": ast.Constant(value=NO_ENVIRONMENT)})
+
+
+def _environment_where(environment: str | None) -> ast.Expr:
+    # None means every environment, so no predicate at all, not a match on some default value.
+    if environment is None:
+        return ast.Constant(value=True)
     return parse_expr(
-        f"coalesce({parts}, {{default}})", placeholders={"default": ast.Constant(value=DEFAULT_ENVIRONMENT)}
+        "{env_expr} = {environment}",
+        placeholders={"env_expr": environment_expr(), "environment": ast.Constant(value=environment)},
     )
 
 
@@ -79,7 +89,7 @@ def _window_where(date_from: datetime, date_to: datetime) -> ast.Expr:
     )
 
 
-def _services_query(date_from: datetime, date_to: datetime, environment: str) -> ast.SelectQuery:
+def _services_query(date_from: datetime, date_to: datetime, environment: str | None) -> ast.SelectQuery:
     # Server and consumer spans are the request count. Root spans are the fallback for services with
     # neither, so a job's client spans count once each rather than once per downstream call.
     #
@@ -98,7 +108,7 @@ def _services_query(date_from: datetime, date_to: datetime, environment: str) ->
                quantileIf(0.95)(duration_nano, kind IN (2, 5)),
                quantileIf(0.95)(duration_nano, is_root_span)) / 1e6 AS p95_ms
         FROM posthog.trace_spans
-        WHERE {where} AND {env_expr} = {environment}
+        WHERE {where} AND {env_where}
         GROUP BY service_name
         HAVING span_count > 0
         ORDER BY error_count / span_count DESC, error_count DESC, service_name
@@ -106,8 +116,7 @@ def _services_query(date_from: datetime, date_to: datetime, environment: str) ->
         """,
         placeholders={
             "where": _window_where(date_from, date_to),
-            "env_expr": environment_expr(),
-            "environment": ast.Constant(value=environment),
+            "env_where": _environment_where(environment),
             "limit": ast.Constant(value=SERVICES_LIMIT),
         },
     )
@@ -115,7 +124,9 @@ def _services_query(date_from: datetime, date_to: datetime, environment: str) ->
     return query
 
 
-def _endpoints_query(date_from: datetime, date_to: datetime, environment: str, service: str | None) -> ast.SelectQuery:
+def _endpoints_query(
+    date_from: datetime, date_to: datetime, environment: str | None, service: str | None
+) -> ast.SelectQuery:
     # An endpoint is an entry span name: what a server or consumer span handles, or what a root span
     # starts (a job with no server spans). This is the entry definition the Tracing service health
     # view uses, so a worker's job shows up here the same way it gets a row on the services tab.
@@ -128,15 +139,14 @@ def _endpoints_query(date_from: datetime, date_to: datetime, environment: str, s
             countIf(status_code = 2) AS error_count,
             quantile(0.95)(duration_nano) / 1e6 AS p95_ms
         FROM posthog.trace_spans
-        WHERE {where} AND {env_expr} = {environment} AND {service_where} AND (is_root_span OR kind IN (2, 5))
+        WHERE {where} AND {env_where} AND {service_where} AND (is_root_span OR kind IN (2, 5))
         GROUP BY service_name, name
         ORDER BY error_count / span_count DESC, error_count DESC, service_name, name
         LIMIT {limit}
         """,
         placeholders={
             "where": _window_where(date_from, date_to),
-            "env_expr": environment_expr(),
-            "environment": ast.Constant(value=environment),
+            "env_where": _environment_where(environment),
             "service_where": (
                 parse_expr("service_name = {service}", placeholders={"service": ast.Constant(value=service)})
                 if service
@@ -149,20 +159,19 @@ def _endpoints_query(date_from: datetime, date_to: datetime, environment: str, s
     return query
 
 
-def _sampled_traces_query(date_from: datetime, date_to: datetime, environment: str) -> ast.SelectQuery:
+def _sampled_traces_query(date_from: datetime, date_to: datetime, environment: str | None) -> ast.SelectQuery:
     # DISTINCT with LIMIT stops reading once it has enough trace IDs, where GROUP BY would first
     # aggregate every trace in the window.
     query = parse_select(
         """
         SELECT DISTINCT trace_id
         FROM posthog.trace_spans
-        WHERE {where} AND {env_expr} = {environment}
+        WHERE {where} AND {env_where}
         LIMIT {limit}
         """,
         placeholders={
             "where": _window_where(date_from, date_to),
-            "env_expr": environment_expr(),
-            "environment": ast.Constant(value=environment),
+            "env_where": _environment_where(environment),
             "limit": ast.Constant(value=MAP_TRACE_LIMIT),
         },
     )
@@ -171,7 +180,7 @@ def _sampled_traces_query(date_from: datetime, date_to: datetime, environment: s
 
 
 def _service_edges_query(
-    date_from: datetime, date_to: datetime, environment: str, trace_ids: list[str]
+    date_from: datetime, date_to: datetime, environment: str | None, trace_ids: list[str]
 ) -> ast.SelectQuery:
     # A call shows up as a callee span whose parent span belongs to another service, so each call
     # counts once however many client spans the caller wraps around it. Both ends must be in the
@@ -182,7 +191,7 @@ def _service_edges_query(
         WITH spans AS (
             SELECT trace_id, span_id, parent_span_id, service_name, status_code, duration_nano
             FROM posthog.trace_spans
-            WHERE {where} AND {env_expr} = {environment} AND trace_id IN {trace_ids}
+            WHERE {where} AND {env_where} AND trace_id IN {trace_ids}
             ORDER BY trace_id, span_id
             LIMIT {span_limit}
         )
@@ -201,8 +210,7 @@ def _service_edges_query(
         """,
         placeholders={
             "where": _window_where(date_from, date_to),
-            "env_expr": environment_expr(),
-            "environment": ast.Constant(value=environment),
+            "env_where": _environment_where(environment),
             "trace_ids": ast.Tuple(exprs=[ast.Constant(value=trace_id) for trace_id in trace_ids]),
             "span_limit": ast.Constant(value=MAP_SPAN_LIMIT),
             "limit": ast.Constant(value=MAP_EDGES_LIMIT),
@@ -212,7 +220,7 @@ def _service_edges_query(
     return query
 
 
-def _sparkline_query(date_from: datetime, date_to: datetime, environment: str) -> ast.SelectQuery:
+def _sparkline_query(date_from: datetime, date_to: datetime, environment: str | None) -> ast.SelectQuery:
     # One bucket per point across the window; the client draws the counts in order.
     query = parse_select(
         """
@@ -222,7 +230,7 @@ def _sparkline_query(date_from: datetime, date_to: datetime, environment: str) -
             countIf(kind IN (2, 5)) AS entry_spans,
             countIf(is_root_span) AS root_spans
         FROM posthog.trace_spans
-        WHERE {where} AND {env_expr} = {environment}
+        WHERE {where} AND {env_where}
         GROUP BY service_name, bucket
         ORDER BY service_name, bucket
         LIMIT 100000
@@ -233,8 +241,7 @@ def _sparkline_query(date_from: datetime, date_to: datetime, environment: str) -
                 value=max(1, int((date_to - date_from).total_seconds() // SPARKLINE_POINTS))
             ),
             "where": _window_where(date_from, date_to),
-            "env_expr": environment_expr(),
-            "environment": ast.Constant(value=environment),
+            "env_where": _environment_where(environment),
         },
     )
     assert isinstance(query, ast.SelectQuery)
@@ -261,7 +268,7 @@ def _run(team: Team, query: ast.SelectQuery) -> list:
 
 
 def list_services_health(
-    *, team: Team, date_from: datetime, date_to: datetime, environment: str
+    *, team: Team, date_from: datetime, date_to: datetime, environment: str | None
 ) -> ServicesHealthResult:
     seconds = max(1.0, (date_to - date_from).total_seconds())
     rows = _run(team, _services_query(date_from, date_to, environment))
@@ -290,12 +297,12 @@ def list_services_health(
                 sparkline=tuple(sparklines.get(service_name, [0] * SPARKLINE_POINTS)),
             )
         )
-    environments = [row[0] for row in _run(team, _environments_query(date_from, date_to))]
+    environments = [row[0] or None for row in _run(team, _environments_query(date_from, date_to))]
     return ServicesHealthResult(services=rank_services(services), environments=environments)
 
 
 def list_endpoints_health(
-    *, team: Team, date_from: datetime, date_to: datetime, environment: str, service: str | None = None
+    *, team: Team, date_from: datetime, date_to: datetime, environment: str | None, service: str | None = None
 ) -> list[EndpointHealth]:
     seconds = max(1.0, (date_to - date_from).total_seconds())
     endpoints = [
@@ -318,7 +325,7 @@ def list_endpoints_health(
     return rank_endpoints(endpoints)
 
 
-def get_service_map(*, team: Team, date_from: datetime, date_to: datetime, environment: str) -> ServiceMapResult:
+def get_service_map(*, team: Team, date_from: datetime, date_to: datetime, environment: str | None) -> ServiceMapResult:
     # The sample runs once, so the edges and the reported trace count describe the same traces.
     trace_ids = [row[0] for row in _run(team, _sampled_traces_query(date_from, date_to, environment))]
     if not trace_ids:

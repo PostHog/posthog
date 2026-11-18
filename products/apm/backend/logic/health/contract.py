@@ -34,7 +34,7 @@ class HealthRow:
 @dataclass(frozen=True)
 class ServiceHealth:
     service_name: str
-    environment: str
+    environment: str | None
     health: HealthRow
     status: HealthStatus = HealthStatus.GOOD
     sparkline: tuple[int, ...] = ()
@@ -46,7 +46,7 @@ class EndpointHealth:
 
     service_name: str
     endpoint: str
-    environment: str
+    environment: str | None
     health: HealthRow
     status: HealthStatus = HealthStatus.GOOD
 

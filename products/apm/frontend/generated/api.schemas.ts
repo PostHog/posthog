@@ -49,8 +49,11 @@ export interface EndpointHealthApi {
     service_name: string
     /** The entry span name, for example the HTTP route or the job name. */
     endpoint: string
-    /** The environment the row was computed for. */
-    environment: string
+    /**
+     * The environment filter the row was computed for: null for every environment, empty for spans with no environment.
+     * @nullable
+     */
+    environment: string | null
     /** Health band from the error rate.
      *
      * * `good` - Good
@@ -65,8 +68,11 @@ export interface EndpointHealthApi {
 export interface EndpointsHealthResponseApi {
     /** One row per service and endpoint, worst status first. */
     results: EndpointHealthApi[]
-    /** The environment the rows were computed for. */
-    environment: string
+    /**
+     * The environment filter the rows were computed for: null for every environment, empty for spans with no environment.
+     * @nullable
+     */
+    environment: string | null
     /**
      * The service filter applied, if any.
      * @nullable
@@ -99,8 +105,11 @@ export interface ServiceMapResponseApi {
     edges: ServiceEdgeApi[]
     /** Traces sampled to build the map. */
     trace_count: number
-    /** The environment the map was built for. */
-    environment: string
+    /**
+     * The environment filter the map was built for: null for every environment, empty for spans with no environment.
+     * @nullable
+     */
+    environment: string | null
     /** Start of the window used. */
     date_from: string
     /** End of the window used. */
@@ -110,8 +119,11 @@ export interface ServiceMapResponseApi {
 export interface ServiceHealthApi {
     /** The service.name resource attribute. */
     service_name: string
-    /** The environment the row was computed for. */
-    environment: string
+    /**
+     * The environment filter the row was computed for: null for every environment, empty for spans with no environment.
+     * @nullable
+     */
+    environment: string | null
     /** Health band from the error rate.
      *
      * * `good` - Good
@@ -128,10 +140,13 @@ export interface ServiceHealthApi {
 export interface ServicesHealthResponseApi {
     /** One row per service, worst status first. */
     results: ServiceHealthApi[]
-    /** Environments seen in the window. */
-    environments: string[]
-    /** The environment the rows were computed for. */
-    environment: string
+    /** Environments seen in the window. Null stands for spans that set no environment. */
+    environments: (string | null)[]
+    /**
+     * The environment filter the rows were computed for: null for every environment, empty for spans with no environment.
+     * @nullable
+     */
+    environment: string | null
     /** Start of the window used. */
     date_from: string
     /** End of the window used. */
@@ -202,8 +217,7 @@ export type ApmEndpointsListParams = {
      */
     date_to?: string
     /**
-     * Environment to list, as resolved from span resource attributes. Defaults to 'default'.
-     * @minLength 1
+     * Environment to list, as resolved from span resource attributes. Omit it for every environment. Pass an empty value for spans that set no environment.
      * @maxLength 200
      */
     environment?: string
@@ -225,8 +239,7 @@ export type ApmServiceMapListParams = {
      */
     date_to?: string
     /**
-     * Environment to list, as resolved from span resource attributes. Defaults to 'default'.
-     * @minLength 1
+     * Environment to list, as resolved from span resource attributes. Omit it for every environment. Pass an empty value for spans that set no environment.
      * @maxLength 200
      */
     environment?: string
@@ -242,8 +255,7 @@ export type ApmServicesListParams = {
      */
     date_to?: string
     /**
-     * Environment to list, as resolved from span resource attributes. Defaults to 'default'.
-     * @minLength 1
+     * Environment to list, as resolved from span resource attributes. Omit it for every environment. Pass an empty value for spans that set no environment.
      * @maxLength 200
      */
     environment?: string
