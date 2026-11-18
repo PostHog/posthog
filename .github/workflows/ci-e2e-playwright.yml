@@ -1138,7 +1138,7 @@ jobs:
             # The rerun treats a test that fails all three attempts as broken. The verdict step below then reds the job.
             # --output and --reporter keep the main run's test-results/, junit file, and html report intact.
             # The quarantine reporter stays so that a `mode: "run"` entry in .test_quarantine.json still applies.
-            # With no failed test ids, --last-failed runs the whole suite. The step skips in that case.
+            # With no failed test ids, --last-failed runs the whole suite. The step fails in that case, because a failed main step with no failed test means setup or the run itself broke.
             # Playwright writes .last-run.json at the end of every run. A missing or unreadable file means
             # that the write failed. The step then fails because it cannot tell which tests to rerun.
             - name: Rerun failures the quarantine masked
@@ -1155,8 +1155,8 @@ jobs:
                       exit 1
                   fi
                   if [ "$failed" -eq 0 ]; then
-                      echo "No failed test in $last_run, so there is nothing to rerun."
-                      exit 0
+                      echo "::error::The Playwright step failed but $last_run lists no failed test. Global setup, a run timeout, or an interrupted run is the likely cause."
+                      exit 1
                   fi
                   mkdir -p playwright/test-results-quarantine-rerun
                   cp "$last_run" playwright/test-results-quarantine-rerun/.last-run.json
