@@ -1393,9 +1393,11 @@ class StamphogGitHubClient:
         policy that gates it. Omitting ``ref`` makes GitHub serve the default branch. The ``raw`` media
         type returns the file body directly (no base64 wrapper); a 404 means the file is absent.
         """
+        # Quoted so a `%2e%2e` segment stays a literal name. The HTTP layer would otherwise decode it
+        # into `..` and read another repository's file.
         response = self._request(
             "GET",
-            f"/repos/{repo}/contents/{path}",
+            f"/repos/{repo}/contents/{quote(path, safe='/')}",
             endpoint="/repos/{owner}/{repo}/contents/{path}",
             headers={"Accept": "application/vnd.github.raw+json"},
             priority=priority,

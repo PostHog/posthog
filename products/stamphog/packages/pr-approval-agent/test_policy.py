@@ -350,6 +350,7 @@ def _set_attestations(d: dict, *, raw: object) -> None:
                 ("issuer-glob", [{**_ATTESTATION, "issuer": "tools/*/issuer.yml"}]),
                 ("issuer-not-yaml", [{**_ATTESTATION, "issuer": "tools/proof/yaml.py"}]),
                 ("issuer-beside-the-engine", [{**_ATTESTATION, "issuer": "tools/pr-approval-agent/x.yml"}]),
+                ("issuer-percent-escape", [{**_ATTESTATION, "issuer": "%2e%2e/x.yml"}]),
             ]
         ],
         _unknown_top_level_key,
