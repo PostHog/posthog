@@ -219,6 +219,10 @@ pub struct ProcessingConfig {
     #[envconfig(from = "ERROR_TRACKING_DROP_CODE_VARIABLES_TEAM_IDS", default = "")]
     pub drop_code_variables_team_ids: String,
 
+    // Kept in step by hand with the `error-tracking-issue-change-log` flag, which cymbal cannot evaluate.
+    #[envconfig(from = "ERROR_TRACKING_ISSUE_CHANGE_LOG_TEAM_IDS", default = "")]
+    pub issue_change_log_team_ids: String,
+
     // ----------------------------------------------------------------------
     // Remote resolution (cymbal.resolution.v1).
     // ----------------------------------------------------------------------
