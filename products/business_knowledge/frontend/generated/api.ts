@@ -313,8 +313,8 @@ export const getBusinessKnowledgeKeysCreateUrl = (projectId: string) => {
 }
 
 /**
- * Creates a project secret API key with the business_knowledge:read scope, limited to one library. The response is the only place the key value appears. Delete or roll the key through the project secret API keys endpoint.
- * @summary Create a key that reads one business knowledge library
+ * Creates a project secret API key with the business_knowledge:read scope. The key reads one library, or all business knowledge in the project when library_id is null. The response is the only place the key value appears. Delete or roll the key through the project secret API keys endpoint.
+ * @summary Create a key that reads business knowledge
  */
 export const businessKnowledgeKeysCreate = async (
     projectId: string,
