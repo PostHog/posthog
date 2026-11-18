@@ -12,6 +12,7 @@ import { initKeaTests } from '~/test/init'
 import { myClaim } from '../__mocks__/inboxMocks'
 import {
     INBOX_SCOPE_CLAIMED_BY_YOU,
+    INBOX_SCOPE_NEEDS_YOU,
     INBOX_SCOPE_ENTIRE_PROJECT,
     INBOX_SCOPE_FOR_YOU,
     InboxReportSectionKey,
@@ -247,6 +248,7 @@ describe('reportListLogic', () => {
         it.each([
             { scope: INBOX_SCOPE_FOR_YOU, sent: { suggested_reviewers: MOCK_USER_UUID } },
             { scope: INBOX_SCOPE_CLAIMED_BY_YOU, sent: { assignee: 'mine' } },
+            { scope: INBOX_SCOPE_NEEDS_YOU, sent: { needs_you: 'true' } },
             {
                 scope: 'teammate:t-1',
                 sent: { suggested_reviewers: 't-1', scope: 'teammate', teammate_uuid: 't-1' },
@@ -256,10 +258,17 @@ describe('reportListLogic', () => {
             'narrows the $scope request to $sent',
             ({ scope, sent }) => {
                 logic.actions.setScope(scope)
-                const { suggested_reviewers, assignee, scope: sentScope, teammate_uuid } = logic.values.listApiParams
-                expect({ suggested_reviewers, assignee, scope: sentScope, teammate_uuid }).toEqual({
+                const {
+                    suggested_reviewers,
+                    assignee,
+                    needs_you,
+                    scope: sentScope,
+                    teammate_uuid,
+                } = logic.values.listApiParams
+                expect({ suggested_reviewers, assignee, needs_you, scope: sentScope, teammate_uuid }).toEqual({
                     suggested_reviewers: undefined,
                     assignee: undefined,
+                    needs_you: undefined,
                     scope: undefined,
                     teammate_uuid: undefined,
                     ...sent,

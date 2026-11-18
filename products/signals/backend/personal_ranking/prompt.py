@@ -14,7 +14,7 @@ from products.signals.backend.personal_ranking.candidates import Candidate, Need
 from products.signals.backend.personal_ranking.config import PersonalRankingConfig
 from products.signals.backend.personal_ranking.inbox_activity import InboxActivityBlock
 
-PROMPT_VERSION = 11
+PROMPT_VERSION = 12
 
 Tier = Literal["top", "worth_a_look", "later"]
 TIERS: tuple[Tier, ...] = get_args(Tier)
@@ -91,11 +91,11 @@ def _inbox_activity_rules(config: PersonalRankingConfig) -> str:
 
 The recent inbox activity block lists what the person did with inbox reports in the last {config.inbox_activity_days} days, the strongest evidence first. A line that starts with a ref, such as c7, is about that candidate. The other lines are evidence about topics, not about a candidate.
 - Claimed the work, started a task, linked a pull request, left a note, edited, resolved it, or added themselves as reviewer: the person cares about this topic. Candidates on the same topic move up.
-- "dismissed it as not interested" or "removed themselves as reviewer": candidates on the same topic move down. A candidate whose `needs you` line says waiting on their input or claimed by them stays first.
+- "dismissed it as not interested" or "removed themselves as reviewer": candidates on the same topic move down.
 - Other dismissals, snoozes and "changed the reviewers" are triage. They say nothing about the topic.
 - A rating is evidence about the topic and the source of that report. It is weaker than an action.
 - An open is weak evidence. The inbox chose to show the report, so an open alone does not show interest. A candidate that the person opened and did not act on is not less important.
-- "asked not to review" names an area that the person asked to stay out of. A candidate in that area moves down, unless its `needs you` line says waiting on their input or claimed by them.
+- "asked not to review" names an area that the person asked to stay out of. A candidate in that area moves down.
 - This block is newer than the activity summary. When they disagree, the block wins.
 - A reason can name the topic of the activity that matched, as in "Like the checkout reports you worked on this week." Never quote a note."""
 
@@ -124,9 +124,9 @@ Each outcome has a probability and a lift. Lift is the probability over the base
 
 Read every candidate. Rank only the best {config.rank_top}, fold the duplicates, and ignore the rest. The candidates you do not rank follow in their given order.
 To pick and order the best {config.rank_top}:
-- Put first the reports whose `needs you` line says waiting on their input or claimed by them. Most candidates name them as suggested reviewer, so that fact alone does not move a report up.
+- Prefer the reports that match their themes, the objects they own or watch, and the products they work in.
+- Most candidates name them as suggested reviewer, so that fact alone does not move a report up.
 - The status in a report's first line, such as `pending_input`, is the report's own state, not a fact about this person. A report with no `needs you` line does not need them, whatever its status.
-- Then the reports that match their themes, the objects they own or watch, and the products they work in.
 - Use the ranking model's lift as evidence of value. Prefer lift to the raw probability. A report with an open pull request is cheap to finish.
 - Old reports with no activity and reports far from their work go last.
 - When the person has a focus, it outranks their usual themes.

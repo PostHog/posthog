@@ -397,7 +397,7 @@ class TestInputParts(SimpleTestCase):
             input_hash(
                 candidates, config=config, limit=25, activity_summary_version=7, focus="checkout", inbox_activity=None
             )
-            == "61ca7a345f363b93b18359ec68ad052fe0a72b9864ed0bca593573dce55d2637"
+            == "34299ea407bb3601fd5abdd5c88116119623ffd109700d92185083ad840f7dfd"
         )
 
     @parameterized.expand(
@@ -1015,6 +1015,15 @@ class TestBuildPersonalRanking(BaseTest):
         assert (event["properties"]["personalized"], event["properties"]["model_called"]) == (True, True)
         assert event["properties"]["model_arm"] == "default"
         assert event["properties"]["tier_counts"] == {"top": 0, "worth_a_look": 2, "later": 1}
+        assert [needs_you[entry["report_id"]] for entry in row.result["ranked"]] == [
+            ("waiting_on_input",),
+            ("suggested_reviewer",),
+            ("claimed",),
+        ]
+        assert (event["properties"]["needs_you_candidate_count"], event["properties"]["needs_you_leading_count"]) == (
+            2,
+            1,
+        )
         assert event["properties"]["report_ids"] == [
             *(entry["report_id"] for entry in row.result["ranked"]),
             *(fold["report_id"] for fold in row.result["folded"]),
