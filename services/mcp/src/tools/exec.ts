@@ -329,6 +329,17 @@ function makeExecSchema(commandReference: string): z.ZodObject<{ command: z.ZodS
     })
 }
 
+function unwrapStringifiedObject(value: unknown): unknown {
+    if (typeof value !== 'string' || !value.trimStart().startsWith('{')) {
+        return value
+    }
+    try {
+        return JSON.parse(value)
+    } catch {
+        return value
+    }
+}
+
 function parseCommand(input: string): { verb: string; rest: string } {
     const trimmed = input.trim()
     const idx = trimmed.indexOf(' ')
@@ -2223,7 +2234,7 @@ export function createExecTool(
                     } else {
                         let parsed: unknown
                         try {
-                            parsed = JSON.parse(jsonBody)
+                            parsed = unwrapStringifiedObject(JSON.parse(jsonBody))
                         } catch (err) {
                             const detail = err instanceof Error ? err.message : String(err)
                             throw new ExecCommandError(`Invalid JSON input: ${detail}`, 'invalid_json')
