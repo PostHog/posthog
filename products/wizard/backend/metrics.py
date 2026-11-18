@@ -22,6 +22,7 @@ _KNOWN_PROGRAMS = {
     "revenue-analytics-setup",
     "self-driving",
     "slack",
+    "transactional-email",
     "warehouse-source",
     "web-analytics-doctor",
 }
