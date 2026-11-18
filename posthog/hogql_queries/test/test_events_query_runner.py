@@ -1608,6 +1608,20 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 FLAG_EVALUATIONS_USER_EVENTS,
             ),
             (
+                "group_event_list_with_two_groups",
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                {
+                    "fixedProperties": [
+                        EventPropertyFilter(
+                            key="$group_0",
+                            value=[FLAG_EVALUATIONS_GROUP_KEY, "other-org"],
+                            operator=PropertyOperator.EXACT,
+                        )
+                    ]
+                },
+                EVERY_EVENT_WITH_FLAG_EVALUATIONS,
+            ),
+            (
                 "read_flag_evaluations_mode",
                 FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
                 {},

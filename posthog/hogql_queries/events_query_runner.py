@@ -212,6 +212,20 @@ def _exact_flag_keys(prop: QueryPropertyFilter) -> list[str] | None:
     return [str(value) for value in values]
 
 
+def _exact_group_values(prop: QueryPropertyFilter) -> tuple[str, list[str]] | None:
+    if not (
+        isinstance(prop, EventPropertyFilter)
+        and prop.operator == PropertyOperator.EXACT
+        and re.fullmatch(r"\$group_[0-4]", prop.key)
+    ):
+        return None
+    values = prop.value if isinstance(prop.value, list) else [prop.value]
+    # A property read makes an empty or "null" key NULL, which the stored column does not.
+    if not values or not all(isinstance(value, str) and value not in ("", "null") for value in values):
+        return None
+    return prop.key, [str(value) for value in values]
+
+
 def _retention_start_expr(retention_days: int) -> ast.Expr:
     retention_start = start_of_day(now()) - timedelta(days=retention_days)
     return parse_expr("timestamp >= {retention_start}", {"retention_start": ast.Constant(value=retention_start)})
@@ -480,16 +494,27 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         return super().get_cache_key_variant() + self._list_table.cache_key_variant
 
     def _property_where_expr(self, prop: QueryPropertyFilter, table: EventsListTable) -> ast.Expr:
-        if table is not FLAG_EVALUATIONS_LIST_TABLE:
+        if table is not FLAG_EVALUATIONS_LIST_TABLE and not table.events_scans_read_flag_calls:
             return property_to_expr(prop, self.team)
         if isinstance(prop, PropertyGroupFilter | PropertyGroupFilterValue):
-            # Builds the group the way property_to_expr does, so an exact flag filter inside a group also reads flag_key.
+            # Builds the group the way property_to_expr does, so an exact filter inside a group also reads its column.
             exprs = [self._property_where_expr(value, table) for value in prop.values]
             if not exprs:
                 return ast.Constant(value=1)
             if len(exprs) == 1:
                 return exprs[0]
             return ast.And(exprs=exprs) if prop.type == FilterLogicalOperator.AND_ else ast.Or(exprs=exprs)
+        if table is not FLAG_EVALUATIONS_LIST_TABLE:
+            group = _exact_group_values(prop)
+            if group is None:
+                return property_to_expr(prop, self.team)
+            # flag_evaluations has a `$group_N` column. HogQL reads properties.$group_N from the properties JSON there,
+            # which parses the properties of every flag call in the date range.
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.In,
+                left=ast.Field(chain=[group[0]]),
+                right=ast.Tuple(exprs=[ast.Constant(value=value) for value in group[1]]),
+            )
         flag_keys = _exact_flag_keys(prop)
         if flag_keys is None:
             return property_to_expr(prop, self.team)
