@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 import time_machine
 
+import requests
 import structlog
 
 from products.warehouse_sources.sources.newsbreak._config import NewsBreakSourceConfig
@@ -387,12 +388,21 @@ class TestErrors:
             (ScriptedResponse(json={"code": 4033, "errMsg": "Invalid access token"}), INVALID_TOKEN_ERROR),
             (ScriptedResponse(json={"code": 4031, "errMsg": "Not login"}), INVALID_TOKEN_ERROR),
             (ScriptedResponse(status=401, json={}), INVALID_TOKEN_ERROR),
+            # NewsBreak can send the vendor code with an HTTP 400 instead of 401.
+            (ScriptedResponse(status=400, json={"code": 4033, "errMsg": "Invalid access token"}), INVALID_TOKEN_ERROR),
             (ScriptedResponse(json={"code": 403, "errMsg": "Permission denied"}), PERMISSION_ERROR),
             (
                 ScriptedResponse(json={"code": -1, "errMsg": "Unknown error"}),
                 "NewsBreak API error -1 for /ad-account/getGroupsByOrgIds: Unknown error",
             ),
             (ScriptedResponse(status=503, json={}), "NewsBreak returned HTTP 503"),
+            # A 400 that `raise_for_status()` would otherwise reduce to a generic "Bad Request", losing
+            # the reason NewsBreak put in the body.
+            (
+                ScriptedResponse(status=400, json={"errMsg": "startDate must be within 30 days of endDate"}),
+                "NewsBreak returned HTTP 400 for /ad-account/getGroupsByOrgIds: startDate must be within 30 days of endDate",
+            ),
+            (ScriptedResponse(status=400, json={}), "NewsBreak returned HTTP 400"),
         ],
     )
     def test_maps_vendor_errors(self, answer: ScriptedResponse, expected: str) -> None:
@@ -400,6 +410,13 @@ class TestErrors:
 
         assert result.raised is not None
         assert str(result.raised).startswith(expected)
+
+    def test_404_stays_a_plain_http_error(self) -> None:
+        # `_handle_import_error` classifies a 404 as non-retryable by `requests.HTTPError` type, not
+        # by message, so this must not become a `NewsBreakAPIError` like the other unhandled 4xxs.
+        result = _driver().run("campaigns", always(ScriptedResponse(status=404, json={})))
+
+        assert isinstance(result.raised, requests.HTTPError)
 
     @pytest.mark.parametrize(
         ("throttled", "tries"),

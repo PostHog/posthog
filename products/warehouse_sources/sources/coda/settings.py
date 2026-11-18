@@ -36,11 +36,24 @@ CODA_ENDPOINTS: dict[str, CodaEndpointConfig] = {
         name="page_analytics",
         primary_keys=["_doc_id", "page_id"],
     ),
+    # Pack analytics returns one item per pack; the pack id is nested under `pack`, lifted to `pack_id`.
+    "pack_analytics": CodaEndpointConfig(
+        name="pack_analytics",
+        primary_keys=["pack_id"],
+    ),
     "folders": CodaEndpointConfig(
         name="folders",
     ),
     "pages": CodaEndpointConfig(
         name="pages",
+        primary_keys=["_doc_id", "id"],
+    ),
+    "controls": CodaEndpointConfig(
+        name="controls",
+        primary_keys=["_doc_id", "id"],
+    ),
+    "formulas": CodaEndpointConfig(
+        name="formulas",
         primary_keys=["_doc_id", "id"],
     ),
     "permissions": CodaEndpointConfig(

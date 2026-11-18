@@ -37,10 +37,10 @@ class TeamTaskSummary:
 
 def _readable_by_team_q(team_id: int) -> Q:
     """Tasks any member of the team may read, with a Slack task judged by its thread rather than its channel."""
-    from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off the import path
+    from products.slack_app.backend.facade.constants import (  # noqa: PLC0415 — cross-product import kept off the import path
         PUBLIC_CHANNEL_CONVERSATION_TYPES,
-        SlackThreadTaskMapping,
     )
+    from products.slack_app.backend.models import SlackThreadTaskMapping  # noqa: PLC0415
 
     thread_mappings = SlackThreadTaskMapping.objects.filter(task_id=OuterRef("pk"))
     in_public_thread = Exists(thread_mappings.filter(conversation_type__in=sorted(PUBLIC_CHANNEL_CONVERSATION_TYPES)))

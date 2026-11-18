@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { IconDocument } from '@posthog/icons'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import type { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -25,6 +27,7 @@ import { getSidebarPropertyDefinitionTarget } from 'products/data_warehouse/fron
 
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { draftsLogic } from '../draftsLogic'
+import { MaterializedViewIcon } from './MaterializedViewIcon'
 import {
     getDefaultExpandedRootIds,
     getInitialExpandedFolders,
@@ -718,6 +721,35 @@ describe('queryDatabaseLogic', () => {
         category().children?.at(-1)?.onClick?.()
         expect(category().children).toHaveLength(tableType === 'posthog' ? 21 : 20)
 
+        logic.unmount()
+    })
+
+    it('marks only materialized saved views with the materialized view icon', async () => {
+        initKeaTests()
+        const logic = queryDatabaseLogic()
+        logic.mount()
+        const viewsLogic = dataWarehouseViewsLogic.findMounted()!
+        await expectLogic(viewsLogic).toFinishAllListeners()
+        viewsLogic.actions.loadDataWarehouseSavedQueriesSuccess(
+            [
+                ['orders_plain', false],
+                ['orders_stored', true],
+            ].map(([name, isMaterialized]) => ({
+                id: name,
+                name,
+                status: 'Completed',
+                is_materialized: isMaterialized,
+                columns: [],
+                managed_viewset_kind: null,
+            })) as unknown as DataWarehouseSavedQuery[]
+        )
+
+        const iconTypeByView = Object.fromEntries(
+            logic.values.displayedTreeData
+                .find((item) => item.name === 'Views')!
+                .children!.map((item) => [item.name, (item.icon as JSX.Element).type])
+        )
+        expect(iconTypeByView).toEqual({ orders_plain: IconDocument, orders_stored: MaterializedViewIcon })
         logic.unmount()
     })
 

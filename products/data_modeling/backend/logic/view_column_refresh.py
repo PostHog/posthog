@@ -6,6 +6,7 @@ from uuid import UUID
 from django.utils import timezone
 
 import structlog
+from opentelemetry import trace
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.uuidt import UUIDT
@@ -24,6 +25,7 @@ if TYPE_CHECKING:
     from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 def refresh_view_columns(team: "Team", saved_query_ids: Collection[UUID | str], user: "User | None") -> set[UUID]:
@@ -56,6 +58,7 @@ def views_updated_since(team: "Team", saved_query_ids: Collection[UUID | str], s
 def refresh_downstream_view_columns(team: "Team", saved_query_id: UUID | str, user: "User | None") -> set[UUID]:
     """Re-infer the stored columns of every view that reads from this one, directly or through other views."""
     downstream_ids = downstream_saved_query_ids(team.pk, saved_query_id)
+    trace.get_current_span().set_attribute("downstream_view_count", len(downstream_ids))
     return refresh_view_columns(team, _readable_by(team, user, downstream_ids), user)
 
 
@@ -74,6 +77,15 @@ def _infers_masked_columns(team: "Team", user: "User | None") -> bool:
 
 
 def _refresh_columns(view: DataWarehouseSavedQuery, user: "User | None") -> bool:
+    with tracer.start_as_current_span(
+        "view_column_refresh.view", attributes={"saved_query_id": str(view.id)}
+    ) as view_span:
+        columns_changed = _infer_and_store_columns(view, user)
+        view_span.set_attribute("columns_changed", columns_changed)
+        return columns_changed
+
+
+def _infer_and_store_columns(view: DataWarehouseSavedQuery, user: "User | None") -> bool:
     # Inference uses the team's default modifiers, so a materialized upstream view is read from its backing table.
     # A query with useMaterializedViews=False reads that view's SQL instead. When the SQL changed and the view has
     # not materialized again, such a query can still fail on stale columns after this refresh. The refresh that
