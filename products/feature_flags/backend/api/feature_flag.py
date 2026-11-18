@@ -169,7 +169,7 @@ from products.feature_flags.backend.facade.config import (
 )
 from products.feature_flags.backend.facade.config_validation import ConfigValidationError, ValidationLimits
 from products.feature_flags.backend.facade.enums import VERSION_RESTORE_JOB_TYPE
-from products.feature_flags.backend.facade.references import InvalidIds, flag_ids_named_in_any_format, references
+from products.feature_flags.backend.facade.references import InvalidIds, references
 from products.feature_flags.backend.filters_validation import collect_cross_field_violations, flatten_structural_errors
 from products.feature_flags.backend.flag_analytics import (
     increment_local_evaluation_request_counts,
@@ -729,7 +729,7 @@ def find_dependent_flags_batch(
         except ConfigFormatError:
             # The SQL candidate query matched this row on a flag reference, so keep it as a dependent of
             # every flag it names: deleting one of them would break a dependency we cannot read.
-            for flag_id in flag_ids_named_in_any_format(dep_flag.filters) & set(flag_ids):
+            for flag_id in set(flag_dependency_ids(dep_flag.filters or {})) & result.keys():
                 result[flag_id].append(dep_flag)
             continue
         for located in _iter_flag_filter_properties(conditions):

@@ -14228,12 +14228,22 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
         if extra_groups is None:
             # A legacy row marked version 2 that still carries a groups array naming the base flag.
             # The SQL candidate query matches it on that array, and the model cannot read it as v1.
+            # It also names a flag outside the delete batch, which the fallback must ignore.
+            other_flag = FeatureFlag.objects.create(
+                team=self.team,
+                created_by=self.user,
+                key="other_flag",
+                filters={"groups": [{"rollout_percentage": 100, "properties": []}]},
+            )
             dependent_filters = {
                 "version": 2,
                 "groups": [
                     {
                         "rollout_percentage": 100,
-                        "properties": [{"key": str(base_flag.id), "type": "flag", "value": "true"}],
+                        "properties": [
+                            {"key": str(base_flag.id), "type": "flag", "value": "true"},
+                            {"key": str(other_flag.id), "type": "flag", "value": "true"},
+                        ],
                     }
                 ],
             }
