@@ -5,9 +5,9 @@ import hashlib
 from typing import Any, Optional
 
 from django.conf import settings
-from django.contrib.auth import BACKEND_SESSION_KEY
+from django.contrib.auth import BACKEND_SESSION_KEY, SESSION_KEY
 from django.contrib.auth.signals import user_logged_in
-from django.core.cache import cache
+from django.core.cache import caches
 from django.db import transaction
 from django.dispatch import receiver
 from django.http import HttpRequest
@@ -17,6 +17,7 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 RADAR_LOGIN_ATTEMPT_SESSION_KEY = "radar_login_attempt"
+RADAR_LOGIN_ATTEMPT_CACHE_ALIAS = "radar_login_attempt"
 _REQUEST_ATTRIBUTE = "_radar_login_attempt"
 # The password form and every second factor after it sign in with this backend; a passkey or SSO login does not
 _PASSWORD_FLOW_BACKEND = "django.contrib.auth.backends.ModelBackend"
@@ -48,37 +49,46 @@ def _store_pending(request: HttpRequest, pending: dict[str, Any], valid_for_seco
     request.session[RADAR_LOGIN_ATTEMPT_SESSION_KEY] = pending
     # login() flushes a session signed in as another account, so these copies carry the attempt past it
     setattr(request, _REQUEST_ATTRIBUTE, pending)
-    if request.session.session_key:
+    if SESSION_KEY in request.session and request.session.session_key:
         try:
-            cache.set(_cache_key(request.session.session_key), pending, timeout=ttl_seconds)
+            caches[RADAR_LOGIN_ATTEMPT_CACHE_ALIAS].set(
+                _cache_key(request.session.session_key), pending, timeout=ttl_seconds
+            )
         except Exception:
             logger.warning("workos_radar_login_attempt_not_cached", exc_info=True)
 
 
 def _take_pending(request: HttpRequest) -> Optional[dict[str, Any]]:
-    candidates = [
+    for candidate in (
         request.session.pop(RADAR_LOGIN_ATTEMPT_SESSION_KEY, None),
         getattr(request, _REQUEST_ATTRIBUTE, None),
-    ]
+    ):
+        if isinstance(candidate, dict):
+            return candidate
     incoming_session_key = request.COOKIES.get(settings.SESSION_COOKIE_NAME)
-    if incoming_session_key:
-        # The report is optional, so a cache outage must not fail the login that fires this signal
-        try:
-            candidates.append(cache.get(_cache_key(incoming_session_key)))
-            cache.delete(_cache_key(incoming_session_key))
-        except Exception:
-            logger.warning("workos_radar_login_attempt_cache_unavailable", exc_info=True)
-    return next((candidate for candidate in candidates if isinstance(candidate, dict)), None)
+    if not incoming_session_key:
+        return None
+    # The report is optional, so a cache outage must not fail the login that fires this signal
+    try:
+        attempt_cache = caches[RADAR_LOGIN_ATTEMPT_CACHE_ALIAS]
+        candidate = attempt_cache.get(_cache_key(incoming_session_key))
+        attempt_cache.delete(_cache_key(incoming_session_key))
+    except Exception:
+        logger.warning("workos_radar_login_attempt_cache_unavailable", exc_info=True)
+        return None
+    return candidate if isinstance(candidate, dict) else None
 
 
 @receiver(user_logged_in)
 def report_radar_login_success(sender: Any, user: Any, request: Optional[HttpRequest] = None, **kwargs: Any) -> None:
     if request is None or getattr(request, "session", None) is None:
         return
+    if request.session.get(BACKEND_SESSION_KEY) != _PASSWORD_FLOW_BACKEND:
+        # A passkey or SSO login drops the attempt without a cache round trip
+        request.session.pop(RADAR_LOGIN_ATTEMPT_SESSION_KEY, None)
+        return
     pending = _take_pending(request)
     if pending is None or pending.get("user_pk") != user.pk:
-        return
-    if request.session.get(BACKEND_SESSION_KEY) != _PASSWORD_FLOW_BACKEND:
         return
     if time.time() > float(pending.get("expires_at") or 0):
         return

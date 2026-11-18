@@ -85,6 +85,7 @@ from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.authentication_checks import covers_authentication
 from posthog.workos_radar import RadarAttempt, RadarVerdict
+from posthog.workos_radar_signal_handlers import RADAR_LOGIN_ATTEMPT_CACHE_ALIAS
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -868,7 +869,12 @@ class TestLoginRadar(APIBaseTest):
             assert mock_put.call_args[1]["json"] == {"attempt_status": "success"}
 
     @parameterized.expand(
-        [("without_2fa", False, False), ("with_2fa", True, False), ("while_the_cache_is_down", False, True)]
+        [
+            ("without_2fa", False, False, 1),
+            ("with_2fa", True, False, 1),
+            ("without_2fa_while_the_cache_is_down", False, True, 1),
+            ("with_2fa_while_the_cache_is_down_signs_in_without_a_report", True, True, 0),
+        ]
     )
     @patch("posthog.workos_radar.requests.put")
     @patch(
@@ -876,7 +882,7 @@ class TestLoginRadar(APIBaseTest):
         return_value=RadarAttempt(verdict=RadarVerdict.ALLOW, attempt_id="radar_att_01ABC"),
     )
     def test_a_login_reports_its_radar_attempt_after_the_second_factor(
-        self, _name, two_factor, cache_down, _mock_call_api, mock_put
+        self, _name, two_factor, cache_down, expected_reports, _mock_call_api, mock_put
     ):
         mock_put.return_value.status_code = 200
         device = self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6) if two_factor else None  # type: ignore
@@ -887,7 +893,9 @@ class TestLoginRadar(APIBaseTest):
             **{f"{op}.side_effect": ConnectionError("cache down") for op in ("get", "set", "delete")}
         )
 
-        with patch("posthog.workos_radar_signal_handlers.cache", broken_cache) if cache_down else nullcontext():
+        broken_caches = {RADAR_LOGIN_ATTEMPT_CACHE_ALIAS: broken_cache}
+
+        with patch("posthog.workos_radar_signal_handlers.caches", broken_caches) if cache_down else nullcontext():
             first = self._password_login(self.CONFIG_PASSWORD)
             if device:
                 assert first.json()["code"] == "2fa_required"
@@ -896,7 +904,7 @@ class TestLoginRadar(APIBaseTest):
             else:
                 assert first.status_code == 200
 
-        assert [c[0][0] for c in mock_put.call_args_list] == [self.RADAR_ATTEMPT_URL]
+        assert [c[0][0] for c in mock_put.call_args_list] == [self.RADAR_ATTEMPT_URL] * expected_reports
 
     @parameterized.expand([("without_a_resend", None, 20), ("after_a_resend", 25, 50)])
     @pytest.mark.disable_mock_code_based_verifier
