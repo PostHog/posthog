@@ -40,14 +40,11 @@ describe('ToolCallValue', () => {
     ])('%s', async (_name, value, highlightQuery, expected) => {
         const { container } = render(<ToolCallValue value={value} highlightQuery={highlightQuery} />)
 
-        // The 200,000-item value renders as a large tree, which can outlast the default timeout on a busy runner.
-        await waitFor(
-            () =>
-                expect({
-                    open: container.querySelector('details')?.open ?? null,
-                    body: container.querySelector('dl, pre, .react-json-view') !== null,
-                }).toEqual(expected),
-            { timeout: 5000 }
+        await waitFor(() =>
+            expect({
+                open: container.querySelector('details')?.open ?? null,
+                body: container.querySelector('dl, pre, .react-json-view') !== null,
+            }).toEqual(expected)
         )
     })
 })
