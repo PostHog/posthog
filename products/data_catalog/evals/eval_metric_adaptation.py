@@ -2,7 +2,10 @@
 
 The MRR cases adapt a HogQL metric in SQL. The trends and funnel cases adapt a typed metric, so the adapted
 query must stay a typed query: ``insight_shape`` checks that the answer ran ``query-trends`` or
-``query-funnel`` with the metric's measure plus the requested change.
+``query-funnel`` with the metric's measure plus the requested change. The ``sql_from_typed_*`` cases ask for
+a shape no typed runner returns, so the agent must carry the typed metric's definition of an active
+account into SQL. ``insight_shape`` does not grade them, because it prefers any typed query over SQL as the
+answer, and an agent can correctly run the trends headline before it writes the SQL.
 
 Run it once per surface:
 
@@ -52,6 +55,19 @@ def _adapted_typed_behavior(metric_name: str, change: str, keep: str) -> str:
         f"query to {change}, keep {keep}, and run it with the typed query runner of its kind, not with "
         "hand-written SQL. Report the values the run returned. Label the result as an adaptation of the "
         "governed metric, not as the approved number itself."
+    )
+
+
+# The governed definition of an active account: any event that carries the account group key.
+_ACTIVE_ACCOUNT_TERMS = ["$group_0"]
+
+
+def _sql_from_typed_behavior(shape: str) -> str:
+    return (
+        f"Find {ACCOUNT_ENGAGEMENT_METRIC.name} in the catalog and read its definition with metric-describe. "
+        "No typed query runner returns this shape, so write SQL that keeps the metric's definition: an active "
+        f"account is a distinct account group key on any event in the window. Return {shape}. Label the result "
+        "as derived from the governed metric, not as the approved number itself."
     )
 
 
@@ -181,6 +197,65 @@ async def eval_metric_adaptation(ctx: EvalContext) -> None:
                 },
             },
             setup=seed_activation_funnel_metric,
+        ),
+        SandboxedEvalCase(
+            name="sql_from_typed_entity_table",
+            prompt=(
+                "Using our definition of an active account, list every account that was active in the last 4 weeks, "
+                "with its name, plan, number of uploads, number of downloads, and the date of its last activity."
+            ),
+            expected={
+                "metric_found": {"metric_name": ACCOUNT_ENGAGEMENT_METRIC.name},
+                "metric_describe_before_adapted_sql": {},
+                "query_terms_used": {"terms": [*_ACTIVE_ACCOUNT_TERMS, "uploaded_file", "downloaded_file", "plan"]},
+                "semantic_layer_answer": {
+                    "expected_behavior": _sql_from_typed_behavior(
+                        "one row per active account in the last 4 weeks with its name, plan, upload count, "
+                        "download count and last activity date"
+                    )
+                },
+            },
+            setup=seed_account_engagement_metric,
+        ),
+        SandboxedEvalCase(
+            name="sql_from_typed_status_buckets",
+            prompt=(
+                "Using our definition of an active account, compare the last 4 weeks with the 4 weeks before. Label "
+                "each account: new (first activity ever in the last 4 weeks), retained (active in both periods), "
+                "returning (active in the last 4 weeks, not in the 4 weeks before, but active earlier), or gone "
+                "quiet (active in the 4 weeks before, not in the last 4 weeks). How many accounts are in each group?"
+            ),
+            expected={
+                "metric_found": {"metric_name": ACCOUNT_ENGAGEMENT_METRIC.name},
+                "metric_describe_before_adapted_sql": {},
+                "query_terms_used": {"terms": _ACTIVE_ACCOUNT_TERMS},
+                "semantic_layer_answer": {
+                    "expected_behavior": _sql_from_typed_behavior(
+                        "the count of accounts in each of the four groups, with the group definitions applied "
+                        "exactly as the user stated them and each account in exactly one group"
+                    )
+                },
+            },
+            setup=seed_account_engagement_metric,
+        ),
+        SandboxedEvalCase(
+            name="sql_from_typed_distribution",
+            prompt=(
+                "Among accounts that were active in the last 4 weeks by our definition, what is the median and the "
+                "maximum number of active users per account, split by plan?"
+            ),
+            expected={
+                "metric_found": {"metric_name": ACCOUNT_ENGAGEMENT_METRIC.name},
+                "metric_describe_before_adapted_sql": {},
+                "query_terms_used": {"terms": [*_ACTIVE_ACCOUNT_TERMS, "person", "plan"]},
+                "semantic_layer_answer": {
+                    "expected_behavior": _sql_from_typed_behavior(
+                        "per plan, the median and the maximum of the distinct users per active account, counted "
+                        "in the last 4 weeks"
+                    )
+                },
+            },
+            setup=seed_account_engagement_metric,
         ),
     ]
 
