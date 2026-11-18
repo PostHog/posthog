@@ -2805,64 +2805,70 @@ describe('sqlEditorLogic', () => {
             })
         })
 
-        it('switches the active tab into the created view immediately after create success', async () => {
-            logic = sqlEditorLogic({
-                tabId: TAB_ID,
-                monaco: createMockMonaco(),
-                editor: createMockEditor(),
-            })
-            logic.mount()
-            editorRootLogic = editorSceneLogic({ tabId: TAB_ID })
-            editorRootLogic.mount()
+        const createdView = {
+            id: 'created-view-id',
+            columns: [],
+            name: 'models.Created view',
+            query: {
+                kind: NodeKind.HogQLQuery,
+                query: 'SELECT 1',
+            },
+            is_materialized: false,
+            latest_history_id: null,
+            sync_frequency: null,
+            status: null,
+            last_run_at: null,
+            latest_error: null,
+        } as any
+        const otherView = { ...createdView, id: 'other-view-id', name: 'zebra' }
 
-            logic.actions.createTab('SELECT 1')
-            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+        it.each([
+            { name: 'the only view', savedQueries: [createdView] },
+            // A loader that sorts by name puts the new view first, so its position tells nothing.
+            { name: 'not last in the list', savedQueries: [createdView, otherView] },
+        ])(
+            'switches the active tab into the created view immediately after create success when it is $name',
+            async ({ savedQueries }) => {
+                logic = sqlEditorLogic({
+                    tabId: TAB_ID,
+                    monaco: createMockMonaco(),
+                    editor: createMockEditor(),
+                })
+                logic.mount()
+                editorRootLogic = editorSceneLogic({ tabId: TAB_ID })
+                editorRootLogic.mount()
 
-            logic.actions.createDataWarehouseSavedQuerySuccess(
-                [
-                    {
-                        id: 'created-view-id',
-                        columns: [],
-                        name: 'models.Created view',
-                        query: {
-                            kind: NodeKind.HogQLQuery,
-                            query: 'SELECT 1',
-                        },
-                        is_materialized: false,
-                        latest_history_id: null,
-                        sync_frequency: null,
-                        status: null,
-                        last_run_at: null,
-                        latest_error: null,
-                    } as any,
-                ],
-                {
+                logic.actions.createTab('SELECT 1')
+                await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+                dataWarehouseViewsLogic.actions.setLastCreatedDataWarehouseSavedQuery(createdView)
+                logic.actions.createDataWarehouseSavedQuerySuccess(savedQueries, {
                     name: 'Created view',
                     query: {
                         kind: NodeKind.HogQLQuery,
                         query: 'SELECT 1',
                     },
                     types: [],
-                }
-            )
-
-            await expectLogic(logic)
-                .toDispatchActions(['createDataWarehouseSavedQuerySuccess', 'updateTab'])
-                .toMatchValues({
-                    editingView: partial({
-                        id: 'created-view-id',
-                        columns: [],
-                        name: 'models.Created view',
-                    }),
                 })
 
-            expect(editorRootLogic.values.titleSectionProps).toMatchObject({
-                name: 'models.Created view',
-            })
-            await new Promise((resolve) => setTimeout(resolve, 0))
+                await expectLogic(logic)
+                    .toDispatchActions(['createDataWarehouseSavedQuerySuccess', 'updateTab'])
+                    .toMatchValues({
+                        editingView: partial({
+                            id: 'created-view-id',
+                            columns: [],
+                            name: 'models.Created view',
+                        }),
+                    })
 
-            expect(router.values.hashParams.view).toEqual('created-view-id')
-        })
+                expect(editorRootLogic.values.titleSectionProps).toMatchObject({
+                    name: 'models.Created view',
+                })
+                await new Promise((resolve) => setTimeout(resolve, 0))
+
+                expect(router.values.hashParams.view).toEqual('created-view-id')
+            }
+        )
 
         it('keeps the results tab when opening a view directly', async () => {
             logic = sqlEditorLogic({
