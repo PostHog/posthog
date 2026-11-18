@@ -131,6 +131,7 @@ The native build supports rotation; iOS builds use Xcode 27.1 for the full Duo d
 - iOS follows the system's vertical-bar signal. When the rail is active, native tabs and stack toolbar buttons occupy it.
   Subscribe to Expo's initial edge event; its synchronous edge getter can deadlock React's event beat during startup.
   They use raster copies of the existing app glyphs, icon-only tab labels, and a distinct Chat action.
+  Tapping the selected tab in the floating bar or custom rail scrolls its list to the top. Switching tabs preserves the list position.
   Without a vertical rail, the native tab bar is hidden and the existing floating pill and Chat button remain.
   Native header options reset when the vertical system rail disappears.
   Navigation pin toasts and Undo live above the native tab host so tab visibility changes preserve them.
