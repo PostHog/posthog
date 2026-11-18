@@ -200,7 +200,7 @@ async def test_execution_telemetry_covers_output_types(
                 EmitInternalTelemetryInputs(evaluation=evaluation, team_id=1, result=result)
             )
 
-    capture.assert_called_once_with(sync_mode=True, disabled=True)
+    capture.assert_called_once_with(sync_mode=True, max_retries=0, disabled=True)
     capture.return_value.flush.assert_called_once_with()
     capture.return_value.capture.assert_called_once_with(
         distinct_id="org-test-org",

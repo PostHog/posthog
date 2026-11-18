@@ -375,7 +375,7 @@ class TestSubagentCallbackHandler(SimpleTestCase):
         regular_handler.on_chain_start({"name": "TestChain"}, {"input": "test"}, run_id=run_id, parent_run_id=None)
         regular_handler.on_chain_end({"output": "result"}, run_id=run_id, parent_run_id=None)
 
-        capture_calls = list(mock_client.capture.call_args_list)
+        capture_calls = list(mock_client.capture_ai.call_args_list)
         self.assertEqual(len(capture_calls), 1)
         event_name = capture_calls[0][1]["event"]
         self.assertEqual(event_name, "$ai_trace")
@@ -386,7 +386,7 @@ class TestSubagentCallbackHandler(SimpleTestCase):
         self.handler.on_chain_start({"name": "SubagentChain"}, {"input": "test"}, run_id=run_id, parent_run_id=None)
         self.handler.on_chain_end({"output": "result"}, run_id=run_id, parent_run_id=None)
 
-        capture_calls = list(self.mock_client.capture.call_args_list)
+        capture_calls = list(self.mock_client.capture_ai.call_args_list)
         self.assertEqual(len(capture_calls), 1)
 
         event_name = capture_calls[0][1]["event"]
@@ -408,7 +408,7 @@ class TestSubagentCallbackHandler(SimpleTestCase):
         self.handler.on_chain_end({"output": "child_result"}, run_id=child_run_id, parent_run_id=root_run_id)
         self.handler.on_chain_end({"output": "root_result"}, run_id=root_run_id, parent_run_id=None)
 
-        capture_calls = list(self.mock_client.capture.call_args_list)
+        capture_calls = list(self.mock_client.capture_ai.call_args_list)
         self.assertEqual(len(capture_calls), 2)
 
         # First capture is child chain (ends first) - should be $ai_span
@@ -439,7 +439,7 @@ class TestMaxCallbackHandler(SimpleTestCase):
         else:
             handler.on_llm_end(output, run_id=llm_run_id, parent_run_id=root_run_id)
         handler.on_chain_end({"output": "done"}, run_id=root_run_id, parent_run_id=None)
-        return [call.kwargs["event"] for call in client.capture.call_args_list]
+        return [call.kwargs["event"] for call in client.capture_ai.call_args_list]
 
     def _result(self, served: bool) -> LLMResult:
         generation_info = {AI_GATEWAY_SERVED_KEY: True} if served else None
