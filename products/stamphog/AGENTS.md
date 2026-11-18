@@ -210,6 +210,38 @@ The policy only names the manifest. It never copies the list, so the two cannot 
 - A result counts only when its `blobs` keys hold every manifest path verbatim and the server confirmed every pinned object still current. `logic/attestation_pins.py` compares a `/` key against the default branch's tree id and any other key against the blob id. A type mismatch, or an object that is gone, is not current. The posting-time `_attest_gates` reads the check runs through the same function, so the final check uses the same comparison.
 - The policy, the manifest and the pins are each read from the default branch by name, not from one resolved commit. The manifest covers itself, so an edit to it changes a pinned id and a proof made before the edit reads as stale. A proof made after it is checked against the copy the run read: it lifts when it pins every path that copy lists, and lifts nothing when the edit dropped one.
 
+## Workflow publishers (identity without an App)
+
+An entry names either an `app_id` or a default-branch `workflow` with its publishing `job` and the `events` it runs on, never both.
+Any job's built-in token can create a check run under any name, and can edit the title, summary and annotations of any check run a workflow wrote, including another run's job check run.
+So nothing the Checks API returns says which job wrote it, and a workflow entry trusts only a result its publishing job signed with a GitHub Actions OIDC ID token.
+
+The publisher's side:
+
+- Only the publishing job gets `permissions: id-token: write`. The job that reads PR data concludes in a separate job with no permissions, as in the App setup, and stays security code, because the publisher signs whatever it hands over.
+- The publishing job requests a token with the audience `proof_audience(check, conclusion, marker)` from `logic/workflow_proofs.py`: `stamphog-` and the sha256 of `stamphog:v1\n<check>\n<conclusion>\n<marker JSON>`. It then posts the check run with the marker and `<!-- stamphog-oidc:v1 <token> -->` in the summary.
+- It signs every result it posts, including the fallback when the conclude job broke, because a newer unsigned result cannot replace an older signed one.
+- The marker must be the object form, naming the PR and head. The engine refuses the list form for a workflow entry, because a signed list could be posted again on any head.
+- A `workflow_run` publisher never trusts the triggering run's data, because a writer can edit that workflow on a branch. It proves the PR itself.
+
+The server's side (`logic/workflow_proofs.py`, with the policy fields read by `logic/attestation_policy.py`):
+
+- It reads every check run of the entry's name with `filter=all`. GitHub lists only the newest one by default, and any job can post a newer one.
+- The token must verify against GitHub's published keys, read through the shared JWKS cache (`select_signing_key` in `posthog/api/oauth/client_assertion.py`), and name this repository id, one of the entry's events, and the entry's file on the default branch as both `workflow_ref` and `job_workflow_ref`. A `pull_request` run, a branch's workflow and a reusable workflow fail here. `pull_request_target` reads the default branch's file even for a PR into another branch, which GitHub changed in December 2025.
+- Among the results that pass, the newest run (`run_id`, `run_attempt`) decides, not the newest check run.
+- The token's `check_run_id` is the requesting job's id. The Actions API must name that job the entry's `job` in the token's run, so a second job with `id-token: write` cannot publish. `job` is the name Actions shows, not the job's key in the file, so give the publishing job a name no other job of the workflow has.
+- A success lifts only when the run's commit (`job_workflow_sha`) and the default branch hold the same workflow file and pinned paths, and the marker's `blobs` match them. A re-run of an old run executes the old code, so it counts only while that code is current. The server records the answer as `pinned_blobs_current`.
+- The verified result goes in as a check run under `WORKFLOW_PROOF_KEY`, which GitHub never sends. Both review paths, the context fetch and `_attest_gates`, build the engine's check runs through `proven_check_runs`, and the App pin check skips the verified result.
+- The poll records the publisher in the pending entry and wakes only on a result the publishing job signed for this PR and head, the same test that ends the engine's wait. A forged check spends no re-review.
+- The StampHog App needs "Actions: read" for the job lookup. A refused lookup proves nothing, and the entry stays pending.
+
+Accepted limits:
+
+- The token expires five minutes after the job requests it, and a review often comes later, so the server does not check the expiry. The audience binds the token to one result, so an old token proves only what it signed.
+- A key that GitHub removes from its published set fails every result it signed, and the entry waits until the publisher runs again.
+- A writer's job can strip the token from a newer result and post an older signed result of the same PR, head and merge base again. Unlike an App's check run, the newer one cannot be protected. The older result proved the same inputs with code that is still current, so this matters only for a publisher that answers differently on the same inputs.
+- Only the newest few check runs of the name are verified. A flood of check runs can hide a result, never forge one.
+
 ## The manual trigger (the one exception to label mode)
 
 `request_manual_review` (`POST code_review/approvals/runs/` and the `code-review-approvals-runs-create` MCP tool) queues a review because a project member asked for it.

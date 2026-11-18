@@ -1,0 +1,304 @@
+"""Turn a workflow publisher's signed check run into a check run the engine can trust.
+
+An attestation entry may name a default-branch `workflow`, its publishing `job` and the `events` it
+runs on instead of an `app_id`. Any job's built-in token can create a check run under any name, and
+can edit any other check run that a workflow wrote. So nothing the Checks API returns says which job
+wrote it. The publishing job therefore signs its result with a GitHub Actions OIDC ID token, and posts
+the marker and the token in the check run's summary:
+
+    <!-- stamphog:v1 {"files": [...], "pr": N, "head_sha": "...", "merge_base": "...", "blobs": {...}} -->
+    <!-- stamphog-oidc:v1 <token> -->
+
+The token's audience is `proof_audience(check, conclusion, marker)`, so the token signs exactly that
+result and no service accepts it as a credential. The server accepts a check run as the entry's
+result only when all of these hold:
+
+1. GitHub's published keys verify the token, and its claims name this repository, one of the entry's
+   events, and the entry's workflow file on the default branch as both the run's workflow and the
+   job's workflow. A `pull_request` run, a branch's workflow and a reusable workflow all fail here.
+2. The marker names this PR and head. Among the results that pass, the newest run decides, so a
+   result that a writer posts again does not replace a newer one.
+3. The Actions API names the token's `check_run_id`, which is the requesting job's id, as the entry's
+   `job` in the token's run. That is the job's name as Actions shows it, not its key in the file. Only
+   the jobs that the workflow file grants `id-token: write` can request a token, and this keeps every
+   other job of the workflow from publishing, as long as no other job has the same name.
+
+The result lifts something only when the run's own commit holds the same workflow file and pinned
+paths as the default branch now, and the marker's `blobs` match them. A re-run of an old run executes
+the old code, so its result counts only while that code is still the default branch's.
+
+The token expires five minutes after the job requests it, and a review often comes later, so the
+expiry is not checked. The audience binds the token to one result, so an old token proves only what
+it signed. Two limits remain:
+- A writer's job can edit a newer result's check run and post an older result of the same PR, head
+  and merge base again. That result proved the same inputs with code the pins still hold, so this
+  matters only for a publisher that can answer differently on the same inputs.
+- A key that GitHub removes from its published set fails every result it signed. The entry then
+  waits until the publisher runs again.
+"""
+
+import re
+import hashlib
+from collections.abc import Callable
+
+import jwt
+import structlog
+from jwt import PyJWK
+
+from posthog.api.oauth.client_assertion import ClientAssertionError, JWKSUnavailableError, select_signing_key
+from posthog.dataclasses import frozen
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+from posthog.egress.limiter.policies import Priority
+from posthog.workload_identity.providers import GITHUB_ACTIONS
+
+from products.stamphog.backend.facade.contracts import StamphogGitHubError
+from products.stamphog.backend.logic.attestation_pins import (
+    MAX_PINNED_PATHS,
+    check_runs_with_pins,
+    object_marker,
+    pin_holds,
+)
+from products.stamphog.backend.logic.attestation_policy import (
+    WORKFLOW_PROOF_KEY,
+    WorkflowPublisher,
+    workflow_publishers,
+)
+from products.stamphog.backend.logic.github_client import RepositoryIdentity, StamphogGitHubClient
+
+logger = structlog.get_logger(__name__)
+
+# A read that fails proves nothing, so the entry stays pending or lifts nothing. It must not fail the
+# review of a PR that the entry may not even cover.
+_UNREADABLE = (StamphogGitHubError, GitHubRateLimitError, GitHubEgressBudgetExhausted)
+# The check runs of a head are a writer's to fill, so only this many of the newest candidates per entry
+# are verified. A flood of check runs can hide a result but never forge one.
+_MAX_CANDIDATES = 5
+_TOKEN_RE = re.compile(r"<!--\s*stamphog-oidc:v1\s+([A-Za-z0-9_.-]+)\s*-->")
+_ID_RE = re.compile(r"[1-9][0-9]{0,19}")
+_SHA_RE = re.compile(r"[0-9a-f]{40}")
+
+
+def proof_audience(check: str, conclusion: str, marker: str) -> str:
+    """The audience a publisher requests its token for: a digest of the result it posts.
+
+    `marker` is the marker's JSON exactly as the summary holds it.
+    """
+    digest = hashlib.sha256(f"stamphog:v1\n{check}\n{conclusion}\n{marker}".encode()).hexdigest()
+    return f"stamphog-{digest}"
+
+
+def _github_signing_key(token: str) -> PyJWK:
+    """The key that signed the token, from GitHub's key set as the shared JWKS cache holds it."""
+    return select_signing_key(GITHUB_ACTIONS.jwks_url, token)
+
+
+@frozen
+class Candidate:
+    """A completed check run of the entry's name whose marker names this PR and head."""
+
+    check_run: dict
+    marker: str
+    payload: dict
+
+
+@frozen
+class SignedResult:
+    """A candidate whose token verified, with the claims the later checks need."""
+
+    check_run: dict
+    run_id: int
+    run_attempt: int
+    job_id: int
+    commit_sha: str
+    blobs: dict[str, str | None]
+
+
+class WorkflowProofs:
+    """Verifies the signed results of workflow publishers for one PR head."""
+
+    def __init__(
+        self,
+        client: StamphogGitHubClient,
+        repo: str,
+        *,
+        pr_number: int,
+        head_sha: str,
+        priority: Priority = Priority.CRITICAL,
+        signing_key: Callable[[str], PyJWK] = _github_signing_key,
+    ) -> None:
+        self._client = client
+        self._repo = repo
+        self._pr_number = pr_number
+        self._head_sha = head_sha
+        self._priority = priority
+        self._signing_key = signing_key
+        self._identity: RepositoryIdentity | None = None
+
+    def _repository_identity(self) -> RepositoryIdentity:
+        if self._identity is None:
+            self._identity = self._client.get_repository_identity(self._repo, priority=self._priority)
+        return self._identity
+
+    def _candidates(self, publisher: WorkflowPublisher) -> list[Candidate]:
+        """The newest completed check runs of the entry's name whose marker names this PR and head.
+
+        Every check run of the name is read, because GitHub otherwise lists only the newest one, and
+        any job can post a newer one to hide the publisher's.
+        """
+        check_runs = self._client.get_check_runs(
+            self._repo, self._head_sha, check_name=publisher.check, all_runs=True, priority=self._priority
+        )
+        candidates: list[Candidate] = []
+        for check_run in sorted(check_runs, key=lambda cr: cr.get("id") or 0, reverse=True):
+            if check_run.get("name") != publisher.check or check_run.get("status") != "completed":
+                continue
+            marker = object_marker(check_run)
+            if marker is None or marker[1].get("pr") != self._pr_number or marker[1].get("head_sha") != self._head_sha:
+                continue
+            candidates.append(Candidate(check_run=check_run, marker=marker[0], payload=marker[1]))
+            if len(candidates) == _MAX_CANDIDATES:
+                break
+        return candidates
+
+    def _decode(self, token: str, audience: str) -> dict | None:
+        """The token's claims when GitHub signed it for this audience, or None. The expiry is not checked."""
+        try:
+            claims = jwt.decode(
+                token,
+                self._signing_key(token).key,
+                algorithms=["RS256"],
+                audience=audience,
+                issuer=GITHUB_ACTIONS.issuer,
+                options={"verify_exp": False, "require": ["iss", "aud", "iat", "exp"]},
+            )
+        except JWKSUnavailableError:
+            logger.warning("stamphog_workflow_proof_keys_unreachable", repo=self._repo)
+            return None
+        except (ClientAssertionError, jwt.PyJWTError):
+            return None
+        return claims
+
+    def _names_publisher(self, claims: dict, publisher: WorkflowPublisher) -> bool:
+        """True when the claims name the entry's workflow file on the default branch, on one of its events.
+
+        `workflow_ref` names the workflow of the run and `job_workflow_ref` the workflow of the job.
+        They differ only for a job of a reusable workflow, which any caller can run with any inputs.
+        """
+        identity = self._repository_identity()
+        expected_ref = f"{identity.full_name}/{publisher.workflow}@refs/heads/{identity.default_branch}"
+        return (
+            claims.get("repository_id") == str(identity.id)
+            and claims.get("event_name") in publisher.events
+            and claims.get("workflow_ref") == expected_ref
+            and claims.get("job_workflow_ref") == expected_ref
+        )
+
+    def _signed(self, candidate: Candidate, publisher: WorkflowPublisher) -> SignedResult | None:
+        tokens = _TOKEN_RE.findall((candidate.check_run.get("output") or {}).get("summary") or "")
+        conclusion = candidate.check_run.get("conclusion")
+        if len(tokens) != 1 or not isinstance(conclusion, str):
+            return None
+        claims = self._decode(tokens[0], proof_audience(publisher.check, conclusion, candidate.marker))
+        if claims is None or not self._names_publisher(claims, publisher):
+            return None
+        run_id, run_attempt, job_id = (claims.get(key) for key in ("run_id", "run_attempt", "check_run_id"))
+        commit_sha = claims.get("job_workflow_sha")
+        blobs = candidate.payload.get("blobs", {})
+        if not all(isinstance(value, str) and _ID_RE.fullmatch(value) for value in (run_id, run_attempt, job_id)):
+            return None
+        if not isinstance(commit_sha, str) or not _SHA_RE.fullmatch(commit_sha):
+            return None
+        if not isinstance(blobs, dict) or not all(sha is None or isinstance(sha, str) for sha in blobs.values()):
+            return None
+        return SignedResult(
+            check_run=candidate.check_run,
+            run_id=int(run_id),
+            run_attempt=int(run_attempt),
+            job_id=int(job_id),
+            commit_sha=commit_sha,
+            blobs=blobs,
+        )
+
+    def _requested_by_publishing_job(self, signed: SignedResult, publisher: WorkflowPublisher) -> bool:
+        job = self._client.get_workflow_job(self._repo, signed.job_id, priority=self._priority)
+        return job is not None and job.get("name") == publisher.job and job.get("run_id") == signed.run_id
+
+    def _publisher_result(self, publisher: WorkflowPublisher) -> SignedResult | None:
+        """The newest result that the publishing job signed for this PR and head."""
+        try:
+            signed = [result for c in self._candidates(publisher) if (result := self._signed(c, publisher)) is not None]
+            for result in sorted(signed, key=lambda result: (result.run_id, result.run_attempt), reverse=True):
+                # A token from another job of the workflow is not the publisher's result, so an older
+                # one from the publishing job may still be.
+                if self._requested_by_publishing_job(result, publisher):
+                    return result
+        except _UNREADABLE:
+            logger.warning("stamphog_workflow_proof_unreadable", repo=self._repo, entry=publisher.name)
+        return None
+
+    def _code_is_current(self, signed: SignedResult, publisher: WorkflowPublisher) -> bool:
+        """True when the run's commit and the default branch hold the same workflow and pinned paths.
+
+        The marker's `blobs` must also match them, so the publisher's account of the code it ran is
+        checked rather than taken. A result that pins nothing still pins the workflow file.
+        """
+        paths = sorted({publisher.workflow, *signed.blobs})
+        if len(paths) > MAX_PINNED_PATHS:
+            return False
+        try:
+            at_run = self._client.get_objects(self._repo, signed.commit_sha, paths)
+            now = self._client.get_default_branch_objects(self._repo, paths)
+        except _UNREADABLE:
+            logger.warning("stamphog_workflow_proof_unreadable", repo=self._repo, entry=publisher.name)
+            return False
+        if at_run != now or now.get(publisher.workflow) is None:
+            return False
+        return all(pin_holds(path, sha, now.get(path)) for path, sha in signed.blobs.items())
+
+    def verified_result(self, publisher: WorkflowPublisher) -> dict | None:
+        """The check run the engine reads as the publisher's newest result, or None when there is none."""
+        signed = self._publisher_result(publisher)
+        if signed is None:
+            return None
+        conclusion = signed.check_run.get("conclusion")
+        return {
+            "id": signed.check_run.get("id"),
+            "name": publisher.check,
+            "app": {"id": None},
+            "status": "completed",
+            "conclusion": conclusion,
+            "output": {"summary": (signed.check_run.get("output") or {}).get("summary") or ""},
+            # The engine lifts only on a success, so only a success buys the two object reads.
+            "pinned_blobs_current": conclusion == "success" and self._code_is_current(signed, publisher),
+            WORKFLOW_PROOF_KEY: publisher.name,
+        }
+
+    def has_result(self, publisher: WorkflowPublisher) -> bool:
+        """Whether the publishing job signed a result for this PR and head, which ends the engine's wait.
+
+        The poll asks this before it starts a new review, so it runs the same checks that decide
+        whether the engine still waits. The code check only decides whether a result lifts anything.
+        """
+        return self._publisher_result(publisher) is not None
+
+
+def proven_check_runs(
+    client: StamphogGitHubClient,
+    repo: str,
+    *,
+    pr_number: int,
+    head_sha: str,
+    check_runs: list[dict],
+    policy: str | None,
+) -> list[dict]:
+    """The head's check runs with each workflow publisher's verified result added, and each App's pins checked.
+
+    Both review paths, the context read and the posting-time gate attestation, build the engine's
+    check runs here, so they cannot verify differently.
+    """
+    proofs = WorkflowProofs(client, repo, pr_number=pr_number, head_sha=head_sha)
+    for publisher in workflow_publishers(policy):
+        verified = proofs.verified_result(publisher)
+        if verified is not None:
+            check_runs.append(verified)
+    return check_runs_with_pins(client, repo, check_runs)

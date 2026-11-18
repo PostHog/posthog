@@ -52,6 +52,7 @@ from products.stamphog.backend.logic.approval_retention import (
     base_merge_is_clean,
 )
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
+from products.stamphog.backend.logic.attestation_policy import WorkflowPublisher, workflow_publisher
 from products.stamphog.backend.logic.audiences import ResolvedAudience, resolve_audiences
 from products.stamphog.backend.logic.bot_admission import admitted_bot_author
 from products.stamphog.backend.logic.decision_fingerprint import WITHHELD_RUN_OUTPUT_KEY
@@ -72,6 +73,7 @@ from products.stamphog.backend.logic.routing.triggers import (
     verdict_outcome,
 )
 from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
+from products.stamphog.backend.logic.workflow_proofs import WorkflowProofs
 from products.stamphog.backend.models import (
     PullRequest,
     PullRequestAudience,
@@ -2095,7 +2097,7 @@ class PendingCheck:
     app_id: int
 
 
-def pending_attestation_checks(run: ReviewRun) -> list[PendingCheck]:
+def pending_attestation_checks(run: ReviewRun) -> list[PendingCheck | WorkflowPublisher]:
     """The checks ``run`` recorded as pending, when they are the only reason for its WAIT.
 
     A gate denial is saved as a GATED WAIT too, so the engine's own verdict decides. A PR that another
@@ -2107,11 +2109,17 @@ def pending_attestation_checks(run: ReviewRun) -> list[PendingCheck]:
     entries = ((gate_result.get("classification") or {}).get("attestations") or {}).get("pending")
     if not isinstance(entries, list):
         return []
-    return [
-        PendingCheck(name=entry["check"], app_id=entry["app_id"])
-        for entry in entries
-        if isinstance(entry, dict) and isinstance(entry.get("check"), str) and type(entry.get("app_id")) is int
-    ]
+    # A workflow entry names its publisher instead of an App, and any job can post a check run of its
+    # name, so only a result the publisher signed counts as reported.
+    pending: list[PendingCheck | WorkflowPublisher] = []
+    for entry in entries:
+        if not isinstance(entry, dict) or not isinstance(entry.get("check"), str):
+            continue
+        if type(entry.get("app_id")) is int:
+            pending.append(PendingCheck(name=entry["check"], app_id=entry["app_id"]))
+        elif (publisher := workflow_publisher(entry)) is not None:
+            pending.append(publisher)
+    return pending
 
 
 def waits_on_attestations(run: ReviewRun) -> bool:
@@ -2130,9 +2138,17 @@ def waits_on_attestations(run: ReviewRun) -> bool:
     return wakes < _ATTESTATION_WAKES_PER_HEAD
 
 
-def _has_reported(client: StamphogGitHubClient, repository: str, head_sha: str, check: PendingCheck) -> bool:
+def _has_reported(
+    client: StamphogGitHubClient,
+    repository: str,
+    head_sha: str,
+    check: PendingCheck | WorkflowPublisher,
+    proofs: WorkflowProofs,
+) -> bool:
     # The engine's own test for a pending check, so the new review finds every check it waited for.
     # GitHub filters by name and App, so a poll does not page through every check run of the head.
+    if isinstance(check, WorkflowPublisher):
+        return proofs.has_result(check)
     check_runs = client.get_check_runs(
         repository, head_sha, check_name=check.name, app_id=check.app_id, priority=Priority.BATCH
     )
@@ -2163,8 +2179,11 @@ def rereview_once_attestations_reported(run: ReviewRun) -> bool:
     if latest.id != run.id and not stranded:
         return True
     client = StamphogGitHubClient(repo_config.installation_id)
+    proofs = WorkflowProofs(
+        client, repo_config.repository, pr_number=pull_request.pr_number, head_sha=run.head_sha, priority=Priority.BATCH
+    )
     try:
-        if not all(_has_reported(client, repo_config.repository, run.head_sha, check) for check in pending):
+        if not all(_has_reported(client, repo_config.repository, run.head_sha, check, proofs) for check in pending):
             return False
     except (GitHubRateLimitError, GitHubEgressBudgetExhausted):
         return False

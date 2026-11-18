@@ -2326,6 +2326,26 @@ def _check_run(conclusion: str, *, status: str = "completed") -> dict:
         pytest.param(
             GATED,
             "WAIT",
+            [
+                {
+                    **_CHECK,
+                    "app_id": None,
+                    "name": "migration_risk",
+                    "workflow": ".github/workflows/migration-risk.yml",
+                    "job": "publish",
+                    "events": ["pull_request_target"],
+                }
+            ],
+            [{**_check_run("success"), "app": {"id": 15368}}],
+            0,
+            None,
+            False,
+            0,
+            id="workflow-entry-unsigned-check",
+        ),
+        pytest.param(
+            GATED,
+            "WAIT",
             [_CHECK, {**_CHECK, "check": "Other"}],
             [_check_run("success")],
             0,

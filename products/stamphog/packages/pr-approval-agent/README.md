@@ -395,6 +395,7 @@ Unlike CODEOWNERS, the category only stops stamphog: any human approval still co
 
 A deny category can be lifted by a CI check that the policy names under `attestations`.
 Each entry pins a check name to the GitHub App that publishes it, the categories it may lift, the paths it may lift them for, and optionally companion `sibling_files`.
+Instead of an App, an entry may name a default-branch `workflow`, its publishing `job` and its `events` (`workflow_run` or `pull_request_target` only). That job signs its check run with a GitHub Actions OIDC token, and the server hands the engine only a result whose token, job and code it verified, because any job can post a check run under any name. The products/stamphog AGENTS.md section "Workflow publishers" has the contract.
 The check name and App identify the publisher, and the categories and paths are what the policy lets it lift.
 An entry may also say what the publisher runs from, in one of two ways, never both.
 `issuer` names a manifest the publisher owns, such as `tools/change-prover/issuer.yml`, whose single `paths` key lists the default-branch paths it runs from.
