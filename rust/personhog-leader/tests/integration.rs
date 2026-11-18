@@ -25,6 +25,8 @@ use personhog_leader::cache::{
 };
 use personhog_leader::coordination::LeaderHandoffHandler;
 use personhog_leader::inflight::InflightTracker;
+use personhog_leader::person_loader::{PersonLoader, DEFAULT_MAX_LOAD_BATCH};
+use personhog_leader::pg::LoadError;
 use personhog_leader::service::{PersonHogLeaderService, PropertySizeLimits};
 use personhog_leader::warming::WarmClientPools;
 use personhog_leader::warnings::WarningsProducer;
@@ -1369,7 +1371,8 @@ async fn pg_fallback_reads_numerics_the_leaders_parser_rejects() {
         team_id: team_id as i64,
         person_id: row.0,
     };
-    let person = personhog_leader::pg::load_person_from_pg(&pool, "posthog_person", &key)
+    let person = PersonLoader::new(pool.clone(), "posthog_person", DEFAULT_MAX_LOAD_BATCH)
+        .load(&key)
         .await
         .expect("load must not fail")
         .expect("person exists");
@@ -1393,6 +1396,111 @@ async fn pg_fallback_reads_numerics_the_leaders_parser_rejects() {
 
     sqlx::query("DELETE FROM posthog_person WHERE team_id = $1")
         .bind(team_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+}
+
+/// Cache misses that find the fallback pool busy share one statement.
+/// Every load must still get the answer for its own person: the row,
+/// not-found for an absent or tombstoned person, and an unreadable row's
+/// error for that row alone.
+#[tokio::test]
+async fn loads_sharing_a_statement_each_get_their_own_answer() {
+    enum Expected {
+        Row { uuid: String, marker: String },
+        NotFound,
+        Unprocessable,
+    }
+
+    async fn insert(
+        pool: &sqlx::postgres::PgPool,
+        team_id: i32,
+        properties: &str,
+        is_deleted: bool,
+    ) -> (PersonCacheKey, String) {
+        let (person_id, uuid): (i64, String) = sqlx::query_as(
+            "INSERT INTO posthog_person
+                 (created_at, properties, is_identified, uuid, version, team_id, is_deleted)
+             VALUES (now(), $2::jsonb, false, gen_random_uuid(), 1, $1, $3)
+             RETURNING id, uuid::text",
+        )
+        .bind(team_id)
+        .bind(properties)
+        .bind(is_deleted)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        let key = PersonCacheKey {
+            team_id: team_id as i64,
+            person_id,
+        };
+        (key, uuid)
+    }
+
+    // One connection, so every load waits for the same one.
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .connect(common::PERSONS_DB_URL)
+        .await
+        .expect("failed to connect to persons DB");
+    let teams: Vec<i32> = (0..3).map(|_| common::unique_team_id() as i32).collect();
+
+    let mut loads: Vec<(PersonCacheKey, Expected)> = Vec::new();
+    for (index, team_id) in teams.iter().enumerate() {
+        for n in 0..3 {
+            let marker = format!("team-{index}-person-{n}");
+            let properties = serde_json::json!({ "marker": marker }).to_string();
+            let (key, uuid) = insert(&pool, *team_id, &properties, false).await;
+            loads.push((key, Expected::Row { uuid, marker }));
+        }
+    }
+    let (tombstoned, _) = insert(&pool, teams[0], "{}", true).await;
+    loads.push((tombstoned, Expected::NotFound));
+    let absent = PersonCacheKey {
+        team_id: teams[1] as i64,
+        person_id: i64::MAX,
+    };
+    loads.push((absent, Expected::NotFound));
+    let too_deep = format!("{{\"a\":{}1{}}}", "[".repeat(200), "]".repeat(200));
+    let (unreadable, _) = insert(&pool, teams[2], &too_deep, false).await;
+    loads.push((unreadable, Expected::Unprocessable));
+    // Two loads of one person are two entries in the statement.
+    let (repeated, uuid) = insert(&pool, teams[0], r#"{"marker": "repeated"}"#, false).await;
+    for _ in 0..2 {
+        let expected = Expected::Row {
+            uuid: uuid.clone(),
+            marker: "repeated".to_string(),
+        };
+        loads.push((repeated.clone(), expected));
+    }
+
+    let loader = PersonLoader::new(pool.clone(), "posthog_person", DEFAULT_MAX_LOAD_BATCH);
+    let held = pool.acquire().await.unwrap();
+    let answers = futures::future::join_all(loads.iter().map(|(key, _)| loader.load(key)));
+    // `join!` polls the loads first, so all of them wait before the only
+    // connection comes free, and one statement carries them all.
+    let (answers, ()) = tokio::join!(answers, async { drop(held) });
+
+    for ((key, expected), answer) in loads.iter().zip(answers) {
+        match expected {
+            Expected::Row { uuid, marker } => {
+                let person = answer.expect("load must not fail").expect("person exists");
+                assert_eq!(person.id, key.person_id);
+                assert_eq!(person.team_id, key.team_id);
+                assert_eq!(&person.uuid, uuid);
+                assert_eq!(&person.parse_properties().unwrap()["marker"], marker);
+            }
+            Expected::NotFound => assert!(matches!(answer, Ok(None))),
+            Expected::Unprocessable => assert!(matches!(
+                answer,
+                Err(LoadError::UnprocessableProperties { .. })
+            )),
+        }
+    }
+
+    sqlx::query("DELETE FROM posthog_person WHERE team_id = ANY($1)")
+        .bind(&teams)
         .execute(&pool)
         .await
         .unwrap();
