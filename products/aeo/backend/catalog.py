@@ -15,7 +15,7 @@ import tldextract
 from posthog.dataclasses import frozen
 from posthog.models.scoping.manager import resolve_effective_team_id
 
-from products.aeo.backend.brand import SEGMENT_SQL, brand_names, names_brand, segment_sql_params
+from products.aeo.backend.brand import SEGMENT_SQL, brand_names, branded_filter, names_brand, segment_sql_params
 from products.aeo.backend.engines import is_target_url, own_domains_key, target_position
 from products.aeo.backend.facade.contracts import (
     BRAND_DOMAIN_MAX_LENGTH,
@@ -105,12 +105,22 @@ def recompute_own_citations(team_id: int) -> int:
     changed = 0
     domains = own_domains(team_id)
     for _ in range(RECOMPUTE_MAX_PASSES):
+        _recompute_branded_prompts(team_id, domains)
         changed += _recompute_with(team_id, domains)
         current = own_domains(team_id)
         if current == domains:
             break
         domains = current
     return changed
+
+
+def _recompute_branded_prompts(team_id: int, domains: list[str]) -> None:
+    """Set `prompt_branded` on every check of the team, failed ones included, because the branded split
+    counts them too. Only the rows on the wrong side are written."""
+    checks = AEOCitationCheck.objects.for_team(team_id, canonical=True)
+    branded = branded_filter(domains)
+    checks.filter(branded).exclude(prompt_branded=True).update(prompt_branded=True)
+    checks.exclude(branded).exclude(prompt_branded=False).update(prompt_branded=False)
 
 
 def _recompute_with(team_id: int, domains: list[str]) -> int:

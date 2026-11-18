@@ -22,15 +22,15 @@ The catalog is small, so the join is cheap, and a relabel needs no recompute.
 
 ## When each value is computed
 
-| Value                                                             | Computed                                                                  | Stored in                    | Recomputed when                                      |
-| ----------------------------------------------------------------- | ------------------------------------------------------------------------- | ---------------------------- | ---------------------------------------------------- |
-| Answer text, cited URLs, retrieved URLs, search queries           | During the run, as each engine answers (`engines.py`, `runner.py`)        | `posthog_aeo_citation_check` | Never                                                |
-| `cited`, `target_urls`, `target_best_position`, `names_brand`     | With the check, against the own brands of that moment (`engines.py`)      | The check row                | The own brands change, and at the end of every run   |
-| `own_domains_key`                                                 | With the check: a hash of the own domains the row was computed against    | The check row                | With the columns above                               |
-| Brand catalog rows for newly cited domains                        | After each run (`sync_brands_from_run` in `catalog.py`)                   | `posthog_aeo_brand`          | Never: the sync only inserts                         |
-| Brand sentiment and its scored sentences                          | On the AEO Temporal queue, after each run and from a backlog every 10 min | The check row                | The reconcile clears them when the own brands change |
-| Branded or non-branded prompt                                     | At read, a word match on the prompt text                                  | Not stored                   | Not applicable                                       |
-| Competitor mentions, keyword matches, top searches, cited domains | At read, from the answer text and the JSON columns                        | Not stored                   | Not applicable                                       |
+| Value                                                                           | Computed                                                                           | Stored in                    | Recomputed when                                      |
+| ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | ---------------------------- | ---------------------------------------------------- |
+| Answer text, cited URLs, retrieved URLs, search queries                         | During the run, as each engine answers (`engines.py`, `runner.py`)                 | `posthog_aeo_citation_check` | Never                                                |
+| `cited`, `target_urls`, `target_best_position`, `names_brand`, `prompt_branded` | With the check, against the own brands of that moment (`engines.py`)               | The check row                | The own brands change, and at the end of every run   |
+| `own_domains_key`                                                               | With the check: a hash of the own domains the row was computed against             | The check row                | With the columns above                               |
+| Brand catalog rows for newly cited domains                                      | After each run (`sync_brands_from_run` in `catalog.py`)                            | `posthog_aeo_brand`          | Never: the sync only inserts                         |
+| Brand sentiment and its scored sentences                                        | On the AEO Temporal queue, after each run and from a backlog every 10 min          | The check row                | The reconcile clears them when the own brands change |
+| Branded or non-branded prompt, as the reads use it                              | At read, a word match on the prompt text, until the reads move to `prompt_branded` | Not stored                   | Not applicable                                       |
+| Competitor mentions, keyword matches, top searches, cited domains               | At read, from the answer text and the JSON columns                                 | Not stored                   | Not applicable                                       |
 
 The last two rows break the rule.
 They are the slow reads that remain, and [the planned read model](#planned-read-model) moves them to write time.
@@ -43,10 +43,10 @@ A check that carries the current key is correct for the current own brands, so a
 
 ## Reads and the indexes that serve them
 
-| Read                                                                   | Served by                    | Columns it may use                                                                                                                           |
-| ---------------------------------------------------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| Counts over a window: checks, citations, mentions, failures, positions | `aeo_check_window_cover_idx` | `team_id`, `created_at`, `id`, `mode`, `engine`, `prompt_id`, `prompt_topic`, `check_failed`, `cited`, `names_brand`, `target_best_position` |
-| The latest check of each prompt and engine                             | `aeo_check_latest_idx`       | `team_id`, `prompt_id`, `engine`, `created_at`, `id`                                                                                         |
+| Read                                                                   | Served by                    | Columns it may use                                                                                                                                             |
+| ---------------------------------------------------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Counts over a window: checks, citations, mentions, failures, positions | `aeo_check_window_cover_idx` | `team_id`, `created_at`, `id`, `mode`, `engine`, `prompt_id`, `prompt_topic`, `check_failed`, `cited`, `names_brand`, `prompt_branded`, `target_best_position` |
+| The latest check of each prompt and engine                             | `aeo_check_latest_idx`       | `team_id`, `prompt_id`, `engine`, `created_at`, `id`                                                                                                           |
 
 A count that stays inside its index's columns never reads the wide rows.
 A count that names one more column reads every row in the window in full, and loses the whole benefit.

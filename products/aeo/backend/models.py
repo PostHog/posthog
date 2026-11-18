@@ -218,6 +218,11 @@ class AEOCitationCheck(TeamScopedRootMixin, CreatedMetaFields, UUIDTModel):
         help_text="Hash of the own domains that `cited`, `target_urls`, `target_best_position` and the sentiment were computed against. Null on checks recorded before it existed.",
     )
     top_cited_domains = models.JSONField(default=list, blank=True, help_text="Distinct hosts across the cited URLs.")
+    prompt_branded = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text="The prompt as it ran names one of the own brands, matched on whole words. Kept current by the own-citation reconcile. Null on checks recorded before it existed until that reconcile fills it.",
+    )
     names_brand = models.BooleanField(
         null=True,
         blank=True,
@@ -267,6 +272,7 @@ class AEOCitationCheck(TeamScopedRootMixin, CreatedMetaFields, UUIDTModel):
                     "check_failed",
                     "cited",
                     "names_brand",
+                    "prompt_branded",
                     "target_best_position",
                 ],
                 name="aeo_check_window_cover_idx",

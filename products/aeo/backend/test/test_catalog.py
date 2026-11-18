@@ -247,6 +247,26 @@ class TestSyncBrandsFromRun(BaseTest):
             "names_brand": expect_names_brand,
         }
 
+    @parameterized.expand([("answered_checks", False), ("failed_checks", True)])
+    def test_recompute_sets_whether_each_prompt_names_an_own_brand(self, _name: str, failed: bool) -> None:
+        AEOBrand.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Example",
+            domain="example.com",
+            kind=BrandKind.OWN,
+            status=BrandStatus.CONFIRMED,
+            source=BrandSource.MANUAL,
+        )
+        checks = AEOCitationCheck.objects.for_team(self.team.id)
+        unfilled = self._check(str(uuid.uuid4()), [], failed=failed)
+        stale = self._check(str(uuid.uuid4()), [], failed=failed, prompt_branded=True)
+        checks.filter(id=unfilled.id).update(prompt_text="Is Example good for funnels?")
+        checks.filter(id=stale.id).update(prompt_text="Best funnel tool?")
+
+        recompute_own_citations(self.team.id)
+
+        assert dict(checks.values_list("id", "prompt_branded")) == {unfilled.id: True, stale.id: False}
+
     @parameterized.expand(
         [
             ("subdomain", "https://blog.example.co.uk/post", "example.co.uk"),
