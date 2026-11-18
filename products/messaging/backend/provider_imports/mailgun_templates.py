@@ -20,18 +20,24 @@ _MAX_NOTED_TAGS = 5
 # Liquid can't parse a longer template, and deep blocks can make the result far longer than the source.
 _MAX_OUTPUT_CHARS = 5_000_000
 # Tag bodies are capped, so text full of unclosed braces scans in linear time, and stop at the next opening, so an
-# unclosed tag can't swallow a real variable after it.
+# unclosed tag can't swallow a real variable after it. Comments are found separately, in `_tokens`.
 _TOKEN = re.compile(
     r"\\\{\{(?P<escaped>[^{}]{0,500})\}\}"
-    r"|\{\{~?!--(?s:.{0,20000}?)--~?\}\}"
-    r"|\{\{~?!(?s:.{0,20000}?)\}\}"
-    r"|\{\{/\*(?s:.{0,20000}?)\*/\}\}"
-    r"|\{\{-\s/\*(?s:.{0,20000}?)\*/\s-\}\}"
     r"|\{\{\{(?P<triple>(?:(?!\{\{)(?s:.)){0,500}?)\}\}\}"
     r"|\{\{(?P<body>(?:(?!\{\{)(?s:.)){0,500}?)\}\}"
     r"|\{\{|\{%"
 )
 _OPENING = re.compile(r"\{[{%]")
+_MAX_COMMENT_CHARS = 20_000
+# Each comment opener with the text that ends it, longest opener first.
+_COMMENTS = (
+    (re.compile(r"\{\{~?!--"), re.compile(r"--~?\}\}")),
+    (re.compile(r"\{\{~?!"), re.compile(r"\}\}")),
+    (re.compile(r"\{\{/\*"), re.compile(r"\*/\}\}")),
+    (re.compile(r"\{\{-\s/\*"), re.compile(r"\*/\s-\}\}")),
+)
+# Deeper nesting is far past any real template, and each level keeps a copy of the loop variables.
+_MAX_BLOCK_DEPTH = 100
 _RECIPIENT_VARIABLE = re.compile(r"%recipient\.([^%\s<>\"'{}]{1,128})%")
 _FIXED_VARIABLE = re.compile(
     r"%(recipient|recipient_email|recipient_name|recipient_fname|recipient_lname"
@@ -187,6 +193,46 @@ class _TooLarge(Exception):
     pass
 
 
+@frozen
+class _Token:
+    start: int
+    end: int
+    text: str
+    escaped: str | None = None
+    triple: str | None = None
+    body: str | None = None
+
+
+def _tokens(text: str) -> list[_Token]:
+    """Every tag in the text, in order. Each comment kind remembers where its next terminator is, so text full of
+    unclosed comments scans in linear time."""
+    tokens: list[_Token] = []
+    next_end: dict[int, re.Match[str] | None] = {}
+    position = 0
+    while match := _TOKEN.search(text, position):
+        token = _Token(
+            start=match.start(),
+            end=match.end(),
+            text=match.group(0),
+            escaped=match.group("escaped"),
+            triple=match.group("triple"),
+            body=match.group("body"),
+        )
+        for kind, (opener, terminator) in enumerate(_COMMENTS):
+            opened = opener.match(text, match.start())
+            if opened is None:
+                continue
+            if kind not in next_end or ((found := next_end[kind]) is not None and found.start() < opened.end()):
+                next_end[kind] = terminator.search(text, opened.end())
+            end = next_end[kind]
+            if end is not None and end.start() - opened.end() <= _MAX_COMMENT_CHARS:
+                token = _Token(start=match.start(), end=end.end(), text=text[match.start() : end.end()])
+                break
+        tokens.append(token)
+        position = token.end
+    return tokens
+
+
 class _Converter:
     def __init__(self, text: str, engine: Engine, is_html: bool) -> None:
         self.text = text
@@ -219,37 +265,42 @@ class _Converter:
             return ConvertedText(text=_literal(self.text), has_tags=True, too_large=True)
 
     def _convert(self) -> ConvertedText:
-        matches = list(_TOKEN.finditer(self.text))
+        matches = _tokens(self.text)
         # Text and tags alternate: [text, tag, text, tag, ..., text].
         pieces: list[str] = []
         kept: list[tuple[str, bool]] = []
         cursor = 0
         size = 0
         for match in matches:
-            before = self.text[cursor : match.start()]
+            before = self.text[cursor : match.start]
             pieces.append(before)
             self._track_tag(before)
             depth = len(self.blocks)
             self.took_branch = False
             kept.append(self._read_token(match))
+            if len(self.blocks) > _MAX_BLOCK_DEPTH:
+                raise _TooLarge
             self._track_branches(depth)
             size += len(before) + len(kept[-1][0])
             if size > _MAX_OUTPUT_CHARS:
                 raise _TooLarge
-            cursor = match.end()
+            cursor = match.end
         pieces.append(self.text[cursor:])
         self._strip_whitespace(pieces, matches, kept)
 
         out: list[str] = []
         for index, piece in enumerate(pieces):
-            out.append(self._convert_plain_text(piece))
+            _append(out, self._convert_plain_text(piece))
             if index < len(kept):
-                out.append(kept[index][0])
+                _append(out, kept[index][0])
         unclosed = bool(self.blocks)
         while self.blocks:
-            out.append(self._close(self.blocks[-1].closer) or "")
+            _append(out, self._close(self.blocks[-1].closer))
+        text = "".join(out)
+        if len(text) > _MAX_OUTPUT_CHARS:
+            raise _TooLarge
         return ConvertedText(
-            text="".join(out),
+            text=text,
             recipient_variables=tuple(dict.fromkeys(self.recipient_variables)),
             unsupported_tags=tuple(dict.fromkeys(self.unsupported)),
             has_tags=self.has_tags,
@@ -289,10 +340,10 @@ class _Converter:
             ended.append((self.in_tag, self.tag_quote))
             self.in_tag, self.tag_quote = opened
 
-    def _strip_whitespace(self, pieces: list[str], matches: list[re.Match[str]], kept: list[tuple[str, bool]]) -> None:
+    def _strip_whitespace(self, pieces: list[str], matches: list[_Token], kept: list[tuple[str, bool]]) -> None:
         previous_ended_its_line = False
         for index, match in enumerate(matches):
-            token = match.group(0)
+            token = match.text
             before, after = pieces[index], pieces[index + 1]
             ended_its_line = False
             if self.engine == "go":
@@ -318,14 +369,14 @@ class _Converter:
             pieces[index], pieces[index + 1] = before, after
             previous_ended_its_line = ended_its_line
 
-    def _read_token(self, match: re.Match[str]) -> tuple[str, bool]:
+    def _read_token(self, match: _Token) -> tuple[str, bool]:
         """The Liquid for one tag, and whether Handlebars treats it as able to stand alone on its line."""
-        token = match.group(0)
-        if match.group("escaped") is not None:
+        token = match.text
+        if match.escaped is not None:
             return _literal(token[1:]), False
         if token.startswith(("{{!", "{{~!", "{{/*", "{{- /*")):
             return "", True
-        triple, body = match.group("triple"), match.group("body")
+        triple, body = match.triple, match.body
         if triple is None and body is None:
             return self._unsupported(token), False
         self.has_tags = True
@@ -365,9 +416,13 @@ class _Converter:
             self.blocks.append(_Block(closer=helper))
             return f"{{% {helper} {self._truthy(path)} %}}"
         if helper == "with" and len(args) == 1 and (path := self._path(args[0])) is not None:
-            self.blocks.append(_Block(closer="with", pops_frame=True))
-            self.frames.append(_Frame(expression=path))
-            return f"{{% if {self._truthy(path)} %}}"
+            # Handlebars adds a parent level only when the context changes, so `../` inside `with this` stays put.
+            changes_context = path != self.frames[-1].expression
+            self.blocks.append(_Block(closer="with", pops_frame=changes_context))
+            if changes_context:
+                self.frames.append(_Frame(expression=path))
+            # Unlike `if`, `with` renders 0.
+            return f"{{% if {path} and {path}.length != 0 %}}"
         if helper == "each" and len(args) == 1 and (path := self._path(args[0])) is not None:
             return self._open_loop(path, closer="each")
         if helper == "each" and (names := _block_params(args[1:])) and (path := self._path(args[0])) is not None:
@@ -387,15 +442,16 @@ class _Converter:
 
     def _open_loop(self, path: str, *, closer: str, saved_go_variables: Mapping[str, str] | None = None) -> str:
         # Handlebars and Go loop over an object's values, and Liquid over [key, value] pairs. Only the data says which
-        # one a send passes, and an object is the one with no length.
+        # one a send passes, and an object's JSON starts with a brace, even when it has a `length` field.
         self.loop_depth += 1
         item = f"item{self.loop_depth}"
         is_object, key, value = f"{item}_is_object", f"{item}_key", f"{item}_value"
         self.frames.append(_Frame(expression=value, key=key, in_loop=True))
         self.blocks.append(_Block(closer=closer, pops_frame=True, saved_go_variables=saved_go_variables))
         return (
-            f"{{% assign {is_object} = false %}}{{% if {path}.length == nil and {path}.size > 0 %}}"
-            f"{{% assign {is_object} = true %}}{{% endif %}}{{% for {item} in {path} %}}{{% if {is_object} %}}"
+            f'{{% assign {is_object} = {path} | json | slice: 0 %}}{{% if {is_object} == "{{" %}}'
+            f"{{% assign {is_object} = true %}}{{% else %}}{{% assign {is_object} = false %}}{{% endif %}}"
+            f"{{% for {item} in {path} %}}{{% if {is_object} %}}"
             f"{{% assign {key} = {item}[0] %}}{{% assign {value} = {item}[1] %}}{{% else %}}"
             f"{{% assign {key} = forloop.index0 %}}{{% assign {value} = {item} %}}{{% endif %}}"
         )
@@ -454,10 +510,12 @@ class _Converter:
             return self._unsupported(token)
         block = self.blocks[-1]
         if block.pops_frame:
-            # The else of `with` or `each` runs in the outer context.
+            # The else of `with` or `each` runs in the outer context, with the outer block parameters.
             if self.frames[-1].in_loop:
                 self.loop_depth -= 1
             self.frames.pop()
+            if block.saved_go_variables is not None:
+                self.go_variables = dict(block.saved_go_variables)
             self.blocks[-1] = _Block(closer=block.closer, pops_frame=False, saved_go_variables=block.saved_go_variables)
         self.took_branch = True
         return "{% else %}"
@@ -477,9 +535,7 @@ class _Converter:
             return self._unsupported(token)
         if raw and self.is_html:
             return f"{{{{ {path} | raw }}}}"
-        if self.in_tag and self.is_html:
-            return _attribute_safe(path)
-        return f"{{{{ {path} }}}}"
+        return _escaped(path) if self.is_html else f"{{{{ {path} }}}}"
 
     def _value(self, source: str) -> str | None:
         return self._loop_value(source) or self._path(source)
@@ -569,8 +625,7 @@ class _Converter:
             return self._unsupported(token)
         if self.in_tag and self.is_html:
             self.go_value_in_tag = True
-            return _attribute_safe(path)
-        return f"{{{{ {path} }}}}"
+        return _escaped(path) if self.is_html else f"{{{{ {path} }}}}"
 
     def _open_go_condition(self, token: str, keyword: str, source: str) -> str:
         if keyword == "with":
@@ -673,17 +728,29 @@ class _Converter:
         return _RECIPIENT_VARIABLE.sub(replace_recipient, _FIXED_VARIABLE.sub(replace_fixed, text))
 
     def _raw_variable(self, path: str) -> str:
-        # Mailgun pastes these values into the finished message as they are, without escaping them.
-        return f"{{{{ {path} | raw }}}}" if self.is_html else f"{{{{ {path} }}}}"
+        # Mailgun pastes these values in unescaped. PostHog's variables can come from more places than the app, so
+        # they're escaped like any other value.
+        return _escaped(path) if self.is_html else f"{{{{ {path} }}}}"
 
     def _unsupported(self, token: str) -> str:
         self.unsupported.append(token)
         return _literal(token)
 
 
-def _attribute_safe(path: str) -> str:
-    # Handlebars also escapes = and `, so a value can't end an unquoted attribute and start another one.
+def _escaped(path: str) -> str:
+    # Handlebars also escapes = and `, so a value can't end an unquoted attribute and start another one. Doing it
+    # everywhere means no guess about whether the value sits inside a tag.
     return f'{{{{ {path} | escape | replace: "=", "&#x3D;" | replace: "`", "&#x60;" | raw }}}}'
+
+
+def _append(out: list[str], chunk: str) -> None:
+    """Adds a chunk, so a `{` that ends one chunk and a `{` or `%` that starts the next never join into a Liquid tag,
+    such as text on both sides of a comment that trims whitespace."""
+    if not chunk:
+        return
+    if out and out[-1].endswith("{") and chunk[0] in "{%":
+        out[-1] = out[-1][:-1] + '{{ "{" }}'
+    out.append(chunk)
 
 
 def _block_params(args: list[str]) -> tuple[str, ...] | None:
@@ -705,7 +772,7 @@ def _join(base: str, source: str, *, split: bool = True) -> str | None:
             path += f"[{segment}]"
         elif _IDENTIFIER.match(segment):
             path += f".{segment}"
-        elif '"' not in segment and "\\" not in segment and not _ENTITY.search(segment) and "%20" not in segment:
+        elif not re.search(r'["\\%{}]', segment) and not _ENTITY.search(segment):
             path += f'["{segment}"]'
         else:
             return None

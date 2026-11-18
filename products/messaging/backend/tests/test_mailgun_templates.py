@@ -1,4 +1,5 @@
 import json
+import time
 from pathlib import Path
 
 from django.test import SimpleTestCase
@@ -7,6 +8,7 @@ from parameterized import parameterized
 
 from products.messaging.backend.provider_imports.mailgun_templates import convert_text, convert_version
 
+ESCAPED_X = '{{ variables.x | escape | replace: "=", "&#x3D;" | replace: "`", "&#x60;" | raw }}'
 RENDER_CASES = json.loads((Path(__file__).parent / "fixtures" / "mailgun_template_renders.json").read_text())
 
 
@@ -35,6 +37,12 @@ class TestMailgunTemplateConversion(SimpleTestCase):
                 '{% raw %}{{#equal a "&quot; or person.properties.vip or &quot;"}}{% endraw %}x'
                 "{% raw %}{{/equal}}{% endraw %}",
             ),
+            (
+                "liquid_delimiter_in_a_path",
+                "{{#if [a%}b]}}yes{{/if}}",
+                "{% raw %}{{#if [a%}b]}}{% endraw %}yes{% raw %}{{/if}}{% endraw %}",
+            ),
+            ("brace_before_a_raw_tag", "{\\{{x}}", '{{ "{" }}{% raw %}{{x}}{% endraw %}'),
             ("stray_closer", "x{{/if}}", "x{% raw %}{{/if}}{% endraw %}"),
             ("stray_else", "x{{else}}", "x{% raw %}{{else}}{% endraw %}"),
             ("unclosed_opening", "a {{ b", 'a {{ "{{" }} b'),
@@ -82,11 +90,12 @@ class TestMailgunTemplateConversion(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("fixed_html", "%recipient_email%", True, "{{ variables.recipient_email | raw }}"),
-            ("custom_html", "%recipient.first-name%", True, "{{ variables.first-name | raw }}"),
+            ("fixed_html", "%recipient_email%", True, ESCAPED_X.replace("variables.x", "variables.recipient_email")),
+            ("custom_html", "%recipient.first-name%", True, ESCAPED_X.replace("variables.x", "variables.first-name")),
             ("custom_with_space_stays", "%recipient.a b%", True, "%recipient.a b%"),
             ("custom_text", "%recipient.city%", False, "{{ variables.city }}"),
-            ("dotted_key_is_one_name", "%recipient.a.b%", True, '{{ variables["a.b"] | raw }}'),
+            ("dotted_key_is_one_name", "%recipient.a.b%", True, ESCAPED_X.replace("variables.x", 'variables["a.b"]')),
+            ("value_inside_a_tag", '<a href="%recipient.x%">', True, f'<a href="{ESCAPED_X}">'),
             ("unsubscribe", 'href="%unsubscribe_url%"', True, 'href="{{ unsubscribe_url }}"'),
             ("percent_signs_alone", "100% of 50%", True, "100% of 50%"),
             ("unsubscribe_email_stays", "%unsubscribe_email%", True, "%unsubscribe_email%"),
@@ -111,7 +120,18 @@ class TestMailgunTemplateConversion(SimpleTestCase):
         assert any(expected in note for note in convert_version(version).notes)
 
     def test_a_blank_engine_with_go_syntax_reads_as_go(self) -> None:
-        assert "{{ variables.Name }}" in convert_version({"engine": "", "template": "{{.Name}}"}).html
+        assert (
+            ESCAPED_X.replace("variables.x", "variables.Name")
+            in convert_version({"engine": "", "template": "{{.Name}}"}).html
+        )
+
+    @parameterized.expand([("handlebars", "{{!"), ("handlebars_block", "{{!--"), ("go", "{{/*"), ("go_trim", "{{- /*")])
+    def test_unclosed_comments_scan_in_linear_time(self, _name: str, opener: str) -> None:
+        started = time.perf_counter()
+        converted = convert_text(opener * 20000)
+
+        assert time.perf_counter() - started < 1
+        assert not converted.too_large
 
     def test_unclosed_braces_scan_in_linear_time(self) -> None:
         assert convert_text("{{ " * 20000).text.count('{{ "{{" }}') == 20000
@@ -120,6 +140,8 @@ class TestMailgunTemplateConversion(SimpleTestCase):
         [
             ("many_loops", "{{#each xs}}{{/each}}" * 32000),
             ("deep_long_paths", "".join(f"{{{{#with {chr(97 + i % 26) * 200}}}}}" for i in range(400))),
+            ("deep_nesting", "{{#with a}}" * 101),
+            ("recipient_variables_expand_past_the_limit", "%recipient.x%" * 70000),
         ]
     )
     def test_a_template_that_converts_too_large_stays_plain_text(self, _name: str, source: str) -> None:
