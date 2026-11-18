@@ -149,7 +149,8 @@ class WorkflowProofs:
         Every check run of the name is read, because GitHub otherwise lists only the newest one, and
         any job can post a newer one to hide the publisher's. The check run ids are a writer's to
         order, so no window of the newest ones is safe: copies of an old result could push a newer one
-        out of it. Copies of one token are one result, so they are verified once.
+        out of it. Exact copies of one signed result are verified once. A copy that changed the
+        conclusion or the marker is its own candidate, so it cannot take the real one's place.
         """
         check_runs = self._client.get_check_runs(
             self._repo, self._head_sha, check_name=publisher.check, all_runs=True, priority=self._priority
@@ -157,7 +158,7 @@ class WorkflowProofs:
         if len(check_runs) >= MAX_CHECK_RUNS:
             # The listing may have stopped before the newest result, so it proves nothing.
             raise StamphogGitHubError(f"Too many {publisher.check!r} check runs on {self._head_sha} to verify")
-        candidates: dict[str, Candidate] = {}
+        candidates: dict[tuple[str, object, str], Candidate] = {}
         for check_run in check_runs:
             if check_run.get("name") != publisher.check or check_run.get("status") != "completed":
                 continue
@@ -167,8 +168,9 @@ class WorkflowProofs:
             tokens = _TOKEN_RE.findall((check_run.get("output") or {}).get("summary") or "")
             if len(tokens) != 1:
                 continue
+            signed_content = (tokens[0], check_run.get("conclusion"), marker[0])
             candidates.setdefault(
-                tokens[0], Candidate(check_run=check_run, marker=marker[0], payload=marker[1], token=tokens[0])
+                signed_content, Candidate(check_run=check_run, marker=marker[0], payload=marker[1], token=tokens[0])
             )
         return list(candidates.values())
 
@@ -259,8 +261,8 @@ class WorkflowProofs:
         paths = sorted({publisher.workflow, *signed.blobs})
         if len(paths) > MAX_PINNED_PATHS:
             return False
-        at_run = self._client.get_objects(self._repo, signed.commit_sha, paths)
-        now = self._client.get_default_branch_objects(self._repo, paths)
+        at_run = self._client.get_objects(self._repo, signed.commit_sha, paths, priority=self._priority)
+        now = self._client.get_default_branch_objects(self._repo, paths, priority=self._priority)
         if at_run != now or now.get(publisher.workflow) is None:
             return False
         return all(pin_holds(path, sha, now.get(path)) for path, sha in signed.blobs.items())

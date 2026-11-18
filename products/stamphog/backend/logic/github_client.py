@@ -1404,11 +1404,15 @@ class StamphogGitHubClient:
         except (binascii.Error, UnicodeDecodeError) as exc:
             raise StamphogGitHubError(f"Failed to decode base64 contents for {repo}:{path}") from exc
 
-    def get_default_branch_objects(self, repo: str, paths: list[str]) -> dict[str, GitObjectId | None]:
+    def get_default_branch_objects(
+        self, repo: str, paths: list[str], *, priority: Priority = Priority.CRITICAL
+    ) -> dict[str, GitObjectId | None]:
         """The object at each of ``paths`` on the default branch now, None for a path it lacks."""
-        return self.get_objects(repo, "HEAD", paths)
+        return self.get_objects(repo, "HEAD", paths, priority=priority)
 
-    def get_objects(self, repo: str, revision: str, paths: list[str]) -> dict[str, GitObjectId | None]:
+    def get_objects(
+        self, repo: str, revision: str, paths: list[str], *, priority: Priority = Priority.CRITICAL
+    ) -> dict[str, GitObjectId | None]:
         """The object at each of ``paths`` in ``revision``, None for a path it lacks.
 
         A path that ends in `/` names a directory, and is looked up without the slash. The answer
@@ -1426,7 +1430,7 @@ class StamphogGitHubClient:
             f"{{ repository(owner: $owner, name: $name) {{ {aliases} }} }}"
         )
         variables = {f"p{index}": f"{revision}:{path.removesuffix('/')}" for index, path in enumerate(paths)}
-        repository = self._repository_graphql(repo, query, variables, timeout=15, priority=Priority.CRITICAL)
+        repository = self._repository_graphql(repo, query, variables, timeout=15, priority=priority)
         objects: dict[str, GitObjectId | None] = {}
         for index, path in enumerate(paths):
             found = repository.get(f"p{index}") or {}

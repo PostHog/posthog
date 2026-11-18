@@ -18,6 +18,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
 
 from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.limiter.policies import Priority
 
 from products.stamphog.backend.facade.enums import AudienceReason, ReviewMode, ReviewTrigger
 from products.stamphog.backend.logic.approval_retention import approved_diff_unchanged, base_merge_is_clean
@@ -891,7 +892,7 @@ class _PinClient:
     def get_check_runs(self, repo: str, head_sha: str) -> list[dict]:
         return self.check_runs
 
-    def get_default_branch_objects(self, repo: str, paths: list[str]) -> dict[str, GitObjectId | None]:
+    def get_default_branch_objects(self, repo: str, paths: list[str], **_: Any) -> dict[str, GitObjectId | None]:
         self.blob_reads += 1
         return {path: self.default_branch.get(path) for path in paths}
 
@@ -1032,6 +1033,7 @@ class _WorkflowClient:
         self.default_branch = {"prover.py": _PROVER, ".github/workflows/migration-risk.yml": _WORKFLOW_FILE}
         self.at_run = dict(self.default_branch)
         self.job_reads = 0
+        self.object_read_lanes: list[Priority] = []
 
     def get_check_runs(self, repo: str, head_sha: str, **filters: Any) -> list[dict]:
         assert filters["all_runs"] is True
@@ -1044,11 +1046,17 @@ class _WorkflowClient:
         self.job_reads += 1
         return self.jobs.get(job_id)
 
-    def get_objects(self, repo: str, revision: str, paths: list[str]) -> dict[str, GitObjectId | None]:
+    def get_objects(
+        self, repo: str, revision: str, paths: list[str], *, priority: Priority
+    ) -> dict[str, GitObjectId | None]:
         assert revision == _RUN_SHA
+        self.object_read_lanes.append(priority)
         return {path: self.at_run.get(path) for path in paths}
 
-    def get_default_branch_objects(self, repo: str, paths: list[str]) -> dict[str, GitObjectId | None]:
+    def get_default_branch_objects(
+        self, repo: str, paths: list[str], *, priority: Priority
+    ) -> dict[str, GitObjectId | None]:
+        self.object_read_lanes.append(priority)
         return {path: self.default_branch.get(path) for path in paths}
 
 
@@ -1130,8 +1138,10 @@ class WorkflowProofTests(SimpleTestCase):
         older = _signed_check_run(5, run_id="76", check_run_id="899")
         newer = _signed_check_run(6, conclusion="failure", run_id="77")
         replayed = [{**older, "id": posted_id} for posted_id in range(7, 13)]
+        # A copy of the newer token that claims success comes first, and must not stand in for the real one.
+        tampered = {**newer, "id": 2, "conclusion": "success"}
         jobs = {899: {"name": "publish", "run_id": 76}, 900: {"name": "publish", "run_id": 77}}
-        client = _WorkflowClient([older, newer, *replayed], jobs)
+        client = _WorkflowClient([tampered, older, newer, *replayed], jobs)
 
         proof = _proofs(client).verified_result(_PUBLISHER)
 
@@ -1184,6 +1194,21 @@ class WorkflowProofTests(SimpleTestCase):
         client = _WorkflowClient([check_run], jobs)
 
         assert _proofs(client).has_result(_PUBLISHER) is reported
+
+    def test_a_background_poll_reads_the_code_on_the_sheddable_lane(self) -> None:
+        # Many waiting PRs poll at once, and must not spend the budget a person waiting on a review needs.
+        client = _WorkflowClient([_signed_check_run()])
+        proofs = WorkflowProofs(
+            cast(StamphogGitHubClient, client),
+            "acme/widgets",
+            pr_number=7,
+            head_sha="sha",
+            priority=Priority.BATCH,
+            signing_key=_test_signing_key,
+        )
+
+        assert proofs.has_result(_PUBLISHER) is True
+        assert client.object_read_lanes == [Priority.BATCH, Priority.BATCH]
 
     @parameterized.expand(
         [
