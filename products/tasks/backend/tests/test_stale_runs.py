@@ -124,6 +124,7 @@ class TestCollectStaleLiveRuns(TestCase):
         idle_timeout_seconds: int | None = None,
         awaits_first_message: bool = False,
         warm_activation_started: bool = False,
+        no_write_for: timedelta | None = None,
     ) -> TaskRun:
         task = Task.objects.create(
             team=self.team,
@@ -133,7 +134,7 @@ class TestCollectStaleLiveRuns(TestCase):
             profile=profile,
         )
         last_seen = django_timezone.now() - quiet_for
-        return TaskRun.objects.create(
+        run = TaskRun.objects.create(
             task=task,
             team=self.team,
             status=status,
@@ -146,6 +147,9 @@ class TestCollectStaleLiveRuns(TestCase):
                 **({"warm_activation_started": True} if warm_activation_started else {}),
             },
         )
+        if no_write_for is not None:
+            TaskRun.objects.filter(id=run.id).update(updated_at=django_timezone.now() - no_write_for)
+        return run
 
     def test_counts_only_live_runs_that_went_quiet_past_their_own_timeout(self) -> None:
         self._run(profile=USER.key, quiet_for=timedelta(hours=1), idle_timeout_seconds=600)
@@ -182,6 +186,12 @@ class TestCollectStaleLiveRuns(TestCase):
             ),
             ("task_without_a_profile", {USER.key: "enforce"}, {"profile": None}, None),
             ("task_without_a_profile_when_none_is_enforced", {"none": "enforce"}, {"profile": None}, "none"),
+            (
+                "run_that_heartbeats_but_wrote_nothing_for_a_day",
+                {USER.key: "enforce"},
+                {"quiet_for": timedelta(seconds=5), "no_write_for": timedelta(hours=25)},
+                USER.key,
+            ),
         ]
     )
     def test_sweep_ends_only_quiet_cloud_runs_of_enforced_profiles(

@@ -245,7 +245,7 @@ from products.tasks.backend.run_options import (
     run_options_record as run_options_record,
     validate_run_options as validate_run_options,
 )
-from products.tasks.backend.stale_runs import collect_stale_live_runs, quiet_since_q, runs_to_sweep
+from products.tasks.backend.stale_runs import StaleRule, collect_stale_live_runs, quiet_since_q, runs_to_sweep
 from products.tasks.backend.storage import (
     TaskRunLog as TaskRunLog,
     read_run_log,
@@ -2158,12 +2158,21 @@ def repair_task_status_mismatches() -> list[contracts.TaskStatusMismatchRow]:
 def sweep_stale_live_task_runs() -> list[contracts.SweptRunRow]:
     swept: Counter[str] = Counter()
     for run in runs_to_sweep():
-        if claim_and_fail_stale_run(
-            run.run_id,
-            "This run stopped responding, so it was ended.",
-            error_type="stale_heartbeat",
-            quiet_since=run.quiet_since,
-        ):
+        if run.rule == StaleRule.HEARTBEAT:
+            claimed = claim_and_fail_stale_run(
+                run.run_id,
+                "This run stopped responding, so it was ended.",
+                error_type="stale_heartbeat",
+                quiet_since=run.quiet_since,
+            )
+        else:
+            claimed = claim_and_fail_stale_run(
+                run.run_id,
+                "This run made no progress for a day, so it was ended.",
+                error_type="stale_live_run",
+                not_updated_since=run.not_written_since,
+            )
+        if claimed:
             swept[run.profile] += 1
     return [contracts.SweptRunRow(profile=profile, count=count) for profile, count in swept.items()]
 
