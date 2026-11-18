@@ -68,6 +68,7 @@ from products.data_modeling.backend.facade.api import (
     parse_model_query,
     print_describe_variant,
     record_incremental_history,
+    rename_described_columns,
     resolve_write_plan,
     set_incremental_state,
 )
@@ -673,7 +674,7 @@ async def hogql_table(
     if prepared_hogql_query is None:
         raise EmptyHogQLResponseColumnsError()
 
-    printed = await database_sync_to_async_pool(print_describe_variant)(prepared_hogql_query, context, settings)
+    probe = await database_sync_to_async_pool(print_describe_variant)(prepared_hogql_query, context, settings)
 
     arrow_type_conversion: dict[str, tuple[str, tuple[ast.Constant, ...]]] = {
         "DateTime": ("toTimeZone", (ast.Constant(value="UTC"),)),
@@ -712,12 +713,15 @@ async def hogql_table(
     )
 
     try:
-        described_columns = await _describe_columns(
-            printed,
-            context.values,
-            {**DESCRIBE_QUERY_SETTINGS, **ast_settings},
-            list(context.external_tables.values()),
-            retry_with_untouched_query=True,
+        described_columns = rename_described_columns(
+            await _describe_columns(
+                probe.sql,
+                context.values,
+                {**DESCRIBE_QUERY_SETTINGS, **ast_settings},
+                list(context.external_tables.values()),
+                retry_with_untouched_query=True,
+            ),
+            probe,
         )
     except ClickHouseQueryPlanningError as error:
         # ClickHouse cannot plan some shapes once GLOBAL is gone, such as an IN subquery inside an

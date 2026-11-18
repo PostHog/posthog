@@ -226,6 +226,7 @@ class TestGetColumnsDescribesTheQuery(ClickhouseTestMixin, BaseTest):
         assert {name: column["clickhouse"] for name, column in columns.items()} == dict(executed.types or [])
         assert len(queries) == 1
         assert "DESCRIBE TABLE" in queries[0]
+        assert "globalIn" not in queries[0]
 
     def test_a_jev_view_describes_its_model_results_without_calling_the_model(self) -> None:
         sql = (

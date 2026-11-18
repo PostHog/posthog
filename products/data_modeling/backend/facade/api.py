@@ -166,6 +166,7 @@ _LAZY = {
     "describe_ast_settings": "logic.describe_columns",
     "DescribedColumn": "facade.contracts",
     "print_describe_variant": "logic.describe_columns",
+    "rename_described_columns": "logic.describe_columns",
 }
 
 __all__ = sorted(_LAZY)

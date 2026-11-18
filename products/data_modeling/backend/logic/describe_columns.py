@@ -1,5 +1,6 @@
 """Reads the output columns of a view's query with DESCRIBE, shared by saving a view and materializing it."""
 
+import re
 from time import sleep
 from typing import TYPE_CHECKING, Optional
 
@@ -26,13 +27,12 @@ from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringR
 from posthog.models.event.new_events_schema import events_route_scope
 from posthog.models.team import Team
 
-from products.data_modeling.backend.facade.contracts import DescribedColumn
+from products.data_modeling.backend.facade.contracts import DescribedColumn, DescribeProbe
 
 if TYPE_CHECKING:
     from posthog.models.user import User
 
 THERE_IS_NO_COLUMN_ERROR_CODE = 8
-UNPRINTABLE_IDENTIFIER_CHARACTER = "%"
 
 
 # ClickHouse builds every GLOBAL IN subquery as a temporary table while it plans a query, and
@@ -49,6 +49,10 @@ _LOCAL_COMPARE_OPS = {
     ast.CompareOperationOp.GlobalNotIn: ast.CompareOperationOp.NotIn,
 }
 
+
+_LOCAL_IN_OPS = (ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn)
+
+_LOCAL_IN_FUNCTION_NAME = re.compile(r"\b(in|notIn|nullIn|notNullIn)\(")
 
 _IN_SUBQUERY_OPS = (
     ast.CompareOperationOp.In,
@@ -103,36 +107,68 @@ def _output_names(output: ast.SelectQuery, context: HogQLContext) -> list[str]:
     return ClickHousePrinter(context=context, stack=[output]).select_column_names(output)
 
 
-def _keep_output_names(
+def _globalized(name: str) -> str:
+    return _LOCAL_IN_FUNCTION_NAME.sub(lambda match: f"global{match.group(1)[0].upper()}{match.group(1)[1:]}(", name)
+
+
+class _LocalInCount(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.count = 0
+
+    def visit_compare_operation(self, node: ast.CompareOperation) -> None:
+        super().visit_compare_operation(node)
+        if node.op in _LOCAL_IN_OPS:
+            self.count += 1
+
+
+def _mixes_local_in(column: ast.Expr) -> bool:
+    counter = _LocalInCount()
+    counter.visit(column)
+    return counter.count > 0
+
+
+def _renamed_positions(
     downgraded: ast.SelectQuery | ast.SelectSetQuery,
     prepared_query: ast.SelectQuery | ast.SelectSetQuery,
     context: HogQLContext,
-) -> bool:
-    output = _output_select(downgraded)
-    untouched_names = _output_names(_output_select(prepared_query), context)
-    downgraded_names = _output_names(output, context)
-    renamed = [
-        untouched_name
-        for untouched_name, downgraded_name in zip(untouched_names, downgraded_names)
+) -> tuple[frozenset[int], dict[int, str]]:
+    untouched_output = _output_select(prepared_query)
+    untouched_names = _output_names(untouched_output, context)
+    downgraded_names = _output_names(_output_select(downgraded), context)
+    changed = [
+        position
+        for position, (untouched_name, downgraded_name) in enumerate(zip(untouched_names, downgraded_names))
         if untouched_name != downgraded_name
     ]
-    if any(UNPRINTABLE_IDENTIFIER_CHARACTER in name for name in renamed):
-        return False
-    output.select = [
-        column if downgraded_name == untouched_name else ast.Alias(alias=untouched_name, expr=column)
-        for column, untouched_name, downgraded_name in zip(output.select, untouched_names, downgraded_names)
-    ]
-    return True
+    globalized = frozenset(position for position in changed if not _mixes_local_in(untouched_output.select[position]))
+    printed_names = {position: untouched_names[position] for position in changed if position not in globalized}
+    return globalized, printed_names
 
 
 def print_describe_variant(
     prepared_query: ast.SelectQuery | ast.SelectSetQuery, context: HogQLContext, settings: HogQLGlobalSettings
-) -> str:
+) -> DescribeProbe:
     downgrade = _DowngradeGlobalIn()
     downgraded = downgrade.visit(prepared_query)
-    if downgrade.downgraded and not _keep_output_names(downgraded, prepared_query, context):
-        downgraded = prepared_query
-    return print_prepared_ast(downgraded, context=context, dialect="clickhouse", settings=settings, stack=[])
+    globalized, printed_names = (
+        _renamed_positions(downgraded, prepared_query, context) if downgrade.downgraded else (frozenset(), {})
+    )
+    sql = print_prepared_ast(downgraded, context=context, dialect="clickhouse", settings=settings, stack=[])
+    return DescribeProbe(sql=sql, globalized_positions=globalized, printed_names=printed_names)
+
+
+def _untouched_name(position: int, described_name: str, probe: DescribeProbe) -> str:
+    if position in probe.globalized_positions:
+        return _globalized(described_name)
+    return probe.printed_names.get(position, described_name)
+
+
+def rename_described_columns(columns: list[DescribedColumn], probe: DescribeProbe) -> list[DescribedColumn]:
+    return [
+        DescribedColumn(name=_untouched_name(position, column.name, probe), ch_type=column.ch_type)
+        for position, column in enumerate(columns)
+    ]
 
 
 def describe_ast_settings(settings: HogQLGlobalSettings) -> dict[str, str]:
@@ -226,10 +262,10 @@ def describe_query_columns(
     tag_queries(team_id=team.pk, query_type="HogQLQuery", **context.read_tags())
     external_tables = [*printed_context.external_tables.values(), *jev_external_tables]
     ast_settings = describe_ast_settings(settings)
-    describe_variant_sql = print_describe_variant(prepared_query, printed_context, settings)
+    probe = print_describe_variant(prepared_query, printed_context, settings)
     try:
-        return _describe(
-            describe_variant_sql,
+        described_columns = _describe(
+            probe.sql,
             printed_context,
             team,
             {**DESCRIBE_QUERY_SETTINGS, **ast_settings},
@@ -239,3 +275,4 @@ def describe_query_columns(
         if error.code != THERE_IS_NO_COLUMN_ERROR_CODE:
             raise
         return _describe(untouched_sql, printed_context, team, ast_settings, external_tables)
+    return rename_described_columns(described_columns, probe)
