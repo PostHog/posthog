@@ -174,6 +174,15 @@ type WakeSource = 'events' | 'person' | 'internal_events' | 'cohort_membership'
 
 type FilterFirstMode = 'off' | 'shadow' | 'on'
 
+// Past this, the rest of a batch is looked up without the check, so a slow filter cannot hold the batch.
+const FILTER_FIRST_BUDGET_MS = 1000
+
+// A filter that draws a random number can pass one evaluation and fail the next, so checking it before the
+// lookup would make it pass twice to count.
+function callsRandom(bytecode: unknown): boolean {
+    return Array.isArray(bytecode) && (bytecode.includes('randomFloat') || bytecode.includes('generateUUIDv4'))
+}
+
 function parseFilterFirstMode(value: string): FilterFirstMode {
     if (value === 'off' || value === 'shadow' || value === 'on') {
         return value
@@ -645,15 +654,20 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             return { lookup: invocationGlobals, noteMatch: () => {} }
         }
         const failed = new Set<HogFunctionInvocationGlobals>()
+        const startedAt = performance.now()
+        let unchecked = 0
         for (const globals of invocationGlobals) {
-            if (!(await passes(globals))) {
+            if (performance.now() - startedAt > FILTER_FIRST_BUDGET_MS) {
+                unchecked++
+            } else if (!(await passes(globals))) {
                 failed.add(globals)
             }
         }
         counterHogflowMatcherFilterFirstEvents
             .labels({ lookup, result: 'pass' })
-            .inc(invocationGlobals.length - failed.size)
+            .inc(invocationGlobals.length - failed.size - unchecked)
         counterHogflowMatcherFilterFirstEvents.labels({ lookup, result: 'fail' }).inc(failed.size)
+        counterHogflowMatcherFilterFirstEvents.labels({ lookup, result: 'over_budget' }).inc(unchecked)
         return {
             lookup: mode === 'on' ? invocationGlobals.filter((globals) => !failed.has(globals)) : invocationGlobals,
             noteMatch: (globals) => {
@@ -668,6 +682,9 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     // when its own wait step or its flow's goal matches, so an event that matches none of them cannot wake it.
     private async couldMoveRun(flows: HogFlow[], filterGlobals: FilterGlobals): Promise<boolean> {
         for (const flow of flows) {
+            if (flowCallsRandom(flow)) {
+                return true
+            }
             for (const action of flow.actions) {
                 if (
                     action.type === 'wait_until_condition' &&
@@ -1696,9 +1713,25 @@ function readsPerson(bytecode: unknown): boolean {
     return Array.isArray(bytecode) && bytecode.includes('person')
 }
 
+function flowCallsRandom(flow: HogFlow): boolean {
+    const waits = flow.actions.flatMap((action: HogFlowAction) =>
+        action.type === 'wait_until_condition'
+            ? [
+                  action.config.condition?.filters?.bytecode,
+                  ...(action.config.events ?? []).map((entry) => entry.filters?.bytecode),
+              ]
+            : []
+    )
+    const goals = (flow.conversion?.events ?? []).map((entry) => entry.filters?.bytecode)
+    return [...waits, ...goals, flow.conversion?.bytecode].some(callsRandom)
+}
+
 async function couldConvert(flows: HogFlow[], filterGlobals: FilterGlobals): Promise<boolean> {
     for (const flow of flows) {
         const goal = pinConversionGoal(flow)
+        if (goal && [goal.properties, ...(goal.events ?? [])].some(callsRandom)) {
+            return true
+        }
         if (goal && (await matchesPinnedGoal(goal, filterGlobals, flow.id))) {
             return true
         }

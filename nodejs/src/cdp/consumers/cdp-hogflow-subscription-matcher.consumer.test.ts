@@ -981,12 +981,14 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
         })
 
         it.each([
-            { filterFirst: 'off', lookedUp: true },
-            { filterFirst: 'shadow', lookedUp: true },
-            { filterFirst: 'on', lookedUp: false },
+            { filterFirst: 'off', case: 'plain filters', lookedUp: true },
+            { filterFirst: 'shadow', case: 'plain filters', lookedUp: true },
+            { filterFirst: 'on', case: 'plain filters', lookedUp: false },
+            { filterFirst: 'on', case: 'a goal that draws a random number', randomGoal: true, lookedUp: true },
+            { filterFirst: 'on', case: 'a check over its time budget', overBudget: true, lookedUp: true },
         ])(
-            'does not wake when neither step filter nor conversion matches (filter first $filterFirst)',
-            async ({ filterFirst, lookedUp }) => {
+            'does not wake when neither step filter nor conversion matches (filter first $filterFirst, $case)',
+            async ({ filterFirst, randomGoal, overBudget, lookedUp }) => {
                 matcher = new MatcherUnderTest({ CDP_HOGFLOW_SUBSCRIPTION_MATCHER_FILTER_FIRST: filterFirst })
                 matcher.findRows = [
                     {
@@ -998,10 +1000,20 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                         person_id: null,
                     },
                 ]
-                matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1' }) })
+                const randomEvent = ['_H', 1, 32, 'randomFloat', 32, 'never', 11]
+                matcher.setHogFlows({
+                    'flow-1': makeHogFlow({
+                        id: 'flow-1',
+                        ...(randomGoal ? { conversion: { events: [{ filters: { bytecode: randomEvent } }] } } : {}),
+                    } as any),
+                })
+                const clock = jest.spyOn(performance, 'now')
+                let elapsed = 0
+                clock.mockImplementation(() => (overBudget ? (elapsed += 2000) : 0))
 
                 // Event name doesn't match wuc_subscribed (waiter event) nor any conversion
                 await matcher.runWake([makeGlobals({ event: { ...makeGlobals({}).event, event: 'unrelated_event' } })])
+                clock.mockRestore()
 
                 const lookup = matcher.calls.find(
                     (c) => c.sql.includes('FROM cyclotron_jobs') && c.sql.startsWith('SELECT')
