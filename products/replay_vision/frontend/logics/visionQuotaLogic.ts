@@ -183,12 +183,12 @@ export const visionQuotaLogic = kea<visionQuotaLogicType>([
         billedCredits: [
             (s) => [s.displayQuota],
             (quota: VisionQuotaApi | null) =>
-                quota ? billableCredits(quota.credits_used, quota.free_monthly_credits) : 0,
+                quota ? billableCredits(quota.credits_used, quota.free_monthly_credits ?? Infinity) : 0,
         ],
         billedLimitCredits: [
             (s) => [s.displayQuota],
             (quota: VisionQuotaApi | null) =>
-                quota ? billableCredits(quota.credit_limit ?? 0, quota.free_monthly_credits) : 0,
+                quota ? billableCredits(quota.credit_limit ?? 0, quota.free_monthly_credits ?? Infinity) : 0,
         ],
     }),
 

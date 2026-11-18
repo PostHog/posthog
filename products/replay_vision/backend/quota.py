@@ -104,8 +104,8 @@ class QuotaState:
     period_start: datetime
     period_end: datetime
     # The org's free credits this period: the slice of `credit_limit` that never bills, and the free-only scanners' cap.
-    # Org states always carry billing's figure; a scanner's own budget has none, hence the zero.
-    free_monthly_credits: int = 0
+    # Billing's figure on org states (None when every credit is free); a scanner's own budget has none, hence the zero.
+    free_monthly_credits: int | None = 0
     # Posted to the receipt ledger; deletes cannot refund it.
     credits_settled: int = 0
     # Held by in-flight observations; released without a receipt on failure.
@@ -548,7 +548,8 @@ def _sum_active_backfill_remaining_credits(organization_id: UUID) -> BackfillCom
 class BillingAllowance:
     # None means billing synced no spend limit.
     credit_limit: int | None
-    free_credits: int
+    # None means the free tier has no upper bound, so every credit is free.
+    free_credits: int | None
 
 
 def _unsynced_allowance_from_env() -> BillingAllowance | None:
@@ -569,14 +570,17 @@ def _billing_allowance(organization: Organization | None) -> BillingAllowance | 
     # `limit` key (even a null one) means billing actually manages this product.
     if not isinstance(usage, dict) or "limit" not in usage:
         return None
-    free_allocation = usage.get("free_allocation")
-    if not isinstance(free_allocation, int) or isinstance(free_allocation, bool) or free_allocation < 0:
-        if free_allocation is not None:
-            logger.warning(
-                "replay_vision.malformed_billing_free_allocation",
-                organization_id=str(organization.id),
-                free_allocation=repr(free_allocation),
-            )
+    if "free_allocation" not in usage:
+        return None
+    free_allocation = usage["free_allocation"]
+    if free_allocation is not None and (
+        not isinstance(free_allocation, int) or isinstance(free_allocation, bool) or free_allocation < 0
+    ):
+        logger.warning(
+            "replay_vision.malformed_billing_free_allocation",
+            organization_id=str(organization.id),
+            free_allocation=repr(free_allocation),
+        )
         return None
     limit = usage.get("limit")
     if limit is None:
@@ -718,7 +722,8 @@ class OrgCreditCap:
 
     period: BillingPeriod
     credit_limit: int | None
-    free_credits: int
+    # None means the free tier has no upper bound, so every credit is free.
+    free_credits: int | None
     # Billing has not synced this org yet, so it has no credits until the requested sync lands.
     awaiting_billing_sync: bool = False
 
@@ -799,11 +804,15 @@ def quota_state_for_cap(organization_id: UUID, cap: OrgCreditCap) -> QuotaState:
     )
 
 
-def free_credits_ceiling(cap: OrgCreditCap) -> int:
+def _tighter_limit(a: int | None, b: int | None) -> int | None:
+    """The lower of two limits, where None means unlimited."""
+    limits = [limit for limit in (a, b) if limit is not None]
+    return min(limits) if limits else None
+
+
+def free_credits_ceiling(cap: OrgCreditCap) -> int | None:
     """The most a free-only scanner lets the org spend this period: the free credits, or less if billing caps lower."""
-    if cap.credit_limit is None:
-        return cap.free_credits
-    return min(cap.credit_limit, cap.free_credits)
+    return _tighter_limit(cap.credit_limit, cap.free_credits)
 
 
 FREE_CREDITS_USED_CODE = "scanner_free_credits_used"
@@ -820,8 +829,11 @@ def free_credits_used_up(
     cap = cap or org_credit_cap(organization_id)
     if cap.awaiting_billing_sync:
         raise BillingSyncPending()
+    ceiling = free_credits_ceiling(cap)
+    if ceiling is None:
+        return False
     credits_used = quota_state_for_cap(organization_id, cap).credits_used
-    return credits_used + max(credits_per_observation, 1) > free_credits_ceiling(cap)
+    return credits_used + max(credits_per_observation, 1) > ceiling
 
 
 def _free_credits_budget(organization_id: UUID, period: BillingPeriod) -> ScannerBudget:
@@ -831,9 +843,7 @@ def _free_credits_budget(organization_id: UUID, period: BillingPeriod) -> Scanne
 
 def _free_credits_budget_from_state(state: QuotaState) -> ScannerBudget:
     return ScannerBudget(
-        credit_limit=state.free_monthly_credits
-        if state.credit_limit is None
-        else min(state.credit_limit, state.free_monthly_credits),
+        credit_limit=_tighter_limit(state.credit_limit, state.free_monthly_credits),
         credits_used=state.credits_used,
         period_start=state.period_start,
         period_end=state.period_end,

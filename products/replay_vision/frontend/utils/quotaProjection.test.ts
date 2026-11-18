@@ -14,6 +14,7 @@ describe('hasBillableSpend', () => {
         ],
         ['limit exceeds the free allocation', makeQuota({ credit_limit: 7_500, free_monthly_credits: 2_500 }), true],
         ['zero limit cannot bill', makeQuota({ credit_limit: 0, free_monthly_credits: 2_500 }), false],
+        ['every credit free', makeQuota({ credit_limit: 7_500, free_monthly_credits: null }), false],
     ])('%s', (_name, quota, expected) => {
         expect(hasBillableSpend(quota)).toBe(expected)
     })

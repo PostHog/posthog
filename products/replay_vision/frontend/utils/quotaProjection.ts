@@ -56,7 +56,12 @@ export function hasBillableSpend(quota: VisionQuotaApi | null): boolean {
     if (!hasCreditLimit(quota)) {
         return true
     }
-    return billableCredits(quota.credit_limit, quota.free_monthly_credits) > 0
+    return billableCredits(quota.credit_limit, freeCredits(quota)) > 0
+}
+
+/** The free credits, where a free tier with no upper bound covers every credit. */
+function freeCredits(quota: VisionQuotaApi): number {
+    return quota.free_monthly_credits ?? Infinity
 }
 
 /** What a free-only scanner can spend in a period. An org limit below the free credits lowers it, as on the server. */
@@ -64,7 +69,8 @@ export function freeCreditsAllowance(quota: VisionQuotaApi | null): number | nul
     if (!quota) {
         return null
     }
-    return Math.min(quota.free_monthly_credits, quota.credit_limit ?? Infinity)
+    const allowance = Math.min(freeCredits(quota), quota.credit_limit ?? Infinity)
+    return Number.isFinite(allowance) ? allowance : null
 }
 
 /** What a free-only scanner can still spend this period. */
@@ -91,7 +97,7 @@ export function isFreeAllocationOnly(quota: VisionQuotaApi | null): boolean {
     if (!hasCreditLimit(quota) || quota.credit_limit <= 0) {
         return false
     }
-    return billableCredits(quota.credit_limit, quota.free_monthly_credits) === 0
+    return billableCredits(quota.credit_limit, freeCredits(quota)) === 0
 }
 
 export interface ProjectionInputs {
@@ -170,7 +176,7 @@ export function projectQuota(quota: VisionQuotaApi | null, inputs: ProjectionInp
         capReachDate,
         resetsOn,
         usedPct: (used / cap) * 100,
-        usedFreePct: (Math.min(used, quota.free_monthly_credits) / cap) * 100,
+        usedFreePct: (Math.min(used, freeCredits(quota)) / cap) * 100,
         projectedPct: (projectedAdditional / cap) * 100,
     }
 }

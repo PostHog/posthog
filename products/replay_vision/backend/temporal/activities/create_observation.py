@@ -382,8 +382,8 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
     # A free-only scanner stops at the org's free credits, below any billing limit.
     ceiling = free_credits_ceiling(cap) if scanner.free_only else cap.credit_limit
     # The free credits, not the org's own limit, are what stops the scanner when they sit below that limit.
-    free_credits_bound = scanner.free_only and (
-        cap.credit_limit is None or free_credits_ceiling(cap) < cap.credit_limit
+    free_credits_bound = (
+        scanner.free_only and ceiling is not None and (cap.credit_limit is None or ceiling < cap.credit_limit)
     )
     # Unlocked pre-check, so an exhausted org skips the snapshot and admission work.
     if ceiling is not None:

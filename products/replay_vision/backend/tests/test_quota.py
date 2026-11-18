@@ -603,27 +603,35 @@ class TestComputeScannerBudgets(_VisionQuotaTestCase):
 class TestBillingSyncedQuota(_VisionQuotaTestCase):
     @parameterized.expand(
         [
-            ("billing_limit_wins", {"limit": 42, "free_allocation": 1_000}, (42, 1_000)),
-            ("synced_without_limit_is_uncapped", {"limit": None, "free_allocation": 1_000}, (None, 1_000)),
-            ("float_limit_truncated", {"limit": 42.9, "free_allocation": 1_000}, (42, 1_000)),
+            ("billing_limit_wins", {"limit": 42, "free_allocation": 1_000}, (42, 1_000, 42)),
+            ("synced_without_limit_is_uncapped", {"limit": None, "free_allocation": 1_000}, (None, 1_000, 1_000)),
+            ("float_limit_truncated", {"limit": 42.9, "free_allocation": 1_000}, (42, 1_000, 42)),
             # A negative limit would read as permanently over; it must clamp to a hard block.
-            ("negative_limit_clamped_to_zero", {"limit": -5, "free_allocation": 1_000}, (0, 1_000)),
-            ("zero_free_allocation_is_real", {"limit": None, "free_allocation": 0}, (None, 0)),
+            ("negative_limit_clamped_to_zero", {"limit": -5, "free_allocation": 1_000}, (0, 1_000, 0)),
+            ("zero_free_allocation_is_real", {"limit": None, "free_allocation": 0}, (None, 0, 0)),
+            # A free tier with no upper bound leaves only the org limit to stop a free-only scanner.
+            ("free_tier_without_bound", {"limit": 500, "free_allocation": None}, (500, None, 500)),
             # Anything short of a valid limit and free allocation is unsynced, never uncapped.
-            ("malformed_limit_is_unsynced", {"limit": "42", "free_allocation": 1_000}, (30, 20)),
-            ("missing_free_allocation_is_unsynced", {"limit": None}, (30, 20)),
-            ("malformed_free_allocation_is_unsynced", {"limit": None, "free_allocation": "1000"}, (30, 20)),
-            ("negative_free_allocation_is_unsynced", {"limit": None, "free_allocation": -1}, (30, 20)),
+            ("malformed_limit_is_unsynced", {"limit": "42", "free_allocation": 1_000}, (30, 20, 20)),
+            ("missing_free_allocation_is_unsynced", {"limit": None}, (30, 20, 20)),
+            ("malformed_free_allocation_is_unsynced", {"limit": None, "free_allocation": "1000"}, (30, 20, 20)),
+            ("negative_free_allocation_is_unsynced", {"limit": None, "free_allocation": -1}, (30, 20, 20)),
         ]
     )
-    def test_allowance_source(self, _name: str, summary: dict, expected: tuple[int | None, int]) -> None:
+    def test_allowance_source(
+        self, _name: str, summary: dict, expected: tuple[int | None, int | None, int | None]
+    ) -> None:
         self.organization.usage = {"replay_vision_credits": {"usage": 0, **summary}}
         self.organization.save()
+        free = ReplayScanner.objects.create(
+            team=self.team, name="free-scanner", scanner_type=ScannerType.MONITOR, free_only=True
+        )
 
         with unsynced_allowance(credit_limit=30, free_credits=20):
             snapshot = compute_quota_snapshot(organization_id=self.organization.id)
+            free_only_limit = compute_scanner_budgets(self.organization.id, [free.id])[free.id].credit_limit
 
-        assert (snapshot.credit_limit, snapshot.free_monthly_credits) == expected
+        assert (snapshot.credit_limit, snapshot.free_monthly_credits, free_only_limit) == expected
 
     @parameterized.expand(
         [
