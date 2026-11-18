@@ -40,7 +40,6 @@ export function ConnectAgentKeyForm(): JSX.Element {
                             ) : undefined,
                     },
                 ]}
-                // pinned: data-attr value. Autocapture insights and tests select on it.
                 data-attr="business-knowledge-connect-agent-library"
             />
             <LemonInput

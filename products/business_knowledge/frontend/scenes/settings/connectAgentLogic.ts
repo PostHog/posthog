@@ -11,7 +11,6 @@ import type { KnowledgeKeyApi, KnowledgeLibraryApi } from '../../generated/api.s
 // Mirrors the max_length of `label` in products/business_knowledge/backend/api/key_serializers.py.
 export const MAX_KEY_LABEL_LENGTH = 40
 
-// The choice that lets a key read every source and repository, in a library or not.
 export const ALL_KNOWLEDGE = 'all'
 
 function teamId(): string {
