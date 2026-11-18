@@ -19,7 +19,7 @@ from posthog.helpers.email_utils import (
     reject_lookalike_email_characters,
     reject_plus_addressed_email,
 )
-from posthog.helpers.login_email import LoginEmailChange
+from posthog.helpers.login_email_change import LoginEmailChange
 from posthog.models.organization import Organization
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.user import User

@@ -102,7 +102,7 @@ from posthog.helpers.email_utils import (
     validate_display_name,
 )
 from posthog.helpers.impersonation import is_impersonated
-from posthog.helpers.login_email import LoginEmailChange
+from posthog.helpers.login_email_change import LoginEmailChange
 from posthog.helpers.session_cache import SessionCache
 from posthog.helpers.two_factor_session import (
     has_passkeys,
