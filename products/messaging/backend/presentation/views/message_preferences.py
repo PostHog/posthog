@@ -289,10 +289,10 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return Response({"error": "Category not found"}, status=status.HTTP_404_NOT_FOUND)
 
         response_status = status.HTTP_201_CREATED if changed.created else status.HTTP_200_OK
-        serializer = MessagePreferencesSerializer(
+        response_serializer = MessagePreferencesSerializer(
             changed.preferences, context=self._workflow_attribution_context([changed.preferences])
         )
-        return Response(serializer.data, status=response_status)
+        return Response(response_serializer.data, status=response_status)
 
     @extend_schema(
         request=RemoveOptOutRequestSerializer,
@@ -316,10 +316,10 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return Response({"error": "Category not found"}, status=status.HTTP_404_NOT_FOUND)
 
         response_status = status.HTTP_201_CREATED if changed.created else status.HTTP_200_OK
-        serializer = MessagePreferencesSerializer(
+        response_serializer = MessagePreferencesSerializer(
             changed.preferences, context=self._workflow_attribution_context([changed.preferences])
         )
-        return Response(serializer.data, status=response_status)
+        return Response(response_serializer.data, status=response_status)
 
     @extend_schema(
         parameters=[
