@@ -2139,22 +2139,47 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("code_send_with_only_its_flag", "code", {EMAIL_FROM_CODE_FLAG}, {}, (202, None, ["user@example.com"])),
-            ("code_send_without_its_flag", "code", {TRANSACTIONAL_EMAIL_API_FLAG}, {}, (404, None, [])),
-            ("template_send_without_its_flag", "template", {EMAIL_FROM_CODE_FLAG}, {}, (404, None, [])),
+            (
+                "code_send_with_only_its_flag",
+                "code",
+                {EMAIL_FROM_CODE_FLAG},
+                {},
+                (202, None, None, ["user@example.com"]),
+            ),
+            (
+                "code_send_without_its_flag",
+                "code",
+                {TRANSACTIONAL_EMAIL_API_FLAG},
+                {},
+                (404, "invalid_request", None, []),
+            ),
+            (
+                "code_send_with_a_null_time_without_its_flag",
+                "code",
+                {TRANSACTIONAL_EMAIL_API_FLAG},
+                {"scheduled_at": None},
+                (404, "invalid_request", None, []),
+            ),
+            (
+                "template_send_without_its_flag",
+                "template",
+                {EMAIL_FROM_CODE_FLAG},
+                {},
+                (404, "invalid_request", None, []),
+            ),
             (
                 "code_send_with_a_time_without_its_flag",
                 "code",
                 {TRANSACTIONAL_EMAIL_API_FLAG},
                 {"scheduled_at": "2026-11-20T09:00:00Z"},
-                (404, None, []),
+                (404, "invalid_request", None, []),
             ),
             (
                 "template_send_with_a_time_without_its_flag",
                 "template",
                 {EMAIL_FROM_CODE_FLAG},
                 {"scheduled_at": "2026-11-20T09:00:00Z"},
-                (404, None, []),
+                (404, "invalid_request", None, []),
             ),
         ]
     )
@@ -2167,8 +2192,14 @@ class TestTransactionalEmail(APIBaseTest):
         with FakeCdpApi().serving(mock_post) as cdp:
             response = self.client.post(self.send_email_url, body, format="json")
 
-        answer = (response.status_code, response.json().get("attr"), [payload["to"] for payload in cdp.received])
-        assert answer == expected, response.json()
+        reply = response.json()
+        answer = (
+            response.status_code,
+            reply.get("type"),
+            reply.get("attr"),
+            [payload["to"] for payload in cdp.received],
+        )
+        assert answer == expected, reply
 
     def _other_team_template(self) -> MessageTemplate:
         other_team = Team.objects.create(organization=self.organization, name="Other project")
