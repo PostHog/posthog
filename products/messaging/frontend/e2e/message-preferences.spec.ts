@@ -26,7 +26,7 @@ async function createPreferencesPage(page: Page, playwrightSetup: PlaywrightSetu
             headers,
             data: { key, name, public_description: `Emails about ${name.toLowerCase()}.` },
         })
-        expect(response.ok()).toBe(true)
+        await expect(response).toBeOK()
         categoryIds.push((await response.json()).id)
     }
 
@@ -38,7 +38,7 @@ async function createPreferencesPage(page: Page, playwrightSetup: PlaywrightSetu
         headers: { 'X-CSRFToken': decodeURIComponent(csrfToken ?? '') },
         data: { recipient: RECIPIENT },
     })
-    expect(linkResponse.ok()).toBe(true)
+    await expect(linkResponse).toBeOK()
     const path = new URL((await linkResponse.json()).preferences_url).pathname
 
     // The opt-out list only returns recipients who opted out of the given topic. The test turns
@@ -48,7 +48,7 @@ async function createPreferencesPage(page: Page, playwrightSetup: PlaywrightSetu
             headers,
             params: { search: RECIPIENT, category_key: 'event_invites' },
         })
-        expect(response.ok()).toBe(true)
+        await expect(response).toBeOK()
         return (await response.json()).results[0]?.preferences
     }
 
