@@ -46,9 +46,7 @@ function isJsonBody(req: Request): boolean {
     return (req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase() === 'application/json'
 }
 
-function carriesBody(req: Request): boolean {
-    return Number(req.headers['content-length'] ?? 0) > 0 || req.headers['transfer-encoding'] !== undefined
-}
+const BODY_READING_METHODS = new Set(['POST', 'PUT', 'PATCH'])
 
 function tooLarge(): Error {
     return Object.assign(new Error('Request entity too large'), { status: 413 })
@@ -89,10 +87,7 @@ export function createCompressedBodyMiddleware(limitBytes: number): RequestHandl
 
     return (req: Request, res: Response, next: NextFunction) => {
         const encoding = contentEncodingOf(req)
-        if (encoding === 'identity') {
-            return next()
-        }
-        if (!carriesBody(req)) {
+        if (encoding === 'identity' || !BODY_READING_METHODS.has(req.method)) {
             return next()
         }
         const decompress = decompressorFor(encoding)
@@ -108,7 +103,8 @@ export function createCompressedBodyMiddleware(limitBytes: number): RequestHandl
                     if (readError) {
                         return next(readError)
                     }
-                    if (!Buffer.isBuffer(req.body)) {
+                    if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+                        req.body = {}
                         return next()
                     }
                     decodeJson(req, res, next, decompress).catch(next)

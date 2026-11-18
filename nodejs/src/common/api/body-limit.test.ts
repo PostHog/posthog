@@ -92,10 +92,18 @@ describe('setupExpressApp request body handling', () => {
         expect(res.status).toEqual(405)
     })
 
-    it('passes an encoded request without a body to the route', async () => {
-        const res = await postBytes('/echo', { 'Content-Encoding': 'gzip' }, [])
+    it.each([
+        ['a zero length', { 'Content-Length': '0' }],
+        ['chunked transfer', { 'Transfer-Encoding': 'chunked' }],
+    ])('passes an empty compressed JSON body sent with %s to the route as {}', async (_, headers) => {
+        const res = await postBytes(
+            '/echo',
+            { 'Content-Type': 'application/json', 'Content-Encoding': 'gzip', ...headers },
+            []
+        )
 
         expect(res.status).toEqual(200)
+        expect(res.body).toEqual({ body: {} })
     })
 
     it.each([undefined, '', 'identity'])('accepts a JSON body with content encoding %p', async (encoding) => {
@@ -145,10 +153,12 @@ describe('setupExpressApp request body handling', () => {
     )
 
     it.each([
-        ['a length', { 'Content-Length': String(gzipSync('{"data":"x"}').length) }],
-        ['chunked transfer', {}],
-    ])('answers a compressed body without a content type sent with %s with 415', async (_, headers) => {
-        const res = await postBytes('/echo', { 'Content-Encoding': 'gzip', ...headers }, [gzipSync('{"data":"x"}')])
+        ['a length', { 'Content-Length': String(gzipSync('{"data":"x"}').length) }, [gzipSync('{"data":"x"}')]],
+        ['chunked transfer', {}, [gzipSync('{"data":"x"}')]],
+        ['a zero length', { 'Content-Length': '0' }, []],
+        ['empty chunked transfer', { 'Transfer-Encoding': 'chunked' }, []],
+    ])('answers a compressed body without a content type sent with %s with 415', async (_, headers, chunks) => {
+        const res = await postBytes('/echo', { 'Content-Encoding': 'gzip', ...headers }, chunks)
 
         expect(res.status).toEqual(415)
         expect(res.body).toEqual({ status: 'error', error: 'Unsupported content encoding' })
