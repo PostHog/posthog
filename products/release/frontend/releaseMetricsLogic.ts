@@ -47,6 +47,26 @@ function finite(value: unknown): number | null {
     return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
+function seriesLabels(series: TrendSeries, length: number): string[] {
+    const days = Array.isArray(series.days) ? series.days.map(String) : []
+    if (days.length === length) {
+        return days
+    }
+    return Array.isArray(series.labels) ? series.labels.map(String) : []
+}
+
+function seriesValue(series: TrendSeries, values: number[], query: unknown): number | null {
+    const aggregated = finite(series.aggregated_value)
+    const trendsFilter = (query as MetricQuery | null | undefined)?.source?.trendsFilter
+    if (trendsFilter?.display !== ChartDisplayType.Metric) {
+        return aggregated ?? values.at(-1) ?? null
+    }
+    const total = aggregated ?? finite(series.count)
+    return total === null
+        ? null
+        : computeMetricSummary(trendsFilter.metricSummary ?? METRIC_SUMMARY_DEFAULT, total, values)
+}
+
 export function metricFromResult(
     result: unknown,
     query?: unknown
@@ -56,16 +76,7 @@ export function metricFromResult(
         return { value: null, values: [], labels: [] }
     }
     const values = isNumberList(series.data) ? series.data : []
-    const days = Array.isArray(series.days) ? series.days.map(String) : []
-    const labels = days.length === values.length ? days : Array.isArray(series.labels) ? series.labels.map(String) : []
-    const aggregated = finite(series.aggregated_value)
-    const trendsFilter = (query as MetricQuery | null | undefined)?.source?.trendsFilter
-    if (trendsFilter?.display === ChartDisplayType.Metric) {
-        const total = aggregated ?? finite(series.count)
-        const summary = trendsFilter.metricSummary ?? METRIC_SUMMARY_DEFAULT
-        return { value: total === null ? null : computeMetricSummary(summary, total, values), values, labels }
-    }
-    return { value: aggregated ?? values.at(-1) ?? null, values, labels }
+    return { value: seriesValue(series, values, query), values, labels: seriesLabels(series, values.length) }
 }
 
 async function loadMetric(projectId: string, insightId: number, signal: AbortSignal): Promise<ReleaseMetric> {
@@ -167,9 +178,13 @@ export const releaseMetricsLogic = kea<releaseMetricsLogicType>([
         },
     })),
     afterMount(({ cache }) => {
-        cache.disposables.add(() => {
-            cache.controller = new AbortController()
-            return () => cache.controller.abort()
-        }, 'abortLoads')
+        cache.disposables.add(
+            () => {
+                cache.controller = new AbortController()
+                return () => cache.controller.abort()
+            },
+            'abortLoads',
+            { pauseOnPageHidden: false }
+        )
     }),
 ])
