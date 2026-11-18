@@ -612,10 +612,13 @@ def fetch_recurring_intents(
 
 
 def exclude_recurring_sessions(rows: list[SessionCallRow], recurring_texts: Collection[str]) -> list[SessionCallRow]:
-    """Drop every call of a session whose first intent is a recurring text.
+    """Drop the calls of recurring automation from ``rows``.
 
-    The whole session goes, not just the matching calls: its later calls would
-    otherwise inherit nothing and its follow-up intents are the same automation.
+    A session whose first intent is a recurring text goes whole: its later calls
+    would otherwise inherit nothing and its follow-up intents are the same automation.
+    In any other session, a recurring intent drops only its own calls and the
+    intent-less calls after it, which would otherwise inherit it, so the session's
+    other intents still reach the corpus.
     """
     if not recurring_texts:
         return rows
@@ -627,7 +630,19 @@ def exclude_recurring_sessions(rows: list[SessionCallRow], recurring_texts: Coll
         if text:
             first_intent[session_id] = text
     excluded = {sid for sid, text in first_intent.items() if text in recurring_texts}
-    return [row for row in rows if row[0] not in excluded]
+
+    kept: list[SessionCallRow] = []
+    in_recurring: dict[str, bool] = {}
+    for row in rows:
+        session_id, _, raw_intent, _ = row
+        if session_id in excluded:
+            continue
+        text = _recurring_key(raw_intent)
+        if text:
+            in_recurring[session_id] = text in recurring_texts
+        if not in_recurring.get(session_id, False):
+            kept.append(row)
+    return kept
 
 
 def fetch_advertised_tools(
