@@ -53,6 +53,7 @@ const APP_LINK_HOSTS = ['us.posthog.com', 'eu.posthog.com']
 
 export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
     const variant = readVariant()
+    const simulatorBuild = variant === 'preview' && process.env.MOBILE_SIMULATOR_BUILD === '1'
     const { name, idSuffix, scheme } = variantTable.variants[variant]
     const appId = `${variantTable.productionAppIds.ios}${idSuffix}`
     const androidPackage = `${variantTable.productionAppIds.android}${idSuffix}`
@@ -79,7 +80,7 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
             // The server lists the matching paths in posthog/mobile_app_links.py.
             associatedDomains: APP_LINK_HOSTS.map((host) => `applinks:${host}`),
             // Local device builds sign automatically with this team; EAS builds carry their own credentials.
-            appleTeamId: process.env.APPLE_TEAM_ID,
+            appleTeamId: simulatorBuild ? undefined : process.env.APPLE_TEAM_ID,
             supportsTablet: false,
             entitlements: {
                 // Shared with the HedgehogWidget extension, which reads the choreography the app writes.
@@ -140,7 +141,7 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
                     category: ['BROWSABLE', 'DEFAULT'],
                 },
             ],
-            googleServicesFile: googleServicesFile(projectRoot),
+            googleServicesFile: simulatorBuild ? undefined : googleServicesFile(projectRoot),
             adaptiveIcon: {
                 foregroundImage: icons.adaptive,
                 backgroundColor: '#FFFFFF',
@@ -189,6 +190,7 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
         ],
         updates: {
             url: `https://u.expo.dev/${EAS_PROJECT_ID}`,
+            ...(simulatorBuild && { enabled: false }),
             ...(variant === 'production'
                 ? hasOtaCertificate
                     ? {
