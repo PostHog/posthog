@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import time
 import uuid
@@ -386,7 +387,7 @@ def _export_to_png(
                 "exporting_replay",
                 session_recording_id=exported_asset.export_context.get("session_recording_id"),
                 timestamp=exported_asset.export_context.get("timestamp"),
-                url_to_render=url_to_render,
+                url_to_render=_redact_render_token(url_to_render),
                 css_selector=wait_for_css_selector,
                 token_preview=access_token[:10],
             )
@@ -414,7 +415,7 @@ def _export_to_png(
             logger.info(
                 "exporting_heatmap",
                 heatmap_url=exported_asset.export_context.get("heatmap_url"),
-                url_to_render=url_to_render,
+                url_to_render=_redact_render_token(url_to_render),
                 css_selector=wait_for_css_selector,
                 token_preview=access_token[:10],
             )
@@ -442,7 +443,7 @@ def _export_to_png(
         screenshot_width = image_size.get("width") or screenshot_width
         screenshot_height = image_size.get("height") or screenshot_height
 
-        logger.info("exporting_asset", asset_id=exported_asset.id, render_url=url_to_render)
+        logger.info("exporting_asset", asset_id=exported_asset.id, render_url=_redact_render_token(url_to_render))
 
         render_start = time.perf_counter()
         read_site_style = bool((exported_asset.export_context or {}).get("read_site_style"))
@@ -508,6 +509,18 @@ def _redact_browserless_token(message: str) -> str:
     if not token:
         return message
     return message.replace(token, "***").replace(quote_plus(token), "***")
+
+
+_RENDER_TOKEN_PATTERN = re.compile(r"([?&]token=)[^&\s\"']+")
+
+
+def _redact_render_token(text: str) -> str:
+    return _RENDER_TOKEN_PATTERN.sub(r"\1***", text)
+
+
+def _with_render_token_redacted(error: PlaywrightError) -> PlaywrightError:
+    # Playwright navigation errors quote the URL they load, and that URL holds the render token
+    return type(error)(_redact_render_token(str(error))).with_traceback(error.__traceback__)
 
 
 def _effective_max_height(max_height_pixels: Optional[int]) -> int:
@@ -586,6 +599,7 @@ def _screenshot_asset_browserless(
     endpoint = _build_cdp_endpoint(
         settings.BROWSERLESS_CDP_URL, settings.BROWSERLESS_TOKEN, settings.BROWSERLESS_SESSION_TIMEOUT_MS
     )
+    loggable_url = _redact_render_token(url_to_render)
 
     with sync_playwright() as p:
         try:
@@ -607,7 +621,7 @@ def _screenshot_asset_browserless(
             )
             page = context.new_page()
             failed_stylesheets = _watch_failed_stylesheets(page) if read_site_style else []
-            posthoganalytics.tag("url_to_render", url_to_render)
+            posthoganalytics.tag("url_to_render", loggable_url)
 
             try:
                 page.goto(url_to_render, wait_until="domcontentloaded", timeout=page_load_timeout * 1000)
@@ -618,12 +632,13 @@ def _screenshot_asset_browserless(
                 else:
                     page.wait_for_selector(wait_for_css_selector, state="attached", timeout=page_load_timeout * 1000)
             except PlaywrightTimeoutError as e:
+                error = _with_render_token_redacted(e)
                 with posthoganalytics.new_context():
                     posthoganalytics.tag("stage", "image_exporter.page_load_timeout")
                     _save_debug_screenshot(lambda p: page.screenshot(path=p), image_path)
-                    capture_exception(e)
+                    capture_exception(error)
 
-                raise PlaywrightTimeoutError("Timeout while waiting for the page to load") from e
+                raise PlaywrightTimeoutError("Timeout while waiting for the page to load") from error
 
             try:
                 page.wait_for_selector(".Spinner", state="detached", timeout=20000)
@@ -635,12 +650,12 @@ def _screenshot_asset_browserless(
 
             effective_max = _effective_max_height(max_height_pixels)
             height = _cap_height(
-                int(page.evaluate(f"() => {{ {MEASURE_CONTENT_HEIGHT_JS} }}")), effective_max, url_to_render
+                int(page.evaluate(f"() => {{ {MEASURE_CONTENT_HEIGHT_JS} }}")), effective_max, loggable_url
             )
             width = max(
                 fixed_width or 0,
                 _resolve_width(
-                    page.evaluate(f"() => {{ {MEASURE_CONTENT_WIDTH_JS} }}"), screenshot_width, url_to_render
+                    page.evaluate(f"() => {{ {MEASURE_CONTENT_WIDTH_JS} }}"), screenshot_width, loggable_url
                 ),
             )
 
@@ -649,7 +664,7 @@ def _screenshot_asset_browserless(
             page.wait_for_timeout(500)
 
             final_height = _cap_height(
-                int(page.evaluate(f"() => {{ {MEASURE_CONTENT_HEIGHT_JS} }}")), effective_max, url_to_render, final=True
+                int(page.evaluate(f"() => {{ {MEASURE_CONTENT_HEIGHT_JS} }}")), effective_max, loggable_url, final=True
             )
 
             if final_height != height:
@@ -666,13 +681,14 @@ def _screenshot_asset_browserless(
             if disconnected[0] or _is_browserless_connection_error(e):
                 raise BrowserlessUnavailable(_redact_browserless_token(str(e))) from None
 
+            error = _with_render_token_redacted(e)
             with posthoganalytics.new_context():
-                posthoganalytics.tag("url_to_render", url_to_render)
+                posthoganalytics.tag("url_to_render", loggable_url)
                 if page:
                     _save_debug_screenshot(lambda p: page.screenshot(path=p), image_path)
-            capture_exception(e)
+            capture_exception(error)
 
-            raise
+            raise error from None
         finally:
             if context:
                 try:

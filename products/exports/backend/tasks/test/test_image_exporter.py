@@ -17,6 +17,7 @@ from playwright.sync_api import (
     TimeoutError as PlaywrightTimeoutError,
 )
 from prometheus_client import REGISTRY
+from structlog.testing import capture_logs
 
 from posthog.hogql.errors import QueryError
 
@@ -227,6 +228,33 @@ class TestImageExporter(APIBaseTest):
             image_exporter.export_image(self.exported_asset)
 
         assert mock_capture.called is expect_captured
+
+    @parameterized.expand(
+        [
+            ("insight", None),
+            ("replay", {"session_recording_id": "rec-1", "timestamp": 3}),
+            ("heatmap", {"heatmap_url": "https://example.com/page", "heatmap_data_url": "/data"}),
+        ]
+    )
+    def test_export_log_lines_redact_the_render_token(
+        self, _remove: Any, _open: Any, mock_screenshot: Any, _name: str, export_context: dict | None
+    ) -> None:
+        asset = self.exported_asset
+        if export_context:
+            self.team.app_urls = ["https://example.com"]
+            self.team.save()
+            asset = ExportedAsset.objects.create(
+                team=self.team, export_format=ExportedAsset.ExportFormat.PNG, export_context=export_context
+            )
+
+        with self.settings(OBJECT_STORAGE_ENABLED=False), mock_anti_ssrf_dns_lookup(), capture_logs() as logs:
+            image_exporter.export_image(asset)
+
+        rendered_url = mock_screenshot.call_args.args[1]
+        token = parse_qs(urlparse(rendered_url).query)["token"][0]
+        assert token not in json.dumps(logs, default=str)
+        [exporting_asset] = [log for log in logs if log["event"] == "exporting_asset"]
+        assert "token=***" in exporting_asset["render_url"]
 
     def test_image_exporter_writes_to_asset_when_object_storage_is_disabled(self, *args: Any) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=False):
@@ -1053,8 +1081,9 @@ class TestScreenshotAssetBrowserless(SimpleTestCase):
     def test_goto_timeout_is_captured_and_reraised(self) -> None:
         # Connect succeeds, but navigation times out — the debug-capture path must run
         # for a goto (navigation) timeout, not just a selector timeout.
+        url = "https://app.example.com/exporter?token=render-token-value&legend=true"
         page = MagicMock()
-        page.goto.side_effect = PlaywrightTimeoutError("Timeout 30000ms exceeded")
+        page.goto.side_effect = PlaywrightTimeoutError(f'Timeout 30000ms exceeded.\n  - navigating to "{url}"')
         context = MagicMock()
         context.new_page.return_value = page
         browser = MagicMock()
@@ -1073,12 +1102,14 @@ class TestScreenshotAssetBrowserless(SimpleTestCase):
             patch("products.exports.backend.tasks.image_exporter.capture_exception") as mock_capture,
         ):
             with self.assertRaises(PlaywrightTimeoutError) as ctx:
-                image_exporter._screenshot_asset_browserless("p", "u", 800, ".ExportedInsight")
+                image_exporter._screenshot_asset_browserless("p", url, 800, ".ExportedInsight")
 
         mock_capture.assert_called_once()
-        # The re-raise preserves the original timeout as its cause (the message carries no secret, so chaining is safe).
         assert isinstance(ctx.exception.__cause__, PlaywrightTimeoutError)
         assert "Timeout 30000ms exceeded" in str(ctx.exception.__cause__)
+        for reported in (mock_capture.call_args.args[0], ctx.exception.__cause__):
+            assert "render-token-value" not in str(reported)
+            assert "token=***" in str(reported)
 
     @parameterized.expand(
         [
