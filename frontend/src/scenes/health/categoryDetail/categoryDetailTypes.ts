@@ -12,6 +12,8 @@ export interface CategoryDetailContentProps {
     onRefresh: () => void
     showDismissed: boolean
     onSetShowDismissed: (show: boolean) => void
+    onLoadMore?: () => void
+    isLoadingMore?: boolean
 }
 
 export type CategoryDetailContentComponent = ComponentType<CategoryDetailContentProps>
