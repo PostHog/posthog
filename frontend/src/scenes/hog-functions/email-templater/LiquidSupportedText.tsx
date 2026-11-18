@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import {
@@ -16,10 +17,15 @@ export function LiquidSupportedText({
     value,
     onChange,
     globals,
+    placeholder,
+    plain,
 }: {
     value: string
     onChange: (value?: string) => void
     globals: any
+    placeholder?: string
+    /** Shows the value in the page font, so it reads as a text field rather than code. */
+    plain?: boolean
 }): JSX.Element {
     const { templatingEngine } = useValues(emailTemplaterLogic)
     const { setTemplatingEngine } = useActions(emailTemplaterLogic)
@@ -45,15 +51,56 @@ export function LiquidSupportedText({
                     }}
                 />
             </span>
-            <CodeEditorInline
-                embedded
-                className="flex-1"
-                globals={globals}
-                value={value}
-                language={templating === 'hog' ? 'hogTemplate' : 'liquid'}
-                onChange={onChange}
-                onMount={onEditorMount}
-            />
+            {placeholder && !value ? (
+                <span
+                    className={clsx(
+                        'absolute inset-y-0 left-0 flex items-center text-secondary pointer-events-none z-10',
+                        !plain && 'pl-2.5'
+                    )}
+                >
+                    {placeholder}
+                </span>
+            ) : null}
+            {/* The code editor always pads its first line by 8px, so a single line moves up to sit in the middle. */}
+            <div
+                className={clsx(
+                    'flex-1 min-w-0',
+                    plain &&
+                        '-mt-[4.5px] -mb-[4.5px] [&_.margin]:!bg-transparent [&_.monaco-editor]:!bg-transparent [&_.monaco-editor-background]:!bg-transparent'
+                )}
+            >
+                <CodeEditorInline
+                    embedded
+                    className="flex-1"
+                    globals={globals}
+                    value={value}
+                    language={templating === 'hog' ? 'hogTemplate' : 'liquid'}
+                    onChange={onChange}
+                    onMount={onEditorMount}
+                    allowManualResize={!plain}
+                    minHeight={plain ? '34px' : undefined}
+                    maxHeight={plain ? '34px' : undefined}
+                    options={
+                        plain
+                            ? {
+                                  fontFamily: getComputedStyle(document.body).fontFamily,
+                                  fontSize: 14,
+                                  lineHeight: 20,
+                                  wordWrap: 'off',
+                                  scrollBeyondLastLine: false,
+                                  scrollBeyondLastColumn: 0,
+                                  lineDecorationsWidth: 0,
+                                  glyphMargin: false,
+                                  scrollbar: {
+                                      vertical: 'hidden',
+                                      horizontal: 'hidden',
+                                      alwaysConsumeMouseWheel: false,
+                                  },
+                              }
+                            : undefined
+                    }
+                />
+            </div>
         </span>
     )
 }

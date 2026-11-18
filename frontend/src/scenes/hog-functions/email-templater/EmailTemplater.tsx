@@ -57,6 +57,7 @@ import { EmailSenderRow } from './EmailSenderRow'
 import { EMAIL_TYPE_SUPPORTED_FIELDS, EmailTemplaterLogicProps, emailTemplaterLogic } from './emailTemplaterLogic'
 import { LiquidSupportedText } from './LiquidSupportedText'
 import { OptionalHeaderFieldRow } from './OptionalHeaderFieldRow'
+import { QuillEmailHeaderFields } from './QuillEmailHeaderFields'
 import { SandboxSenderChoiceContext } from './SandboxSenderChoiceContext'
 import {
     SANDBOX_SENDER_VALUE,
@@ -619,7 +620,9 @@ function NativeEmailTemplaterForm({
                 formKey="emailTemplate"
             >
                 <div className={fieldsHidden ? 'h-0 overflow-hidden' : ''}>
-                    {compactHeader ? (
+                    {compactHeader && logicProps.quillHeader && mode === 'preview' ? (
+                        <QuillEmailHeaderFields />
+                    ) : compactHeader ? (
                         <>
                             {showSenderRow && <EmailSenderRow />}
                             {workflowHeader && <EmailRecipientFields />}
@@ -630,6 +633,7 @@ function NativeEmailTemplaterForm({
                                             value={value}
                                             onChange={onChange}
                                             globals={logicProps.variables}
+                                            placeholder="Add a subject line"
                                         />
                                     )}
                                 </LemonField>

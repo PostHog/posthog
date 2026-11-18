@@ -1,3 +1,5 @@
+import clsx from 'clsx'
+
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -27,6 +29,7 @@ export function EmailSenderForm({
     onChangeReplyTo,
     onClear,
     onDone,
+    singleLine = false,
 }: {
     from: EmailTemplateFrom
     replyTo: string | undefined
@@ -39,6 +42,8 @@ export function EmailSenderForm({
     onClear: () => void
     /** Shows a Done button, for when the form sits in a dropdown. */
     onDone?: () => void
+    /** Keeps the name and reply-to on one line each, like plain text fields. */
+    singleLine?: boolean
 }): JSX.Element {
     const selected = selectedSenders(from, senders)
     const domain = sharedSenderDomain(selected)
@@ -56,11 +61,18 @@ export function EmailSenderForm({
         dataAttr: string
     ): JSX.Element =>
         variables ? (
-            <div className="border rounded bg-surface-primary px-1" data-attr={dataAttr}>
+            <div
+                className={clsx(
+                    'border rounded bg-surface-primary',
+                    singleLine ? 'flex items-center h-10 px-2 overflow-hidden' : 'px-1'
+                )}
+                data-attr={dataAttr}
+            >
                 <LiquidSupportedText
                     value={value ?? ''}
                     onChange={(next) => onChange(next ?? '')}
                     globals={variables}
+                    plain={singleLine}
                 />
             </div>
         ) : (
