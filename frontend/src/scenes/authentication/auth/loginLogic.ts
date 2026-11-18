@@ -739,14 +739,11 @@ export const loginLogic = kea<loginLogicType>([
                 !isWebKitBrowser()
             ) {
                 const promptEmail = precheckResponse.email ?? ''
-                if (values.passkeyPromptedForEmail === promptEmail) {
-                    return
-                }
                 breakpoint()
                 // Dynamic import to avoid circular dependency
                 const { passkeyLogic } = await import('scenes/authentication/shared/passkeyLogic')
                 breakpoint()
-                // A password login submitted during the import marks the email, so check it again
+                // Check after the import: a password login submitted during it also marks the email
                 if (values.passkeyPromptedForEmail === promptEmail) {
                     return
                 }
