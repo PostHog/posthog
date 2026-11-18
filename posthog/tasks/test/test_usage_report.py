@@ -5320,6 +5320,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             ("surveys",),
             ("subscriptions",),
             ("replay_vision",),
+            ("error_tracking_issue_summaries",),
         ]
     )
     @patch("posthog.tasks.usage_report.get_instance_region")
