@@ -163,7 +163,7 @@ export function QuillGeneralSection({
                                     verification secret below (server-side) and pass both values to{' '}
                                     <code>posthog.init()</code>:
                                 </Text>
-                                <pre className="m-0 overflow-x-auto rounded-md bg-muted p-3 text-xs">
+                                <pre data-quill className="m-0 overflow-x-auto rounded-md bg-muted p-3 text-xs">
                                     {`posthog.init('<ph_project_api_key>', {
     identity_distinct_id: 'user_123',
     identity_hash: 'a1b2c3d4e5f6...',

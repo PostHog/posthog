@@ -36,7 +36,7 @@ export function QuillApiSection(): JSX.Element {
                 <Text size="xs" weight="medium" render={<p className="m-0" />}>
                     Quick example
                 </Text>
-                <pre className="m-0 overflow-x-auto rounded-md bg-muted p-3 text-xs">
+                <pre data-quill className="m-0 overflow-x-auto rounded-md bg-muted p-3 text-xs">
                     {`if (posthog.conversations.isAvailable()) {
     const response = await posthog.conversations.sendMessage('Hello, I need help!', {
         name: 'John Doe',
