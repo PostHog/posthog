@@ -230,6 +230,12 @@ jobs:
                         - '!posthog/dags/**'
                       hogqlParser:
                         - 'common/hogql_parser/**'
+                      # No job reads this output. It exists so reuse also compares the files that
+                      # tools/playwright_spec_selection.py maps to specs and shouldRun does not match.
+                      specSelection:
+                        - 'products/*/backend/**'
+                        - tsconfig.json
+                        - 'tsconfig.*.json'
 
             # Visual Review auto-commits a snapshot baseline after human review and CI
             # approval. Re-running the full E2E stack for that bot push is pure waste;

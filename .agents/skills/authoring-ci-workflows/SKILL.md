@@ -505,6 +505,10 @@ The judgment calls when you adopt or change it:
 - **Scope only the filters that can clear.**
   All filters in `reuse-filters` are compared as one set and cleared together, so one broad filter (`'**'`) in scope means reuse never fires.
   Leave such filters out; they keep answering from the real file list. `ci-frontend.yml` is the reference: it scopes four filters and leaves `all_files` out.
+- **The scoped filters must match every file the suite reads.**
+  Reuse compares only those files, so a file the suite reads outside them can change without stopping a reuse.
+  That covers the local actions its gated jobs run, and any file a selector reads from the diff.
+  When the trigger filter is narrower on purpose, add a scoped filter that no job reads, as `specSelection` does in `ci-e2e-playwright.yml`.
 - **`reuse-checks` names every check whose failure must stop a reuse.**
   That is the required gate, plus any job the scoped filters gate that is not in the gate's `needs`.
   `ci-rust.yml` names `PersonHog e2e gate`, and backend names the `product.yaml` owners job.

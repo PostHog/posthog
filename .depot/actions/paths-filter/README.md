@@ -121,6 +121,8 @@ The action reuses a result only when every one of these holds, and runs the suit
 Scope decides how often this fires.
 All scoped filters are compared as one set and cleared together, so one broad filter in the scope (`'**'`) makes every push count as a change.
 Leave such a filter out of `reuse-filters`; it keeps answering from the real file list.
+The scoped filters must match every file the suite reads, including the local actions its jobs run and any file a selector reads from the diff.
+A file the suite reads outside them can change without stopping a reuse.
 
 The comparison covers the files the pull request changes, not the base branch.
 Every reused result keeps the master side of the proven run, which can be up to 24 hours old.
