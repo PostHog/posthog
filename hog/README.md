@@ -85,34 +85,11 @@ The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tas
 | `hog commands`                            | Lists every command, its arguments, options and scopes.                                                                           |
 | `hog upgrade`                             | Updates hog. `--check` only reports, and `--version` picks a version. See [Updates](#updates).                                    |
 | `hog feedback [message]`                  | Sends feedback about hog or PostHog to the PostHog team. `-` reads it from stdin. See [Feedback](#feedback).                      |
-| Everything else                           | Not ported yet. Exits with code 1 and prints the `posthog-cli` command to run instead, with the same arguments.                   |
 
 ## What's left
 
-hog replaces posthog-cli in three steps: settle the CLI, ship it, then move everyone over.
-[MIGRATING.md](MIGRATING.md) drafts the guidance for people moving from `posthog-cli` to `hog`, and it moves to posthog.com when hog ships.
-
-First, settle the CLI:
-
-- [x] `hog upgrade`, which updates hog to the latest version.
-- The AGENTS.md snippet comes back as a top-level command, designed fresh rather than ported from `posthog-cli api agents-md`. Until then, hog points to it. `hog skills add` already replaces `posthog-cli api skill`.
-
-Then ship it:
-
-- [x] Distribution: a binary for each platform, macOS signing and notarization, the npm package and the Homebrew formula. See [Releases](#releases).
-- [ ] CI on Linux and Windows: run the tests on Windows, and the install scripts on each platform.
-
-Then move everyone over:
-
-- [ ] Publish the migration guide on posthog.com.
-- [ ] Callers: move the SDK build integrations (posthog-js, React Native and Expo, the Android Gradle plugin, the iOS build script), the error tracking onboarding in the web app, and the posthog.com docs from `posthog-cli` to `hog`.
-- [ ] A `posthog-cli` entry point in hog that translates posthog-cli's commands, flags and `POSTHOG_CLI_` variables, so the posthog-cli package can ship hog and old pipelines and SDK versions keep working.
-
-Not planned:
-
-- `posthog-cli exp query editor`, the interactive query editor in the terminal. hog won't port it.
-- `posthog-cli exp task`. hog won't port it.
-- `posthog-cli exp logs import`, which imports historical logs from Loki. Not planned for now.
+The plan to replace posthog-cli with hog, and its calendar, is in the [posthog-cli deprecation RFC](https://github.com/PostHog/requests-for-comments-internal/pull/1378), which is internal to PostHog.
+[MIGRATING.md](MIGRATING.md) is the guide for moving from posthog-cli to hog, and lists the posthog-cli commands that don't come to hog.
 
 ## Agents, people and pipes
 

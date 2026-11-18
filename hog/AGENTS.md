@@ -6,7 +6,7 @@
 
 | Path                  | Holds                                                                                                                                                                                     |
 | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/commands/`       | One file per command. `index.ts` is the tree of every command; `legacy.ts` holds the ones posthog-cli still owns                                                                          |
+| `src/commands/`       | One file per command. `index.ts` is the tree of every command                                                                                                                             |
 | `src/core/`           | The shared parts every command uses: command definitions, context and global options, output, agent detection, errors, runtime, the manifest                                              |
 | `src/posthog/`        | The PostHog API client, the pagination helpers every list uses, and credentials                                                                                                           |
 | `src/ci/`             | CI setup. `providers/registry.ts` lists the providers whose OIDC tokens hog exchanges, and each provider has its own folder                                                               |
@@ -24,7 +24,7 @@ Import from another folder with `@/`, which `tsconfig.json` maps to `src/`, as i
 ## Add a command
 
 1. Write `src/commands/<group>/<name>.ts` with `defineCommand`. Put it in a `defineGroup` when it has siblings.
-2. Add it to the tree in `src/commands/index.ts`, and remove its `defineLegacy` entry from `src/commands/legacy.ts` if posthog-cli has one. A legacy entry can sit inside a group, so a group can be half ported.
+2. Add it to the tree in `src/commands/index.ts`.
 3. Add cases to `src/commands/<group>/<group>.test.ts` with `runHog`.
 
 ```ts
