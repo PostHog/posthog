@@ -11,7 +11,7 @@ import { experimentSceneLogic } from 'scenes/experiments/experimentSceneLogic'
 import { healthChipState } from './healthPanelChecks'
 import { healthIssues } from './healthPanelFindings'
 
-export function ExperimentHealthChip(): JSX.Element | null {
+export function useHealthChip(): { count: number; hasCritical: boolean; openHealthTab: () => void } | null {
     const { healthFindings, experimentLoadCount } = useValues(experimentLogic)
     const { reportHealthChecksOpened, reportHealthFindingShown } = useActions(experimentLogic)
     const { setActiveTabKey } = useActions(experimentSceneLogic)
@@ -28,20 +28,32 @@ export function ExperimentHealthChip(): JSX.Element | null {
     if (state.kind === 'hidden') {
         return null
     }
-    const openHealthTab = (): void => {
-        setActiveTabKey('health')
-        reportHealthChecksOpened('meta_bar')
+    return {
+        count: state.count,
+        hasCritical: state.hasCritical,
+        openHealthTab: () => {
+            setActiveTabKey('health')
+            reportHealthChecksOpened('meta_bar')
+        },
+    }
+}
+
+export function ExperimentHealthChip(): JSX.Element | null {
+    const chip = useHealthChip()
+
+    if (!chip) {
+        return null
     }
     return (
         <LemonButton
             type="secondary"
             size="xsmall"
-            icon={<IconWarning className={state.hasCritical ? 'text-danger' : 'text-warning'} />}
+            icon={<IconWarning className={chip.hasCritical ? 'text-danger' : 'text-warning'} />}
             tooltip="Show the health checks"
-            onClick={openHealthTab}
+            onClick={chip.openHealthTab}
             data-attr="experiment-health-chip"
         >
-            {pluralize(state.count, 'issue')}
+            {pluralize(chip.count, 'issue')}
         </LemonButton>
     )
 }

@@ -39,14 +39,13 @@ import { ROW_HOVER_REVEAL } from 'scenes/analytics/analyticsUtils'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
-import {
-    AccessControlLevel,
-    AccessControlResourceType,
-    Experiment,
-    ExperimentConclusion,
-    ExperimentStatus,
-} from '~/types'
+import { AccessControlLevel, AccessControlResourceType, Experiment } from '~/types'
 
+import {
+    EXPERIMENT_CONCLUSION_DOT,
+    type QuillBadgeVariant,
+    QuillStatusBadge,
+} from 'products/experiments/frontend/components/QuillStatusBadge'
 import { QuillTagsDialog } from 'products/experiments/frontend/components/QuillTagsDialog'
 import { CONCLUSION_DISPLAY_CONFIG } from 'products/experiments/frontend/constants'
 import {
@@ -59,7 +58,6 @@ import { experimentsPartialUpdate } from 'products/experiments/frontend/generate
 import {
     EXPERIMENTS_PER_PAGE,
     experimentsLogic,
-    getExperimentStatusLabel,
     getShippedVariantKey,
     isSingleVariantShipped,
 } from 'products/experiments/frontend/scenes/experimentsLogic'
@@ -84,22 +82,6 @@ type ExperimentsDataTable = DataTableProps<Experiment, unknown>
 type SortingState = NonNullable<ExperimentsDataTable['sorting']>
 type RowSelectionState = NonNullable<ExperimentsDataTable['rowSelection']>
 
-type BadgeVariant = 'default' | 'info' | 'warning' | 'success' | 'completed' | 'destructive'
-
-const STATUS_BADGE: Record<ExperimentStatus, BadgeVariant> = {
-    [ExperimentStatus.Draft]: 'default',
-    [ExperimentStatus.Running]: 'success',
-    [ExperimentStatus.Paused]: 'warning',
-    [ExperimentStatus.ExposureFrozen]: 'info',
-    [ExperimentStatus.Stopped]: 'completed',
-}
-
-const CONCLUSION_DOT: Partial<Record<ExperimentConclusion, 'success' | 'destructive' | 'warning'>> = {
-    [ExperimentConclusion.Won]: 'success',
-    [ExperimentConclusion.Lost]: 'destructive',
-    [ExperimentConclusion.Inconclusive]: 'warning',
-}
-
 const SORTABLE_ORDER_KEYS = new Set(['created_by', 'created_at', 'start_date', 'duration', 'status', 'conclusion'])
 
 function sortingFromOrder(order: string | undefined): SortingState {
@@ -112,7 +94,7 @@ function BadgeWithTooltip({
     tooltip,
     children,
 }: {
-    variant: BadgeVariant
+    variant: QuillBadgeVariant
     tooltip: ReactNode
     children: ReactNode
 }): JSX.Element {
@@ -305,7 +287,7 @@ function ResultCell({ experiment }: { experiment: Experiment }): JSX.Element {
     return (
         <Tooltip>
             <TooltipTrigger render={<span className="flex items-center gap-2" tabIndex={0} />}>
-                <Dot variant={CONCLUSION_DOT[experiment.conclusion] ?? 'default'} />
+                <Dot variant={EXPERIMENT_CONCLUSION_DOT[experiment.conclusion] ?? 'default'} />
                 <Text size="xs" weight="medium" render={<span />}>
                     {config.title}
                 </Text>
@@ -499,7 +481,7 @@ function experimentColumns({
             accessorFn: (experiment) => getExperimentStatus(experiment),
             cell: ({ row }) => {
                 const status = getExperimentStatus(row.original)
-                return <Badge variant={STATUS_BADGE[status]}>{getExperimentStatusLabel(status)}</Badge>
+                return <QuillStatusBadge status={status} />
             },
         },
         {

@@ -4,7 +4,12 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
-export function ExperimentConclusionComment({ comment }: { comment: string }): JSX.Element {
+export function useClampedComment(comment: string): {
+    textRef: React.RefObject<HTMLParagraphElement>
+    isExpanded: boolean
+    showToggle: boolean
+    toggle: () => void
+} {
     const [isExpanded, setIsExpanded] = useState(false)
     const [isOverflowing, setIsOverflowing] = useState(false)
     const textRef = useRef<HTMLParagraphElement>(null)
@@ -24,6 +29,17 @@ export function ExperimentConclusionComment({ comment }: { comment: string }): J
         return () => observer.disconnect()
     }, [comment, isExpanded])
 
+    return {
+        textRef,
+        isExpanded,
+        showToggle: isOverflowing || isExpanded,
+        toggle: () => setIsExpanded(!isExpanded),
+    }
+}
+
+export function ExperimentConclusionComment({ comment }: { comment: string }): JSX.Element {
+    const { textRef, isExpanded, showToggle, toggle } = useClampedComment(comment)
+
     return (
         <>
             <p
@@ -36,7 +52,7 @@ export function ExperimentConclusionComment({ comment }: { comment: string }): J
             >
                 {comment}
             </p>
-            {(isOverflowing || isExpanded) && (
+            {showToggle && (
                 <LemonButton
                     className="mt-1"
                     size="xsmall"
@@ -44,7 +60,7 @@ export function ExperimentConclusionComment({ comment }: { comment: string }): J
                     data-attr="experiment-conclusion-toggle"
                     aria-expanded={isExpanded}
                     aria-controls="experiment-conclusion-comment-text"
-                    onClick={() => setIsExpanded(!isExpanded)}
+                    onClick={toggle}
                 >
                     {isExpanded ? 'Show less' : 'Show more'}
                 </LemonButton>

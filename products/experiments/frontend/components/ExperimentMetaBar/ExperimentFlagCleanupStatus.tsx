@@ -6,13 +6,10 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { flagCleanupTaskLogic } from 'scenes/experiments/ExperimentView/flagCleanupTaskLogic'
 import { urls } from 'scenes/urls'
 
-export function ExperimentFlagCleanupStatus({
-    experimentId,
-    taskId,
-}: {
-    experimentId: number
+export function useFlagCleanupStatus(
+    experimentId: number,
     taskId: string
-}): JSX.Element | null {
+): { text: string; linkUrl: string; isExternalLink: boolean; showLink: boolean } | null {
     const { cleanupTask } = useValues(flagCleanupTaskLogic({ experimentId }))
 
     if (!cleanupTask) {
@@ -36,7 +33,27 @@ export function ExperimentFlagCleanupStatus({
 
     const isExternalLink = prUrl !== null
     // The task page 404s for everyone but the task's creator, so hide the internal link from others.
-    const showLink = isExternalLink || cleanupTask.can_view_task
+    return {
+        text,
+        linkUrl: prUrl ?? urls.taskDetail(taskId),
+        isExternalLink,
+        showLink: isExternalLink || !!cleanupTask.can_view_task,
+    }
+}
+
+export function ExperimentFlagCleanupStatus({
+    experimentId,
+    taskId,
+}: {
+    experimentId: number
+    taskId: string
+}): JSX.Element | null {
+    const status = useFlagCleanupStatus(experimentId, taskId)
+
+    if (!status) {
+        return null
+    }
+    const { text, linkUrl, isExternalLink, showLink } = status
 
     return (
         <div className="flex flex-wrap items-center gap-x-1.5 text-sm" data-attr="experiment-flag-cleanup">
@@ -44,11 +61,7 @@ export function ExperimentFlagCleanupStatus({
             <span className="text-secondary">·</span>
             <span>{text}</span>
             {showLink && (
-                <Link
-                    target={isExternalLink ? '_blank' : undefined}
-                    className="flex items-center gap-0.5"
-                    to={prUrl ?? urls.taskDetail(taskId)}
-                >
+                <Link target={isExternalLink ? '_blank' : undefined} className="flex items-center gap-0.5" to={linkUrl}>
                     {isExternalLink ? (
                         <>
                             View on GitHub <IconOpenInNew fontSize="14" />

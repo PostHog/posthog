@@ -15,25 +15,42 @@ interface DateTriggerProps {
     onApply: (date: string) => void
 }
 
-function DateTrigger({ date, boundary, onApply }: DateTriggerProps): JSX.Element {
+export function useDateTrigger(
+    date: string | null | undefined,
+    boundary: 'start' | 'end'
+): {
+    isOpen: boolean
+    open: () => void
+    close: () => void
+    loading: boolean
+    label: string
+    disabledReason?: string
+} {
     const { openDatePicker, experimentUpdateLoading } = useValues(experimentLogic)
     const { setOpenDatePicker } = useActions(experimentLogic)
-    const isOpen = openDatePicker === boundary
 
-    // A successful save closes the picker. If the picker could close while the save runs, that save would close a
-    // picker that the user opened again.
-    const close = (): void => {
-        if (!experimentUpdateLoading) {
-            setOpenDatePicker(null)
-        }
+    return {
+        isOpen: openDatePicker === boundary,
+        open: () => setOpenDatePicker(boundary),
+        // A successful save closes the picker. If the picker could close while the save runs, that save would close a
+        // picker that the user opened again.
+        close: () => {
+            if (!experimentUpdateLoading) {
+                setOpenDatePicker(null)
+            }
+        },
+        loading: experimentUpdateLoading,
+        label: date ? dayjs(date).format('MMM D, YYYY') : boundary === 'end' ? 'Present' : 'No date',
+        disabledReason: !date
+            ? boundary === 'start'
+                ? 'No start date'
+                : 'The experiment is still running'
+            : undefined,
     }
+}
 
-    const label = date ? dayjs(date).format('MMM D, YYYY') : boundary === 'end' ? 'Present' : 'No date'
-    const disabledReason = !date
-        ? boundary === 'start'
-            ? 'No start date'
-            : 'The experiment is still running'
-        : undefined
+function DateTrigger({ date, boundary, onApply }: DateTriggerProps): JSX.Element {
+    const { isOpen, open, close, loading, label, disabledReason } = useDateTrigger(date, boundary)
 
     return (
         <Popover
@@ -45,7 +62,7 @@ function DateTrigger({ date, boundary, onApply }: DateTriggerProps): JSX.Element
                     value={date ? dayjs(date) : null}
                     onChange={(value) => onApply(value.toISOString())}
                     onClose={close}
-                    loading={experimentUpdateLoading}
+                    loading={loading}
                     granularity="minute"
                     selectionPeriod={boundary === 'start' ? 'past' : undefined}
                 />
@@ -55,7 +72,7 @@ function DateTrigger({ date, boundary, onApply }: DateTriggerProps): JSX.Element
                 type="tertiary"
                 size="xsmall"
                 sideIcon={null}
-                onClick={() => setOpenDatePicker(boundary)}
+                onClick={open}
                 disabledReason={disabledReason}
                 data-attr={`experiment-${boundary}-date`}
             >

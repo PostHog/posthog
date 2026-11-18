@@ -12,7 +12,7 @@ import { Experiment } from '~/types'
 
 import { ExperimentLastRefreshText } from './ExperimentLastRefreshText'
 
-interface RefreshButtonProps {
+export interface RefreshButtonProps {
     isRefreshing: boolean
     lastRefresh: string | null
     progress?: { completed: number; total: number }
@@ -29,8 +29,7 @@ function RefreshButton({
     blockedReason,
     onRefresh,
 }: RefreshButtonProps): JSX.Element {
-    const loadingText =
-        progress && progress.total > 0 ? `Loading ${progress.completed} of ${progress.total} metrics…` : 'Loading…'
+    const loadingText = refreshLoadingText(progress)
 
     return (
         <LemonButton
@@ -55,7 +54,7 @@ function RefreshButton({
     )
 }
 
-export function ExperimentRefreshButton({ experiment }: { experiment: Experiment }): JSX.Element {
+export function useExperimentRefresh(experiment: Experiment): RefreshButtonProps {
     const metricsLogic = experimentMetricsLogic({ experiment })
     const {
         isRecalculating,
@@ -73,28 +72,33 @@ export function ExperimentRefreshButton({ experiment }: { experiment: Experiment
     // A page with stale flags learns about the window from a 429, so the backend signal counts too.
     const showRefreshWindow = useFeatureFlag('EXPERIMENTS_RECALCULATION_RATE_LIMIT') || backendEnforcesRefreshWindow
 
-    return (
-        <RefreshButton
-            isRefreshing={isRecalculating}
-            lastRefresh={lastRefresh}
-            progress={recalculationProgress}
-            queuedHint={queuedRerun ? 'Changes apply after the current recalculation finishes' : undefined}
-            blockedReason={
-                showRefreshWindow && isManualRefreshBlocked && nextAllowedManualRefresh
-                    ? `Next refresh possible ${dayjs(nextAllowedManualRefresh).fromNow()}`
-                    : undefined
-            }
-            onRefresh={() => {
-                reportExperimentMetricsRefreshed(experiment, true, {
-                    triggered_by: 'manual',
-                    ...previousRefreshAnalytics(currentRefresh),
-                })
-                triggerRecalculation()
-                // Exposures still live in experimentLogic, so refresh them alongside the recalculation.
-                void refreshExperimentResults(true, 'manual').catch(() => {
-                    lemonToast.error('Could not refresh results. Try again.')
-                })
-            }}
-        />
-    )
+    return {
+        isRefreshing: isRecalculating,
+        lastRefresh,
+        progress: recalculationProgress,
+        queuedHint: queuedRerun ? 'Changes apply after the current recalculation finishes' : undefined,
+        blockedReason:
+            showRefreshWindow && isManualRefreshBlocked && nextAllowedManualRefresh
+                ? `Next refresh possible ${dayjs(nextAllowedManualRefresh).fromNow()}`
+                : undefined,
+        onRefresh: () => {
+            reportExperimentMetricsRefreshed(experiment, true, {
+                triggered_by: 'manual',
+                ...previousRefreshAnalytics(currentRefresh),
+            })
+            triggerRecalculation()
+            // Exposures still live in experimentLogic, so refresh them alongside the recalculation.
+            void refreshExperimentResults(true, 'manual').catch(() => {
+                lemonToast.error('Could not refresh results. Try again.')
+            })
+        },
+    }
+}
+
+export function refreshLoadingText(progress?: { completed: number; total: number }): string {
+    return progress && progress.total > 0 ? `Loading ${progress.completed} of ${progress.total} metrics…` : 'Loading…'
+}
+
+export function ExperimentRefreshButton({ experiment }: { experiment: Experiment }): JSX.Element {
+    return <RefreshButton {...useExperimentRefresh(experiment)} />
 }
