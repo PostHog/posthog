@@ -34,8 +34,8 @@ at most one row group of record batches. Collecting the whole staged batch first
 
 from __future__ import annotations
 
+import re
 import json
-import string
 import asyncio
 import datetime as dt
 import functools
@@ -140,12 +140,17 @@ EXPONENTIAL_BACKOFF_COEFFICIENT = ConcurrentS3Consumer.EXPONENTIAL_BACKOFF_COEFF
 
 RefreshCredentials = Callable[[], Awaitable[AWSCredentials]]
 
+_TEMPLATE_FIELD = re.compile(r"\{([^{}]*)\}")
+
 
 def render_key_prefix(prefix: str, *, run_started_at: dt.datetime | None, table: str) -> str | None:
     """Fill the key prefix template variables batch exports' S3 destination supports.
 
     Returns None when the prefix names a variable there is no value for, or is not a valid
     template. The caller then uses the prefix as typed, which is what batch exports does.
+
+    Only an exact `{name}` is replaced. `str.format` also honors widths and indexing, so a stored
+    `{table:1000000000}` would allocate a gigabyte on every delivery attempt.
     """
     variables = {"table": table}
     if run_started_at is not None:
@@ -158,14 +163,9 @@ def render_key_prefix(prefix: str, *, run_started_at: dt.datetime | None, table:
             "minute": f"{started:%M}",
             "second": f"{started:%S}",
         }
-    try:
-        return prefix.format(**variables)
-    except (KeyError, IndexError, AttributeError, ValueError):
+    if any(name not in variables for name in _TEMPLATE_FIELD.findall(prefix)):
         return None
-
-
-def _names_table(prefix: str) -> bool:
-    return any(field == "table" for _, field, _, _ in string.Formatter().parse(prefix))
+    return _TEMPLATE_FIELD.sub(lambda match: variables[match.group(1)], prefix)
 
 
 @dataclass(frozen=False, kw_only=True)
@@ -330,7 +330,7 @@ class S3DestinationWriter:
         self._prefix: str = (rendered_prefix if rendered_prefix is not None else raw_prefix).strip("/")
         # A prefix that places `{table}` itself already gives each table its own folder.
         self._table_folder: str = (
-            "" if rendered_prefix is not None and _names_table(raw_prefix) else self._ctx.table_name
+            "" if rendered_prefix is not None and "{table}" in raw_prefix else self._ctx.table_name
         )
         self._use_virtual_style_addressing = bool(config.get("use_virtual_style_addressing"))
         self._compression: ParquetCompression = config.get("compression") or DEFAULT_COMPRESSION

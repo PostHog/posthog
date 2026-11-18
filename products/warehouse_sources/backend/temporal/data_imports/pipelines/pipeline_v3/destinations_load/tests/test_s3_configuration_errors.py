@@ -187,8 +187,20 @@ class TestKeyPrefix:
             ("{year}/{data_interval_end}/", STARTED, "{year}/{data_interval_end}/charges/run-a1"),
             ("{year}/{table}/", None, "{year}/{table}/charges/run-a1"),
             ("{0}/{table", STARTED, "{0}/{table/charges/run-a1"),
+            ("{year[foo]}/{table}", STARTED, "{year[foo]}/{table}/charges/run-a1"),
+            ("{table:1000000000}", STARTED, "{table:1000000000}/charges/run-a1"),
         ],
-        ids=["plain", "date_and_table", "time", "utc", "unknown_variable", "no_start_time", "not_a_template"],
+        ids=[
+            "plain",
+            "date_and_table",
+            "time",
+            "utc",
+            "unknown_variable",
+            "no_start_time",
+            "not_a_template",
+            "indexing",
+            "format_spec",
+        ],
     )
     async def test_the_prefix_is_rendered_from_the_run_start(
         self, prefix: str, run_started_at: dt.datetime | None, expected_folder: str
