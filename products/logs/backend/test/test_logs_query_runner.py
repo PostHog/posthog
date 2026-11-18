@@ -223,6 +223,35 @@ class TestAttributeFilters(APIBaseTest):
         with self.assertRaises(QueryError):
             LogsQueryRunner(query=query, team=self.team).to_query()
 
+    def test_empty_nested_group_is_ignored(self):
+        query = LogsQuery(
+            dateRange=DateRange(date_from="2024-01-10T00:00:00Z", date_to="2024-01-15T23:59:59Z"),
+            serviceNames=[],
+            severityLevels=[],
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            LogPropertyFilter(
+                                key="http.method",
+                                operator=PropertyOperator.EXACT,
+                                type=LogPropertyFilterType.LOG_ATTRIBUTE,
+                                value="POST",
+                            ),
+                            PropertyGroupFilterValue(type=FilterLogicalOperator.OR_, values=[]),
+                        ],
+                    )
+                ],
+            ),
+            kind="LogsQuery",
+        )
+
+        query_str = self._to_clickhouse_sql(query)
+
+        self.assertIn("http.method", query_str)
+
     def test_resource_attribute_filters(self):
         """Test that resource attribute filters are properly handled"""
         query = LogsQuery(
