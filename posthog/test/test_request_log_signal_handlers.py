@@ -12,9 +12,11 @@ from django_structlog.middlewares import (
     request as request_middleware,
 )
 from parameterized import parameterized
+from posthoganalytics import contexts
+from posthoganalytics.integrations.django import PosthogContextMiddleware
 from structlog.testing import capture_logs
 
-from posthog.request_log_signal_handlers import redact_credential_query_params
+from posthog.request_url_redaction import redact_credential_query_params
 
 
 def _ok_view(request: HttpRequest) -> HttpResponse:
@@ -50,6 +52,21 @@ class TestRequestLogSignalHandlers(SimpleTestCase):
             ("request_started", "GET /api/projects/?personal_api_key=<redacted>&limit=10"),
             (final_event, "GET /api/projects/?personal_api_key=<redacted>&limit=10"),
         ]
+
+    def test_analytics_context_redacts_api_key_query_param_in_current_url(self) -> None:
+        captured_properties: dict[str, Any] = {}
+
+        def view(request: HttpRequest) -> HttpResponse:
+            captured_properties.update(contexts.get_tags())
+            return HttpResponse()
+
+        request = RequestFactory().get("/api/projects/@current/", {"personal_api_key": "phx_testvalue", "limit": "10"})
+        PosthogContextMiddleware(view)(request)
+
+        assert captured_properties["$current_url"] == (
+            "http://testserver/api/projects/@current/?personal_api_key=<redacted>&limit=10"
+        )
+        assert captured_properties["$request_path"] == "/api/projects/@current/"
 
     @parameterized.expand(
         [
