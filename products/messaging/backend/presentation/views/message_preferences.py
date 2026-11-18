@@ -1,5 +1,5 @@
 import re
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any, Literal
 from uuid import UUID
 
@@ -19,6 +19,7 @@ from posthog.api.streaming import streaming_response
 from posthog.plugins import plugin_server_api
 
 from products.messaging.backend.facade.preferences import (
+    ChangedPreferences,
     MessageCategoryNotFound,
     OptOutRequest,
     RecipientPreferences,
@@ -267,6 +268,29 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
         return Response(serializer.data)
 
+    def _opt_out_mutation_response(
+        self,
+        request: Request,
+        request_serializer_class: type[serializers.Serializer],
+        mutate: Callable[[int, str, str | None, int | None], ChangedPreferences],
+    ) -> Response:
+        serializer = request_serializer_class(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        identifier = serializer.validated_data["identifier"]
+        category_key = serializer.validated_data.get("category_key")
+
+        try:
+            changed = mutate(self.team_id, identifier, category_key, request.user.id)
+        except MessageCategoryNotFound:
+            return Response({"error": "Category not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        response_status = status.HTTP_201_CREATED if changed.created else status.HTTP_200_OK
+        response_serializer = MessagePreferencesSerializer(
+            changed.preferences, context=self._workflow_attribution_context([changed.preferences])
+        )
+        return Response(response_serializer.data, status=response_status)
+
     @extend_schema(
         request=AddOptOutRequestSerializer,
         responses={201: MessagePreferencesSerializer},
@@ -276,23 +300,7 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def add_opt_out(self, request: Request, **kwargs: Any) -> Response:
         """Manually add a recipient to the opt-out list for a specific category or all marketing messages."""
         self._require_resource_access("editor", "You need hog_flow editor access to modify the opt-out list.")
-
-        serializer = AddOptOutRequestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        identifier = serializer.validated_data["identifier"]
-        category_key = serializer.validated_data.get("category_key")
-
-        try:
-            changed = add_opt_out(self.team_id, identifier, category_key, request.user.id)
-        except MessageCategoryNotFound:
-            return Response({"error": "Category not found"}, status=status.HTTP_404_NOT_FOUND)
-
-        response_status = status.HTTP_201_CREATED if changed.created else status.HTTP_200_OK
-        response_serializer = MessagePreferencesSerializer(
-            changed.preferences, context=self._workflow_attribution_context([changed.preferences])
-        )
-        return Response(response_serializer.data, status=response_status)
+        return self._opt_out_mutation_response(request, AddOptOutRequestSerializer, add_opt_out)
 
     @extend_schema(
         request=RemoveOptOutRequestSerializer,
@@ -303,23 +311,7 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def remove_opt_out(self, request: Request, **kwargs: Any) -> Response:
         """Opt a recipient back in to a specific category, or to all marketing messages."""
         self._require_resource_access("editor", "You need hog_flow editor access to modify the opt-out list.")
-
-        serializer = RemoveOptOutRequestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        identifier = serializer.validated_data["identifier"]
-        category_key = serializer.validated_data.get("category_key")
-
-        try:
-            changed = remove_opt_out(self.team_id, identifier, category_key, request.user.id)
-        except MessageCategoryNotFound:
-            return Response({"error": "Category not found"}, status=status.HTTP_404_NOT_FOUND)
-
-        response_status = status.HTTP_201_CREATED if changed.created else status.HTTP_200_OK
-        response_serializer = MessagePreferencesSerializer(
-            changed.preferences, context=self._workflow_attribution_context([changed.preferences])
-        )
-        return Response(response_serializer.data, status=response_status)
+        return self._opt_out_mutation_response(request, RemoveOptOutRequestSerializer, remove_opt_out)
 
     @extend_schema(
         parameters=[
