@@ -64,6 +64,7 @@ export const RESTRICTIVE_RUN_POLICY: RunPolicy = {
   expectsSystemPrompt: false,
   threadLink: false,
   defaultClientProvenance: undefined,
+  billingProduct: undefined,
 };
 
 const CALLER_ENDS_RUN_ORIGINS = new Set(["review_hog", "scout_suggestions"]);
