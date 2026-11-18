@@ -120,7 +120,11 @@ jobs:
               if: vars.MCP_DEPLOY_SKIP_DJANGO_WAIT != 'true'
               env:
                   GH_TOKEN: ${{ github.token }}
-                  REPOSITORY: ${{ github.repository }}
+                  # Deploys run in the repository with CD_DEPLOY_ENABLED, which can be the private
+                  # mirror, but the Charts deploy writes the Django records to PostHog/posthog. An
+                  # embargoed commit that is not in PostHog/posthog fails this wait, so it needs the
+                  # break glass above.
+                  REPOSITORY: PostHog/posthog
                   COMMIT_SHA: ${{ github.sha }}
                   # A Django deploy that is blocked longer than this needs a person anyway.
                   TIMEOUT_SECONDS: '19800'
