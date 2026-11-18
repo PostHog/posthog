@@ -96,7 +96,7 @@ SELECT
     round(visibility - previous_visibility, 1) AS change,
     countIf({_THIS_WEEK}) AS answers
 FROM ({_answers(14)})
-GROUP BY lower(prompt_topic)
+GROUP BY lowerUTF8(prompt_topic)
 HAVING answers > 0
 ORDER BY abs(change) DESC NULLS LAST, answers DESC, topic
 LIMIT 100
@@ -128,7 +128,7 @@ FROM (
         row_number() OVER (PARTITION BY topic, role ORDER BY abs(change) DESC, url) AS rank
     FROM (
         SELECT
-            lower(prompt_topic) AS topic_key,
+            lowerUTF8(prompt_topic) AS topic_key,
             url,
             countIf({_THIS_WEEK}) AS cites,
             countIf({_WEEK_BEFORE}) AS previous_cites
@@ -138,7 +138,7 @@ FROM (
     ) AS pages
     JOIN (
         SELECT
-            lower(prompt_topic) AS topic_key,
+            lowerUTF8(prompt_topic) AS topic_key,
             min(prompt_topic) AS label,
             countIf({_THIS_WEEK}) AS answers,
             countIf({_WEEK_BEFORE}) AS previous_answers

@@ -1277,6 +1277,7 @@ class TestAEOPromptAPI(APIBaseTest):
             ("every_check", {}, (3, 3), ["claude-web-search", "exa-answer"], ["", "Pricing", "Replay"], 2),
             ("one_engine", {"engine": "exa-answer"}, (1, 3), ["exa-answer"], ["", "Pricing", "Replay"], 1),
             ("one_topic", {"topic": "Pricing"}, (1, 1), ["claude-web-search"], ["Pricing"], 1),
+            ("one_topic_in_other_case", {"topic": "pricing"}, (1, 1), ["claude-web-search"], ["Pricing"], 1),
             ("no_topic", {"topic": ""}, (1, 1), ["exa-answer"], [""], 1),
             ("unknown_engine", {"engine": "nope"}, (0, 3), [], ["", "Pricing", "Replay"], 0),
         ]
@@ -1990,6 +1991,7 @@ class TestAEOKeywordAPI(APIBaseTest):
             ("every_answer", {}, 3, 3, ["claude-web-search", "exa-answer", "openai-web-search"]),
             ("one_engine", {"engine": "exa-answer"}, 1, 1, ["exa-answer"]),
             ("one_topic", {"topic": "Pricing"}, 2, 2, ["claude-web-search", "openai-web-search"]),
+            ("one_topic_in_other_case", {"topic": "PRICING"}, 2, 2, ["claude-web-search", "openai-web-search"]),
             ("no_topic", {"topic": ""}, 1, 1, ["exa-answer"]),
             ("branded", {"branded": "branded"}, 1, 1, ["claude-web-search"]),
             ("non_branded", {"branded": "non_branded"}, 2, 2, ["exa-answer", "openai-web-search"]),

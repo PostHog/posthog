@@ -728,7 +728,7 @@ def _compute_prompt_set_overview(
         segment_filter(branded, target_domains, field="prompt"), archived_at__isnull=True, active=True
     )
     if topic is not None:
-        prompts = prompts.filter(topic=topic)
+        prompts = prompts.filter(topic__iexact=topic)
     active_prompts = {
         row["topic_key"]: row
         for row in prompts.values(topic_key=Lower("topic"))

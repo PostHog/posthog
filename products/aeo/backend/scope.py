@@ -20,6 +20,7 @@ from products.aeo.backend.facade.contracts import BrandedSegment
 class CheckScope:
     segment: BrandedSegment = BrandedSegment.ALL
     # None keeps every engine or topic. An empty topic keeps the checks of prompts that had no topic.
+    # A topic matches regardless of letter case, because the topic lists merge such spellings into one.
     engine: str | None = None
     topic: str | None = None
 
@@ -30,7 +31,7 @@ def scope_filter(scope: CheckScope) -> Q:
     if scope.engine is not None:
         condition &= Q(engine=scope.engine)
     if scope.topic is not None:
-        condition &= Q(prompt_topic=scope.topic)
+        condition &= Q(prompt_topic__iexact=scope.topic)
     return condition
 
 
@@ -42,7 +43,7 @@ def scope_without_segment(scope: CheckScope) -> CheckScope:
 # `scope_sql_params`. The casts let Postgres type a null parameter.
 SCOPE_SQL = (
     f"{SEGMENT_SQL} AND (%s::text IS NULL OR check_row.engine = %s) "
-    "AND (%s::text IS NULL OR check_row.prompt_topic = %s)"
+    "AND (%s::text IS NULL OR upper(check_row.prompt_topic) = upper(%s))"
 )
 
 
@@ -60,7 +61,7 @@ def scope_sql_params(scope: CheckScope) -> list[str | None]:
 NAMED_SCOPE_SQL = (
     "(%(scope_segment)s = 'all' OR check_row.prompt_branded = (%(scope_segment)s = 'branded')) "
     "AND (%(scope_engine)s::text IS NULL OR check_row.engine = %(scope_engine)s) "
-    "AND (%(scope_topic)s::text IS NULL OR check_row.prompt_topic = %(scope_topic)s)"
+    "AND (%(scope_topic)s::text IS NULL OR upper(check_row.prompt_topic) = upper(%(scope_topic)s))"
 )
 
 
