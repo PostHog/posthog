@@ -7,12 +7,11 @@ import { router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { preflightLogic } from 'lib/logic/preflightLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, AppContext, PreflightStatus } from '~/types'
 
 import type { CodeEmailApi } from 'products/messaging/frontend/generated/api.schemas'
 
@@ -37,6 +36,7 @@ describe('TransactionalEmailsTable', () => {
     afterEach(() => {
         cleanup()
         Reflect.deleteProperty(navigator, 'clipboard')
+        Reflect.deleteProperty(window.POSTHOG_APP_CONTEXT ?? {}, 'preflight')
     })
 
     it.each([
@@ -171,13 +171,16 @@ describe('TransactionalEmailsTable', () => {
                 '/api/projects/:team_id/transactional_code_emails/': [],
                 '/api/projects/:team_id/integrations/': { results: [] },
                 '/api/projects/:team_id/tags': [],
-                '/_preflight': { cloud: !selfHosted },
                 ...get,
             } as Record<string, any>,
         })
         if (!flagsLoaded) {
             window.localStorage.clear()
         }
+        window.POSTHOG_APP_CONTEXT = {
+            ...window.POSTHOG_APP_CONTEXT,
+            preflight: { cloud: !selfHosted } as PreflightStatus,
+        } as AppContext
         initKeaTests()
         if (flagsLoaded) {
             loadFlags(wizardOffered)
@@ -202,7 +205,6 @@ describe('TransactionalEmailsTable', () => {
             { selfHosted }
         )
         expect(await screen.findByText('password-reset')).toBeInTheDocument()
-        await waitFor(() => expect(preflightLogic.values.preflight).not.toBeNull())
 
         expect(
             Boolean(
