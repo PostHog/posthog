@@ -2,7 +2,7 @@ from typing import ClassVar, Protocol
 
 from posthog.dataclasses import frozen
 
-from products.error_tracking.backend.logic.issue_tags.flag import ISSUE_TAGS_FLAG
+from products.error_tracking.backend.logic.issue_tags.flag import JEV_ISSUE_TAGS_FLAG
 from products.error_tracking.backend.models import ErrorTrackingIssueTag
 
 
@@ -49,7 +49,7 @@ ISSUE_TAG_DEFINITIONS: tuple[IssueTagDefinition, ...] = (
         label="Cause in trace",
         description="The stack trace shows where in your code the error starts.",
         question_version=1,
-        enabled_flag=ISSUE_TAGS_FLAG,
+        enabled_flag=JEV_ISSUE_TAGS_FLAG,
         taggers=(
             JevTaggerConfig(
                 instructions=(

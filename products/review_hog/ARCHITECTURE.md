@@ -310,6 +310,12 @@ sessions, all on the PR's arm set (below) and all returning `SingleAgentReview`:
 - **Follow-up prompts name the changed lines.** On a follow-up turn that reviews the whole PR, every session's prompt
   lists the lines changed since the last reviewed head and says which levels the `old_code` drop discards elsewhere
   (P2 and P3 on an automatic turn, P3 on a requested one).
+- **Repository rules come from the base commit.** Every session's prompt says that the `AGENTS.md`, `AGENTS.override.md`, `CLAUDE.md`, `REVIEW.md`, and `SKILL.md` files, every file under `.agents/` or `.claude/`, and the guides they route to, apply as they are at the PR's merge base, and that a change to one is diff content to review.
+  It names the rule files the whole PR changes (`is_rule_file`), a delta turn included, and gives the `git show` command that reads each one at the merge base.
+  A renamed file counts under its old name too (`PRFile.previous_filename`), so renaming a rule file away is listed.
+  A rule file path with a character outside `[A-Za-z0-9._/-]` is counted, not named, so PR-authored text never reaches the instruction sentence or the quoted `git show` command.
+  Without a merge base, the session applies a changed rule file's removed lines and ignores its added lines.
+- **Repository hooks do not run.** Every ReviewHog sandbox context sets `disable_repo_hooks`, so the Claude runtime ignores hooks from the checkout's `.claude/settings*.json`.
 - **The devex lens session** (`DEVEX_LENS`, `lens_devex.md`) reviews the changed files that the devex team owns.
   It is not in `FLASH_LENSES`.
   It runs only when the repository's `owners.yaml` files give a changed file to `DEVEX_OWNER_TEAM` and the per-PR flag `reviewhog-devex-lens` is on.

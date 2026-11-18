@@ -101,6 +101,8 @@ jobs:
         permissions:
             contents: read
             pull-requests: read
+            # Read this run's own created_at for the debounce window below.
+            actions: read
         # Merge-queue runs use Depot because GitHub-hosted runners queue for minutes at busy hours
         # and this job sits on the queue's required-check path. Other runs stay on free GitHub-hosted runners.
         runs-on: ${{ startsWith(github.head_ref, 'trunk-merge/') && 'depot-ubuntu-24.04' || 'ubuntu-24.04' }}
@@ -282,17 +284,54 @@ jobs:
               # SHA, skip: the newer run is the real gate (and always runs, since the tip
               # is never stale against itself). Single pushes just pay the short wait.
               # Trunk rarely re-pushes a merge-queue branch, and the concurrency group cancels the older run.
+              #
+              # The window is measured from the run's created_at, not from when this step
+              # got a runner. A burst push arrives within seconds of the push that started
+              # this run, so a run that already spent its queue waiting has nothing left to
+              # hold for: on a GitHub-hosted runner the wait is usually over before the step
+              # starts, and the E2E lane stops paying it. The check is also made before the
+              # wait, so a run that is already superseded skips instead of sleeping first.
               id: debounce
               if: steps.decide.outputs.shouldRun == 'true' && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
               env:
-                  GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+                  # The app token only carries pull-requests: read; the run metadata below
+                  # needs this job's actions: read, so it goes through the workflow token.
+                  GH_TOKEN: ${{ github.token }}
                   REPO: ${{ github.repository }}
+                  RUN_ID: ${{ github.run_id }}
                   PR: ${{ github.event.pull_request.number }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                  WINDOW_SECONDS: '60'
               run: |
-                  sleep 60
-                  tip=$(gh api "repos/${REPO}/pulls/${PR}" --jq '.head.sha' 2>/dev/null || echo "")
-                  if [ -n "$tip" ] && [ "$tip" != "$HEAD_SHA" ]; then
+                  # Sets `tip` to the PR's current head so the caller can report it.
+                  head_moved() {
+                      tip=$(gh api "repos/${REPO}/pulls/${PR}" --jq '.head.sha' 2>/dev/null || echo "")
+                      [ -n "$tip" ] && [ "$tip" != "$HEAD_SHA" ]
+                  }
+
+                  elapsed=0
+                  created=$(gh api "repos/${REPO}/actions/runs/${RUN_ID}" --jq '.created_at' 2>/dev/null || echo "")
+                  if [ -n "$created" ] && created_epoch=$(date -u -d "$created" +%s 2>/dev/null); then
+                      elapsed=$(( $(date -u +%s) - created_epoch ))
+                      # A reader clock ahead of the runner's must not stretch the window.
+                      if [ "$elapsed" -lt 0 ]; then elapsed=0; fi
+                  fi
+
+                  if head_moved; then
+                      echo "::notice::PR head already moved past $HEAD_SHA; skipping — the newer run is the gate"
+                      echo "superseded=true" >> "$GITHUB_OUTPUT"
+                      exit 0
+                  fi
+
+                  remaining=$(( WINDOW_SECONDS - elapsed ))
+                  if [ "$remaining" -gt 0 ]; then
+                      echo "Holding ${remaining}s of the ${WINDOW_SECONDS}s window; this run started ${elapsed}s ago."
+                      sleep "$remaining"
+                  else
+                      echo "Window already elapsed (this run started ${elapsed}s ago); checking the PR head without waiting."
+                  fi
+
+                  if head_moved; then
                       echo "::notice::PR head moved ($HEAD_SHA -> $tip); skipping — the newer run is the gate"
                       echo "superseded=true" >> "$GITHUB_OUTPUT"
                   else
