@@ -185,7 +185,7 @@ export const ActionAndClose: Story = {
     ),
 }
 
-/** In a callout narrower than about 30rem, the actions and the close button move to a row under the text. */
+/** When the text would get narrower than 16rem, the actions and the close button wrap to a row under it. */
 export const Narrow: Story = {
     render: () => (
         <div className="flex w-80 flex-col gap-3">

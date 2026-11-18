@@ -838,7 +838,7 @@ Callout tones: default, info, success, warning, destructive. The default tone us
 `CalloutTitle` is optional. `CalloutDescription` is a `div`, so it can hold links, inline code or a list; it does not clamp and uses the foreground colour.
 With a `CalloutTitle` over a `CalloutDescription`, the icon and close button pin to the title. Otherwise they centre on the text.
 `CalloutClose` is the dismiss X. The caller owns the dismissed state and any persistence, such as a localStorage key.
-In a callout narrower than about 30rem, `CalloutActions` and the close button move to a row under the text, so the visual order matches the tab order. The callout is a size container, so inside a flex row or another shrink-to-fit parent give it a width.
+When the text would get narrower than 16rem, `CalloutActions` and the close button wrap to a row under the text, so the visual order matches the tab order. The callout needs no width: in a `w-fit` or other shrink-to-fit parent it sizes to its content.
 For a router link action, pass the app's link through `render`: `<Button variant="outline" render={<Link to={url} />}>`.
 Callout sets no live-region role. Pass `role="alert"` (urgent) or `role="status"` (polite) only when the callout appears after a user action and screen readers must announce it.
 Accessibility:
