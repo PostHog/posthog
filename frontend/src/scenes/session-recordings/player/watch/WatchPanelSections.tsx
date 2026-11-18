@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { ReactNode, useEffect, useRef, useState } from 'react'
+import { ReactNode, useEffect, useRef } from 'react'
 
 import { IconBug, IconInfo, IconSidePanel, IconSparkles } from '@posthog/icons'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger, Badge, Button } from '@posthog/quill'
@@ -28,9 +28,11 @@ export interface ObservationsSection {
 export function WatchPanelSections({
     observations,
     debug,
+    hintAnchor,
 }: {
     observations?: ObservationsSection
     debug: boolean
+    hintAnchor: HTMLElement | null
 }): JSX.Element {
     const { watchPanelOpenSections, watchPanelFocusRequest, overviewHintShown } = useValues(playerSettingsLogic)
     const {
@@ -40,7 +42,6 @@ export function WatchPanelSections({
         clearWatchPanelFocus,
         dismissOverviewHint,
     } = useActions(playerSettingsLogic)
-    const [overviewTrigger, setOverviewTrigger] = useState<HTMLElement | null>(null)
     const floatingContainer = useFloatingContainer()
     const { activeTab } = useValues(playerSidebarLogic)
     const { setTab } = useActions(playerSidebarLogic)
@@ -91,7 +92,7 @@ export function WatchPanelSections({
                     itemRefs.current.overview = el
                 }}
             >
-                <AccordionTrigger ref={setOverviewTrigger} data-attr="watch-panel-section-overview">
+                <AccordionTrigger data-attr="watch-panel-section-overview">
                     <span className="flex items-center gap-1.5">
                         <IconInfo />
                         Overview
@@ -99,10 +100,10 @@ export function WatchPanelSections({
                 </AccordionTrigger>
                 {overviewHintShown && !overviewOpen && (
                     <ReplayHintPopover
-                        anchor={overviewTrigger}
+                        anchor={hintAnchor}
                         onDismiss={dismissOverviewHint}
                         side="top"
-                        align="start"
+                        align="end"
                         container={floatingContainer}
                         compact
                         dataAttr="watch-panel-overview-hint"
