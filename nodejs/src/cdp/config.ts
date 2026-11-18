@@ -17,6 +17,7 @@ import { isDevEnv, isProdEnv, isTestEnv } from '~/common/utils/env-utils'
 import { ClickhouseConfig, getDefaultClickhouseConfig } from '../common/clickhouse-config'
 import {
     CdpProducerName,
+    MSK_CDP_INTAKE_PRODUCER,
     WAREHOUSE_PRODUCER,
     WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER,
     WARPSTREAM_CYCLOTRON_PRODUCER,
@@ -227,6 +228,11 @@ export type CdpConfig = ClickhouseConfig & {
     // each run itself and only measures the produce. Async answers on the broker's ack. Async wins over shadow.
     CDP_INTAKE_KAFKA_SHADOW_TEAMS: string
     CDP_INTAKE_KAFKA_ASYNC_TEAMS: string
+    // Teams whose intake runs of that kind go to the CDP intake MSK cluster instead of WarpStream, in the same format.
+    // Ignored without KAFKA_MSK_CDP_INTAKE_PRODUCER_METADATA_BROKER_LIST.
+    CDP_INTAKE_MSK_PRODUCER: CdpProducerName
+    CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_TEAMS: string
+    CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_TEAMS: string
     // Replay worker. Scaled to zero replicas; an operator scales it up to drain the topic.
     CDP_DLQ_REPLAY_TOPIC: string
 
@@ -536,6 +542,9 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_INTAKE_PRODUCER: WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER,
         CDP_INTAKE_KAFKA_SHADOW_TEAMS: '',
         CDP_INTAKE_KAFKA_ASYNC_TEAMS: '',
+        CDP_INTAKE_MSK_PRODUCER: MSK_CDP_INTAKE_PRODUCER,
+        CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_TEAMS: '',
+        CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_TEAMS: '',
         CDP_DLQ_REPLAY_TOPIC: KAFKA_CDP_EVENTS_DLQ,
 
         CDP_EMAIL_TRACKING_URL: 'http://localhost:8010',

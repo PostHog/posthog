@@ -6,9 +6,14 @@ import { IngestionOutputMessage } from '~/common/outputs/types'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 
-import { CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT, CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT } from '../outputs/outputs'
+import {
+    CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT,
+    CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT,
+    CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT,
+    CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT,
+} from '../outputs/outputs'
 import { CyclotronJobInvocationHogFlow } from '../types'
-import { INTAKE_ACK_DEADLINE_MS, IntakeOutput, IntakeProducer, intakeModeOf } from './intake-producer'
+import { INTAKE_ACK_DEADLINE_MS, IntakeOutput, IntakeProducer, intakeClusterOf, intakeModeOf } from './intake-producer'
 
 describe('IntakeProducer', () => {
     let produced: { output: string; message: IngestionOutputMessage }[]
@@ -24,6 +29,8 @@ describe('IntakeProducer', () => {
         return new IngestionOutputs({
             [CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT]: recorder(CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT),
             [CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT]: recorder(CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT),
+            [CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT]: recorder(CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT),
+            [CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT]: recorder(CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT),
         })
     }
 
@@ -72,6 +79,40 @@ describe('IntakeProducer', () => {
         expect(value.fingerprint).toEqual(fingerprint)
         expect(value.job.state.state.acceptedAt).toBe('2026-11-12T10:00:00.000Z')
     })
+
+    it.each([
+        ['b-1:9094', '7', '', 'transactional-email', CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT, 'msk'],
+        ['b-1:9094', '*', '', 'workflow-webhook', CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT, 'warpstream'],
+        ['b-1:9094', '', '7', 'workflow-webhook', CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT, 'msk'],
+        ['b-1:9094', '8', '8', 'transactional-email', CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT, 'warpstream'],
+        ['', '*', '*', 'transactional-email', CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT, 'warpstream'],
+    ] as const)(
+        'with MSK brokers %p, email teams %p and webhook teams %p, routes a %s run of team 7 to %s',
+        async (brokers, emailTeams, webhookTeams, kind, output, cluster) => {
+            const clusterOf = intakeClusterOf({
+                KAFKA_MSK_CDP_INTAKE_PRODUCER_METADATA_BROKER_LIST: brokers,
+                CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_TEAMS: emailTeams,
+                CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_TEAMS: webhookTeams,
+            })
+            const acked = async (): Promise<number> => {
+                const metric = await register.getSingleMetric('cdp_intake_launches_total')!.get()
+                return metric.values
+                    .filter(
+                        (v) => v.labels.kind === kind && v.labels.outcome === 'acked' && v.labels.cluster === cluster
+                    )
+                    .reduce((sum, v) => sum + v.value, 0)
+            }
+            const before = await acked()
+
+            await new IntakeProducer(outputs(), undefined, undefined, clusterOf).produce(
+                { kind, invocation: invocation() },
+                'async'
+            )
+
+            expect(produced.map((p) => p.output)).toEqual([output])
+            expect((await acked()) - before).toBe(1)
+        }
+    )
 
     it('produces nothing for a run too large for the topic', async () => {
         const run = invocation({ variables: { body: 'x'.repeat(2 * 1024 * 1024) } })
