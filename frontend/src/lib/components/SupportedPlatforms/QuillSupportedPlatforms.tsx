@@ -48,7 +48,7 @@ export function QuillSupportedPlatforms({ config }: { config: PlatformSupportCon
             <Tooltip>
                 <TooltipTrigger
                     render={
-                        <Text size="xs" variant="muted" className="cursor-help">
+                        <Text size="xs" variant="muted" className="m-0 cursor-help" render={<span />}>
                             Supported platforms:
                         </Text>
                     }
