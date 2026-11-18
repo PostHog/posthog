@@ -71,7 +71,8 @@
 # - Compose launches run under `nohup` with stdin, stdout and stderr redirected to
 #   $RUNNER_TEMP/compose-launch.log. Depot ends a step's background processes and closes its
 #   output pipes when the step shell exits, so a plain `&` launch dies before it creates any
-#   container. The wait steps print that log when they fail.
+#   container. The wait steps always print that log, whose lines carry timestamps, and each
+#   container's start time, so a slow launch shows whether pulls or boots took the time.
 # - Baseline checkouts and comparisons use PostHog/posthog directly, so a manual run from a
 #   fork compares against the upstream master branch.
 # - Depot does not resolve env references in the Docker Hub login condition. Read
@@ -1074,8 +1075,13 @@ jobs:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   WAIT_FOR_DOCKER_TIMEOUT: 900
               run: |
-                  bin/ci-wait-for-docker wait --only db redis7 clickhouse \
-                    || { echo "::group::compose launch log"; cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true; echo "::endgroup::"; exit 1; }
+                  status=0
+                  bin/ci-wait-for-docker wait --only db redis7 clickhouse || status=$?
+                  echo "::group::Docker launch log and container timeline"
+                  cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true
+                  bin/ci-wait-for-docker timeline || true
+                  echo "::endgroup::"
+                  exit "$status"
             - name: Build schema dump
               if: steps.schema-cache.outputs.cache-matched-key == ''
               run: |
@@ -1229,8 +1235,13 @@ jobs:
                   CLICKHOUSE_SERVER_IMAGE: ${{ needs.get_clickhouse_versions.outputs.local_image }}
               # objectstorage answers InvalidAccessKeyId until its bootstrap registers identities.
               run: |
-                  bin/ci-wait-for-docker wait objectstorage \
-                    || { echo "::group::compose launch log"; cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true; echo "::endgroup::"; exit 1; }
+                  status=0
+                  bin/ci-wait-for-docker wait objectstorage || status=$?
+                  echo "::group::Docker launch log and container timeline"
+                  cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true
+                  bin/ci-wait-for-docker timeline || true
+                  echo "::endgroup::"
+                  exit "$status"
             - name: Restore schema cache from master
               if: ${{ github.event_name == 'pull_request' }}
               timeout-minutes: 4
@@ -1952,8 +1963,13 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
               run: |
-                  bin/ci-wait-for-docker wait --only db redis7 clickhouse \
-                    || { echo "::group::compose launch log"; cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true; echo "::endgroup::"; exit 1; }
+                  status=0
+                  bin/ci-wait-for-docker wait --only db redis7 clickhouse || status=$?
+                  echo "::group::Docker launch log and container timeline"
+                  cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true
+                  bin/ci-wait-for-docker timeline || true
+                  echo "::endgroup::"
+                  exit "$status"
             - name: Prime posthog DB from cached schema
               # Leaves "Run migrations up to master" below to apply only the migrations
               # the dump lacks, instead of a full migration run.
@@ -2634,8 +2650,13 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
               run: |
-                  bin/ci-wait-for-docker wait --only db clickhouse \
-                    || { echo "::group::compose launch log"; cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true; echo "::endgroup::"; exit 1; }
+                  status=0
+                  bin/ci-wait-for-docker wait --only db clickhouse || status=$?
+                  echo "::group::Docker launch log and container timeline"
+                  cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true
+                  bin/ci-wait-for-docker timeline || true
+                  echo "::endgroup::"
+                  exit "$status"
             - name: Add OpenAPI Problem Matcher
               run: echo "::add-matcher::.github/openapi-problem-matcher.json"
             - name: Check and update OpenAPI types
@@ -3423,8 +3444,13 @@ jobs:
                   COMPOSE_PROFILES: temporal,azure
                   CLICKHOUSE_SERVER_IMAGE: ${{ matrix.clickhouse-server-image || needs.get_clickhouse_versions.outputs.oldest_supported_image }}
               run: |
-                  bin/ci-wait-for-docker wait \
-                    || { echo "::group::compose launch log"; cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true; echo "::endgroup::"; exit 1; }
+                  status=0
+                  bin/ci-wait-for-docker wait || status=$?
+                  echo "::group::Docker launch log and container timeline"
+                  cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true
+                  bin/ci-wait-for-docker timeline || true
+                  echo "::endgroup::"
+                  exit "$status"
             - name: Restore schema cache from master
               if: ${{ github.event_name == 'pull_request' }}
               timeout-minutes: 4
