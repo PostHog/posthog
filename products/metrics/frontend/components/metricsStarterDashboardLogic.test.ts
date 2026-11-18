@@ -109,6 +109,60 @@ describe('metricsStarterDashboardLogic', () => {
         expect((histogramInsight.query as any).clauses[0]).not.toHaveProperty('aggregation')
     })
 
+    it('adds request rate, error rate and latency per service from span-derived series, even with no picked metrics', async () => {
+        const derived = [
+            { name: 'posthog.derived.spans.requests', metric_type: 'sum' },
+            { name: 'posthog.derived.spans.errors', metric_type: 'sum' },
+            { name: 'posthog.derived.spans.duration', metric_type: 'histogram' },
+        ]
+        // The picker list stops at its limit before the derived names, as for a team with many metrics.
+        mockNames.mockImplementation(async (_team, params) =>
+            params?.value === 'posthog.derived.spans.'
+                ? { results: derived }
+                : { results: [{ name: 'billing.queue.depth', metric_type: 'gauge' }] }
+        )
+        logic.actions.openModal()
+        await expectLogic(logic).toDispatchActions(['loadServicePanelsAvailableSuccess'])
+        logic.actions.setDashboardName('Checkout')
+        logic.actions.setServiceName('checkout')
+
+        await expectLogic(logic, () => {
+            logic.actions.createDashboard()
+        }).toDispatchActions(['createDashboardSuccess'])
+
+        const insights = mockInsightCreate.mock.calls.map(([insight]) => insight)
+        expect(insights.map((insight) => insight.name)).toEqual([
+            'Request rate by service',
+            'Error rate by service',
+            'Latency p50 by service',
+            'Latency p95 by service',
+            'Latency p99 by service',
+        ])
+        const serviceScope = {
+            groupBy: [{ key: 'service.name' }],
+            filters: [{ key: 'service.name', op: 'eq', value: 'checkout' }],
+        }
+        const rate = { metricType: 'sum', aggregation: 'sum', rangeFunction: 'rate', ...serviceScope }
+        expect(insights[1].query).toEqual({
+            kind: 'MetricsQuery',
+            clauses: [
+                { name: 'a', metricName: 'posthog.derived.spans.errors', ...rate },
+                { name: 'b', metricName: 'posthog.derived.spans.requests', ...rate },
+            ],
+            formula: 'a / b',
+        })
+        expect((insights[4].query as any).clauses).toEqual([
+            {
+                name: 'a',
+                metricName: 'posthog.derived.spans.duration',
+                metricType: 'histogram',
+                aggregation: 'quantile',
+                quantile: 0.99,
+                ...serviceScope,
+            },
+        ])
+    })
+
     it('navigates to the partially built dashboard when an insight create fails mid-loop', async () => {
         // The dashboard exists after a mid-loop failure — the flow must say so and go
         // there, not claim total failure and invite a duplicate-creating retry.
