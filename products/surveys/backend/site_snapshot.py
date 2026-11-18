@@ -280,8 +280,6 @@ def _recording_was_deleted(team: Team, session_id: str) -> bool:
 
 
 def _snapshot_key(team: Team, target: UrlTarget, device: SnapshotDevice) -> str:
-    # The key is stored on the export, which recording viewers can read. It needs no secret: the surveys API already
-    # sends every survey's URL targeting to each visitor of the site.
     targeting = {
         "team_id": team.id,
         "device": device.value,
@@ -297,6 +295,12 @@ def _may_view_recording(user_access_control: UserAccessControl, team: Team, sess
     if recording is not None:
         return user_access_control.check_access_level_for_object(recording, required_level="viewer")
     return user_access_control.check_access_level_for_resource("session_recording", required_level="viewer")
+
+
+def _snapshot_asset_cache_key(team: Team, key: str) -> str:
+    # The exports API returns export_context to anyone who can view the recording, and the key can be checked
+    # against guessed URL targeting, so it is kept out of the export.
+    return _snapshot_cache_key("asset", team, key)
 
 
 def _denied_cache_key(team: Team, user: User, key: str) -> str:
@@ -378,18 +382,14 @@ def get_site_snapshot(
 
     target = target or UrlTarget.of(survey)
     key = _snapshot_key(team, target, device)
-    cached = (
-        ExportedAsset.objects.filter(
-            team_id=team.id,
-            export_format=ExportedAsset.ExportFormat.PNG,
-            export_context__survey_site_snapshot=key,
-            export_context__read_site_style=True,
-            is_system=True,
-            created_at__gte=timezone.now() - SNAPSHOT_WINDOW,
-        )
-        .order_by("-created_at")
-        .first()
-    )
+    cached = ExportedAsset.objects.filter(
+        id=cache.get(_snapshot_asset_cache_key(team, key)),
+        team_id=team.id,
+        export_format=ExportedAsset.ExportFormat.PNG,
+        export_context__read_site_style=True,
+        is_system=True,
+        created_at__gte=timezone.now() - SNAPSHOT_WINDOW,
+    ).first()
     if cached is not None:
         session_id = (cached.export_context or {})["session_recording_id"]
         if (
@@ -444,11 +444,11 @@ def _start_snapshot(
             "timestamp": moment.offset_seconds,
             "width": moment.viewport_width,
             "height": moment.viewport_height,
-            "survey_site_snapshot": key,
             "read_site_style": True,
         },
         expires_after=timezone.now() + SNAPSHOT_WINDOW,
         is_system=True,
     )
     cache.set(_page_url_cache_key(asset), moment.page_url, timeout=SNAPSHOT_WINDOW.total_seconds())
+    cache.set(_snapshot_asset_cache_key(team, key), asset.id, timeout=SNAPSHOT_WINDOW.total_seconds())
     return _snapshot_of(asset)
