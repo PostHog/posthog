@@ -212,6 +212,10 @@ describe('applicationObservabilityLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.filteredServices.map((row) => row.service_name)).toEqual(['web'])
         expect(logic.values.filteredEndpoints).toEqual([])
+
+        logic.actions.setSearch('01')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.search).toBe('01')
     })
 
     describe('tabs', () => {

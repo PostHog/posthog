@@ -1,6 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, combineUrl, urlToAction } from 'kea-router'
+import { actionToUrl, combineUrl, decodeParams, urlToAction } from 'kea-router'
 
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -249,6 +249,27 @@ export type applicationObservabilityLogicType = MakeLogicType<
     applicationObservabilityLogicMeta
 >
 
+// The router turns `?search=01` into the number 1 and `?search=true` into a boolean, and
+// rewrites the URL to match. A search it would change goes into the URL JSON-quoted instead.
+function encodeSearchParam(search: string): string {
+    const roundTripped = decodeParams(`search=${encodeURIComponent(search)}`).search
+    return roundTripped === search && !search.startsWith('"') ? search : JSON.stringify(search)
+}
+
+function decodeSearchParam(value: unknown): string {
+    if (value == null) {
+        return ''
+    }
+    if (typeof value === 'string' && value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
+        try {
+            return String(JSON.parse(value))
+        } catch {
+            return value
+        }
+    }
+    return typeof value === 'string' ? value : JSON.stringify(value)
+}
+
 export const applicationObservabilityLogic = kea<applicationObservabilityLogicType>([
     path(['products', 'apm', 'frontend', 'applicationObservabilityLogic']),
     connect(() => ({ values: [teamLogic, ['currentTeamId']] })),
@@ -469,7 +490,7 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
                 ...(values.timeRange !== '-1h' ? { range: values.timeRange } : {}),
                 ...(values.tab !== 'services' ? { tab: values.tab } : {}),
                 ...(values.endpointsService ? { service: values.endpointsService } : {}),
-                ...(values.search ? { search: values.search } : {}),
+                ...(values.search ? { search: encodeSearchParam(values.search) } : {}),
             },
         ]
         return {
@@ -492,8 +513,7 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
             const range = isTimeRange(searchParams.range) ? searchParams.range : '-1h'
             const tab = isTab(searchParams.tab) ? searchParams.tab : 'services'
             const service = typeof searchParams.service === 'string' ? searchParams.service : null
-            // The router parses a numeric value such as `?search=500` into a number.
-            const search = searchParams.search != null ? String(searchParams.search) : ''
+            const search = decodeSearchParam(searchParams.search)
             if (search !== values.search) {
                 actions.setSearch(search)
             }
