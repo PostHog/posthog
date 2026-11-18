@@ -68,7 +68,17 @@ export async function startStack(hogli: Hogli, stateDir: string, env: NodeJS.Pro
     }
     await runHogli(
         hogli,
-        ['dev:generate', '--with', 'workflows', '--without', 'nodejs', '--without', 'frontend'],
+        [
+            'dev:generate',
+            '--with',
+            'workflows',
+            '--without',
+            'nodejs',
+            '--without',
+            'frontend',
+            '--without',
+            'ingestion',
+        ],
         logFile,
         hogliEnv
     )

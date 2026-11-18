@@ -41,6 +41,7 @@ state="$XDG_CACHE_HOME/posthog-scenarios"
 run="$state/${RUNNER_RUN_ID}"
 mkdir -p "$run" "$state/edge-ca"
 printf '%s' "$SCENARIO_POOLER_URLS" >"$state/pooler-urls"
+command -v cargo >"$state/cargo" || true
 echo '{"phase":"drive"}' >"$run/result.json"
 echo 'hogli up exited 1' >"$state/hogli.log"
 mkdir -p "$SCENARIO_PROCESS_LOGS"
@@ -153,6 +154,16 @@ describe('host-run-card.sh', () => {
         expect(readFileSync(path.join(dir, 'host', 'cache', 'posthog-scenarios', 'pooler-urls'), 'utf8')).toBe(
             POOLER_URLS
         )
+    })
+
+    it('hands the stack the cargo the bootstrap installed, which its Rust services run', async () => {
+        const cargo = path.join(dir, '.cargo', 'bin', 'cargo')
+        mkdirSync(path.dirname(cargo), { recursive: true })
+        writeFileSync(cargo, '#!/usr/bin/env bash\n', { mode: 0o755 })
+
+        await exited(start({}))
+
+        expect(readFileSync(path.join(dir, 'host', 'cache', 'posthog-scenarios', 'cargo'), 'utf8').trim()).toBe(cargo)
     })
 
     it.each<[string, NodeJS.ProcessEnv, object, string | null]>([

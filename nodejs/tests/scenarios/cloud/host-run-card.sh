@@ -4,6 +4,7 @@ set -uo pipefail
 INVALID=2
 
 export HOME="${HOME:-/root}"
+export PATH="$HOME/.cargo/bin:$PATH"
 repo=$(cd "$(dirname "$0")/../../../.." && pwd)
 prefix="s3://${SCENARIO_EVIDENCE_BUCKET}/runs/${SCENARIO_RUN_ID}"
 root=${SCENARIO_HOST_ROOT:-/opt/scenario}
