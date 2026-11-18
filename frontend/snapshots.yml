@@ -316,6 +316,10 @@ snapshots:
         hash: v1.k794b7964.0cb579a6053bad39bf97315f2786192cca1ac72365b562366f060f1933a960aa.uRoL16z6RCdNVzHfZfmhsg8C60HSgv7yElbfLchK4SQ
     charts-scatterchart--default--light:
         hash: v1.k794b7964.c7eadd07aadab92bf308c2dd24717d65acca0ee337d84172093e3cba44204851.YOTRZQoztsmGLiPeuUCYe_fdjY0Sml7TtTMkvD73Yfw
+    charts-scatterchart--dimmed-points--dark:
+        hash: v1.k794b7964.f085ed2a89488b822a3cf3386bfa1458b0401972ebeb0e36009e0edb1f87886a.MeOrZEz5THH_mWEZJX3gaxcDXYBSYtu1cZ25xqdjChA
+    charts-scatterchart--dimmed-points--light:
+        hash: v1.k794b7964.18d2679553595a76cedbc09ce026e25cb072e0ca1fe227d67027edaa62d42293.aNKMgNGUb5ZU9J0mmpT80hcmkc6W4MAdm-10mwYtovk
     charts-scatterchart--host-chrome--dark:
         hash: v1.k794b7964.0cb579a6053bad39bf97315f2786192cca1ac72365b562366f060f1933a960aa.XqEqyyhRx6TR3_j7P74hBJDh3YntsUt4Ob0q7AB41C0
     charts-scatterchart--host-chrome--light:
@@ -2497,13 +2501,13 @@ snapshots:
     components-product-empty-state--business-knowledge-needs-setup--light:
         hash: v1.k794b7964.d52543348fad9a9be93774c661bedb574cfdde3907fe7b282e4c76827662d50b.OZ_mEPagtVqFngx_32G5mmnl_5cpJZZXqrEbNTFcsho
     components-product-empty-state--clusters-needs-setup--dark:
-        hash: v1.k794b7964.170fa1e2a0c94344278934b9b158cd07d8e3c585695e0791c3221f12a81b7d9a.BeVK0Tvo7z2gIsiLlKuju5DVLRWV0fMi4q7O7wu-AsM
+        hash: v1.k794b7964.f7bc95bdeedcc62271694fb1e33fffd2b35a0343f7cda4e4131ece06cf8105a2.qUBaZ8w9s5h0lNA5Yp1qjyiRvAeq1c6VObaU6VYgXm4
     components-product-empty-state--clusters-needs-setup--light:
-        hash: v1.k794b7964.369c74b21b3ff1219eb3d2e3d054bb35d944bf1b714601166b8e78b4b32e0ea5.Et4qBlU2asXj7y-xFHTRW0-ze9b0pimwjSLisUr2o24
+        hash: v1.k794b7964.07a56dcc6aa788085ad26fa880a462d31614991beba16496400c6ed3116f4435.Tj0ucklhAwxApJEpxR9uzMfwwhGgNZNFrR_CNL8PW9A
     components-product-empty-state--clusters-waiting-for-data--dark:
-        hash: v1.k794b7964.31f281a9fc1bdc93a030ebb4d46e4c0ccaca792f97056deb0737f42702ce9a2c.tQUs-amee_6yZo8CLunvEST_lcrHjOeRgiEdrnGl9EQ
+        hash: v1.k794b7964.7e155cd62e0e5ee660632b0d0ab7506c83ef38b606b38609ebfbaf27211a7177.tTxoh2jqu2YVg6fAF0cEBFwmrxX4KfCx6w6FQw1koJQ
     components-product-empty-state--clusters-waiting-for-data--light:
-        hash: v1.k794b7964.e431bf3cac3873ded2d5d82f14dd2625d8eb698d8d6380195f8bf2ed90700f3c.3vB3F3yx6XEVs1YseTitdfUPn2qRhTamYf7EdpTiJzo
+        hash: v1.k794b7964.8a24ab3e11a18ef8c3e9ff804ad7a9696de2b40323bea224bbdfa0ff6ead994a.GWCzpLVKV5uxLPtcXHsycX9Dde6n-OG2TgLULpkZcvs
     components-product-empty-state--cohorts-needs-setup--dark:
         hash: v1.k794b7964.02aa27dcb18062c65248d0ee3f28f83d4660801bd64ccbf29732923ebd939ee1.XDBAzeXvKmMML6X8yNm9j8JH-h-5p8LD0rTmtnUFP10
     components-product-empty-state--cohorts-needs-setup--light:
@@ -16271,9 +16275,9 @@ snapshots:
     scenes-app-settings-environment--settings-environment-error-tracking--light:
         hash: v1.k794b7964.adb6fd411ffdc03ea8e1b9a29f01536d41a5af4b6224c37881d7ad6b06630f84.WGucFxYafyt1RqQ5e0M6MzvBxP4nGZseNtgVciGxRWc
     scenes-app-settings-environment--settings-environment-error-tracking-configuration--dark:
-        hash: v1.k794b7964.e9a7443b0bbbd373325979f331d2bc887694fc466a6847a6ae2e9e1f3b78e318.znbMQLqTRYyUh2lniG9VEYiNyIB4Lmf4J2fieqEO32o
+        hash: v1.k794b7964.9a973966774a565f6d7fa25b6a9791593b3cb15007fad3f07b08a296abadc58d.xinsnrFisyycA0SyV4hEdrz49X2ry2WGcsDvCh01fVI
     scenes-app-settings-environment--settings-environment-error-tracking-configuration--light:
-        hash: v1.k794b7964.b5c3b3582a561c43c065c4c26def8c2dbf7e40eef472cdba972868d18dcadbb9.uxeo59GdN2MjGiSKFjbb2bZjY2idkPXPAPGzPiTt5vc
+        hash: v1.k794b7964.d9e86db589a16acb03fb5ba1147667ead6c5f842ef949ef2dc19972fe3d1d776.QCqPRI2Jv6REVOrkrTjm2f1hB6dkhrVqpxMpu8XxK6c
     scenes-app-settings-environment--settings-environment-experiments--dark:
         hash: v1.k794b7964.97267477544077ef369227235fde9b1c9380237167be329954cf2f4ce360283e.NgTCKnQHKhLyLWyje5QLi6KyJlx3k5fnuF9ODDZ9BFY
     scenes-app-settings-environment--settings-environment-experiments--light:

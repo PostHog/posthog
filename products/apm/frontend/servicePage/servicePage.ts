@@ -1,5 +1,8 @@
 import { FilterLogicalOperator, PropertyFilterType, PropertyGroupFilter, PropertyOperator } from '~/types'
 
+import { bucketUpperBound, type TracingLatencyHeatmapData } from 'products/tracing/frontend/durationBuckets'
+import type { Span } from 'products/tracing/frontend/types'
+
 /** The env, version and operation the service page is narrowed to. Null means "all". */
 export interface ServiceScope {
     environment: string | null
@@ -11,8 +14,30 @@ export const EMPTY_SERVICE_SCOPE: ServiceScope = { environment: null, version: n
 
 // Where SDKs put the environment, newest spelling first. `deployment.environment` was renamed to
 // `deployment.environment.name` in semconv 1.27, and `env` is what tag-style ingest paths write.
-export const ENVIRONMENT_KEYS = ['deployment.environment.name', 'deployment.environment', 'env'] as const
+// Same keys and order as the health API's `ENVIRONMENT_ATTRIBUTES`, which falls back to the cluster name.
+export const ENVIRONMENT_KEYS = [
+    'deployment.environment.name',
+    'deployment.environment',
+    'env',
+    'k8s.cluster.name',
+] as const
 export const VERSION_KEY = 'service.version'
+
+// HTTP status lives under the current semconv key or the older one, depending on the SDK.
+export const HTTP_STATUS_KEYS = ['http.response.status_code', 'http.status_code'] as const
+
+// An exception recorded as a span event, the OTel default, carries its message here. Read first.
+const EVENT_MESSAGE_KEYS = ['exception.message', 'exception.type'] as const
+
+// Where instrumentation records why a span failed, most specific first. Mirrors the order the
+// backend trace summary reads them in.
+const ERROR_MESSAGE_KEYS = [
+    'exception.message',
+    'error.message',
+    'otel.status_description',
+    'exception.type',
+    'error.type',
+] as const
 
 /**
  * How a scope value goes into the URL. The router reads `1.0` back as the number 1 and `true` as a
@@ -43,8 +68,8 @@ export function readEnvironmentParam(value: unknown): string | null {
 export interface ServiceSpanFilter {
     key: string
     type: PropertyFilterType.Span | PropertyFilterType.SpanAttribute | PropertyFilterType.SpanResourceAttribute
-    operator: PropertyOperator.Exact
-    value: (string | number)[]
+    operator: PropertyOperator.Exact | PropertyOperator.IsNotSet
+    value?: (string | number)[]
 }
 
 /**
@@ -65,6 +90,11 @@ export function serviceScopeFilters(
             operator: PropertyOperator.Exact,
             value: [scope.environment],
         })
+    } else if (scope.environment === '') {
+        // The unset environment is spans with none of the keys, so match those, not every span.
+        for (const key of ENVIRONMENT_KEYS) {
+            filters.push({ key, type: PropertyFilterType.SpanResourceAttribute, operator: PropertyOperator.IsNotSet })
+        }
     }
     if (scope.version) {
         filters.push({
@@ -83,6 +113,23 @@ export function serviceScopeFilters(
         })
     }
     return filters
+}
+
+export const ERROR_STATUS_FILTER: ServiceSpanFilter = {
+    key: 'status_code',
+    type: PropertyFilterType.Span,
+    operator: PropertyOperator.Exact,
+    value: [2],
+}
+
+/**
+ * Narrows the older status key's breakdown to spans without the current one, so a span that
+ * carries both is counted once, under the current key.
+ */
+export const LEGACY_HTTP_STATUS_ONLY_FILTER: ServiceSpanFilter = {
+    key: HTTP_STATUS_KEYS[0],
+    type: PropertyFilterType.SpanAttribute,
+    operator: PropertyOperator.IsNotSet,
 }
 
 /** The nested group the older `api.tracing` calls and the tracing scene's URL take. */
@@ -112,4 +159,144 @@ export function environmentKeyFor(environment: string | null, candidates: Enviro
         return null
     }
     return candidates.find((candidate) => candidate.values.includes(environment))?.key ?? null
+}
+
+export interface LatencyPercentiles {
+    p50: number[]
+    p95: number[]
+    p99: number[]
+}
+
+/**
+ * Per time bucket, the duration below which `q` of the spans fall. The heatmap only knows which
+ * 1-2-5 bucket a span landed in, so each value is that bucket's upper bound: an upper estimate,
+ * never more than one bucket step above the real percentile. Empty buckets are NaN, so the line
+ * breaks instead of dropping to zero.
+ */
+export function latencyPercentileSeries(data: TracingLatencyHeatmapData): LatencyPercentiles {
+    const quantile = (column: number, q: number): number => {
+        let total = 0
+        for (const row of data.cells) {
+            total += row[column] ?? 0
+        }
+        if (total === 0) {
+            return NaN
+        }
+        const target = q * total
+        let cumulative = 0
+        for (let row = 0; row < data.bucketsNs.length; row++) {
+            cumulative += data.cells[row]?.[column] ?? 0
+            if (cumulative >= target) {
+                return bucketUpperBound(data.bucketsNs[row])
+            }
+        }
+        return bucketUpperBound(data.bucketsNs[data.bucketsNs.length - 1])
+    }
+    const columns = data.timeBuckets.map((_, index) => index)
+    return {
+        p50: columns.map((column) => quantile(column, 0.5)),
+        p95: columns.map((column) => quantile(column, 0.95)),
+        p99: columns.map((column) => quantile(column, 0.99)),
+    }
+}
+
+export interface SparklineRow {
+    time: string
+    count: number
+}
+
+export interface RequestsSeries {
+    times: string[]
+    requests: number[]
+    errors: number[]
+}
+
+/**
+ * Lines the error counts up against the request buckets. The two come from separate queries, and
+ * the error query skips buckets with no errors, so a bucket missing there is zero errors.
+ */
+export function mergeRequestsSeries(requests: SparklineRow[], errors: SparklineRow[]): RequestsSeries {
+    const byTime = new Map<string, { requests: number; errors: number }>()
+    for (const row of requests) {
+        const entry = byTime.get(row.time) ?? { requests: 0, errors: 0 }
+        entry.requests += row.count
+        byTime.set(row.time, entry)
+    }
+    for (const row of errors) {
+        const entry = byTime.get(row.time) ?? { requests: 0, errors: 0 }
+        entry.errors += row.count
+        byTime.set(row.time, entry)
+    }
+    const times = [...byTime.keys()].sort()
+    return {
+        times,
+        // A bucket's error spans are also in its requests, so the bars stack the OK part on top.
+        requests: times.map((time) => Math.max(0, byTime.get(time)!.requests - byTime.get(time)!.errors)),
+        errors: times.map((time) => byTime.get(time)!.errors),
+    }
+}
+
+export interface TopError {
+    message: string
+    count: number
+    lastSeen: string
+    /** The most recent span with this message, for a link to its trace. */
+    latest: Span
+}
+
+export function spanErrorMessage(span: Span): string {
+    for (const event of span.events ?? []) {
+        for (const key of EVENT_MESSAGE_KEYS) {
+            const value = event.attributes?.[key]
+            if (value) {
+                return value
+            }
+        }
+    }
+    for (const key of ERROR_MESSAGE_KEYS) {
+        const value = span.attributes?.[key]
+        if (value) {
+            return value
+        }
+    }
+    return 'No error message recorded'
+}
+
+/** Groups error spans by their message, most frequent first. Expects spans newest first. */
+export function topErrorMessages(spans: Span[], limit = 10): TopError[] {
+    const groups = new Map<string, TopError>()
+    for (const span of spans) {
+        const message = spanErrorMessage(span)
+        const existing = groups.get(message)
+        if (existing) {
+            existing.count += 1
+            continue
+        }
+        groups.set(message, { message, count: 1, lastSeen: span.timestamp, latest: span })
+    }
+    return [...groups.values()].sort((a, b) => b.count - a.count).slice(0, limit)
+}
+
+export interface StatusCodeErrors {
+    statusCode: string
+    errors: number
+}
+
+/**
+ * Merges per-key status code breakdowns into one list of codes with errors, most errors first.
+ * Each span must appear in only one breakdown, see `LEGACY_HTTP_STATUS_ONLY_FILTER`.
+ */
+export function mergeStatusCodeErrors(breakdowns: { value: string; error_count: number }[][]): StatusCodeErrors[] {
+    const byCode = new Map<string, number>()
+    for (const rows of breakdowns) {
+        for (const row of rows) {
+            if (!row.value || row.error_count <= 0) {
+                continue
+            }
+            byCode.set(row.value, (byCode.get(row.value) ?? 0) + row.error_count)
+        }
+    }
+    return [...byCode.entries()]
+        .map(([statusCode, errors]) => ({ statusCode, errors }))
+        .sort((a, b) => b.errors - a.errors)
 }

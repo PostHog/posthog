@@ -504,7 +504,7 @@ Note: Parsed the official AWS SDK service model and compared read operations wit
 
 ## AmazonAds — **thin**
 
-Today (18): `portfolios`, `profiles`, `sb_ad_groups`, `sb_ads`, `sb_campaigns`, `sb_targets`, `sd_ad_groups`, `sd_ads`, `sd_campaigns`, `sd_targets`, `sp_ad_groups`, `sp_campaign_negative_keywords`, `sp_campaign_reports`, `sp_campaigns`, `sp_keywords`, `sp_negative_keywords`, `sp_product_ads`, `sp_targets`
+Today (23): `ads_accounts`, `change_history`, `invoices`, `portfolios`, `profiles`, `sb_ad_groups`, `sb_ads`, `sb_campaigns`, `sb_targets`, `sd_ad_groups`, `sd_ads`, `sd_campaigns`, `sd_targets`, `sp_ad_groups`, `sp_campaign_negative_keywords`, `sp_campaign_negative_targets`, `sp_campaign_reports`, `sp_campaigns`, `sp_keywords`, `sp_negative_keywords`, `sp_negative_targets`, `sp_product_ads`, `sp_targets`
 
 Diffed against: <https://d1y2lf8k3vrkfu.cloudfront.net/openapi/en-us/dest/SponsoredProducts_prod_3p.json>
 
@@ -516,10 +516,10 @@ Diffed against: <https://d1y2lf8k3vrkfu.cloudfront.net/openapi/en-us/dest/Sponso
 - [x] `POST /adsApi/v1/query/... campaigns, adGroups, ads and targets, filtered to SPONSORED_BRANDS (AmazonAdsAPISBMerged_prod_3p.json)` — Sponsored Brands entities, so spend coverage is no longer partial (high)
 - [x] `POST /adsApi/v1/query/... campaigns, adGroups, ads and targets, filtered to SPONSORED_DISPLAY (AmazonAdsAPISDMerged_prod_3p.json)` — Sponsored Display entities (high)
 - [x] `POST /sp/negativeKeywords/list and /sp/campaignNegativeKeywords/list` — negative keyword coverage, needed to explain traffic exclusions (medium)
-- [ ] `POST /sp/negativeTargets/list and /sp/campaignNegativeTargets/list` — negative product/category targets alongside the positive targets (medium)
-- [ ] `POST /history (Change History API)` — state-transition history of bids, budgets and status changes (medium)
-- [ ] `POST /adsAccounts/list` — advertising account lookup above profiles, for multi-account rollups (medium)
-- [ ] `GET /invoices and POST /invoiceSummaries/list (Advertising Billing API)` — billed spend reconciliation against reported spend (medium)
+- [x] `POST /sp/negativeTargets/list and /sp/campaignNegativeTargets/list` — negative product/category targets alongside the positive targets (medium). Added as `sp_negative_targets` and `sp_campaign_negative_targets`.
+- [x] `POST /history (Change History API)` — state-transition history of bids, budgets and status changes (medium). Added as `change_history`, incremental on `timestamp` (the API filters on `fromDate` and keeps 90 days). Events have no id, so the key is a hash of the event. The `THEME` event type is left out, because it needs the v1.1 response version.
+- [x] `POST /adsAccounts/list` — advertising account lookup above profiles, for multi-account rollups (medium). Added as `ads_accounts`.
+- [x] `GET /invoices and POST /invoiceSummaries/list (Advertising Billing API)` — billed spend reconciliation against reported spend (medium). Added `GET /invoices` as `invoices` (per profile, full refresh: status and remaining amounts change after issue, and the only filter is the invoice date). `POST /invoiceSummaries/list` is skipped: it returns the same invoices at the global-account scope and needs an `Amazon-Ads-AccountId` header, so it would duplicate the `invoices` rows.
 
 Note: the Sponsored Brands and Sponsored Display rows above were audited as `POST /sb/...` and `POST /sd/...`, but neither merged spec serves those paths. Both products' campaigns, ad groups, ads and targets are served by the unified Ads API at `POST /adsApi/v1/query/{entity}`, which selects between them with a required `adProductFilter`. That is the surface implemented. The per-product alternatives are worse: Sponsored Brands v4 has no targets list endpoint at all, and Sponsored Display v3 is a separate offset-paginated GET surface.
 
@@ -539,7 +539,7 @@ Note: Parsed every GET operation in the vendor's published OpenAPI spec, includi
 
 ## Amplitude — gaps
 
-Today (7): `annotations`, `cohorts`, `event_categories`, `event_properties`, `event_types`, `events`, `user_properties`
+Today (11): `annotations`, `cohorts`, `composition`, `event_categories`, `event_properties`, `event_types`, `events`, `group_properties`, `retention`, `revenue_ltv`, `user_properties`
 
 Diffed against: <https://amplitude.com/docs/apis>
 
@@ -551,16 +551,16 @@ Diffed against: <https://amplitude.com/docs/apis>
 - ~~`GET /api/2/release` — release markers to join against event timestamps, the sibling of the annotations table already synced (medium)~~ — skipped: the Releases API documents only `POST`, so there is no list call
 - ~~`GET /api/2/audit-logs/{ORG_ID}` — org-level change history for charts, cohorts and permissions (medium)~~ — skipped: the call is a `POST` that needs organization keys issued by Amplitude Support, not the project keys this source uses
 - ~~`GET /api/3/chart/{chart_id}/query` — results of saved charts, so warehouse numbers match what teams see in Amplitude (medium)~~ — skipped: it needs a chart ID from the web app URL (no list call), and the response shape changes with the chart type
-- [ ] `GET /api/2/funnels` — funnel conversion results as Amplitude computes them (medium)
-- [ ] `GET /api/2/retention` — retention curves as Amplitude computes them (medium)
-- [ ] `GET /api/2/composition` — user composition breakdown by property value (low)
-- [ ] `GET /api/2/revenue/ltv` — revenue LTV cohorts (low)
+- ~~`GET /api/2/funnels` — funnel conversion results as Amplitude computes them (medium)~~ — skipped: the call needs the funnel steps (one `e` event per step), which are specific to each project, and there is no default funnel to sync
+- [x] `GET /api/2/retention` — retention curves as Amplitude computes them (medium). Added as `retention`: the default chart (new users, returning with any event), daily N-day, one row per cohort date and day over the last 90 days
+- [x] `GET /api/2/composition` — user composition breakdown by property value (low). Added as `composition`: one request per documented built-in property, over the last 90 days
+- [x] `GET /api/2/revenue/ltv` — revenue LTV cohorts (low). Added as `revenue_ltv`: daily cohorts for each of the four `m` metrics, over the last 90 days
 
 Note: Endpoint paths confirmed by reading https://amplitude.com/docs/apis/analytics/taxonomy, /dashboard-rest, /releases and /audit-logs. Raw events are already synced via the Export API, so the aggregate Dashboard REST endpoints are partly derivable in the warehouse - the Taxonomy lookup tables are the higher-value gap.
 
 ## Anthropic — gaps
 
-Today (20): `analytics_connector_usage`, `analytics_plugin_usage`, `analytics_skill_usage`, `analytics_summaries`, `analytics_user_activity`, `analytics_user_cost`, `analytics_user_usage`, `api_keys`, `claude_code_analytics`, `claude_code_model_breakdown`, `cost_report`, `invites`, `rbac_group_members`, `rbac_groups`, `rbac_role_permissions`, `rbac_roles`, `usage_report`, `users`, `workspace_members`, `workspaces`
+Today (23): `analytics_artifact_activity`, `analytics_chat_project_usage`, `analytics_connector_usage`, `analytics_plugin_usage`, `analytics_skill_usage`, `analytics_summaries`, `analytics_user_activity`, `analytics_user_cost`, `analytics_user_usage`, `api_keys`, `claude_code_analytics`, `claude_code_model_breakdown`, `cost_report`, `invites`, `organization`, `rbac_group_members`, `rbac_groups`, `rbac_role_permissions`, `rbac_roles`, `usage_report`, `users`, `workspace_members`, `workspaces`
 
 Diffed against: <https://platform.claude.com/llms.txt>
 
@@ -573,11 +573,11 @@ Diffed against: <https://platform.claude.com/llms.txt>
 - [x] `GET /v1/organizations/analytics/summaries (Get Activity Summaries)` — rolled-up org activity as the vendor reports it (medium)
 - [x] `GET /v1/organizations/analytics/connectors, /plugins, /skills` — adoption breakdown by connector, plugin and skill (medium)
 - ~~`GET /v1/organizations/service_accounts/{id}/workspaces and /workspaces/{id}/service_accounts`~~ — not reachable: Anthropic serves the service-account endpoints only to an `org:admin` OAuth token, which this source never holds
-- [ ] `GET /v1/messages/batches` — batch job history with request counts and status, for batch spend analysis (medium)
-- [ ] `GET /v1/organizations/analytics/chat_projects and /analytics/artifacts` — Claude project and artifact usage breakdown (low)
-- [ ] `GET /v1/organizations/me` — organization lookup row to anchor the org-scoped tables (low)
+- ~~`GET /v1/messages/batches`~~ — not reachable: Message Batches is a workspace-scoped Claude API endpoint outside the Admin section, so the Admin API key this source collects cannot call it. Wiring it would mean also storing a regular API key, which can spend money on the Messages API, and fanning out over workspaces
+- [x] `GET /v1/organizations/analytics/chat_projects and /analytics/artifacts` — Claude project and artifact usage breakdown (low) → `analytics_chat_project_usage` (`/analytics/apps/chat/projects`) and `analytics_artifact_activity`, incremental per day
+- [x] `GET /v1/organizations/me` — organization lookup row to anchor the org-scoped tables (low) → `organization` (full refresh, one row)
 
-Note: Admin API coverage of the identity objects is good. The /v1/organizations/analytics/\* family is covered except for chat projects and artifacts. Those endpoints need a Claude Enterprise key carrying the `read:analytics` scope, which is a different key from the Claude Console Admin API key, so they stay off by default and `get_endpoint_permissions` reports whether the configured key can reach them. The group and custom-role reads are Claude Enterprise only too, and take their own `read:rbac_groups` and `read:members` scopes, so they are off by default and separately probed. There is still no model lookup for the model IDs carried in usage_report/cost_report. The Compliance API (chats, projects, code artifacts, organization users) is a separate auth-gated surface for Enterprise plans and would need its own credential.
+Note: Admin API coverage of the identity objects is good. The /v1/organizations/analytics/\* family is covered. Those endpoints need a Claude Enterprise key carrying the `read:analytics` scope, which is a different key from the Claude Console Admin API key, so they stay off by default and `get_endpoint_permissions` reports whether the configured key can reach them. The group and custom-role reads are Claude Enterprise only too, and take their own `read:rbac_groups` and `read:members` scopes, so they are off by default and separately probed. There is still no model lookup for the model IDs carried in usage_report/cost_report. The Compliance API (chats, projects, code artifacts, organization users) is a separate auth-gated surface for Enterprise plans and would need its own credential.
 
 ## Anvil — gaps
 
@@ -7758,12 +7758,12 @@ Diffed against: <https://github.com/maxio-com/ab-python-sdk/tree/main/doc/contro
 
 - [ ] `insights: Read Mrr / List Mrr Movements / List Mrr per Subscription` — MRR and MRR movement is Maxio's headline metric and has no equivalent in the synced tables (high) — all three endpoints are marked deprecated in the vendor SDK docs, so not worth building a table on
 - [x] `subscription-components: List Subscription Components for Site` — Per-subscription component allocations - the line items joining subscriptions to components (high)
-- [ ] `subscription-components: List Usages` — Metered usage records, the basis of consumption billing analysis (high)
-- [ ] `subscription-components: List Allocations` — Quantity change history per component, i.e. seat expansion/contraction over time (high)
+- [x] `subscription-components: List Usages` — Metered usage records, the basis of consumption billing analysis (high)
+- [x] `subscription-components: List Allocations` — Quantity change history per component, i.e. seat expansion/contraction over time (high)
 - [x] `component-price-points: List All Component Price Points` — Lookup table resolving the price_point_id carried on components and subscriptions (high)
 - [x] `product-price-points: List All Product Price Points` — Lookup table resolving the price point on every product and subscription we sync (high)
-- [ ] `invoices: List Invoice Events` — Invoice state transition history (issued, paid, voided, refunded) (medium)
-- [ ] `reason-codes: List Reason Codes` — Lookup table resolving cancellation/churn reason codes on subscriptions (medium)
+- [x] `invoices: List Invoice Events` — Invoice state transition history (issued, paid, voided, refunded) (medium)
+- [x] `reason-codes: List Reason Codes` — Lookup table resolving cancellation/churn reason codes on subscriptions (medium)
 - [ ] `subscription-groups: List Subscription Groups` — Group membership resolving parent/child subscription relationships (medium)
 - [ ] `offers: List Offers` — Offer definitions that subscriptions are created from (medium)
 - [ ] `subscription-invoice-account: List Prepayments / List Service Credits` — Prepayment and service credit ledger, needed to reconcile account balances (medium)
@@ -10754,12 +10754,12 @@ Note: Official API examples and the API overview were fetched with curl and thei
 
 ## Semantic Scholar (Allen Institute for AI) — gaps
 
-Today (3): `citations`, `papers`, `references`
+Today (4): `citations`, `paper_authors`, `papers`, `references`
 
 Diffed against: <https://api.semanticscholar.org/graph/v1/swagger.json>
 
-- [ ] `Paper authors (GET /graph/v1/paper/{paper_id}/authors)` — resolve author IDs to affiliations, publication counts, citation counts, and h-index for research impact analysis (high)
-- [ ] `Author papers (GET /graph/v1/author/{author_id}/papers)` — measure each author's publication history beyond papers that match the configured search query (medium)
+- [x] `Paper authors (GET /graph/v1/paper/{paper_id}/authors)` — resolve author IDs to affiliations, publication counts, citation counts, and h-index for research impact analysis (high)
+- [ ] `Author papers (GET /graph/v1/author/{author_id}/papers)` — measure each author's publication history beyond papers that match the configured search query (medium) Skipped: needs a two-level fan-out and a run-wide dedupe of author IDs with no memory bound; without it, requests and primary keys repeat for each shared author.
 
 Note: Parsed every GET operation in the official Graph Swagger spec. Paper rows contain author IDs and names, but no dedicated author table or author metrics. Both additions require requests for each paper or author. Excluded alternative paper searches, autocomplete, and dataset downloads.
 
@@ -11745,7 +11745,7 @@ Today (11): `contact_groups`, `heartbeat_tests`, `maintenance_windows`, `pagespe
 
 Diffed against: <https://developers.statuscake.com/api/>
 
-- [ ] `list-pagespeed-monitoring-locations (GET /pagespeed/locations)` — lookup table resolving the monitoring location codes carried on pagespeed_history rows; uptime_locations is already synced but its pagespeed twin is not (medium)
+- [x] `list-pagespeed-monitoring-locations (GET /pagespeed/locations)` — lookup table resolving the monitoring location codes carried on pagespeed_history rows; uptime_locations is already synced but its pagespeed twin is not (medium)
 
 Note: Enumerated every operationId from the vendor's Redoc page (36 operations across contact-groups, heartbeat, locations, maintenance-windows, pagespeed, ssl, uptime). PostHog covers every list operation except the pagespeed locations lookup; no machine-readable spec is published (openapi.yaml / statuscake-go repo paths 404).
 
