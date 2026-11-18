@@ -3969,10 +3969,8 @@ describe('dashboardLogic', () => {
                 ])
             )
             // The query with the new filters applied, which the cached result was computed with.
-            const effectiveQuery = (id: number): InsightModel['query'] => ({
-                ...insightsByTile.get(id)!.query,
-                effectiveForTile: id,
-            })
+            const effectiveQuery = (id: number): InsightModel['query'] =>
+                ({ ...insightsByTile.get(id)!.query, effectiveForTile: id }) as InsightModel['query']
             const cachedTilesRequests: number[][] = []
             const insightRequests: number[] = []
             useMocks({
