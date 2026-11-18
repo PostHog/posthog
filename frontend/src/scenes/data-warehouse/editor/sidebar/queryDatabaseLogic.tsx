@@ -81,6 +81,8 @@ import { viewLinkLogic } from 'products/data_warehouse/frontend/shared/logics/vi
 import {
     byLabel,
     groupModelsByNamespace,
+    isSameModelName,
+    modelNameForFolder,
     withoutModelsRoot,
 } from 'products/data_warehouse/frontend/shared/modelNamespaceTree'
 import {
@@ -110,6 +112,14 @@ export interface RenameViewState {
     nameError?: string
     submitError?: string
     isSaving: boolean
+    /** Set when a drop opened the rename: the folder to file the model in once renamed, null for the root. */
+    folderId?: string | null
+}
+
+/** A drop that moves a model to another folder proposes the name that matches it. */
+export interface RenameViewMove {
+    name: string
+    folderId: string | null
 }
 
 function getRenameViewNameError(error: unknown): string | undefined {
@@ -2113,11 +2123,15 @@ export interface queryDatabaseLogicActions {
     openPropertyDefinitionEditor: (propertyDefinition: EnterprisePropertyDefinitionApi) => {
         propertyDefinition: EnterprisePropertyDefinitionApi
     }
-    openRenameView: (view: { id: string; name: string }) => {
+    openRenameView: (
+        view: { id: string; name: string },
+        move?: RenameViewMove
+    ) => {
         view: {
             id: string
             name: string
         }
+        move: RenameViewMove | undefined
     }
     openUnsavedQuery: (record: Record<string, any>) => {
         record: Record<string, any>
@@ -2442,7 +2456,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         moveDraggedViewToDropTarget: (viewId: string, dropTargetId: string | null) => ({ viewId, dropTargetId }),
         openUnsavedQuery: (record: Record<string, any>) => ({ record }),
         deleteUnsavedQuery: (record: Record<string, any>) => ({ record }),
-        openRenameView: (view: { id: string; name: string }) => ({ view }),
+        openRenameView: (view: { id: string; name: string }, move?: RenameViewMove) => ({ view, move }),
         closeRenameView: true,
         setRenameViewName: (name: string) => ({ name }),
         setRenameViewNameError: (error: string | undefined) => ({ error }),
@@ -2551,11 +2565,12 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         renameView: [
             null as RenameViewState | null,
             {
-                openRenameView: (_, { view }) => ({
+                openRenameView: (_, { view, move }) => ({
                     id: view.id,
                     originalName: view.name,
-                    name: view.name,
+                    name: move?.name ?? view.name,
                     isSaving: false,
+                    ...(move && { folderId: move.folderId }),
                 }),
                 closeRenameView: () => null,
                 setRenameViewName: (state, { name }) => (state ? { ...state, name, nameError: undefined } : state),
@@ -2783,9 +2798,10 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 actions.setRenameViewNameError(validationError)
                 return
             }
+            const isUnchanged = isSameModelName(view.originalName, name)
             if (
-                name !== view.originalName &&
-                (values.dataWarehouseSavedQueries.some((savedView) => savedView.name === name) ||
+                !isUnchanged &&
+                (values.dataWarehouseSavedQueries.some((savedView) => isSameModelName(savedView.name, name)) ||
                     values.dataWarehouseTables.some((table) => table.name === name))
             ) {
                 actions.setRenameViewNameError(
@@ -2793,7 +2809,14 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 )
                 return
             }
-            if (name === view.originalName) {
+            const fileInFolder = (): void => {
+                if (view.folderId !== undefined) {
+                    actions.setPendingViewFolderOverride(view.id, view.folderId)
+                    actions.updateDataWarehouseSavedQuery({ id: view.id, folder_id: view.folderId, soft_update: true })
+                }
+            }
+            if (isUnchanged) {
+                fileInFolder()
                 actions.closeRenameView()
                 return
             }
@@ -2803,6 +2826,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             actions.setRenameViewSaving(true)
             try {
                 await renameDataWarehouseSavedQuery(view.id, name)
+                fileInFolder()
                 actions.loadDataWarehouseSavedQueries()
                 actions.refreshDatabaseSchema()
                 lemonToast.success('View renamed')
@@ -2844,6 +2868,25 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             const nextFolderId = getFolderIdFromDropTarget(values.displayedTreeData, dropTargetId)
             if (nextFolderId === undefined || activeItem.record.view.folder_id === nextFolderId) {
                 return
+            }
+
+            // A model's name carries its folder, so a move proposes the matching name before it files the model.
+            const view = activeItem.record.view
+            if (view.managed_viewset_kind === null) {
+                const folderName =
+                    nextFolderId === null
+                        ? null
+                        : (values.dataWarehouseSavedQueryFolders.find((folder) => folder.id === nextFolderId)?.name ??
+                          null)
+                const targetName =
+                    nextFolderId === null || folderName !== null ? modelNameForFolder(view.name, folderName) : null
+                if (targetName !== null && !isSameModelName(view.name, targetName)) {
+                    actions.openRenameView(
+                        { id: view.id, name: view.name },
+                        { name: targetName, folderId: nextFolderId }
+                    )
+                    return
+                }
             }
 
             actions.setPendingViewFolderOverride(activeItem.record.view.id, nextFolderId)
@@ -3349,6 +3392,9 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     { folder: DataWarehouseSavedQueryFolder; matches: FuseSearchMatch[] | null }
                 >()
                 const viewChildrenByFolderId = new Map<string, TreeDataItem[]>()
+                const folderNamesById = new Map(
+                    dataWarehouseSavedQueryFolders.map((folder) => [folder.id, folder.name])
+                )
 
                 relevantSavedQueryFolders.forEach(([folder, matches]) => {
                     matchedFolderMap.set(folder.id, { folder, matches })
@@ -3370,7 +3416,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     )
                     if (view.folder_id) {
                         const currentChildren = viewChildrenByFolderId.get(view.folder_id) ?? []
-                        currentChildren.push(withoutModelsRoot(viewNode))
+                        currentChildren.push(withoutModelsRoot(viewNode, folderNamesById.get(view.folder_id)))
                         viewChildrenByFolderId.set(view.folder_id, currentChildren)
                     } else {
                         unfiledViewNodes.push(viewNode)
@@ -3643,6 +3689,9 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     })
                 } else {
                     const viewChildrenByFolderId = new Map<string, TreeDataItem[]>()
+                    const folderNamesById = new Map(
+                        dataWarehouseSavedQueryFolders.map((folder) => [folder.id, folder.name])
+                    )
                     const materializingViewIdSet = new Set(materializingViewIds)
                     const unfiledViewNodes: TreeDataItem[] = []
 
@@ -3660,7 +3709,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                         )
                         if (view.folder_id) {
                             const folderChildren = viewChildrenByFolderId.get(view.folder_id) ?? []
-                            folderChildren.push(withoutModelsRoot(viewNode))
+                            folderChildren.push(withoutModelsRoot(viewNode, folderNamesById.get(view.folder_id)))
                             viewChildrenByFolderId.set(view.folder_id, folderChildren)
                         } else {
                             unfiledViewNodes.push(viewNode)
