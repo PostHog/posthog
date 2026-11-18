@@ -91,6 +91,18 @@ impl Follower {
     /// from where the warm stopped. Returns once the partition is current.
     pub async fn follow(&self, partition: u32, config: &ChangelogConfig) -> CoordResult<()> {
         self.release(partition);
+        // Marks are keyed by person, and one from another partition replaces the one held.
+        // A person that changed partition in a new layout would lose their newer mark to a
+        // reader of the old layout, so none runs beside a build under a newer config.
+        let older: Vec<u32> = self
+            .followed
+            .iter()
+            .filter(|followed| followed.epoch < config.epoch)
+            .map(|followed| *followed.key())
+            .collect();
+        for stale in older {
+            self.release(stale);
+        }
         let mut sources = warm_sources(config, partition);
         let range = warm_from_sources(
             &self.warming,
@@ -137,6 +149,17 @@ impl Follower {
             partition,
             armed: true,
         };
+        // The same rule from the other side: this build began before a newer config's did.
+        if self
+            .followed
+            .iter()
+            .any(|followed| followed.epoch > config.epoch)
+        {
+            return Err(CoordError::invalid_state(format!(
+                "partition {partition} was built under config epoch {}, and a newer one is followed",
+                config.epoch
+            )));
+        }
 
         // A changelog end that cannot be confirmed is a stalled warm, as a quiet read is.
         let deadline = Instant::now() + self.warming.recv_timeout;
