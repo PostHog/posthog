@@ -119,6 +119,10 @@ class TestDependenciesAPI(ClickhouseTestMixin, APIBaseTest):
             {(e["caller"], e["callee"]) for e in self._get(service="api")["edges"]},
             {("web", "api"), ("api", "postgresql:orders"), ("api", "redis"), ("api", "payments.example.com")},
         )
+        self.assertEqual(
+            [(e["caller"], e["callee"], e["inferred"]) for e in self._get(service="payments.example.com")["edges"]],
+            [("api", "payments.example.com", True)],
+        )
 
     def test_session_request_is_refused_while_the_team_logs_api_slots_are_full(self) -> None:
         limiter = get_logs_api_team_rate_limiter()

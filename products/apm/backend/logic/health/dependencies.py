@@ -79,7 +79,7 @@ class DependenciesResult:
 
 
 def _dependencies_query(
-    date_from: datetime, date_to: datetime, environment: str, service: str | None
+    date_from: datetime, date_to: datetime, environment: str, service: str | None, service_instrumented: bool = True
 ) -> ast.SelectQuery:
     # The callee side is the right side of the join, so ClickHouse builds its hash table from entry
     # spans only, one per request, not from every span in the window. A client span whose child is
@@ -135,7 +135,7 @@ def _dependencies_query(
             "where": window_where(date_from, date_to),
             "env_expr": environment_expr(),
             "environment": ast.Constant(value=environment),
-            "trace_where": _service_traces_where(date_from, date_to, environment, service),
+            "trace_where": _service_traces_where(date_from, date_to, environment, service, service_instrumented),
             "service_where": (
                 parse_expr(
                     "caller = {service} OR callee = {service}", placeholders={"service": ast.Constant(value=service)}
@@ -150,16 +150,21 @@ def _dependencies_query(
     return query
 
 
-def _service_traces_where(date_from: datetime, date_to: datetime, environment: str, service: str | None) -> ast.Expr:
+def _service_traces_where(
+    date_from: datetime, date_to: datetime, environment: str, service: str | None, service_instrumented: bool
+) -> ast.Expr:
     # Every edge on a service, in either direction, sits in a trace that has a span from it. service_name
-    # leads the sort key after time, so this subquery reads only that service's granules, and the scans
-    # and the join then see only those traces instead of the whole environment.
+    # follows time_bucket in the sort key, so this subquery reads only that service's granules, and the
+    # scans and the join then see only those traces instead of the whole environment.
+    # A service that sends no spans can only be an inferred callee, so its traces are the ones with a
+    # call span that names it.
     if not service:
         return ast.Constant(value=True)
+    match = "service_name = {service}" if service_instrumented else f"kind IN {_CALL_KINDS} AND {_TARGET} = {{service}}"
     return parse_expr(
-        """trace_id IN (
+        f"""trace_id IN (
             SELECT trace_id FROM posthog.trace_spans
-            WHERE {where} AND {env_expr} = {environment} AND service_name = {service}
+            WHERE {{where}} AND {{env_expr}} = {{environment}} AND {match}
         )""",
         placeholders={
             "where": window_where(date_from, date_to),
@@ -170,12 +175,34 @@ def _service_traces_where(date_from: datetime, date_to: datetime, environment: s
     )
 
 
+def _is_instrumented(team: Team, date_from: datetime, date_to: datetime, environment: str, service: str) -> bool:
+    query = parse_select(
+        """
+        SELECT 1 FROM posthog.trace_spans
+        WHERE {where} AND {env_expr} = {environment} AND service_name = {service}
+        LIMIT 1
+        """,
+        placeholders={
+            "where": window_where(date_from, date_to),
+            "env_expr": environment_expr(),
+            "environment": ast.Constant(value=environment),
+            "service": ast.Constant(value=service),
+        },
+    )
+    return bool(
+        execute_hogql_query(
+            query_type="ApmDependenciesServiceLookup", query=query, team=team, workload=Workload.LOGS
+        ).results
+    )
+
+
 def get_dependencies(
     *, team: Team, date_from: datetime, date_to: datetime, environment: str, service: str | None = None
 ) -> DependenciesResult:
+    service_instrumented = not service or _is_instrumented(team, date_from, date_to, environment, service)
     rows = execute_hogql_query(
         query_type="ApmDependenciesQuery",
-        query=_dependencies_query(date_from, date_to, environment, service),
+        query=_dependencies_query(date_from, date_to, environment, service, service_instrumented),
         team=team,
         workload=Workload.LOGS,
         limit_context=LimitContext.QUERY,
