@@ -148,10 +148,20 @@ class ReleaseDTO:
 
 
 @dataclass(frozen=True)
+class CatalogOwnerDTO:
+    id: int
+    uuid: UUID
+    first_name: str
+    last_name: str
+    email: str
+
+
+@dataclass(frozen=True)
 class CatalogReleaseDTO:
     id: UUID
     name: str
     created_at: datetime
+    owner: CatalogOwnerDTO | None
 
 
 @dataclass(frozen=True)

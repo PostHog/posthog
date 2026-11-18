@@ -7,7 +7,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import {
-    ReviewHogReviewsListScope,
+    CodeReviewReviewsListScope,
     type ReviewReviewsTablePageApi,
     ReviewTriggerRequestRunModeEnumApi,
 } from 'products/review_hog/frontend/generated/api.schemas'
@@ -49,19 +49,19 @@ describe('reviewHogSettingsLogic', () => {
         useMocks({
             get: {
                 // The user has no reviews of their own; the project has a few pages.
-                '/api/projects/:team_id/review_hog/reviews/table/': ({ request }) => {
+                '/api/projects/:team_id/code_review/reviews/table/': ({ request }) => {
                     const url = new URL(request.url)
                     const limit = Number(url.searchParams.get('limit'))
                     const offset = Number(url.searchParams.get('offset'))
                     const pool =
-                        url.searchParams.get('scope') === ReviewHogReviewsListScope.Everyone ? everyoneReviews : []
+                        url.searchParams.get('scope') === CodeReviewReviewsListScope.Everyone ? everyoneReviews : []
                     return [200, { count: pool.length, running_count: 0, results: pool.slice(offset, offset + limit) }]
                 },
-                '/api/projects/:team_id/review_hog/reviews/perspective_stats/': () => [
+                '/api/projects/:team_id/code_review/reviews/perspective_stats/': () => [
                     200,
                     { report_count: 0, perspectives: [] },
                 ],
-                '/api/projects/:team_id/review_hog/settings/': () => [
+                '/api/projects/:team_id/code_review/settings/': () => [
                     200,
                     {
                         review_inbox_prs: false,
@@ -69,13 +69,13 @@ describe('reviewHogSettingsLogic', () => {
                         urgency_threshold: 'should_fix',
                     },
                 ],
-                '/api/projects/:team_id/review_hog/perspectives/': () => [200, []],
-                '/api/projects/:team_id/review_hog/blind_spots/': () => [200, []],
-                '/api/projects/:team_id/review_hog/validators/': () => [200, []],
-                '/api/projects/:team_id/review_hog/resolution/': () => [200, []],
+                '/api/projects/:team_id/code_review/perspectives/': () => [200, []],
+                '/api/projects/:team_id/code_review/blind_spots/': () => [200, []],
+                '/api/projects/:team_id/code_review/validators/': () => [200, []],
+                '/api/projects/:team_id/code_review/resolution/': () => [200, []],
             },
             post: {
-                '/api/projects/:team_id/review_hog/reviews/trigger/': () => [
+                '/api/projects/:team_id/code_review/reviews/trigger/': () => [
                     202,
                     { workflow_id: 'wf-1', status: 'started' },
                 ],
@@ -97,7 +97,7 @@ describe('reviewHogSettingsLogic', () => {
         await expectLogic(logic)
             .toDispatchActions(['loadReviewsSuccess', 'applyDefaultReviewsScope', 'loadReviewsSuccess'])
             .toMatchValues({
-                reviewsScope: ReviewHogReviewsListScope.Everyone,
+                reviewsScope: CodeReviewReviewsListScope.Everyone,
                 // The auto-default is not an explicit choice — a later real one must still win.
                 hasUserChosenReviewsScope: false,
             })
@@ -111,7 +111,7 @@ describe('reviewHogSettingsLogic', () => {
         const patches: Record<string, unknown>[] = []
         useMocks({
             get: {
-                '/api/projects/:team_id/review_hog/settings/': () => [
+                '/api/projects/:team_id/code_review/settings/': () => [
                     200,
                     {
                         urgency_threshold: 'must_fix',
@@ -121,7 +121,7 @@ describe('reviewHogSettingsLogic', () => {
                 ],
             },
             patch: {
-                '/api/projects/:team_id/review_hog/settings/': async ({ request }) => {
+                '/api/projects/:team_id/code_review/settings/': async ({ request }) => {
                     const body = (await request.json()) as Record<string, unknown>
                     patches.push(body)
                     return [
@@ -176,7 +176,7 @@ describe('reviewHogSettingsLogic', () => {
         let triggerCalls = 0
         useMocks({
             post: {
-                '/api/projects/:team_id/review_hog/reviews/trigger/': () => {
+                '/api/projects/:team_id/code_review/reviews/trigger/': () => {
                     triggerCalls++
                     return [202, { workflow_id: 'wf-1', status: 'started' }]
                 },
@@ -204,7 +204,7 @@ describe('reviewHogSettingsLogic', () => {
         let requestBody: Record<string, unknown> | null = null
         useMocks({
             post: {
-                '/api/projects/:team_id/review_hog/reviews/trigger/': async ({ request }) => {
+                '/api/projects/:team_id/code_review/reviews/trigger/': async ({ request }) => {
                     requestBody = (await request.json()) as Record<string, unknown>
                     return [202, { workflow_id: 'wf-resolve-1', status: 'started' }]
                 },
@@ -233,7 +233,7 @@ describe('reviewHogSettingsLogic', () => {
         let requestBody: Record<string, unknown> | null = null
         useMocks({
             post: {
-                '/api/projects/:team_id/review_hog/reviews/trigger/': async ({ request }) => {
+                '/api/projects/:team_id/code_review/reviews/trigger/': async ({ request }) => {
                     requestBody = (await request.json()) as Record<string, unknown>
                     return [202, { workflow_id: 'wf-flash-1', status: 'started' }]
                 },
@@ -259,7 +259,10 @@ describe('reviewHogSettingsLogic', () => {
     ])('a %s response informs without arming the watch', async (status, code, workflowId) => {
         useMocks({
             post: {
-                '/api/projects/:team_id/review_hog/reviews/trigger/': () => [code, { workflow_id: workflowId, status }],
+                '/api/projects/:team_id/code_review/reviews/trigger/': () => [
+                    code,
+                    { workflow_id: workflowId, status },
+                ],
             },
         })
         logic.mount()
@@ -279,7 +282,7 @@ describe('reviewHogSettingsLogic', () => {
     it('a rejected trigger resets the in-flight flag and keeps the input for correction', async () => {
         useMocks({
             post: {
-                '/api/projects/:team_id/review_hog/reviews/trigger/': () => [
+                '/api/projects/:team_id/code_review/reviews/trigger/': () => [
                     403,
                     { error: "PostHog Review can't start reviews from this project yet" },
                 ],
@@ -311,7 +314,7 @@ describe('reviewHogSettingsLogic', () => {
         const statsScopes: (string | null)[] = []
         useMocks({
             get: {
-                '/api/projects/:team_id/review_hog/reviews/perspective_stats/': ({ request }) => {
+                '/api/projects/:team_id/code_review/reviews/perspective_stats/': ({ request }) => {
                     statsScopes.push(new URL(request.url).searchParams.get('scope'))
                     return [200, { report_count: 0, perspectives: [] }]
                 },
@@ -327,15 +330,15 @@ describe('reviewHogSettingsLogic', () => {
         expect(ownDeepLoads).toBe(1)
         const listScopes = (): (string | null)[] => statsScopes.filter((scope) => scope !== 'own_deep')
         // The mount-time auto-default to Entire project already rescoped the stats.
-        expect(listScopes()[listScopes().length - 1]).toBe(ReviewHogReviewsListScope.Everyone)
+        expect(listScopes()[listScopes().length - 1]).toBe(CodeReviewReviewsListScope.Everyone)
 
-        logic.actions.setReviewsScope(ReviewHogReviewsListScope.Mine)
+        logic.actions.setReviewsScope(CodeReviewReviewsListScope.Mine)
         // Old data drops synchronously so neither the cards nor the list ever show the other
         // scope's content — even if the reload were to fail.
         expect(logic.values.perspectiveStats).toBeNull()
         expect(logic.values.reviews).toBeNull()
         await expectLogic(logic).toDispatchActions(['loadPerspectiveStatsSuccess'])
-        expect(listScopes()[listScopes().length - 1]).toBe(ReviewHogReviewsListScope.Mine)
+        expect(listScopes()[listScopes().length - 1]).toBe(CodeReviewReviewsListScope.Mine)
         expect(statsScopes.filter((scope) => scope === 'own_deep')).toHaveLength(ownDeepLoads)
     })
 
@@ -348,11 +351,11 @@ describe('reviewHogSettingsLogic', () => {
             'loadReviewsSuccess',
         ])
 
-        await expectLogic(logic, () => logic.actions.setReviewsScope(ReviewHogReviewsListScope.Mine))
+        await expectLogic(logic, () => logic.actions.setReviewsScope(CodeReviewReviewsListScope.Mine))
             .toDispatchActions(['loadReviewsSuccess'])
             .toNotHaveDispatchedActions(['applyDefaultReviewsScope'])
             .toMatchValues({
-                reviewsScope: ReviewHogReviewsListScope.Mine,
+                reviewsScope: CodeReviewReviewsListScope.Mine,
                 hasUserChosenReviewsScope: true,
                 reviews: [],
             })
@@ -370,7 +373,7 @@ describe('reviewHogSettingsLogic', () => {
         ])
         useMocks({
             get: {
-                '/api/projects/:team_id/review_hog/reviews/table/': ({ request }) => {
+                '/api/projects/:team_id/code_review/reviews/table/': ({ request }) => {
                     requests.push(new URL(request.url).searchParams)
                     return [200, { count: 0, running_count: 0, results: [] }]
                 },
@@ -420,11 +423,11 @@ describe('reviewHogSettingsLogic', () => {
         // published — the exact lie the stored snapshot exists to fix.
         useMocks({
             get: {
-                '/api/projects/:team_id/review_hog/reviews/r-stamped/': () => [
+                '/api/projects/:team_id/code_review/reviews/r-stamped/': () => [
                     200,
                     reviewDetail('r-stamped', 'must_fix'),
                 ],
-                '/api/projects/:team_id/review_hog/reviews/r-old/': () => [200, reviewDetail('r-old', null)],
+                '/api/projects/:team_id/code_review/reviews/r-old/': () => [200, reviewDetail('r-old', null)],
             },
         })
         logic.mount()
@@ -448,7 +451,7 @@ describe('reviewHogSettingsLogic', () => {
         // sync silently dead-ends every held-back-findings link already posted to GitHub.
         useMocks({
             get: {
-                '/api/projects/:team_id/review_hog/reviews/r-9/': () => [200, reviewDetail('r-9', null)],
+                '/api/projects/:team_id/code_review/reviews/r-9/': () => [200, reviewDetail('r-9', null)],
             },
         })
         logic.mount()
@@ -500,7 +503,7 @@ describe('reviewHogSettingsLogic', () => {
         // without the failure path the drawer would sit open on skeletons forever.
         useMocks({
             get: {
-                '/api/projects/:team_id/review_hog/reviews/r-gone/': () => [404, { detail: 'Not found.' }],
+                '/api/projects/:team_id/code_review/reviews/r-gone/': () => [404, { detail: 'Not found.' }],
             },
         })
         logic.mount()
@@ -562,7 +565,7 @@ describe('reviewHogSettingsLogic', () => {
         let finished = false
         useMocks({
             get: {
-                '/api/projects/:team_id/review_hog/reviews/table/': () => [
+                '/api/projects/:team_id/code_review/reviews/table/': () => [
                     200,
                     {
                         count: finished && leavesPage ? 0 : 1,
@@ -580,7 +583,7 @@ describe('reviewHogSettingsLogic', () => {
                                   ],
                     },
                 ],
-                '/api/projects/:team_id/review_hog/reviews/r-live/': () => [200, reviewDetail('r-live', null)],
+                '/api/projects/:team_id/code_review/reviews/r-live/': () => [200, reviewDetail('r-live', null)],
             },
         })
         logic.mount()
@@ -606,7 +609,7 @@ describe('reviewHogSettingsLogic', () => {
             'applyDefaultReviewsScope',
             'loadReviewsSuccess',
         ])
-        useMocks({ get: { '/api/projects/:team_id/review_hog/reviews/table/': () => [500, {}] } })
+        useMocks({ get: { '/api/projects/:team_id/code_review/reviews/table/': () => [500, {}] } })
 
         await expectLogic(logic, () => logic.actions.loadReviews()).toDispatchActions(['loadReviewsFailure'])
         expect(logic.values.reviews).toHaveLength(REVIEWS_PAGE_SIZE)
@@ -623,13 +626,13 @@ describe('reviewHogSettingsLogic', () => {
         }
         useMocks({
             get: {
-                '/api/projects/:team_id/review_hog/reviews/table/': gated,
-                '/api/projects/:team_id/review_hog/reviews/perspective_stats/': gated,
-                '/api/projects/:team_id/review_hog/settings/': gated,
-                '/api/projects/:team_id/review_hog/perspectives/': gated,
-                '/api/projects/:team_id/review_hog/blind_spots/': gated,
-                '/api/projects/:team_id/review_hog/validators/': gated,
-                '/api/projects/:team_id/review_hog/resolution/': gated,
+                '/api/projects/:team_id/code_review/reviews/table/': gated,
+                '/api/projects/:team_id/code_review/reviews/perspective_stats/': gated,
+                '/api/projects/:team_id/code_review/settings/': gated,
+                '/api/projects/:team_id/code_review/perspectives/': gated,
+                '/api/projects/:team_id/code_review/blind_spots/': gated,
+                '/api/projects/:team_id/code_review/validators/': gated,
+                '/api/projects/:team_id/code_review/resolution/': gated,
             },
         })
         logic.mount()
@@ -696,7 +699,7 @@ describe('reviewHogSettingsLogic', () => {
         // other-kind review skills stay offered as plain store skills.
         useMocks({
             get: {
-                '/api/projects/:team_id/review_hog/perspectives/': () => [
+                '/api/projects/:team_id/code_review/perspectives/': () => [
                     200,
                     [
                         {
@@ -746,8 +749,8 @@ describe('reviewHogSettingsLogic', () => {
     })
 
     test.each([
-        ['perspective' as const, '/review_hog/perspectives/', { enabled: true }],
-        ['validator' as const, '/review_hog/validators/', { active: true }],
+        ['perspective' as const, '/code_review/perspectives/', { enabled: true }],
+        ['validator' as const, '/code_review/validators/', { active: true }],
     ])('adopting a skill as %s copies it under the prefix and switches it on', async (kind, patchPath, patchBody) => {
         // Guards the kind→endpoint mapping end to end: the duplicate must target the picked source
         // with the prefixed name, and the follow-up activation must hit the right kind's endpoint
@@ -771,11 +774,11 @@ describe('reviewHogSettingsLogic', () => {
                 },
             },
             patch: {
-                '/api/projects/:team_id/review_hog/perspectives/:skill_name/': async ({ request }) => {
+                '/api/projects/:team_id/code_review/perspectives/:skill_name/': async ({ request }) => {
                     patched.push({ url: request.url, body: (await request.json()) as Record<string, unknown> })
                     return [200, {}]
                 },
-                '/api/projects/:team_id/review_hog/validators/:skill_name/': async ({ request }) => {
+                '/api/projects/:team_id/code_review/validators/:skill_name/': async ({ request }) => {
                     patched.push({ url: request.url, body: (await request.json()) as Record<string, unknown> })
                     return [200, {}]
                 },
@@ -814,7 +817,7 @@ describe('reviewHogSettingsLogic', () => {
                 ],
             },
             patch: {
-                '/api/projects/:team_id/review_hog/perspectives/:skill_name/': () => {
+                '/api/projects/:team_id/code_review/perspectives/:skill_name/': () => {
                     patchCalls++
                     return [200, {}]
                 },
@@ -847,7 +850,7 @@ describe('reviewHogSettingsLogic', () => {
                 '/api/projects/:team_id/llm_skills/name/:skill_name/duplicate/': () => [201, { name: 'created' }],
             },
             patch: {
-                '/api/projects/:team_id/review_hog/perspectives/:skill_name/': () => [500, {}],
+                '/api/projects/:team_id/code_review/perspectives/:skill_name/': () => [500, {}],
             },
         })
         logic.mount()

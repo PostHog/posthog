@@ -20,6 +20,7 @@ from ...merge_check.sources import GitHubReader, LandedChange, landed_change, re
 from ..logic.pull_requests import docs_github
 from ..settings import writer_settings
 from .client import start_merge_check_workflow
+from .held_requests_workflow import start_held_requests
 from .merge_workflow import GITHUB_READ_ERRORS
 
 logger = structlog.get_logger(__name__)
@@ -132,8 +133,11 @@ async def reconcile_merged_pull_requests_activity() -> None:
 class MergeReconcileWorkflow:
     @workflow.run
     async def run(self) -> None:
-        await workflow.execute_activity(
-            reconcile_merged_pull_requests_activity,
-            start_to_close_timeout=timedelta(minutes=5),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
+        try:
+            await workflow.execute_activity(
+                reconcile_merged_pull_requests_activity,
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+        finally:
+            await start_held_requests()

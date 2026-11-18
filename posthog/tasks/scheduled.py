@@ -14,11 +14,7 @@ from posthog.models.async_deletion.celery_fallback import celery_sweeps_enabled
 from posthog.tasks.ai_observability_usage_report import send_ai_observability_usage_reports
 from posthog.tasks.auth_token_cache_verification import verify_and_fix_auth_token_cache_task
 from posthog.tasks.calculate_cohort import finalize_cohort_backfill_runs, publish_cohort_backfill_run_gauges
-from posthog.tasks.email import (
-    EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC,
-    send_hog_functions_daily_digest,
-    send_matview_failure_digest,
-)
+from posthog.tasks.email import EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC, send_hog_functions_daily_digest
 from posthog.tasks.gateway_credential import drain_gateway_credential_last_used_task, refresh_gateway_credentials
 from posthog.tasks.hypercache_verification import (
     verify_and_fix_flag_definitions_cache_task,
@@ -97,10 +93,10 @@ from products.conversations.backend.tasks.maintenance import purge_deleted_ticke
 from products.conversations.backend.tasks.slack import sweep_delivery_parts, sweep_inbound_events
 from products.conversations.backend.tasks.teams import poll_teams_shared_channels
 from products.customer_analytics.backend.facade.tasks import schedule_task_digests
-from products.data_catalog.backend.facade.tasks import backfill_metric_embeddings_task
 from products.data_modeling.backend.facade.tasks import (
     cleanup_deleted_saved_query_nodes,
     cleanup_expired_test_saved_queries,
+    send_matview_failure_digest,
 )
 from products.data_warehouse.backend.facade.tasks import (
     reconcile_all_managed_warehouse_tables_task,
@@ -879,13 +875,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*/2"),
         sweep_canvas_builds.s(),
         name="recover stuck canvas builds",
-    )
-
-    add_periodic_task_with_expiry(
-        sender,
-        crontab(minute="*/10"),
-        backfill_metric_embeddings_task.s(),
-        name="backfill catalog metric embeddings",
     )
 
     sender.add_periodic_task(

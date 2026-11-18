@@ -162,9 +162,22 @@ def _parse_cursor(cursor: str) -> tuple[datetime, UUID]:
 
 
 def list_catalog_page(
-    team_id: int, flags: FlagVisibilityLookup, *, search: str, limit: int, cursor: str
+    team_id: int,
+    flags: FlagVisibilityLookup,
+    *,
+    search: str,
+    limit: int,
+    cursor: str,
+    owner_ids: list[int] | None = None,
+    oldest_first: bool = False,
 ) -> tuple[list[contracts.CatalogReleaseDTO], str | None]:
-    releases = logic.list_catalog_releases(team_id, search, _parse_cursor(cursor) if cursor else None)
+    releases = logic.list_catalog_releases(
+        team_id,
+        search,
+        _parse_cursor(cursor) if cursor else None,
+        owner_ids=owner_ids,
+        oldest_first=oldest_first,
+    )
     results: list[contracts.CatalogReleaseDTO] = []
     position = 0
     while True:
@@ -181,7 +194,18 @@ def list_catalog_page(
                 return results, f"{last.created_at.isoformat()}|{last.id}"
             results.append(
                 contracts.CatalogReleaseDTO(
-                    id=obj.id, name=RESTRICTED_NAME if restricted else obj.name, created_at=obj.created_at
+                    id=obj.id,
+                    name=RESTRICTED_NAME if restricted else obj.name,
+                    created_at=obj.created_at,
+                    owner=contracts.CatalogOwnerDTO(
+                        id=obj.owner.id,
+                        uuid=obj.owner.uuid,
+                        first_name=obj.owner.first_name,
+                        last_name=obj.owner.last_name,
+                        email=obj.owner.email,
+                    )
+                    if obj.owner
+                    else None,
                 )
             )
         if len(batch) < size:
