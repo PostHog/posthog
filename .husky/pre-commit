@@ -57,44 +57,39 @@ if [ -f .github/scripts/check-comment-density.sh ]; then
     bash .github/scripts/check-comment-density.sh || true
 fi
 
-# hoglint checks the staged tree for new boundary problems (`hoglint help hook`). Exit 3 means
-# hoglint could not run; a missing command cannot print its own line. Both let the commit
-# through, because CI runs the full check. A GUI client may not have the dev env on PATH, so the
-# flox venv is the fallback. husky runs this file with `sh -e`, so each command that can fail
-# carries its own `||`.
+# hoglint checks the staged tree for new boundary problems (`hoglint help hook`). A missing command
+# lets the commit through with one line, because CI runs the full check. A GUI client may not have
+# the dev env on PATH, so the flox venv is the fallback. husky runs this file with `sh -e`, so each
+# command that can fail carries its own `||`.
 #
 # CI does not block while hoglint runs in shadow, so master can carry findings that the ledger
-# does not record yet, and every later commit sees them. So a finding blocks here only when it
-# sits in a staged file. hoglint runs once, in the full view, because the default view can cut
-# the list short. The script prints the rows that block, and counts the rest.
+# does not record yet, and every later commit sees them. So hoglint runs once, in the full view,
+# because the default view can cut the list short, and the script decides from the staged diff:
+# a finding blocks only on a line this commit adds or edits. stderr goes to its own file, so that
+# no stray line ends up inside the report the script reads.
 hoglint_bin="$(command -v hoglint 2>/dev/null || true)"
 if [ -z "$hoglint_bin" ] && [ -x .flox/cache/venv/bin/hoglint ]; then
     hoglint_bin=.flox/cache/venv/bin/hoglint
 fi
-hoglint_status=127
-hoglint_out="$(mktemp)"
-if [ -n "$hoglint_bin" ]; then
-    hoglint_status=0
-    "$hoglint_bin" check --index --all > "$hoglint_out" 2>&1 || hoglint_status=$?
-fi
 hoglint_block=0
-case "$hoglint_status" in
-    0) sed -n '/^hoglint: /p; /^note: /p' "$hoglint_out" ;;
-    3) cat "$hoglint_out" ;;
-    127) echo "hoglint did not check this commit, because hoglint could not run: the hook could not start the hoglint command. The commit continues. CI runs the full check. To repair hoglint, install the pinned hoglint version again with the dev dependencies." ;;
-    *)
-        hoglint_python="$(dirname "$hoglint_bin")/python"
-        [ -x "$hoglint_python" ] || hoglint_python=python3
-        hoglint_filter=0
-        "$hoglint_python" .github/scripts/hoglint_shadow.py --hook "$hoglint_out" || hoglint_filter=$?
-        case "$hoglint_filter" in
-            0) ;;
-            1) hoglint_block=1 ;;
-            *) echo "hoglint could not tell which findings sit in the files you commit, so this commit goes through. CI runs the full check." ;;
-        esac
-        ;;
-esac
-rm -f "$hoglint_out"
+if [ -z "$hoglint_bin" ]; then
+    echo "hoglint did not check this commit, because hoglint could not run: the hook could not start the hoglint command. The commit continues. CI runs the full check. To repair hoglint, install the pinned hoglint version again with the dev dependencies."
+else
+    hoglint_out="$(mktemp)"
+    hoglint_err="$(mktemp)"
+    hoglint_status=0
+    "$hoglint_bin" check --index --all > "$hoglint_out" 2> "$hoglint_err" || hoglint_status=$?
+    hoglint_python="$(dirname "$hoglint_bin")/python"
+    [ -x "$hoglint_python" ] || hoglint_python=python3
+    hoglint_filter=0
+    "$hoglint_python" .github/scripts/hoglint_shadow.py "$hoglint_out" --stderr "$hoglint_err" --status "$hoglint_status" --hook || hoglint_filter=$?
+    rm -f "$hoglint_out" "$hoglint_err"
+    case "$hoglint_filter" in
+        0) ;;
+        1) hoglint_block=1 ;;
+        *) echo "hoglint could not tell which findings sit on the lines you commit, so this commit goes through. CI runs the full check." ;;
+    esac
+fi
 [ "$hoglint_block" = 0 ] || exit 1
 
 # Activate Flox environment if available and not already active

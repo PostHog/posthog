@@ -1671,22 +1671,24 @@ jobs:
               if: steps.fetch-deleted-migrations.outcome == 'success'
               run: ./bin/hogli lint:migration-deletions < "$RUNNER_TEMP/deleted-migration-paths.txt"
             # hoglint runs in shadow, so the step always exits 0: it can never fail the job or flag
-            # a deterministic failure. A finding in a file the pull request changes becomes an
-            # annotation, and the step summary lists the rest, which master carries until the
-            # ledger catches up. The full view (`--all`) lists every row, which the default view
-            # can cut short. It runs before the scaffold, which edits tracked files that compare
-            # would read as part of the change.
+            # a deterministic failure. A finding on a line the pull request adds or edits becomes
+            # an annotation. The step summary shows compare's own new findings and lists the other
+            # rows. The full view (`--all`) lists every row, which the default view can cut short.
+            # It runs before the scaffold, which edits tracked files that compare would read as part
+            # of the change.
             - name: Check boundaries (hoglint, shadow)
               env:
                   HOGLINT_SHADOW_UNTIL: Tuesday, Nov 24
               run: |
                   output="$RUNNER_TEMP/hoglint.txt"
+                  errors="$RUNNER_TEMP/hoglint-stderr.txt"
+                  status=0
                   if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-                      timeout --kill-after=10s 5m hoglint compare --base HEAD^1 --all > "$output" 2>&1 || true
-                      python .github/scripts/hoglint_shadow.py "$output" --until "$HOGLINT_SHADOW_UNTIL" --base HEAD^1 || true
+                      timeout --kill-after=10s 5m hoglint compare --base HEAD^1 --all > "$output" 2> "$errors" || status=$?
+                      python .github/scripts/hoglint_shadow.py "$output" --stderr "$errors" --status "$status" --until "$HOGLINT_SHADOW_UNTIL" --base HEAD^1 || true
                   else
-                      timeout --kill-after=10s 5m hoglint check --all > "$output" 2>&1 || true
-                      python .github/scripts/hoglint_shadow.py "$output" --until "$HOGLINT_SHADOW_UNTIL" || true
+                      timeout --kill-after=10s 5m hoglint check --all > "$output" 2> "$errors" || status=$?
+                      python .github/scripts/hoglint_shadow.py "$output" --stderr "$errors" --status "$status" --until "$HOGLINT_SHADOW_UNTIL" || true
                   fi
             - name: Bootstrap scaffold product
               run: ./bin/hogli product:bootstrap spline_reticulator --non-interactive

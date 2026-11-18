@@ -1,23 +1,26 @@
 #!/usr/bin/env python3
 # ruff: noqa: T201 allow print statements
-"""Sort hoglint's new rows by the files a change touches, while hoglint runs in shadow.
+"""Sort hoglint's new rows by the lines a change touches, while hoglint runs in shadow.
 
-In shadow CI does not block, so master can carry findings that the ledger does not record yet.
-Every later check then reports them, and only the rows in the changed files belong to the change.
-The script reads the full view (`--all`), because the default view can cut the list short.
+In shadow CI does not block, so master can carry findings that the ledger does not record yet,
+and every later check reports them. A row belongs to a change only when its place is a line the
+change adds or edits, so the script reads the change's diff at zero context. It reads hoglint's
+full view (`--all`) from stdout alone, because the default view can cut the list short and
+stderr can hold lines that are not part of the report.
 
 CI mode reads `hoglint compare --all` or `hoglint check --all`. It prints a warning annotation
-for each row in a file the pull request changes, and writes those rows, the other rows and the
-count of advisory rows to the step summary. With `--base`, it also prints a notice on each
-changed file that goes away when hoglint replaces tach, import-linter and the crossings scanner.
-It always exits 0.
+for each row on a line the pull request changes. The step summary shows compare's own new
+findings, ledger lines and code growth, the annotated rows, the other rows and the count of
+advisory rows. With `--base`, it also prints a notice on each changed file that goes away when
+hoglint replaces tach, import-linter and the crossings scanner. It always exits 0.
 
-Hook mode (`--hook`) reads `hoglint check --index --all` and the staged files, and prints what
-the developer reads instead of hoglint's output. It exits 1 when a new finding, or an unknown the
-change introduced, sits in a staged file, and 0 otherwise.
+Hook mode (`--hook`) reads `hoglint check --index --all` and the staged diff, and prints what the
+developer reads instead of hoglint's output. It exits 1 to block the commit, and 0 otherwise.
+A row on a staged line blocks. New ledger lines or a new exception block when the commit also
+stages other files.
 
-    hoglint_shadow.py <hoglint output file> --until "<date>" [--base HEAD^1]
-    hoglint_shadow.py <hoglint output file> --hook
+    hoglint_shadow.py <stdout file> --stderr <file> --status <exit> --until "<date>" [--base HEAD^1]
+    hoglint_shadow.py <stdout file> --stderr <file> --status <exit> --hook
 """
 
 from __future__ import annotations
@@ -26,43 +29,69 @@ import os
 import re
 import argparse
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
-# The full view puts each section title at the line start and indents the rows under it. A
-# finding row is a headline, `<rule>: <message>`, then more indented lines: its place,
-# `at <path>:<line>` with optional owners after it, and for the first finding of a rule the
-# rule's why, ways out and `see:` line.
+# A finding is a headline, `<rule>: <message>`, then more indented lines. The first of them is its
+# place, `at <site>` with optional owners, `  [team, ...]`, after it. The site is
+# `<path>:<line>` or `(no line)`, and a path can hold spaces and any letters.
 HEADLINE = re.compile(r"^(?P<rule>[a-z][a-z0-9-]*): (?P<message>.+)$")
-PLACE = re.compile(r"^\s+at (?P<path>\S+):(?P<line>\d+)(?:\s|$)")
-# An unknown is one row, `<rule> [<cause>, <kind>] <place>: <reason>`. The place is optional and
-# is a file, a file and line, or a module.
-UNKNOWN = re.compile(r"^(?P<rule>\S+) \[(?P<cause>[a-z-]+), [a-z-]+\](?: (?P<place>\S+):)? (?P<reason>.*)$")
-FILE_AND_LINE = re.compile(r"^(?P<path>.+):(?P<line>\d+)$")
+PLACE = re.compile(r"^\s*at (?P<site>.+?)(?:  \[[^\]]*\])?$")
+SITE = re.compile(r"^(?P<path>.+):(?P<line>\d+)$")
+# An unknown is one row, `<rule> [<cause>, <kind>] <place>: <reason>`, and the place is optional.
+UNKNOWN = re.compile(r"^(?P<rule>\S+) \[(?P<cause>[a-z-]+), (?P<kind>[a-z-]+)\] (?P<rest>.*)$")
+UNKNOWN_AT_LINE = re.compile(r"^(?P<path>.+?):(?P<line>\d+): (?P<reason>.*)$")
+UNKNOWN_AT_FILE = re.compile(r"^(?P<path>[^:]*(?:/|\.py)[^:]*): (?P<reason>.*)$")
+# The title of the problem that carries the ways out for unknowns of one rule and kind.
+UNKNOWN_PROBLEM = re.compile(r"^\S+: (this place|each of these \d+ places) ")
+LEDGER_GROWTH = re.compile(r"^This change adds \d+ lines? to (?P<ledger>.+), with no policy change\.$")
 # A section title ends with its row count, `advisory rows (898)`.
 COUNT = re.compile(r"\((?P<count>\d+)\)$")
-# The title of the problem that carries the ways out for blocking unknowns of one rule and kind.
-UNKNOWN_PROBLEM = re.compile(r"^\S+: (this place|each of these \d+ places) ")
-# The causes of an unknown that the change under check added. The others came before it.
+HUNK = re.compile(r"^@@ -\d+(?:,(?P<old>\d+))? \+(?P<start>\d+)(?:,(?P<new>\d+))? @@")
+OCTAL = re.compile(r"[0-7]{3}")
+
+# The causes of an unknown that the change under check added. An extractor unknown never blocks,
+# because the fault is in hoglint. Inherited unknowns came before the change, and no row shows them.
 CHANGE_CAUSES = ("introduced", "ambiguous")
+EXTRACTOR_CAUSE = "extractor"
 
 FINDINGS_TITLE = "new findings ("
 ADVISORY_TITLE = "advisory rows ("
 UNKNOWNS_TITLE = "unknowns ("
 GUARD_START = "Fix each finding"
-# What the full view prints before its problems: the verdict, other `hoglint:` notes such as an
-# empty pack memo, the count per rule and the guard line.
+# What the full view prints before its problems: the verdict, other `hoglint:` lines and the
+# count per rule.
 SKIPPED_TITLES = ("hoglint: ", "New findings by rule:", GUARD_START)
+# The titles the full view prints after the findings. Any other line at the line start in that
+# part is not a section, so it does not end one.
+LATER_TITLES = (
+    ADVISORY_TITLE,
+    "existing debt in touched files (advisory) (",
+    UNKNOWNS_TITLE,
+    "unknowns attributed against ",
+    "level ",
+    "note: ",
+    "What the hook checks",
+)
+ACCEPTED_TITLE = re.compile(r"^\d+ findings? accepted by the ledger$")
+COMPARE_SECTIONS = ("findings new (", "ledger lines added (", "code growth (fails) (")
 
+EXCEPTIONS_FILE = "hoglint.exceptions.toml"
 OLD_TOOL_FILES = ("tach.toml", "products/model_crossing_uses_baseline.txt", "products/isolation_baseline.txt")
 # pyproject.toml stays, so only an edit in its import-linter table goes away.
 IMPORT_LINTER_WORDS = ("ignore_imports", "importlinter")
 
-BLOCK_LINE = "hoglint blocks findings in the files you commit. Fix them, or run `hoglint explain {rule}`."
-REST_LINE = (
-    "{count} in files you do not commit came from master; the ledger catches up there. "
-    "Full list: hoglint check --index --all."
+BLOCK_LINE = "hoglint blocks findings on the lines this commit changes. Fix them, or run `hoglint explain {rule}`."
+REST_LINE = "{count} not on lines this commit changes; CI and the ledger catch-up judge them."
+LEDGER_LINE = (
+    "hoglint blocks new lines in {ledger} when the commit also changes other files. "
+    "Commit the ledger lines alone, so that a person reviews them."
 )
+EXCEPTION_LINE = (
+    f"hoglint blocks a new exception in {EXCEPTIONS_FILE} when the commit also changes other files. "
+    "Commit the exception alone, so that a person reviews it."
+)
+CONTINUES_LINE = "hoglint did not finish this check, so the commit continues. CI runs the full check."
 
 
 @dataclass(frozen=True)
@@ -75,23 +104,108 @@ class Block:
 
 @dataclass(frozen=True)
 class Row:
-    """A new finding, or an unknown the change introduced, with the lines hoglint prints for it."""
+    """A new finding or a new unknown, with the lines hoglint prints for it. `cause` is empty for
+    a finding. A row without a path or without a line has no place on a changed line."""
 
     rule: str
     message: str
-    path: str
+    path: str | None
     line: int | None
     lines: tuple[str, ...]
+    cause: str = ""
 
     def place(self) -> str:
+        if self.path is None:
+            return "(no line)"
         return f"{self.path}:{self.line}" if self.line else self.path
 
     def is_full(self) -> bool:
         return any(line.lstrip().startswith("see: ") for line in self.lines)
 
 
-def plural(count: int, word: str) -> str:
-    return f"{count} {word}" if count == 1 else f"{count} {word}s"
+@dataclass(frozen=False)
+class ChangedLines:
+    """The lines a diff at zero context adds or edits, per file. A new file counts whole."""
+
+    lines: dict[str, set[int]] = field(default_factory=dict)
+    new_files: set[str] = field(default_factory=set)
+    added_text: dict[str, list[str]] = field(default_factory=dict)
+
+    @staticmethod
+    def of(diff: str) -> ChangedLines:
+        changed = ChangedLines()
+        path: str | None = None
+        is_new = False
+        old_left = new_left = 0
+        for line in diff.splitlines():
+            # Inside a hunk every line is content, even one that looks like a header.
+            if old_left or new_left:
+                if line.startswith("-"):
+                    old_left -= 1
+                elif line.startswith("+"):
+                    new_left -= 1
+                    if path is not None:
+                        changed.added_text.setdefault(path, []).append(line[1:])
+                continue
+            hunk = HUNK.match(line)
+            if line.startswith("diff --git "):
+                path, is_new = None, False
+            elif line.startswith("new file mode"):
+                is_new = True
+            elif line.startswith("+++ "):
+                path = diff_path(line[4:])
+                if path is not None and is_new:
+                    changed.new_files.add(path)
+            elif hunk and path is not None:
+                start = int(hunk["start"])
+                count = int(hunk["new"]) if hunk["new"] is not None else 1
+                changed.lines.setdefault(path, set()).update(range(start, start + count))
+                old_left = int(hunk["old"]) if hunk["old"] is not None else 1
+                new_left = count
+        return changed
+
+    def covers(self, row: Row) -> bool:
+        if row.path is None:
+            return False
+        if row.path in self.new_files:
+            return True
+        return row.line is not None and row.line in self.lines.get(row.path, set())
+
+    def adds_exception(self) -> bool:
+        return any(text.strip() == "[[exception]]" for text in self.added_text.get(EXCEPTIONS_FILE, []))
+
+
+def unquote(quoted: str) -> str:
+    """A path as git quotes it in a diff header: in double quotes, with C escapes and octal bytes."""
+    body = quoted[1:-1]
+    out = bytearray()
+    escapes = {"a": 7, "b": 8, "f": 12, "n": 10, "r": 13, "t": 9, "v": 11, '"': 34, "\\": 92}
+    index = 0
+    while index < len(body):
+        char = body[index]
+        if char != "\\":
+            out.extend(char.encode())
+            index += 1
+            continue
+        octal = OCTAL.match(body, index + 1)
+        if octal:
+            out.append(int(octal.group(), 8))
+            index += 4
+            continue
+        out.append(escapes.get(body[index + 1], ord(body[index + 1])))
+        index += 2
+    return out.decode(errors="replace")
+
+
+def diff_path(header: str) -> str | None:
+    """The path of a `+++ ` header line, without its `b/` prefix. None for a deleted file. git
+    ends the line with a tab when the path holds a space."""
+    header = header.removesuffix("\t")
+    if header == "/dev/null":
+        return None
+    if header.startswith('"') and header.endswith('"'):
+        header = unquote(header)
+    return header.removeprefix("b/")
 
 
 def escape_data(value: str) -> str:
@@ -106,6 +220,10 @@ def dedent(line: str) -> str:
     return line[2:] if line.startswith("  ") else line
 
 
+def is_later_title(line: str) -> bool:
+    return line.startswith(LATER_TITLES) or bool(ACCEPTED_TITLE.match(line))
+
+
 class FullView:
     """hoglint's full view (`--all`), read as blocks: the rows a change can own, the advisory
     count, the guard line and the problems that have no file."""
@@ -113,18 +231,27 @@ class FullView:
     def __init__(self, output: str) -> None:
         self.output = output
         self.blocks: list[Block] = []
+        after_findings = False
         for line in output.splitlines():
+            if not line.strip():
+                continue
             if line.startswith(" ") and self.blocks:
                 last = self.blocks[-1]
                 self.blocks[-1] = Block(last.title, (*last.lines, line))
-            elif line:
-                self.blocks.append(Block(line, ()))
+                continue
+            if after_findings and not is_later_title(line):
+                continue
+            after_findings = after_findings or line.startswith(FINDINGS_TITLE)
+            self.blocks.append(Block(line, ()))
 
     def block(self, title_start: str) -> Block | None:
         return next((block for block in self.blocks if block.title.startswith(title_start)), None)
 
     def is_report(self) -> bool:
         return self.block(FINDINGS_TITLE) is not None
+
+    def first_line(self) -> str:
+        return self.blocks[0].title if self.blocks else ""
 
     def findings(self) -> list[Row]:
         block = self.block(FINDINGS_TITLE)
@@ -139,32 +266,47 @@ class FullView:
         rows = []
         for entry in entries:
             headline = HEADLINE.match(entry[0])
-            place = next((PLACE.match(line) for line in entry[1:] if PLACE.match(line)), None)
-            if headline and place:
-                rows.append(Row(headline["rule"], headline["message"], place["path"], int(place["line"]), tuple(entry)))
+            place = PLACE.match(entry[1]) if len(entry) > 1 else None
+            if not headline or not place:
+                continue
+            site = SITE.match(place["site"])
+            path = site["path"] if site else None
+            number = int(site["line"]) if site else None
+            rows.append(Row(headline["rule"], headline["message"], path, number, tuple(entry)))
         return rows
 
     def unknowns(self) -> list[Row]:
+        """The unknowns a change can own or that hoglint caused, each with its own rule's ways out."""
         block = self.block(UNKNOWNS_TITLE)
         if block is None:
             return []
         rows = []
         for line in block.lines:
             unknown = UNKNOWN.match(dedent(line))
-            if not unknown or unknown["cause"] not in CHANGE_CAUSES or not unknown["place"]:
+            if not unknown or unknown["cause"] not in (*CHANGE_CAUSES, EXTRACTOR_CAUSE):
                 continue
-            file_and_line = FILE_AND_LINE.match(unknown["place"])
-            path = file_and_line["path"] if file_and_line else unknown["place"]
-            number = int(file_and_line["line"]) if file_and_line else None
-            guidance = self.unknown_guidance(unknown["place"], unknown["reason"])
-            rows.append(Row(unknown["rule"], unknown["reason"], path, number, (dedent(line), *guidance)))
+            rest = unknown["rest"]
+            at_line = UNKNOWN_AT_LINE.match(rest)
+            at_file = None if at_line else UNKNOWN_AT_FILE.match(rest)
+            if at_line:
+                path, number, reason = at_line["path"], int(at_line["line"]), at_line["reason"]
+                place = f"{path}:{number}"
+            elif at_file:
+                path, number, reason = at_file["path"], None, at_file["reason"]
+                place = path
+            else:
+                path, number, reason, place = None, None, rest, ""
+            guidance = self.unknown_guidance(unknown["rule"], place, reason)
+            row = Row(unknown["rule"], reason, path, number, (dedent(line), *guidance), unknown["cause"])
+            if row not in rows:
+                rows.append(row)
         return rows
 
-    def unknown_guidance(self, place: str, reason: str) -> list[str]:
-        """The why and the ways out of the problem that lists this unknown's place."""
-        row = f"  at {place}: {reason}"
+    def unknown_guidance(self, rule: str, place: str, reason: str) -> list[str]:
+        """The why and the ways out of this rule's problem that lists this unknown's place."""
+        row = f"  at {place}: {reason}" if place else f"  at {reason}"
         for block in self.blocks:
-            if row in block.lines:
+            if block.title.startswith(f"{rule}: ") and row in block.lines:
                 return [line for line in block.lines if not line.startswith("  at ")]
         return []
 
@@ -189,8 +331,8 @@ class FullView:
         return None if block is None else block.title
 
     def problems_without_file(self) -> list[Block]:
-        """The problems the full view prints before the findings, except the ones for blocking
-        unknowns, which come back as rows."""
+        """The problems the full view prints before the findings, except the ones for unknowns,
+        which come back as rows."""
         out = []
         for block in self.blocks:
             if block.title.startswith(FINDINGS_TITLE):
@@ -200,15 +342,23 @@ class FullView:
             out.append(block)
         return out
 
+    def ledger_growth(self) -> str | None:
+        """The ledger file a staged ledger growth adds lines to, if the view reports one."""
+        for block in self.problems_without_file():
+            growth = LEDGER_GROWTH.match(block.title)
+            if growth:
+                return growth["ledger"]
+        return None
+
     def render(self, rows: list[Row]) -> list[str]:
-        """Each row with hoglint's lines for it; the rule's why and ways out once per rule."""
+        """Each row with hoglint's lines for it; a finding rule's why and ways out once per rule."""
         out: list[str] = []
         explained: set[str] = set()
         for row in rows:
             out.extend(row.lines)
             if row.is_full():
                 explained.add(row.rule)
-            elif row.rule not in explained:
+            elif row.rule not in explained and not row.cause:
                 out.extend(self.rule_guidance(row.rule))
                 explained.add(row.rule)
             else:
@@ -217,69 +367,109 @@ class FullView:
 
 
 class HookFilter:
-    """Hook mode: a row in a staged file blocks the commit. Rows elsewhere came from master."""
+    """Hook mode: a row on a changed line blocks the commit, and so do new ledger lines or a new
+    exception that come with other files. Everything else passes."""
 
-    def __init__(self, output: str, staged: set[str]) -> None:
+    def __init__(self, output: str, stderr: str, status: int, diff: str, staged: list[str]) -> None:
         self.view = FullView(output)
+        self.stderr = stderr.rstrip()
+        self.status = status
+        self.changed = ChangedLines.of(diff)
         self.staged = staged
 
+    def alone(self, path: str) -> bool:
+        return all(staged == path for staged in self.staged)
+
     def verdict(self) -> tuple[int, str]:
+        out = [self.stderr] if self.stderr else []
+        if self.status == 3:
+            return 0, "\n".join([*out, self.view.output.rstrip()]).strip()
+        exception = self.changed.adds_exception() and not self.alone(EXCEPTIONS_FILE)
+        if self.status == 0:
+            out += [block.title for block in self.view.blocks if block.title.startswith(("hoglint: ", "note: "))]
+            if exception:
+                out.append(EXCEPTION_LINE)
+            return (1 if exception else 0), "\n".join(out)
         if not self.view.is_report():
-            return 0, self.view.output.rstrip()
+            out += [line for line in (self.view.first_line(), CONTINUES_LINE) if line]
+            return 0, "\n".join(out)
         rows = self.view.rows()
-        blocking = [row for row in rows if row.path in self.staged]
-        rest = [row for row in rows if row.path not in self.staged]
-        out = self.view.render(blocking)
+        blocking = [row for row in rows if row.cause != EXTRACTOR_CAUSE and self.changed.covers(row)]
+        rest = [row for row in rows if row not in blocking]
+        out += self.view.render(blocking)
         guard = self.view.guard()
         if blocking and guard:
             out.append(guard)
         for problem in self.view.problems_without_file():
             out.extend([problem.title, *problem.lines])
+        out += self.view.render([row for row in rest if row.cause == EXTRACTOR_CAUSE or row.path is None])
         if rest:
-            out.append(REST_LINE.format(count=plural(len(rest), "finding")))
+            count = "1 finding is" if len(rest) == 1 else f"{len(rest)} findings are"
+            out.append(REST_LINE.format(count=count))
+        ledger = self.view.ledger_growth()
+        ledger_blocks = ledger is not None and not self.alone(ledger)
         if blocking:
             out.append(BLOCK_LINE.format(rule=blocking[0].rule))
-        if not out:
-            out.append(self.view.blocks[0].title)
-        return (1 if blocking else 0), "\n".join(out)
+        if ledger_blocks:
+            out.append(LEDGER_LINE.format(ledger=ledger))
+        if exception:
+            out.append(EXCEPTION_LINE)
+        return (1 if blocking or ledger_blocks or exception else 0), "\n".join(out)
 
 
 class ShadowReport:
-    """CI mode: the rows in the changed files become annotations, and the summary lists every row."""
+    """CI mode: the rows on changed lines become annotations, and the summary lists every row."""
 
-    def __init__(self, output: str, until: str, changed: set[str]) -> None:
+    def __init__(self, output: str, stderr: str, status: int, until: str, diff: str) -> None:
         self.view = FullView(output)
+        self.stderr = stderr
+        self.status = status
         self.until = until
-        self.changed = changed
+        self.changed = ChangedLines.of(diff)
 
     def own_rows(self) -> list[Row]:
-        return [row for row in self.view.rows() if row.path in self.changed]
+        return [row for row in self.view.rows() if self.changed.covers(row)]
 
-    def master_rows(self) -> list[Row]:
-        return [row for row in self.view.rows() if row.path not in self.changed]
+    def other_rows(self) -> list[Row]:
+        return [row for row in self.view.rows() if not self.changed.covers(row)]
 
     def annotations(self) -> list[str]:
         out = []
         for row in self.own_rows():
-            properties = [f"file={escape_property(row.path)}"]
+            properties = [f"file={escape_property(row.path or '')}"]
             if row.line:
                 properties.append(f"line={row.line}")
             properties.append(f"title={escape_property(f'hoglint {row.rule} (shadow)')}")
             out.append(f"::warning {','.join(properties)}::{escape_data(row.message)}")
         return out
 
+    def did_not_run(self) -> str:
+        """The first line hoglint wrote, and the next one when the first only opens a list, such
+        as `config error:`."""
+        lines = [line.strip() for line in (self.view.output or self.stderr).splitlines() if line.strip()]
+        first = " ".join(lines[:2]) if len(lines) > 1 and lines[0].endswith(":") else (lines or ["no output"])[0]
+        return f"hoglint did not run (exit {self.status}): {first}"
+
     def summary(self) -> str:
         intro = (
             f"hoglint runs in shadow until {self.until}. "
             "It does not block yet; from then on it blocks the findings below."
         )
-        own = self.own_rows()
+        if not self.view.is_report():
+            return "\n".join([intro, "", self.did_not_run(), ""])
         parts = [intro, "", "**From this PR**", ""]
-        parts += ["```text", *self.view.render(own), "```"] if own else ["- None."]
-        parts += ["", "**Not from this PR (master's, until the ledger catches up)**", ""]
-        parts += [f"- `{row.rule}` at `{row.place()}`: {row.message}" for row in self.master_rows()] or ["- None."]
+        compare = [b for b in self.view.blocks if b.title.startswith(COMPARE_SECTIONS) and b.lines]
+        own = self.own_rows()
+        if compare:
+            parts += ["```text", *[line for b in compare for line in (b.title, *b.lines)], "```", ""]
+        if own:
+            parts += ["Rows on the lines this PR changes:", "", "```text", *self.view.render(own), "```", ""]
+        if not compare and not own:
+            parts += ["- None.", ""]
+        parts += ["**Not on lines this PR changes (master's debt, or reached through other files)**", ""]
+        parts += [f"- `{row.rule}` at `{row.place()}`: {row.message}" for row in self.other_rows()] or ["- None."]
         parts += ["", f"Advisory rows, which never block: {self.view.advisory_count()}.", ""]
-        return "\n".join(parts)
+        return "\n".join(line.replace("\t", " ") for line in parts)
 
 
 class OldToolEdits:
@@ -302,25 +492,44 @@ class OldToolEdits:
         return [f"::notice file={escape_property(path)}::{escape_data(message)}" for path in self.paths()]
 
 
-def git_lines(*args: str) -> list[str]:
-    return subprocess.run(["git", *args], capture_output=True, text=True, check=True).stdout.splitlines()
+def git(*args: str) -> str:
+    return subprocess.run(["git", *args], capture_output=True, text=True, check=True).stdout
 
 
-def run_hook(output_file: Path) -> int:
+def git_names(*args: str) -> list[str]:
+    return [name for name in git("diff", "--name-only", "-z", *args).split("\0") if name]
+
+
+def git_diff(*args: str) -> str:
+    """The diff at zero context, with fixed path prefixes whatever the user's git config says."""
+    flags = ["-U0", "-M", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/"]
+    return git("-c", "core.quotePath=false", "diff", *flags, *args)
+
+
+def read(path: Path | None) -> str:
+    return path.read_text(errors="replace") if path is not None and path.exists() else ""
+
+
+def run_hook(args: argparse.Namespace) -> int:
     """Exit 0 lets the commit through and 1 blocks it. On any other exit the filter failed, and
     the hook lets the commit through."""
-    staged = set(git_lines("diff", "--cached", "--name-only"))
-    code, text = HookFilter(output_file.read_text(errors="replace"), staged).verdict()
-    print(text)
+    staged = git_names("--cached")
+    diff = git_diff("--cached")
+    code, text = HookFilter(read(args.output), read(args.stderr), args.status, diff, staged).verdict()
+    if text:
+        print(text)
     return code
 
 
-def report_findings(output_file: Path, until: str, changed: set[str]) -> None:
-    output = output_file.read_text(errors="replace")
-    report = ShadowReport(output, until, changed)
+def report_findings(args: argparse.Namespace, diff: str) -> None:
+    output, stderr = read(args.output), read(args.stderr)
+    report = ShadowReport(output, stderr, args.status, args.until, diff)
     print("::group::hoglint output")
-    print(output.rstrip())
-    print("::endgroup::")
+    try:
+        print(output.rstrip())
+        print(stderr.rstrip())
+    finally:
+        print("::endgroup::")
     summary_file = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary_file:
         with Path(summary_file).open("a") as summary:
@@ -329,21 +538,23 @@ def report_findings(output_file: Path, until: str, changed: set[str]) -> None:
         print(annotation)
 
 
-def run_ci(output_file: Path, until: str, base: str | None) -> int:
+def run_ci(args: argparse.Namespace) -> int:
     changed: list[str] = []
-    if base:
+    diff = ""
+    if args.base:
         try:
-            changed = git_lines("diff", "--name-only", base, "HEAD")
+            changed = git_names(args.base, "HEAD")
+            diff = git_diff(args.base, "HEAD")
         except Exception as error:
-            print(f"Could not list the files this pull request changes ({error}).")
+            print(f"Could not read the changes of this pull request ({error}).")
     try:
-        report_findings(output_file, until, set(changed))
+        report_findings(args, diff)
     except Exception as error:
         print(f"Could not read hoglint's output ({error}). hoglint runs in shadow, so this step passes.")
-    if base and changed:
+    if changed:
         try:
-            pyproject_diff = "\n".join(git_lines("diff", base, "HEAD", "--", "pyproject.toml"))
-            for notice in OldToolEdits(changed, pyproject_diff, until).notices():
+            pyproject_diff = git_diff(args.base, "HEAD", "--", "pyproject.toml")
+            for notice in OldToolEdits(changed, pyproject_diff, args.until).notices():
                 print(notice)
         except Exception as error:
             print(f"Could not read the pyproject.toml diff ({error}).")
@@ -352,18 +563,20 @@ def run_ci(output_file: Path, until: str, base: str | None) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("output", type=Path, help="file with hoglint's full view (`--all`)")
-    parser.add_argument("--hook", action="store_true", help="filter by the staged files and exit 1 to block")
+    parser.add_argument("output", type=Path, help="file with hoglint's stdout, the full view (`--all`)")
+    parser.add_argument("--stderr", type=Path, help="file with hoglint's stderr")
+    parser.add_argument("--status", type=int, default=1, help="hoglint's exit code")
+    parser.add_argument("--hook", action="store_true", help="filter by the staged diff and exit 1 to block")
     parser.add_argument("--until", default="", help="CI: the day hoglint starts to block, as people read it")
-    parser.add_argument("--base", help="CI: the pull request's base commit, to find the files it changes")
+    parser.add_argument("--base", help="CI: the pull request's base commit, to find the lines it changes")
     args = parser.parse_args()
     if not args.hook:
-        return run_ci(args.output, args.until, args.base)
+        return run_ci(args)
     try:
-        return run_hook(args.output)
+        return run_hook(args)
     except Exception as error:
         # Exit 1 blocks the commit, so a failure here must not end with Python's own exit 1.
-        print(f"hoglint: could not compare the findings with the staged files ({error}).")
+        print(f"hoglint: could not compare the findings with the staged lines ({error}).")
         return 2
 
 
