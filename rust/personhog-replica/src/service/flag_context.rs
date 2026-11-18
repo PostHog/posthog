@@ -112,6 +112,13 @@ impl PersonHogReplicaService {
             Vec<Group>,
             Vec<HashKeyOverrideContext>,
         ) = tokio::try_join!(person, cohort_memberships, groups, hash_key_overrides)?;
+        // Memberships are looked up by person id alone. The person read is the one scoped
+        // to the team, so memberships are returned only for a person found in it.
+        let cohort_memberships = if person.is_some() {
+            cohort_memberships
+        } else {
+            Vec::new()
+        };
         Ok(GetFlagContextResponse {
             person,
             cohort_memberships,
