@@ -1,9 +1,9 @@
 """Reads who calls whom in a window, including dependencies that send no spans of their own.
 
 A service edge is a server or consumer span whose parent span is in another service. An inferred
-edge is a client or producer span with no child span, whose attributes name what it called: a peer
+edge is a client or producer span with no client, producer or entry child span, whose attributes name what it called: a peer
 service, a database, a queue or a host. A target that is also a service with spans in the window
-joins that service's edge, so a call that never reached it, such as a timeout, still counts there.
+is left out, so an uninstrumented call into an instrumented service is not drawn twice.
 
 Every edge is measured on the caller's side when the caller has a client or producer span, since
 that is the latency and the errors the caller saw. Without one, the callee span is used.
@@ -51,10 +51,11 @@ def _suffix(key: str) -> str:
     return f"if({_has(key)}, concat(':', {_attr(key)}), '')"
 
 
-# The first attribute that names the other end of a client or producer span, newest semantic
-# conventions first. db.system.name replaced db.system, db.namespace replaced db.name and
-# server.address replaced net.peer.name.
+# db.system.name replaced db.system, so the stable key wins when a span sends both.
 _DB_SYSTEM = f"if({_has('db.system.name')}, {_attr('db.system.name')}, {_attr('db.system')})"
+
+# The first attribute that names the other end of a client or producer span, newest semantic
+# conventions first. db.namespace replaced db.name; server.address replaced net.peer.name.
 _TARGET = f"""multiIf(
     {_has("peer.service")}, {_attr("peer.service")},
     notEmpty({_DB_SYSTEM}), concat({_DB_SYSTEM}, if({_has("db.namespace")}, concat(':', {_attr("db.namespace")}), {_suffix("db.name")})),
@@ -77,70 +78,53 @@ class DependenciesResult:
     truncated: bool
 
 
-def _service_filters(where: ast.Expr, service: str | None) -> dict[str, ast.Expr]:
-    if not service:
-        true = ast.Constant(value=True)
-        return {"caller_where": true, "callee_where": true, "service_where": true}
-    placeholders: dict[str, ast.Expr] = {"service": ast.Constant(value=service)}
-    # A caller span is kept when it is in the service, names the service as its target, or is the
-    # parent of one of the service's entry spans. A callee span is kept when it is in the service or
-    # its parent is one of the service's spans. service_name leads the sort key after the time bucket,
-    # so the inner scans prune parts instead of reading every service.
-    return {
-        "caller_where": parse_expr(
-            f"""service_name = {{service}} OR {_TARGET} = {{service}} OR (trace_id, span_id) IN (
-                SELECT trace_id, parent_span_id FROM posthog.trace_spans
-                WHERE {{where}} AND service_name = {{service}} AND kind IN {_ENTRY_KINDS}
-            )""",
-            placeholders=placeholders | {"where": where},
-        ),
-        "callee_where": parse_expr(
-            """service_name = {service} OR (trace_id, parent_span_id) IN (
-                SELECT trace_id, span_id FROM posthog.trace_spans WHERE {where} AND service_name = {service}
-            )""",
-            placeholders=placeholders | {"where": where},
-        ),
-        "service_where": parse_expr("caller = {service} OR callee = {service}", placeholders=placeholders),
-    }
-
-
 def _dependencies_query(
     date_from: datetime, date_to: datetime, environment: str, service: str | None
 ) -> ast.SelectQuery:
     # The callee side is the right side of the join, so ClickHouse builds its hash table from entry
-    # spans only, one per request, not from every span in the window.
-    reached = f"({_HAS_CALLEE} OR p.target_is_service)"
+    # spans only, one per request, not from every span in the window. A client span whose child is
+    # another client span is a wrapper, such as a retry around the real call, so it is not a leaf
+    # and gets no inferred edge: the inner span already draws that dependency.
     query = parse_select(
         f"""
         SELECT
             p.service_name AS caller,
             if({_HAS_CALLEE}, c.service_name, p.target) AS callee,
-            if({reached}, 0, 1) AS inferred,
-            if({reached}, '{DependencyKind.SERVICE.value}', p.target_kind) AS dependency_kind,
+            if({_HAS_CALLEE}, 0, 1) AS inferred,
+            if({_HAS_CALLEE}, '{DependencyKind.SERVICE.value}', p.target_kind) AS dependency_kind,
             count() AS requests,
             countIf(if(p.kind IN {_CALL_KINDS}, p.status_code, c.status_code) = 2) AS error_count,
             quantile(0.95)(if(p.kind IN {_CALL_KINDS}, p.duration_nano, c.duration_nano)) / 1e6 AS p95_ms
         FROM (
             SELECT trace_id, span_id, service_name, kind, status_code, duration_nano,
-                {_TARGET} AS target, {_TARGET_KIND} AS target_kind,
-                target IN (
-                    SELECT service_name FROM posthog.trace_spans
-                    WHERE {{where}} AND {{env_expr}} = {{environment}}
-                    GROUP BY service_name
-                ) AS target_is_service
+                {_TARGET} AS target, {_TARGET_KIND} AS target_kind
             FROM posthog.trace_spans
-            WHERE {{where}} AND {{env_expr}} = {{environment}} AND ({{caller_where}})
+            WHERE {{where}} AND {{env_expr}} = {{environment}} AND {{trace_where}}
         ) AS p
         LEFT JOIN (
             SELECT trace_id, parent_span_id, service_name, status_code, duration_nano
             FROM posthog.trace_spans
-            WHERE {{where}} AND {{env_expr}} = {{environment}} AND kind IN {_ENTRY_KINDS} AND NOT is_root_span
-                AND ({{callee_where}})
+            WHERE {{where}} AND {{env_expr}} = {{environment}} AND {{trace_where}}
+                AND kind IN {_ENTRY_KINDS} AND NOT is_root_span
         ) AS c ON p.trace_id = c.trace_id AND p.span_id = c.parent_span_id
+        LEFT JOIN (
+            SELECT trace_id, parent_span_id, count() AS call_children
+            FROM posthog.trace_spans
+            WHERE {{where}} AND {{env_expr}} = {{environment}} AND {{trace_where}}
+                AND kind IN {_CALL_KINDS} AND NOT is_root_span
+            GROUP BY trace_id, parent_span_id
+        ) AS cc ON p.trace_id = cc.trace_id AND p.span_id = cc.parent_span_id
         WHERE if(
             {_HAS_CALLEE},
             c.service_name != p.service_name,
-            p.kind IN {_CALL_KINDS} AND notEmpty(p.target) AND p.target != p.service_name
+            p.kind IN {_CALL_KINDS}
+            AND ifNull(cc.call_children, 0) = 0
+            AND notEmpty(p.target)
+            AND p.target NOT IN (
+                SELECT service_name FROM posthog.trace_spans
+                WHERE {{where}} AND {{env_expr}} = {{environment}}
+                GROUP BY service_name
+            )
         )
         GROUP BY caller, callee, inferred, dependency_kind
         HAVING {{service_where}}
@@ -151,12 +135,39 @@ def _dependencies_query(
             "where": window_where(date_from, date_to),
             "env_expr": environment_expr(),
             "environment": ast.Constant(value=environment),
-            **_service_filters(window_where(date_from, date_to), service),
+            "trace_where": _service_traces_where(date_from, date_to, environment, service),
+            "service_where": (
+                parse_expr(
+                    "caller = {service} OR callee = {service}", placeholders={"service": ast.Constant(value=service)}
+                )
+                if service
+                else ast.Constant(value=True)
+            ),
             "limit": ast.Constant(value=DEPENDENCY_EDGES_LIMIT + 1),
         },
     )
     assert isinstance(query, ast.SelectQuery)
     return query
+
+
+def _service_traces_where(date_from: datetime, date_to: datetime, environment: str, service: str | None) -> ast.Expr:
+    # Every edge on a service, in either direction, sits in a trace that has a span from it. service_name
+    # leads the sort key after time, so this subquery reads only that service's granules, and the scans
+    # and the join then see only those traces instead of the whole environment.
+    if not service:
+        return ast.Constant(value=True)
+    return parse_expr(
+        """trace_id IN (
+            SELECT trace_id FROM posthog.trace_spans
+            WHERE {where} AND {env_expr} = {environment} AND service_name = {service}
+        )""",
+        placeholders={
+            "where": window_where(date_from, date_to),
+            "env_expr": environment_expr(),
+            "environment": ast.Constant(value=environment),
+            "service": ast.Constant(value=service),
+        },
+    )
 
 
 def get_dependencies(
