@@ -9,6 +9,7 @@ import {
     DropdownMenuGroup,
     DropdownMenuItem,
     DropdownMenuTrigger,
+    Spinner,
 } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -79,6 +80,7 @@ export function QuillSQLEditorSceneActions({
         hasEditorChanges,
         editingMetricName,
         metricUpdating,
+        viewUpdateInProgress,
     } = useValues(sqlEditorLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
     const { convertToNotebook, openHistoryModal } = useActions(editorSceneLogic)
@@ -107,7 +109,7 @@ export function QuillSQLEditorSceneActions({
             variant="outline"
             onClick={() => discardChanges()}
             disabledReason={
-                insightLoading || updatingDataWarehouseSavedQuery
+                insightLoading || viewUpdateInProgress || updatingDataWarehouseSavedQuery
                     ? 'Wait for the current operation to finish'
                     : !hasEditorChanges
                       ? 'No changes to discard'
@@ -193,11 +195,18 @@ export function QuillSQLEditorSceneActions({
                                 <Button
                                     variant="primary"
                                     onClick={onUpdateView}
-                                    loading={editingViewLoading}
+                                    loading={editingViewLoading && !viewUpdateInProgress}
                                     disabledReason={editingViewDisabledReason}
+                                    aria-busy={viewUpdateInProgress || undefined}
                                 >
-                                    {!editingViewLoading && <IconDownload />}
-                                    <span>{isMaterializedView ? 'Update and re-materialize view' : 'Update view'}</span>
+                                    {viewUpdateInProgress ? <Spinner /> : !editingViewLoading && <IconDownload />}
+                                    <span>
+                                        {viewUpdateInProgress
+                                            ? 'Checking downstream views…'
+                                            : isMaterializedView
+                                              ? 'Update and re-materialize view'
+                                              : 'Update view'}
+                                    </span>
                                     {saveWarning}
                                 </Button>
                             </AccessControlAction>

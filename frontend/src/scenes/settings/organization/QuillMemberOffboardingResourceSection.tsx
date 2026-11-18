@@ -88,13 +88,18 @@ export function QuillMemberOffboardingResourceSection({
 }): JSX.Element {
     const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
     const { keep, savingResourceIds, getSelectionLabel } = useValues(memberOffboardingLogic)
-    const { setKeep, disableResources } = useActions(memberOffboardingLogic)
+    const { setKeep, disableResources, openTransfer } = useActions(memberOffboardingLogic)
 
     const isSubscription = kind === 'subscriptions'
     const selectedIds = resources.filter((resource) => rowSelection[resource.id]).map((resource) => resource.id)
 
     const disableSelected = (): void => {
         disableResources(selectedIds)
+        setRowSelection({})
+    }
+
+    const transferSelected = (): void => {
+        openTransfer(selectedIds)
         setRowSelection({})
     }
 
@@ -201,13 +206,18 @@ export function QuillMemberOffboardingResourceSection({
             </Heading>
             <Text size="xs" render={<p className="m-0" />}>
                 {isSubscription
-                    ? 'These subscriptions and alerts were created by this member. You can keep or disable them.'
+                    ? 'These subscriptions and alerts will be disabled at their next run after this member leaves. Transfer ownership to keep them running, or disable them now.'
                     : "These resources were shared by this member and are accessible to anyone with the link. You can disable public sharing. This won't delete them."}
             </Text>
             {!isSelf && (
                 <div className="flex min-h-9 flex-wrap items-center gap-2">
                     {selectedIds.length > 0 ? (
                         <>
+                            {isSubscription && (
+                                <Button variant="outline" disabledReason={disabledReason} onClick={transferSelected}>
+                                    Transfer ownership
+                                </Button>
+                            )}
                             <Button
                                 variant="destructive-outline"
                                 loading={resources.some((resource) => savingResourceIds.includes(resource.id))}

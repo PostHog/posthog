@@ -208,6 +208,19 @@ export const MODELS: readonly CatalogModel[] = [
     },
     costMultiplier: "1.5×",
     costSummary: "Input $3 · Output $15 per 1M tokens",
+    retired: true,
+  },
+  {
+    id: "moonshotai/kimi-k3.1-pro",
+    runtimeAdapter: "claude",
+    reasoningEfforts: [],
+    label: "Kimi K3.1 Pro",
+    cost: {
+      inputPerMtok: 2,
+      outputPerMtok: 10,
+    },
+    costMultiplier: "1×",
+    costSummary: "Input $2 · Output $10 per 1M tokens",
   },
   {
     id: "deepseek-ai/deepseek-v4-flash-0731",

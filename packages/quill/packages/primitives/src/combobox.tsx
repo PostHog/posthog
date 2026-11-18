@@ -292,10 +292,7 @@ const ComboboxChips = React.forwardRef<
     React.ComponentRef<typeof ComboboxPrimitive.Chips>,
     React.ComponentPropsWithRef<typeof ComboboxPrimitive.Chips> &
         ComboboxPrimitive.Chips.Props & {
-            /**
-             * Disables the chips input and each chip's remove button, and says why in a tooltip on the
-             * field. The field stays focusable, so the reason is reachable.
-             */
+            /** Disables the chips input and each chip's remove button, and says why in a tooltip on the field. */
             disabledReason?: React.ReactNode
         }
 >(function ComboboxChips({ className, disabledReason, onMouseDown, ...props }, ref) {

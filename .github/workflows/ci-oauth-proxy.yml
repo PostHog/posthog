@@ -37,6 +37,8 @@ jobs:
             - uses: ./.github/actions/paths-filter
               id: filter
               if: github.event_name != 'push' || (github.event.before != '' && github.event.before != '0000000000000000000000000000000000000000')
+              env:
+                  GIT_NO_LAZY_FETCH: '1'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
