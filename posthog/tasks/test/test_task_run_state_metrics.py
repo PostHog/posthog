@@ -329,3 +329,32 @@ class TestCaptureTaskStatusShadowMetrics(TestCase):
         assert registry.get_sample_value("posthog_tasks_stale_live_runs", stale_labels) == 1
         task.refresh_from_db()
         assert task.status == Task.Status.RUNNING
+
+    def test_ends_a_quiet_run_of_a_profile_the_sweep_enforces(self) -> None:
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        organization = Organization.objects.create(name="Test Org")
+        team = Team.objects.create(organization=organization, name="Test Team")
+        task = Task.objects.create(
+            team=team, title="t", description="d", origin_product=Task.OriginProduct.USER_CREATED, profile="user"
+        )
+        run = TaskRun.objects.create(
+            task=task, team=team, status=TaskRun.Status.IN_PROGRESS, created_at=timezone.now() - timedelta(hours=3)
+        )
+        registry = CollectorRegistry()
+        context = MagicMock()
+        context.__enter__ = MagicMock(return_value=registry)
+        context.__exit__ = MagicMock(return_value=False)
+
+        with (
+            patch("posthog.tasks.tasks.pushed_metrics_registry", return_value=context),
+            patch(
+                "products.tasks.backend.stale_runs.posthoganalytics.get_feature_flag_payload",
+                return_value={"user": "enforce"},
+            ),
+        ):
+            capture_task_status_shadow_metrics()
+
+        run.refresh_from_db()
+        assert run.status == TaskRun.Status.FAILED
+        assert registry.get_sample_value("posthog_tasks_stale_live_runs_swept", {"profile": "user"}) == 1

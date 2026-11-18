@@ -1,5 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
+from unittest.mock import patch
+
 from django.test import SimpleTestCase, TestCase
 from django.utils import timezone as django_timezone
 
@@ -7,6 +9,8 @@ from parameterized import parameterized
 
 from posthog.models import Organization, Team
 
+from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.contracts import SweptRunRow
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.stale_runs import StaleRule, StaleRunCount, collect_stale_live_runs, stale_rules
 from products.tasks.backend.task_profiles import USER
@@ -118,6 +122,7 @@ class TestCollectStaleLiveRuns(TestCase):
         profile: str | None = None,
         quiet_for: timedelta,
         idle_timeout_seconds: int | None = None,
+        awaits_first_message: bool = False,
     ) -> TaskRun:
         task = Task.objects.create(
             team=self.team,
@@ -134,7 +139,10 @@ class TestCollectStaleLiveRuns(TestCase):
             environment=environment,
             created_at=last_seen,
             last_heartbeat_at=last_seen if environment == CLOUD else None,
-            state={"inactivity_timeout_seconds": idle_timeout_seconds} if idle_timeout_seconds else {},
+            state={
+                **({"inactivity_timeout_seconds": idle_timeout_seconds} if idle_timeout_seconds else {}),
+                **({"await_user_message": True} if awaits_first_message else {}),
+            },
         )
 
     def test_counts_only_live_runs_that_went_quiet_past_their_own_timeout(self) -> None:
@@ -153,3 +161,54 @@ class TestCollectStaleLiveRuns(TestCase):
             StaleRunCount(profile=USER.key, environment=CLOUD, rule=StaleRule.HEARTBEAT, count=2),
             StaleRunCount(profile=None, environment=LOCAL, rule=StaleRule.HEARTBEAT, count=1),
         ]
+
+    @parameterized.expand(
+        [
+            ("enforced_quiet_cloud_run", {USER.key: "enforce"}, {}, True),
+            ("shadow_mode", {USER.key: "shadow"}, {}, False),
+            ("profile_not_in_the_payload", {"other": "enforce"}, {}, False),
+            ("no_payload", None, {}, False),
+            ("run_that_showed_life", {USER.key: "enforce"}, {"quiet_for": timedelta(seconds=5)}, False),
+            ("queued_run", {USER.key: "enforce"}, {"status": TaskRun.Status.QUEUED}, False),
+            ("local_run", {USER.key: "enforce"}, {"environment": LOCAL}, False),
+            ("warm_run_waiting_for_its_first_message", {USER.key: "enforce"}, {"awaits_first_message": True}, False),
+            ("task_without_a_profile", {USER.key: "enforce"}, {"profile": None}, False),
+        ]
+    )
+    def test_sweep_ends_only_quiet_cloud_runs_of_enforced_profiles(
+        self, _name: str, payload: dict[str, str] | None, run_overrides: dict, swept: bool
+    ) -> None:
+        run = self._run(
+            **{"profile": USER.key, "quiet_for": timedelta(hours=1), "idle_timeout_seconds": 600, **run_overrides}
+        )
+
+        with patch("products.tasks.backend.stale_runs.posthoganalytics.get_feature_flag_payload", return_value=payload):
+            rows = tasks_facade.sweep_stale_live_task_runs()
+
+        run.refresh_from_db()
+        assert (run.status == TaskRun.Status.FAILED) is swept
+        assert rows == ([SweptRunRow(profile=USER.key, count=1)] if swept else [])
+
+    def test_sweep_leaves_runs_alone_when_the_flag_lookup_fails(self) -> None:
+        run = self._run(profile=USER.key, quiet_for=timedelta(hours=1), idle_timeout_seconds=600)
+
+        with patch(
+            "products.tasks.backend.stale_runs.posthoganalytics.get_feature_flag_payload",
+            side_effect=RuntimeError("flags are down"),
+        ):
+            rows = tasks_facade.sweep_stale_live_task_runs()
+
+        run.refresh_from_db()
+        assert run.status == TaskRun.Status.IN_PROGRESS
+        assert rows == []
+
+    def test_a_run_that_heartbeats_after_the_scan_is_not_swept(self) -> None:
+        run = self._run(profile=USER.key, quiet_for=timedelta(hours=1), idle_timeout_seconds=600)
+        quiet_since = django_timezone.now() - timedelta(minutes=25)
+        TaskRun.objects.filter(id=run.id).update(last_heartbeat_at=django_timezone.now())
+
+        claimed = tasks_facade.claim_and_fail_stale_run(run.id, "quiet", quiet_since=quiet_since)
+
+        run.refresh_from_db()
+        assert claimed is False
+        assert run.status == TaskRun.Status.IN_PROGRESS
