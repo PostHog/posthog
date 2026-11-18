@@ -8,7 +8,6 @@
 -- privileges on audit_log only.
 DO $$
 DECLARE
-    runtime_role text := nullif(current_setting('credentials_service.runtime_role', true), '');
     missing text[];
     partman_version text;
 BEGIN
@@ -20,7 +19,7 @@ BEGIN
         WHERE e.extname = want.name AND (want.schema IS NULL OR n.nspname = want.schema)
     );
     IF missing IS NOT NULL THEN
-        IF runtime_role IS NOT NULL THEN
+        IF current_setting('credentials_service.partman_optional', true) IS DISTINCT FROM 'on' THEN
             RAISE EXCEPTION 'audit_log retention needs pg_partman in schema partman and pg_cron; missing: %', missing
                 USING HINT = 'Infra must create the extensions in this database before this migration runs.';
         END IF;
@@ -33,8 +32,8 @@ BEGIN
         RAISE EXCEPTION 'audit_log retention needs pg_partman 5 or later, found %', partman_version;
     END IF;
 
-    -- Writes wait until the migration commits, so no row lands in the default partition after it
-    -- is emptied. Reads go on. The timeout keeps a long lock wait from stalling every audit write.
+    -- create_parent takes ACCESS EXCLUSIVE on audit_log until commit, so reads and writes pause.
+    -- lock_timeout bounds the wait to acquire a lock, not the pause after it is acquired.
     PERFORM set_config('lock_timeout', '10s', true);
     LOCK TABLE audit_log IN SHARE ROW EXCLUSIVE MODE;
 
@@ -62,13 +61,25 @@ BEGIN
         END LOOP;
     END IF;
 
-    -- Retention drops a whole partition, unexported rows included. The export lag alert covers that.
+    -- Retention also drops unexported rows. The lag alert uses their oldest age.
     UPDATE partman.part_config
     SET premake = 7, retention = '30 days', retention_keep_table = false, infinite_time_partitions = true
     WHERE parent_table = 'public.audit_log';
 
+    EXECUTE $procedure$
+        CREATE OR REPLACE PROCEDURE public.audit_log_maintenance()
+        LANGUAGE plpgsql
+        AS $body$
+        BEGIN
+            PERFORM set_config('lock_timeout', '5s', false);
+            CALL partman.partition_data_proc('public.audit_log');
+            CALL partman.run_maintenance_proc();
+        END
+        $body$
+    $procedure$;
+
     -- Scheduling the same name again replaces the job, so a rerun does not add a second one.
-    PERFORM cron.schedule('credentials-service-audit-partman', '17 * * * *', 'CALL partman.run_maintenance_proc()');
+    PERFORM cron.schedule('credentials-service-audit-partman', '17 * * * *', 'CALL public.audit_log_maintenance()');
 END
 $$;
 
@@ -80,12 +91,13 @@ DECLARE
     child record;
     template regclass;
 BEGIN
-    IF to_regclass('partman.part_config') IS NULL THEN
-        RETURN;
-    END IF;
     IF to_regclass('cron.job') IS NOT NULL THEN
         PERFORM cron.unschedule(jobid) FROM cron.job
         WHERE jobname = 'credentials-service-audit-partman' AND username = current_user;
+    END IF;
+    EXECUTE 'DROP PROCEDURE IF EXISTS public.audit_log_maintenance()';
+    IF to_regclass('partman.part_config') IS NULL THEN
+        RETURN;
     END IF;
     IF NOT EXISTS (SELECT 1 FROM partman.part_config WHERE parent_table = 'public.audit_log') THEN
         RETURN;

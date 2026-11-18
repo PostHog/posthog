@@ -11,7 +11,7 @@ import type { Pool, PoolClient } from 'pg'
 import type { ProxyAwareAgentOptions } from '../crypto/aws-kms'
 import type { AuditExportConfig } from '../lib/config'
 import { logger } from '../lib/logging'
-import { auditExportLagSeconds, auditExportedTotal } from './metrics'
+import { auditExportedTotal } from './metrics'
 
 export const AUDIT_EVENT = '$credentials_access'
 
@@ -159,9 +159,8 @@ export class AuditExporter {
         this.stopped = true
     }
 
-    /** One pass: updates the lag gauge, then, as the leader, exports until nothing waits or a send fails. */
+    /** One pass: as the leader, exports until nothing waits or a send fails. */
     async tick(): Promise<TickResult> {
-        await this.updateLag()
         const client = await this.pool.connect()
         // A checked-out client has no error listener, so a dropped connection during a send
         // would otherwise be an uncaught 'error' event.
@@ -245,18 +244,6 @@ export class AuditExporter {
         } catch (err) {
             await client.query('ROLLBACK').catch(() => undefined)
             throw err
-        }
-    }
-
-    private async updateLag(): Promise<void> {
-        try {
-            const result = await this.pool.query(
-                `SELECT COALESCE(EXTRACT(EPOCH FROM now() - min(occurred_at)), 0) AS lag
-                 FROM audit_log WHERE exported_at IS NULL`
-            )
-            auditExportLagSeconds.set(Number(result.rows[0].lag))
-        } catch (err) {
-            logger.warn('audit:lag_query_failed', { error: err instanceof Error ? err.message : String(err) })
         }
     }
 }

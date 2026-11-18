@@ -381,7 +381,7 @@ The migration `1794400000002_audit-partman.sql` sets this up as the migrate role
 
 - `partman.create_parent('public.audit_log', 'occurred_at', '1 day', p_premake => 7, p_default_table => false)`. The initial migration already made the default partition.
 - In `partman.part_config`: `retention = '30 days'`, `retention_keep_table = false` and `infinite_time_partitions = true`.
-- The pg_cron job `credentials-service-audit-partman` runs `CALL partman.run_maintenance_proc()` at minute 17 of each hour.
+- The pg_cron job `credentials-service-audit-partman` runs `CALL public.audit_log_maintenance()` at minute 17 of each hour.
 
 A pg_cron job runs as the role that scheduled it.
 Thus the migrate role makes, owns and drops every partition, and no scheduled job outside the database holds its credential.
@@ -395,14 +395,18 @@ Before this migration runs, infra must do these steps on the database, as the ma
 - Give the migrate role `USAGE` and `CREATE` on schema `partman`, `SELECT, INSERT, UPDATE, DELETE` on the tables in schema `partman`, and `EXECUTE` on its functions and procedures. `create_parent` makes a template table in schema `partman` and writes `part_config`.
 - Give the migrate role `USAGE` on schema `cron` and `EXECUTE` on its functions.
 
-When an extension is missing and `CREDENTIALS_SERVICE_RUNTIME_ROLE` is set, the migration fails and names the missing extension.
-When the variable is unset (single-role local development), the migration skips the setup with a notice. Rows then stay in the default partition, and no retention runs.
+When an extension is missing, the migration fails and names it.
+Set `CREDENTIALS_SERVICE_PARTMAN_OPTIONAL=true` only for a database where retention is optional.
+The migration then skips the setup with a notice. Rows stay in the default partition, and no retention runs.
 
 A row in the default partition stops pg_partman from attaching a partition for that day.
 The migration moves the rows of the default partition out before `create_parent`, and moves them back after it.
 It then runs `partman.partition_data_time` until the default partition is empty, because `partition_data_proc` cannot run in a transaction.
-All audit writes wait while the migration runs (lock timeout 10 seconds), so run it while the default partition is small.
-The down migration puts every row back in the default partition and removes the pg_partman configuration and the pg_cron job.
+`partman.create_parent` holds an ACCESS EXCLUSIVE lock on `audit_log` until the migration commits.
+Reads and writes pause during that lock. The 10-second `lock_timeout` limits the wait to get the lock, not the pause after it.
+Run the migration while the default partition is small.
+The maintenance procedure uses a 5-second lock timeout, moves default-partition rows into daily partitions, and then runs pg_partman maintenance.
+The down migration puts every row back in the default partition. It removes the pg_partman configuration, the pg_cron job, and the procedure.
 
 ### Audit export and retention
 
@@ -421,10 +425,15 @@ The request then goes through the egress proxy in the pod's `HTTPS_PROXY`. Boot 
 
 The runtime role has `UPDATE (exported_at)` on `audit_log` and no other update right. The exporter marks rows by primary key `(id, occurred_at)`, with the values it read in its select.
 
+The server measures export lag every 30 seconds when the integrations database pool exists, even when export is off.
+A failed lag query logs a warning and keeps the last gauge value.
+In `dev`, `prod-us`, and `prod-eu`, the service refuses to start with a database unless audit export is on.
+Without a database, the service can start with audit export off.
+
 **Retention** drops each daily partition when it is older than 30 days (see "Audit partitions"). The service does not delete audit rows.
 A dropped partition can contain rows that the export did not send. This is an accepted risk.
 The stdout audit lines in Loki are then the only copy of those rows.
-The export lag alert (`credentials_service_audit_export_lag_seconds`) shows an export that is off or behind, long before the 30 days end.
+The export lag alert (`credentials_service_audit_export_lag_seconds`) reports the oldest unexported row, including when export is off.
 
 **Alerts.** Alert on service metrics and on the stdout audit lines (`integrations:audited`) in Loki.
 Never alert on `$credentials_access` events: anyone with the project key can forge them, so the events are for analysis only.

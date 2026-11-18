@@ -121,7 +121,7 @@ describe('migrations', () => {
     it('apply cleanly, revert cleanly and apply again', async () => {
         const url = await createDatabase('migrations_round_trip')
 
-        expect(await runMigrations({ databaseUrl: url, direction: 'up' })).toEqual(MIGRATIONS)
+        expect(await runMigrations({ databaseUrl: url, direction: 'up', partmanOptional: true })).toEqual(MIGRATIONS)
         expect(await tables(url)).toEqual(TABLES)
         expect(await runMigrations({ databaseUrl: url, direction: 'up' })).toEqual([])
 
@@ -130,15 +130,22 @@ describe('migrations', () => {
         )
         expect(await tables(url)).toEqual([])
 
-        expect(await runMigrations({ databaseUrl: url, direction: 'up' })).toEqual(MIGRATIONS)
+        expect(await runMigrations({ databaseUrl: url, direction: 'up', partmanOptional: true })).toEqual(MIGRATIONS)
         expect(await tables(url)).toEqual(TABLES)
     })
 
-    it('refuses to set up audit retention without pg_partman and pg_cron when a runtime role is set', async () => {
+    it('refuses to set up audit retention without pg_partman and pg_cron by default', async () => {
         const url = await createDatabase('no_audit_extensions')
-        await expect(runMigrations({ databaseUrl: url, direction: 'up', runtimeRole: RUNTIME_ROLE })).rejects.toThrow(
+        await expect(runMigrations({ databaseUrl: url, direction: 'up' })).rejects.toThrow(
             'missing: {pg_cron,pg_partman}'
         )
+    })
+
+    it('skips audit retention without the extensions when partman is optional', async () => {
+        const url = await createDatabase('optional_audit_extensions')
+        expect(
+            await runMigrations({ databaseUrl: url, direction: 'up', runtimeRole: RUNTIME_ROLE, partmanOptional: true })
+        ).toEqual(MIGRATIONS)
     })
 })
 
@@ -186,7 +193,7 @@ describe('runtime role grants', () => {
 
     it('skips the grants when no runtime role is given', async () => {
         const url = await createDatabase('runtime_role_unset')
-        expect(await runMigrations({ databaseUrl: url, direction: 'up' })).toEqual(MIGRATIONS)
+        expect(await runMigrations({ databaseUrl: url, direction: 'up', partmanOptional: true })).toEqual(MIGRATIONS)
     })
 })
 
@@ -196,7 +203,7 @@ describe('postgres replay store', () => {
 
     beforeAll(async () => {
         const url = await createDatabase('replay_store')
-        await runMigrations({ databaseUrl: url, direction: 'up' })
+        await runMigrations({ databaseUrl: url, direction: 'up', partmanOptional: true })
         db = new Pool({ connectionString: url })
         store = new PostgresReplayStore(db)
     })
@@ -256,7 +263,7 @@ describe('audit_log partitions', () => {
         expect(job.rows).toEqual([
             {
                 schedule: '17 * * * *',
-                command: 'CALL partman.run_maintenance_proc()',
+                command: 'CALL public.audit_log_maintenance()',
                 username: container.getUsername(),
             },
         ])
@@ -284,6 +291,22 @@ describe('audit_log partitions', () => {
         )
         expect(tables.rows[0]).toEqual({ expired: null, kept: partitionOf('kept') })
     })
+
+    it('moves default-partition rows into daily partitions during maintenance', async () => {
+        const inserted = await db.query<{ partition: string }>(
+            `INSERT INTO audit_log (deployment, operation, outcome, occurred_at)
+             VALUES ('d', 'late-maintenance', 'ok', now() + interval '10 days')
+             RETURNING tableoid::regclass::text AS partition`
+        )
+        expect(inserted.rows[0]?.partition).toBe('audit_log_default')
+
+        await db.query('CALL public.audit_log_maintenance()')
+
+        const moved = await db.query<{ partition: string }>(
+            `SELECT tableoid::regclass::text AS partition FROM audit_log WHERE operation = 'late-maintenance'`
+        )
+        expect(moved.rows[0]?.partition).toMatch(/^audit_log_p\d{8}$/)
+    })
 })
 
 describe('integrations queries', () => {
@@ -308,7 +331,7 @@ describe('integrations queries', () => {
 
     beforeAll(async () => {
         const url = await createDatabase('integrations_queries')
-        await runMigrations({ databaseUrl: url, direction: 'up' })
+        await runMigrations({ databaseUrl: url, direction: 'up', partmanOptional: true })
         db = new Pool({ connectionString: url })
     })
 

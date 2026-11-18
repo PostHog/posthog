@@ -12,6 +12,7 @@ import {
     EXPORT_LOCK_KEY,
     captureSender,
 } from '@/audit/exporter'
+import { measureAuditExportLag } from '@/audit/lag'
 import { runMigrations } from '@/db/migrate'
 import { insertAuditRows } from '@/integrations/audit'
 import { register } from '@/metrics'
@@ -219,23 +220,18 @@ describe('AuditExporter', () => {
         expect(uuids).toHaveLength(6)
     })
 
-    it('reports the age of the oldest unexported row as lag', async () => {
+    it('reports the age of the oldest unexported row independently of the exporter', async () => {
         await seed(1)
-        await pool.query("UPDATE audit_log SET occurred_at = now() - interval '2 minutes'")
-        const { send } = recorder()
-        const failing = new AuditExporter(
-            pool,
-            async () => {
-                throw new Error('down')
-            },
-            10,
-            'test'
+        await pool.query(
+            `INSERT INTO audit_log (deployment, operation, outcome, occurred_at)
+             VALUES ('d', 'older', 'ok', now() - interval '2 minutes')`
         )
-        await failing.tick()
+        const { send } = recorder()
+        await measureAuditExportLag(pool)
         expect(await metricValue('credentials_service_audit_export_lag_seconds')).toBeGreaterThanOrEqual(119)
 
         await new AuditExporter(pool, send, 10, 'test').tick()
-        await new AuditExporter(pool, send, 10, 'test').tick()
+        await measureAuditExportLag(pool)
         expect(await metricValue('credentials_service_audit_export_lag_seconds')).toBe(0)
     })
 

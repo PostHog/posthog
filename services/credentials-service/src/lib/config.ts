@@ -219,6 +219,7 @@ export interface MigrateConfig {
     url: string
     /** Empty in single-role local development: the grants are then skipped. */
     runtimeRole: string
+    partmanOptional: boolean
 }
 
 /** Prefers the migrate URL, and falls back to the runtime URL for single-role local development. */
@@ -231,7 +232,7 @@ export function loadMigrateConfig(): MigrateConfig | undefined {
     if (runtimeRole && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(runtimeRole)) {
         throw new Error(`CREDENTIALS_SERVICE_RUNTIME_ROLE is not a valid role name: ${JSON.stringify(runtimeRole)}`)
     }
-    return { url, runtimeRole }
+    return { url, runtimeRole, partmanOptional: process.env.CREDENTIALS_SERVICE_PARTMAN_OPTIONAL === 'true' }
 }
 
 function auditExportFromEnv(): AuditExportConfig | undefined {
@@ -356,6 +357,11 @@ export function loadConfig(serviceAccountDir = SERVICE_ACCOUNT_DIR): Config {
 
     const database = loadDatabaseConfig()
     if (database) {
+        if (['dev', 'prod-us', 'prod-eu'].includes(config.env) && !auditExport) {
+            throw new Error(
+                'audit export must be on wherever the integrations database is on because retention drops unexported rows'
+            )
+        }
         config.database = database
     }
 
