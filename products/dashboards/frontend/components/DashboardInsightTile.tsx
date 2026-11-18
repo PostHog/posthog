@@ -1,7 +1,7 @@
 import { useMergeRefs } from '@floating-ui/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { forwardRef, memo, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, forwardRef, memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { HTMLAttributes, ReactNode } from 'react'
 import { useInView } from 'react-intersection-observer'
 
@@ -13,12 +13,15 @@ import { InsightVisualizationSkeleton } from 'lib/components/Cards/InsightCard/I
 import { QuillSurfaceContext } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+import { lazyWithRetry } from 'lib/utils/retryImport'
+import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { getEffectiveDateOverride } from 'scenes/dashboard/dashboardUtils'
 import { dateRangeZoomEnd, hasTimeComponent } from 'scenes/insights/insightVizDataLogic'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
 import { insightsModel } from '~/models/insightsModel'
-import { isInsightVizNode } from '~/queries/schema/node-guards'
+import { isInsightVizNode, isMetricsQuery } from '~/queries/schema/node-guards'
 import type { DashboardTile, InsightModel } from '~/types'
 import { DashboardPlacement } from '~/types'
 
@@ -40,6 +43,9 @@ type DashboardInsightTileProps = Omit<
 const MemoizedInsightCard = memo(InsightCard)
 const MOUNT_MARGIN = '500px'
 const UNMOUNT_MARGIN = '1500px'
+const MetricsPanelEditor = lazyWithRetry(() =>
+    import('../MetricsPanelEditor').then((m) => ({ default: m.MetricsPanelEditor }))
+)
 
 export const DashboardInsightTile = forwardRef<HTMLDivElement, DashboardInsightTileProps>(function DashboardInsightTile(
     {
@@ -63,13 +69,21 @@ export const DashboardInsightTile = forwardRef<HTMLDivElement, DashboardInsightT
         refreshDashboardItem,
         setTileOverride,
         zoomDateRange,
+        loadDashboard,
     } = useActions(dashboardLogic)
-    const { zoomPreview } = useValues(dashboardLogic)
+    const { zoomPreview, currentTeamId } = useValues(dashboardLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const { renameInsight } = useActions(insightsModel)
     const { tile, insight } = cardProps
     const [keepMountedForOverlay, setKeepMountedForOverlay] = useState(false)
     const [cardMounted, setCardMounted] = useState(false)
+    const [editingMetrics, setEditingMetrics] = useState(false)
+    const metricsBuilderEnabled = useFeatureFlag('METRICS_INSIGHT_BUILDER')
+    const canEditMetricsHere =
+        metricsBuilderEnabled &&
+        cardProps.canEditDashboard &&
+        cardProps.placement === DashboardPlacement.Dashboard &&
+        isMetricsQuery(insight.query)
     const exportPlacement = cardProps.placement === DashboardPlacement.Export
     const { ref: visibilityRef, inView } = useInView({
         rootMargin: MOUNT_MARGIN,
@@ -100,8 +114,8 @@ export const DashboardInsightTile = forwardRef<HTMLDivElement, DashboardInsightT
         }
     }, [cardMounted, exportPlacement])
     useEffect(() => {
-        mountedTileRef.current?.setReleasable(!withinKeepBand && !keepMountedForOverlay)
-    }, [cardMounted, withinKeepBand, keepMountedForOverlay])
+        mountedTileRef.current?.setReleasable(!withinKeepBand && !keepMountedForOverlay && !editingMetrics)
+    }, [cardMounted, withinKeepBand, keepMountedForOverlay, editingMetrics])
     const sharedView = isSharedView()
     const tileActions = useMemo(() => {
         const refresh = (updatedInsight?: InsightModel): void => {
@@ -133,6 +147,7 @@ export const DashboardInsightTile = forwardRef<HTMLDivElement, DashboardInsightT
             : undefined
     const zoomQueryKind = isInsightVizNode(insight.query) ? insight.query.source.kind : undefined
     const overrides = tile.filters_overrides
+    const editorDates = getEffectiveDateOverride(insight.filter_override_context, cardProps.filtersOverride, overrides)
     // A tile with its own dates ignores the dashboard's, so zooming it would change every tile but this one.
     const tileOwnsDates = !!(overrides?.date_from || overrides?.date_to || overrides?.ignoreDashboardFilters)
     const onDateRangeZoom = useMemo(
@@ -179,6 +194,7 @@ export const DashboardInsightTile = forwardRef<HTMLDivElement, DashboardInsightT
                         keepMountedDuringInteraction={interactionActive}
                         onOverlayVisibilityChange={setKeepMountedForOverlay}
                         renderVizWhenMounted
+                        editInDashboard={canEditMetricsHere ? () => setEditingMetrics(true) : undefined}
                     >
                         {decorations}
                     </MemoizedInsightCard>
@@ -202,6 +218,24 @@ export const DashboardInsightTile = forwardRef<HTMLDivElement, DashboardInsightT
             )}
             {showResizeHandles && <DashboardResizeHandles />}
             {children}
+            {editingMetrics && currentTeamId && (
+                <Suspense fallback={<Spinner />}>
+                    <MetricsPanelEditor
+                        projectId={currentTeamId}
+                        insightId={insight.id}
+                        dashboardId={cardProps.dashboardId}
+                        filtersOverride={{
+                            ...(overrides?.ignoreDashboardFilters
+                                ? {}
+                                : { metricVariables: cardProps.filtersOverride?.metricVariables }),
+                            date_from: editorDates.dateFromOverride,
+                            date_to: editorDates.dateToOverride,
+                        }}
+                        onClose={() => setEditingMetrics(false)}
+                        onSaved={() => loadDashboard({ action: DashboardLoadAction.Update })}
+                    />
+                </Suspense>
+            )}
         </>
     )
 

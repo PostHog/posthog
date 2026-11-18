@@ -121,6 +121,7 @@ export interface InsightCardProps extends Resizeable {
     timedOut?: boolean
     /** Whether the editing controls should be enabled or not. */
     showEditingControls?: boolean
+    editInDashboard?: () => void
     refreshAfterDisplayOptionsChange?: (insight: InsightModel) => void
     /** Whether the  controls for showing details should be enabled or not. */
     showDetailsControls?: boolean
@@ -197,6 +198,7 @@ function InsightCardInternal(
         refreshAfterDisplayOptionsChange,
         showResizeHandles,
         showEditingControls,
+        editInDashboard,
         showDetailsControls,
         updateColor,
         toggleShowDescription,
@@ -530,6 +532,7 @@ function InsightCardInternal(
                         setAreDetailsShown={setAreDetailsShown}
                         onInfoVisibilityChange={setCompactInfoVisible}
                         showEditingControls={showEditingControls}
+                        editInDashboard={editInDashboard}
                         showDetailsControls={showDetailsControls}
                         moreButtons={moreButtons}
                         filtersOverride={filtersOverride}

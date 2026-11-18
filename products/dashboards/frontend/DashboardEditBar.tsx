@@ -63,7 +63,10 @@ function DashboardControlSlot({
     const scopeText = dashboardControlScopeText(scope)
     return (
         <Tooltip title={scopeText} placement="top" delayMs={300}>
-            <div className={className}>{children}</div>
+            <div className={clsx('flex flex-col gap-1', className)}>
+                {children}
+                {scopeText && <span className="text-xs text-secondary">{scopeText}</span>}
+            </div>
         </Tooltip>
     )
 }

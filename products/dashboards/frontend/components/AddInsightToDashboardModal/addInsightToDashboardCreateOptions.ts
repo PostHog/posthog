@@ -68,12 +68,13 @@ export function addInsightToDashboardCreateOptions({
         }))
 
     if (featureFlags[FEATURE_FLAGS.METRICS] && featureFlags[FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]) {
-        moreCreate.push({
+        quickCreate.push({
             type: InsightType.METRICS,
             label: QUERY_TYPES_METADATA[NodeKind.MetricsQuery].name,
             icon: QUERY_TYPES_METADATA[NodeKind.MetricsQuery].icon,
             url: insightUrl(InsightType.METRICS),
             dataAttr: 'create-metrics',
+            tooltip: QUERY_TYPES_METADATA[NodeKind.MetricsQuery].description,
         })
     }
 

@@ -19,7 +19,7 @@ export interface InsightCardMenuPlacement {
 
 export interface InsightCardMenu {
     view: { url: string; onCopyLink: () => void; copyLinkDataAttr: string } | null
-    edit: { url: string; overrideWarning: Pick<LemonButtonProps, 'icon' | 'tooltip'> } | null
+    edit: { url: string; onClick?: () => void; overrideWarning: Pick<LemonButtonProps, 'icon' | 'tooltip'> } | null
     rename: (() => void) | null
     setOverride: (() => void) | null
     duplicate: { onClick: () => void; dataAttr: string } | null

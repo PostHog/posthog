@@ -108,6 +108,7 @@ interface InsightMetaProps extends Pick<
     | 'moveToTileGroup'
     | 'copyToDashboard'
     | 'showEditingControls'
+    | 'editInDashboard'
     | 'showDetailsControls'
     | 'moreButtons'
     | 'filtersOverride'
@@ -181,6 +182,7 @@ function InsightMetaBody({
     setAreDetailsShown,
     onInfoVisibilityChange,
     showEditingControls = true,
+    editInDashboard,
     showDetailsControls = true,
     moreButtons,
     placement,
@@ -524,6 +526,7 @@ function InsightMetaBody({
             : null,
         edit: canEditInsight
             ? {
+                  onClick: editInDashboard,
                   url: inInsightProject(
                       isDataVisualizationNode(insight.query) && insight.query.kind !== NodeKind.BIVisualizationNode
                           ? urls.sqlEditor({ insightShortId: short_id, dashboard: dashboardId ?? undefined })

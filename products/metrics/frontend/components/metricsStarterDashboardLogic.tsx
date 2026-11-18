@@ -40,17 +40,19 @@ export interface metricsStarterDashboardLogicActions {
     closeModal: () => {
         value: true
     }
-    createDashboard: () => {
-        value: true
+    createDashboard: (onCreated?: () => void) => {
+        onCreated: (() => void) | undefined
     }
     createDashboardFailure: (message: string) => {
         message: string
     }
     createDashboardSuccess: (
         createdDashboard: DashboardType,
-        warning?: string
+        warning?: string,
+        onCreated?: () => void
     ) => {
         createdDashboard: DashboardType
+        onCreated: (() => void) | undefined
         warning: string | undefined
     }
     loadMetricOptions: (_: any) => any
@@ -117,8 +119,12 @@ export const metricsStarterDashboardLogic = kea<metricsStarterDashboardLogicType
         setServiceName: (serviceName: string) => ({ serviceName }),
         // selectedMetrics holds metricOptionKey() composites, not bare names.
         setSelectedMetrics: (selectedMetrics: string[]) => ({ selectedMetrics }),
-        createDashboard: true,
-        createDashboardSuccess: (createdDashboard: DashboardType, warning?: string) => ({ createdDashboard, warning }),
+        createDashboard: (onCreated?: () => void) => ({ onCreated }),
+        createDashboardSuccess: (createdDashboard: DashboardType, warning?: string, onCreated?: () => void) => ({
+            createdDashboard,
+            warning,
+            onCreated,
+        }),
         createDashboardFailure: (message: string) => ({ message }),
     }),
     reducers({
@@ -176,7 +182,7 @@ export const metricsStarterDashboardLogic = kea<metricsStarterDashboardLogicType
             actions.loadServices({})
             actions.loadMetricOptions({})
         },
-        createDashboard: async () => {
+        createDashboard: async ({ onCreated }) => {
             // kea-loaders doesn't dedupe concurrent runs, so the create is a plain
             // listener with an explicit in-flight guard.
             if (cache.creatingDashboard) {
@@ -209,6 +215,24 @@ export const metricsStarterDashboardLogic = kea<metricsStarterDashboardLogicType
                 // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsCreate() from 'products/dashboards/frontend/generated/api' instead.
                 dashboard = await api.create<DashboardType>(`api/projects/${values.currentTeamId}/dashboards/`, {
                     name,
+                    filters: {
+                        date_from: '-1h',
+                        ...(serviceName
+                            ? {
+                                  metricVariables: [
+                                      {
+                                          name: 'service',
+                                          label: 'Service',
+                                          source: 'custom',
+                                          customValues: Array.from(new Set([serviceName, ...values.services])),
+                                          includeAll: true,
+                                          current: { values: [serviceName] },
+                                      },
+                                  ],
+                              }
+                            : {}),
+                    },
+                    customization: { tile_spacing: 'condensed' },
                 })
                 for (const { name: metricName, metric_type: rawType } of pickedMetrics) {
                     // The names endpoint reports raw ingest strings; only enum members
@@ -219,14 +243,14 @@ export const metricsStarterDashboardLogic = kea<metricsStarterDashboardLogicType
                         metricName,
                         ...(metricType ? { metricType } : {}),
                         ...(serviceName
-                            ? { filters: [{ key: 'service.name', op: 'eq' as const, value: serviceName }] }
+                            ? { filters: [{ key: 'service.name', op: 'eq' as const, value: '$service' }] }
                             : {}),
                     }
                     const query: MetricsQuery = { kind: NodeKind.MetricsQuery, clauses: [clause] }
                     await insightsApi.create({ name: metricName, saved: true, query }, [dashboard.id])
                     created++
                 }
-                actions.createDashboardSuccess(dashboard)
+                actions.createDashboardSuccess(dashboard, undefined, onCreated)
             } catch (error: any) {
                 if (dashboard) {
                     // The dashboard exists with a partial insight set — say so and take
@@ -235,7 +259,8 @@ export const metricsStarterDashboardLogic = kea<metricsStarterDashboardLogicType
                     // replaces the success toast so only one shows.
                     actions.createDashboardSuccess(
                         dashboard,
-                        `Dashboard "${dashboard.name}" created, but only ${created} of ${selectedMetrics.length} insights could be added`
+                        `Dashboard "${dashboard.name}" created, but only ${created} of ${selectedMetrics.length} insights could be added`,
+                        onCreated
                     )
                 } else {
                     actions.createDashboardFailure(error?.detail || error?.message || 'Failed to create the dashboard')
@@ -244,8 +269,9 @@ export const metricsStarterDashboardLogic = kea<metricsStarterDashboardLogicType
                 cache.creatingDashboard = false
             }
         },
-        createDashboardSuccess: ({ createdDashboard, warning }) => {
+        createDashboardSuccess: ({ createdDashboard, warning, onCreated }) => {
             actions.closeModal()
+            onCreated?.()
             if (warning) {
                 lemonToast.warning(warning)
             } else {

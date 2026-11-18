@@ -8,9 +8,12 @@ import { TaskQueue } from 'scenes/dashboard/dashboardUtils'
 
 import { useMocks } from '~/mocks/jest'
 import { Query } from '~/queries/Query/Query'
+import { MetricsQueryRenderer } from '~/queries/Query/queryNodeRenderers'
 import { MetricsHistogramQuery, MetricsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightShortId } from '~/types'
+
+import { MetricsQueryNode } from './MetricsQueryNode'
 
 const METRICS_QUERY: MetricsQuery = {
     kind: NodeKind.MetricsQuery,
@@ -27,7 +30,8 @@ const HISTOGRAM_QUERY: MetricsHistogramQuery = {
 describe('metrics query nodes', () => {
     let queryCalls: number
 
-    beforeEach(() => {
+    beforeEach(async () => {
+        await MetricsQueryRenderer.preload()
         queryCalls = 0
         useMocks({
             post: {
@@ -41,6 +45,28 @@ describe('metrics query nodes', () => {
     })
 
     afterEach(() => cleanup())
+
+    it('previews dashboard filters separately from the saved metrics query', async () => {
+        const requests: any[] = []
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                    requests.push(await request.json())
+                    return [200, { results: [] }]
+                },
+            },
+        })
+        const filters = {
+            date_from: '-6h',
+            metricVariables: [{ name: 'service', source: 'textbox' as const, current: { values: ['api'] } }],
+        }
+        const { container } = render(<MetricsQueryNode query={METRICS_QUERY} context={{}} filtersOverride={filters} />)
+        await waitFor(() => expect(requests).toHaveLength(1), { timeout: 10000 })
+        await waitFor(() => expect(container.querySelector('.Spinner')).toBeNull())
+        expect(requests).toHaveLength(1)
+        expect(requests[0].query.dateRange).toEqual(METRICS_QUERY.dateRange)
+        expect(requests[0].filters_override).toEqual(filters)
+    })
 
     it('loads a failed time series again from its error banner', async () => {
         let queryCalls = 0

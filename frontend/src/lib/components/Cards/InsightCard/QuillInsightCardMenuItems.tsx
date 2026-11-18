@@ -22,7 +22,8 @@ export function QuillInsightCardMenuItems({ menu }: { menu: InsightCardMenu }): 
         <>
             {edit && (
                 <DropdownMenuItem
-                    onClick={() => router.actions.push(edit.url)}
+                    onClick={() => (edit.onClick ? edit.onClick() : router.actions.push(edit.url))}
+                    data-attr={edit.onClick ? 'dashboard-metrics-panel-edit' : undefined}
                     tooltip={
                         typeof edit.overrideWarning.tooltip === 'function'
                             ? edit.overrideWarning.tooltip()

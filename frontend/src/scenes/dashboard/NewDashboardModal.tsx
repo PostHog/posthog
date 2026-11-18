@@ -1,11 +1,13 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useMemo } from 'react'
+import { Suspense, useEffect, useMemo, useState } from 'react'
 
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTabs, Spinner } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { DialogClose, DialogPrimitive, DialogPrimitiveTitle } from 'lib/ui/DialogPrimitive/DialogPrimitive'
 import { cn } from 'lib/utils/css-classes'
 import { isMobile } from 'lib/utils/dom'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { pluralize } from 'lib/utils/strings'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
@@ -15,6 +17,12 @@ import { dashboardTemplatesLogic } from 'products/dashboards/frontend/dashboards
 import { DashboardTemplateVariables } from 'products/dashboards/frontend/DashboardTemplateVariables'
 import { dashboardTemplateVariablesLogic } from 'products/dashboards/frontend/dashboardTemplateVariablesLogic'
 
+const ObservabilityDashboardForm = lazyWithRetry(() =>
+    import('products/dashboards/frontend/ObservabilityDashboardForm').then((m) => ({
+        default: m.ObservabilityDashboardForm,
+    }))
+)
+
 export function NewDashboardModal({ redirectAfterCreation = true }: { redirectAfterCreation?: boolean }): JSX.Element {
     const builtLogic = useMountedLogic(newDashboardLogic)
     const { hideNewDashboardModal, clearActiveDashboardTemplate, createDashboardFromTemplate } =
@@ -23,6 +31,18 @@ export function NewDashboardModal({ redirectAfterCreation = true }: { redirectAf
         useValues(newDashboardLogic)
 
     const { variables } = useValues(dashboardTemplateVariablesLogic)
+    const metricsEnabled = useFeatureFlag('METRICS')
+    const metricsBuilderEnabled = useFeatureFlag('METRICS_INSIGHT_BUILDER')
+    const [creationTab, setCreationTab] = useState('templates')
+    const canCreateObservability =
+        metricsEnabled && metricsBuilderEnabled && !builtLogic.props.featureFlagId && redirectAfterCreation
+    const showObservability = canCreateObservability && creationTab === 'observability' && !activeDashboardTemplate
+
+    useEffect(() => {
+        if (!newDashboardModalVisible) {
+            setCreationTab('templates')
+        }
+    }, [newDashboardModalVisible])
 
     const templateScope = builtLogic.props.featureFlagId ? 'feature_flag' : 'default'
     const templatesLogic = dashboardTemplatesLogic({ scope: templateScope })
@@ -47,7 +67,7 @@ export function NewDashboardModal({ redirectAfterCreation = true }: { redirectAf
             The <i>{activeDashboardTemplate.template_name}</i> template requires you to choose{' '}
             {pluralize((activeDashboardTemplate.variables || []).length, 'event', 'events', true)}.
         </p>
-    ) : (
+    ) : showObservability ? null : (
         <div className="flex flex-col gap-2">
             <p className="m-0 text-secondary">
                 Here are some ready-made templates to help you get started quickly. Pick one below or start from
@@ -100,10 +120,24 @@ export function NewDashboardModal({ redirectAfterCreation = true }: { redirectAf
                     <DialogClose className="shrink-0" />
                 </div>
                 {description}
+                {canCreateObservability && !activeDashboardTemplate && (
+                    <LemonTabs
+                        activeKey={creationTab}
+                        onChange={setCreationTab}
+                        tabs={[
+                            { key: 'templates', label: 'Templates' },
+                            { key: 'observability', label: 'Application observability' },
+                        ]}
+                    />
+                )}
             </div>
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden" data-attr="new-dashboard-chooser">
                 <div className="NewDashboardModal overflow-y-auto p-4">
-                    {activeDashboardTemplate ? (
+                    {showObservability ? (
+                        <Suspense fallback={<Spinner />}>
+                            <ObservabilityDashboardForm onClose={hideNewDashboardModal} />
+                        </Suspense>
+                    ) : activeDashboardTemplate ? (
                         <DashboardTemplateVariables />
                     ) : (
                         <DashboardTemplateChooser scope={templateScope} redirectAfterCreation={redirectAfterCreation} />
