@@ -13,7 +13,9 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.db import connection
 from django.test import SimpleTestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import jwt
@@ -26,7 +28,11 @@ from posthog.models.events_plan_deletion import cleanup_date, next_pass_on
 from posthog.models.events_retention_config import TeamEventsRetentionConfig
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.organization_provisioning import OrganizationProvisioning, get_billing_lock_partner
+from posthog.models.organization_provisioning import (
+    OrganizationProvisioning,
+    get_billing_lock_partner,
+    record_partner_paid,
+)
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -1153,6 +1159,19 @@ class TestBillingManager(BaseTest):
 
         self.organization.refresh_from_db()
         assert get_billing_lock_partner(self.organization) == partner
+
+    def test_record_partner_paid_keeps_its_time_guard_in_the_update_itself(self) -> None:
+        self._provision_by_partner()
+
+        with CaptureQueriesContext(connection) as queries:
+            record_partner_paid(self.organization.id, True, datetime.datetime(2026, 8, 2, 12, tzinfo=datetime.UTC))
+
+        # Postgres re-checks only the UPDATE's own WHERE after a row-lock wait. A self-select would keep
+        # the time guard on its first snapshot and let an older status overwrite a newer one.
+        (update,) = [q["sql"] for q in queries.captured_queries if q["sql"].startswith("UPDATE")]
+        assert 'FROM "posthog_organizationprovisioning"' not in update
+        assert '"partner_paid_status_at" <' in update
+        assert OrganizationProvisioning.objects.get(organization=self.organization).partner_paid_since is not None
 
     def _billing_status(
         self,
