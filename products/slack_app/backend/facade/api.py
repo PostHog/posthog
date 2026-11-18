@@ -105,7 +105,7 @@ _SLACK_CANVAS_FILE_ADAPTER_SCOPES = frozenset({SLACK_CANVAS_SCOPE, SLACK_FILE_SC
 
 
 def slack_thread_is_mapped_to_task(
-    *, team_id: int, task_id: str, run_id: str, slack_workspace_id: str, channel: str, thread_ts: str
+    *, team_id: int, task_id: str, run_id: str, pr_url: str, slack_workspace_id: str, channel: str, thread_ts: str
 ) -> bool:
     return SlackThreadTaskMapping.objects.filter(
         team_id=team_id,
@@ -113,6 +113,7 @@ def slack_thread_is_mapped_to_task(
         task__team_id=team_id,
         task_run_id=UUID(run_id),
         task_run__team_id=team_id,
+        task_run__output__pr_url=pr_url,
         slack_workspace_id=slack_workspace_id,
         channel=channel,
         thread_ts=thread_ts,

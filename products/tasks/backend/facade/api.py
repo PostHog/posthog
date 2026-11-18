@@ -3839,11 +3839,16 @@ def _is_pull_request_url_for_task(pr_url: str, task: Task) -> bool:
         not isinstance(hostname, str)
         or not hostname.startswith("https://")
         or not repository
-        or repository != task.repository
+        or not isinstance(repository, str)
+        or repository.lower() != (task.repository or "").lower()
     ):
         return False
     return (
-        re.fullmatch(re.escape(f"{hostname.rstrip('/')}/{repository}") + r"/-/merge_requests/[1-9][0-9]*/?", pr_url)
+        re.fullmatch(
+            re.escape(f"{hostname.rstrip('/')}/{repository}") + r"/-/merge_requests/[1-9][0-9]*/?",
+            pr_url,
+            re.IGNORECASE,
+        )
         is not None
     )
 

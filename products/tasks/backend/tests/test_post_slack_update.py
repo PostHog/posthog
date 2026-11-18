@@ -47,6 +47,7 @@ class TestPostSlackUpdate(TestCase):
         mock_run = MagicMock()
         mock_run.status = status
         mock_run.task.team_id = 1
+        mock_run.team_id = 1
         mock_run.task_id = 10
         mock_run.id = "run-1"
         mock_run.output = {}
@@ -250,6 +251,9 @@ class TestPostSlackUpdate(TestCase):
         mock_task_run_class.objects.select_related.return_value.get.return_value = mock_run
         mock_mapping = MagicMock()
         mock_mapping.mentioning_slack_user_id = "U_ORIG"
+        mock_mapping.slack_workspace_id = "T001"
+        mock_mapping.channel = "C001"
+        mock_mapping.thread_ts = "1111.0000"
         mock_mapping_class.objects.filter.return_value.first.return_value = mock_mapping
 
         post_slack_update(

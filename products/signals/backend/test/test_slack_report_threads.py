@@ -28,6 +28,7 @@ from products.signals.backend.task_run_artefacts import record_implementation_ta
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.tasks.backend.facade.api import accept_github_pull_request, set_task_run_output, update_task_run
 from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.temporal.process_task.utils import cache_github_user_token
 
 
 @pytest.fixture
@@ -503,7 +504,7 @@ def test_pr_notification_rechecks_personal_recipient(team, recipient: str, desti
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("provider", ["github", "gitlab"])
+@pytest.mark.parametrize("provider", ["github", "gitlab", "github_selected_during_run", "github_without_access"])
 @pytest.mark.parametrize(
     ("other_pr_url", "delivered"),
     [
@@ -529,16 +530,21 @@ def test_completed_mapped_run_announces_a_promoted_primary_pr(
         task.repository_integration_id = Integration.objects.create(
             team=team,
             kind="gitlab",
-            config={"hostname": "https://gitlab.com", "path_with_namespace": "example/subgroup/repo"},
+            config={"hostname": "https://gitlab.com", "path_with_namespace": "Example/Subgroup/Repo"},
         ).id
         task.save(update_fields=["repository", "repository_integration_id"])
+    if provider.startswith("github_"):
+        task.repository = ""
+        task.save(update_fields=["repository"])
     run = TaskRun.objects.create(
         task=task,
         team=team,
         status=TaskRun.Status.COMPLETED,
         output={"pr_url": pr_url, "pr_urls": [pr_url, other_pr_url]},
-        state={"slack_notified_pr_url": pr_url},
+        state={"slack_notified_pr_url": pr_url, "pr_authorship_mode": "user"},
     )
+    if provider.startswith("github_"):
+        cache_github_user_token(str(run.id), "test-run-token")
     SlackThreadTaskMapping.objects.create(
         team=team,
         integration=_integration(team),
@@ -552,12 +558,25 @@ def test_completed_mapped_run_announces_a_promoted_primary_pr(
     with (
         patch("products.slack_app.backend.slack_thread.SlackIntegration") as slack_cls,
         patch("celery.app.task.Task.apply_async"),
+        patch("products.tasks.backend.temporal.process_task.activities.post_slack_update.github_request") as github,
     ):
+        github.return_value.status_code = 404 if provider == "github_without_access" else 200
         update_task_run(run.id, task.id, team.id, validated_data={"output": {"pr_url": other_pr_url}})
         posts = slack_cls.return_value.client.chat_postMessage.call_args_list
+        if provider.startswith("github_"):
+            delivered = provider == "github_selected_during_run" and other_pr_url.startswith("https://github.com/")
         assert len(posts) == int(delivered)
         if delivered:
             assert other_pr_url in str(posts[0].kwargs["blocks"])
+        if provider.startswith("github_") and other_pr_url.startswith("https://github.com/"):
+            assert github.call_args.args == (
+                "GET",
+                other_pr_url.replace("https://github.com/", "https://api.github.com/repos/").replace(
+                    "/pull/", "/pulls/"
+                ),
+            )
+            assert github.call_args.kwargs["headers"] == {"Authorization": "Bearer test-run-token"}
+            assert github.call_args.kwargs["allow_redirects"] is False
 
 
 @pytest.mark.django_db
@@ -641,7 +660,7 @@ def test_opened_webhook_does_not_announce_in_mapped_task_thread(team, django_cap
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("mapped_before_recovery", [True, False])
-@pytest.mark.parametrize("thread_timing", ["before_pr", "after_pr", "app_rerun"])
+@pytest.mark.parametrize("thread_timing", ["before_pr", "after_pr", "app_rerun", "successor_run", "secondary_pr"])
 def test_late_report_thread_keeps_mapped_delivery_once(
     team, django_capture_on_commit_callbacks, mapped_before_recovery: bool, thread_timing: str
 ) -> None:
@@ -698,6 +717,9 @@ def test_late_report_thread_keeps_mapped_delivery_once(
                 update_task_run(run.id, task.id, team.id, validated_data={"output": output})
         else:
             TaskRun.objects.filter(id=run.id, team_id=team.id).update(output=output)
+        if thread_timing == "successor_run":
+            successor = TaskRun.objects.create(task=task, team=team, status=TaskRun.Status.IN_PROGRESS)
+            SlackThreadTaskMapping.objects.filter(task_id=task.id, team_id=team.id).update(task_run=successor)
         if thread_timing != "before_pr":
             with django_capture_on_commit_callbacks(execute=True):
                 record_report_slack_thread(
@@ -720,6 +742,29 @@ def test_late_report_thread_keeps_mapped_delivery_once(
                 deliver_implementation_pr_notifications.apply(kwargs=job.kwargs, throw=True)
         assert [
             call.kwargs["channel"] for call in mapped_slack.return_value.client.chat_postMessage.call_args_list
-        ] == ([] if thread_timing == "app_rerun" else ["CTEAM"])
+        ] == (
+            []
+            if thread_timing == "app_rerun" or (thread_timing == "successor_run" and not mapped_before_recovery)
+            else ["CTEAM"]
+        )
         channels = [call.kwargs["channel"] for call in report_slack.return_value.client.chat_postMessage.call_args_list]
-        assert sorted(channels) == (["COTHER", "CTEAM"] if thread_timing == "app_rerun" else ["COTHER"])
+        saved_thread_owns_primary = thread_timing == "app_rerun" or (
+            thread_timing == "successor_run" and not mapped_before_recovery
+        )
+        assert sorted(channels) == (["COTHER", "CTEAM"] if saved_thread_owns_primary else ["COTHER"])
+        if thread_timing == "secondary_pr":
+            report_slack.return_value.client.chat_postMessage.reset_mock()
+            previous_jobs = len(queued.call_args_list)
+            secondary = "https://github.com/example/repo/pull/43"
+            with django_capture_on_commit_callbacks(execute=True):
+                update_task_run(
+                    run.id,
+                    task.id,
+                    team.id,
+                    validated_data={"output": {**output, "pr_urls": [output["pr_url"], secondary]}},
+                )
+            for job in queued.call_args_list[previous_jobs:]:
+                deliver_implementation_pr_notifications.apply(kwargs=job.kwargs, throw=True)
+            posts = report_slack.return_value.client.chat_postMessage.call_args_list
+            assert sorted(call.kwargs["channel"] for call in posts) == ["COTHER", "CTEAM"]
+            assert all(secondary in call.kwargs["text"] for call in posts)

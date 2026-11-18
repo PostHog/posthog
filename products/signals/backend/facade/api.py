@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Q, QuerySet
+from django.db.models import Func, Q, QuerySet, Value
 from django.utils import timezone
 
 import pydantic
@@ -92,6 +92,7 @@ from products.signals.backend.inbox_summary import (
 from products.signals.backend.models import (
     SignalReport,
     SignalReportPullRequest,
+    SignalReportSlackThread,
     SignalScoutConfig,
     SignalScoutRun,
     SignalSourceConfig,
@@ -515,6 +516,31 @@ def remove_reviewer_from_slack(
         logger.exception("signals_remove_reviewer_from_slack_failed", report_id=report_id, team_id=team_id)
         return "failed"
     return "removed" if removed else "not_reviewer"
+
+
+def report_slack_thread_pr_notified(
+    *, team_id: int, slack_workspace_id: str, channel: str, thread_ts: str, pr_url: str
+) -> bool:
+    return (
+        SignalReportSlackThread.objects.for_team(team_id)
+        .filter(
+            slack_workspace_id=slack_workspace_id,
+            channel=channel,
+            thread_ts=thread_ts,
+            notified_pr_urls__contains=[pr_url],
+        )
+        .exists()
+    )
+
+
+def mark_report_slack_thread_pr_notified(
+    *, team_id: int, slack_workspace_id: str, channel: str, thread_ts: str, pr_url: str
+) -> None:
+    SignalReportSlackThread.objects.for_team(team_id).filter(
+        slack_workspace_id=slack_workspace_id, channel=channel, thread_ts=thread_ts
+    ).exclude(notified_pr_urls__contains=[pr_url]).update(
+        notified_pr_urls=Func("notified_pr_urls", Value(pr_url), function="array_append")
+    )
 
 
 def notify_implementation_prs_opened(

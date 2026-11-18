@@ -168,6 +168,7 @@ def _deliver_implementation_pr_to_thread(
         team_id=team.id,
         task_id=task_id,
         run_id=run_id,
+        pr_url=pr_url,
         slack_workspace_id=thread.slack_workspace_id,
         channel=thread.channel,
         thread_ts=thread.thread_ts,
