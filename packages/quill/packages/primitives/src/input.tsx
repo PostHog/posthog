@@ -6,6 +6,19 @@ import * as React from 'react'
 import { cn } from './lib/utils'
 import { hasTooltipContent, withTooltip } from './with-tooltip'
 
+// The browser ignores `readOnly` on these types, so only native `disabled` stops a change.
+const READ_ONLY_IGNORED_TYPES = new Set([
+    'checkbox',
+    'radio',
+    'file',
+    'range',
+    'color',
+    'button',
+    'submit',
+    'reset',
+    'image',
+])
+
 const Input = React.forwardRef<
     HTMLInputElement,
     Omit<React.ComponentProps<'input'>, 'size'> & {
@@ -16,6 +29,8 @@ const Input = React.forwardRef<
     }
 >(({ className, type, size = 'default', disabled, disabledReason, ...props }, ref) => {
     const hasDisabledReason = hasTooltipContent(disabledReason)
+    const keepsNativeDisabled = hasDisabledReason && type !== undefined && READ_ONLY_IGNORED_TYPES.has(type)
+    const usesReadOnly = hasDisabledReason && !keepsNativeDisabled
 
     return withTooltip(
         <InputPrimitive
@@ -25,13 +40,13 @@ const Input = React.forwardRef<
             data-slot="input"
             data-size={size}
             className={cn('quill-input', size === 'sm' && 'quill-input--size-sm', className)}
-            disabled={hasDisabledReason ? undefined : disabled}
+            disabled={keepsNativeDisabled || (usesReadOnly ? undefined : disabled)}
             {...props}
             // A native disabled input ignores the pointer and leaves the tab order, which would hide its reason.
-            {...(hasDisabledReason && { readOnly: true, 'aria-disabled': true })}
+            {...(usesReadOnly && { readOnly: true, 'aria-disabled': true })}
         />,
         disabledReason,
-        { target: 'self' }
+        keepsNativeDisabled ? { target: 'inline', focusable: true } : { target: 'self' }
     )
 })
 Input.displayName = 'Input'
