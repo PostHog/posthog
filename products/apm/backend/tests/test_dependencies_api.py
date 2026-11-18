@@ -16,6 +16,7 @@ URL = "/api/projects/{}/apm/dependencies/"
 
 class TestDependenciesAPI(ClickhouseTestMixin, APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = True
+    prod_span_count: int
 
     @classmethod
     def tearDownClass(cls):
@@ -181,17 +182,18 @@ class TestDependenciesAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertFalse(data["truncated"])
         self.assertEqual((data["sampled"], data["sample_rate"]), (False, 1.0))
 
-    def test_busy_window_reads_a_time_sample_and_scales_counts_up(self) -> None:
-        # Every fixture span starts in the first minute, so the first of two slices of a four-minute
-        # window that reads about half of it holds all of them, and each count comes back about doubled.
+    def test_busy_window_scales_counts_by_the_share_of_spans_read(self) -> None:
+        # The fixture writes one span a second from 08:00:01, all in the first minute of a four-minute
+        # window. Once the child margin counts against the limit, the first slice is a little under 20
+        # seconds wide and holds 19 spans, and the scale is that share of the spans, not of the time.
         with patch("products.apm.backend.logic.health.dependencies.EXACT_SPAN_LIMIT", self.prod_span_count // 2):
             data = self._get(date_from="2026-06-02T08:00:00Z", date_to="2026-06-02T08:04:00Z")
-        rate = data["sample_rate"]
         self.assertTrue(data["sampled"])
-        self.assertTrue(0.4 < rate < 0.55, rate)
+        self.assertAlmostEqual(data["sample_rate"], 19 / self.prod_span_count)
         edges = {(e["caller"], e["callee"]): (e["inferred"], e["requests"], e["error_count"]) for e in data["edges"]}
-        self.assertEqual(edges[("web", "api")], (False, round(6 / rate), round(2 / rate)))
-        self.assertEqual(edges[("api", "payments.example.com")], (True, round(2 / rate), round(2 / rate)))
+        rate = data["sample_rate"]
+        # The web -> api calls of traces 1 and 2 start in the slice, and trace 1 holds the timeout.
+        self.assertEqual(edges[("web", "api")], (False, round(2 / rate), round(1 / rate)))
 
     def test_service_filter_keeps_edges_on_either_side(self) -> None:
         data = self._get(service="web")
