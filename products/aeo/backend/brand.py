@@ -75,10 +75,18 @@ def segment_filter(segment: BrandedSegment, target_domains: list[str], *, field:
     return branded if segment == BrandedSegment.BRANDED else ~branded
 
 
-# `segment_filter` for raw SQL over `posthog_aeo_citation_check AS check_row`, with the parameters
-# from `segment_sql_params`. A null regex (no brand) never matches, so no check reads as branded.
-SEGMENT_SQL = "(%s = 'all' OR coalesce(check_row.prompt_text ~* %s, false) = (%s = 'branded'))"
+def check_segment_filter(segment: BrandedSegment) -> Q:
+    """Checks on one side of the branded split, from the stored `prompt_branded`, so a count over a
+    window never loads the prompt text."""
+    if segment == BrandedSegment.ALL:
+        return Q()
+    return Q(prompt_branded=segment == BrandedSegment.BRANDED)
 
 
-def segment_sql_params(segment: BrandedSegment, target_domains: list[str]) -> list[str | None]:
-    return [segment.value, brand_regex(target_domains), segment.value]
+# `check_segment_filter` for raw SQL over `posthog_aeo_citation_check AS check_row`, with the
+# parameters from `segment_sql_params`.
+SEGMENT_SQL = "(%s = 'all' OR check_row.prompt_branded = (%s = 'branded'))"
+
+
+def segment_sql_params(segment: BrandedSegment) -> list[str]:
+    return [segment.value, segment.value]

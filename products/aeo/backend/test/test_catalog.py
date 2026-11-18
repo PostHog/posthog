@@ -22,7 +22,12 @@ from products.aeo.backend.engines import MAX_URLS_PER_CHECK, own_domains_key, to
 from products.aeo.backend.facade.api import list_domains_across_teams
 from products.aeo.backend.facade.contracts import BrandKind, BrandSource, BrandStatus, CompetitorCandidate
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOPrompt
-from products.aeo.backend.test.factories import create_brand, create_citation_check, create_own_brand
+from products.aeo.backend.test.factories import (
+    create_brand,
+    create_citation_check,
+    create_own_brand,
+    store_what_the_runner_stores,
+)
 
 
 class TestSyncBrandsFromRun(BaseTest):
@@ -343,6 +348,7 @@ class TestCompetitorCandidates(BaseTest):
         AEOCitationCheck.objects.for_team(self.team.id).filter(id=check.id).update(
             created_at=timezone.now() - dt.timedelta(days=days_ago)
         )
+        store_what_the_runner_stores(check.id)
 
     def test_ranks_suggested_brands_that_non_branded_answers_both_name_and_cite(self) -> None:
         lantern = self._brand("Lantern", "lantern.example.org")

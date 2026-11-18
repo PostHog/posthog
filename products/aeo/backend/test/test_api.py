@@ -28,7 +28,7 @@ from products.aeo.backend.engine_settings import engine_schedule
 from products.aeo.backend.engines import top_domains
 from products.aeo.backend.facade.api import RECOMPUTE_DEBOUNCE_SECONDS, create_keywords, get_prompt_set_overview
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOKeyword, AEOPrompt, AEOPromptVersion
-from products.aeo.backend.test.factories import create_citation_check, create_own_brand
+from products.aeo.backend.test.factories import create_citation_check, create_own_brand, store_what_the_runner_stores
 
 
 class TestAEOPromptAPI(APIBaseTest):
@@ -85,6 +85,7 @@ class TestAEOPromptAPI(APIBaseTest):
             AEOCitationCheck.objects.filter(id=check.id).update(
                 created_at=timezone.now() - dt.timedelta(minutes=minutes_ago)
             )
+        store_what_the_runner_stores(check.id)
         return str(check.id)
 
     def _import_one_prompt(self) -> str:
@@ -478,16 +479,34 @@ class TestAEOPromptAPI(APIBaseTest):
 
         assert len(four_prompts.captured_queries) == len(one_prompt.captured_queries)
 
-    @parameterized.expand([("prompt_list", ""), ("overview", "overview/")])
-    def test_set_level_reads_never_load_the_answer_text(self, _name: str, path: str) -> None:
+    @parameterized.expand(
+        [
+            ("prompt_list", "", ["answer_text"]),
+            (
+                "overview",
+                "overview/",
+                ["answer_text", "prompt_text", "search_queries", "cited_urls", "top_cited_domains"],
+            ),
+        ]
+    )
+    def test_set_level_reads_never_load_the_wide_columns(self, _name: str, path: str, wide_columns: list[str]) -> None:
         create_own_brand(self.team, "example.com")
-        self._record_check(self._import_one_prompt(), "exa-answer", minutes_ago=1, answer_text="Try Example.")
+        self._record_check(
+            self._import_one_prompt(),
+            "exa-answer",
+            minutes_ago=1,
+            answer_text="Try Example.",
+            cited_urls=["https://rival.io/a"],
+            search_queries=["best tool"],
+        )
 
         with CaptureQueriesContext(connection) as queries:
             response = self.client.get(f"{self.url}{path}")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert [query["sql"] for query in queries.captured_queries if "answer_text" in query["sql"]] == []
+        assert [
+            query["sql"] for query in queries.captured_queries if any(column in query["sql"] for column in wide_columns)
+        ] == []
 
     @parameterized.expand([("all_engines", "", ["c", "b", "a"]), ("one_engine", "&engine=exa-answer", ["c", "a"])])
     def test_checks_list_history_newest_first_in_pages(self, _name: str, filters: str, expected: list[str]) -> None:
@@ -1733,6 +1752,7 @@ class TestAEOKeywordAPI(APIBaseTest):
             AEOCitationCheck.objects.filter(id=check.id).update(
                 created_at=timezone.now() - dt.timedelta(days=days_ago, minutes=5)
             )
+        store_what_the_runner_stores(check.id)
 
     def _keywords(self) -> list[str]:
         return [row["keyword"] for row in self.client.get(self.url).json()]

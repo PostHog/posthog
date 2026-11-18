@@ -51,7 +51,14 @@ from products.aeo.backend import (
     rankings,
     suggestions,
 )
-from products.aeo.backend.brand import brand_names, brand_pattern, branded_filter, mention_filter, segment_filter
+from products.aeo.backend.brand import (
+    brand_names,
+    brand_pattern,
+    branded_filter,
+    check_segment_filter,
+    mention_filter,
+    segment_filter,
+)
 from products.aeo.backend.engines import MAX_PROMPT_LENGTH, is_target_host, top_domains
 from products.aeo.backend.facade.contracts import (
     PROMPT_TOPIC_MAX_LENGTH,
@@ -349,9 +356,8 @@ def list_prompt_set_citations(
     the three must be set."""
     if sum(value is not None for value in (url, domain, search)) != 1:
         raise ValueError("Pass exactly one of url, domain or search.")
-    target_domains = catalog.own_domains(team_id)
     checks = AEOCitationCheck.objects.for_team(team_id).filter(
-        segment_filter(branded, target_domains),
+        check_segment_filter(branded),
         created_at__gte=_window_start(timezone_name, days),
         check_failed=False,
         mode=CheckMode.WEB_SEARCH,
@@ -533,12 +539,14 @@ def _set_counts(row: Mapping[str, Any]) -> dict[str, Any]:
 
 
 _TOP_DOMAINS_SQL = f"""
-    SELECT host, count(*) AS checks_citing
-    FROM posthog_aeo_citation_check AS check_row, jsonb_array_elements_text(check_row.top_cited_domains) AS host
-    WHERE check_row.team_id = %s AND check_row.created_at >= %s AND check_row.check_failed = false
+    SELECT citation.host, count(DISTINCT citation.citation_check_id) AS checks_citing
+    FROM posthog_aeo_check_citation AS citation
+    JOIN posthog_aeo_citation_check AS check_row ON check_row.id = citation.citation_check_id
+    WHERE citation.team_id = %s AND citation.created_at >= %s AND citation.host <> ''
+        AND check_row.team_id = %s AND check_row.created_at >= %s AND check_row.check_failed = false
         AND check_row.mode = 'web_search' AND {SCOPE_SQL}
-    GROUP BY host
-    ORDER BY checks_citing DESC, host
+    GROUP BY citation.host
+    ORDER BY checks_citing DESC, citation.host
     LIMIT %s
 """
 
@@ -555,7 +563,7 @@ def _top_domains(
     with connection.cursor() as cursor:
         cursor.execute(
             _TOP_DOMAINS_SQL,
-            [team_id, since, *scope_sql_params(scope, target_domains), MAX_OVERVIEW_DOMAINS],
+            [team_id, since, team_id, since, *scope_sql_params(scope), MAX_OVERVIEW_DOMAINS],
         )
         rows = cursor.fetchall()
     return tuple(
@@ -574,13 +582,11 @@ def _top_domains(
 # the prompts that ran each of them most. Postgres materializes `searches` because both read it.
 _TOP_SEARCHES_SQL = f"""
     WITH searches AS MATERIALIZED (
-        SELECT DISTINCT check_row.id, check_row.prompt_id, check_row.engine, check_row.cited,
-            lower(btrim(regexp_replace(query, '\\s+', ' ', 'g'))) AS query
-        FROM posthog_aeo_citation_check AS check_row,
-            jsonb_array_elements_text(
-                CASE WHEN jsonb_typeof(check_row.search_queries) = 'array' THEN check_row.search_queries ELSE '[]'::jsonb END
-            ) AS query
-        WHERE check_row.team_id = %s AND check_row.created_at >= %s AND check_row.check_failed = false
+        SELECT check_row.id, check_row.prompt_id, check_row.engine, check_row.cited, search.query
+        FROM posthog_aeo_check_search AS search
+        JOIN posthog_aeo_citation_check AS check_row ON check_row.id = search.citation_check_id
+        WHERE search.team_id = %s AND search.created_at >= %s
+            AND check_row.team_id = %s AND check_row.created_at >= %s AND check_row.check_failed = false
             AND check_row.mode = 'web_search'
             AND {SCOPE_SQL}
     ),
@@ -588,7 +594,6 @@ _TOP_SEARCHES_SQL = f"""
         SELECT query, count(DISTINCT prompt_id) AS prompts, count(*) AS answers,
             count(*) FILTER (WHERE cited) AS cited, array_agg(DISTINCT engine ORDER BY engine) AS engines
         FROM searches
-        WHERE query <> ''
         GROUP BY query
         ORDER BY prompts DESC, answers DESC, query
         LIMIT %s
@@ -621,7 +626,9 @@ def _top_searches(
             [
                 team_id,
                 since,
-                *scope_sql_params(scope, target_domains),
+                team_id,
+                since,
+                *scope_sql_params(scope),
                 MAX_OVERVIEW_SEARCHES,
                 MAX_SEARCH_PROMPTS,
             ],
@@ -675,13 +682,13 @@ def get_prompt_set_overview(
 
     # The branded split counts both sides, so it narrows by engine and topic only.
     all_checks = AEOCitationCheck.objects.for_team(team_id).filter(
-        scope_filter(scope_without_segment(scope), target_domains), mode=CheckMode.WEB_SEARCH
+        scope_filter(scope_without_segment(scope)), mode=CheckMode.WEB_SEARCH
     )
     split = all_checks.filter(created_at__gte=window_start, check_failed=False).aggregate(
-        branded=Count("id", filter=branded_filter(target_domains)),
+        branded=Count("id", filter=check_segment_filter(BrandedSegment.BRANDED)),
         answers=Count("id"),
     )
-    checks = all_checks.filter(segment_filter(branded, target_domains))
+    checks = all_checks.filter(check_segment_filter(branded))
     current = checks.filter(created_at__gte=window_start)
     previous = checks.filter(created_at__gte=previous_start, created_at__lt=window_start)
     engines = tuple(

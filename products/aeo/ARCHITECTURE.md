@@ -22,19 +22,18 @@ The catalog is small, so the join is cheap, and a relabel needs no recompute.
 
 ## When each value is computed
 
-| Value                                                                           | Computed                                                                           | Stored in                                                | Recomputed when                                      |
-| ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------- | ---------------------------------------------------- |
-| Answer text, cited URLs, retrieved URLs, search queries                         | During the run, as each engine answers (`engines.py`, `runner.py`)                 | `posthog_aeo_citation_check`                             | Never                                                |
-| `cited`, `target_urls`, `target_best_position`, `names_brand`, `prompt_branded` | With the check, against the own brands of that moment (`engines.py`)               | The check row                                            | The own brands change, and at the end of every run   |
-| One row per cited URL, one row per search the engine ran                        | With the check (`write_facts` in `facts.py`)                                       | `posthog_aeo_check_citation`, `posthog_aeo_check_search` | Never                                                |
-| `own_domains_key`                                                               | With the check: a hash of the own domains the row was computed against             | The check row                                            | With the columns above                               |
-| Brand catalog rows for newly cited domains                                      | After each run (`sync_brands_from_run` in `catalog.py`)                            | `posthog_aeo_brand`                                      | Never: the sync only inserts                         |
-| Brand sentiment and its scored sentences                                        | On the AEO Temporal queue, after each run and from a backlog every 10 min          | The check row                                            | The reconcile clears them when the own brands change |
-| Branded or non-branded prompt, as the reads use it                              | At read, a word match on the prompt text, until the reads move to `prompt_branded` | Not stored                                               | Not applicable                                       |
-| Competitor mentions, keyword matches, top searches, cited domains               | At read, from the answer text and the JSON columns                                 | Not stored                                               | Not applicable                                       |
+| Value                                                                           | Computed                                                                  | Stored in                                                | Recomputed when                                      |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | -------------------------------------------------------- | ---------------------------------------------------- |
+| Answer text, cited URLs, retrieved URLs, search queries                         | During the run, as each engine answers (`engines.py`, `runner.py`)        | `posthog_aeo_citation_check`                             | Never                                                |
+| `cited`, `target_urls`, `target_best_position`, `names_brand`, `prompt_branded` | With the check, against the own brands of that moment (`engines.py`)      | The check row                                            | The own brands change, and at the end of every run   |
+| One row per cited URL, one row per search the engine ran                        | With the check (`write_facts` in `facts.py`)                              | `posthog_aeo_check_citation`, `posthog_aeo_check_search` | Never                                                |
+| `own_domains_key`                                                               | With the check: a hash of the own domains the row was computed against    | The check row                                            | With the columns above                               |
+| Brand catalog rows for newly cited domains                                      | After each run (`sync_brands_from_run` in `catalog.py`)                   | `posthog_aeo_brand`                                      | Never: the sync only inserts                         |
+| Brand sentiment and its scored sentences                                        | On the AEO Temporal queue, after each run and from a backlog every 10 min | The check row                                            | The reconcile clears them when the own brands change |
+| Competitor mentions and keyword matches                                         | At read, from the answer text                                             | Not stored                                               | Not applicable                                       |
 
-The last two rows break the rule.
-They are the slow reads that remain, and [the planned read model](#planned-read-model) moves them to write time.
+The last row breaks the rule.
+Those are the slow reads that remain, and [the planned read model](#planned-read-model) moves them to write time.
 
 ### The reconcile
 
@@ -44,16 +43,18 @@ A check that carries the current key is correct for the current own brands, so a
 
 ## Reads and the indexes that serve them
 
-| Read                                                                   | Served by                    | Columns it may use                                                                                                                                             |
-| ---------------------------------------------------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Counts over a window: checks, citations, mentions, failures, positions | `aeo_check_window_cover_idx` | `team_id`, `created_at`, `id`, `mode`, `engine`, `prompt_id`, `prompt_topic`, `check_failed`, `cited`, `names_brand`, `prompt_branded`, `target_best_position` |
-| The latest check of each prompt and engine                             | `aeo_check_latest_idx`       | `team_id`, `prompt_id`, `engine`, `created_at`, `id`                                                                                                           |
+| Read                                                                   | Served by                                                               | Columns it may use                                                                                                                                             |
+| ---------------------------------------------------------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Counts over a window: checks, citations, mentions, failures, positions | `aeo_check_window_cover_idx`                                            | `team_id`, `created_at`, `id`, `mode`, `engine`, `prompt_id`, `prompt_topic`, `check_failed`, `cited`, `names_brand`, `prompt_branded`, `target_best_position` |
+| The latest check of each prompt and engine                             | `aeo_check_latest_idx`                                                  | `team_id`, `prompt_id`, `engine`, `created_at`, `id`                                                                                                           |
+| Cited domains and pages                                                | `aeo_check_citation_window_idx`, joined to `aeo_check_window_cover_idx` | `team_id`, `created_at`, `citation_check_id`, `host`, `domain`. A read that needs `url` loads the narrow citation rows                                         |
+| Searches the engines ran                                               | `aeo_check_search_window_idx`, joined to `aeo_check_window_cover_idx`   | `team_id`, `created_at`, `citation_check_id`, `query`                                                                                                          |
 
 A count that stays inside its index's columns never reads the wide rows.
 A count that names one more column reads every row in the window in full, and loses the whole benefit.
 
-- `mention_filter` in `brand.py` reads `cited` and `names_brand` only.
-  `test_set_level_reads_never_load_the_answer_text` fails when the overview or the prompt list starts to read `answer_text`.
+- `mention_filter` in `brand.py` reads `cited` and `names_brand` only, and `check_segment_filter` reads `prompt_branded` only.
+  `test_set_level_reads_never_load_the_wide_columns` fails when the overview or the prompt list starts to read `answer_text`.
 - Do not add `prompt_text`, `answer_text` or a JSON column to an index.
   Postgres refuses an index row above about 2.7 KB, a prompt can be 2,000 characters, and a refused index row fails the insert of the check.
 - Check a new set-level query with `EXPLAIN (ANALYZE, BUFFERS)` on data of production shape.
@@ -76,8 +77,9 @@ Three narrow tables hold facts about each answer, written once and joined to the
 Each row copies `team_id` and `created_at` from its check, so a read finds the rows of a window in the table's own index.
 A read that narrows by engine, topic or the branded split joins them to `aeo_check_window_cover_idx`, which holds those columns.
 
-The cited URL and search rows are written today. The reconcile after a run writes them once for older checks, and `backfill_aeo_check_facts` does the same on demand.
-The reads still unpack the JSON columns until that backfill has run everywhere.
+The cited URL and search rows are built, and the overview and the rankings read them.
+The reconcile after a run writes them once for checks recorded before the rows existed, and `backfill_aeo_check_facts` does the same on demand.
+Until then such a check counts no citations and no searches.
 Entity mentions are not built.
 
 | Table           | One row per                       | Written                                        | Replaces                                               |

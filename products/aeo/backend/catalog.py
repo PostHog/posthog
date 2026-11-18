@@ -377,7 +377,7 @@ def competitor_candidates(team_id: int, *, limit: int) -> list[CompetitorCandida
     if not brands:
         return []
     since = timezone.now() - dt.timedelta(days=COMPETITOR_CANDIDATE_DAYS)
-    segment = segment_sql_params(BrandedSegment.NON_BRANDED, own)
+    segment = segment_sql_params(BrandedSegment.NON_BRANDED)
     with connection.cursor() as cursor:
         cursor.execute(_CITED_HOSTS_SQL, [team_id, since, *segment])
         cited_hosts = _cited_brand_hosts(cursor.fetchall(), set(brands))
