@@ -134,13 +134,15 @@ class TestImageExporter(APIBaseTest):
     def test_pdf_rejects_oversized_layout_before_querying_or_opening_browser(
         self, mock_remove: Any, mock_file: Any, mock_screenshot: Any, height: int, tile_count: int
     ) -> None:
+        source_insight = self.exported_asset.insight
+        assert source_insight is not None
         dashboard = Dashboard.objects.create(team=self.team)
         DashboardTile.objects.bulk_create(
             [
                 DashboardTile(
                     dashboard=dashboard,
                     team=self.team,
-                    insight=Insight.objects.create(team=self.team, query=self.exported_asset.insight.query),
+                    insight=Insight.objects.create(team=self.team, query=source_insight.query),
                     layouts={"sm": {"h": height}},
                 )
                 for _ in range(tile_count)
