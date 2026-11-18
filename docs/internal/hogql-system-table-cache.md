@@ -12,6 +12,7 @@ The cache fingerprint includes resource denials, object denials, object grants, 
 Insight selections can contain nested queries whose scopes are unknown before expansion, so they partition on every access-control scope.
 Detection parses HogQL expression fields, including quoted function names; literal property values and request metadata do not trigger this fallback.
 The scan includes effective query modifiers and project test-account filters when the query enables them, including nested queries.
+HogQLX query tags also partition on every scope because their expanded queries and saved filters are absent from the outer table scan.
 Unknown scopes still include effective default denials, even when no explicit access-control row exists.
 Saved action steps and cohort definitions reject insight selections because their definitions are absent from the calling query's cache fingerprint.
 

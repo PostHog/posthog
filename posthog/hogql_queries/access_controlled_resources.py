@@ -408,12 +408,14 @@ def _hogql_contains_insight_selection(value) -> bool:
 
     if isinstance(value, (list, tuple)):
         return any(_hogql_contains_insight_selection(field) for field in value)
-    if not isinstance(value, str) or "(" not in value:
+    if not isinstance(value, str) or ("(" not in value and "<" not in value):
         return False
     # Quoted function names use the same decoding as execution. Unknown syntax fails closed.
     for parser in (parse_expr, parse_select, parse_order_expr):
         try:
-            return InsightSelectionFinder(parser(value)).found
+            finder = InsightSelectionFinder(parser(value))
+            # Query tags expand structured queries and saved filters outside the outer table scan.
+            return finder.found or finder.has_query_tags
         except BaseHogQLError:
             pass
     return True

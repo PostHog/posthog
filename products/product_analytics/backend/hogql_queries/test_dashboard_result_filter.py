@@ -184,6 +184,8 @@ class TestDashboardResultFilterCache(BaseTest):
                 "test_accounts",
                 "actors_test_accounts",
                 "saved_modifiers",
+                "query_tag_test_accounts",
+                "query_tag_properties",
             )
             for name in ("matchesInsight", r"`matches\0Insight`", r'"matches\0Insight"')
         ]
@@ -214,7 +216,7 @@ class TestDashboardResultFilterCache(BaseTest):
                     distinct_id_field=predicate if kind == "warehouse" else "distinct_id",
                 )
             ]
-        elif kind in ("test_accounts", "actors_test_accounts"):
+        elif kind in ("test_accounts", "actors_test_accounts", "query_tag_test_accounts"):
             target.properties = []
             target.filterTestAccounts = True
             self.team.test_account_filters = [{"type": "hogql", "key": predicate}]
@@ -241,9 +243,18 @@ class TestDashboardResultFilterCache(BaseTest):
             if kind in ("actors", "actors_test_accounts")
             else target
         )
+        if kind.startswith("query_tag_"):
+            attributes = " ".join(
+                f"{key}={{{json.dumps(value)}}}"
+                for key, value in target.model_dump(mode="json", exclude_none=True).items()
+                if key != "kind"
+            )
+            query = HogQLQuery(query=f"select * from <TrendsQuery {attributes} />")
         runner_class = {
             "hogql": HogQLQueryRunner,
             "saved_modifiers": HogQLQueryRunner,
+            "query_tag_test_accounts": HogQLQueryRunner,
+            "query_tag_properties": HogQLQueryRunner,
             "actors": ActorsQueryRunner,
             "actors_test_accounts": ActorsQueryRunner,
         }.get(kind, TrendsQueryRunner)
