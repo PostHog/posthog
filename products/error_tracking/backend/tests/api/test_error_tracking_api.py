@@ -1004,6 +1004,44 @@ class TestErrorTracking(APIBaseTest):
 
     @parameterized.expand(
         [
+            (
+                "release_delete",
+                "delete",
+                "releases",
+                lambda team: ErrorTrackingRelease.objects.create(
+                    team=team, hash_id="hash", version="1.0.0", project="proj"
+                ),
+                status.HTTP_204_NO_CONTENT,
+            ),
+            (
+                "symbol_set_delete",
+                "delete",
+                "symbol_sets",
+                lambda team: ErrorTrackingSymbolSet.objects.create(ref="source_1", team=team, storage_ptr=None),
+                status.HTTP_204_NO_CONTENT,
+            ),
+            (
+                "stack_frame_retrieve",
+                "get",
+                "stack_frames",
+                lambda team: ErrorTrackingStackFrame.objects.create(
+                    raw_id="raw_id", team=team, resolved=True, contents={}
+                ),
+                status.HTTP_200_OK,
+            ),
+        ]
+    )
+    def test_detail_routes_find_object_by_valid_id(
+        self, _name: str, method: str, route: str, create: Callable[[Team], Any], expected_status: int
+    ) -> None:
+        obj = create(self.team)
+
+        response = getattr(self.client, method)(f"/api/projects/{self.team.id}/error_tracking/{route}/{obj.id}")
+
+        assert response.status_code == expected_status, response.content
+
+    @parameterized.expand(
+        [
             ("active", "resolved", "$error_tracking_issue_resolved", "Resolved", "Active"),
             ("active", "suppressed", "$error_tracking_issue_suppressed", "Suppressed", "Active"),
             ("resolved", "active", "$error_tracking_issue_reopened", "Active", "Resolved"),
