@@ -70,9 +70,20 @@ _COLUMNS: dict[str, ast.Expr] = {
 }
 
 
+def _newest_first() -> list[ast.OrderExpr]:
+    return [
+        ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC"),
+        ast.OrderExpr(expr=ast.Field(chain=["uuid"]), order="DESC"),
+    ]
+
+
 def _sentiments_query(trace_count: int) -> ast.SelectQuery:
-    return ast.SelectQuery(
-        select=[ast.Alias(alias=alias, expr=expr) for alias, expr in _COLUMNS.items()],
+    latest_per_generation = ast.SelectQuery(
+        select=[
+            *(ast.Alias(alias=alias, expr=expr) for alias, expr in _COLUMNS.items()),
+            ast.Field(chain=["timestamp"]),
+            ast.Field(chain=["uuid"]),
+        ],
         select_from=ai_events(),
         where=ast.And(
             exprs=[
@@ -86,11 +97,17 @@ def _sentiments_query(trace_count: int) -> ast.SelectQuery:
                 filter_conditions(),
             ]
         ),
-        order_by=[
-            ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC"),
-            ast.OrderExpr(expr=ast.Field(chain=["uuid"]), order="DESC"),
-        ],
+        order_by=_newest_first(),
         limit_by=ast.LimitByExpr(n=ast.Constant(value=1), exprs=[ast.Field(chain=["trace_id"]), _GENERATION_ID]),
+    )
+    # HogQL takes one LIMIT BY per query, so each generation's latest result is picked before the per-trace cap.
+    return ast.SelectQuery(
+        select=[ast.Field(chain=[alias]) for alias in _COLUMNS],
+        select_from=ast.JoinExpr(table=latest_per_generation),
+        order_by=_newest_first(),
+        limit_by=ast.LimitByExpr(
+            n=ast.Constant(value=MAX_GENERATION_SENTIMENT_EVALUATIONS_PER_TRACE), exprs=[ast.Field(chain=["trace_id"])]
+        ),
         limit=ast.Constant(value=trace_count * MAX_GENERATION_SENTIMENT_EVALUATIONS_PER_TRACE),
     )
 

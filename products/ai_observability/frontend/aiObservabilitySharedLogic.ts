@@ -783,6 +783,15 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
             }
         }
 
+        // The traces list reads a missing param as a default that may be on, so an explicit false must survive a rewrite.
+        function testAccountsSearchParam(shouldFilterTestAccounts: boolean): string | undefined {
+            if (shouldFilterTestAccounts) {
+                return 'true'
+            }
+            const current = router.values.searchParams.filter_test_accounts
+            return current === false || current === 'false' ? 'false' : undefined
+        }
+
         type UrlWrite = [string, Record<string, unknown>, Record<string, unknown>]
 
         function unlessTracesListOwnsUrl<P>(write: (payload: P) => UrlWrite): (payload: P) => UrlWrite | undefined {
@@ -797,7 +806,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                         ...passthroughSearchParams(),
                         filters: propertyFilters.length > 0 ? propertyFilters : undefined,
                         ...dateSearchParams(dateFrom, dateTo),
-                        filter_test_accounts: shouldFilterTestAccounts ? 'true' : undefined,
+                        filter_test_accounts: testAccountsSearchParam(shouldFilterTestAccounts),
                         trace_search:
                             (searchQuery ?? (router.values.searchParams.trace_search as string | undefined)) ||
                             undefined,

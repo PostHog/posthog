@@ -183,16 +183,26 @@ export const traceCellsLogic = kea<traceCellsLogicType>([
                 return status !== 'loading' && (refresh || status !== 'ready')
             })
 
-        const readCells = async <T>(
+        // A refresh reads rows that are already on screen, so two reads of one row can overlap. Only the latest read
+        // of a row may fill it, or an older answer that lands last would overwrite a newer one.
+        const latestReads: Map<string, number> = (cache.latestCellReads ??= new Map())
+        const readKey = (read: TraceCellRead, traceId: string): string => `${read}:${traceId}`
+
+        const readCells = async <Item extends { traceId: string }>(
             read: TraceCellRead,
             rows: TraceListItemApi[],
-            request: (rows: TraceListItemApi[]) => Promise<T>,
-            loaded: (answer: T) => void
+            request: (rows: TraceListItemApi[]) => Promise<{ items: Item[] }>,
+            loaded: (items: Item[]) => void
         ): Promise<void> => {
             if (rows.length === 0) {
                 return
             }
             const traceIds = rows.map((row) => row.id)
+            const readId = (cache.lastCellReadId = (cache.lastCellReadId ?? 0) + 1)
+            for (const traceId of traceIds) {
+                latestReads.set(readKey(read, traceId), readId)
+            }
+            const isLatest = (traceId: string): boolean => latestReads.get(readKey(read, traceId)) === readId
             actions.cellsRequested(read, traceIds)
             const result = await readOrFailure(request(rows))
             if (cache.disposables.isDisposed) {
@@ -201,7 +211,7 @@ export const traceCellsLogic = kea<traceCellsLogicType>([
             if ('failure' in result) {
                 actions.cellsFailed(read, traceIds)
             } else {
-                loaded(result.value)
+                loaded(result.value.items.filter((item) => isLatest(item.traceId)))
             }
         }
 
@@ -213,7 +223,7 @@ export const traceCellsLogic = kea<traceCellsLogicType>([
                     'previews',
                     rowsToRead(values.previews, refresh),
                     (rows) => aiObservabilityTracesPreviewsCreate(projectId, { trace_ids: rows.map((row) => row.id) }),
-                    ({ items }) => {
+                    (items) => {
                         actions.previewsLoaded(items)
                         tracesListTracking.cellsLoaded({
                             previewsWaitMs: Math.round(performance.now() - previewsRequestedAt),
@@ -225,13 +235,13 @@ export const traceCellsLogic = kea<traceCellsLogicType>([
                     'people',
                     rowsToRead(values.people, refresh),
                     (rows) => aiObservabilityTracesPeopleCreate(projectId, pageRequest(rows)),
-                    ({ items }) => actions.peopleLoaded(items)
+                    (items) => actions.peopleLoaded(items)
                 ),
                 readCells(
                     'sentiment',
                     rowsToRead(values.sentiments, refresh),
                     (rows) => aiObservabilityTracesSentimentCreate(projectId, pageRequest(rows)),
-                    ({ items }) => actions.sentimentsLoaded(items)
+                    (items) => actions.sentimentsLoaded(items)
                 ),
             ])
         }

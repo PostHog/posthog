@@ -1,3 +1,4 @@
+import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -44,6 +45,7 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 
 describe('tracesListLogic', () => {
     let requests: Record<string, string>[] = []
+    let signals: AbortSignal[] = []
     let answer: (params: URLSearchParams) => Answer | Promise<Answer>
     let logic: ReturnType<typeof tracesListLogic.build>
 
@@ -62,12 +64,14 @@ describe('tracesListLogic', () => {
     beforeEach(() => {
         localStorage.clear()
         requests = []
+        signals = []
         answer = (params) => [200, params.get('cursor') === 'cursor-2' ? SECOND_PAGE : FIRST_PAGE]
         useMocks({
             get: {
                 [TRACES_URL]: ({ request }) => {
                     const params = new URL(request.url).searchParams
                     requests.push(Object.fromEntries(params))
+                    signals.push(request.signal)
                     return answer(params)
                 },
             },
@@ -180,6 +184,26 @@ describe('tracesListLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(ids()).toEqual(['filtered'])
+    })
+
+    it('aborts a read that a newer selection supersedes, and the read in flight on unmount', async () => {
+        const held = deferred()
+        answer = async () => {
+            await held.promise
+            return [200, FIRST_PAGE]
+        }
+        router.actions.push(LIST_PATH)
+        logic = tracesListLogic()
+        logic.mount()
+
+        filtersLogic().actions.setPropertyFilters([MODEL_FILTER])
+        await waitFor(() => expect(signals).toHaveLength(2))
+        expect(signals.map((signal) => signal.aborted)).toEqual([true, false])
+
+        logic.unmount()
+        expect(signals[1].aborted).toBe(true)
+
+        held.resolve()
     })
 
     it('drops a slow next page that answers after the filters changed', async () => {

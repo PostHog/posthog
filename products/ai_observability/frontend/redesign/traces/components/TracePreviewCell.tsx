@@ -16,7 +16,8 @@ export interface TracePreviewCellProps {
 function previewContent(text: string | null, missingReason: TracePreviewMissingReasonApi | null): JSX.Element | null {
     if (text !== null) {
         return (
-            <div title={text} className="max-w-48 min-w-0 truncate">
+            // The preview holds customer prompts and responses, so autocapture must not record it.
+            <div title={text} className="ph-no-capture max-w-48 min-w-0 truncate">
                 {text}
             </div>
         )
