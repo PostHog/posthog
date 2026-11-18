@@ -28,3 +28,6 @@ class OrganizationExternalProjectLink(UUIDModel):
 
     class Meta:
         ordering = ["name"]
+
+    def __str__(self) -> str:
+        return self.name
