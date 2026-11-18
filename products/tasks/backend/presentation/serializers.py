@@ -1351,6 +1351,19 @@ class TaskSourceRequestSerializer(serializers.Serializer):
 
 
 class TaskCreateSerializer(TaskWriteSerializer, TaskRunScheduleSerializer):
+    warm_submission_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        write_only=True,
+        help_text="Identity of this submission when targeting a warm run. Keep it unchanged on retries; a different submission may fall back to a cold task if the warm run was already claimed.",
+    )
+    warm_run_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        write_only=True,
+        help_text="Target an unused warm run owned by this user. All sandbox settings must match except permission mode, which is acknowledged before the first message.",
+    )
+
     start_run = serializers.BooleanField(
         required=False,
         default=False,
@@ -1618,6 +1631,9 @@ class LegacyDesktopAccessResponseSerializer(serializers.Serializer):
 
 
 class TaskRunErrorResponseSerializer(serializers.Serializer):
+    id = serializers.JSONField(
+        required=False, help_text="Message ID to reuse as the JSON-RPC id when retrying delivery"
+    )
     detail = serializers.CharField(required=False, help_text="Human-readable validation error")
     error = serializers.CharField(required=False, help_text="Human-readable error message")
     type = serializers.CharField(required=False, help_text="Machine-readable error type")
@@ -4577,6 +4593,11 @@ class WarmTaskResponseSerializer(serializers.Serializer):
     )
     run_id = serializers.UUIDField(
         help_text="Id of the idling warm Run. The normal create+run path reuses and activates it on submit.",
+    )
+
+    permission_mode_mutable = serializers.BooleanField(
+        default=False,
+        help_text="The server can negotiate the final permission mode before activating an explicitly targeted warm run.",
     )
 
 

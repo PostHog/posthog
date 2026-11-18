@@ -117,7 +117,8 @@ APPLOVIN_ENDPOINTS: dict[str, AppLovinEndpointConfig] = {
         path="/report",
         dimensions=[
             "day",
-            "application",
+            # The docs list `application` for publisher reports, but `/report` answers
+            # `400 Invalid Column: application` with report_type=publisher.
             "package_name",
             "store_id",
             "platform",
@@ -262,6 +263,9 @@ MANAGEMENT_ENDPOINTS: dict[str, AppLovinManagementEndpointConfig] = {
     "creative_sets": AppLovinManagementEndpointConfig(
         name="creative_sets", path="/creative_set/list", primary_keys=["id"]
     ),
+    "assets": AppLovinManagementEndpointConfig(
+        name="assets", path="/asset/list", primary_keys=["id"], partition_key="upload_time"
+    ),
     "campaign_operation_logs": AppLovinManagementEndpointConfig(
         name="campaign_operation_logs",
         path="/operation_logs/campaign",
@@ -286,8 +290,8 @@ DAY_INCREMENTAL_FIELD: IncrementalField = {
     "field_type": IncrementalFieldType.DateTime,
 }
 
-# Operation logs are filtered server-side by `start_date`/`end_date`. Campaigns and creative sets
-# have no server-side filter, so they sync as a full refresh.
+# Operation logs are filtered server-side by `start_date`/`end_date`. Campaigns, creative sets and
+# assets have no server-side filter, so they sync as a full refresh.
 OPERATION_TIME_INCREMENTAL_FIELD: IncrementalField = {
     "label": "operation_time",
     "type": IncrementalFieldType.DateTime,

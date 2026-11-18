@@ -29,13 +29,14 @@ class TestEligibility(BaseTest):
         assert len(eligible) == 2
         assert steady.call_count == 2
 
-    def test_a_child_environment_records_every_visit_on_its_root_team(self) -> None:
+    def test_an_environment_records_its_visits_on_its_own_row(self) -> None:
         child = Team.objects.create(organization=self.organization, project=self.team.project, parent_team=self.team)
 
         eligibility.record_visit(child)
         eligibility.record_visit(child)
 
-        assert EvalSuggestionTeamState.objects.for_team(self.team.pk).count() == 1
+        assert EvalSuggestionTeamState.objects.for_team(child.pk).count() == 1
+        assert not EvalSuggestionTeamState.objects.for_team(self.team.pk).exists()
 
 
 @parameterized.expand(

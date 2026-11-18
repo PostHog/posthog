@@ -1,4 +1,5 @@
 import re
+import copy
 import json
 import time
 import hashlib
@@ -51,7 +52,10 @@ from django.utils.dateparse import parse_datetime
 from django.utils.http import content_disposition_header
 
 import posthoganalytics
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import (
+    PermissionDenied as ApiPermissionDenied,
+    ValidationError,
+)
 
 from posthog.api.tagged_item import replace_tags_on_object
 from posthog.clickhouse.query_tagging import tag_queries
@@ -59,14 +63,15 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.ingress.contracts import WebhookDelivery
 from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
-from posthog.models import Team, User
+from posthog.models import OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import get_was_impersonated
 from posthog.models.comment.comment import CANVAS_COMMENT_SCOPES
 from posthog.models.integration.codex import CodexAccessGrant, CodexAuthError, CodexReauthRequired, CodexUserIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
-from posthog.scopes import scopes_not_covered
+from posthog.scopes.checks import scopes_not_covered
 from posthog.temporal.oauth import CONTEXT_LAYER_INTERNAL_SCOPE, resolve_scopes
+from posthog.user_permissions import UserPermissions
 from posthog.utils import absolute_uri
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -75,6 +80,7 @@ from products.posthog_ai.backend.task_ownership import (
     detach_conversations_for_task_handoff,
     soft_delete_conversations_for_task,
 )
+from products.tasks.backend.activity_logging import log_sandbox_custom_image_update
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     ANALYSIS_TARGET_IMAGE_ID_STATE_KEY,
@@ -96,6 +102,7 @@ from products.tasks.backend.constants import (
     RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
     SANDBOX_REPOSITORIES_ROOT,
     SERVER_OWNED_RESUME_STATE_KEYS,
+    STOPPED_BEFORE_TURN_CLOSED_STATE_KEY,
     SUBSCRIPTION_PLAN_NAMES,
     TASK_ANALYSIS_ACTIVITIES_STATE_KEY,
     TASK_ANALYSIS_FEATURE_FLAG,
@@ -142,6 +149,8 @@ from products.tasks.backend.logic.log_slice import (
     summary_to_json,
 )
 from products.tasks.backend.logic.model_access import InvalidModelAccess, resolve_model_access
+from products.tasks.backend.logic.services.agent_command import send_set_config_option
+from products.tasks.backend.logic.services.agent_egress import AgentEgressRegistry
 from products.tasks.backend.logic.services.gateway_model_pin import GATEWAY_PRODUCT_STATE_KEY, pinned_run_allows_model
 from products.tasks.backend.logic.services.gateway_usage import refresh_task_run_cost
 from products.tasks.backend.logic.services.image_builder import (
@@ -153,6 +162,7 @@ from products.tasks.backend.logic.services.network_policy import (
     MAX_SANDBOX_ALLOWED_DOMAINS,
     normalize_requested_domains,
 )
+from products.tasks.backend.logic.services.run_actor import get_actor_distinct_id
 from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id, is_public_sandbox_repo
 from products.tasks.backend.logic.services.sandbox_config import MAX_SANDBOX_TTL_SECONDS
 from products.tasks.backend.logic.services.space_setup import (
@@ -201,6 +211,7 @@ from products.tasks.backend.models import (
     TaskOwnershipChangedError,
     TaskPin,
     TaskRun,
+    TaskRunAlreadyLiveError as TaskRunAlreadyLiveError,
     TaskSearchDocument,
     TaskSession,
     TaskThreadMessage,
@@ -316,6 +327,7 @@ __all__ = [
     "TaskRuntime",
     "TaskStatus",
     "TaskDoneError",
+    "TaskRunAlreadyLiveError",
     "check_wake",
     "check_wake_by_task_id",
     "close_task",
@@ -2542,6 +2554,30 @@ def update_task_run_state(
     return TaskRun.update_state_atomic(run_id, updates=updates, remove_keys=remove_keys)
 
 
+def reserve_warm_task_run(run_id: str | UUID) -> bool:
+    warm_runs = TaskRun.objects.filter(id=run_id, state__await_user_message=True)
+    task_id = warm_runs.values_list("task_id", flat=True).first()
+    if task_id is None:
+        return False
+    with transaction.atomic():
+        task = Task.objects.select_for_update().get(id=task_id)
+        run = warm_runs.select_for_update(of=("self",)).first()
+        if run is None or run.state.get("warm_activation_started"):
+            return False
+        task.refuse_run_beside_live_run(source="warm_activation", exclude_run_id=run.id)
+        run.state["warm_activation_started"] = True
+        run.save(update_fields=["state", "updated_at"])
+    return True
+
+
+def release_warm_task_run_reservation(run_id: str | UUID) -> None:
+    with transaction.atomic():
+        run = TaskRun.objects.select_for_update().filter(id=run_id, state__await_user_message=True).first()
+        if run is not None:
+            run.state.pop("warm_activation_started", None)
+            run.save(update_fields=["state", "updated_at"])
+
+
 def activate_warm_task_run(run_id: str | UUID) -> None:
     warm_runs = TaskRun.objects.filter(id=run_id, state__await_user_message=True)
     task_id = warm_runs.values_list("task_id", flat=True).first()
@@ -2668,18 +2704,25 @@ def complete_idle_local_task_run(run_id: str | UUID) -> bool:
     return True
 
 
-def claim_and_fail_stale_run(run_id: str | UUID, error: str, error_type: str | None = None) -> bool:
+def claim_and_fail_stale_run(
+    run_id: str | UUID, error: str, error_type: str | None = None, *, not_updated_since: datetime | None = None
+) -> bool:
     """Compare-and-set reap of a stranded run. Returns whether this caller won the claim.
+
+    ``not_updated_since`` makes the claim lose to a run written at or after that time.
 
     Atomically flips a run still in ``QUEUED``/``IN_PROGRESS`` to ``FAILED`` via a conditional
     update, so concurrent reapers of the same row resolve to exactly one winner (the losers match
     zero rows). The winner finalizes via ``mark_failed`` (error message, ``completed_at``, stream +
     analytics). Intentionally cross-team (janitor sweep).
     """
-    claimed = TaskRun.objects.filter(
+    claimable = TaskRun.objects.filter(
         id=run_id,
         status__in=(TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS),
-    ).update(status=TaskRun.Status.FAILED)  # nosemgrep: celery-task-team-scope-audit
+    )  # nosemgrep: celery-task-team-scope-audit
+    if not_updated_since is not None:
+        claimable = claimable.filter(updated_at__lt=not_updated_since)
+    claimed = claimable.update(status=TaskRun.Status.FAILED)
     if not claimed:
         return False
     run = TaskRun.objects.filter(pk=run_id).first()  # nosemgrep: celery-task-team-scope-audit
@@ -2687,6 +2730,25 @@ def claim_and_fail_stale_run(run_id: str | UUID, error: str, error_type: str | N
         _observe_claimed_terminal(run, error_type=error_type)
         resume_workflow_step_for_run(run)
     return True
+
+
+def _fail_run_whose_workflow_is_gone(run: TaskRun) -> None:
+    claimed = TaskRun.objects.filter(
+        id=run.id,
+        team_id=run.team_id,
+        status=TaskRun.Status.IN_PROGRESS,
+    ).update(status=TaskRun.Status.FAILED)
+    if not claimed:
+        return
+
+    def finalize() -> None:
+        if run.mark_failed(
+            "This run stopped before it finished, so a new run replaced it.", error_type="workflow_gone"
+        ):
+            _observe_claimed_terminal(run, error_type="workflow_gone")
+            resume_workflow_step_for_run(run)
+
+    transaction.on_commit(finalize)
 
 
 def _observe_claimed_terminal(run: TaskRun, *, error_type: str | None) -> None:
@@ -2925,7 +2987,7 @@ def update_sandbox_environment(
     env_id: str | UUID, team_id: int, user_id: int, **fields
 ) -> contracts.SandboxEnvironmentDTO | None:
     """Partially update a visible environment. Returns ``None`` if not found/visible."""
-    env = _accessible_sandbox_envs(team_id, user_id).filter(pk=env_id).first()
+    env = _accessible_sandbox_envs(team_id, user_id).filter(pk=env_id, internal=False).first()
     if env is None:
         return None
     if "environment_variables" in fields:
@@ -2942,7 +3004,7 @@ def update_sandbox_environment(
 
 def delete_sandbox_environment(env_id: str | UUID, team_id: int, user_id: int) -> bool:
     """Delete a visible environment. Returns whether a row was deleted."""
-    env = _accessible_sandbox_envs(team_id, user_id).filter(pk=env_id).first()
+    env = _accessible_sandbox_envs(team_id, user_id).filter(pk=env_id, internal=False).first()
     if env is None:
         return False
     env.delete()
@@ -2996,6 +3058,18 @@ def _accessible_custom_images(team_id: int, user_id: int):
         .filter(Q(private=False) | Q(created_by_id=user_id))
         .select_related("created_by")
     )
+
+
+def _get_writable_custom_image(image_id: str | UUID, team_id: int, user_id: int) -> SandboxCustomImage | None:
+    image = _accessible_custom_images(team_id, user_id).filter(id=image_id).first()
+    if image is None or image.created_by_id == user_id:
+        return image
+    level = UserPermissions(
+        user=User.objects.get(id=user_id), team=Team.objects.get(id=team_id)
+    ).current_team.effective_membership_level
+    if level is None or level < OrganizationMembership.Level.ADMIN:
+        raise ApiPermissionDenied("Only the image's creator or a project admin can change a shared custom image.")
+    return image
 
 
 def _reload_image_dto(image_pk: UUID) -> contracts.SandboxCustomImageDTO:
@@ -3061,7 +3135,7 @@ def ensure_sandbox_custom_image_builder_task(
     image_id: str | UUID, team_id: int, user_id: int
 ) -> contracts.SandboxCustomImageDTO | None:
     """Revive (or reuse) the image's builder session; new sessions are seeded with the stored spec."""
-    image = _accessible_custom_images(team_id, user_id).filter(id=image_id).first()
+    image = _get_writable_custom_image(image_id, team_id, user_id)
     if image is None:
         return None
     ensure_image_builder_task(image, user_id)
@@ -3074,7 +3148,8 @@ def build_sandbox_custom_image(
     """Persist the image spec and kick off the scan → build → publish workflow.
 
     The spec comes from ``spec_yaml`` when provided, otherwise it is read from the
-    builder task's live sandbox. Raises ``ValueError`` on an invalid or empty spec.
+    live sandbox of the caller's own builder task, falling back to the stored spec.
+    Raises ``ValueError`` on an invalid or empty spec.
     """
     from products.tasks.backend.logic.services.image_spec import (  # noqa: PLC0415
         SandboxImageSpecError,
@@ -3087,16 +3162,20 @@ def build_sandbox_custom_image(
     )
     from products.tasks.backend.temporal.client import execute_build_sandbox_image_workflow  # noqa: PLC0415
 
-    image = _accessible_custom_images(team_id, user_id).filter(id=image_id).first()
+    image = _get_writable_custom_image(image_id, team_id, user_id)
     if image is None:
         return None
     if image.status in (SandboxCustomImage.Status.SCANNING, SandboxCustomImage.Status.BUILDING):
         raise ValueError("A build is already in progress for this image")
 
     try:
-        spec = parse_image_spec_yaml(spec_yaml) if spec_yaml is not None else read_spec_from_builder_sandbox(image)
+        spec = (
+            parse_image_spec_yaml(spec_yaml)
+            if spec_yaml is not None
+            else read_spec_from_builder_sandbox(image, user_id)
+        )
     except SandboxImageSpecError as e:
-        # Builder sandbox gone → the stored spec is the only correct rebuild source.
+        # No builder sandbox of the caller's to read → the stored spec is the only correct rebuild source.
         if spec_yaml is None and image.spec:
             spec = parse_image_spec_json(image.spec)
         else:
@@ -3118,6 +3197,9 @@ def build_sandbox_custom_image(
     )
     if not updated:
         raise ValueError("A build is already in progress for this image")
+    after = copy.copy(image)
+    after.spec = spec.model_dump()
+    log_sandbox_custom_image_update(image, after, user_id)
 
     observe_custom_image_build("started")
     execute_build_sandbox_image_workflow(str(image.id), team_id)
@@ -3132,11 +3214,12 @@ def update_sandbox_custom_image(
     name: str | None = None,
     description: str | None = None,
 ) -> contracts.SandboxCustomImageDTO | None:
-    """Rename (and optionally re-describe) a visible custom image.
+    """Rename (and optionally re-describe) a custom image the caller can change.
 
     Only mutable metadata (`name`, `description`) is editable here — the build spec,
     status, and published image reference are managed by the build/scan flow. Returns
-    ``None`` when the image is not visible to the caller.
+    ``None`` when the image is not visible to the caller, and raises ``PermissionDenied``
+    when the caller can see it but cannot change it.
     """
     updates: dict[str, str] = {}
     if name is not None:
@@ -3146,6 +3229,9 @@ def update_sandbox_custom_image(
     if not updates:
         return get_sandbox_custom_image(image_id, team_id, user_id)
 
+    image = _get_writable_custom_image(image_id, team_id, user_id)
+    if image is None:
+        return None
     updated = (
         _accessible_custom_images(team_id, user_id)
         .filter(id=image_id)
@@ -3153,6 +3239,10 @@ def update_sandbox_custom_image(
     )
     if not updated:
         return None
+    after = copy.copy(image)
+    for key, value in updates.items():
+        setattr(after, key, value)
+    log_sandbox_custom_image_update(image, after, user_id)
     # Re-read through get_sandbox_custom_image rather than _reload_image_dto: if a
     # concurrent delete removes the row between the update above and this read,
     # `.first()` returns None (→ 404) instead of .get() raising DoesNotExist (→ 500).
@@ -3160,8 +3250,8 @@ def update_sandbox_custom_image(
 
 
 def delete_sandbox_custom_image(image_id: str | UUID, team_id: int, user_id: int) -> bool:
-    """Delete a visible custom image. Environments referencing it fall back to the default base (SET_NULL)."""
-    image = _accessible_custom_images(team_id, user_id).filter(id=image_id).first()
+    """Delete a custom image the caller can change. Environments referencing it fall back to the default base (SET_NULL)."""
+    image = _get_writable_custom_image(image_id, team_id, user_id)
     if image is None:
         return False
     image.delete()
@@ -3216,6 +3306,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "agent_parent_run_id",
         "agent_started_run_count",
         "resume_from_run_id",
+        # Once another member drove the sandbox, nothing inside it may unlock the creator's memory.
+        "agent_memory_locked",
         "run_source",
         "pr_base_branch",
         "stack_base_branch",
@@ -3243,6 +3335,9 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "prewarmed",
         "await_user_message",
         "warm_activation_started",
+        "warm_activation_message_id",
+        "warm_activation_submission_id",
+        "warm_permission_mode_failed",
         "warm_activated",
         TASK_RUN_SUMMARY_STATE_KEY,
         PRIOR_RUN_SUMMARY_STATE_KEY,
@@ -3256,6 +3351,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "sandbox_url",
         "sandbox_connect_token",
         "sandbox_jwt_kid",
+        "agent_egress_probe",
         DEV_STACK_PREVIEW_STATE_KEY,
         "sandbox_cpu_cores",
         "sandbox_memory_gb",
@@ -3271,6 +3367,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "use_modal_vm_sandbox",
         # The image a run boots from; a PATCHed value would pick an image the task never asked for.
         "sandbox_template",
+        "custom_image_id",
         # Rollout stamps written once at dispatch by _capture_run_feature_flags or at run
         # creation; a PATCHable value would let a task controller bypass the org feature flags
         # (for telemetry, that means injecting the internal OTLP capture token into their
@@ -3305,6 +3402,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "timed_out_inactivity",
         "timed_out_wall_clock",
         "sandbox_gone",
+        STOPPED_BEFORE_TURN_CLOSED_STATE_KEY,
         TASK_ANALYSIS_ACTIVITIES_STATE_KEY,
         ANALYSIS_TARGET_TASK_ID_STATE_KEY,
         ANALYSIS_TARGET_RUN_ID_STATE_KEY,
@@ -3362,6 +3460,9 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "interaction_origin",
         "slack_actor_user_id",
         "slack_actor_slack_user_id",
+        # The Slack app edits and deletes this message without checking which thread it is in, so a
+        # forged ts would let a caller rewrite or remove any bot message in the channel.
+        "slack_progress_message_ts",
         # Names the autoresearch training run this TaskRun finalizes when it ends (training.ingestion).
         "autoresearch_training_run_id",
         # Set only when the agent's `finish` call saves its report. A forged marker would stop the
@@ -6216,6 +6317,25 @@ def signal_task_run_user_message(
 
     if reason := get_compute_quota_denial_reason(run.task):
         raise ComputeBillingLimitError({"team_id": team_id, "task_id": str(task_id), "run_id": str(run_id)}, reason)
+    claimed_warm_run = False
+    if (run.state or {}).get("await_user_message"):
+        message_id = message_id or str(uuid4())
+        with transaction.atomic():
+            task = Task.objects.select_for_update().get(id=run.task_id, team_id=team_id)
+            claimed = TaskRun.objects.select_for_update().get(id=run.id, team_id=team_id)
+            state = claimed.state or {}
+            if state.get("await_user_message"):
+                if (
+                    state.get("cancel_requested_at")
+                    or state.get("warm_permission_mode_failed")
+                    or (state.get("warm_activation_started") and state.get("warm_activation_message_id") != message_id)
+                ):
+                    return False
+                claimed_warm_run = not state.get("warm_activation_started", False)
+                if claimed_warm_run:
+                    task.refuse_run_beside_live_run(source="warm_activation", exclude_run_id=run.id)
+                claimed.state = {**state, "warm_activation_started": True, "warm_activation_message_id": message_id}
+                claimed.save(update_fields=["state", "updated_at"])
     accepted_at = django_timezone.now()
     try:
         context_values = {"actor_slack_user_id": actor_slack_user_id, "person_message": person_message}
@@ -6232,6 +6352,15 @@ def signal_task_run_user_message(
         )
     except RPCError as e:
         if e.status == RPCStatusCode.NOT_FOUND:
+            if claimed_warm_run:
+                with transaction.atomic():
+                    claimed = TaskRun.objects.select_for_update().get(id=run.id, team_id=team_id)
+                    state = claimed.state or {}
+                    if state.get("await_user_message") and state.get("warm_activation_message_id") == message_id:
+                        state.pop("warm_activation_started", None)
+                        state.pop("warm_activation_message_id", None)
+                        claimed.state = state
+                        claimed.save(update_fields=["state", "updated_at"])
             if not run.is_terminal and (run.state or {}).get("await_user_message"):
                 raise
             logger.warning("Follow-up signal target workflow gone for task run %s", run.id)
@@ -6932,6 +7061,12 @@ def bootstrap_task_run(
                 kind="validation_error", code="task_done", detail=str(error), attr="status"
             )
         )
+    except TaskRunAlreadyLiveError as error:
+        return contracts.TaskRunCreateResult(
+            error=contracts.TaskRunValidationError(
+                kind="validation_error", code="run_in_progress", detail=str(error), attr="status"
+            )
+        )
     except TaskOwnershipChangedError:
         return None
 
@@ -7107,7 +7242,7 @@ def resume_task_run_in_cloud(
 
     Returns ``(outcome, run_dto, debug_use_modal)``. ``outcome`` is one of: ``"not_found"``,
     ``"already_active"`` (400), ``"not_cloud"`` (400), ``"ownership_changed"`` (400), ``"invalid_origin"`` (400),
-    ``"task_done"`` (409), ``"auth_error:<detail>"``
+    ``"task_done"`` (409), ``"run_in_progress"`` (409), ``"auth_error:<detail>"``
     (400, GitHub auth), ``"workflow_failed"`` (502), or ``"resumed"`` (run_dto set).
     Mirrors ``TaskRunViewSet.resume_in_cloud``.
     """
@@ -7195,6 +7330,11 @@ def resume_task_run_in_cloud(
                         pr_authorship_mode.value if hasattr(pr_authorship_mode, "value") else pr_authorship_mode
                     ),
                 }
+
+        try:
+            task.refuse_run_beside_live_run(source="cloud_resume", exclude_run_id=run.id)
+        except TaskRunAlreadyLiveError:
+            return "run_in_progress", None, None
 
         prior_status = run.status
         prior_environment = run.environment
@@ -8370,6 +8510,14 @@ def create_task(
     warm_sandbox_environment_id = validated_data.pop("sandbox_environment_id", None)
     warm_custom_image_id = validated_data.pop("custom_image_id", None)
     warm_initial_permission_mode = validated_data.pop("initial_permission_mode", None)
+    warm_run_id = validated_data.pop("warm_run_id", None)
+    warm_submission_id = validated_data.pop("warm_submission_id", None)
+    warm_submission_id = str(warm_submission_id) if warm_submission_id else None
+    if warm_run_id is not None and validated_data["origin_product"] not in (
+        Task.OriginProduct.USER_CREATED,
+        Task.OriginProduct.POSTHOG_AI,
+    ):
+        raise ValidationError({"warm_run_id": "Only supported for user-created and PostHog AI tasks."})
     pending_user_message = (validated_data.pop("pending_user_message", None) or "").strip() or None
     pending_user_artifact_ids = validated_data.pop("pending_user_artifact_ids", None) or []
     warm_auto_publish = validated_data.pop("auto_publish", None)
@@ -8463,6 +8611,9 @@ def create_task(
                 sandbox_environment_id=warm_sandbox_environment_id,
                 custom_image_id=warm_custom_image_id,
                 initial_permission_mode=warm_initial_permission_mode,
+                warm_run_id=warm_run_id,
+                warm_submission_id=warm_submission_id,
+                retry_token=warm_retry_token,
                 signal_report_id=str(signal_report.id) if report_discussion and signal_report is not None else None,
                 task_runtime=validated_data.get("runtime"),
                 json_schema=validated_data.get("json_schema"),
@@ -8564,7 +8715,25 @@ def create_task(
                     auto_publish=warm_auto_publish,
                     reasoning_effort=warm_reasoning_effort,
                     retry_token=warm_retry_token,
+                    initial_permission_mode=warm_initial_permission_mode if warm_run_id else None,
+                    submission_id=warm_submission_id,
                 )
+            except WarmRunClaimedByOtherSubmission:
+                pass
+            except WarmPermissionModeUnavailable:
+                from products.tasks.backend.facade.cancellation import cancel_task_run
+
+                cancel_task_run(warm_run.id, warm_task.id, team_id, only_if_awaiting_first_message=True)
+                with transaction.atomic():
+                    unused_task = Task.objects.select_for_update().get(id=warm_task.id, team_id=team_id)
+                    unused_run = TaskRun.objects.select_for_update().get(id=warm_run.id, team_id=team_id)
+                    unused_state = unused_run.state or {}
+                    if (
+                        unused_state.get("await_user_message")
+                        and unused_state.get("warm_permission_mode_failed")
+                        and not unused_state.get("warm_activation_started")
+                    ):
+                        unused_task.soft_delete()
             except Exception:
                 if report_reservation is not None:
                     from products.signals.backend.facade.report_tasks import (  # noqa: PLC0415 — cross-product write kept off the api import path
@@ -8573,7 +8742,8 @@ def create_task(
 
                     delete_report_task_artefact(team_id=warm_task.team_id, artefact_id=report_reservation)
                 raise
-            return _task_detail_to_dto(_task_detail_queryset().get(pk=warm_task.pk))
+            else:
+                return _task_detail_to_dto(_task_detail_queryset().get(pk=warm_task.pk))
 
     if warm_retry_token is not None:
         raise WarmRunActivationUnavailable("target_unavailable")
@@ -9294,6 +9464,11 @@ def _with_ai_run_defaults(
     return updated
 
 
+def _warm_run_claimed_by_other_submission(run: TaskRun, submission_id: str | None) -> bool:
+    claimed_submission = (run.state or {}).get("warm_activation_submission_id")
+    return bool(submission_id and claimed_submission and claimed_submission != submission_id)
+
+
 def _find_idling_warm_run(
     team_id: int,
     user_id: int | None,
@@ -9310,6 +9485,9 @@ def _find_idling_warm_run(
     sandbox_environment_id: str | UUID | None = None,
     custom_image_id: str | UUID | None = None,
     initial_permission_mode: str | None = None,
+    warm_run_id: str | UUID | None = None,
+    warm_submission_id: str | None = None,
+    retry_token: str | None = None,
     signal_report_id: str | UUID | None = None,
     task_runtime: str | None = None,
     json_schema: dict[str, Any] | None = None,
@@ -9337,6 +9515,29 @@ def _find_idling_warm_run(
     """
     if user_id is None:
         return None
+    retry_run_id = None
+    if retry_token is not None:
+        try:
+            token_run_id, _, _ = signing.TimestampSigner(salt="warm-run-activation").unsign_object(
+                retry_token, max_age=60
+            )
+            retry_run_id = UUID(token_run_id)
+        except (signing.BadSignature, ValueError, TypeError) as error:
+            raise WarmRunActivationUnavailable("invalid_retry") from error
+        if warm_run_id is not None and str(warm_run_id) != str(retry_run_id):
+            raise WarmRunActivationUnavailable("target_unavailable")
+    elif warm_run_id is not None:
+        claimed = TaskRun.objects.filter(
+            id=warm_run_id,
+            team_id=team_id,
+            task__created_by_id=user_id,
+            task__origin_product=origin_product,
+            state__warm_activation_started=True,
+        ).first()
+        if claimed is not None:
+            if _warm_run_claimed_by_other_submission(claimed, warm_submission_id):
+                return None
+            raise WarmRunActivationUnavailable("target_unavailable")
     normalized_repositories = [repo.lower() for repo in (repositories or ([repository] if repository else []))]
     from products.tasks.backend.temporal.oauth import dispatched_run_scopes
 
@@ -9345,6 +9546,7 @@ def _find_idling_warm_run(
     candidates = (
         TaskRun.objects.filter(  # nosemgrep: idor-lookup-without-team — team_id filter applied via the task FK below
             report_filter,
+            **({"id": warm_run_id or retry_run_id} if warm_run_id or retry_run_id else {}),
             task__team_id=team_id,
             task__created_by_id=user_id,
             task__origin_product=origin_product,
@@ -9369,7 +9571,9 @@ def _find_idling_warm_run(
         state = run.state or {}
         if dispatched_run_scopes(run.task, state) != posthog_mcp_scopes:
             continue
-        if state.get("cancel_requested_at"):
+        if state.get("cancel_requested_at") or state.get("warm_permission_mode_failed"):
+            continue
+        if state.get("warm_activation_started") and retry_token is None:
             continue
         have_repositories = [
             repo.lower() for repo in (run.task.repositories or ([run.task.repository] if run.task.repository else []))
@@ -9392,7 +9596,11 @@ def _find_idling_warm_run(
         # mode (warm_task_sandbox writes one unconditionally), while callers that never send one — the
         # Code app — must keep reusing their warms. Folding this into the tuple above would compare None
         # against "default" and break every one of those reuses.
-        if initial_permission_mode is not None and state.get("initial_permission_mode") != initial_permission_mode:
+        if (
+            not warm_run_id
+            and initial_permission_mode is not None
+            and state.get("initial_permission_mode") != initial_permission_mode
+        ):
             continue
         return run
     return None
@@ -9513,8 +9721,51 @@ def _warm_retry_message_id(token: str | None, run: TaskRun) -> str | None:
     return str(message_id)
 
 
+class WarmPermissionModeUnavailable(Exception):
+    pass
+
+
+class WarmRunClaimedByOtherSubmission(Exception):
+    pass
+
+
+def _apply_warm_permission_mode(run: TaskRun, mode: str) -> None:
+    try:
+        actor = run.task.created_by
+        if actor is None:
+            raise WarmPermissionModeUnavailable()
+        auth_token = create_sandbox_connection_token(run.id, actor.id, get_actor_distinct_id(actor))
+        response = send_set_config_option(run, "mode", mode, auth_token=auth_token)
+        result = response.data.get("result") if response.data else None
+        options = result.get("configOptions") if isinstance(result, dict) else None
+        acknowledged = (
+            response.success
+            and isinstance(options, list)
+            and any(
+                isinstance(option, dict) and option.get("id") == "mode" and option.get("currentValue") == mode
+                for option in options
+            )
+        )
+        if not acknowledged:
+            raise WarmPermissionModeUnavailable()
+        TaskRun.update_state_atomic(run.id, updates={"initial_permission_mode": mode})
+    except Exception as error:
+        TaskRun.update_state_atomic(
+            run.id,
+            updates={"warm_permission_mode_failed": True},
+            remove_keys=["warm_activation_started", "warm_activation_message_id"],
+        )
+        raise WarmPermissionModeUnavailable() from error
+
+
 def _deliver_warm_run_message(
-    run: TaskRun, *, message: str | None, artifact_ids: list[str], message_id: str | None = None
+    run: TaskRun,
+    *,
+    message: str | None,
+    artifact_ids: list[str],
+    message_id: str | None = None,
+    initial_permission_mode: str | None = None,
+    submission_id: str | None = None,
 ) -> None:
     from temporalio.service import RPCError, RPCStatusCode
 
@@ -9532,16 +9783,37 @@ def _deliver_warm_run_message(
 
     try:
         with transaction.atomic():
+            task = Task.objects.select_for_update().get(id=run.task_id, team_id=run.team_id)
             current_run = eligible_runs.select_for_update(of=("self",)).first()
+            claimed_run = current_run or TaskRun.objects.filter(id=run.id, team_id=run.team_id).first()
+            if claimed_run is not None and _warm_run_claimed_by_other_submission(claimed_run, submission_id):
+                raise WarmRunClaimedByOtherSubmission()
             if (
                 current_run is None
                 or current_run.workflow_id != workflow_id
                 or (current_run.state or {}).get("cancel_requested_at")
+                or (current_run.state or {}).get("warm_permission_mode_failed")
+                or (
+                    (current_run.state or {}).get("warm_activation_started")
+                    and (not frontend_retry or current_run.state.get("warm_activation_message_id") != message_id)
+                )
             ):
                 raise WarmRunActivationUnavailable("target_unavailable")
+            try:
+                task.refuse_run_beside_live_run(source="warm_activation", exclude_run_id=run.id)
+            except TaskRunAlreadyLiveError as error:
+                raise WarmRunActivationUnavailable("target_unavailable") from error
             # Claim before signaling so a different composer's release cannot cancel delivery in flight.
             current_run.state["warm_activation_started"] = True
+            current_run.state["warm_activation_message_id"] = message_id
+            if submission_id is not None:
+                current_run.state["warm_activation_submission_id"] = submission_id
             current_run.save(update_fields=["state", "updated_at"])
+        if (
+            initial_permission_mode is not None
+            and current_run.state.get("initial_permission_mode") != initial_permission_mode
+        ):
+            _apply_warm_permission_mode(current_run, initial_permission_mode)
         try:
             delivered = signal_task_run_user_message(
                 run.id,
@@ -9553,6 +9825,8 @@ def _deliver_warm_run_message(
                 workflow_id=workflow_id,
                 rpc_timeout=timedelta(seconds=10),
             )
+        except TaskRunAlreadyLiveError as error:
+            raise WarmRunActivationUnavailable("target_unavailable") from error
         except RPCError as error:
             # NOT_FOUND proves the workflow did not receive this message. Other errors may follow delivery.
             if error.status != RPCStatusCode.NOT_FOUND:
@@ -9618,6 +9892,8 @@ def _activate_warm_run(
     auto_publish: bool | None = None,
     reasoning_effort: str | None = None,
     retry_token: str | None = None,
+    initial_permission_mode: str | None = None,
+    submission_id: str | None = None,
 ) -> None:
     """Activate an idling warm Run: set the draft Task's visible description from raw task text,
     forward the first message to the already-running agent, and drop the ``await_user_message`` marker
@@ -9647,7 +9923,12 @@ def _activate_warm_run(
         remove_keys=["reasoning_effort"] if reasoning_effort is None else None,
     )
     _deliver_warm_run_message(
-        run, message=message, artifact_ids=artifact_ids, message_id=_warm_retry_message_id(retry_token, run)
+        run,
+        message=message,
+        artifact_ids=artifact_ids,
+        message_id=_warm_retry_message_id(retry_token, run),
+        initial_permission_mode=initial_permission_mode,
+        submission_id=submission_id,
     )
     # Only count activations of Runs that actually carry the prewarmed marker, so the activation
     # numerator stays consistent with the workflow_start{prewarmed="true"} denominator — otherwise
@@ -10081,6 +10362,7 @@ def warm_task_resume_sandbox(
         WarmSourceChanged,
         TaskOwnershipChangedError,
         TaskDoneError,
+        TaskRunAlreadyLiveError,
     ):
         # TaskOwnershipChangedError guards a handoff that lands after the check above but before the
         # locked create_run, keeping this best-effort endpoint from returning a server error.
@@ -10405,6 +10687,14 @@ def run_task(
                         return contracts.TaskRunResult(
                             error=contracts.TaskValidationError(
                                 kind="validation_error", code="task_done", detail=str(done_error), attr="status"
+                            )
+                        )
+                    try:
+                        task.refuse_run_beside_live_run(source="warm_activation", exclude_run_id=warm_run.id)
+                    except TaskRunAlreadyLiveError as live_error:
+                        return contracts.TaskRunResult(
+                            error=contracts.TaskValidationError(
+                                kind="validation_error", code="run_in_progress", detail=str(live_error), attr="status"
                             )
                         )
                     if warm_staged_artifacts:
@@ -10760,6 +11050,12 @@ def run_task(
         return contracts.TaskRunResult(
             error=contracts.TaskValidationError(
                 kind="validation_error", code="task_done", detail=str(error), attr="status"
+            )
+        )
+    except TaskRunAlreadyLiveError as error:
+        return contracts.TaskRunResult(
+            error=contracts.TaskValidationError(
+                kind="validation_error", code="run_in_progress", detail=str(error), attr="status"
             )
         )
     except TaskOwnershipChangedError:
@@ -12726,7 +13022,7 @@ def forward_thread_message(
             signal_result = signal_task_run_user_message(
                 run.id, task.id, team_id, content=content, artifact_ids=[], actor_user_id=user_id
             )
-        except TaskDoneError:
+        except (TaskDoneError, TaskRunAlreadyLiveError):
             return "no_run", None
         if not signal_result:
             return "signal_failed", None
@@ -13143,7 +13439,8 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
     transaction and dispatches its processing workflow on commit with
     ``skip_user_check``.
     Returns ``signaled`` / ``new_run`` / ``already_queued`` / ``not_found`` /
-    ``forbidden`` / ``quota_exhausted`` / ``organization_deactivated`` / ``task_done``.
+    ``forbidden`` / ``quota_exhausted`` / ``organization_deactivated`` / ``task_done`` /
+    ``run_in_progress``.
     """
     from products.signals.backend.facade.self_driving import (
         self_driving_quota_gate,  # noqa: PLC0415 -- resolve the gate before locking the task
@@ -13201,6 +13498,8 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
                     return "signaled"
             except ComputeBillingLimitError as error:
                 return _canvas_fix_denial_outcome(error.reason)
+            except TaskRunAlreadyLiveError:
+                return "run_in_progress"
             if run.status == TaskRun.Status.QUEUED and (run.state or {}).get("pending_user_message"):
                 # A queued, prompt-seeded run whose workflow hasn't registered yet
                 # is a fix run a just-committed request dispatched (creation is
@@ -13208,6 +13507,12 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
                 return "already_queued"
             # The workflow is gone despite the non-terminal row (evicted or stale); fall
             # through to a fresh run rather than reporting a dead end.
+            if (
+                run.environment == TaskRun.Environment.CLOUD
+                and run.status == TaskRun.Status.IN_PROGRESS
+                and not (run.state or {}).get("cancel_requested_at")
+            ):
+                _fail_run_whose_workflow_is_gone(run)
         if quota_gate is not None:
             enforce_self_driving_pr_quota(
                 task.team,
@@ -13215,9 +13520,12 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
                 stage="canvas_fix",
                 gate=quota_gate,
             )
-        task_run = task.create_run(
-            mode="background", extra_state={"pending_user_message": prompt}, _trial_admission=trial_admission
-        )
+        try:
+            task_run = task.create_run(
+                mode="background", extra_state={"pending_user_message": prompt}, _trial_admission=trial_admission
+            )
+        except TaskRunAlreadyLiveError:
+            return "run_in_progress"
         from products.tasks.backend.logic.services.workflow_dispatch import (  # noqa: PLC0415
             WorkflowDispatchOptions,
             enqueue_or_start_workflow,
@@ -13470,3 +13778,23 @@ def release_mobile_push_cooldown(key: str) -> None:
     from products.tasks.backend.redis import get_tasks_cache  # noqa: PLC0415 — keep redis off the api import path
 
     get_tasks_cache().delete(key)
+
+
+def get_agent_egress_registration(
+    *, team_id: int, run_id: UUID, execution_id: UUID, region: str
+) -> contracts.AgentEgressRegistrationDTO | None:
+    registration = AgentEgressRegistry(region=region).lookup(team_id=team_id, run_id=run_id, execution_id=execution_id)
+    if registration is None:
+        return None
+    return contracts.AgentEgressRegistrationDTO(
+        run_id=registration.task_run_id,
+        team_id=registration.team_id,
+        execution_id=registration.execution_id,
+        actor_id=registration.actor_id,
+        actor_epoch=registration.actor_epoch,
+        relay_key_sha256=registration.relay_key_sha256,
+        authority=registration.authority,
+        region=registration.region,
+        lease_expires_at=registration.lease_expires_at,
+        revoked=registration.revoked,
+    )

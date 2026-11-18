@@ -105,6 +105,10 @@ The agent inside the sandbox gets:
 
 ### Run system prompts
 
+Pull request footers link to an inbox report when the task has a report.
+Desktop attribution requires recorded `posthog_desktop` client provenance.
+Tasks with missing or unknown client provenance use generic PostHog branding without a Desktop source link.
+
 The run's `state.systemPrompt` is server-owned. Set it through trusted server-side run creation
 or state updates. The run PATCH endpoint silently ignores attempts to replace, remove, or append
 to this key, including requests from the sandbox itself. The run detail endpoint serves the prompt
@@ -468,6 +472,10 @@ They can:
 - Create git branches and pull requests (commits must be signed — see below)
 - Execute arbitrary shell commands within the container
 
+Claude sessions use `applyFlagSettings()` at startup to set `attribution.pr` to an empty string and disable Claude Code's default footer in pull request descriptions.
+The agent keeps the PostHog attribution footer from its task instructions.
+The same call sets `attribution.commit` to an empty string, consistent with the task instructions that prohibit Claude's default commit trailer.
+
 ### Git commit signing
 
 Direct `git commit` and `git push` commands are blocked in the sandbox to ensure all commits are properly signed by GitHub. A PATH shim (`git-guard.sh` at `/opt/posthog/bin/git`) intercepts these subcommands while passing all other git operations through to the real binary.
@@ -809,6 +817,8 @@ Search queries retain the end of the current request and reserve space for recen
 References link to the retrieved sources; skill references fetch the latest published version by name.
 Each reference also carries a `url` the user can open: the fetched page for a URL-backed Business Knowledge document, or the in-app page for a skill or metric. Text and file documents, certifications, and relationships have none.
 At most five references and 8,000 characters survive into a hidden context block, identified by `selection_id`.
+The agent server sends the keys of references already injected in the conversation as `exclude`, and selection skips them, so a follow-up never repeats a reference the agent still holds.
+Compaction and a cleared conversation reset that list, and a resumed run rebuilds it from the logged prompt requests.
 Retrieved content is data to verify through existing tools, rather than instructions or approval.
 Skill references contain descriptions and bounded search excerpts, so the prompt requires `skill-get` with the referenced name before the agent relies on or follows a skill.
 Long catalog records retain their status, proposed status, and drift metadata while verbose content becomes a bounded excerpt.

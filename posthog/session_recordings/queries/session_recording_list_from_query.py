@@ -1,4 +1,3 @@
-import struct
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 
@@ -60,13 +59,6 @@ logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
 
-# Neutral mid-pack score for sessions the surfacing scorer has not reached; shared with the
-# replay-vision sweep so list eligibility and sweep eligibility agree on unscored sessions.
-UNSCORED_SURFACING_SCORE = 0.36
-# Match the Float32 storage precision so a score equal to the cutoff stays excluded after promotion.
-RECOMMENDED_SURFACING_SCORE_THRESHOLD = struct.unpack("!f", struct.pack("!f", 0.36))[0]
-
-
 class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
     SESSION_RECORDINGS_DEFAULT_LIMIT = 50
 
@@ -103,8 +95,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             /
             ((sum(s.mouse_activity_count) + dateDiff('SECOND', start_time, end_time) + sum(s.console_error_count) + sum(s.console_log_count) + sum(s.console_warn_count)))
             * 100
-            ), 0), 100), 2) as activity_score,
-            coalesce(max(s.surfacing_score), {unscored_surfacing_score}) as surfacing_score
+            ), 0), 100), 2) as activity_score
         FROM raw_session_replay_events s
         WHERE {where_predicates}
         GROUP BY session_id
@@ -135,7 +126,6 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             "recording_ttl",
             "ongoing",
             "activity_score",
-            "surfacing_score",
         ]
 
     @staticmethod
@@ -379,7 +369,6 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 "where_predicates": self._where_predicates(),
                 "having_predicates": self._having_predicates() or ast.Constant(value=True),
                 "python_now": ast.Constant(value=datetime.now(UTC)),
-                "unscored_surfacing_score": ast.Constant(value=UNSCORED_SURFACING_SCORE),
             },
         )
         if isinstance(parsed_query, ast.SelectSetQuery):
@@ -1019,15 +1008,6 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         # baselines), so they're AND'd regardless of the user's operand.
         if self._query.having_predicates:
             exprs.append(property_to_expr(self._query.having_predicates, team=self._team, scope="replay"))
-
-        if self._query.recommended_only:
-            exprs.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Gt,
-                    left=ast.Call(name="max", args=[ast.Field(chain=["s", "surfacing_score"])]),
-                    right=ast.Constant(value=RECOMMENDED_SURFACING_SCORE_THRESHOLD),
-                )
-            )
 
         # User filter-group recording filters (e.g. visited_page) follow the match-any/all operand.
         if self._operand_having_predicates:

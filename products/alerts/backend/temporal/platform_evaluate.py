@@ -305,7 +305,7 @@ def plan_platform_insight_round_activity(inputs: InsightBatchPlanInputs) -> list
 def plan_platform_insight_checks_activity(inputs: InsightBatchPlanInputs) -> list[AdmittedInsightCheck]:
     """`plan_platform_insight_round_activity` with each check's cadence, under its own name, because
     a run that recorded the old name must decode bare ids on replay."""
-    from products.alerts.backend.llm_detector_limits import is_llm_detector_config  # noqa: PLC0415
+    from products.alerts.backend.llm_detector_limits import calls_ai_gateway  # noqa: PLC0415
     from products.alerts.backend.platform_source_cycle import legacy_alerts_of, plan_insight_batch  # noqa: PLC0415
 
     key = inputs.evaluation.batch_key
@@ -319,7 +319,7 @@ def plan_platform_insight_checks_activity(inputs: InsightBatchPlanInputs) -> lis
             AdmittedInsightCheck(
                 configuration_id=configuration_id,
                 real_time=alert is not None and alert.calculation_interval == AlertCalculationInterval.REAL_TIME,
-                uses_llm_detector=alert is not None and is_llm_detector_config(alert.detector_config),
+                uses_llm_detector=alert is not None and calls_ai_gateway(alert.detector_config),
                 owned_by_platform=alert is not None and alert.platform_owned,
             )
         )

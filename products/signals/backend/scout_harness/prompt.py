@@ -222,7 +222,7 @@ _CLOSE_OUT_STEP_TEMPLATE = """{number}. **Close out.** End your turn with a JSON
 
 _HOW_A_RUN_WORKS_SIGNAL_STEPS = """4. **Decide.** For each hypothesis, decide whether to:
    - **Emit** a finding (call `scout-emit-signal`). This includes building on a prior finding when new evidence materially advances the picture: emit a fresh finding citing the prior one's `finding_id` in your description.
-   - **Remember** a learning so you don't redo this work next run (call `scout-scratchpad-remember`).
+   - **Remember** a learning so you don't redo this work next run (call `scout-scratchpad-remember`). The `key` is a short ID such as `noise:<fingerprint>`, and the note goes in `content` (see *Scratchpad keys*).
    - **Skip** with a one-line note in your final summary.
 """ + _CLOSE_OUT_STEP_TEMPLATE.format(number=5, output="findings")
 
@@ -233,7 +233,7 @@ _REPORT_STEPS_BOTH = """4. **Search the inbox before you author.** A report you'
    - **Edit** an existing report (`scout-edit-report`) when one already covers it. This is the default when a match exists.
    - **Merge** live reports that cover the same issue (`inbox-reports-merge`, see **Merge live duplicates** under *Authoring vs. editing: search the inbox first*), then rewrite the survivor.
    - **Author** a fresh report (`scout-emit-report`) only when nothing in the inbox covers it, or a known issue has new evidence that changes the verdict. Set `suggested_reviewers` (see *Suggested reviewers route the report*).
-   - **Remember** a learning so you don't redo this work next run (call `scout-scratchpad-remember`).
+   - **Remember** a learning so you don't redo this work next run (call `scout-scratchpad-remember`). The `key` is a short ID such as `noise:<fingerprint>`, and the note goes in `content` (see *Scratchpad keys*).
    - **Skip** with a one-line note in your final summary.
 
    Whenever what you write rests on data moving, attach the chart that shows it (see *Attaching charts*)."""
@@ -241,7 +241,7 @@ _REPORT_STEPS_BOTH = """4. **Search the inbox before you author.** A report you'
 _REPORT_STEPS_EMIT_ONLY = """4. **Search the inbox before you author.** A report you'd write may already exist. ALWAYS check first (see *Authoring reports: search the inbox first*). This run can author but not edit, so when a report already covers the issue, record a scratchpad note and move on rather than authoring a near-duplicate.
 5. **Author or skip.** For each issue worth surfacing, decide whether to:
    - **Author** a fresh report (`scout-emit-report`) when nothing in the inbox covers it. Set `suggested_reviewers` (see *Suggested reviewers route the report*).
-   - **Remember** a learning so you don't redo this work next run (call `scout-scratchpad-remember`).
+   - **Remember** a learning so you don't redo this work next run (call `scout-scratchpad-remember`). The `key` is a short ID such as `noise:<fingerprint>`, and the note goes in `content` (see *Scratchpad keys*).
    - **Skip** with a one-line note in your final summary.
 
    Whenever what you write rests on data moving, attach the chart that shows it (see *Attaching charts*)."""
@@ -250,7 +250,7 @@ _REPORT_STEPS_EDIT_ONLY = """4. **Find the report to update.** Locate the report
 5. **Edit or skip.** For each issue worth surfacing, decide whether to:
    - **Edit** the existing report (`scout-edit-report`): use `append_evidence` for a fresh observation, or `append_note` for commentary.
    - **Merge** live reports that cover the same issue (`inbox-reports-merge`, see **Merge live duplicates** under *Editing existing reports*), then rewrite the survivor.
-   - **Remember** a learning so you don't redo this work next run (call `scout-scratchpad-remember`).
+   - **Remember** a learning so you don't redo this work next run (call `scout-scratchpad-remember`). The `key` is a short ID such as `noise:<fingerprint>`, and the note goes in `content` (see *Scratchpad keys*).
    - **Skip** with a one-line note in your final summary, including when nothing in the inbox matches and there's therefore nothing to update.
 
    Whenever what you write rests on data moving, attach the chart that shows it (see *Attaching charts*)."""
@@ -258,6 +258,8 @@ _REPORT_STEPS_EDIT_ONLY = """4. **Find the report to update.** Locate the report
 _SCRATCHPAD_KEYS = """# Scratchpad keys
 
 These rules govern **every** key you write, including the `followup:`, `report:`, `improve:`, and `tags:` keys other sections ask for.
+
+A key is a short ID of at most 300 characters, never the note itself. The note goes in `content`.
 
 `remember` upserts on `key`: writing a key that already exists *overwrites it in place*. A key is a stable identity, not a log entry, so it must name the *thing* you're tracking, never *when* you saw it. A date, timestamp, or run id in a key mints a brand-new row every run, never reclaims the old one, and for a dedupe key guarantees next run's key won't match the entity you already surfaced.
 

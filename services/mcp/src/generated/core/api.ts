@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 18 enabled ops
+ * PostHog API - MCP 19 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -287,6 +287,23 @@ export const IdentityProviderConfigsScimTokenCreateParams = () => zod.object({
         .describe(
             "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
         ),
+})
+
+/**
+ * OAuth applications linked to the organization, with each app's provisioning partner status and
+ * review. Read-only, and only for organization admins, who are the people who run the apps.
+ */
+export const OauthApplicationsListParams = () => zod.object({
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
+        ),
+})
+
+export const OauthApplicationsListQueryParams = () => zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
 /**
@@ -2868,6 +2885,12 @@ export const OrganizationsProjectsCreateBody = () => zod
                     .optional()
                     .describe(
                         'Default UTM values that new email steps and broadcasts copy. An empty value keeps the built-in default for that tag.'
+                    ),
+                email_workflow_run_link_tag_enabled: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Whether tracked links in emails this project sends get a ph_workflow_run parameter with the send's run ID. When the landing page runs posthog-js, the parameter links each click to the session it starts. Links with click tracking turned off never get it. On by default."
                     ),
                 workflow_task_rate_limit_per_day: zod
                     .number()
@@ -5768,6 +5791,12 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .describe(
                         'Default UTM values that new email steps and broadcasts copy. An empty value keeps the built-in default for that tag.'
                     ),
+                email_workflow_run_link_tag_enabled: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Whether tracked links in emails this project sends get a ph_workflow_run parameter with the send's run ID. When the landing page runs posthog-js, the parameter links each click to the session it starts. Links with click tracking turned off never get it. On by default."
+                    ),
                 workflow_task_rate_limit_per_day: zod
                     .number()
                     .min(organizationsProjectsPartialUpdateBodyWorkflowsConfigWorkflowTaskRateLimitPerDayMin)
@@ -6087,6 +6116,13 @@ export const FileSystemListQueryParams = () => zod.object({
             "Only entries pointing at this item: the insight or notebook short_id, or the dashboard id. Combine with type to find an item's entry in the project tree."
         ),
     search: zod.string().optional().describe('A search term.'),
+    tags: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'A JSON array of tag names, such as [\"growth\", \"weekly\"]. Keeps only the dashboards and insights that carry at least one of them.'
+        ),
     type: zod
         .string()
         .optional()

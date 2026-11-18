@@ -269,6 +269,9 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     scout_instructions = models.TextField(null=True, blank=True)
     research_instructions = models.TextField(null=True, blank=True)
     implementation_instructions = models.TextField(null=True, blank=True)
+    scout_custom_image_id = models.UUIDField(null=True, blank=True)
+    research_custom_image_id = models.UUIDField(null=True, blank=True)
+    implementation_custom_image_id = models.UUIDField(null=True, blank=True)
     # Daily cap on reports surfacing to the inbox, counted against SignalReport.first_visible_at
     # within the project-timezone day. Once reached, the whole generation pipeline pauses until
     # local midnight (see daily_limit.py). Null means unlimited.
@@ -1505,6 +1508,9 @@ class SignalGroupingRecord(TeamScopedRootMixin, UUIDModel):
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["team", "signal_id"], name="signals_grouping_record_unique"),
+        ]
+        indexes = [
+            models.Index(fields=["created_at"], name="signals_grouping_rec_created"),
         ]
 
 
@@ -3217,6 +3223,7 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # the flag goes off. Free-form rather than a choices list: the model catalog changes
     # without deploys, and `model_selection` already treats an unroutable id defensively.
     model = models.CharField(max_length=200, null=True, blank=True)
+    custom_image_id = models.UUIDField(null=True, blank=True)
     # Optional destinations for each finding or report this scout emits. Kept as a typed JSON object at
     # the API boundary so adding another destination does not require another pair of nullable
     # config columns. A Slack destination is active only when its integration and a target — a channel,
@@ -3416,12 +3423,7 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
                     touched.add("status_changed_at")
             if fields is not None:
                 kwargs["update_fields"] = fields | touched
-        from products.signals.backend.trial.scouts import (
-            scout_capacity,  # noqa: PLC0415 -- capacity policy depends on this model
-        )
-
-        with scout_capacity(self):
-            super().save(*args, **kwargs)
+        super().save(*args, **kwargs)
 
     @classmethod
     def _pause_reasons_share_writer(cls, current: str | None, incoming: "SignalScoutConfig.PauseReason") -> bool:

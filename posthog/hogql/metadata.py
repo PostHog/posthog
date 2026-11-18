@@ -38,9 +38,12 @@ from posthog.hogql.filters import replace_filters
 from posthog.hogql.flag_called_warnings import (
     FLAG_CALLED_FROM_BOTH_TABLES_NOTICE,
     FLAG_CALLED_FROM_FLAG_EVALUATIONS_NOTICE,
+    FLAG_CALLED_ON_EVENTS_AFTER_MOVE_WARNING,
+    FLAG_CALLED_ON_EVENTS_NOTICE,
     FLAG_CALLED_SPLIT_BY_AGE_NOTICE,
     LiteralSpan,
-    flag_called_on_events_warnings,
+    flag_called_move_warnings,
+    flag_called_on_events_notices,
     flag_called_spans_read_from_flag_evaluations,
     flag_called_spans_read_from_union,
 )
@@ -229,6 +232,7 @@ def get_hogql_metadata(
             if source is None and FLAG_CALLED_EVENT in query.query:
                 flag_called_notices = _flag_called_notices(hogql_ast, prepared_ast, context, team)
                 heuristic_warnings.extend(flag_called_notices.move_warnings)
+                context.notices.extend(flag_called_notices.on_events_notices)
                 context.notices.extend(flag_called_notices.flag_evaluations_notices)
                 context.notices.extend(flag_called_notices.both_tables_notices)
 
@@ -343,6 +347,7 @@ def _flag_called_announcement_url(payload: object) -> str | None:
 @frozen
 class _FlagCalledNotices:
     move_warnings: tuple[HogQLNotice, ...] = ()
+    on_events_notices: tuple[HogQLNotice, ...] = ()
     flag_evaluations_notices: tuple[HogQLNotice, ...] = ()
     both_tables_notices: tuple[HogQLNotice, ...] = ()
 
@@ -353,39 +358,60 @@ def _flag_called_notices(
     context: HogQLContext,
     team: Team,
 ) -> _FlagCalledNotices:
-    """The move warning on each flag-call literal that reads events, a notice on each literal whose query reads
-    posthog.flag_evaluations instead, and a notice on each literal whose scan reads events and
-    posthog.flag_evaluations together. `prepared_ast` is what the printer ran, so it says which scans it swapped."""
+    """A move warning or notice on each flag-call literal that reads events, a notice on each literal whose query
+    reads posthog.flag_evaluations instead, and a notice on each literal whose scan reads events and
+    posthog.flag_evaluations together. `prepared_ast` is what the printer ran, so it says which scans it swapped.
+
+    While events still gets flag calls, a literal on events gets a warning when its query will fail, or will miss new
+    flag calls, once events stops getting them. Every other such literal gets a notice."""
     try:
         move_notices = _flag_called_move_notices(team)
         if move_notices is None or not move_notices.enabled:
             return _FlagCalledNotices()
-        warnings = flag_called_on_events_warnings(hogql_ast, context)
-        if not warnings:
+        candidates = flag_called_on_events_notices(hogql_ast, context)
+        if not candidates:
             return _FlagCalledNotices()
         url = _flag_called_announcement_url(move_notices.payload)
         swapped = flag_called_spans_read_from_flag_evaluations(prepared_ast) if prepared_ast is not None else set()
         move_warnings: list[HogQLNotice] = []
+        on_events_notices: list[HogQLNotice] = []
         flag_evaluations_notices: list[HogQLNotice] = []
         both_tables_notices: list[HogQLNotice] = []
         read_from_both_tables = flag_called_spans_read_from_union(context)
+        only_in_flag_evaluations = context.flag_calls_only_in_flag_evaluations()
         both_tables_message = (
-            FLAG_CALLED_FROM_BOTH_TABLES_NOTICE
-            if context.flag_calls_only_in_flag_evaluations()
-            else FLAG_CALLED_SPLIT_BY_AGE_NOTICE
+            FLAG_CALLED_FROM_BOTH_TABLES_NOTICE if only_in_flag_evaluations else FLAG_CALLED_SPLIT_BY_AGE_NOTICE
         )
-        for warning in warnings:
-            span = LiteralSpan(start=warning.start, end=warning.end)
+        move_warning_by_span: dict[LiteralSpan, str] | None = None
+        for candidate in candidates:
+            span = LiteralSpan(start=candidate.start, end=candidate.end)
             if span in swapped:
                 flag_evaluations_notices.append(
-                    warning.model_copy(update={"message": FLAG_CALLED_FROM_FLAG_EVALUATIONS_NOTICE, "url": url})
+                    candidate.model_copy(update={"message": FLAG_CALLED_FROM_FLAG_EVALUATIONS_NOTICE, "url": url})
                 )
             elif span in read_from_both_tables:
-                both_tables_notices.append(warning.model_copy(update={"message": both_tables_message, "url": url}))
+                both_tables_notices.append(candidate.model_copy(update={"message": both_tables_message, "url": url}))
+            elif only_in_flag_evaluations:
+                move_warnings.append(
+                    candidate.model_copy(update={"message": FLAG_CALLED_ON_EVENTS_AFTER_MOVE_WARNING, "url": url})
+                )
             else:
-                move_warnings.append(warning.model_copy(update={"url": url}))
+                if move_warning_by_span is None:
+                    # On mode 2 the union reads a mixed scan whenever the union flag is on.
+                    # The team's current mode does not change that.
+                    union_on = context.database is not None and context.database.flag_calls_union_enabled
+                    move_warning_by_span = flag_called_move_warnings(hogql_ast, union_on=union_on)
+                if span in move_warning_by_span:
+                    move_warnings.append(
+                        candidate.model_copy(update={"message": move_warning_by_span[span], "url": url})
+                    )
+                else:
+                    on_events_notices.append(
+                        candidate.model_copy(update={"message": FLAG_CALLED_ON_EVENTS_NOTICE, "url": url})
+                    )
         return _FlagCalledNotices(
             move_warnings=tuple(move_warnings),
+            on_events_notices=tuple(on_events_notices),
             flag_evaluations_notices=tuple(flag_evaluations_notices),
             both_tables_notices=tuple(both_tables_notices),
         )

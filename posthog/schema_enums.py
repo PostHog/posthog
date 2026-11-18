@@ -1257,6 +1257,7 @@ class DetectorType(StrEnum):
     OCSVM = "ocsvm"
     PCA = "pca"
     LLM = "llm"
+    FORECAST = "forecast"
 
 
 class DistanceFunc(StrEnum):
@@ -1506,6 +1507,7 @@ class ExperimentExposureHealthFindingActionKind(StrEnum):
     EDIT_EXPOSURE_CRITERIA = "edit_exposure_criteria"
     ADJUST_DISTRIBUTION = "adjust_distribution"
     USE_FIRST_SEEN_VARIANT = "use_first_seen_variant"
+    MOVE_START_DATE = "move_start_date"
 
 
 class ExperimentExposureHealthFindingCode(StrEnum):
@@ -2036,6 +2038,7 @@ class IntegrationKind(StrEnum):
     AWS_REDSHIFT = "aws-redshift"
     S3_COMPATIBLE = "s3-compatible"
     SNOWFLAKE = "snowflake"
+    MOTHERDUCK = "motherduck"
     YOUTUBE_ANALYTICS = "youtube-analytics"
     TWITTER_ADS = "twitter-ads"
 
@@ -2055,6 +2058,11 @@ class Method(StrEnum):
     LARGEST = "largest"
     MEAN = "mean"
     MEDIAN = "median"
+
+
+class LLMDetectorModel(StrEnum):
+    CLAUDE_HAIKU_5_5 = "claude-haiku-5-5"
+    GPT_6_LUNA = "gpt-6-luna"
 
 
 class LifecycleToggle(StrEnum):
@@ -2245,6 +2253,11 @@ class MarketingAnalyticsRecommendationLevel(StrEnum):
     SEARCH_TERM = "search_term"
 
 
+class MarketingAnalyticsRecommendationResolutionState(StrEnum):
+    DISMISSED = "dismissed"
+    APPLIED = "applied"
+
+
 class MarketingAnalyticsRecommendationRule(StrEnum):
     BUDGET_CONSTRAINED = "budget_constrained"
     BRAND_LEAK = "brand_leak"
@@ -2376,6 +2389,8 @@ class MetricsAggregation(StrEnum):
     RATE = "rate"
     INCREASE = "increase"
     HISTOGRAM_QUANTILE = "histogram_quantile"
+    COUNT_RATE = "count_rate"
+    COUNT_INCREASE = "count_increase"
 
 
 class MetricsAttributeScope(StrEnum):
@@ -3029,7 +3044,6 @@ class RecordingOrder(StrEnum):
     MOUSE_ACTIVITY_COUNT = "mouse_activity_count"
     ACTIVITY_SCORE = "activity_score"
     RECORDING_TTL = "recording_ttl"
-    SURFACING_SCORE = "surfacing_score"
 
 
 class RecordingOrderDirection(StrEnum):

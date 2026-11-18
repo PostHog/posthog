@@ -17,7 +17,7 @@ rules:
       owners: conversations
     - match: '/messaging.py'
       owners: team-workflows
-    - match: '/oauth.py'
+    - match: ['/oauth.py', '/oauth_provisioning_review.py']
       owners: team-growth
     - match: '/person/'
       owners: team-ingestion

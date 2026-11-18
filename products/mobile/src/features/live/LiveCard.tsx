@@ -1,5 +1,5 @@
 import type { ReactElement, ReactNode } from 'react'
-import { Text, View } from 'react-native'
+import { ActivityIndicator, Text, View } from 'react-native'
 
 import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useColors } from '@/ui/theme'
@@ -72,9 +72,22 @@ export function LiveCardNote({ text, testID }: { text: string; testID?: string }
     )
 }
 
-export const NOT_LOADED_TEXT = "Couldn't load this yet. Live tries again every 30 seconds."
+export function LiveCardLoading({ testID }: { testID?: string }): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
+    return (
+        <View style={styles.loading} testID={testID} accessibilityLabel="Loading" accessibilityRole="progressbar">
+            <ActivityIndicator color={colors.tertiary} />
+        </View>
+    )
+}
 
 const useStyles = createStyles(({ colors }) => ({
+    loading: {
+        minHeight: 96,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
     card: {
         gap: 12,
         padding: 14,

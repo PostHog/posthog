@@ -1,4 +1,9 @@
-import { getColumnInsertText, getQueryDatabaseTreeData, getSidebarAddJoinSourceTableName } from './QueryDatabase'
+import {
+    getColumnInsertText,
+    getQueryDatabaseTreeData,
+    getSidebarAddJoinSourceTableName,
+    getTooltipDescription,
+} from './QueryDatabase'
 
 describe('QueryDatabase', () => {
     describe('getColumnInsertText', () => {
@@ -22,6 +27,32 @@ describe('QueryDatabase', () => {
             ],
         ])('%s', (_name, record, expected) => {
             expect(getColumnInsertText(record)).toEqual(expected)
+        })
+    })
+
+    describe('getTooltipDescription', () => {
+        test.each([
+            [
+                'a view shows its description',
+                { type: 'view', view: { description: 'Orders per region' } },
+                'Orders per region',
+            ],
+            [
+                'a materialized view shows its description',
+                { type: 'view', view: { is_materialized: true, description: 'Orders per region' } },
+                'Orders per region',
+            ],
+            ['a view with no description shows none', { type: 'view', view: { description: null } }, undefined],
+            ['a view with an empty description shows none', { type: 'view', view: { description: '' } }, undefined],
+            ['a table shows its description', { type: 'table', table: { description: 'All events' } }, 'All events'],
+            [
+                'a column shows its description',
+                { type: 'column', field: { description: 'The user id' } },
+                'The user id',
+            ],
+            ['a row with no record shows none', undefined, undefined],
+        ])('%s', (_name, record, expected) => {
+            expect(getTooltipDescription(record)).toEqual(expected)
         })
     })
 

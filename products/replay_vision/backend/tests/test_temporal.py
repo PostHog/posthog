@@ -74,7 +74,7 @@ from products.replay_vision.backend.temporal.activities.call_scanner_provider im
     call_scanner_provider_activity,
 )
 from products.replay_vision.backend.temporal.activities.cleanup_gemini_file import cleanup_gemini_file_activity
-from products.replay_vision.backend.temporal.activities.count_in_flight_applies import count_in_flight_by_team_activity
+from products.replay_vision.backend.temporal.activities.count_in_flight_applies import count_in_flight_applies
 from products.replay_vision.backend.temporal.activities.create_observation import create_observation_activity
 from products.replay_vision.backend.temporal.activities.embed_observation import embed_observation_activity
 from products.replay_vision.backend.temporal.activities.emit_classifier_tags import emit_classifier_tags_activity
@@ -247,9 +247,7 @@ class TestCountInFlightAppliesActivity:
         _make_observation(sibling, session_id="s4", status=ObservationStatus.PENDING)  # team only
         _make_observation(other_team_scanner, session_id="s5", status=ObservationStatus.PENDING)  # other team
 
-        result = count_in_flight_by_team_activity(
-            CountInFlightAppliesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
-        )
+        result = count_in_flight_applies(CountInFlightAppliesInputs(scanner_id=scanner.id, team_id=scanner.team_id))
 
         assert result == InFlightApplyCounts(scanner=2, team=3)
 
@@ -265,9 +263,7 @@ class TestCountInFlightAppliesActivity:
             scanner_in_flight_rows=1,
         )
 
-        result = count_in_flight_by_team_activity(
-            CountInFlightAppliesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
-        )
+        result = count_in_flight_applies(CountInFlightAppliesInputs(scanner_id=scanner.id, team_id=scanner.team_id))
 
         assert result == InFlightApplyCounts(scanner=2, team=2)
 
@@ -304,7 +300,6 @@ class TestCreateObservationActivity:
         # Without these the config-versions history can't explain a sampling- or filter-only bump.
         assert observation.scanner_snapshot["query"] == scanner.query
         assert observation.scanner_snapshot["sampling_rate"] == scanner.sampling_rate
-        assert observation.scanner_snapshot["sampling_mode"] == str(scanner.sampling_mode)
         assert observation.started_at is None  # set when transitioning to running, not here
         assert observation.completed_at is None
 

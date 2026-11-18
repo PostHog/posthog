@@ -138,6 +138,28 @@ def investigated_alert(team_id: int, alert_id: UUID) -> AlertConfiguration | Non
     return alert_from_platform(configuration, team_id=team_id, enabled=configuration.enabled)
 
 
+def charted_alert(team_id: int, alert_id: UUID) -> tuple[AlertConfiguration, UUID | None] | None:
+    """The alert a firing's chart is drawn for, and the id the platform keeps its destinations under.
+
+    An alert the platform owns is built from the platform alert, so its creator, threshold and
+    insight come from there and not from its insight row. A copy keeps its row's id, which its
+    HogFunctions and its line on the chart are keyed by. The row is read only for an alert the
+    insight stack still owns, which has no platform destinations. None when the alert is gone."""
+    copy = owned_copies_by_legacy_id(
+        team_id=team_id, source_kind=SourceKind.INSIGHT, legacy_configuration_ids=[alert_id]
+    ).get(alert_id)
+    if copy is None:
+        alert = investigated_alert(team_id, alert_id)
+        if alert is None:
+            return None
+        return alert, alert.id if alert._state.adding else None
+    alert = alert_from_platform(copy, team_id=team_id, enabled=copy.enabled)
+    if alert is None:
+        return None
+    alert.id = alert_id
+    return alert, copy.id
+
+
 def native_insight_alert_view(
     team_id: int, alert_id: UUID, *, lock: bool = False
 ) -> PlatformAlertConfigurationView | None:
@@ -170,9 +192,25 @@ def delete_native_insight_alert(*, team_id: int, alert_id: UUID) -> None:
     delete_owned_configuration(team_id=team_id, configuration_id=alert_id)
 
 
-def native_insight_alert_matches(team_id: int, *, search: str | None) -> tuple[NativeConfigurationMatch, ...]:
-    """Every insight alert with no insight row, or with `search` the ones whose name matches it."""
-    return native_configuration_matches(team_id=team_id, source_kind=SourceKind.INSIGHT, search=search)
+def native_insight_alert_matches(
+    team_id: int,
+    *,
+    search: str | None,
+    owned_copies: bool = False,
+    insight_id: int | None = None,
+    created_by_id: int | None = None,
+) -> tuple[NativeConfigurationMatch, ...]:
+    """Every insight alert with no insight row, and with `owned_copies` the copies the platform owns,
+    or with `search` the ones whose name matches it. With `insight_id` or `created_by_id`, only the
+    ones on that insight or by that creator."""
+    return native_configuration_matches(
+        team_id=team_id,
+        source_kind=SourceKind.INSIGHT,
+        search=search,
+        owned_copies=owned_copies,
+        source_config_contains={"insight_id": insight_id} if insight_id is not None else None,
+        created_by_id=created_by_id,
+    )
 
 
 def native_insight_alert_views(team_id: int, alert_ids: Collection[UUID]) -> tuple[PlatformAlertConfigurationView, ...]:

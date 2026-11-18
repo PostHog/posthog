@@ -8,6 +8,7 @@ from django.db.models import Q
 
 import structlog
 from prometheus_client import Counter
+from requests import RequestException
 
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED
@@ -175,7 +176,16 @@ class CustomOAuth2Integration(TeamScopedRootMixin, CreatedMetaFields, UpdatedMet
                 with transaction.atomic():
                     row = CustomOAuth2Integration.objects.select_for_update().get(pk=self.pk)
                     auth = row.build_auth()
-                    auth._obtain_token()
+                    try:
+                        auth._obtain_token()
+                    except RequestException as exc:
+                        # A connection-level failure (TLS reset, refused connection, DNS blip) reaching
+                        # the token endpoint, as opposed to a response it sent — the same transient class
+                        # as a 429/5xx OAuth2AuthRequestError, which the except clause below already
+                        # persists and re-raises. OAuth2Auth itself leaves this exception raw: other
+                        # sources built on it catch it themselves, so it isn't reclassified at that
+                        # shared layer.
+                        raise OAuth2AuthRequestError(str(exc)) from exc
                     row.sensitive_config["access_token"] = auth.token
                     row.sensitive_config["token_expiry"] = auth.token_expiry.isoformat() if auth.token_expiry else None
                     # Rotating providers (e.g. Calendly) return a new single-use refresh token on every

@@ -697,6 +697,8 @@ class TestEmailIntegration:
             "reply_to": "support@posthog.com",
             "verified": False,
             "provider": "ses",
+            "organization_proof_token": ANY,
+            "organization_proof_required": False,
         }
         assert integration.sensitive_config == {}
         assert integration.created_by_id == self.user.id
@@ -770,6 +772,8 @@ class TestEmailIntegration:
             "reply_to": "",
             "verified": False,
             "provider": "ses",
+            "organization_proof_token": ANY,
+            "organization_proof_required": False,
         }
 
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
@@ -812,6 +816,8 @@ class TestEmailIntegration:
             "reply_to": "",
             "verified": True,
             "provider": "ses",
+            "organization_proof_token": ANY,
+            "organization_proof_required": False,
         }
 
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
@@ -1613,6 +1619,58 @@ class TestSnowflakeIntegration:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert expected_error_message in response.json()["detail"]
+
+
+class TestMotherDuckIntegration:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    def _create(self, client: HttpClient, config: dict) -> Any:
+        client.force_login(self.user)
+        return client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {"kind": "motherduck", "config": config},
+            content_type="application/json",
+        )
+
+    def test_create_keeps_the_token_out_of_the_response(self, client: HttpClient):
+        response = self._create(client, {"name": " warehouse ", "access_token": " md-secret-token "})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        integration = Integration.objects.get(id=response.json()["id"])
+        assert integration.integration_id == "warehouse"
+        assert integration.config == {"name": "warehouse"}
+        assert integration.sensitive_config == {"access_token": "md-secret-token"}
+        assert "md-secret-token" not in json.dumps(response.json())
+
+    @pytest.mark.parametrize(
+        "config",
+        [
+            {"name": "warehouse"},
+            {"access_token": "md-secret-token"},
+            {"name": "  ", "access_token": "md-secret-token"},
+            {"name": "warehouse", "access_token": ["md-secret-token"]},
+        ],
+        ids=["no_token", "no_name", "blank_name", "token_not_a_string"],
+    )
+    def test_create_rejects_incomplete_config(self, client: HttpClient, config: dict):
+        response = self._create(client, config)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not Integration.objects.filter(team=self.team, kind="motherduck").exists()
+
+    def test_a_name_cannot_be_reused(self, client: HttpClient):
+        assert self._create(client, {"name": "warehouse", "access_token": "first"}).status_code == 201
+
+        response = self._create(client, {"name": "warehouse", "access_token": "second"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert Integration.objects.get(team=self.team, kind="motherduck").sensitive_config == {"access_token": "first"}
 
 
 class TestAzureBlobIntegration:
@@ -8000,6 +8058,45 @@ class TestPushIdentityVerificationAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.content
         integration = Integration.objects.get(team=self.team, kind="firebase")
         assert integration.config["push_identity_verification"] == "required"
+
+
+@patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+@patch("posthog.rate_limit.EmailSenderCreateThrottle.rate", new="2/hour")
+@patch("products.workflows.backend.facade.api.get_ses_mail_from_subdomain", return_value=None)
+@patch("products.workflows.backend.facade.api.create_ses_email_domain")
+class TestEmailSenderCreateRateLimit(APIBaseTest):
+    def _add_sender(self, team: Team, email: str) -> int:
+        response = self.client.post(
+            f"/api/environments/{team.pk}/integrations",
+            {"kind": "email", "config": {"email": email, "name": "Sender", "provider": "ses"}},
+            format="json",
+        )
+        return response.status_code
+
+    @patch("posthog.models.integration.aws.validate_aws_credentials", return_value="123456789012")
+    def test_email_sender_creation_is_limited_per_organization(self, *_mocks):
+        other_team = Team.objects.create(organization=self.organization, name="other team")
+        teammate = User.objects.create_and_join(self.organization, "teammate@example.com", None)
+        assert self._add_sender(self.team, "a@example.com") == status.HTTP_201_CREATED
+        self.client.force_login(teammate)
+        assert self._add_sender(other_team, "b@example.com") == status.HTTP_201_CREATED
+        assert self._add_sender(self.team, "c@example.com") == status.HTTP_429_TOO_MANY_REQUESTS
+        assert not Integration.objects.filter(kind="email", integration_id="c@example.com").exists()
+
+        other_kind = self.client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "aws-s3",
+                "config": {"name": "aws", "aws_access_key_id": "AKIAEXAMPLE", "aws_secret_access_key": "x"},
+            },
+            format="json",
+        )
+        assert other_kind.status_code == status.HTTP_201_CREATED, other_kind.content
+
+        other_organization = Organization.objects.create(name="other organization")
+        outsider_team = Team.objects.create(organization=other_organization, name="outsider team")
+        self.client.force_login(User.objects.create_and_join(other_organization, "outsider@example.com", None))
+        assert self._add_sender(outsider_team, "d@other.example.com") == status.HTTP_201_CREATED
 
 
 class TestIntegrationMembershipPermissions(APIBaseTest):

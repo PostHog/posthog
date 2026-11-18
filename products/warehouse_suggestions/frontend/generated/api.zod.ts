@@ -77,10 +77,12 @@ export const warehouseSuggestionsDismissCreateBodyNoteMax = 1000
 
 export const WarehouseSuggestionsDismissCreateBody = /* @__PURE__ */ zod.object({
     reason: zod
-        .enum(['not_useful', 'not_now', 'other'])
-        .describe('\* `not_useful` - Not useful\n\* `not_now` - Not now\n\* `other` - Other')
+        .enum(['not_useful', 'not_now', 'wrong_estimate', 'already_handled', 'not_owner', 'other'])
         .describe(
-            'Why the suggestion is dismissed.\n\n\* `not_useful` - Not useful\n\* `not_now` - Not now\n\* `other` - Other'
+            '\* `not_useful` - Not useful\n\* `not_now` - Not now\n\* `wrong_estimate` - Wrong estimate\n\* `already_handled` - Already handled\n\* `not_owner` - Someone else decides\n\* `other` - Other'
+        )
+        .describe(
+            'Why the suggestion is dismissed.\n\n\* `not_useful` - Not useful\n\* `not_now` - Not now\n\* `wrong_estimate` - Wrong estimate\n\* `already_handled` - Already handled\n\* `not_owner` - Someone else decides\n\* `other` - Other'
         ),
     note: zod
         .string()

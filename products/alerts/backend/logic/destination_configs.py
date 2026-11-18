@@ -283,7 +283,11 @@ class WebhookDestination(_WebhookUrlDestination):
 
     def read(self, inputs: dict[str, Any]) -> AlertDestinationData:
         data = super().read(inputs)
-        headers = added_webhook_headers(input_value(inputs, "headers"))
+        # The template sends a secret header in place of a plain one of the same name.
+        headers = {
+            **added_webhook_headers(input_value(inputs, "headers")),
+            **added_webhook_headers(input_value(inputs, "secret_headers")),
+        }
         if headers:
             data["webhook_headers"] = headers
         return data
@@ -304,11 +308,15 @@ class WebhookDestination(_WebhookUrlDestination):
         *,
         slack_context_elements: tuple[str, ...],
     ) -> dict[str, Any]:
-        return {
+        inputs: dict[str, Any] = {
             "body": {"value": event_kind_spec.webhook_body},
             "url": {"value": data["webhook_url"]},
             "headers": {"value": WEBHOOK_HEADERS},
         }
+        # An added header usually holds a credential, which the template's secret input encrypts and masks.
+        if added := data.get("webhook_headers"):
+            inputs["secret_headers"] = {"value": added}
+        return inputs
 
 
 class DiscordDestination(_WebhookUrlDestination):
@@ -440,12 +448,12 @@ def _redact_routing_key(value: str) -> str:
 
 
 # Email and in-app notifications reach an alert's subscribers and are never stored as a HogFunction,
-# so they have no spec. Listed by hand so that a new HogFunction type without a spec fails the
-# one-to-one test against `DESTINATION_SPECS`.
+# and incident.io is delivered only natively by the platform, so none of them has a spec. Listed by
+# hand so that a new HogFunction type without a spec fails the one-to-one test against `DESTINATION_SPECS`.
 HOG_FUNCTION_DESTINATION_TYPES: tuple[DestinationType, ...] = tuple(
     destination_type
     for destination_type in DestinationType
-    if destination_type not in (DestinationType.EMAIL, DestinationType.IN_APP)
+    if destination_type not in (DestinationType.EMAIL, DestinationType.IN_APP, DestinationType.INCIDENT_IO)
 )
 
 DESTINATION_SPECS: dict[DestinationType, DestinationSpec] = {

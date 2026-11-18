@@ -13,6 +13,7 @@ import {
     NetworkError,
     type NetworkFailureReason,
     readableErrorMessage,
+    requestIdFromHeaders,
     ResponseBodyReadError,
 } from 'lib/api-error'
 import { ApiRequestTiming, ApiRequestTimingRecorder } from 'lib/apiRequestTiming'
@@ -33,7 +34,7 @@ import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 
 import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
-import { OrganizationOAuthApplicationApi, ProjectSecretAPIKeyApi } from '~/generated/core/api.schemas'
+import { ProjectSecretAPIKeyApi } from '~/generated/core/api.schemas'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
@@ -444,6 +445,7 @@ export async function getJSONFromSuccessResponse(
             status: response.status,
             is_shared_view: isSharedView(),
             failure_reason: 'response_body_read',
+            http_request_id: requestIdFromHeaders(response.headers),
         })
         throw new ResponseBodyReadError(`Failed to read response body ${requestContext()}`)
     }
@@ -1639,11 +1641,6 @@ export class ApiRequest {
         return this.organizationIntegrations().addPathComponent(id)
     }
 
-    // # Organization OAuth Applications
-    public organizationOAuthApplications(): ApiRequest {
-        return this.organizations().current().addPathComponent('oauth_applications')
-    }
-
     public media(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('uploaded_media')
     }
@@ -2054,6 +2051,29 @@ function clientBuildHeader(url: string): Record<string, string> {
     return { 'X-PostHog-Client-Build': clientBuild }
 }
 
+// pinned: a URL parameter in shared links, and the cookie name that NewEventsSchemaCookieMiddleware reads
+export const NEW_EVENTS_SCHEMA = 'ph_new_events_schema'
+
+// Read once when the page loads, because pages such as the SQL editor rewrite their URL without it.
+const requestedNewEventsTable = new URLSearchParams(window.location.search).get(NEW_EVENTS_SCHEMA)
+
+export function getPageNewEventsTable(): boolean | null {
+    return requestedNewEventsTable === '1' ? true : requestedNewEventsTable === '0' ? false : null
+}
+
+/**
+ * Two tabs of one browser share one cookie, so each page sends the table its link asked for.
+ * Same-origin only, for the same CORS reason as the build header.
+ */
+function newEventsTableHeader(url: string): Record<string, string> {
+    const requested = getPageNewEventsTable()
+    if (requested === null || new URL(url, window.location.origin).origin !== window.location.origin) {
+        return {}
+    }
+    // pinned: NewEventsSchemaCookieMiddleware reads this header name and the values "1" and "0"
+    return { 'X-PostHog-New-Events-Schema': requested ? '1' : '0' }
+}
+
 const PROJECT_ID_REGEX = /\/api\/(project|environment)s\/(\w+)(?:$|[/?#])/
 
 const ensureProjectIdNotInvalid = (url: string): void => {
@@ -2368,6 +2388,7 @@ const api = {
             createdAtLt,
             searchNameOnly,
             includeTags,
+            tags,
             signal,
         }: {
             parent?: string
@@ -2385,6 +2406,7 @@ const api = {
             createdAtLt?: string
             searchNameOnly?: boolean
             includeTags?: boolean
+            tags?: string[]
             signal?: AbortSignal
         }): Promise<CountedPaginatedResponseWithUsers<FileSystemEntry>> {
             return await new ApiRequest()
@@ -2405,6 +2427,7 @@ const api = {
                     created_at__lt: createdAtLt,
                     search_name_only: searchNameOnly,
                     include_tags: includeTags,
+                    tags: tags?.length ? tags : undefined,
                 })
                 .get({ signal })
         },
@@ -3456,6 +3479,7 @@ const api = {
             fetchEventSource(url, {
                 signal: abortController.signal,
                 credentials: 'include',
+                headers: newEventsTableHeader(url),
                 openWhenHidden: true,
                 onopen: async (response) => {
                     apiStatusLogic.findMounted()?.actions.onApiResponse(response.clone())
@@ -6189,12 +6213,6 @@ const api = {
         },
     },
 
-    organizationOAuthApplications: {
-        async list(params?: Record<string, any>): Promise<PaginatedResponse<OrganizationOAuthApplicationApi>> {
-            return await new ApiRequest().organizationOAuthApplications().withQueryString(params).get()
-        },
-    },
-
     media: {
         async upload(data: FormData): Promise<MediaUploadResponse> {
             return await new ApiRequest().media().create({ data })
@@ -6857,6 +6875,7 @@ const api = {
                     ...objectClean(options?.headers ?? {}),
                     ...tracingHeaders({ includeDistinctId: true }),
                     ...clientBuildHeader(url),
+                    ...newEventsTableHeader(url),
                     ...oauthAuthHeaders(url),
                     ...authHeaders,
                 },
@@ -6885,6 +6904,7 @@ const api = {
                     'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                     ...tracingHeaders(),
                     ...clientBuildHeader(url),
+                    ...newEventsTableHeader(url),
                     ...oauthAuthHeaders(url),
                 },
                 body: isFormData ? data : JSON.stringify(data),
@@ -6930,6 +6950,7 @@ const api = {
                     'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                     ...tracingHeaders(),
                     ...clientBuildHeader(url),
+                    ...newEventsTableHeader(url),
                     ...oauthAuthHeaders(url),
                 },
                 body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
@@ -6966,6 +6987,7 @@ const api = {
                     'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                     ...tracingHeaders(),
                     ...clientBuildHeader(url),
+                    ...newEventsTableHeader(url),
                     ...oauthAuthHeaders(url),
                 },
             })
@@ -7023,6 +7045,7 @@ const api = {
                 'X-CSRFToken': getCookie('posthog_csrftoken') || '',
                 ...tracingHeaders(),
                 ...clientBuildHeader(url),
+                ...newEventsTableHeader(url),
                 ...objectClean(headers ?? {}),
             },
             body: data !== undefined ? JSON.stringify(data) : undefined,
@@ -7266,6 +7289,8 @@ function captureClientRequestFailure(properties: {
     failure_reason?: ClientRequestFailureReason
     /** DRF error `code` from the response body, which separates failures that share a status. */
     code?: string | null
+    /** Backend request UUID, equal to `request_id` on the backend logs. Absent when no response arrived. */
+    http_request_id?: string | null
 }): void {
     // when used inside the posthog toolbar, `posthog.capture` isn't loaded
     // check if the function is available before calling it.
@@ -7298,6 +7323,7 @@ function xhrPost(url: string, data: FormData, options?: ApiUploadOptions): Promi
             'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
             ...tracingHeaders(),
             ...clientBuildHeader(url),
+            ...newEventsTableHeader(url),
             ...oauthAuthHeaders(url),
         }
         for (const [name, value] of Object.entries(headers)) {
@@ -7440,6 +7466,7 @@ async function handleFetch(
             status: response.status,
             is_shared_view: inSharedView,
             code: failure.code,
+            http_request_id: failure.requestId,
         })
         if (inSharedView && (response.status === 401 || response.status === 403)) {
             const leakKey = `${method} ${pathname}`

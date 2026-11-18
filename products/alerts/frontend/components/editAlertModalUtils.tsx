@@ -1,6 +1,6 @@
 import { IconLock } from '@posthog/icons'
 
-import { AlertCalculationInterval } from '~/queries/schema/schema-general'
+import { AlertCalculationInterval, DetectorConfig, DetectorType } from '~/queries/schema/schema-general'
 
 export function getSimulationRangeOptions(interval: AlertCalculationInterval): { label: string; value: string }[] {
     switch (interval) {
@@ -75,7 +75,7 @@ export const ALERT_INTERVAL_OPTIONS: AlertCalculationInterval[] = [
 export function getAlertIntervalOptions(
     hasHighFrequencyAlertsEntitlement: boolean,
     hasRealTimeAlertsEntitlement: boolean,
-    aiDetectorSelected = false
+    detectorType?: DetectorConfig['type']
 ): Array<{ label: string | JSX.Element; value: AlertCalculationInterval; disabledReason?: string }> {
     const intervals = [
         AlertCalculationInterval.REAL_TIME,
@@ -84,14 +84,18 @@ export function getAlertIntervalOptions(
     ]
     return intervals.map((interval) => {
         const labelText = intervalDropdownPhrase(interval)
-        const aiDisabledReason =
-            interval === AlertCalculationInterval.REAL_TIME && aiDetectorSelected
-                ? 'The AI detector cannot run in real time.'
+        const detectorDisabledReason =
+            interval === AlertCalculationInterval.REAL_TIME
+                ? detectorType === DetectorType.LLM
+                    ? 'The AI detector cannot run in real time.'
+                    : detectorType === DetectorType.FORECAST
+                      ? 'The forecast detector cannot run in real time.'
+                      : undefined
                 : undefined
         const showLock =
             (interval === AlertCalculationInterval.EVERY_15_MINUTES && !hasHighFrequencyAlertsEntitlement) ||
             (interval === AlertCalculationInterval.REAL_TIME && !hasRealTimeAlertsEntitlement) ||
-            Boolean(aiDisabledReason)
+            Boolean(detectorDisabledReason)
         return {
             label: showLock ? (
                 <span className="flex items-center gap-1.5">
@@ -102,7 +106,7 @@ export function getAlertIntervalOptions(
                 labelText
             ),
             value: interval,
-            disabledReason: aiDisabledReason,
+            disabledReason: detectorDisabledReason,
         }
     })
 }

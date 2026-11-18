@@ -126,6 +126,28 @@ DATA_CASES = [
         prompt="can I track clicks on the pricing button without code, like with an action?",
         expected=_needs_repo(False),
     ),
+    # Creates a PostHog resource, which reads like building something.
+    BaseEvalCase(
+        name="set_up_scout",
+        prompt="make a scout that checks every morning for accounts at risk of churning and posts them here",
+        expected=_needs_repo(False),
+    ),
+    BaseEvalCase(
+        name="set_up_alert",
+        prompt="alert this channel when daily signups drop below half of last week's average",
+        expected=_needs_repo(False),
+    ),
+    # Names an issue or a pull request, but asks only about its details.
+    BaseEvalCase(
+        name="who_opened_issue",
+        prompt="who opened issue #318 in our web-app repo, and is it still open?",
+        expected=_needs_repo(False),
+    ),
+    BaseEvalCase(
+        name="pr_merge_status",
+        prompt="did the pull request that renames the billing page get merged yet?",
+        expected=_needs_repo(False),
+    ),
     BaseEvalCase(name="thanks", prompt="thanks, that's perfect!", expected=_needs_repo(False)),
 ]
 

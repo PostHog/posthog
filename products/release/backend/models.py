@@ -24,6 +24,8 @@ class Release(TeamScopedRootMixin):
     feature_flag_ids = ArrayField(models.IntegerField(), default=list, blank=True)
     auto_named = models.BooleanField(default=False, db_default=False)
     broadcast_ids = ArrayField(models.UUIDField(), default=list, blank=True, db_default=[])
+    survey_ids = ArrayField(models.UUIDField(), default=list, blank=True, db_default=[])
+    insight_ids = ArrayField(models.IntegerField(), default=list, blank=True, db_default=[])
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon'
-import { Pool, PoolClient } from 'pg'
+import { Client, Pool, PoolClient, QueryResult, QueryResultRow } from 'pg'
 import { Counter } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
@@ -13,10 +13,11 @@ import {
     LEGACY_DEQUEUE_JOBS_SQL,
     LEGACY_FAIR_DEQUEUE_JOBS_SQL,
 } from './due-rows-sql'
-import { batchEmailDequeueSeqs, timeEnqueuePhase } from './manager'
+import { SqlRunner, allocateEmailDequeueSeqs, batchEmailDequeueSeqs, timeEnqueuePhase } from './manager'
 import { createCyclotronPool } from './pg-pool'
 import {
     CYCLOTRON_COUNTER_MAX,
+    CYCLOTRON_TRANSITION_CHURN_RATE_PER_HOUR,
     CYCLOTRON_TRANSITION_CHURN_THRESHOLD,
     CyclotronV2BulkCreateAndCheckInInput,
     CyclotronV2DequeuedJob,
@@ -45,12 +46,19 @@ export interface RawJobRow {
     lock_id: string
 }
 
-// Read off the row the dequeue already returns, so tracking churn costs no extra query.
 const highTransitionDequeuesCounter = new Counter({
     name: 'cdp_cyclotron_v2_high_transition_dequeues',
-    help: `Jobs dequeued with transition_count at or above ${CYCLOTRON_TRANSITION_CHURN_THRESHOLD}, meaning they are cycling without completing.`,
+    help: `Jobs dequeued with transition_count at or above ${CYCLOTRON_TRANSITION_CHURN_THRESHOLD} and at least ${CYCLOTRON_TRANSITION_CHURN_RATE_PER_HOUR} transitions per hour of age, meaning they are cycling without completing.`,
     labelNames: ['queue'] as const,
 })
+
+function isChurning(row: RawJobRow): boolean {
+    if (row.transition_count < CYCLOTRON_TRANSITION_CHURN_THRESHOLD) {
+        return false
+    }
+    const ageHours = (Date.now() - new Date(row.created).getTime()) / 3_600_000
+    return row.transition_count >= CYCLOTRON_TRANSITION_CHURN_RATE_PER_HOUR * ageHours
+}
 
 // The loop swallows the error and retries, so without this counter a queue whose every
 // dequeue throws looks exactly like an idle queue. Exported for the rate-limited
@@ -60,6 +68,85 @@ export const consumerLoopErrorsCounter = new Counter({
     help: 'Consumer loop iterations that threw, per queue. A sustained positive rate can indicate the queue is not being consumed.',
     labelNames: ['queue'] as const,
 })
+
+const staleCommitsCounter = new Counter({
+    name: 'cdp_cyclotron_v2_stale_commits_total',
+    help: 'Writes to a job that matched no row because the worker no longer held its lock, usually after the janitor reset a stalled job. Another worker may run that job too.',
+    labelNames: ['queue', 'operation'] as const,
+})
+
+const releaseWriteRetriesCounter = new Counter({
+    name: 'cdp_cyclotron_v2_release_write_retries_total',
+    help: 'Release writes retried once on a fresh connection after the first attempt lost its connection, per queue, operation and outcome. no_row means the first attempt most likely committed before the connection dropped.',
+    labelNames: ['queue', 'operation', 'outcome'] as const,
+})
+
+const CONNECTION_LOST_SQLSTATES = new Set(['57P01', '57P02', '57P03'])
+const CONNECTION_LOST_ERRNOS = new Set(['ECONNRESET', 'ECONNREFUSED', 'EPIPE'])
+const NODE_PG_CONNECTION_LOST_MESSAGE = /^Connection terminated|is not queryable$/
+
+type ReleaseDb = SqlRunner
+type ReleaseAttempt = (db: ReleaseDb) => Promise<{ rowCount: number | null }>
+
+class ReleaseRetrySlots {
+    private free: number
+    private readonly waiters: (() => void)[] = []
+
+    constructor(size: number) {
+        this.free = size
+    }
+
+    acquire(waitMs: number): Promise<(() => void) | null> {
+        if (this.free > 0) {
+            this.free--
+            return Promise.resolve(this.releaser())
+        }
+        return new Promise((resolve) => {
+            const grant = (): void => {
+                clearTimeout(timer)
+                resolve(this.releaser())
+            }
+            const timer = setTimeout(() => {
+                this.waiters.splice(this.waiters.indexOf(grant), 1)
+                resolve(null)
+            }, waitMs)
+            this.waiters.push(grant)
+        })
+    }
+
+    private releaser(): () => void {
+        let released = false
+        return () => {
+            if (released) {
+                return
+            }
+            released = true
+            const next = this.waiters.shift()
+            if (next) {
+                next()
+            } else {
+                this.free++
+            }
+        }
+    }
+}
+
+function isConnectionLost(error: unknown): boolean {
+    if (!(error instanceof Error)) {
+        return false
+    }
+    const code = (error as { code?: unknown }).code
+    if (typeof code === 'string') {
+        if (code.startsWith('08') || CONNECTION_LOST_SQLSTATES.has(code) || CONNECTION_LOST_ERRNOS.has(code)) {
+            return true
+        }
+    }
+    return NODE_PG_CONNECTION_LOST_MESSAGE.test(error.message)
+}
+
+export function countStaleCommit(queue: string, operation: string): void {
+    staleCommitsCounter.labels({ queue, operation }).inc()
+}
 
 export const pollsCounter = new Counter({
     name: 'cdp_cyclotron_v2_polls_total',
@@ -248,11 +335,14 @@ export class CyclotronV2Worker {
     private wakeFromPollSleep: (() => void) | null = null
     private readonly heartbeatTimeoutMs: number
     private readonly releaseWriteHeartbeatLimitMs: number
+    private readonly releaseWriteRetry: boolean
     protected readonly includeEmptyBatches: boolean
     protected readonly fairDequeue: boolean
     private readonly boundedPolls: boolean
+    private readonly ownershipReadTimeoutMs: number
     private readonly boundedFairDequeue: boolean
     private readonly assignEmailDequeueSeq: (teamId: number) => Promise<string>
+    private readonly releaseRetrySlots: ReleaseRetrySlots
 
     constructor(private config: CyclotronV2WorkerConfig) {
         this.pool = createCyclotronPool('worker', {
@@ -261,6 +351,9 @@ export class CyclotronV2Worker {
             idleTimeoutMillis: config.pool.idleTimeoutMs ?? 30000,
         })
         this.assignEmailDequeueSeq = batchEmailDequeueSeqs(this.pool)
+        // One dropped query can fail a whole batch at once, such as every
+        // email slot reservation a team coalesced into it.
+        this.releaseRetrySlots = new ReleaseRetrySlots(config.pool.maxConnections ?? 10)
         this.queueName = config.queueName
         this.batchMaxSize = config.batchMaxSize ?? 100
         this.pollDelayMs = config.pollDelayMs ?? 50
@@ -272,8 +365,10 @@ export class CyclotronV2Worker {
         this.assertBackOffFitsHeartbeat()
         this.nextPollDelayMs = this.pollDelayMs
         this.releaseWriteHeartbeatLimitMs = config.releaseWriteHeartbeatLimitMs ?? 20000
+        this.releaseWriteRetry = config.releaseWriteRetry ?? false
         this.includeEmptyBatches = config.includeEmptyBatches ?? false
         this.boundedPolls = config.boundedPolls ?? false
+        this.ownershipReadTimeoutMs = config.ownershipReadTimeoutMs ?? 5_000
         this.boundedFairDequeue = config.boundedFairDequeue ?? false
         // Fair (per-team round-robin) dequeue is the email queue's ordering.
         // `dequeue_seq` is only ever assigned for email jobs (see
@@ -422,13 +517,29 @@ export class CyclotronV2Worker {
 
     protected wrapJob(row: RawJobRow): CyclotronV2DequeuedJob {
         const pool = this.pool
+        const dbUrl = this.config.pool.dbUrl
+        const releaseRetrySlots = this.releaseRetrySlots
         const assignEmailDequeueSeq = this.assignEmailDequeueSeq
+        let reservedEmailDequeueSeq: Promise<string> | null = null
+        const reserveEmailDequeueSeqOnce = (db: ReleaseDb): Promise<string> => {
+            reservedEmailDequeueSeq ??= (
+                db === pool
+                    ? assignEmailDequeueSeq(row.team_id)
+                    : allocateEmailDequeueSeqs(db, [row.team_id]).then(([dequeueSeq]) => dequeueSeq)
+            ).catch((error: unknown) => {
+                reservedEmailDequeueSeq = null
+                throw error
+            })
+            return reservedEmailDequeueSeq
+        }
         const lockId = row.lock_id
         const releaseWriteHeartbeatLimitMs = this.releaseWriteHeartbeatLimitMs
+        const releaseWriteRetry = this.releaseWriteRetry
+        const ownershipReadTimeoutMs = this.ownershipReadTimeoutMs
         let releaseStartedAt: number | null = null
         let releaseWritten = false
 
-        if (row.transition_count >= CYCLOTRON_TRANSITION_CHURN_THRESHOLD) {
+        if (isChurning(row)) {
             highTransitionDequeuesCounter.labels({ queue: row.queue_name }).inc()
         }
 
@@ -442,12 +553,105 @@ export class CyclotronV2Worker {
         const releaseWriteOutlivedHeartbeats = (): boolean =>
             releaseStartedAt !== null && Date.now() - releaseStartedAt > releaseWriteHeartbeatLimitMs
 
+        let ownershipLost = false
+        const noteOwnershipLost = (operation: string): void => {
+            ownershipLost = true
+            countStaleCommit(row.queue_name, operation)
+            logger.warn('CyclotronV2Worker lost ownership of a job', { id: row.id, operation })
+        }
+        const ownsJobNow = async (): Promise<boolean> => {
+            const ownershipRead = {
+                text: 'SELECT 1 FROM cyclotron_jobs WHERE id = $1 AND lock_id = $2',
+                values: [row.id, lockId],
+                query_timeout: ownershipReadTimeoutMs,
+            }
+            const result = await pool.query(ownershipRead)
+            return result.rowCount === 1
+        }
+
+        // The retry runs outside the worker pool with the remaining heartbeat
+        // budget as its statement timeout, so Postgres cancels a retry that
+        // stalls, and a stalled retry never holds a client that dequeues,
+        // heartbeats and shutdown need. At most the pool's size of retries
+        // run at once; the rest wait for a slot until the deadline.
+        const retryOnOwnConnection = async (attempt: ReleaseAttempt): Promise<{ rowCount: number | null }> => {
+            const deadline = (releaseStartedAt ?? Date.now()) + releaseWriteHeartbeatLimitMs
+            const freeSlot = await releaseRetrySlots.acquire(deadline - Date.now())
+            if (!freeSlot) {
+                throw new Error(
+                    `Release write retry for job ${row.id} found no free connection before the heartbeat limit`
+                )
+            }
+            const msLeft = (): number => Math.max(1, Math.ceil(deadline - Date.now()))
+            const client = new Client({ connectionString: dbUrl, connectionTimeoutMillis: msLeft() })
+            client.on('error', () => undefined)
+            const run = <R extends QueryResultRow>(text: string, values?: unknown[]): Promise<QueryResult<R>> => {
+                const query = { text, values, query_timeout: msLeft() }
+                return client.query<R>(query)
+            }
+            // Every statement gets only what is left of the heartbeat limit, so the
+            // retry as a whole ends by then. PgBouncer rejects statement_timeout as a
+            // startup parameter, and a session SET would leak to the next client of
+            // its server connection, so it is set per transaction.
+            const bounded: SqlRunner = {
+                query: async <R extends QueryResultRow>(text: string, values?: unknown[]) => {
+                    await run(`SET LOCAL statement_timeout = ${msLeft()}`)
+                    return run<R>(text, values)
+                },
+            }
+            try {
+                await client.connect()
+                await run('BEGIN')
+                const result = await attempt(bounded)
+                await bounded.query('COMMIT')
+                return result
+            } finally {
+                void client.end().catch(() => undefined)
+                freeSlot()
+            }
+        }
+
+        const writeRetryingLostConnection = async (
+            method: string,
+            attempt: ReleaseAttempt
+        ): Promise<{ rowCount: number | null }> => {
+            try {
+                return await attempt(pool)
+            } catch (error) {
+                if (!releaseWriteRetry || !isConnectionLost(error) || releaseWriteOutlivedHeartbeats()) {
+                    throw error
+                }
+                logger.warn('CyclotronV2Worker retrying a release write after its connection dropped', {
+                    id: row.id,
+                    operation: method,
+                    error: String(error),
+                })
+                const retried = { queue: row.queue_name, operation: method }
+                try {
+                    const result = await retryOnOwnConnection(attempt)
+                    releaseWriteRetriesCounter
+                        .labels({ ...retried, outcome: result.rowCount === 0 ? 'no_row' : 'written' })
+                        .inc()
+                    return result
+                } catch (retryError) {
+                    releaseWriteRetriesCounter.labels({ ...retried, outcome: 'failed' }).inc()
+                    throw retryError
+                }
+            }
+        }
+
         const releaseWrite =
-            <A extends unknown[]>(method: string, write: (...args: A) => Promise<unknown>) =>
+            <A extends unknown[]>(
+                method: string,
+                write: (db: ReleaseDb, ...args: A) => Promise<{ rowCount: number | null }>
+            ) =>
             async (...args: A): Promise<void> => {
                 releaseGuard(method)
                 try {
-                    await write(...args)
+                    const result = await writeRetryingLostConnection(method, (db) => write(db, ...args))
+                    if (result.rowCount === 0) {
+                        noteOwnershipLost(method)
+                    }
                 } finally {
                     releaseWritten = true
                 }
@@ -455,6 +659,7 @@ export class CyclotronV2Worker {
 
         return {
             id: row.id,
+            lockId,
             teamId: row.team_id,
             functionId: row.function_id,
             queueName: row.queue_name,
@@ -471,8 +676,8 @@ export class CyclotronV2Worker {
                 ? DateTime.fromISO(row.cancel_requested_at, { zone: 'utc' })
                 : null,
 
-            ack: releaseWrite('ack', async () => {
-                await pool.query(
+            ack: releaseWrite('ack', (db) =>
+                db.query(
                     `UPDATE cyclotron_jobs
                      SET status = 'completed', lock_id = NULL, last_heartbeat = NULL,
                          last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
@@ -480,10 +685,10 @@ export class CyclotronV2Worker {
                      WHERE id = $1 AND lock_id = $2`,
                     [row.id, lockId]
                 )
-            }),
+            ),
 
-            fail: releaseWrite('fail', async () => {
-                await pool.query(
+            fail: releaseWrite('fail', (db) =>
+                db.query(
                     `UPDATE cyclotron_jobs
                      SET status = 'failed', lock_id = NULL, last_heartbeat = NULL,
                          last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
@@ -491,9 +696,9 @@ export class CyclotronV2Worker {
                      WHERE id = $1 AND lock_id = $2`,
                     [row.id, lockId]
                 )
-            }),
+            ),
 
-            reschedule: releaseWrite('reschedule', async (input?: CyclotronV2RescheduleOptions) => {
+            reschedule: releaseWrite('reschedule', async (db, input?: CyclotronV2RescheduleOptions) => {
                 const options = input ? CyclotronV2RescheduleOptionsSchema.parse(input) : undefined
                 const scheduled = options?.scheduledAt ?? new Date()
 
@@ -550,21 +755,21 @@ export class CyclotronV2Worker {
                 // so existing fair-ordered rows keep their place after retry/
                 // reschedule without bumping the counter.
                 if (options?.queueName === 'email' && row.queue_name !== 'email') {
-                    const dequeueSeq = await assignEmailDequeueSeq(row.team_id)
+                    const dequeueSeq = await reserveEmailDequeueSeqOnce(db)
                     params.push(dequeueSeq)
                     setClauses.push(`dequeue_seq = $${params.length}`)
                 }
 
-                await pool.query(
+                return db.query(
                     `UPDATE cyclotron_jobs SET ${setClauses.join(', ')}
                      WHERE id = $1 AND lock_id = $2`,
                     params
                 )
             }),
 
-            defer: releaseWrite('defer', async ({ scheduledAt, state }: { scheduledAt: Date; state?: Buffer }) => {
-                const dequeueSeq = row.queue_name === 'email' ? await assignEmailDequeueSeq(row.team_id) : null
-                await pool.query(
+            defer: releaseWrite('defer', async (db, { scheduledAt, state }: { scheduledAt: Date; state?: Buffer }) => {
+                const dequeueSeq = row.queue_name === 'email' ? await reserveEmailDequeueSeqOnce(db) : null
+                return db.query(
                     `UPDATE cyclotron_jobs
                      SET status = 'available', lock_id = NULL, last_heartbeat = NULL,
                          last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
@@ -576,8 +781,8 @@ export class CyclotronV2Worker {
                 )
             }),
 
-            cancel: releaseWrite('cancel', async () => {
-                await pool.query(
+            cancel: releaseWrite('cancel', (db) =>
+                db.query(
                     `UPDATE cyclotron_jobs
                      SET status = 'canceled', lock_id = NULL, last_heartbeat = NULL,
                          last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
@@ -585,13 +790,16 @@ export class CyclotronV2Worker {
                      WHERE id = $1 AND lock_id = $2`,
                     [row.id, lockId]
                 )
-            }),
+            ),
 
             async heartbeat(): Promise<void> {
                 if (releaseWritten || releaseWriteOutlivedHeartbeats()) {
                     throw new Error(`Job ${row.id} already released, cannot heartbeat`)
                 }
-                await pool.query(
+                if (ownershipLost) {
+                    return
+                }
+                const result = await pool.query(
                     `UPDATE cyclotron_jobs
                      SET last_heartbeat = NOW()
                      WHERE id = (
@@ -601,6 +809,20 @@ export class CyclotronV2Worker {
                      )`,
                     [row.id, lockId]
                 )
+                if (result.rowCount === 0 && !(await ownsJobNow()) && releaseStartedAt === null) {
+                    noteOwnershipLost('heartbeat')
+                }
+            },
+
+            async stillOwned(): Promise<boolean> {
+                if (ownershipLost) {
+                    return false
+                }
+                if (await ownsJobNow()) {
+                    return true
+                }
+                ownershipLost = true
+                return false
             },
 
             async bulkCreateAndCheckIn(
@@ -629,6 +851,9 @@ export class CyclotronV2Worker {
                          FOR UPDATE`,
                         [row.id, lockId]
                     )
+                    if (selfRow.rowCount === 0) {
+                        noteOwnershipLost('check_in')
+                    }
                     assertSelfRowAffected(selfRow.rowCount, row.id, 'precheck')
                     if (selfRow.rows[0].cancel_requested_at !== null) {
                         await client.query('ROLLBACK')

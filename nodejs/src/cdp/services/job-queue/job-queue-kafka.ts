@@ -16,6 +16,8 @@ import { logger } from '~/common/utils/logger'
 import { HealthCheckResult, HealthCheckResultError } from '../../../types'
 import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
+import { EncryptedFields } from '../../utils/encryption-utils'
+import { StateOpener, openSealedState } from '../cyclotron-v2/job-codec'
 import { ConsumerOptions, JobQueue } from './job-queue.interface'
 import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer, observeConsumedBatch } from './shared'
 
@@ -27,6 +29,7 @@ export class CyclotronJobQueueKafka implements JobQueue {
     private queue?: CyclotronJobQueueKind
     private consumeBatch?: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
     private sanitizer: ReturnType<typeof createInvocationSanitizer>
+    private stateOpener: StateOpener
 
     constructor(
         private kafkaClientRack: string | undefined,
@@ -38,6 +41,7 @@ export class CyclotronJobQueueKafka implements JobQueue {
         private consumerBatchSize: number
     ) {
         this.sanitizer = createInvocationSanitizer(config)
+        this.stateOpener = new EncryptedFields(config.ENCRYPTION_SALT_KEYS)
     }
 
     /**
@@ -158,6 +162,10 @@ export class CyclotronJobQueueKafka implements JobQueue {
     public async dequeueInvocations(_invocations: CyclotronJobInvocation[]): Promise<void> {}
     public async heartbeatInvocations(_invocations: CyclotronJobInvocation[]): Promise<void> {}
 
+    public stillOwns(_invocation: CyclotronJobInvocation): Promise<boolean> {
+        return Promise.resolve(true)
+    }
+
     public async deferInvocations(
         deferrals: { invocation: CyclotronJobInvocation; scheduledAt: Date }[]
     ): Promise<void> {
@@ -209,9 +217,8 @@ export class CyclotronJobQueueKafka implements JobQueue {
 
             // Try to decompress, otherwise just use the value as is
             const decompressedValue = await uncompress(rawValue).catch(() => rawValue)
-            const invocation: CyclotronJobInvocation = migrateKafkaCyclotronInvocation(
-                parseJSON(decompressedValue.toString())
-            )
+            const parsed = migrateKafkaCyclotronInvocation(parseJSON(decompressedValue.toString()))
+            const invocation: CyclotronJobInvocation = openSealedState(parsed, parsed, this.stateOpener)
 
             invocation.queueSource = 'kafka' // NOTE: We always set this here, as we know it came from kafka
             invocations.push(invocation)
@@ -271,5 +278,6 @@ export function serializeInvocation(invocation: CyclotronJobInvocation): Cyclotr
         queueScheduledAt: invocation.queueScheduledAt,
         queueMetadata: invocation.queueMetadata,
         queueSource: invocation.queueSource,
+        sealed: invocation.sealed,
     }
 }

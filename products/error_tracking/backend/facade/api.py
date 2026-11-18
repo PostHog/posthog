@@ -22,6 +22,10 @@ from products.access_control.backend.facade.api import valid_role_member_user_id
 from .. import logic, weekly_digest, weekly_digest_delivery
 from ..indexed_embedding import DOCUMENT_EMBEDDINGS_BUFFER_SHARDED_TABLE, EMBEDDING_TABLES
 from ..logic import built_in_filters, external_references, github_external_references, rules
+from ..logic.issue_tags import (
+    enabled as issue_tag_enabled,
+    reader as issue_tag_reader,
+)
 from ..models import (
     ErrorTrackingIssue,
     override_error_tracking_issue_fingerprint as override_error_tracking_issue_fingerprint,
@@ -111,7 +115,11 @@ def _to_issue_preview(issue) -> contracts.ErrorTrackingIssuePreview:
     )
 
 
-def _to_issue(issue, integrations: dict[int, IntegrationRecord] | None = None) -> contracts.ErrorTrackingIssue:
+def _to_issue(
+    issue,
+    integrations: dict[int, IntegrationRecord] | None = None,
+    tags: list[contracts.ErrorTrackingIssueTag] | None = None,
+) -> contracts.ErrorTrackingIssue:
     references = list(issue.external_issues.all())
     if integrations is None:
         integrations = external_references.get_reference_integrations(issue.team_id, references) if references else {}
@@ -129,6 +137,7 @@ def _to_issue(issue, integrations: dict[int, IntegrationRecord] | None = None) -
             if reference.integration_id in integrations
         ],
         cohort=_to_issue_cohort(issue),
+        tags=tags,
     )
 
 
@@ -193,9 +202,22 @@ def query_new_error_issues(period_start: datetime, period_end: datetime) -> Quer
     )
 
 
-def get_issue(issue_id: UUID, team_id: int) -> contracts.ErrorTrackingIssue:
+def get_issue(issue_id: UUID, team_id: int, *, with_tags: bool = False) -> contracts.ErrorTrackingIssue:
     issue = logic.get_issue(issue_id=issue_id, team_id=team_id)
-    return _to_issue(issue)
+    definitions = issue_tag_enabled.enabled_issue_tag_definitions(team_id) if with_tags else ()
+    if not definitions:
+        return _to_issue(issue)
+    tags = issue_tag_reader.tags_by_issue(team_id, [issue.id], definitions).get(str(issue.id), [])
+    return _to_issue(issue, tags=tags)
+
+
+def list_issue_tag_definitions(team_id: int) -> list[contracts.ErrorTrackingIssueTagDefinition]:
+    return [
+        contracts.ErrorTrackingIssueTagDefinition(
+            key=definition.key, label=definition.label, description=definition.description
+        )
+        for definition in issue_tag_enabled.enabled_issue_tag_definitions(team_id)
+    ]
 
 
 def list_issues_detailed(team_id: int, *, page: PageRequest) -> Page[contracts.ErrorTrackingIssue]:

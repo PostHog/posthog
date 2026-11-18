@@ -1,20 +1,20 @@
 import { useActions, useValues } from 'kea'
 
 import { IconFastForward } from '@posthog/icons'
-import { Button } from '@posthog/quill'
+import { Button, cn } from '@posthog/quill'
 
 import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { QuillInspectDOM } from './QuillInspectDOM'
-import { QuillSetPlaybackSpeed } from './QuillSetPlaybackSpeed'
+import { PLAYER_BAR_ON_CLASS, QuillSetPlaybackSpeed } from './QuillSetPlaybackSpeed'
 
 function IconSpeaker({ muted }: { muted: boolean }): JSX.Element {
     return (
         <svg
-            width="1em"
-            height="1em"
+            // Sized to match the comment and emoji icons; quill would otherwise shrink it to 12px.
+            className="size-4.5"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
@@ -37,7 +37,7 @@ export function QuillPlayerBarMute(): JSX.Element {
         <span data-quill className="flex items-center text-foreground">
             <Button
                 size="icon-sm"
-                variant={isMuted ? 'secondary' : 'default'}
+                className={cn(isMuted && PLAYER_BAR_ON_CLASS)}
                 aria-pressed={isMuted}
                 aria-label={isMuted ? 'Unmute audio' : 'Mute audio'}
                 tooltip={
@@ -64,7 +64,7 @@ export function QuillPlayerBarControls({ size }: { size: 'small' | 'normal' }): 
             <QuillSetPlaybackSpeed short={size === 'small'} />
             <Button
                 size={size === 'small' ? 'icon-sm' : 'sm'}
-                variant={skipInactivitySetting ? 'secondary' : 'default'}
+                className={cn(skipInactivitySetting && PLAYER_BAR_ON_CLASS)}
                 aria-pressed={skipInactivitySetting}
                 aria-label="Skip inactivity"
                 tooltip={skipInactivitySetting ? 'Skipping inactivity. Click to play it.' : 'Skip inactivity'}
