@@ -378,6 +378,19 @@ async fn a_fill_leaves_a_person_put_since_the_warm_alone() {
         },
         newer,
     );
+    // A delete released since the warm: its death document is put, then dropped once settled.
+    let deleted = PersonCacheKey {
+        team_id: 1,
+        person_id: 2,
+    };
+    let death = personhog_leader::cache::CachedPerson::try_from(Person {
+        version: 2,
+        is_deleted: true,
+        ..make_person(1, 2)
+    })
+    .unwrap();
+    cache.put(0, deleted.clone(), death);
+    cache.remove(0, &deleted);
 
     let source = WarmSource::live(CHANGELOG_TOPIC, None, 0);
     let one_chunk = FillConfig {
@@ -399,7 +412,8 @@ async fn a_fill_leaves_a_person_put_since_the_warm_alone() {
     assert_eq!(stats.records, 6);
 
     assert_eq!(version_of(&cache, 0, 1), Some(9));
-    assert_eq!(version_of(&cache, 0, 2), Some(1));
+    assert_eq!(version_of(&cache, 0, 2), None);
+    assert_eq!(version_of(&cache, 0, 3), None);
 }
 
 #[tokio::test]
