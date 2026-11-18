@@ -845,18 +845,25 @@ def EVENTS_JSON_RECENT_MV_SQL(
     # The rows are the ones events_json_table_mv writes, printed as the documents batch exports send, so a realtime
     # export reads them as stored. events_json drops $feature_flag_called in production. This table keeps those
     # events, so do not copy that filter here.
+    #
+    # `properties` also carries the members of `temporary_properties`, such as `$set`, because a realtime export reads
+    # them from `properties` the way it does on events_recent.
+    #
+    # Each column name carries the subquery alias. ClickHouse resolves a bare name to a SELECT alias before a column,
+    # so a bare `temporary_properties` inside the `properties` expression would read the text that the next
+    # expression builds, not the JSON column.
     rows = _events_json_rows_sql(kafka_table)
     return f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name}
 TO {settings.CLICKHOUSE_DATABASE}.{WRITABLE_EVENTS_JSON_RECENT_TABLE}
 AS
 SELECT * REPLACE (
-    {stored_properties_document_sql("properties")} AS properties,
-    {json_document_sql("temporary_properties")} AS temporary_properties,
-    {person_document_sql("person_properties")} AS person_properties
+    {stored_properties_document_sql("event_rows.properties", "event_rows.temporary_properties")} AS properties,
+    {json_document_sql("event_rows.temporary_properties")} AS temporary_properties,
+    {person_document_sql("event_rows.person_properties")} AS person_properties
 )
 FROM (
-{rows})
+{rows}) AS event_rows
 SETTINGS {EVENTS_JSON_INSERT_SETTINGS}, output_format_json_escape_forward_slashes = 0
 """
 
