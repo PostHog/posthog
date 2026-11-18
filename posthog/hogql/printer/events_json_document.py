@@ -127,6 +127,18 @@ def json_document_sql(
     return f"concat('{{', arrayStringConcat({pairs}, ','), '}}')"
 
 
+def stored_properties_document_sql(properties_sql: str) -> str:
+    """The event properties column as document text in its stored shape, which batch exports send.
+
+    Unlike `event_document_sql`, flags stay in the `$feature_flags` map and temporary properties are left out. The map
+    is left out when it is empty, and so are declared string defaults. The query or view that runs this needs
+    `json_type_escape_dots_in_keys = 1`, or a dotted key prints as `a%2Eb`.
+    """
+    pairs = json_member_pairs_sql(properties_sql, declared_string_paths=EVENTS_PROPERTIES_DECLARED_STRING_PATHS)
+    empty_flags = escape_clickhouse_string(f'"{_FEATURE_FLAGS_KEY}":{{}}')
+    return f"concat('{{', arrayStringConcat(arrayFilter(pair -> pair != {empty_flags}, {pairs}), ','), '}}')"
+
+
 def person_document_sql(person_properties_sql: str) -> str:
     """The person properties column as document text, without the declared string defaults."""
     return json_document_sql(person_properties_sql, declared_string_paths=PERSON_PROPERTIES_DECLARED_STRING_PATHS)

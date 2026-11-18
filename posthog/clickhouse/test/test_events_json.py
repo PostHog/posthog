@@ -4,9 +4,14 @@ from uuid import uuid4
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
+from posthog.hogql.printer.events_json_document import (
+    json_document_sql,
+    person_document_sql,
+    stored_properties_document_sql,
+)
+
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.events_json import is_temporary_event_property
-from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION
 from posthog.models.event.sql import (
     EVENTS_JSON_RECENT_MV_SQL,
     EVENTS_JSON_TABLE_MV_SQL,
@@ -34,7 +39,8 @@ def test_is_temporary_event_property(key: str, expected: bool) -> None:
 
 class TestEventsJsonRecent(ClickhouseTestMixin, BaseTest):
     def test_stores_the_text_batch_exports_read_from_events_json_without_flag_calls(self) -> None:
-        # Both MVs read Kafka tables. A Null table with the Kafka columns lets one insert feed both of them.
+        # Both MVs read Kafka tables. A Null table with the Kafka columns, virtual ones included with Kafka's types,
+        # lets one insert feed both of them.
         source = "test_events_json_recent_source"
         sync_execute(
             EVENTS_TABLE_BASE_SQL.format(
@@ -42,7 +48,7 @@ class TestEventsJsonRecent(ClickhouseTestMixin, BaseTest):
                 on_cluster_clause="",
                 engine="Null",
                 extra_fields=KAFKA_EVENTS_NATIVE_JSON_EXTRA_FIELDS
-                + KAFKA_COLUMNS_WITH_PARTITION
+                + ", _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64"
                 + ", `_headers.name` Array(String), `_headers.value` Array(String)",
                 dynamically_materialized_columns="",
                 materialized_columns="",
@@ -64,14 +70,15 @@ class TestEventsJsonRecent(ClickhouseTestMixin, BaseTest):
             "a.b": 1,
             "nested": {"x.y": [1, 2.5, "s"]},
             "text": 'héllo 🦔 "quoted" /x/y/',
+            "key/with/slashes": "v",
         }
         person_properties = {"email": "a@example.com", "$browser": "Firefox"}
         sync_execute(
             f"""
-            INSERT INTO {source} (uuid, event, properties, person_properties, timestamp, team_id, distinct_id)
+            INSERT INTO {source} (uuid, event, properties, person_properties, timestamp, team_id, distinct_id, _timestamp)
             VALUES
-                (%(pageview_uuid)s, '$pageview', %(properties)s, %(person_properties)s, now64(), %(team_id)s, 'd1'),
-                (%(flag_call_uuid)s, '$feature_flag_called', '{{}}', '{{}}', now64(), %(team_id)s, 'd1')
+                (%(pageview_uuid)s, '$pageview', %(properties)s, %(person_properties)s, now64(), %(team_id)s, 'd1', now()),
+                (%(flag_call_uuid)s, '$feature_flag_called', '{{}}', '{{}}', now64(), %(team_id)s, 'd1', now())
             """,
             {
                 "pageview_uuid": pageview_uuid,
@@ -92,8 +99,12 @@ class TestEventsJsonRecent(ClickhouseTestMixin, BaseTest):
             uuids,
         )
         from_events_json = sync_execute(
-            """
-            SELECT uuid, toJSONString(properties), toJSONString(person_properties), toJSONString(temporary_properties)
+            f"""
+            SELECT
+                uuid,
+                {stored_properties_document_sql("properties")},
+                {person_document_sql("person_properties")},
+                {json_document_sql("temporary_properties")}
             FROM events_json
             WHERE team_id = %(team_id)s AND uuid IN %(uuids)s AND event != '$feature_flag_called'
             SETTINGS json_type_escape_dots_in_keys = 1, output_format_json_escape_forward_slashes = 0
@@ -103,3 +114,21 @@ class TestEventsJsonRecent(ClickhouseTestMixin, BaseTest):
 
         assert [row[0] for row in from_events_json] == [pageview_uuid]
         assert recent == from_events_json
+        [(_, stored_properties, stored_person_properties, stored_temporary_properties)] = recent
+        assert {
+            "properties": json.loads(stored_properties),
+            "person_properties": json.loads(stored_person_properties),
+            "temporary_properties": json.loads(stored_temporary_properties),
+        } == {
+            "properties": {
+                "$browser": "Chrome",
+                "$current_url": "https://example.com/a/b?x=1",
+                "$feature_flags": {"flag-a": "true", "flag-b": "variant"},
+                "a.b": 1,
+                "nested": {"x.y": [1, 2.5, "s"]},
+                "text": 'héllo 🦔 "quoted" /x/y/',
+                "key/with/slashes": "v",
+            },
+            "person_properties": person_properties,
+            "temporary_properties": {"$set": {"email": "a@example.com"}},
+        }
