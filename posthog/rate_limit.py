@@ -170,6 +170,7 @@ def hashed_personal_api_key_for_throttling(request: "Request") -> str | None:
 class PersonalApiKeyRateThrottle(SimpleRateThrottle):
     units_to_check: int | None = None
     units_to_charge = 0
+    units_wait = 0.0
 
     @staticmethod
     def safely_get_team_id_from_view(view):
@@ -231,30 +232,28 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         if not units:
             return
         try:
-            # Read the history again, so the charges of requests that ran since the check stay in it.
-            history = self.cache.get(self.key, [])
-            self.cache.set(self.key, [self.timer()] * units + history, self.duration)
+            self.cache.set(self.key, [self.now] * units + self.history, self.duration)
         except Exception as e:
             capture_exception(e)
 
-    def units_wait(self, units: int) -> float:
-        history = getattr(self, "history", [])
-        expiries_needed = len(history) + units - self.num_requests
-        if not 0 < expiries_needed <= len(history):
-            return float(self.duration)
-        return history[-expiries_needed] + self.duration - self.now
-
     def _has_room_for_units(self, request: "Request", view: "APIView", units: int) -> bool:
-        if self.rate is None:
+        num_requests, duration = self.num_requests, self.duration
+        if num_requests is None or duration is None:
             return True
         self.key = self.get_cache_key(request, view)
         if self.key is None:
             return True
         self.history = self.cache.get(self.key, [])
         self.now = self.timer()
-        while self.history and self.history[-1] <= self.now - self.duration:
+        while self.history and self.history[-1] <= self.now - duration:
             self.history.pop()
-        if len(self.history) + units > self.num_requests:
+        expiries_needed = len(self.history) + units - num_requests
+        if expiries_needed > 0:
+            self.units_wait = (
+                self.history[-expiries_needed] + duration - self.now
+                if expiries_needed <= len(self.history)
+                else float(duration)
+            )
             return False
         self.units_to_charge = units
         return True
@@ -359,9 +358,11 @@ def reserve_units(
     Concurrent callers can read the same room and overwrite each other's charges, so the budget is advisory,
     as with DRF's own check-then-set.
     """
+    if units < 1:
+        return
     refused = [throttle for throttle in throttles if not throttle.allow_units(request, view, units)]
     if refused:
-        raise exceptions.Throttled(wait=max(throttle.units_wait(units) for throttle in refused))
+        raise exceptions.Throttled(wait=max(throttle.units_wait for throttle in refused))
     for throttle in throttles:
         throttle.charge_units()
 

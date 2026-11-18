@@ -7,6 +7,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, Mock, call, patch
 
 from django.core.cache import cache
+from django.http import HttpRequest
 from django.test import SimpleTestCase
 from django.utils.timezone import now
 
@@ -16,6 +17,7 @@ from redis.exceptions import RedisError
 from rest_framework import exceptions, status
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
+from rest_framework.views import exception_handler
 
 from posthog import models, rate_limit
 from posthog.api.test.test_team import create_team
@@ -1062,7 +1064,7 @@ class _AuthenticatedProjectSecretKey(ProjectSecretAPIKeyAuthentication):
     def __init__(self, key_id: int, team_id: int) -> None:
         self.project_secret_api_key = Mock(id=key_id, team_id=team_id)
 
-    def authenticate(self, request: Request) -> tuple[Mock, None]:
+    def authenticate(self, request: HttpRequest | Request) -> tuple[Mock, None]:
         return Mock(is_authenticated=True), None
 
 
@@ -1097,11 +1099,12 @@ class TestReserveUnits(SimpleTestCase):
 
     def test_a_refused_reservation_charges_none_of_the_throttles(self, _enabled, _bypass):
         with (
-            patch.object(_PSAKThrottleForTest, "rate", "3/minute"),
             patch.object(_PSAKTeamThrottleForTest, "rate", "4/minute"),
+            patch.object(_PSAKThrottleForTest, "rate", "5/minute"),
         ):
+            self._singles_allowed(_PSAKThrottleForTest, 3)
             with self.assertRaises(exceptions.Throttled):
-                self._reserve([_PSAKThrottleForTest, _PSAKTeamThrottleForTest], 4)
+                self._reserve([_PSAKTeamThrottleForTest, _PSAKThrottleForTest], 3)
 
             self.assertEqual(self._singles_allowed(_PSAKTeamThrottleForTest, 5), [True, True, True, True, False])
 
@@ -1111,14 +1114,18 @@ class TestReserveUnits(SimpleTestCase):
             patch.object(_PSAKTeamThrottleForTest, "rate", "3/hour"),
             time_machine.travel("2026-01-01T00:00:00Z", tick=False) as clock,
         ):
+            for _ in range(3):
+                self._singles_allowed(_PSAKTeamThrottleForTest, 1)
+                clock.shift(100)
             self._singles_allowed(_PSAKThrottleForTest, 2)
-            self._singles_allowed(_PSAKTeamThrottleForTest, 2)
             clock.shift(10)
 
             with self.assertRaises(exceptions.Throttled) as refusal:
                 self._reserve([_PSAKThrottleForTest, _PSAKTeamThrottleForTest], 2)
 
-        self.assertEqual(refusal.exception.wait, 3590)
+        response = exception_handler(refusal.exception, {})
+        assert response is not None
+        self.assertEqual(response.headers["Retry-After"], "3390")
 
     def test_a_refusal_is_counted_per_refusing_scope(self, _enabled, _bypass):
         route = rate_limit.get_route_from_path("/api/messaging/send/email_batch/")
