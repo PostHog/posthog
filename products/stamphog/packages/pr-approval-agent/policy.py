@@ -355,6 +355,8 @@ _ATTESTATION_KEYS = _ATTESTATION_REQUIRED_KEYS | {"sibling_files", "publisher_fi
 # Limits for an issuer manifest, the same ones the publisher's own parser holds it to.
 ISSUER_MANIFEST_MAX_BYTES = 16 * 1024
 ISSUER_MANIFEST_MAX_PATHS = 32
+# An issuer path holds letters, digits, `.`, `_`, `-` and `/` only, so no `%` escape can decode to `..`.
+_ISSUER_PATH_RE = re.compile(r"[A-Za-z0-9._/-]+")
 _GLOB_CHARACTERS_RE = re.compile(r"[*?\[\]{}\\]")
 _BOT_AUTHOR_KEYS = {"name", "login", "id"}
 _DENY_SCOPES = {"any", "titles", "paths"}
@@ -529,7 +531,7 @@ def is_issuer_path(path: str) -> bool:
     there, or any file beside those modules, would run as code when the engine imports its modules.
     The server's `issuer_manifests.py` holds the path to the same rule.
     """
-    if not is_plain_repo_path(path) or not path.endswith((".yml", ".yaml")):
+    if not _ISSUER_PATH_RE.fullmatch(path) or not is_plain_repo_path(path) or not path.endswith((".yml", ".yaml")):
         return False
     return not path.startswith(("tools/pr-approval-agent/", "tools/owners/"))
 
