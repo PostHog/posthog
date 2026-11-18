@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
-import { ReactNode, useEffect, useRef } from 'react'
+import { ReactNode, useEffect, useRef, useState } from 'react'
 
 import { IconBug, IconInfo, IconSidePanel, IconSparkles } from '@posthog/icons'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger, Badge, Button } from '@posthog/quill'
 
+import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
+import { ReplayHintPopover } from 'scenes/session-recordings/components/ReplayHintPopover'
 import { WatchPanelSection, playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { playerSidebarLogic } from 'scenes/session-recordings/player/sidebar/playerSidebarLogic'
 import { PlayerSidebarTab } from 'scenes/session-recordings/player/sidebar/PlayerSidebarTab'
@@ -30,9 +32,16 @@ export function WatchPanelSections({
     observations?: ObservationsSection
     debug: boolean
 }): JSX.Element {
-    const { watchPanelOpenSections, watchPanelFocusRequest } = useValues(playerSettingsLogic)
-    const { setWatchPanelOpenSections, openWatchPanelSection, setWatchDebugDock, clearWatchPanelFocus } =
-        useActions(playerSettingsLogic)
+    const { watchPanelOpenSections, watchPanelFocusRequest, overviewHintShown } = useValues(playerSettingsLogic)
+    const {
+        setWatchPanelOpenSections,
+        openWatchPanelSection,
+        setWatchDebugDock,
+        clearWatchPanelFocus,
+        dismissOverviewHint,
+    } = useActions(playerSettingsLogic)
+    const [overviewTrigger, setOverviewTrigger] = useState<HTMLElement | null>(null)
+    const floatingContainer = useFloatingContainer()
     const { activeTab } = useValues(playerSidebarLogic)
     const { setTab } = useActions(playerSidebarLogic)
     const linkedIssuesAvailable = useLinkedIssuesAvailable()
@@ -58,6 +67,13 @@ export function WatchPanelSections({
     const debugTab = debugTabs.includes(activeTab) ? activeTab : SessionRecordingSidebarTab.INSPECTOR
 
     const itemRefs = useRef<Partial<Record<WatchPanelSection, HTMLDivElement | null>>>({})
+    const overviewOpen = open.includes('overview')
+    useEffect(() => {
+        if (overviewHintShown && overviewOpen) {
+            dismissOverviewHint()
+        }
+    }, [overviewHintShown, overviewOpen, dismissOverviewHint])
+
     useEffect(() => {
         if (!watchPanelFocusRequest) {
             return
@@ -75,12 +91,25 @@ export function WatchPanelSections({
                     itemRefs.current.overview = el
                 }}
             >
-                <AccordionTrigger data-attr="watch-panel-section-overview">
+                <AccordionTrigger ref={setOverviewTrigger} data-attr="watch-panel-section-overview">
                     <span className="flex items-center gap-1.5">
                         <IconInfo />
                         Overview
                     </span>
                 </AccordionTrigger>
+                {overviewHintShown && !overviewOpen && (
+                    <ReplayHintPopover
+                        anchor={overviewTrigger}
+                        onDismiss={dismissOverviewHint}
+                        side="top"
+                        align="start"
+                        container={floatingContainer}
+                        compact
+                        dataAttr="watch-panel-overview-hint"
+                    >
+                        Session, person, device and experiment details are under Overview now.
+                    </ReplayHintPopover>
+                )}
                 <AccordionContent className="-mx-2">
                     <RecordingOverviewPanels />
                 </AccordionContent>
