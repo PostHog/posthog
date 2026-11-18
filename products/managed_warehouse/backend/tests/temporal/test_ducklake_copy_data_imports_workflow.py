@@ -1794,7 +1794,7 @@ async def test_ducklake_copy_data_imports_gate_retries_an_unanswered_gigahog_fla
 ):
     team = MagicMock(organization_id="org", uuid="team-uuid")
     monkeypatch.setattr(ducklake_module.Team.objects, "only", lambda *fields: MagicMock(get=lambda id: team))
-    monkeypatch.setattr(ducklake_module, "feature_enabled_or_false", lambda *args, **kwargs: True)
+    monkeypatch.setattr(ducklake_module, "data_imports_ducklake_copy_enabled", lambda *args, **kwargs: True)
     monkeypatch.setattr(
         "products.managed_warehouse.backend.facade.access.internal_loading_enabled", lambda organization_id: True
     )
