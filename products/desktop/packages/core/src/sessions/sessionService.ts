@@ -3331,7 +3331,9 @@ export class SessionService {
     } catch (error) {
       if (requestErrorStatus(error) === 409) {
         this.stopLocalRunHeartbeat(taskRunId);
+        return;
       }
+      this.d.log.warn("Local run heartbeat failed", { taskRunId, error });
     }
   }
 
