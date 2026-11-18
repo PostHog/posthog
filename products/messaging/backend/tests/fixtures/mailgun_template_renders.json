@@ -793,5 +793,40 @@
     },
     "liquid": "{% assign item1_is_object = false %}{% if variables.M.length == nil and variables.M.size > 0 %}{% assign item1_is_object = true %}{% endif %}{% for item1 in variables.M %}{% if item1_is_object %}{% assign item1_key = item1[0] %}{% assign item1_value = item1[1] %}{% else %}{% assign item1_key = forloop.index0 %}{% assign item1_value = item1 %}{% endif %}{{ item1_key }}={{ item1_value.N }};{% endfor %}",
     "expected": "a=1;b=2;"
+  },
+  {
+    "name": "each with block params, nested, with the outer index inside",
+    "engine": "handlebars",
+    "template": "<ul>{{#each orders as |order i|}}<li>{{i}}: {{order.id}}{{#each order.lines as |line j|}} [{{i}}.{{j}} {{line.sku}} of {{../id}}]{{/each}}</li>{{else}}<li>none</li>{{/each}}</ul>{{#each prices as |amount currency|}}{{currency}}={{amount}};{{/each}}{{currency}}",
+    "variables": {
+      "orders": [
+        {
+          "id": "A1",
+          "lines": [
+            {
+              "sku": "mug"
+            },
+            {
+              "sku": "cap"
+            }
+          ]
+        },
+        {
+          "id": "B2",
+          "lines": [
+            {
+              "sku": "tee"
+            }
+          ]
+        }
+      ],
+      "prices": {
+        "usd": 5,
+        "eur": 4
+      },
+      "currency": "outside"
+    },
+    "liquid": "<ul>{% assign item1_is_object = false %}{% if variables.orders.length == nil and variables.orders.size > 0 %}{% assign item1_is_object = true %}{% endif %}{% for item1 in variables.orders %}{% if item1_is_object %}{% assign item1_key = item1[0] %}{% assign item1_value = item1[1] %}{% else %}{% assign item1_key = forloop.index0 %}{% assign item1_value = item1 %}{% endif %}<li>{{ item1_key }}: {{ item1_value.id }}{% assign item2_is_object = false %}{% if item1_value.lines.length == nil and item1_value.lines.size > 0 %}{% assign item2_is_object = true %}{% endif %}{% for item2 in item1_value.lines %}{% if item2_is_object %}{% assign item2_key = item2[0] %}{% assign item2_value = item2[1] %}{% else %}{% assign item2_key = forloop.index0 %}{% assign item2_value = item2 %}{% endif %} [{{ item1_key }}.{{ item2_key }} {{ item2_value.sku }} of {{ item1_value.id }}]{% endfor %}</li>{% else %}<li>none</li>{% endfor %}</ul>{% assign item1_is_object = false %}{% if variables.prices.length == nil and variables.prices.size > 0 %}{% assign item1_is_object = true %}{% endif %}{% for item1 in variables.prices %}{% if item1_is_object %}{% assign item1_key = item1[0] %}{% assign item1_value = item1[1] %}{% else %}{% assign item1_key = forloop.index0 %}{% assign item1_value = item1 %}{% endif %}{{ item1_key }}={{ item1_value }};{% endfor %}{{ variables.currency }}",
+    "expected": "<ul><li>0: A1 [0.0 mug of A1] [0.1 cap of A1]</li><li>1: B2 [1.0 tee of B2]</li></ul>usd=5;eur=4;outside"
   }
 ]

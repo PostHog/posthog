@@ -370,6 +370,13 @@ class _Converter:
             return f"{{% if {self._truthy(path)} %}}"
         if helper == "each" and len(args) == 1 and (path := self._path(args[0])) is not None:
             return self._open_loop(path, closer="each")
+        if helper == "each" and (names := _block_params(args[1:])) and (path := self._path(args[0])) is not None:
+            # `as |item index|` names the loop's value and index, which stay visible inside nested loops.
+            opening = self._open_loop(path, closer="each", saved_go_variables=dict(self.go_variables))
+            self.go_variables[names[0]] = self.frames[-1].expression
+            if len(names) == 2:
+                self.go_variables[names[1]] = str(self.frames[-1].key)
+            return opening
         if helper == "equal" and len(args) == 2:
             comparison = self._equal(args[0], args[1])
             if comparison is not None:
@@ -499,6 +506,12 @@ class _Converter:
             return _join(frame, source) if source else frame
         if source.startswith("@"):
             return None
+        segments = _segments(source) or []
+        if self.engine == "handlebars" and segments and segments[0] in self.go_variables:
+            path: str | None = self.go_variables[segments[0]]
+            for segment in segments[1:]:
+                path = _join(path, segment, split=False) if path else None
+            return path
         depth = 0
         while source.startswith("../"):
             depth += 1
@@ -671,6 +684,11 @@ class _Converter:
 def _attribute_safe(path: str) -> str:
     # Handlebars also escapes = and `, so a value can't end an unquoted attribute and start another one.
     return f'{{{{ {path} | escape | replace: "=", "&#x3D;" | replace: "`", "&#x60;" | raw }}}}'
+
+
+def _block_params(args: list[str]) -> tuple[str, ...] | None:
+    match = re.fullmatch(r"as\s+\|\s*([A-Za-z_][\w-]*)(?:\s+([A-Za-z_][\w-]*))?\s*\|", " ".join(args))
+    return tuple(name for name in match.groups() if name) if match else None
 
 
 def _falsy(path: str) -> str:
