@@ -16,9 +16,11 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api, { ApiConfig, ApiError } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { escapeDottedHogQLIdentifier } from 'lib/utils/hogql'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
 import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
 import { urls } from 'scenes/urls'
@@ -27,6 +29,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { Breadcrumb, DataModelingEdge, DataModelingNode, SidePanelTab } from '~/types'
 
 import { catalogRestructureEnabled } from 'products/data_modeling/frontend/catalogRestructure'
+import { suiteRunResultsLogic } from 'products/data_quality/frontend/suiteRunResultsLogic'
 
 import { HOGQL_METRIC_DEFINITION_KIND, validateMetricName } from './common'
 import { buildMetricRunPrompt } from './components/RunMetricWithAIButton'
@@ -49,7 +52,7 @@ export interface DataCatalogMetricSceneLogicProps {
     name: string
 }
 
-export type MetricSceneTab = 'definition' | 'data-quality' | 'lineage'
+export type MetricSceneTab = 'definition' | 'data-quality' | 'lineage' | 'usage'
 
 /** What stopped the lineage load, in the terms the tab has a screen for. */
 export type LineageLoadProblem = 'not_ready' | 'missing' | 'no_warehouse_access' | 'failed'
@@ -328,12 +331,17 @@ export type dataCatalogMetricSceneLogicType = MakeLogicType<
     dataCatalogMetricSceneLogicMeta
 >
 
+// The Quill layout has no usage tab yet, so a usage link opens the definition there.
+function usageTabAvailable(featureFlags: FeatureFlagsSet): boolean {
+    return !!featureFlags[FEATURE_FLAGS.DATA_CATALOG_USAGE] && !catalogRestructureEnabled(featureFlags)
+}
+
 export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>([
     props({ name: '' } as DataCatalogMetricSceneLogicProps),
     key((props) => props.name),
     path((key) => ['products', 'data_catalog', 'frontend', 'dataCatalogMetricSceneLogic', key]),
     connect(() => ({
-        logic: [dataCatalogAgentSyncLogic],
+        logic: [dataCatalogAgentSyncLogic, suiteRunResultsLogic],
         values: [featureFlagLogic, ['featureFlags'], sceneAgentPanelLogic, ['sceneIntegrationEnabled']],
         actions: [sidePanelStateLogic, ['openSidePanel']],
     })),
@@ -494,6 +502,11 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
         ],
     }),
     listeners(({ props, values, actions }) => ({
+        [suiteRunResultsLogic.actionTypes.revealSubjectResults]: ({ subject }) => {
+            if (subject.subjectType === 'metric' && subject.subjectId === values.metric?.id) {
+                actions.setActiveTab('data-quality')
+            }
+        },
         [dataCatalogAgentSyncLogic.actionTypes.openMetricReloadRequested]: ({ name, newName }) => {
             if (name !== props.name) {
                 return
@@ -537,6 +550,19 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
         },
         setActiveTab: () => {
             actions.loadLineageIfNeeded()
+        },
+        [featureFlagLogic.actionTypes.setFeatureFlags]: () => {
+            // Flags that the page bootstrap cannot evaluate arrive later, so a usage link waits for them.
+            const onThisMetric =
+                removeProjectIdIfPresent(router.values.location.pathname) === urls.dataCatalogMetric(props.name)
+            if (
+                onThisMetric &&
+                router.values.searchParams.tab === 'usage' &&
+                values.activeTab !== 'usage' &&
+                usageTabAvailable(values.featureFlags)
+            ) {
+                actions.setActiveTab('usage')
+            }
         },
         loadLineageIfNeeded: () => {
             if (values.activeTab !== 'lineage' || values.lineageLoading) {
@@ -732,9 +758,12 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
             }
             // `tests` is the old key for the data quality tab; links in sent notifications still use it.
             const tabParam = searchParams.tab === 'tests' ? 'data-quality' : searchParams.tab
+            // The usage tab exists only behind its flag, so a shared link opens the definition while it is off.
+            const usageAllowed = tabParam === 'usage' && usageTabAvailable(values.featureFlags)
             const activeTab: MetricSceneTab =
-                tabParam === 'data-quality' || tabParam === 'lineage' ? tabParam : 'definition'
-            if (activeTab !== searchParams.tab && searchParams.tab !== undefined) {
+                tabParam === 'data-quality' || tabParam === 'lineage' || usageAllowed ? tabParam : 'definition'
+            // A usage link keeps its param, so the tab can still open when the flag loads after the page.
+            if (activeTab !== searchParams.tab && searchParams.tab !== undefined && tabParam !== 'usage') {
                 // Drop the param so a refresh or a back navigation does not ask for the tab again.
                 router.actions.replace(urls.dataCatalogMetric(props.name, activeTab))
             }

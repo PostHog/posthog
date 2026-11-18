@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { EXIT_FAILURE, EXIT_NEEDS_PERSON, EXIT_SUCCESS, EXIT_USAGE } from '@/core/errors'
 import { readJson, runHog, type FakeRuntimeOptions } from '@/testing'
 import { extractFile } from '@/updates/archive'
 import type { Manifest } from '@/updates/manifest'
@@ -64,7 +65,7 @@ describe('update notice', () => {
     ])('%s: shown %p', async (_name, shown, latest) => {
         const result = await runHog(['config', 'schema'], { ...PERSON, respond: release(latest) })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.stderr.includes(`hog ${latest.version} is out (you have 0.1.0-alpha.5).`)).toBe(shown)
     })
 
@@ -81,7 +82,7 @@ describe('update notice', () => {
     ])('is not shown to %s', async (_name, options) => {
         const result = await runHog(['config', 'schema'], { ...options, respond: release(manifest('0.3.0', BUILT)) })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.stderr).not.toContain('is out')
     })
 
@@ -126,7 +127,7 @@ describe('update notice', () => {
                       : { status: 200, body: { id: 42, name: 'Test project' } },
         })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.json()).toMatchObject({ authenticated: true, hog: { latest: '0.2.0', updateAvailable: true } })
         expect(result.requests.filter((request) => request.url === LATEST)).toHaveLength(1)
     })
@@ -161,7 +162,7 @@ describe('update notice', () => {
 
         const result = await runHog(['setup', 'bogus'], { env: AGENT, build: RUNNING, respond: release(latest) })
 
-        expect(result.exitCode).toBe(2)
+        expect(result.exitCode).toBe(EXIT_USAGE)
         expect(result.error()).toMatchObject({ code: 'invalid_setup_command' })
         expect(result.stderr.trim().split('\n')).toHaveLength(1)
     })
@@ -181,7 +182,7 @@ describe('update notice', () => {
 
         const result = await runHog(['config', 'schema'], { env: AGENT, build: RUNNING, respond: release(latest) })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(readJson(result.stderr)).toEqual({
             warning: {
                 code: 'hog_below_minimum_version',
@@ -212,13 +213,13 @@ describe('setup on an outdated hog', () => {
             respond: release(manifest('0.1.0-alpha.6', '2025-12-21T00:00:00Z')),
         })
 
-        expect(result.exitCode).toBe(1)
+        expect(result.exitCode).toBe(EXIT_FAILURE)
         expect(result.error()).toMatchObject({ code: 'hog_outdated', latest: '0.1.0-alpha.6', hint })
     })
 
     test.each([
-        ['an npm install carries on, because npm may not have it yet', NPM_PATH, 0],
-        ['a standalone binary stops, because the release bucket has it', '/usr/local/bin/hog', 1],
+        ['an npm install carries on, because npm may not have it yet', NPM_PATH, EXIT_NEEDS_PERSON],
+        ['a standalone binary stops, because the release bucket has it', '/usr/local/bin/hog', EXIT_FAILURE],
     ])('a release out for an hour: %s', async (_name, execPath, exitCode) => {
         const result = await runHog(['setup'], {
             env: AGENT,
@@ -233,7 +234,7 @@ describe('setup on an outdated hog', () => {
     test('says to update once, without the notice after the error', async () => {
         const result = await runHog(['setup'], { ...PERSON, respond: release(manifest('0.2.0', BUILT)) })
 
-        expect(result.exitCode).toBe(1)
+        expect(result.exitCode).toBe(EXIT_FAILURE)
         expect(result.stderr).toContain('Setup needs the latest hog, 0.2.0')
         expect(result.stderr).not.toContain('is out')
     })
@@ -249,14 +250,14 @@ describe('setup on an outdated hog', () => {
             respond: release(null),
         })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_NEEDS_PERSON)
         expect(result.json()).toMatchObject({ step: 'purpose', hog: { latest: null } })
     })
 
     test('carries on when the release manifest is out of reach', async () => {
         const result = await runHog(['setup'], { env: AGENT, build: RUNNING, respond: release(null) })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_NEEDS_PERSON)
         expect(result.json()).toMatchObject({
             step: 'purpose',
             hog: { version: '0.1.0-alpha.5', latest: null, updateAvailable: false },
@@ -286,7 +287,7 @@ describe('setup on an outdated hog', () => {
             respond: release(manifest('0.2.0', BUILT)),
         })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_NEEDS_PERSON)
         expect(result.requests.filter((request) => request.url === LATEST)).toHaveLength(0)
     })
 })
@@ -337,7 +338,7 @@ describe('hog upgrade', () => {
     test('replaces its own binary with the verified build', async () => {
         const result = await runHog(['upgrade'], { env: AGENT, build: RUNNING, respond: release(NEWER) })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.json()).toMatchObject({ action: 'upgraded', current: '0.1.0-alpha.5', latest: '0.1.0-alpha.8' })
         expect(result.executables['/usr/local/bin/hog']).toEqual(BINARY)
     })
@@ -477,7 +478,7 @@ describe('hog upgrade', () => {
     ])('runs nothing for a copy in %s', async (execPath) => {
         const result = await runHog(['upgrade'], { ...PERSON, answers: [], execPath, respond: release(NEWER) })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.commands).toEqual([])
         expect(result.executables).toEqual({})
     })

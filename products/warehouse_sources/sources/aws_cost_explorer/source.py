@@ -136,9 +136,9 @@ class AwsCostExplorerSource(ResumableSource[AwsCostExplorerSourceConfig, AwsCost
             label="AWS Cost Explorer",
             caption="""Sync your AWS cost and usage data into the PostHog Data warehouse.
 
-Create an IAM user or role with the `ce:GetCostAndUsage`, `ce:GetCostAndUsageWithResources`, `ce:GetDimensionValues`, `ce:GetReservationUtilization`, `ce:GetReservationCoverage`, `ce:GetSavingsPlansUtilization` and `ce:GetSavingsPlansCoverage` permissions, then paste its access key ID and secret access key. Add a session token too if you are using temporary credentials.
+Create an IAM user or role with the `ce:GetCostAndUsage`, `ce:GetCostAndUsageWithResources`, `ce:GetDimensionValues`, `ce:GetReservationUtilization`, `ce:GetReservationCoverage`, `ce:GetSavingsPlansUtilization`, `ce:GetSavingsPlansUtilizationDetails`, `ce:GetSavingsPlansCoverage`, `ce:GetCostForecast`, `ce:GetRightsizingRecommendation` and `ce:GetReservationPurchaseRecommendation` permissions, then paste its access key ID and secret access key. Add a session token too if you are using temporary credentials.
 
-The per-resource cost table needs resource-level data turned on in your Cost Explorer settings, and only covers the last 14 days.
+The per-resource cost table needs resource-level data turned on in your Cost Explorer settings, and only covers the last 14 days. The rightsizing table needs rightsizing recommendations turned on in your Cost Explorer preferences.
 
 Connect the management (payer) account to see spend across every member account. AWS charges $0.01 per Cost Explorer API request, so syncs ask for wide date ranges at a time.""",
             iconPath="/static/services/aws_cost_explorer.png",

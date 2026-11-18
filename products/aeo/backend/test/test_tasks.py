@@ -138,3 +138,18 @@ def test_keyword_suggestion_task_skips_a_job_that_is_no_longer_pending(team: Tea
     gateway.assert_not_called()
     if job_state == "failed":
         assert keyword_suggestions.load_job(team.id, job_id).error == keyword_suggestions.STALE_JOB_ERROR
+
+
+@pytest.mark.parametrize("flag_on, expected_starts", [(True, 1), (False, 0)], ids=["enabled", "flag_off"])
+def test_sentiment_backlog_pass_scores_each_enabled_team(
+    team: Team, settings, flag_on: bool, expected_starts: int
+) -> None:
+    settings.AEO_CITATION_TEAM_IDS = [str(team.id), "not-a-team"]
+
+    with (
+        patch.object(tasks, "feature_enabled_or_false", return_value=flag_on),
+        patch.object(tasks, "start_backlog_sentiment_scoring", side_effect=RuntimeError("temporal down")) as start,
+    ):
+        tasks.score_aeo_sentiment_backlog_task()
+
+    assert [call.args for call in start.call_args_list] == [(team.id,)] * expected_starts

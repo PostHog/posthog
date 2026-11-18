@@ -137,6 +137,13 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "created_date": "Date the user was created.",
         },
     },
+    "contextual_categories": {
+        "description": "A contextual category that adgroups under a Web Contextual campaign can target. Adgroup targeting refers to categories by EID.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "eid": "Unique encoded identifier (EID) for the contextual category, as used in adgroup targeting.",
+        },
+    },
     "pixels": {
         "description": "The active AdRoll tracking pixel of an advertisable, which collects site visits and conversions.",
         "docs_url": _DOCS_URL,

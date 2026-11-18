@@ -102,6 +102,31 @@ describe('subscriptionLogic', () => {
         window.localStorage.clear()
     })
 
+    it('previews a selected dashboard insight with the saved image size', async () => {
+        let capturedBody: Record<string, any> | undefined
+        useMocks({
+            post: {
+                '/api/projects/:team/exports': async ({ request }) => {
+                    capturedBody = (await request.json()) as Record<string, any>
+                    return [201, { id: 123, has_content: false, exception: 'Preview unavailable' }]
+                },
+            },
+        })
+        await expectLogic(newLogic).toFinishListeners()
+        newLogic.actions.setSubscriptionValues({
+            dashboard: 7,
+            dashboard_export_insights: [11, 12],
+            delivery_config: { image_size: { width: 1200, height: 630 } },
+        })
+        newLogic.actions.generatePreview()
+        await expectLogic(newLogic).toFinishListeners()
+        expect(capturedBody).toMatchObject({
+            dashboard: 7,
+            insight: 11,
+            export_context: { image_size: { width: 1200, height: 630 } },
+        })
+    })
+
     it('saves the edits disabled before offering to take ownership when the owner left', async () => {
         const updateSpy = jest
             .spyOn(api.subscriptions, 'update')

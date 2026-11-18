@@ -82,20 +82,62 @@ def test_gate_runs_drop_runs_from_other_branches(
             script.gate_runs(trigger, 40)
 
 
-def test_retries_a_workflow_listing_timeout_once(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls = 0
+EOF_ERROR = subprocess.CalledProcessError(1, "depot", stderr="failed to get workflow: unavailable: unexpected EOF")
+SETTLED_WORKFLOW = {
+    "workflow_id": "wf",
+    "run_id": "run",
+    "sha": "abc",
+    "status": "finished",
+    "created_at": "2026-10-05T12:23:00Z",
+}
+
+
+@pytest.mark.parametrize(
+    "failing_call,failure",
+    [
+        pytest.param("list", subprocess.TimeoutExpired("depot", script.CLI_TIMEOUT_SECONDS), id="listing_timeout"),
+        pytest.param("list", EOF_ERROR, id="listing_eof"),
+        pytest.param("show", EOF_ERROR, id="show_eof"),
+    ],
+)
+def test_gate_runs_recover_from_one_transient_depot_failure(
+    monkeypatch: pytest.MonkeyPatch, failing_call: str, failure: subprocess.SubprocessError
+) -> None:
+    failed: set[str] = set()
 
     def depot_response(*args: str) -> str:
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            raise subprocess.TimeoutExpired("depot", script.CLI_TIMEOUT_SECONDS)
-        return "[]"
+        if args[1] == failing_call and failing_call not in failed:
+            failed.add(failing_call)
+            raise failure
+        if args[1] == "list":
+            return json.dumps([SETTLED_WORKFLOW])
+        return json.dumps({"org_id": "org", "jobs": [{"job_key": script.GATE_JOB_KEY, "status": "finished"}]})
 
     monkeypatch.setattr(script, "depot", depot_response)
+    monkeypatch.setattr("time.sleep", lambda _: None)
 
-    assert script.master_workflows(["finished"], 5, trigger="schedule") == []
-    assert calls == 2
+    assert [run["conclusion"] for run in script.gate_runs("schedule", 12)] == ["success"]
+
+
+@pytest.mark.parametrize(
+    "show_output",
+    [pytest.param(EOF_ERROR, id="persistent_eof"), pytest.param("", id="empty_response")],
+)
+def test_gate_runs_fail_closed_when_a_workflow_stays_unreadable(
+    monkeypatch: pytest.MonkeyPatch, show_output: str | subprocess.SubprocessError
+) -> None:
+    def depot_response(*args: str) -> str:
+        if args[1] == "list":
+            return json.dumps([SETTLED_WORKFLOW])
+        if isinstance(show_output, Exception):
+            raise show_output
+        return show_output
+
+    monkeypatch.setattr(script, "depot", depot_response)
+    monkeypatch.setattr("time.sleep", lambda _: None)
+
+    with pytest.raises((subprocess.CalledProcessError, json.JSONDecodeError)):
+        script.gate_runs("schedule", 12)
 
 
 @pytest.mark.parametrize("status", [None, "running", "cancelled", "finished", "failed"])

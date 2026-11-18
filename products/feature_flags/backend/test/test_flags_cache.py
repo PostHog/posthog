@@ -26,9 +26,11 @@ from django.db.models import JSONField, Value
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 
+from confluent_kafka import KafkaError
 from parameterized import parameterized
 from structlog.testing import capture_logs
 
+from posthog.kafka_client.client import ProduceResult
 from posthog.kafka_client.topics import KAFKA_FLAGS_CACHE_INVALIDATION
 from posthog.models import Team
 from posthog.storage.cache_expiry_manager import CacheRefreshCounts, RefreshPacing
@@ -50,6 +52,7 @@ from products.feature_flags.backend.flags_cache import (
     _get_referenced_cohorts,
     _serialize_cohort,
     _strip_null_values,
+    awaited_cohort_invalidation_deliveries,
     clear_flags_cache,
     coalesced_cohort_flags_cache_rebuilds,
     flags_hypercache,
@@ -65,6 +68,7 @@ from products.feature_flags.backend.flags_cache import (
 from products.feature_flags.backend.flags_cache_messages import FlagsCacheInvalidation
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.tasks import invalidate_team_flags_cache_for_cohorts
 from products.feature_flags.backend.test.experiment_change_fixtures import EXPERIMENT_CHANGES, seed_experiment_change
 
 
@@ -1163,7 +1167,7 @@ class TestServiceFlagsKafkaRouting(BaseTest):
     def test_team_create_routes_to_kafka_when_flag_on(self, mock_task, mock_gate, mock_produce):
         new_team = Team.objects.create(organization=self.organization, name="Kafka Routing Team")
         mock_task.delay.assert_not_called()
-        mock_produce.assert_called_with(new_team.id)
+        mock_produce.assert_called_with(new_team.id, source="edit", raise_on_error=False)
 
     @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
     @patch("products.feature_flags.backend.flags_cache._route_to_kafka", return_value=True)
@@ -1184,37 +1188,14 @@ class TestServiceFlagsKafkaRouting(BaseTest):
         FeatureFlagEvaluationContext.objects.create(feature_flag=flag, evaluation_context=ctx)
 
         mock_task.delay.assert_not_called()
-        mock_produce.assert_called_with(self.team.id)
-
-    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
-    @patch("products.feature_flags.backend.flags_cache._route_to_kafka", return_value=True)
-    @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
-    @patch("django.db.transaction.on_commit", lambda fn: fn())
-    def test_cohort_change_does_not_route_through_gate(self, mock_task, mock_gate, mock_produce):
-        """Cohort changes flow through their own topic — must bypass _enqueue_invalidation."""
-        Cohort.objects.create(
-            team=self.team,
-            name="cohort-no-kafka",
-            filters={"properties": {"type": "AND", "values": []}},
-        )
-        mock_task.delay.assert_called_with(self.team.id)
-        mock_gate.assert_not_called()
-        mock_produce.assert_not_called()
+        mock_produce.assert_called_with(self.team.id, source="edit", raise_on_error=False)
 
 
-@override_settings(FLAGS_CACHE_REFRESH_KAFKA_ENABLED=True)
 class TestRefreshRoutingHook(SimpleTestCase):
     TEAM_ID = 11
 
-    @override_settings(FLAGS_CACHE_REFRESH_KAFKA_ENABLED=False)
-    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
-    def test_the_deployment_switch_off_declines_the_team_and_produces_nothing(self, mock_produce):
-        assert route_refresh_to_kafka(self.TEAM_ID) is False
-
-        mock_produce.assert_not_called()
-
     @patch("products.feature_flags.backend.flags_cache.producer_scope")
-    def test_the_deployment_switch_on_produces_a_message_the_builder_reads_as_a_refresh(self, mock_producer_scope):
+    def test_produces_a_message_the_builder_reads_as_a_refresh(self, mock_producer_scope):
         mock_producer = MagicMock()
         mock_producer_scope.return_value.__enter__.return_value = mock_producer
 
@@ -1440,11 +1421,10 @@ class TestGetTeamPrimaryFlagsWriter(unittest.TestCase):
             assert FLAGS_HYPERCACHE_MANAGEMENT_CONFIG.get_primary_writer_fn(42) == "rust"
         assert mock_feature_enabled.call_args.args[1] == "team-42"
 
-    @override_settings(FLAGS_CACHE_REFRESH_KAFKA_ENABLED=True)
     def test_flags_config_binds_the_refresh_routing_hook(self):
         # The lambda on the config is the only wire between the sweep and the hook.
         # Unbound, the sweep silently keeps building in Python and the enqueued gauge
-        # stays at zero, which looks the same as the setting being off.
+        # stays at zero.
         with patch("products.feature_flags.backend.flags_cache._produce_invalidation") as mock_produce:
             assert FLAGS_HYPERCACHE_MANAGEMENT_CONFIG.route_refresh_fn is not None
             assert FLAGS_HYPERCACHE_MANAGEMENT_CONFIG.route_refresh_fn(42) is True
@@ -4621,6 +4601,43 @@ class TestCohortChangedFlagsCacheSignal(BaseTest):
         cohort.save()
         mock_task.delay.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("save", lambda cohort: cohort.save(update_fields=["filters"])),
+            ("delete", lambda cohort: cohort.delete()),
+            ("coalesced_save", lambda cohort: _save_inside_coalescing_block(cohort)),
+            ("finalizer_task", lambda cohort: invalidate_team_flags_cache_for_cohorts(cohort.team_id)),
+        ]
+    )
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    @patch("products.feature_flags.backend.flags_cache.producer_scope")
+    @patch("products.feature_flags.backend.flags_cache._route_to_kafka", return_value=True)
+    @patch("products.feature_flags.backend.tasks.update_team_flags_cache")
+    @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
+    def test_kafka_routed_team_gets_a_cohort_invalidation_and_no_celery_build(
+        self, _name, change, mock_service, _mock_definitions, _mock_gate, mock_producer_scope
+    ):
+        mock_producer = MagicMock()
+        mock_producer_scope.return_value.__enter__.return_value = mock_producer
+        cohort = Cohort.objects.create(team=self.team, name="test")
+        mock_producer.reset_mock()
+        mock_service.reset_mock()
+        cohort.filters = {"properties": {"type": "AND", "values": []}}
+
+        change(cohort)
+
+        mock_service.delay.assert_not_called()
+        mock_producer.produce.assert_called_once()
+        produce_kwargs = mock_producer.produce.call_args.kwargs
+        assert produce_kwargs["key"] == str(self.team.id)
+        assert produce_kwargs["data"]["team_id"] == self.team.id
+        assert produce_kwargs["data"]["source"] == "cohort"
+
+
+def _save_inside_coalescing_block(cohort: Cohort) -> None:
+    with coalesced_cohort_flags_cache_rebuilds():
+        cohort.save(update_fields=["filters"])
+
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
 @patch("django.db.transaction.on_commit", lambda fn: fn())
@@ -4743,6 +4760,22 @@ class TestCoalescedFlagsCacheRebuilds(BaseTest):
         assert stale_cache_teams == {self.team.id}
         surviving_mock.delay.assert_called_once_with(self.team.id)
 
+    @patch("products.feature_flags.backend.flags_cache.producer_scope")
+    @patch("products.feature_flags.backend.flags_cache._route_to_kafka", return_value=True)
+    def test_a_failed_cohort_invalidation_produce_is_reported(
+        self, _mock_gate, mock_producer_scope, mock_service, mock_definitions
+    ):
+        cohort = Cohort.objects.create(team=self.team, name="one")
+        mock_definitions.reset_mock()
+        mock_producer_scope.side_effect = RuntimeError("kafka producer queue full")
+
+        with coalesced_cohort_flags_cache_rebuilds() as stale_cache_teams:
+            self._save_definition(cohort)
+
+        assert stale_cache_teams == {self.team.id}
+        mock_definitions.delay.assert_called_once_with(self.team.id)
+        mock_service.delay.assert_not_called()
+
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
 class TestCoalescedRebuildsWaitForTheCommit(BaseTest):
@@ -4763,6 +4796,59 @@ class TestCoalescedRebuildsWaitForTheCommit(BaseTest):
 
         mock_service.delay.assert_called_once_with(self.team.id)
         mock_definitions.delay.assert_called_once_with(self.team.id)
+
+
+def _acknowledged_result() -> ProduceResult:
+    result = ProduceResult(topic=KAFKA_FLAGS_CACHE_INVALIDATION)
+    result.set_result(None, None)
+    return result
+
+
+def _failed_result() -> ProduceResult:
+    result = ProduceResult(topic=KAFKA_FLAGS_CACHE_INVALIDATION)
+    result.set_result(KafkaError(KafkaError._MSG_TIMED_OUT), None)
+    return result
+
+
+@override_settings(FLAGS_REDIS_URL="redis://test")
+@patch("django.db.transaction.on_commit", lambda fn: fn())
+@patch("products.feature_flags.backend.flags_cache.get_producer")
+@patch("products.feature_flags.backend.flags_cache.producer_scope")
+@patch("products.feature_flags.backend.flags_cache._route_to_kafka", return_value=True)
+@patch("products.feature_flags.backend.tasks.update_team_flags_cache")
+class TestAwaitedCohortInvalidationDeliveries(BaseTest):
+    @parameterized.expand(
+        [
+            ("acknowledged", lambda producer: setattr(producer.produce, "return_value", _acknowledged_result()), False),
+            (
+                "not_acknowledged_in_time",
+                lambda producer: setattr(
+                    producer.produce, "return_value", ProduceResult(topic=KAFKA_FLAGS_CACHE_INVALIDATION)
+                ),
+                True,
+            ),
+            ("delivery_failed", lambda producer: setattr(producer.produce, "return_value", _failed_result()), True),
+            (
+                "produce_raised",
+                lambda producer: setattr(producer.produce, "side_effect", BufferError("queue full")),
+                True,
+            ),
+        ]
+    )
+    def test_reports_teams_whose_cohort_invalidation_kafka_did_not_acknowledge(
+        self, _mock_definitions, _mock_gate, mock_producer_scope, mock_get_producer, _name, configure, reported
+    ):
+        producer = mock_producer_scope.return_value.__enter__.return_value
+        producer.produce.return_value = _acknowledged_result()
+        cohort = Cohort.objects.create(team=self.team, name="test")
+        configure(producer)
+
+        with awaited_cohort_invalidation_deliveries() as undelivered:
+            cohort.filters = {"properties": {"type": "AND", "values": []}}
+            cohort.save(update_fields=["filters"])
+
+        mock_get_producer.return_value.flush.assert_called_once()
+        assert undelivered == ({self.team.id} if reported else set())
 
 
 class TestStripNullValues(unittest.TestCase):

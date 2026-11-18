@@ -1,1 +1,1 @@
-0381_drop_legacy_metrics_on_logs
+0386_remove_surfacing_score_from_session_replay_ingestion

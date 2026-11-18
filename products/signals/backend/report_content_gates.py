@@ -27,6 +27,7 @@ RESEARCH_ASSIGNEE_EVIDENCE_FLAG = "signals-research-assignee-evidence"
 INBOX_SORT_CACHE_FLAG = "inbox-sort-cache"
 INBOX_CACHED_FILTERS_FLAG = "signals-inbox-cached-filters"
 INBOX_SLACK_SECTION_BLOCKS_FLAG = "signals-inbox-slack-section-blocks"
+INBOX_SLACK_STATE_BUTTONS_FLAG = "signals-inbox-slack-state-buttons"
 
 
 def _organization_flag_enabled(
@@ -114,6 +115,12 @@ def organization_inbox_cached_filters_enabled(organization_id: UUID) -> bool:
 def organization_inbox_slack_section_blocks_enabled(organization_id: UUID) -> bool:
     return _organization_flag_enabled(
         INBOX_SLACK_SECTION_BLOCKS_FLAG, organization_id, enable_in_debug=False, only_evaluate_locally=True
+    )
+
+
+def organization_inbox_slack_state_buttons_enabled(organization_id: UUID) -> bool:
+    return _organization_flag_enabled(
+        INBOX_SLACK_STATE_BUTTONS_FLAG, organization_id, enable_in_debug=False, only_evaluate_locally=True
     )
 
 

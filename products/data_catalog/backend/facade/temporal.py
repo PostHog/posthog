@@ -9,6 +9,7 @@ from ..temporal import (
     WORKFLOWS as WORKFLOWS,
 )
 from ..temporal.schedule import (
+    create_data_catalog_effectiveness_schedule as create_data_catalog_effectiveness_schedule,
     create_data_catalog_usage_scan_schedule as create_data_catalog_usage_scan_schedule,
     create_data_catalog_weekly_digest_schedule as create_data_catalog_weekly_digest_schedule,
 )

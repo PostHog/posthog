@@ -18,6 +18,7 @@ from posthog.hogql.direct_sql.capability import is_direct_capable
 from posthog.ph_client import feature_enabled_or_false
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.warehouse_sources.backend.facade.live_queries import is_live_query_eligible, live_only_access_ref
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import DIRECT_ENGINE_BY_SOURCE_TYPE, ExternalDataSourceAccessMethod
 
@@ -147,20 +148,27 @@ def _matching_table_names(
     if dual_mode_ids:
         for schema in (
             ExternalDataSchema.objects.filter(
+                Q(should_sync=True) | Q(live_query_enabled=True),
                 _name_filter(missing_tables, "name"),
                 team_id=team.pk,
                 source_id__in=dual_mode_ids,
-                should_sync=True,
             )
             .exclude(deleted=True)
             .select_related("table", "table__external_data_source")
         ):
-            # A schema's access control lives on its synced table. Match the catalog's fail-closed
-            # stance: a schema not yet backed by a table has nothing to authorize against, so deny it.
-            if gate is not None and (
-                schema.table is None or not gate.check_access_level_for_object(schema.table, required_level="viewer")
-            ):
+            if not is_live_query_eligible(schema):
                 continue
+            # Same decision as the catalog build: a table row's rules, else a live-only row's source
+            # rules, else deny a schema that has nothing to authorize against.
+            if gate is not None:
+                if schema.table is not None:
+                    allowed = gate.check_access_level_for_object(schema.table, required_level="viewer")
+                elif schema.live_query_enabled:
+                    allowed = gate.check_access_level_for_ref(live_only_access_ref(schema), "viewer")
+                else:
+                    allowed = False
+                if not allowed:
+                    continue
             record(schema.name, str(schema.source_id))
 
     return found

@@ -147,16 +147,20 @@ import {
 import {
     type DashboardSection,
     type SectionLayouts,
+    type TileGroupMoveDirection,
+    type TileGroupMoveDirections,
     type TileGroupMoveOptions,
     getCollapsedTileGroupKeys,
     getDashboardSections,
     getDashboardTabs,
     getEmptyTileGroupKeys,
     getLayoutAfterSectionChange,
+    getLayoutAfterTileGroupMove,
     getLayoutAfterTileMove,
     getSectionGroupKey,
     getSectionLayouts,
     getTileGroupLabel,
+    getTileGroupMoveDirections,
     getTileGroupMoveOptions,
     UNGROUPED_TILES_TAB_KEY,
     getTileGroupSectionKey,
@@ -169,6 +173,7 @@ import {
 import { TileFiltersOverride } from 'products/dashboards/frontend/TileFiltersOverride'
 import { calculateDuplicateLayout, calculateLayouts } from 'products/dashboards/frontend/tileLayouts'
 import { tileLogic } from 'products/dashboards/frontend/tileLogic'
+import type { TileCarryKind } from 'products/dashboards/frontend/useCarryTile'
 import {
     chunkTileIds,
     fetchRunWidgets,
@@ -240,6 +245,7 @@ function tileGroupLoadProperties(
 function reportDashboardTileRefreshed(
     dashboardId: number,
     tile: DashboardTile,
+    servedFromCache: boolean | undefined,
     filters: Record<string, any>,
     variables: Record<string, any>,
     refreshDurationMs: number,
@@ -256,7 +262,9 @@ function reportDashboardTileRefreshed(
         dashboard_id: dashboardId,
         insight_id: insight?.id,
         insight_short_id: insight?.short_id,
-        was_cached: tile.is_cached,
+        was_cached: servedFromCache,
+        // Mostly true, since a load only refreshes tiles whose cached result is stale
+        was_cached_before_refresh: tile.is_cached,
         last_refreshed: insight?.last_refresh?.toString(),
         refresh_age: insight?.last_refresh ? now().diff(insight?.last_refresh, 'seconds') : undefined,
         filters: filtersForAnalytics(filters),
@@ -392,6 +400,7 @@ async function refreshInsightTile(
         reportDashboardTileRefreshed(
             dashboardId,
             tile,
+            refreshedInsight.is_cached,
             urlFilters,
             variables,
             Math.floor(performance.now() - queryStartTime),
@@ -811,7 +820,7 @@ export interface dashboardLogicValues {
     canSaveProjectDashboardTemplate: boolean
     canUndoLayoutChange: boolean
     cancellingPreview: boolean
-    carryingTile: boolean
+    carryingTile: TileCarryKind | null
     changedFilterCount: number
     collapsedTileGroupKeys: string[]
     collapsedTileIds: Set<number>
@@ -931,6 +940,7 @@ export interface dashboardLogicValues {
     tileDisplayOptionsSavingIds: number[]
     tileGroupDisplay: TileGroupDisplay
     tileGroupKeys: Map<number, string>
+    tileGroupMoveDirections: Record<string, TileGroupMoveDirections>
     tileGroupMoveOptions: Record<number, TileGroupMoveOptions>
     tileGroupSectionLayouts: SectionLayouts[]
     tileGroupSections: DashboardSection[]
@@ -1187,6 +1197,13 @@ export interface dashboardLogicActions {
     }
     loadingDashboardItemsStarted: (action: DashboardLoadAction) => {
         action: DashboardLoadAction
+    }
+    moveTileGroup: (
+        groupKey: string,
+        direction: TileGroupMoveDirection
+    ) => {
+        direction: TileGroupMoveDirection
+        groupKey: string
     }
     moveTileToSection: (
         tileId: number,
@@ -1484,8 +1501,8 @@ export interface dashboardLogicActions {
     setButtonTileId: (buttonTileId: DashboardTileIdOrNew) => {
         buttonTileId: DashboardTileIdOrNew
     }
-    setCarryingTile: (carryingTile: boolean) => {
-        carryingTile: boolean
+    setCarryingTile: (carryingTile: TileCarryKind | null) => {
+        carryingTile: TileCarryKind | null
     }
     setCompareFilter: (compareFilter: CompareFilter | null) => {
         compareFilter: CompareFilter | null
@@ -2063,6 +2080,12 @@ export interface dashboardLogicMeta {
             tileGroupSections: DashboardSection[],
             canEditDashboard: boolean
         ) => Record<number, TileGroupMoveOptions>
+        tileGroupMoveDirections: (
+            tileGroupSections: DashboardSection[],
+            tileGroupDisplay: TileGroupDisplay,
+            canEditLayout: boolean,
+            dashboardStreaming: boolean
+        ) => Record<string, TileGroupMoveDirections>
         refreshMetrics: (
             refreshStatus: Record<string, RefreshStatus>,
             refreshTilesTotal: number | null
@@ -2328,6 +2351,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setRevealedTileGroup: (revealedTileGroup: RevealedTileGroup | null) => ({ revealedTileGroup }),
         /** A band grid reports its own layout, which joins the other bands into one dashboard layout. */
         updateTileGroupSectionLayout: (layouts: ResponsiveLayouts) => ({ layouts }),
+        moveTileGroup: (groupKey: string, direction: TileGroupMoveDirection) => ({ groupKey, direction }),
         /** A null section takes the tile out of its group, and a null cell puts it below the target's tiles. */
         moveTileToSection: (
             tileId: number,
@@ -2358,7 +2382,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             widgets: { widgetType: string; config: Record<string, unknown> }[]
         }) => payload,
         setAddWidgetModalOpen: (open: boolean) => ({ open }),
-        setCarryingTile: (carryingTile: boolean) => ({ carryingTile }),
+        setCarryingTile: (carryingTile: TileCarryKind | null) => ({ carryingTile }),
         toggleAddWidgetSelectedType: (widgetType: string) => ({ widgetType }),
         clearAddWidgetSelectedTypes: true,
         toggleAddWidgetCollapsedGroup: (groupId: string) => ({ groupId }),
@@ -3814,10 +3838,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         carryingTile: [
-            false,
+            null as TileCarryKind | null,
             {
                 setCarryingTile: (_, { carryingTile }) => carryingTile,
-                setDashboardMode: () => false,
+                setDashboardMode: () => null,
             },
         ],
         addWidgetSelectedTypes: [
@@ -4280,7 +4304,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         /**
          * The group each tile opens and closes with. Tiles outside any group share one key, so tiles that waited in a
-         * closed "Overview" tab still load once it shows, also after the dashboard switches to sections or loses its
+         * closed tab of their own still load once it shows, also after the dashboard switches to sections or loses its
          * last group.
          */
         tileGroupKeys: [
@@ -4638,6 +4662,20 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (s) => [s.tileGroupSections, s.canEditDashboard],
             (tileGroupSections: DashboardSection[], canEditDashboard: boolean): Record<number, TileGroupMoveOptions> =>
                 canEditDashboard ? getTileGroupMoveOptions(tileGroupSections) : {},
+            { resultEqualityCheck: objectsEqual },
+        ],
+        tileGroupMoveDirections: [
+            (s) => [s.tileGroupSections, s.tileGroupDisplay, s.canEditLayout, s.dashboardStreaming],
+            (
+                tileGroupSections: DashboardSection[],
+                tileGroupDisplay: TileGroupDisplay,
+                canEditLayout: boolean,
+                dashboardStreaming: boolean
+            ): Record<string, TileGroupMoveDirections> =>
+                // A group can still miss tiles while they stream in, and a move would then save only part of it.
+                canEditLayout && !dashboardStreaming
+                    ? getTileGroupMoveDirections(tileGroupSections, tileGroupDisplay)
+                    : {},
             { resultEqualityCheck: objectsEqual },
         ],
         refreshMetrics: [
@@ -5022,6 +5060,29 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (dashboardLayout) {
                 actions.stageLayouts({ sm: dashboardLayout })
             }
+        },
+        moveTileGroup: ({ groupKey, direction }) => {
+            if (!Object.hasOwn(values.tileGroupMoveDirections, groupKey)) {
+                return
+            }
+            const layout = getLayoutAfterTileGroupMove({
+                layout: values.layouts.sm ?? [],
+                sections: values.tileGroupSections,
+                groupKey,
+                direction,
+                groupDisplay: values.tileGroupDisplay,
+                compactor: getDashboardGridCompactor(values.dashboard?.customization?.layout_compaction),
+            })
+            if (!layout) {
+                return
+            }
+            // With no tab in the URL the first tab is open, so name the open tab before the order changes.
+            const openTab = values.activeTileGroupTab
+            if (openTab && openTab !== UNGROUPED_TILES_TAB_KEY) {
+                const { pathname, searchParams, hashParams } = router.values.currentLocation
+                router.actions.replace(pathname, { ...searchParams, tab: getTileGroupSectionKey(openTab) }, hashParams)
+            }
+            actions.stageLayouts({ sm: layout })
         },
         moveTileToSection: async ({ tileId, sectionKey, cell, method }) => {
             const capture = ({ sourceGroupKey, groupKey }: TileMove): void => {
@@ -5815,6 +5876,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 reportDashboardTileRefreshed(
                     dashboardId,
                     tile,
+                    refreshedInsight?.is_cached,
                     urlFilters,
                     urlVariables,
                     Math.floor(performance.now() - refreshStartTime),
@@ -6121,6 +6183,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 reportDashboardTileRefreshed(
                                     dashboardId,
                                     tile,
+                                    refreshedInsight.is_cached,
                                     urlFilters,
                                     urlVariables,
                                     Math.floor(performance.now() - startedAt),

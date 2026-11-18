@@ -17,6 +17,7 @@ from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Status
 from products.conversations.backend.temporal.ai_reply.gate import format_findings_comment
 from products.conversations.backend.temporal.ai_reply.publish import channel_allows_bot_reply
+from products.conversations.backend.temporal.ai_reply.run_citations import record_note_citations
 from products.conversations.backend.temporal.ai_reply.schemas import (
     PersistReplyInput,
     PersistReplyOutput,
@@ -32,14 +33,18 @@ async def support_persist_reply_activity(input: PersistReplyInput) -> PersistRep
         return await database_sync_to_async(_persist_reply_sync, thread_sensitive=False)(input)
 
 
-def _followup_already_posted(*, team_id: int, ticket_id: str) -> bool:
-    return Comment.objects.filter(
-        Q(item_context__persist_as="reply") | Q(item_context__persist_as="findings"),
-        team_id=team_id,
-        scope="conversations_ticket",
-        item_id=str(ticket_id),
-        item_context__author_type="AI",
-    ).exists()
+def _posted_followup(*, team_id: int, ticket_id: str) -> Comment | None:
+    return (
+        Comment.objects.filter(
+            Q(item_context__persist_as="reply") | Q(item_context__persist_as="findings"),
+            team_id=team_id,
+            scope="conversations_ticket",
+            item_id=str(ticket_id),
+            item_context__author_type="AI",
+        )
+        .order_by("-created_at")
+        .first()
+    )
 
 
 def _lock_ticket(*, team_id: int, ticket_id: str) -> Ticket | None:
@@ -81,8 +86,10 @@ def _persist_reply_sync(input: PersistReplyInput) -> PersistReplyOutput:
             if triage.get("status") != "awaiting_clarification":
                 # Temporal can retry this activity after the first attempt already posted
                 # and cleared awaiting. That looks like a human cancel unless we see the note.
-                if _followup_already_posted(team_id=input.team_id, ticket_id=input.ticket_id):
-                    return PersistReplyOutput(posted=True)
+                existing = _posted_followup(team_id=input.team_id, ticket_id=input.ticket_id)
+                if existing is not None:
+                    was_private = (existing.item_context or {}).get("is_private", True)
+                    return PersistReplyOutput(posted=True, published=was_private is False)
                 return PersistReplyOutput(posted=False)
         elif persist_as != "findings" and input.allow_bot_reply:
             ticket = locked
@@ -113,6 +120,8 @@ def _persist_reply_sync(input: PersistReplyInput) -> PersistReplyOutput:
             item_context["unknowns"] = input.unknowns
             item_context["clarifying_questions"] = input.clarifying_questions
             item_context["findings_reason"] = input.findings_reason
+        if input.run_id:
+            item_context["run_id"] = input.run_id
 
         # ATOMIC_REQUESTS is off, so wrap the comment insert with the email-outbox write.
         Comment.objects.create(
@@ -122,6 +131,14 @@ def _persist_reply_sync(input: PersistReplyInput) -> PersistReplyOutput:
             content=content,
             rich_content=markdown_to_tiptap_doc(content),
             item_context=item_context,
+        )
+        record_note_citations(
+            team_id=input.team_id,
+            run_id=input.run_id,
+            ticket_id=input.ticket_id,
+            citations=input.citations,
+            persist_as=persist_as,
+            confidence=input.confidence,
         )
         if input.require_awaiting_clarification and ticket is not None:
             # Post and reopen together. record_triage is best-effort and would leave the
@@ -134,4 +151,4 @@ def _persist_reply_sync(input: PersistReplyInput) -> PersistReplyOutput:
             ticket.ai_triage = {**triage, "status": "done"}
             ticket.save(update_fields=update_fields)
 
-    return PersistReplyOutput(posted=True)
+    return PersistReplyOutput(posted=True, published=not is_private)

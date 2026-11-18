@@ -143,6 +143,20 @@ fn post_cases() -> Vec<TestCase> {
             StatusCode::OK,
             Box::new(form_data_base64_payload),
         ),
+        // older posthog-js sendBeacon shape: base64'd form "data" with the compression=base64 hint
+        TestCase::new(
+            "post-form-data-base64-hinted-event-payload".to_string(),
+            DEFAULT_TEST_TIME,
+            CaptureMode::Events,
+            "/engage",
+            SINGLE_ENGAGE_EVENT_JSON,
+            Method::Post,
+            Some("base64"),
+            None,
+            "application/x-www-form-urlencoded",
+            StatusCode::OK,
+            Box::new(form_data_base64_payload),
+        ),
         // single event JSON payload submitted as POST form
         TestCase::new(
             "post-form-urlencoded-event-payload".to_string(),

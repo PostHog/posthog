@@ -116,7 +116,8 @@ describe('applicationObservabilityLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
         expect(logic.values.attentionCount).toBe(1)
         expect(logic.values.environments).toEqual(['prod', 'staging'])
-        expect(logic.values.resolvedEnvironment).toBe('prod')
+        expect(logic.values.environment).toBeNull()
+        expect(requests[0]).not.toContain('environment=')
         // Mounting with no URL params must load exactly once: a prior bug fired both the
         // urlToAction initial sync and afterMount's own load.
         expect(requests.length).toBe(1)
@@ -135,6 +136,20 @@ describe('applicationObservabilityLogic', () => {
 
         logic.actions.setTimeRange('-6h')
         expect(router.values.searchParams).toMatchObject({ environment: 'staging', range: '-6h' })
+    })
+
+    it('sends an empty environment for spans with no environment, and keeps it in the URL', async () => {
+        await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+
+        logic.actions.setEnvironment('')
+        await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+        expect(requests[requests.length - 1]).toMatch(/environment=(&|$)/)
+        expect(router.values.searchParams).toMatchObject({ environment: '' })
+        expect(logic.values.environment).toBe('')
+
+        logic.actions.setEnvironment(null)
+        await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+        expect(requests[requests.length - 1]).not.toContain('environment=')
     })
 
     it('reloads when a picker action fires directly, not only via a URL round-trip', async () => {
@@ -189,6 +204,42 @@ describe('applicationObservabilityLogic', () => {
         const filterGroup = JSON.parse(url.searchParams.get('filterGroup') ?? '{}')
         expect(filterGroup.values[0].values[0]).toMatchObject({ key: 'service_name', value: ['checkout,"v2"'] })
         expect(url.searchParams.get('dateFrom')).toBe('-24h')
+    })
+
+    it('skips the poll while paused, catches up on resume, and keeps paused in the URL', async () => {
+        logic.unmount()
+        const setIntervalSpy = jest.spyOn(window, 'setInterval')
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+        const poll = setIntervalSpy.mock.calls.find((call: unknown[]) => call[1] === 5 * 60 * 1000)?.[0] as () => void
+        setIntervalSpy.mockRestore()
+        const before = requests.length
+
+        logic.actions.setPaused(true)
+        expect(router.values.searchParams).toMatchObject({ paused: true })
+        jest.useFakeTimers()
+        try {
+            poll()
+            // Runs the debounced reload, which would start loading synchronously if the poll went through.
+            jest.runOnlyPendingTimers()
+            expect(logic.values.servicesHealthLoading).toBe(false)
+        } finally {
+            jest.useRealTimers()
+        }
+        expect(requests.length).toBe(before)
+
+        logic.actions.refresh()
+        await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+        expect(requests.length).toBe(before + 1)
+
+        logic.actions.setPaused(false)
+        await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+        expect(requests.length).toBe(before + 2)
+        expect(router.values.searchParams.paused).toBeUndefined()
+
+        router.actions.push(APPLICATION_OBSERVABILITY_PATH, { paused: 'true' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.paused).toBe(true)
     })
 
     describe('tabs', () => {

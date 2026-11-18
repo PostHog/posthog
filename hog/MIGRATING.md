@@ -102,9 +102,44 @@ RELEASE_ID=$(posthog-cli release resolve)
 RELEASE_ID=$(hog error-tracking release -o text)
 ```
 
+`posthog-cli exp query run` prints one JSON array per row.
+`hog query run -o json` prints one object instead: `columns`, with the name and ClickHouse type of each, `rows`, as arrays in column order, and `hasMore`, which is true when PostHog cut the rows off.
+A script that read one row per line reads `.rows` instead:
+
+```bash
+# before
+posthog-cli exp query run "select event from events" | while read -r row; do echo "$row"; done
+# after
+hog query run "select event from events" -o json | jq -c '.rows[]' | while read -r row; do echo "$row"; done
+```
+
+`--raw` prints PostHog's whole response, as `--debug` did in posthog-cli.
+
+posthog-cli waits for a query until PostHog finishes it.
+hog does the same at a terminal and in CI.
+An agent or a pipe outside CI waits up to a minute, then gets `{"status":"running","queryId":"<query-id>","next":"hog query run --wait <query-id>"}` and exit code 4.
+`hog query run --wait <query-id>` waits for that query again.
+A query that joins a run another caller named with an ID beyond letters, digits, `_` and `-` waits until it finishes, as in posthog-cli.
+
 Errors go to stderr, as JSON with a stable `code` in JSON mode.
-Exit codes are 0 on success, 1 when a command fails or reports a problem, and 2 for usage errors.
-`--no-fail` turns 1 into 0, and leaves 2 alone.
+Each error also names the `hog feedback` command to report it, as a last line for a person and as `feedback` in the JSON. posthog-cli's errors don't.
+
+## Exit codes
+
+posthog-cli exits with 1 for every failure, and with 0 when a check such as `exp endpoints diff` finds a problem.
+hog gives each outcome its own code, so a script can tell them apart without reading stderr:
+
+| What happened                                                                                              | posthog-cli | hog |
+| ---------------------------------------------------------------------------------------------------------- | ----------- | --- |
+| The command worked                                                                                         | 0           | 0   |
+| The command failed                                                                                         | 1           | 1   |
+| A check found problems: errors in `query check`, drift in `endpoints diff`, a stale SDK in `schema status` | 0           | 1   |
+| A usage error                                                                                              | 2           | 2   |
+| A person has to act: log in, approve in the browser, add a scope, or answer a question                     | 1           | 3   |
+| The work started and is still running. The output names the `--wait` command that resumes it               | Not used    | 4   |
+
+`--no-fail` turns every failure into 0 in both CLIs. In hog that covers 1, 3 and 4. A usage error keeps code 2 in both.
+A pipeline that reads exit code 1 as "not logged in" reads 3 with hog.
 
 ## posthog.json
 

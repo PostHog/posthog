@@ -79,7 +79,7 @@ export const GITHUB_EVENT_TYPE_OPTIONS: { value: string; label: string }[] = [
 const OWNED_KEYS = new Set(['repository', 'event_type', 'actor_access', 'sender', 'bot_sender'])
 
 export interface GithubTriggerFilters {
-    repository: string | null
+    repositories: string[]
     eventTypes: string[]
     actorMode: GithubActorMode
     actorLogins: string[]
@@ -128,7 +128,7 @@ export function decodeGithubFilters(properties: Record<string, any>[] | undefine
     }
 
     return {
-        repository: values(repository).length ? values(repository)[0] : null,
+        repositories: values(repository),
         eventTypes: values(eventTypes),
         actorMode,
         actorLogins,
@@ -139,8 +139,8 @@ export function decodeGithubFilters(properties: Record<string, any>[] | undefine
 export function encodeGithubFilters(filters: GithubTriggerFilters): Record<string, any>[] {
     const properties: Record<string, any>[] = []
 
-    if (filters.repository) {
-        properties.push(exact('repository', [filters.repository]))
+    if (filters.repositories.length) {
+        properties.push(exact('repository', filters.repositories))
     }
 
     if (filters.eventTypes.length) {

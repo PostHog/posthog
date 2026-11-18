@@ -38,6 +38,7 @@ from products.aeo.backend.facade.contracts import (
     SetupRequest,
 )
 from products.aeo.backend.runner import run_citation_checks
+from products.aeo.backend.temporal.brand_sentiment import start_backlog_sentiment_scoring
 
 logger = structlog.get_logger(__name__)
 
@@ -98,6 +99,25 @@ def run_aeo_citation_checks_task() -> None:
             logger.info("aeo_citation_task_flag_disabled", team_id=team.id)
             continue
         run_aeo_citation_checks_for_team_task.delay(team.id)
+
+
+@shared_task(ignore_result=True)
+@skip_team_scope_audit  # Team is the tenant, not tenant data; the per-team gate scopes what follows
+def score_aeo_sentiment_backlog_task() -> None:
+    """Beat entrypoint: scores each enabled team's unscored answers, so answers that no run's scoring
+    covered (a failed pass, or ones recorded before scoring existed) don't wait for the next run."""
+    for raw_team_id in settings.AEO_CITATION_TEAM_IDS:
+        try:
+            team = Team.objects.get(id=int(raw_team_id))
+        except (Team.DoesNotExist, ValueError):
+            logger.warning("aeo_sentiment_backlog_unknown_team", team_id=raw_team_id)
+            continue
+        if not citation_tracking_enabled(team):
+            continue
+        try:
+            start_backlog_sentiment_scoring(team.id)
+        except Exception:
+            logger.exception("aeo_sentiment_backlog_start_failed", team_id=team.id)
 
 
 @shared_task(

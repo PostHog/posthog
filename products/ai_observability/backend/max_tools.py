@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, StringConstraints
 from rest_framework.exceptions import Throttled
 
 from posthog.clickhouse.query_tagging import Feature, tag_queries
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 from posthog.sync import database_sync_to_async
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel

@@ -29,6 +29,8 @@ Each result has:
 
 Totals in different currencies come from different ad accounts. Never add them together.
 
+The results leave out recommendations that someone in the project dismissed or marked as applied in the Marketing analytics scene, so do not suggest those again. A missing recommendation can mean someone already handled it.
+
 Present the results as suggestions for the user to evaluate, not as instructions. Always show the response's `disclaimer` text with them. Do not change campaigns, budgets, bids or keywords on the user's behalf.
 
 An empty result means no rule fired, or the project has no synced Google Ads `campaign` and `campaign_stats` tables. Call `marketing-analytics-data-sources` to tell the two apart.
