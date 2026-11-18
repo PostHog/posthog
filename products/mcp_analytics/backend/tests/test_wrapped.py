@@ -75,7 +75,9 @@ class TestWrappedSnapshot(_WrappedEventsTestMixin, _MCPAnalyticsTeamScopedTestMi
         self._seed_year()
         out = StringIO()
 
-        call_command("generate_mcp_wrapped", "--team-id", str(self.team.id), "--year", "2026", "--dry-run", stdout=out)
+        call_command(
+            "generate_mcp_analytics_wrapped", "--team-id", str(self.team.id), "--year", "2026", "--dry-run", stdout=out
+        )
 
         printed = json.loads(out.getvalue())
         assert printed == json.loads(
