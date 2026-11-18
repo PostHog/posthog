@@ -18,7 +18,7 @@ const RateCell = ({ rate, answers }: { rate: number | null; answers: number }): 
         </span>
     )
 
-/** One row per topic. Picking a row opens the prompt list filtered to that topic. */
+/** One row per topic. Picking a row filters the page to that topic, and picking it again clears the filter. */
 export const ContentAutopilotPromptsTopicTable = ({
     rows,
     selectedTopic,

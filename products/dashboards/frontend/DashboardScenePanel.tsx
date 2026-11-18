@@ -46,6 +46,7 @@ export function DashboardScenePanel(): JSX.Element | null {
         isSavingTags,
         asDashboardTemplate,
         currentDashboardVariables,
+        effectiveRefreshFilters,
         apiUrl,
         tiles,
     } = useValues(dashboardLogic)
@@ -139,6 +140,7 @@ export function DashboardScenePanel(): JSX.Element | null {
                                     context: {
                                         path: apiUrl(),
                                         variables_override: currentDashboardVariables,
+                                        filters_override: effectiveRefreshFilters,
                                     },
                                     dataAttr: `${RESOURCE_TYPE}-export-${extension}`,
                                 })),

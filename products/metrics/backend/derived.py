@@ -27,7 +27,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.dataclasses import frozen
 from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
 from posthog.models import Team
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 
 from products.metrics.backend.facade.contracts import (
     DERIVED_METRIC_PREFIX,
@@ -88,6 +88,7 @@ class DerivedValue(StrEnum):
     COUNT = "count"
     ERROR_COUNT = "error_count"
     DURATION_MS = "duration_ms"
+    APDEX = "apdex"
 
 
 @frozen
@@ -124,6 +125,18 @@ DERIVED_METRICS: tuple[DerivedMetric, ...] = (
         metric_type=MetricType.HISTOGRAM,
         unit="ms",
         description="Request duration in milliseconds.",
+    ),
+    DerivedMetric(
+        name=f"{DERIVED_METRIC_PREFIX}spans.apdex",
+        source=DerivedSource.SPANS,
+        value=DerivedValue.APDEX,
+        metric_type=MetricType.GAUGE,
+        unit="1",
+        description=(
+            "Apdex score from 0 to 1: satisfied requests plus half the tolerating ones, over all requests. "
+            "A request is satisfied at or under the threshold T (500 ms unless the query sets it), "
+            "tolerating up to 4T, and frustrated above that or when it errors."
+        ),
     ),
     DerivedMetric(
         name=f"{DERIVED_METRIC_PREFIX}logs.records",
@@ -168,6 +181,10 @@ _HISTOGRAM_AGGREGATIONS = frozenset(
         MetricAggregation.MAX,
     }
 )
+
+# Apdex is one score per bucket, so these all return it unchanged.
+_APDEX_AGGREGATIONS = frozenset({MetricAggregation.NONE, MetricAggregation.AVG})
+DEFAULT_APDEX_THRESHOLD_MS = 500.0
 
 # A request is a server span. A service that has no server spans in the window counts its root
 # spans, so a consumer's client spans count once each. This matches the APM service health.
@@ -328,7 +345,12 @@ class DerivedMetricQueryRunner:
         interval: str | None,
     ) -> None:
         metric = get_derived_metric(clause.metric_name)
-        if metric.metric_type is MetricType.HISTOGRAM:
+        if metric.value is DerivedValue.APDEX:
+            if clause.aggregation not in _APDEX_AGGREGATIONS:
+                raise ValueError(f"{metric.name} supports the avg aggregation")
+            if clause.range_function is not None:
+                raise ValueError(f"{metric.name} does not support a range function")
+        elif metric.metric_type is MetricType.HISTOGRAM:
             if clause.aggregation not in _HISTOGRAM_AGGREGATIONS:
                 raise ValueError(
                     f"{metric.name} supports the quantile, histogram_quantile, avg, min and max aggregations"
@@ -388,6 +410,19 @@ class DerivedMetricQueryRunner:
         return attribute_field(name, scope=scope)
 
     def _value_expr(self) -> ast.Expr:
+        if self.metric.value is DerivedValue.APDEX:
+            threshold_ms = self.clause.apdex_threshold_ms or DEFAULT_APDEX_THRESHOLD_MS
+            # Errors are frustrated whatever their duration.
+            return parse_expr(
+                """
+                (countIf(status_code != 2 AND duration_nano <= {t})
+                    + countIf(status_code != 2 AND duration_nano > {t} AND duration_nano <= {t4}) / 2) / count()
+                """,
+                placeholders={
+                    "t": ast.Constant(value=threshold_ms * 1e6),
+                    "t4": ast.Constant(value=4 * threshold_ms * 1e6),
+                },
+            )
         if self.metric.value is DerivedValue.DURATION_MS:
             duration = parse_expr("duration_nano / 1e6")
             aggregation = self.clause.aggregation

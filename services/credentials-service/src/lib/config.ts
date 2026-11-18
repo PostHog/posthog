@@ -67,6 +67,8 @@ export interface AuditExportConfig {
     batchSize: number
     intervalSeconds: number
     timeoutMs: number
+    /** Egress proxy for the capture request. Set only when the host is outside the cluster. */
+    proxyUrl?: string
 }
 
 export const MAX_AUDIT_RETENTION_DAYS = 60
@@ -245,13 +247,24 @@ function auditExportFromEnv(): AuditExportConfig | undefined {
             'CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED=true needs CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST and CREDENTIALS_SERVICE_AUDIT_CAPTURE_API_KEY'
         )
     }
-    return {
+    const config: AuditExportConfig = {
         host: httpUrlFromEnv('CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST', host),
         apiKey,
         batchSize: intFromEnv('CREDENTIALS_SERVICE_AUDIT_EXPORT_BATCH_SIZE', 500, 1),
         intervalSeconds: intFromEnv('CREDENTIALS_SERVICE_AUDIT_EXPORT_INTERVAL_SECONDS', 10, 1),
         timeoutMs: intFromEnv('CREDENTIALS_SERVICE_AUDIT_EXPORT_TIMEOUT_MS', 10_000, 1),
     }
+    if (process.env.CREDENTIALS_SERVICE_AUDIT_CAPTURE_VIA_PROXY === 'true') {
+        const proxy = process.env.HTTPS_PROXY
+        if (!proxy) {
+            throw new Error('CREDENTIALS_SERVICE_AUDIT_CAPTURE_VIA_PROXY=true needs HTTPS_PROXY')
+        }
+        if (!config.host.startsWith('https:')) {
+            throw new Error('CREDENTIALS_SERVICE_AUDIT_CAPTURE_VIA_PROXY=true needs an https capture host')
+        }
+        config.proxyUrl = httpUrlFromEnv('HTTPS_PROXY', proxy)
+    }
+    return config
 }
 
 function kmsFromEnv(env: string): KmsConfig | undefined {

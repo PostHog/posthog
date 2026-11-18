@@ -63,6 +63,8 @@ Product-specific code organized as **vertical slices**. Each product folder cont
 
 See the [products README](https://github.com/PostHog/posthog/blob/master/products/README.md) for detailed conventions.
 
+The [Developer Experience team](/handbook/engineering/developer-experience) owns the product folder structure and the isolation rules between products. If your product doesn't fit the shape, ask in #team-devex before you work around it.
+
 ### `nodejs`
 
 Node.js service responsible for:

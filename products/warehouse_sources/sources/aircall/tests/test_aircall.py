@@ -59,7 +59,7 @@ class TestBuildUrl:
 class TestValidateCredentials:
     def test_validate_credentials_probes_ping_with_basic_auth(self) -> None:
         with scripted_network([ScriptedResponse(status=200)]) as network:
-            assert validate_credentials("id", "token") is True
+            assert validate_credentials("id", "token") == (True, 200)
 
         assert [request.url for request in network.requests_log] == ["https://api.aircall.io/v1/ping"]
         assert network.requests_log[0].headers["authorization"] == "Basic aWQ6dG9rZW4="

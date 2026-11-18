@@ -95,6 +95,19 @@ _INVALID_CREDENTIALS = (
     "The database rejected the username or password. Check the user and password for this source and try again."
 )
 
+# HTTP 530 isn't a real HTTP status — Cloudflare issues it, together with its own "error code"
+# in the body, when a host is proxied through a Cloudflare Tunnel (cloudflared) and the tunnel has
+# no live connection to the origin. Error 1033 is Cloudflare's own code for that case, not a
+# ClickHouse one (ClickHouse's own codes top out around 1002, reserved for wrapped external
+# exceptions). cloudflared drops and re-establishes its edge connections routinely (a deploy, a
+# network blip, an edge rebalance), so this is read the same as the bare 5xx gateway responses
+# below rather than assumed permanent — see get_retryable_errors.
+_CLOUDFLARE_TUNNEL_DOWN = (
+    "We reached a Cloudflare-proxied address for your ClickHouse host, but Cloudflare couldn't reach the origin "
+    "— its Tunnel (cloudflared) has no active connection. Check that the Cloudflare Tunnel on your ClickHouse "
+    "host is running and connected, then try again."
+)
+
 # PostHog's egress proxy is the SSRF backstop for this source (see `_get_client`'s docstring):
 # it independently re-resolves the configured host on every connection and refuses one that
 # answers with a private/internal address, even if the host passed this source's own DNS check
@@ -168,6 +181,8 @@ ClickHouseErrors: dict[str, str] = {
     "received http status 502": _TEMPORARILY_UNAVAILABLE,
     "received http status 503": _TEMPORARILY_UNAVAILABLE,
     "received http status 504": _TEMPORARILY_UNAVAILABLE,
+    # See _CLOUDFLARE_TUNNEL_DOWN above.
+    "error code: 1033": _CLOUDFLARE_TUNNEL_DOWN,
     # PostHog's egress proxy denied the host as resolving to a private/internal address (see
     # `_EGRESS_DENIED_PRIVATE_HOST`'s definition for why this is deterministic).
     "egress proxying is denied": _EGRESS_DENIED_PRIVATE_HOST,
@@ -519,6 +534,11 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             "received HTTP status 502",
             "received HTTP status 503",
             "received HTTP status 504",
+            # Cloudflare's bare HTTP 530 "Argo Tunnel error" (see _CLOUDFLARE_TUNNEL_DOWN) — the
+            # Cloudflare Tunnel in front of the host dropped its connection to the origin.
+            # cloudflared reconnects on its own, often within seconds, so this gets the same
+            # treatment as the bare 5xx gateway responses above rather than disabling the sync.
+            "error code: 1033",
             # urllib3 raises this when the source drops the connection mid-transfer while
             # `get_rows` is iterating `query_arrow_stream` — the byte count varies, but the
             # "Connection broken: IncompleteRead" wording is stable. Unlike the connect-time

@@ -18,7 +18,8 @@ from posthog.event_usage import EventSource, get_event_source
 from posthog.models import User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
-from posthog.scopes import GRANTABLE_API_SCOPE_OBJECTS, APIScopeObjectOrNotSupported
+from posthog.scopes.catalog import APIScopeObjectOrNotSupported
+from posthog.scopes.exposure import GRANTABLE_API_SCOPE_OBJECTS
 from posthog.synthetic_user import SyntheticUser
 
 from products.access_control.backend.facade import api as access_control_api

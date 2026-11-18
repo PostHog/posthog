@@ -565,3 +565,11 @@ validation for mixed web/native recordings. No SDK internals or persisted sessio
 modified here. See [SDK bootstrapping](https://posthog.com/docs/libraries/bootstrapping),
 [session semantics](https://posthog.com/docs/data/sessions), and
 [React Native bootstrap support request](https://github.com/PostHog/posthog-js/issues/4978).
+
+### Granular notification preferences
+
+In **Settings → Notification settings**, check that controls are grouped by Reports and Chat, with snooze reminders under Reports. The global switch should disable all feature controls; Work updates should disable only its report activity controls, and Chat notifications only its chat controls. Toggle each activity independently and reopen the screen to verify persistence. Demo mode provides local controls without changing an account.
+
+On a signed-in physical device, disable teammate replies while leaving mentions on: only a message mentioning the recipient should notify them. Disable Chat agent replies and verify that report completions and loop updates still arrive. Then disable report work completion and verify that Chat agent replies still arrive. Turning off Chat notifications should leave Loops enabled. Cancel your own run and verify that its cancellation stays silent for you. For report work with a new PR already awaiting review, completion should produce one PR-ready alert; disabling PR-ready alerts should allow the completion alert instead.
+
+Schedule a snooze reminder, then disable reminders or the master switch. The report should stay snoozed and the scheduled reminder should be canceled. Re-enabling should affect future snoozes only. Change the preference on another device, return this app to the foreground, and verify pending reminders are canceled after preferences refresh. Without connectivity, snoozing should still work without scheduling a reminder.

@@ -87,6 +87,7 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
         canSaveProjectDashboardTemplate,
         effectiveEditBarFilters,
         currentDashboardVariables,
+        effectiveRefreshFilters,
         tiles,
         apiUrl,
         undoLayoutDisabledReason,
@@ -264,6 +265,7 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                                                 export_context: {
                                                     path: apiUrl(),
                                                     variables_override: currentDashboardVariables,
+                                                    filters_override: effectiveRefreshFilters,
                                                 },
                                             })
                                         }
