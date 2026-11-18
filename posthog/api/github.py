@@ -3,6 +3,7 @@ from hashlib import sha256
 from typing import Any
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Q
 
 import requests
@@ -29,7 +30,8 @@ from posthog.api.secret_revocation import (
 from posthog.egress.github.transport import github_request
 from posthog.egress.limiter.policies import Priority
 from posthog.models import Team
-from posthog.models.utils import mask_key_value
+from posthog.models.project_secret_api_key import RevokedTeamSecretToken
+from posthog.models.utils import hash_key_value, mask_key_value
 from posthog.redis import get_client
 from posthog.tasks.email import send_feature_flags_secure_api_key_exposed
 from posthog.utils import get_instance_region
@@ -281,7 +283,13 @@ class SecretAlert(APIView):
                         # Lazy: conversations imports posthog.api modules at load time.
                         from products.conversations.backend.services.signing_secrets import retire_leaked_signing_secret
 
-                        retire_leaked_signing_secret(team.id, token)
+                        with transaction.atomic():
+                            # Without this record the pre-drop rerun of the #63111 backfill
+                            # would mint a fresh mirror row for the leaked value.
+                            RevokedTeamSecretToken.objects.for_team(team.id).get_or_create(
+                                team_id=team.id, secure_value=hash_key_value(token)
+                            )
+                            retire_leaked_signing_secret(team.id, token)
                         send_feature_flags_secure_api_key_exposed(team.id, mask_key_value(token), more_info)
 
                     except Team.DoesNotExist:

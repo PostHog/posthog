@@ -627,6 +627,10 @@ class TestProjectSecretAPIKeySecretAlert(APIBaseTest):
 
         self.team.refresh_from_db()
         self.assertEqual(self.team.secret_api_token, token)
+        # Recorded so the pre-drop backfill rerun cannot mint a fresh mirror row for it.
+        self.assertTrue(
+            RevokedTeamSecretToken.objects.for_team(self.team.id).filter(secure_value=hash_key_value(token)).exists()
+        )
         mock_ff_exposed.assert_called_once()
         mock_psak_exposed.assert_not_called()
 

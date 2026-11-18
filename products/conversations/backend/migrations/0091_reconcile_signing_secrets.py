@@ -6,8 +6,6 @@ from posthog.models.utils import generate_random_token, hash_key_value
 
 logger = structlog.get_logger(__name__)
 
-BATCH_SIZE = 500
-
 
 def reconcile_signing_secrets(apps, schema_editor):
     """
@@ -32,32 +30,38 @@ def reconcile_signing_secrets(apps, schema_editor):
     Team = SigningSecret._meta.get_field("team").related_model
     alias = schema_editor.connection.alias
 
+    # The revocation table is tiny; one read replaces a lookup per scanned row.
+    revoked_hashes = set(RevokedTeamSecretToken.objects.using(alias).values_list("team_id", "secure_value"))
+
     def is_revoked(team_id, token):
-        return (
-            RevokedTeamSecretToken.objects.using(alias)
-            .filter(team_id=team_id, secure_value=hash_key_value(token))
-            .exists()
-        )
+        return (team_id, hash_key_value(token)) in revoked_hashes
+
+    row_ids = list(SigningSecret.objects.using(alias).filter(rotated_independently=False).values_list("pk", flat=True))
 
     checked = 0
     resynced = 0
-    rows = (
-        SigningSecret.objects.using(alias)
-        .filter(rotated_independently=False)
-        .select_related("team")
-        .only("id", "secret", "previous_secret", "team", "team__secret_api_token")
-    )
-    for row in rows.iterator(chunk_size=BATCH_SIZE):
+    # One short transaction per row (the migration is non-atomic), so the team lock
+    # taken for a resync never blocks other teams' writes for the rest of the scan.
+    for pk in row_ids:
         checked += 1
-        # EncryptedTextField ciphertext is non-deterministic, so compare decrypted values
-        # in Python; a filter on the column cannot match.
-        current_token = row.team.secret_api_token
-        if not current_token:
-            # The old verifier trusted a row with no legacy counterpart; nothing to resync.
-            continue
-        if row.secret == current_token and not row.previous_secret and not is_revoked(row.team_id, current_token):
-            continue
         with transaction.atomic(using=alias):
+            row = (
+                SigningSecret.objects.using(alias)
+                .filter(pk=pk, rotated_independently=False)
+                .select_related("team")
+                .only("id", "secret", "previous_secret", "team", "team__secret_api_token")
+                .first()
+            )
+            if row is None:
+                continue
+            # EncryptedTextField ciphertext is non-deterministic, so compare decrypted
+            # values in Python; a filter on the column cannot match.
+            current_token = row.team.secret_api_token
+            if not current_token:
+                # The old verifier trusted a row with no legacy counterpart; nothing to resync.
+                continue
+            if row.secret == current_token and not row.previous_secret and not is_revoked(row.team_id, current_token):
+                continue
             # A pod on the previous release can still rotate the legacy token under the
             # team row lock; lock the team and re-read so this write cannot copy a token
             # that rotation just retired.
@@ -88,6 +92,10 @@ def reconcile_signing_secrets(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
+    # Each row commits in its own transaction so resync locks are released as the scan
+    # proceeds; the operation is a conditional data repair, safe to resume on failure.
+    atomic = False
+
     dependencies = [
         ("conversations", "0090_pylon_issue_uniq"),
         ("posthog", "1393_revokedteamsecrettoken"),

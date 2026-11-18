@@ -295,9 +295,9 @@ def revoke_exposed_project_secret_api_key(project_secret_api_key: ProjectSecretA
                     team_id=team.id, secure_value=project_secret_api_key.secure_value
                 )
                 project_secret_api_key.delete()
-            # The widget signing secret may mirror the same leaked value; it must not
-            # keep verifying identity hashes signed with it.
-            retire_leaked_signing_secret(team.id, token)
+                # In the same transaction: once the row is gone a retried report finds no
+                # PSAK and would never retire a signing secret still mirroring the value.
+                retire_leaked_signing_secret(team.id, token)
             send_feature_flags_secure_api_key_exposed(team.id, mask_key_value(token), more_info)
             return True
     roll_project_secret_api_key_and_notify(project_secret_api_key, more_info)
