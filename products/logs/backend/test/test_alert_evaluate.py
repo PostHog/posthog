@@ -24,6 +24,8 @@ from posthog.temporal.alerts.admission import admit_evaluation_slots
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import (
     create_alert_destinations,
+    create_alert_receiver,
+    create_alert_route,
     due_checks,
     list_configurations,
     record_outcomes,
@@ -31,9 +33,12 @@ from products.alerts_platform.backend.facade.api import (
     snooze_group,
 )
 from products.alerts_platform.backend.facade.contracts import (
+    ROUTING_FLAG,
     AlertDeliveryRequest,
     AlertDestinationData,
     AlertEventKind,
+    AlertReceiverEdit,
+    AlertRouteEdit,
     CheckFailure,
     DestinationType,
     Grouping,
@@ -197,23 +202,47 @@ class TestLogsAlertEvaluation(APIBaseTest):
         """
         record_outcomes(self.team.id, evaluation.outcomes, self.cutoff)
 
+    def _add_routed_incident_receiver(self) -> None:
+        with team_scope(self.team.id):
+            receiver = create_alert_receiver(
+                team_id=self.team.id,
+                edit=AlertReceiverEdit(
+                    name="Pager",
+                    data=cast(
+                        AlertDestinationData,
+                        {"type": DestinationType.PAGERDUTY, "pagerduty_routing_key": "R-routed"},
+                    ),
+                ),
+            )
+            create_alert_route(team_id=self.team.id, edit=AlertRouteEdit(receiver_id=receiver.id))
+
     @parameterized.expand(
         [
-            ("without_a_paging_destination", False, "source", {}),
-            ("with_a_paging_destination", True, "source", {}),
-            ("owned_by_the_platform", False, "platform", {}),
-            ("created_without_a_logs_row", False, "platform", _NATIVE),
-            ("created_without_a_logs_row_and_paged_natively", True, "platform", _NATIVE),
+            ("without_a_paging_destination", None, "source", {}),
+            ("with_a_paging_destination", "own", "source", {}),
+            ("owned_by_the_platform", None, "platform", {}),
+            # A copy's own destinations are HogFunctions, so only the route can page it.
+            ("owned_by_the_platform_and_paged_by_a_route", "route", "platform", {}),
+            ("created_without_a_logs_row", None, "platform", _NATIVE),
+            ("created_without_a_logs_row_and_paged_natively", "own", "platform", _NATIVE),
+            ("created_without_a_logs_row_and_paged_by_a_route", "route", "platform", _NATIVE),
         ]
     )
     def test_a_breaching_configuration_fires_and_records_its_own_state(
-        self, _name: str, paged: bool, owner: str, fields: dict[str, Any]
+        self, _name: str, pager: str | None, owner: str, fields: dict[str, Any]
     ) -> None:
         configuration = self._configuration(owner=owner, **fields)
-        if paged:
+        if pager == "own":
             self._add_incident_destination(configuration)
+        elif pager == "route":
+            self._add_routed_incident_receiver()
+        paged = pager is not None
 
-        evaluation, _ = self._run(configuration)
+        with patch(
+            "posthoganalytics.feature_enabled",
+            side_effect=lambda flag, *args, **kwargs: flag == ROUTING_FLAG,
+        ):
+            evaluation, _ = self._run(configuration)
         self._record(evaluation)
 
         assert [(g.kind, g.value) for o in evaluation.outcomes for g in o.groups] == [(AlertEventKind.FIRING, 500.0)]

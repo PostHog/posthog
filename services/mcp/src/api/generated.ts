@@ -15288,6 +15288,7 @@ export namespace Schemas {
      * * `webhook` - Webhook
      * * `teams` - Microsoft Teams
      * * `pagerduty` - PagerDuty
+     * * `incident_io` - incident.io
      * * `email` - Email
      * * `in_app` - In-app notification
      */
@@ -15300,6 +15301,7 @@ export namespace Schemas {
       Webhook: 'webhook',
       Teams: 'teams',
       Pagerduty: 'pagerduty',
+      IncidentIo: 'incident_io',
       Email: 'email',
       InApp: 'in_app',
     } as const;
@@ -15319,6 +15321,7 @@ export namespace Schemas {
        * * `webhook` - Webhook
        * * `teams` - Microsoft Teams
        * * `pagerduty` - PagerDuty
+       * * `incident_io` - incident.io
        * * `email` - Email
        * * `in_app` - In-app notification */
       type: DestinationTypeEnum;
@@ -15433,6 +15436,8 @@ export namespace Schemas {
      * * `webhook` - Webhook
      * * `teams` - Microsoft Teams
      * * `discord` - Discord
+     * * `pagerduty` - PagerDuty
+     * * `incident_io` - incident.io
      */
     export type AlertReceiverTypeEnum = typeof AlertReceiverTypeEnum[keyof typeof AlertReceiverTypeEnum];
 
@@ -15442,6 +15447,8 @@ export namespace Schemas {
       Webhook: 'webhook',
       Teams: 'teams',
       Discord: 'discord',
+      Pagerduty: 'pagerduty',
+      IncidentIo: 'incident_io',
     } as const;
 
     export interface AlertReceiver {
@@ -15454,7 +15461,9 @@ export namespace Schemas {
        * * `slack` - Slack
        * * `webhook` - Webhook
        * * `teams` - Microsoft Teams
-       * * `discord` - Discord */
+       * * `discord` - Discord
+       * * `pagerduty` - PagerDuty
+       * * `incident_io` - incident.io */
       type: AlertReceiverTypeEnum;
       /** Whether routes send to this receiver. A disabled receiver gets nothing. */
       enabled: boolean;
@@ -15468,6 +15477,24 @@ export namespace Schemas {
       slack_channel_name?: string;
       /** Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret. */
       webhook_url?: string;
+      /** PagerDuty integration key reduced to its last four characters. */
+      pagerduty_routing_key?: string;
+      /** Severity of the PagerDuty incident. Unset means critical.
+       *
+       * * `critical` - critical
+       * * `error` - error
+       * * `warning` - warning
+       * * `info` - info */
+      pagerduty_severity?: PagerDutySeverityEnum;
+      /** PagerDuty service region the events go to. Unset means us.
+       *
+       * * `us` - us
+       * * `eu` - eu */
+      pagerduty_region?: PagerDutyRegionEnum;
+      /** ID of the incident.io HTTP alert source the events go to. */
+      incident_io_alert_source_config_id?: string;
+      /** incident.io alert source secret reduced to its last four characters. */
+      incident_io_secret?: string;
     }
 
     export interface AlertReceiverWrite {
@@ -15483,7 +15510,9 @@ export namespace Schemas {
        * * `slack` - Slack
        * * `webhook` - Webhook
        * * `teams` - Microsoft Teams
-       * * `discord` - Discord */
+       * * `discord` - Discord
+       * * `pagerduty` - PagerDuty
+       * * `incident_io` - incident.io */
       type: AlertReceiverTypeEnum;
       /** Integration ID for the Slack workspace. Required when type=slack. */
       slack_workspace_id?: number;
@@ -15493,6 +15522,27 @@ export namespace Schemas {
       slack_channel_name?: string;
       /** HTTPS endpoint to post to. Required for webhook, teams and discord. Send it again on every update that changes the destination, because reads return it redacted. */
       webhook_url?: string;
+      /** Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty. Send it again on every update that changes the destination, because reads return it redacted. */
+      pagerduty_routing_key?: string;
+      /** Severity PagerDuty records on the incident. Used when type=pagerduty. Defaults to critical.
+       *
+       * * `critical` - critical
+       * * `error` - error
+       * * `warning` - warning
+       * * `info` - info */
+      pagerduty_severity?: PagerDutySeverityEnum;
+      /** PagerDuty service region of the account. Used when type=pagerduty. Defaults to us.
+       *
+       * * `us` - us
+       * * `eu` - eu */
+      pagerduty_region?: PagerDutyRegionEnum;
+      /**
+         * ID of an incident.io HTTP alert source, the last part of its URL. Required when type=incident_io.
+         * @pattern ^[0-9A-Za-z]{26}$
+         */
+      incident_io_alert_source_config_id?: string;
+      /** Secret of the incident.io HTTP alert source, sent as a bearer token. Required when type=incident_io. Send it again on every update that changes the destination, because reads return it redacted. */
+      incident_io_secret?: string;
     }
 
     export interface AlertResetDestination {
@@ -15539,7 +15589,7 @@ export namespace Schemas {
       receiver_id: string;
       /** Label conditions, all of which must hold for an alert to match. An empty list matches every alert in the project. */
       matchers: AlertRouteMatcher[];
-      /** The alert transitions the receiver hears about through this route. */
+      /** The alert transitions the receiver hears about through this route. An incident receiver, PagerDuty or incident.io, hears the trigger and resolve of every firing, whatever this lists. */
       event_kinds: PlatformAlertDestinationEventKindEnum[];
       /** Whether this route sends. */
       enabled: boolean;
@@ -15568,7 +15618,7 @@ export namespace Schemas {
       /** Label conditions, all of which must hold for an alert to match. An empty list matches every alert in the project. */
       matchers?: AlertRouteMatcher[];
       /**
-         * The alert transitions the receiver hears about through this route. Defaults to every kind.
+         * The alert transitions the receiver hears about through this route. An incident receiver, PagerDuty or incident.io, hears the trigger and resolve of every firing, whatever this lists. Defaults to every kind.
          * @minItems 1
          */
       event_kinds?: PlatformAlertDestinationEventKindEnum[];
@@ -15719,6 +15769,11 @@ export namespace Schemas {
       email_recipient_count: number;
       /** Configured delivery channels that failed to schedule or send. */
       failed_delivery_channels: FailedDeliveryChannelsEnum[];
+    }
+
+    export interface AlertTransferOwnership {
+      /** New owner's user UUID. Must be an active organization member. Defaults to yourself. */
+      user_uuid?: string;
     }
 
     export interface AmazonCloudwatchIncidentSignalExtra {
@@ -37366,6 +37421,7 @@ export namespace Schemas {
 
     /**
      * * `source` - source
+     * * `plan` - plan
      * * `consumer` - consumer
      */
     export type SyncFrequencyBlockedByEnum = typeof SyncFrequencyBlockedByEnum[keyof typeof SyncFrequencyBlockedByEnum];
@@ -37373,6 +37429,7 @@ export namespace Schemas {
 
     export const SyncFrequencyBlockedByEnum = {
       Source: 'source',
+      Plan: 'plan',
       Consumer: 'consumer',
     } as const;
 
@@ -37400,12 +37457,13 @@ export namespace Schemas {
       cadence: MaterializeSyncFrequencyEnum;
       /** False when writing this cadence would be rejected. */
       allowed: boolean;
-      /** Which side withholds this cadence: 'source' when no upstream source syncs that often, 'consumer' when a downstream view or endpoint refreshes more often than this. Null when the cadence is allowed.
+      /** Which side withholds this cadence: 'source' when no upstream source syncs that often, 'plan' when the organization's plan does not allow refreshing that often, 'consumer' when a downstream view or endpoint refreshes more often than this. Null when the cadence is allowed.
        *
        * * `source` - source
+       * * `plan` - plan
        * * `consumer` - consumer */
       blocked_by: SyncFrequencyBlockedByEnum | null;
-      /** The source or consumer named in `blocked_by`. Null when allowed, and also when the blocker sits outside the caller's access grants, where `blocked_by` still gives the direction. */
+      /** The source or consumer named in `blocked_by`. Null when allowed, when `blocked_by` is 'plan', and also when the blocker sits outside the caller's access grants, where `blocked_by` still gives the direction. */
       blocker: SyncFrequencyBlocker | null;
       /** Upstream materialized views that would refresh more often than they do now if this cadence were chosen, because a view cannot be fresher than its inputs. Only views the caller may read are listed. Empty when the cadence is blocked. */
       speeds_up: SyncFrequencyBlocker[];
@@ -37431,6 +37489,8 @@ export namespace Schemas {
       options: SyncFrequencyOption[];
       /** The fastest bound: no cadence finer than this is allowed, because the source named here does not sync more often. Null when no source withholds a cadence. */
       floor: SyncFrequencyBound | null;
+      /** The fastest cadence the organization's plan allows: no cadence finer than this can be saved. `blocker` is always null. Null when the plan withholds no cadence. */
+      plan_floor: SyncFrequencyBound | null;
       /** The slowest bound: no cadence coarser than this is allowed, because the consumer named here refreshes that often. Null when no consumer withholds a cadence. */
       ceiling: SyncFrequencyBound | null;
       /** Upstream sources with no sync schedule, so the floor is a guess: these arrive when someone runs them, and refreshing more often than they really sync will serve stale data. Only sources the caller may read are listed. */
@@ -37599,7 +37659,7 @@ export namespace Schemas {
        * * `7day` - 7day
        * * `30day` - 30day */
       sync_frequency?: SavedQuerySyncFrequencyEnum | null;
-      /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling. Read-only, and present on retrieve, create and update responses only. */
+      /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling, and the organization's plan can set a floor too. Read-only, and present on retrieve, create and update responses only. */
       readonly sync_frequency_bounds: SyncFrequencyBounds;
       readonly columns: readonly DataWarehouseSavedQueryColumnsItem[];
       readonly status: DataWarehouseSavedQueryStatusEnum | null;
@@ -39429,6 +39489,50 @@ export namespace Schemas {
     export interface DestinationConnectionTestResponse {
       /** The steps of the connection test, in order. The test stops at the first failed step. */
       steps: DestinationConnectionTestStep[];
+    }
+
+    export interface DestinationDeliveryFailure {
+      /** ID of the sync run that could not deliver to this destination. */
+      job_id: string;
+      /** ID of the source the run belongs to. */
+      source_id: string;
+      /** Name of the source: its prefix, if any, and its type. */
+      source_name: string;
+      /** Type of the source, for example `Stripe` or `MetaAds`. */
+      source_type: string;
+      /**
+         * ID of the table the run synced.
+         * @nullable
+         */
+      schema_id: string | null;
+      /**
+         * Name of the table the run synced.
+         * @nullable
+         */
+      schema_name: string | null;
+      /** Why the delivery failed, as the destination reported it. Stored credentials of the source and of the destination are masked. */
+      error: string;
+      /** Whether the destination's own settings caused the failure, for example a wrong password or a missing permission. Configuration errors do not go away until the settings change. */
+      is_configuration_error: boolean;
+      /** When the run started. */
+      created_at: string;
+      /**
+         * When the run stopped.
+         * @nullable
+         */
+      finished_at: string | null;
+      /**
+         * ID that the run's log lines carry, to find the logs of this run.
+         * @nullable
+         */
+      workflow_run_id: string | null;
+    }
+
+    export interface DestinationDeliveryFailuresResponse {
+      /** Sync runs that could not deliver to this destination, newest first. At most 50 runs from the last 14 days, from sources you have access to. */
+      results: DestinationDeliveryFailure[];
+      /** How many days back the runs go. */
+      window_days: number;
     }
 
     export interface DetectableEffectCheckpoint {
@@ -42640,6 +42744,11 @@ export namespace Schemas {
       is_active: boolean;
       /** Effective data freshness, in seconds. Materialized endpoints use the node's refresh target, which can differ from the standard freshness choices. Other endpoints use the cache duration. */
       data_freshness_seconds: number;
+      /**
+         * The fastest data freshness, in seconds, the organization's plan allows for a materialized endpoint. A faster value can't be saved while the endpoint is materialized. Null when the plan sets no minimum.
+         * @nullable
+         */
+      plan_refresh_floor_seconds: number | null;
       /** Relative API path to execute this endpoint (e.g. /api/projects/{team_id}/endpoints/{name}/run). */
       endpoint_path: string;
       /**
@@ -42775,6 +42884,11 @@ export namespace Schemas {
       is_active: boolean;
       /** Effective data freshness, in seconds. Materialized endpoints use the node's refresh target, which can differ from the standard freshness choices. Other endpoints use the cache duration. */
       data_freshness_seconds: number;
+      /**
+         * The fastest data freshness, in seconds, the organization's plan allows for a materialized endpoint. A faster value can't be saved while the endpoint is materialized. Null when the plan sets no minimum.
+         * @nullable
+         */
+      plan_refresh_floor_seconds: number | null;
       /** Relative API path to execute this endpoint (e.g. /api/projects/{team_id}/endpoints/{name}/run). */
       endpoint_path: string;
       /**
@@ -45497,12 +45611,16 @@ export namespace Schemas {
       readonly applies: boolean;
       /** Catalog template or adapted check the suggestion comes from. Empty for fix_eval. */
       readonly template_key: string;
-      /** The problem in the project's own terms, with the number that makes it concrete, such as '1 in 125 traces ends on a failed call'. Judges carry no rate, because only Hog checks are measured. */
+      /** A short, stable name for the issue, such as 'Unrecovered tool or model failures'. For fix_eval, the condition observed on the evaluation. It carries no counts; `observation` does. */
       readonly headline: string;
-      /** What adding the evaluation does and what it costs, in one or two plain sentences. */
+      /** One sentence on what the evaluation flags and where it applies, starting with 'Flags'. For fix_eval and fix_prompt, what was observed and the next step. */
       readonly outcome: string;
-      /** How the problem was measured or found, for people who want the detail. */
+      /** Why the issue matters for the project's users, or empty when nothing supports it. */
       readonly reason: string;
+      /** What the sample showed, such as '9 of 27 sampled generations flagged', or empty when nothing was measured. */
+      readonly observation: string;
+      /** Where the observation came from, such as 'Sampled from the last 7 days'. */
+      readonly observation_scope: string;
       /** For new_hog and new_llm_judge: the evaluation create input (name, description, evaluation_type, evaluation_config, output_type, output_config, target), without conditions, which accept builds from `filters` and `rollout_percentage`. For fix_eval: the update body apply_fix applies to the target evaluation, or {} when the evaluation needs a manual fix. For fix_prompt: the check's name and description, and prompt_name when one managed prompt holds the rule. */
       readonly draft: EvalSuggestionDraft;
       /** Property filters the suggested evaluation runs on. Empty means all AI traffic. */
@@ -65037,6 +65155,49 @@ export namespace Schemas {
       completed_at: string | null;
     }
 
+    /**
+     * * `not_started` - Not started
+     * * `in_progress` - In progress
+     * * `active` - Active
+     * * `paused` - Paused
+     * * `ai_disabled` - AI data processing disabled
+     */
+    export type InboxSetupStateEnum = typeof InboxSetupStateEnum[keyof typeof InboxSetupStateEnum];
+
+
+    export const InboxSetupStateEnum = {
+      NotStarted: 'not_started',
+      InProgress: 'in_progress',
+      Active: 'active',
+      Paused: 'paused',
+      AiDisabled: 'ai_disabled',
+    } as const;
+
+    export interface InboxStatus {
+      /** Current project setup state.
+       *
+       * * `not_started` - Not started
+       * * `in_progress` - In progress
+       * * `active` - Active
+       * * `paused` - Paused
+       * * `ai_disabled` - AI data processing disabled */
+      setup_state: InboxSetupStateEnum;
+      /** Whether a report has surfaced in this project, including reports already handled or assigned to someone else. */
+      has_report_history: boolean;
+      /** First investigation outcome, when known and the project has no report history. Does not expose scout run details.
+       *
+       * * `pending` - Pending
+       * * `running` - Running
+       * * `no_data` - No data
+       * * `report_created` - Report created
+       * * `insufficient_data` - Insufficient data
+       * * `no_actionable_finding` - No actionable finding
+       * * `incomplete` - Incomplete */
+      first_report_status: FirstReportStatusEnum | null;
+      /** Whether the user has inbox and scout configuration access on the web. Integration and organization settings may require additional permissions. */
+      can_configure: boolean;
+    }
+
     export interface InboxSummaryPullRequest {
       /** GitHub repository in owner/name format. */
       repository: string;
@@ -65731,15 +65892,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.
          * @minimum 1
-         * @maximum 60
+         * @maximum 1441
          */
       evaluation_periods: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
          * @minimum 1
-         * @maximum 60
+         * @maximum 1441
          */
       datapoints_to_alarm: number;
       /**
@@ -69471,6 +69632,15 @@ export namespace Schemas {
       pagerduty_region?: PagerDutyRegionEnum;
     }
 
+    export interface LogsAlertCreatedDestinationResponse {
+      hog_function_ids: string[];
+      /**
+         * The new destination's ID on the alerts platform, the `id` that listing the alert's destinations shows. Delete the destination by passing it in `destination_ids`. Null when the alert is not on the alerts platform, in which case `hog_function_ids` identifies the destination.
+         * @nullable
+         */
+      id: string | null;
+    }
+
     export interface LogsAlertCustomizeDestination {
       /**
          * The destination's `destinations[].id`. Use it for a destination with no HogFunctions.
@@ -70534,15 +70704,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60. Defaults to 1.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441. Defaults to 1.
          * @minimum 1
-         * @maximum 60
+         * @maximum 1441
          */
       evaluation_periods?: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
          * @minimum 1
-         * @maximum 60
+         * @maximum 1441
          */
       datapoints_to_alarm?: number;
       /**
@@ -70597,15 +70767,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.
          * @minimum 1
-         * @maximum 60
+         * @maximum 1441
          */
       evaluation_periods: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
          * @minimum 1
-         * @maximum 60
+         * @maximum 1441
          */
       datapoints_to_alarm: number;
       /**
@@ -74117,15 +74287,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60. Defaults to 1.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441. Defaults to 1.
          * @minimum 1
-         * @maximum 60
+         * @maximum 1441
          */
       evaluation_periods?: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
          * @minimum 1
-         * @maximum 60
+         * @maximum 1441
          */
       datapoints_to_alarm?: number;
       /**
@@ -74185,15 +74355,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.
          * @minimum 1
-         * @maximum 60
+         * @maximum 1441
          */
       evaluation_periods: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
          * @minimum 1
-         * @maximum 60
+         * @maximum 1441
          */
       datapoints_to_alarm: number;
       /**
@@ -77920,6 +78090,67 @@ export namespace Schemas {
     }
 
     /**
+     * * `not_a_partner` - Not a provisioning partner
+     * * `in_review` - In review
+     * * `waiting_for_staff` - Waiting for PostHog staff
+     * * `on` - On
+     * * `off` - Off
+     * * `blocked` - Blocked
+     */
+    export type PartnerProvisioningStatusEnum = typeof PartnerProvisioningStatusEnum[keyof typeof PartnerProvisioningStatusEnum];
+
+
+    export const PartnerProvisioningStatusEnum = {
+      NotAPartner: 'not_a_partner',
+      InReview: 'in_review',
+      WaitingForStaff: 'waiting_for_staff',
+      On: 'on',
+      Off: 'off',
+      Blocked: 'blocked',
+    } as const;
+
+    /**
+     * * `pending` - Pending
+     * * `accepted` - Accepted
+     * * `rejected` - Rejected
+     * * `needs_human` - Needs staff review
+     */
+    export type ProvisioningReviewStatusEnum = typeof ProvisioningReviewStatusEnum[keyof typeof ProvisioningReviewStatusEnum];
+
+
+    export const ProvisioningReviewStatusEnum = {
+      Pending: 'pending',
+      Accepted: 'accepted',
+      Rejected: 'rejected',
+      NeedsHuman: 'needs_human',
+    } as const;
+
+    /**
+     * The review an app went through to become a provisioning partner, as its owners see it.
+     *
+     * The verdict's internal reason and the evidence stay with PostHog staff: they describe what the
+     * review checks, which would teach an abusive app what to fake.
+     */
+    export interface PartnerReview {
+      /** pending: the automated review is running. needs_human: PostHog staff decide next. accepted: the app may provision. rejected: provisioning is blocked.
+       *
+       * * `pending` - Pending
+       * * `accepted` - Accepted
+       * * `rejected` - Rejected
+       * * `needs_human` - Needs staff review */
+      readonly status: ProvisioningReviewStatusEnum;
+      /** When the app registered for provisioning. */
+      readonly opened_at: string;
+      /**
+         * When the current decision was made. Null while pending.
+         * @nullable
+         */
+      readonly decided_at: string | null;
+      /** What PostHog staff wrote to the app's owners about the decision. Empty when they wrote nothing. */
+      readonly partner_message: string;
+    }
+
+    /**
      * Serializer for organization-scoped OAuth applications (read-only).
      */
     export interface OrganizationOAuthApplication {
@@ -77931,6 +78162,18 @@ export namespace Schemas {
       readonly redirect_uris_list: readonly string[];
       /** True if this application has been verified by PostHog */
       is_verified?: boolean;
+      /** True when the app registered itself from a client ID metadata document (CIMD). */
+      readonly is_cimd_client: boolean;
+      /** Whether the app can create accounts and provision resources through the agentic provisioning API. in_review and waiting_for_staff mean its review has not finished.
+       *
+       * * `not_a_partner` - Not a provisioning partner
+       * * `in_review` - In review
+       * * `waiting_for_staff` - Waiting for PostHog staff
+       * * `on` - On
+       * * `off` - Off
+       * * `blocked` - Blocked */
+      readonly provisioning_status: PartnerProvisioningStatusEnum;
+      readonly provisioning_review: PartnerReview | null;
       readonly created: string;
       readonly updated: string;
     }
@@ -87889,7 +88132,9 @@ export namespace Schemas {
        * * `slack` - Slack
        * * `webhook` - Webhook
        * * `teams` - Microsoft Teams
-       * * `discord` - Discord */
+       * * `discord` - Discord
+       * * `pagerduty` - PagerDuty
+       * * `incident_io` - incident.io */
       type?: AlertReceiverTypeEnum;
       /** Integration ID for the Slack workspace. Required when type=slack. */
       slack_workspace_id?: number;
@@ -87899,6 +88144,27 @@ export namespace Schemas {
       slack_channel_name?: string;
       /** HTTPS endpoint to post to. Required for webhook, teams and discord. Send it again on every update that changes the destination, because reads return it redacted. */
       webhook_url?: string;
+      /** Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty. Send it again on every update that changes the destination, because reads return it redacted. */
+      pagerduty_routing_key?: string;
+      /** Severity PagerDuty records on the incident. Used when type=pagerduty. Defaults to critical.
+       *
+       * * `critical` - critical
+       * * `error` - error
+       * * `warning` - warning
+       * * `info` - info */
+      pagerduty_severity?: PagerDutySeverityEnum;
+      /** PagerDuty service region of the account. Used when type=pagerduty. Defaults to us.
+       *
+       * * `us` - us
+       * * `eu` - eu */
+      pagerduty_region?: PagerDutyRegionEnum;
+      /**
+         * ID of an incident.io HTTP alert source, the last part of its URL. Required when type=incident_io.
+         * @pattern ^[0-9A-Za-z]{26}$
+         */
+      incident_io_alert_source_config_id?: string;
+      /** Secret of the incident.io HTTP alert source, sent as a bearer token. Required when type=incident_io. Send it again on every update that changes the destination, because reads return it redacted. */
+      incident_io_secret?: string;
     }
 
     export interface PatchedAlertRouteWrite {
@@ -87907,7 +88173,7 @@ export namespace Schemas {
       /** Label conditions, all of which must hold for an alert to match. An empty list matches every alert in the project. */
       matchers?: AlertRouteMatcher[];
       /**
-         * The alert transitions the receiver hears about through this route. Defaults to every kind.
+         * The alert transitions the receiver hears about through this route. An incident receiver, PagerDuty or incident.io, hears the trigger and resolve of every firing, whatever this lists. Defaults to every kind.
          * @minItems 1
          */
       event_kinds?: PlatformAlertDestinationEventKindEnum[];
@@ -89355,7 +89621,7 @@ export namespace Schemas {
        * * `7day` - 7day
        * * `30day` - 30day */
       sync_frequency?: SavedQuerySyncFrequencyEnum | null;
-      /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling. Read-only, and present on retrieve, create and update responses only. */
+      /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling, and the organization's plan can set a floor too. Read-only, and present on retrieve, create and update responses only. */
       readonly sync_frequency_bounds?: SyncFrequencyBounds;
       readonly columns?: readonly PatchedDataWarehouseSavedQueryColumnsItem[];
       readonly status?: DataWarehouseSavedQueryStatusEnum | null;
@@ -91974,15 +92240,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.
          * @minimum 1
-         * @maximum 60
+         * @maximum 1441
          */
       evaluation_periods?: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
          * @minimum 1
-         * @maximum 60
+         * @maximum 1441
          */
       datapoints_to_alarm?: number;
       /**
@@ -92429,15 +92695,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.
          * @minimum 1
-         * @maximum 60
+         * @maximum 1441
          */
       evaluation_periods?: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
          * @minimum 1
-         * @maximum 60
+         * @maximum 1441
          */
       datapoints_to_alarm?: number;
       /**
@@ -92795,15 +93061,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.
          * @minimum 1
-         * @maximum 60
+         * @maximum 1441
          */
       evaluation_periods?: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
          * @minimum 1
-         * @maximum 60
+         * @maximum 1441
          */
       datapoints_to_alarm?: number;
       /**
@@ -93428,15 +93694,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.
          * @minimum 1
-         * @maximum 60
+         * @maximum 1441
          */
       evaluation_periods?: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
          * @minimum 1
-         * @maximum 60
+         * @maximum 1441
          */
       datapoints_to_alarm?: number;
       /**
@@ -93501,15 +93767,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.
          * @minimum 1
-         * @maximum 60
+         * @maximum 1441
          */
       evaluation_periods?: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
          * @minimum 1
-         * @maximum 60
+         * @maximum 1441
          */
       datapoints_to_alarm?: number;
       /**
@@ -93586,15 +93852,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.
          * @minimum 1
-         * @maximum 60
+         * @maximum 1441
          */
       evaluation_periods?: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
          * @minimum 1
-         * @maximum 60
+         * @maximum 1441
          */
       datapoints_to_alarm?: number;
       /**
@@ -99202,15 +99468,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60. Defaults to 1.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441. Defaults to 1.
          * @minimum 1
-         * @maximum 60
+         * @maximum 1441
          */
       evaluation_periods?: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
          * @minimum 1
-         * @maximum 60
+         * @maximum 1441
          */
       datapoints_to_alarm?: number;
       /**
@@ -99265,15 +99531,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60. Defaults to 1.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441. Defaults to 1.
          * @minimum 1
-         * @maximum 60
+         * @maximum 1441
          */
       evaluation_periods?: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
          * @minimum 1
-         * @maximum 60
+         * @maximum 1441
          */
       datapoints_to_alarm?: number;
       /**
@@ -99328,15 +99594,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60. Defaults to 1.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441. Defaults to 1.
          * @minimum 1
-         * @maximum 60
+         * @maximum 1441
          */
       evaluation_periods?: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
          * @minimum 1
-         * @maximum 60
+         * @maximum 1441
          */
       datapoints_to_alarm?: number;
       /**
@@ -99393,15 +99659,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.
          * @minimum 1
-         * @maximum 60
+         * @maximum 1441
          */
       evaluation_periods: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
          * @minimum 1
-         * @maximum 60
+         * @maximum 1441
          */
       datapoints_to_alarm: number;
       /**
@@ -99456,15 +99722,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.
          * @minimum 1
-         * @maximum 60
+         * @maximum 1441
          */
       evaluation_periods: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
          * @minimum 1
-         * @maximum 60
+         * @maximum 1441
          */
       datapoints_to_alarm: number;
       /**
@@ -99519,15 +99785,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.
          * @minimum 1
-         * @maximum 60
+         * @maximum 1441
          */
       evaluation_periods: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
          * @minimum 1
-         * @maximum 60
+         * @maximum 1441
          */
       datapoints_to_alarm: number;
       /**
@@ -107533,6 +107799,38 @@ export namespace Schemas {
          * @nullable
          */
       p50_seconds: number | null;
+    }
+
+    /**
+     * * `serving` - Serving
+     * * `setting_up` - Setting up
+     * * `available` - Available
+     * * `not_open` - Not open
+     * * `refused` - Refused
+     * * `failed` - Failed
+     */
+    export type RealtimeCohortsJoinStateEnum = typeof RealtimeCohortsJoinStateEnum[keyof typeof RealtimeCohortsJoinStateEnum];
+
+
+    export const RealtimeCohortsJoinStateEnum = {
+      Serving: 'serving',
+      SettingUp: 'setting_up',
+      Available: 'available',
+      NotOpen: 'not_open',
+      Refused: 'refused',
+      Failed: 'failed',
+    } as const;
+
+    export interface RealtimeCohortsJoinState {
+      /** Where this project stands in joining the realtime cohorts beta. `serving`: the project has realtime cohorts. `setting_up`: a join is in progress. `available`: a POST to `join` starts one. `not_open`: this region takes no new projects. `refused`: the project cannot join by itself, and support can turn realtime cohorts on for it. `failed`: the last join did not finish, and a join an hour later tries again.
+       *
+       * * `serving` - Serving
+       * * `setting_up` - Setting up
+       * * `available` - Available
+       * * `not_open` - Not open
+       * * `refused` - Refused
+       * * `failed` - Failed */
+      state: RealtimeCohortsJoinStateEnum;
     }
 
     /**
@@ -118644,6 +118942,114 @@ export namespace Schemas {
       results: SourceFilterCatalog[];
     }
 
+    /**
+     * Each catalog field's value for this record. A malformed value reads as null, or an empty array.
+     */
+    export type SourceFilterPreviewRecordFieldValues = {[key: string]: string | number | string[] | null};
+
+    export interface SourceFilterPreviewRecord {
+      /** The record's id in the source. */
+      id: string;
+      /**
+         * Short identifier people use for the record.
+         * @nullable
+         */
+      identifier: string | null;
+      /**
+         * The record's title.
+         * @nullable
+         */
+      title: string | null;
+      /**
+         * Link to the record in the source.
+         * @nullable
+         */
+      url: string | null;
+      /**
+         * When the record was created, as emission reads it.
+         * @nullable
+         */
+      created_at: string | null;
+      /** True when a field the expression uses holds a value that cannot be read, so the record never passes. */
+      malformed: boolean;
+      /** Each catalog field's value for this record. A malformed value reads as null, or an empty array. */
+      field_values: SourceFilterPreviewRecordFieldValues;
+    }
+
+    export interface SourceFilterPreviewRequest {
+      /**
+         * Source product of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.
+         * @maxLength 100
+         */
+      source_product: string;
+      /**
+         * Source type of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.
+         * @maxLength 100
+         */
+      source_type: string;
+      /**
+         * Filter expression to try, as it would be saved in `config.hogql_filter`: a boolean expression over the fields `inbox-source-filter-catalogs-list` returns, for example `project_name = 'Core' AND assignee_id IS NULL`. An empty expression lets every record through.
+         * @maxLength 16384
+         */
+      expression: string;
+    }
+
+    /**
+     * * `ok` - ok
+     * * `invalid_expression` - invalid_expression
+     * * `not_connected` - not_connected
+     * * `not_synced` - not_synced
+     * * `access_denied` - access_denied
+     * * `incompatible_table` - incompatible_table
+     * * `query_failed` - query_failed
+     */
+    export type SourceFilterPreviewStatusEnum = typeof SourceFilterPreviewStatusEnum[keyof typeof SourceFilterPreviewStatusEnum];
+
+
+    export const SourceFilterPreviewStatusEnum = {
+      Ok: 'ok',
+      InvalidExpression: 'invalid_expression',
+      NotConnected: 'not_connected',
+      NotSynced: 'not_synced',
+      AccessDenied: 'access_denied',
+      IncompatibleTable: 'incompatible_table',
+      QueryFailed: 'query_failed',
+    } as const;
+
+    export interface SourceFilterPreviewResponse {
+      /** `ok` when the counts and records are filled in. `invalid_expression` when the expression cannot be saved. `not_connected` when the project has no syncing import for the source. `not_synced` when the import has not finished a first sync. `access_denied` when you cannot read the source's warehouse table. `incompatible_table` when the table does not have the columns the filter fields read. `query_failed` when the preview query did not run.
+       *
+       * * `ok` - ok
+       * * `invalid_expression` - invalid_expression
+       * * `not_connected` - not_connected
+       * * `not_synced` - not_synced
+       * * `access_denied` - access_denied
+       * * `incompatible_table` - incompatible_table
+       * * `query_failed` - query_failed */
+      status: SourceFilterPreviewStatusEnum;
+      /**
+         * Why the status is not `ok`, when there is a reason.
+         * @nullable
+         */
+      error: string | null;
+      /** Catalog version the expression was checked against. */
+      catalog_version: number;
+      /** The preview reads records created in this many past days. */
+      lookback_days: number;
+      /** Records in the window that emission would read before the filter. 0 unless `status` is `ok`. */
+      total_count: number;
+      /** Records in the window that pass the filter. */
+      passing_count: number;
+      /** Records in the window that the filter excludes. */
+      excluded_count: number;
+      /** Excluded records that hold a value the filter cannot read. Included in `excluded_count`. */
+      malformed_count: number;
+      /** The newest records that pass the filter, at most 10. */
+      passing: SourceFilterPreviewRecord[];
+      /** The newest records that the filter excludes, at most 10. */
+      excluded: SourceFilterPreviewRecord[];
+    }
+
     export interface SourceMappingSuggestion {
       /** The raw utm_source value seen on events */
       raw_utm_source: string;
@@ -119378,6 +119784,11 @@ export namespace Schemas {
        * * `errored` - Errored
        * * `inconclusive` - Inconclusive */
       outcome: SignalReportCheckOutcomeEnum;
+    }
+
+    export interface SubscriptionTransferOwnership {
+      /** New owner's user UUID. Must be an active organization member. Defaults to yourself. */
+      user_uuid?: string;
     }
 
     export type SubscriptionWriteContextsItem = {
