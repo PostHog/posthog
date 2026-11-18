@@ -175,10 +175,11 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
     // default and make omission indistinguishable from an explicit `false`.
     const schema = withTraceDetail(withoutTestAccountFilterDefault(config.schema), config.kind)
     const isTraceQuery = TRACE_QUERY_KINDS.has(config.kind)
+    const hooks = (config.hooks ?? {}) as ToolHooks<z.infer<T>>
     return () => ({
         name: config.name,
         schema,
-        handler: withToolHooks(config.hooks ?? {}, async (context: Context, rawParams: z.infer<T>) => {
+        handler: withToolHooks(hooks, async (context: Context, rawParams: z.infer<T>) => {
             const projectId = await context.stateManager.getProjectId()
             const params = schema.parse(rawParams)
             // `output_format` is a tool-level control, not part of the query body. Strip it before
