@@ -112,6 +112,26 @@ describe('todayRecentsLogic', () => {
         expect(logic.values.peopleRecents).toEqual([recent('/cohorts/7', 'Cohort 7')])
     })
 
+    it('records a loaded release in the Release pane when the area is enabled', () => {
+        initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.RELEASES_AREA], {
+            [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            [FEATURE_FLAGS.RELEASES_AREA]: true,
+        })
+        sceneLogic.mount()
+        const logic = todayRecentsLogic()
+        logic.mount()
+        const setActive = (sceneLogic.actions as any).setActiveSceneLogic
+
+        setActive(sceneShowing({ type: 'release', id: 'r1', name: 'Launch', href: '/releases/r1' }))
+
+        expect(logic.values.releaseRecents.map(({ id, name }) => ({ id, name }))).toEqual([
+            { id: 'r1', name: 'Launch' },
+        ])
+        expect(logic.values.monitorRecents).toEqual([])
+    })
+
     it('stores a recent, newest first, and lists the rows by name', () => {
         initKeaTests()
         const logic = todayRecentsLogic()

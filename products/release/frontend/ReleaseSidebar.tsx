@@ -8,13 +8,14 @@ import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
+import { escapePath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { SidebarPinButton } from '~/layout/today/sidebar/SidebarPinButton'
 import { sidebarPinsLogic } from '~/layout/today/sidebar/sidebarPinsLogic'
 import { SidebarRow } from '~/layout/today/sidebar/SidebarRow'
 import { SidebarSearchList } from '~/layout/today/sidebar/SidebarSearchList'
 import { SidebarSection } from '~/layout/today/sidebar/SidebarSection'
 import { newestByName } from '~/layout/today/todayNewestByName'
+import { todayRecentsLogic } from '~/layout/today/todayRecentsLogic'
 import { recentItemsModel } from '~/models/recentItemsModel'
 import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-general'
 
@@ -32,6 +33,7 @@ export function ReleaseSidebar(): JSX.Element {
     const { rows, flagCount, experimentCount, earlyAccessCount, dataLoading } = useValues(releaseLogic)
     const { shortcutData, pinnedShortcutIds } = useValues(sidebarPinsLogic)
     const { recents } = useValues(recentItemsModel)
+    const { releaseRecents } = useValues(todayRecentsLogic)
     const { location } = useValues(router)
     const [query, setQuery] = useState('')
     const [closed, setClosed] = useState<Record<string, boolean>>({})
@@ -95,14 +97,35 @@ export function ReleaseSidebar(): JSX.Element {
     const pinned = shortcutData.filter(
         (entry) => !!entry.ref && RELEASE_TYPES.includes(entry.type ?? '') && matches(entryName(entry))
     )
+    const releaseRowsById = new Map(rows.map((row) => [row.id, row]))
+    const releaseItems: FileSystemEntry[] = releaseRecents.flatMap((recent) => {
+        const row = releaseRowsById.get(recent.id)
+        return row
+            ? [
+                  {
+                      id: row.id,
+                      type: 'release',
+                      ref: row.id,
+                      path: escapePath(row.name),
+                      href: urls.release(row.id),
+                      last_viewed_at: new Date(recent.viewedAt).toISOString(),
+                  },
+              ]
+            : []
+    })
     const recent = newestByName(
-        recents.filter(
-            (entry) =>
-                !!entry.ref &&
-                RELEASE_TYPES.includes(entry.type ?? '') &&
-                matches(entryName(entry)) &&
-                !pinnedShortcutIds.has(`${entry.type}:${entry.ref}`)
-        ),
+        [...recents, ...releaseItems]
+            .sort(
+                (first, second) =>
+                    (Date.parse(second.last_viewed_at ?? '') || 0) - (Date.parse(first.last_viewed_at ?? '') || 0)
+            )
+            .filter(
+                (entry) =>
+                    !!entry.ref &&
+                    RELEASE_TYPES.includes(entry.type ?? '') &&
+                    matches(entryName(entry)) &&
+                    !pinnedShortcutIds.has(`${entry.type}:${entry.ref}`)
+            ),
         entryName,
         (entry) => entry.id,
         RECENTS_LIMIT
