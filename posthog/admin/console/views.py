@@ -167,7 +167,7 @@ def _search_teams(query: str) -> list[Team]:
     }
     newest_ids = sorted(team_ids, reverse=True)[:SEARCH_LIMIT]
     found = teams.in_bulk(newest_ids)
-    return [found[team_id] for team_id in newest_ids]
+    return [found[team_id] for team_id in newest_ids if team_id in found]
 
 
 def _with_kept_query(url: str, request: HttpRequest, names: tuple[str, ...]) -> str:
