@@ -168,15 +168,22 @@ def _pr_metadata(head_sha: str) -> PRMetadata:
 class TestPublishIdempotency(BaseTest):
     @parameterized.expand(
         [
-            ("findings", True, "refusal"),
-            ("clean", False, "refusal"),
-            ("manual_findings", True, None),
-            ("manual_clean", False, None),
+            ("findings", True, "refusal", False),
+            ("clean", False, "refusal", False),
+            ("manual_findings", True, None, False),
+            ("manual_clean", False, None, False),
+            ("refusal_publish_retry", True, "refusal", True),
+            ("manual_publish_retry", True, None, True),
         ]
     )
     @patch(_AUTH, return_value=("tok", None))
     def test_new_refusal_publishes_again_at_the_same_head_but_its_retry_does_not(
-        self, _name: str, posted: bool, request_id: str | None, _auth: MagicMock
+        self,
+        _name: str,
+        posted: bool,
+        request_id: str | None,
+        repair_completion: bool,
+        _auth: MagicMock,
     ) -> None:
         report_id = self._report()
         ReviewReport.objects.for_team(self.team.id).filter(id=report_id).update(
@@ -243,6 +250,14 @@ class TestPublishIdempotency(BaseTest):
         ):
             github.return_value.json.return_value = {"html_url": "https://github.com/PostHog/posthog/pull/1#review-2"}
             assert _publish(request).posted is posted
+            if repair_completion:
+                marker = ReviewReportArtefact.objects.for_team(self.team.id).get(
+                    report_id=report_id, type=ReviewReportArtefact.ArtefactType.TURN_MARKER
+                )
+                content = TurnMarkerArtefact.model_validate_json(marker.content)
+                marker.content = content.model_copy(update={"stamphog_review_completed": False}).model_dump_json()
+                marker.save(update_fields=["content"])
+                assert _publish(request).posted is False
             report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
             for turn, head, completed in [
                 ("other-turn", "sha1", False),
@@ -268,6 +283,44 @@ class TestPublishIdempotency(BaseTest):
         assert len(posts) == int(posted)
         if posts:
             assert _review_marker(report_id, "sha1", "full", request_id) in posts[0]["body"]
+
+    @parameterized.expand([("other_turn", {"1": "sha1"}), ("other_head", {"2": "other-head"})])
+    @patch(_AUTH, return_value=("tok", None))
+    def test_skipped_turn_cannot_complete_joined_refusals(
+        self, _name: str, published_head_shas: dict[str, str], _auth: MagicMock
+    ) -> None:
+        report_id = self._report()
+        ReviewReport.objects.for_team(self.team.id).filter(id=report_id).update(
+            published_heads_by_mode={"full": "sha1"}, published_head_shas=published_head_shas
+        )
+        ReviewReportArtefact.add_turn_marker(
+            team_id=self.team.id,
+            report_id=report_id,
+            content=TurnMarkerArtefact(
+                head_sha="sha1",
+                run_index=2,
+                review_mode="full",
+                reviewhog_version="test",
+                reviewhog_fingerprint="test",
+                queue_turn_id="turn",
+                publishes=True,
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
+
+        assert _publish(replace(_publish_input(self.team.id, report_id, "sha1"), run_index=2)).posted is False
+        assert (
+            complete_joined_stamphog_requests(
+                CompleteJoinedStamphogRequestsInput(
+                    team_id=self.team.id,
+                    report_id=report_id,
+                    queue_turn_id="turn",
+                    head_sha="sha1",
+                    request_ids=["joined"],
+                )
+            )
+            is False
+        )
 
     def _report(self, *, published_head_sha: str | None = None) -> str:
         report_id = upsert_review_report(

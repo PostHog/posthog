@@ -132,6 +132,8 @@ def publish_persisted_review(
         else review_already_published(report, head_sha, review_mode)
     )
     if already_published:
+        if (report.published_head_shas or {}).get(str(run_index)) == head_sha:
+            complete_stamphog_request(report, run_index, required=request_id is not None)
         logger.info(f"Review for {owner}/{repo}#{pr_number} already published at {head_sha}; skipping")
         _mark_report_idle(team_id, report_id)
         return PublishOutcome(posted=False)
