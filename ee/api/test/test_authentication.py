@@ -770,10 +770,20 @@ class TestOIDCAuthentication(APILicensedTest):
             self.assertEqual(self.client.session["_auth_user_id"], str(self.user.pk))
 
     @parameterized.expand(
-        [("mailbox", "email"), ("password", "password"), ("login", "last_login"), ("assertion", "asserted_email")]
+        [
+            ("mailbox", "email", False),
+            ("password", "password", False),
+            ("login", "last_login", False),
+            ("assertion", "asserted_email", False),
+            ("same_session_mailbox", "email", True),
+            ("same_session_password", "password", True),
+            ("same_session_login", "last_login", True),
+        ]
     )
     @pytest.mark.disable_mock_code_based_verifier
-    def test_restarted_idp_login_does_not_reuse_a_code_after_context_changes(self, _name: str, field: str) -> None:
+    def test_restarted_idp_login_does_not_reuse_a_code_after_context_changes(
+        self, _name: str, field: str, same_session: bool
+    ) -> None:
         self.user.email = "member@example.com"
         self.user.save()
         UserSocialAuth.objects.create(
@@ -793,16 +803,23 @@ class TestOIDCAuthentication(APILicensedTest):
                 self.user.last_login = timezone.now()
             if field != "asserted_email":
                 self.user.save(update_fields=[field])
-            self.client = APIClient()
-            response = self._complete_oidc_login(asserted_email)
+            response: HttpResponse
+            if same_session:
+                response = self.client.get("/complete/oidc/")
+            else:
+                self.client = APIClient()
+                response = self._complete_oidc_login(asserted_email)
             self.assertEqual(
                 parse_qs(urlparse(response["Location"]).query)["error_code"], ["sso_verification_email_failed"]
             )
             self.assertNotIn("code_based_verification_pending_user_id", self.client.session)
             self.assertEqual(sent.call_count, 1)
             clock.shift(datetime.timedelta(seconds=61))
-            self.client = APIClient()
-            response = self._complete_oidc_login(asserted_email)
+            if same_session:
+                response = self.client.get("/complete/oidc/")
+            else:
+                self.client = APIClient()
+                response = self._complete_oidc_login(asserted_email)
             self.assertIn("code_verification_pending=1", response["Location"])
             self.assertEqual(sent.call_args.kwargs["to_email"], self.user.email)
             response = self.client.post("/api/login/code-based-verification/", {"code": sent.call_args.args[1]})

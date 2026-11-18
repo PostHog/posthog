@@ -85,7 +85,6 @@ from posthog.helpers.sso import (
 from posthog.helpers.two_factor_session import (
     CODE_BASED_VERIFICATION_SSO_SESSION_KEY,
     CODE_MAX_ATTEMPTS,
-    CODE_TTL_SECONDS,
     LOGIN_CODE_VERIFICATION_COUNTER,
     clear_two_factor_session_flags,
     code_based_verifier,
@@ -1873,25 +1872,8 @@ def social_require_idp_email_verification(
             restart["next"] = next_url
         return redirect(f"{reverse('social:begin', args=['saml'])}?{urlencode(restart)}")
 
-    pending = request.session.get(CODE_BASED_VERIFICATION_SSO_SESSION_KEY)
-    issued_at = code_based_verifier.get_pending_code_based_verification_issued_at(request)
-    reuse_code = (
-        pending is not None
-        and pending.get("provider") == identity.provider
-        and pending.get("issuer") == identity.issuer
-        and pending.get("subject") == identity.subject
-        and pending.get("uid") == str(uid)
-        and pending.get("user_id") == user.pk
-        and pending.get("email") == email
-        and pending.get("target_email") == target_email
-        and code_based_verifier.get_pending_code_based_verification_user_id(request) == user.pk
-        and code_based_verifier.get_pending_code_based_verification_target(request) == target_email
-        and pending.get("issued_at") == issued_at
-        and issued_at is not None
-        and 0 <= time.time() - issued_at < CODE_TTL_SECONDS
-    )
     try:
-        sent = reuse_code or _send_login_code(
+        sent = _send_login_code(
             request,
             user,
             target_email=target_email,
@@ -1902,6 +1884,7 @@ def social_require_idp_email_verification(
         logger.warning("idp_email_verification_code_undeliverable", user_id=user.pk, backend=backend.name)
         sent = False
     if not sent:
+        code_based_verifier.clear_pending(request)
         return redirect(sso_failure_redirect_url(request, "sso_verification_email_failed"))
 
     request.session[CODE_BASED_VERIFICATION_SSO_SESSION_KEY] = PendingIdPEmailVerification(
