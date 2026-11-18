@@ -207,6 +207,36 @@ describe('applicationObservabilityLogic', () => {
         expect(url.searchParams.get('dateFrom')).toBe('-24h')
     })
 
+    it('filters services and endpoints by the search without reloading, and keeps it in the URL', async () => {
+        router.actions.push(APPLICATION_OBSERVABILITY_PATH, { tab: 'endpoints' })
+        await expectLogic(logic).toDispatchActions(['loadEndpointsHealthSuccess'])
+        await expectLogic(logic).toFinishAllListeners()
+        // LemonTable writes its sort to `order` when a column header is clicked.
+        router.actions.push(APPLICATION_OBSERVABILITY_PATH, { tab: 'endpoints', order: '-error_rate' })
+        await expectLogic(logic).toFinishAllListeners()
+        const servicesBefore = requests.length
+        const endpointsBefore = endpointRequests.length
+
+        logic.actions.setSearch('QUE')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.filteredServices.map((row) => row.service_name)).toEqual(['queue'])
+        // An endpoint matches on its service name as well as its own name.
+        expect(logic.values.filteredEndpoints.map((row) => row.endpoint)).toEqual(['orders process'])
+        expect(router.values.searchParams).toMatchObject({ tab: 'endpoints', search: 'QUE', order: '-error_rate' })
+        expect(requests.length).toBe(servicesBefore)
+        expect(endpointRequests.length).toBe(endpointsBefore)
+
+        router.actions.push(APPLICATION_OBSERVABILITY_PATH, { search: 'web' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.filteredServices.map((row) => row.service_name)).toEqual(['web'])
+        expect(logic.values.filteredEndpoints).toEqual([])
+
+        logic.actions.setSearch('01')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.search).toBe('01')
+    })
+
     it('skips the poll while paused, catches up on resume, and keeps paused in the URL', async () => {
         logic.unmount()
         const setIntervalSpy = jest.spyOn(window, 'setInterval')
