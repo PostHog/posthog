@@ -32,9 +32,10 @@ import {
 export const scene: SceneExport<TracingOperationSceneLogicProps> = {
     component: TracingOperationScene,
     logic: tracingOperationSceneLogic,
-    paramsToProps: ({ searchParams: { service, name } }) => ({
+    paramsToProps: ({ searchParams: { service, name, route_attribute, route } }) => ({
         serviceName: String(service ?? ''),
         spanName: String(name ?? ''),
+        route: route_attribute && route ? { attribute: String(route_attribute), value: String(route) } : null,
     }),
     productKey: ProductKey.TRACING,
 }
@@ -72,6 +73,7 @@ export function TracingOperationScene(): JSX.Element {
     const {
         serviceName,
         spanName,
+        route,
         dateRange,
         histogramData,
         rawHistogramLoading,
@@ -117,7 +119,7 @@ export function TracingOperationScene(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name={spanName}
+                name={route ? `${spanName} ${route.value}` : spanName}
                 description={serviceName}
                 resourceType={{
                     type: 'tracing',

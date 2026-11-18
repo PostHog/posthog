@@ -42,13 +42,20 @@ class ServiceHealth:
 
 @dataclass(frozen=True)
 class EndpointHealth:
-    """One entry span name in one service: a route, an RPC, a consumed message, or a job."""
+    """One entry span in one service: a route, an RPC, a consumed message, or a job.
+
+    The endpoint is the span name, or "<METHOD> <route>" when the span name is only an HTTP method.
+    span_name, route_attribute and route are what the tracing filters need to find the same spans.
+    """
 
     service_name: str
     endpoint: str
     environment: str | None
     health: HealthRow
     status: HealthStatus = HealthStatus.GOOD
+    span_name: str = ""
+    route_attribute: str | None = None
+    route: str | None = None
 
 
 @dataclass(frozen=True)

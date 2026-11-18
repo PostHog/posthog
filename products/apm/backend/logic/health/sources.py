@@ -41,6 +41,12 @@ MAP_EDGES_LIMIT = 1000
 MAP_SPAN_LIMIT = 200_000
 NO_ENVIRONMENT = ""
 
+# Many HTTP server instrumentations name a span only by its method and keep the path template in an
+# attribute, so a bare-method span gets the template appended: "POST" becomes "POST /users/:id".
+HTTP_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS")
+# Checked in order: http.route is the stable server attribute, url.template the newer generic one.
+ROUTE_ATTRIBUTES = ("http.route", "url.template")
+
 ENVIRONMENT_ATTRIBUTES = (
     "deployment.environment.name",
     "deployment.environment",
@@ -82,6 +88,34 @@ def environment_where(environment: str | None) -> ast.Expr:
     return parse_expr(
         "{env_expr} = {environment}",
         placeholders={"env_expr": environment_expr(), "environment": ast.Constant(value=environment)},
+    )
+
+
+def _route_attribute_read(key: str) -> str:
+    # A missing map key reads as null, and a null comparison reads as true, so map it to empty.
+    return f"ifNull(attributes['{key}'], '')"
+
+
+def route_attribute_expr() -> ast.Expr:
+    """The first route attribute a bare-method span sets, or empty when it isn't one or sets none."""
+    branches = ", ".join(f"notEmpty({_route_attribute_read(key)}), '{key}'" for key in ROUTE_ATTRIBUTES)
+    return parse_expr(
+        f"if(name IN {{methods}}, multiIf({branches}, ''), '')",
+        placeholders={"methods": ast.Tuple(exprs=[ast.Constant(value=method) for method in HTTP_METHODS])},
+    )
+
+
+def route_expr() -> ast.Expr:
+    """The route a bare-method span carries, read from the attribute route_attribute_expr names."""
+    branches = ", ".join(f"{{attribute}} = '{key}', {_route_attribute_read(key)}" for key in ROUTE_ATTRIBUTES)
+    return parse_expr(f"multiIf({branches}, '')", placeholders={"attribute": route_attribute_expr()})
+
+
+def endpoint_expr() -> ast.Expr:
+    """The endpoint label: "<METHOD> <route>" for a bare-method span with a route, else the span name."""
+    return parse_expr(
+        "if(notEmpty({route}), concat(name, ' ', {route}), name)",
+        placeholders={"route": route_expr()},
     )
 
 
@@ -141,24 +175,41 @@ def _services_query(date_from: datetime, date_to: datetime, environment: str | N
 def _endpoints_query(
     date_from: datetime, date_to: datetime, environment: str | None, service: str | None
 ) -> ast.SelectQuery:
-    # An endpoint is an entry span name: what a server or consumer span handles, or what a root span
+    # An endpoint is an entry span: what a server or consumer span handles, or what a root span
     # starts (a job with no server spans). This is the entry definition the Tracing service health
     # view uses, so a worker's job shows up here the same way it gets a row on the services tab.
+    # The span name and route come along so a row can link to the spans it counts.
     query = parse_select(
         """
         SELECT
             service_name,
-            name,
+            endpoint,
+            any(name) AS span_name,
+            any(route_attribute) AS route_attribute,
+            any(route) AS route,
             count() AS span_count,
             countIf(status_code = 2) AS error_count,
             quantile(0.95)(duration_nano) / 1e6 AS p95_ms
-        FROM posthog.trace_spans
-        WHERE {where} AND {env_where} AND {service_where} AND (is_root_span OR kind IN (2, 5))
-        GROUP BY service_name, name
-        ORDER BY error_count / span_count DESC, error_count DESC, service_name, name
+        FROM (
+            SELECT
+                service_name,
+                name,
+                status_code,
+                duration_nano,
+                {endpoint} AS endpoint,
+                {route_attribute} AS route_attribute,
+                {route} AS route
+            FROM posthog.trace_spans
+            WHERE {where} AND {env_where} AND {service_where} AND (is_root_span OR kind IN (2, 5))
+        )
+        GROUP BY service_name, endpoint
+        ORDER BY error_count / span_count DESC, error_count DESC, service_name, endpoint
         LIMIT {limit}
         """,
         placeholders={
+            "endpoint": endpoint_expr(),
+            "route_attribute": route_attribute_expr(),
+            "route": route_expr(),
             "where": window_where(date_from, date_to),
             "env_where": environment_where(environment),
             "service_where": (
@@ -343,7 +394,10 @@ def list_endpoints_health(
     endpoints = [
         EndpointHealth(
             service_name=service_name,
-            endpoint=name,
+            endpoint=endpoint,
+            span_name=span_name,
+            route_attribute=route_attribute or None,
+            route=route or None,
             environment=environment,
             health=HealthRow(
                 request_rate=span_count / seconds,
@@ -353,7 +407,7 @@ def list_endpoints_health(
                 error_count=int(error_count),
             ),
         )
-        for service_name, name, span_count, error_count, p95_ms in _run(
+        for service_name, endpoint, span_name, route_attribute, route, span_count, error_count, p95_ms in _run(
             team, _endpoints_query(date_from, date_to, environment, service)
         )
     ]
