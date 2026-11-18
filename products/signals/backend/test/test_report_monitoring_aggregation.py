@@ -866,21 +866,31 @@ class TestReportMonitoringAggregation(BaseTest):
         )
         assert json.loads(note.content)["analytics_query_context"] == [{}, {}]
 
-    @parameterized.expand([("assessment_running", True), ("no_assessment_without_consent", False)])
-    def test_a_person_cannot_cancel_a_check_an_assessment_is_judging(self, _name: str, consented: bool) -> None:
+    @parameterized.expand(
+        [
+            ("assessment_running", "running", True),
+            ("no_assessment_without_consent", "no_consent", False),
+            ("no_assessment_with_monitoring_off", "monitoring_off", False),
+        ]
+    )
+    def test_a_person_cannot_cancel_a_check_an_assessment_is_judging(
+        self, _name: str, state: str, refused: bool
+    ) -> None:
         self._request_assessment()
-        if not consented:
+        if state == "no_consent":
             self.organization.is_ai_data_processing_approved = False
             self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        elif state == "monitoring_off":
+            self.flag.return_value = False
         self.client.force_login(self.user)
 
         response = self.client.delete(
             f"/api/projects/{self.team.id}/signals/reports/{self.report.id}/checks/{self.checks[1].id}/"
         )
 
-        assert response.status_code == (400 if consented else 200)
+        assert response.status_code == (400 if refused else 200)
         self.checks[1].refresh_from_db()
-        assert (self.checks[1].status == SignalReportCheck.Status.CANCELLED) is not consented
+        assert (self.checks[1].status == SignalReportCheck.Status.CANCELLED) is not refused
 
     def test_exhaustion_recovers_the_same_task_before_closing(self) -> None:
         self.enterContext(patch("products.tasks.backend.facade.api.signal_workflow_completion"))
