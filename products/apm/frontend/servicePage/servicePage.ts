@@ -33,6 +33,9 @@ export function environmentLabel(environment: string): string {
 // HTTP status lives under the current semconv key or the older one, depending on the SDK.
 export const HTTP_STATUS_KEYS = ['http.response.status_code', 'http.status_code'] as const
 
+// An exception recorded as a span event, the OTel default, carries its message here. Read first.
+const EVENT_MESSAGE_KEYS = ['exception.message', 'exception.type'] as const
+
 // Where instrumentation records why a span failed, most specific first. Mirrors the order the
 // backend trace summary reads them in.
 const ERROR_MESSAGE_KEYS = [
@@ -244,6 +247,14 @@ export interface TopError {
 }
 
 export function spanErrorMessage(span: Span): string {
+    for (const event of span.events ?? []) {
+        for (const key of EVENT_MESSAGE_KEYS) {
+            const value = event.attributes?.[key]
+            if (value) {
+                return value
+            }
+        }
+    }
     for (const key of ERROR_MESSAGE_KEYS) {
         const value = span.attributes?.[key]
         if (value) {

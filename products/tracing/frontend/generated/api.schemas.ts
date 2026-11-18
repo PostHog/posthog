@@ -695,6 +695,8 @@ export interface _TracingQueryBodyApi {
     prefetchSpans?: number
     /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
     excludeAttributes?: boolean
+    /** Include each span's OpenTelemetry events, such as recorded exceptions. The events are large, so keep `limit` small. Ignored when `excludeAttributes` is true. Defaults to false. */
+    includeEvents?: boolean
 }
 
 export interface _TracingQueryRequestApi {
@@ -1255,7 +1257,7 @@ export interface _TraceSpanApi {
     resource_attributes: _TraceSpanApiResourceAttributes
     /** Span duration minus the time spent in its children, in nanoseconds. */
     self_time_nano: number
-    /** OpenTelemetry span events, earliest first. Omitted when `excludeAttributes` is true. */
+    /** OpenTelemetry span events, earliest first. List queries return them only with `includeEvents`, and never when `excludeAttributes` is true. */
     events?: _SpanEventApi[]
 }
 

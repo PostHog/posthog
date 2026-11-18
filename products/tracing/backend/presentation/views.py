@@ -291,6 +291,14 @@ class _TracingQueryBodySerializer(serializers.Serializer):
         default=False,
         help_text="Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false.",
     )
+    includeEvents = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Include each span's OpenTelemetry events, such as recorded exceptions. The events are large, "
+            "so keep `limit` small. Ignored when `excludeAttributes` is true. Defaults to false."
+        ),
+    )
 
 
 class _TracingBodyPagingSerializer(serializers.Serializer):
@@ -928,7 +936,7 @@ class _TraceSpanSerializer(_SpanSerializer):
     events = _SpanEventSerializer(
         many=True,
         required=False,
-        help_text="OpenTelemetry span events, earliest first. Omitted when `excludeAttributes` is true.",
+        help_text="OpenTelemetry span events, earliest first. List queries return them only with `includeEvents`, and never when `excludeAttributes` is true.",
     )
 
 
@@ -1533,6 +1541,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             flatSpans=flat_spans,
             prefetchSpans=prefetch_spans,
             excludeAttributes=query_data.get("excludeAttributes", False),
+            includeEvents=query_data.get("includeEvents", False),
         )
 
         runner = TraceSpansQueryRunner(spans_query, self.team)

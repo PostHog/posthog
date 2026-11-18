@@ -73,6 +73,11 @@ describe('servicePage', () => {
 
     it('groups error spans by their most specific message, most frequent first', () => {
         const spans = [
+            // The exception event's message outranks the span attributes.
+            {
+                ...errorSpan(4, { 'error.type': 'ValueError' }),
+                events: [{ name: 'exception', timestamp: null, attributes: { 'exception.message': 'card declined' } }],
+            },
             errorSpan(3, { 'exception.message': 'timeout', 'error.type': 'TimeoutError' }),
             errorSpan(2, { 'error.type': '503' }),
             errorSpan(1, { 'exception.message': 'timeout' }),
@@ -81,8 +86,9 @@ describe('servicePage', () => {
         const top = topErrorMessages(spans)
         expect(top.map(({ message, count, latest }) => [message, count, latest.span_id])).toEqual([
             ['timeout', 2, 'span-3'],
+            ['card declined', 1, 'span-4'],
             ['503', 1, 'span-2'],
-            [spanErrorMessage(spans[3]), 1, 'span-0'],
+            [spanErrorMessage(spans[4]), 1, 'span-0'],
         ])
     })
 })

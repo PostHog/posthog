@@ -560,6 +560,8 @@ export const servicePageLogic = kea<servicePageLogicType>([
                                 orderDirection: 'DESC',
                                 flatSpans: true,
                                 limit: ERROR_SAMPLE_LIMIT,
+                                // Exceptions recorded as span events carry the message there.
+                                includeEvents: true,
                             },
                             signal
                         ),
