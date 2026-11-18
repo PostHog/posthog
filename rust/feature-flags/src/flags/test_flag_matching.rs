@@ -13597,7 +13597,7 @@ mod tests {
 
     #[rstest::rstest]
     #[case::sent_value(vec![("plan", json!("pro"))], "plan")]
-    #[case::geoip_fill(vec![("$geoip_city_name", json!("Sydney"))], "$geoip_city_name")]
+    #[case::sent_geoip_key(vec![("$geoip_city_name", json!("Sydney"))], "$geoip_city_name")]
     #[case::initial_os_copied_from_os(vec![("$os", json!("iOS"))], "$initial_os")]
     #[case::os_name_aliased_from_os(vec![("$os", json!("iOS"))], "$os_name")]
     #[case::injected_distinct_id(vec![], "distinct_id")]
@@ -13632,6 +13632,39 @@ mod tests {
         assert!(
             listed.flags[&flag.key].enabled,
             "a listed {listed_key} must read as absent"
+        );
+    }
+
+    #[rstest::rstest]
+    #[case::os_name_from_os("$os", "$os_name")]
+    #[case::initial_os_from_os("$os", "$initial_os")]
+    #[case::initial_browser_from_browser("$browser", "$initial_browser")]
+    #[tokio::test]
+    async fn test_known_absent_source_key_does_not_feed_synthesized_values(
+        #[case] listed_key: &str,
+        #[case] filter_key: &str,
+    ) {
+        let subject = KnownAbsentSubject::new(Some(json!({ listed_key: "stored" }))).await;
+        let flag = person_property_flag(
+            1,
+            subject.team_id,
+            "is_not_set_flag",
+            filter_key,
+            OperatorType::IsNotSet,
+        );
+
+        let (unlisted, listed) = subject
+            .evaluate_unlisted_and_listed(vec![flag.clone()], known_absent_person(&[listed_key]))
+            .await;
+
+        assert!(
+            !unlisted.flags[&flag.key].enabled,
+            "without the listing, {filter_key} is derived from the stored {listed_key}"
+        );
+        assert!(!listed.errors_while_computing_flags);
+        assert!(
+            listed.flags[&flag.key].enabled,
+            "a listed {listed_key} must not feed {filter_key}"
         );
     }
 
@@ -13876,6 +13909,34 @@ mod tests {
             .into_iter()
             .map(|(key, value)| (key.to_string(), json!(value)))
             .collect();
+        assert!(matcher.flag_evaluation_state.person_properties_pending());
+
+        let result = matcher.get_match(&flag, Some(&overrides), None, None, &None);
+
+        assert_eq!(
+            result.ok().map(|flag_match| flag_match.matches),
+            expected_match
+        );
+    }
+
+    #[rstest::rstest]
+    #[case::listed(&["plan"], Some(true))]
+    #[case::unlisted(&[], Some(false))]
+    #[tokio::test]
+    async fn test_known_absent_v1_completeness_under_pending(
+        #[case] listed: &[&str],
+        #[case] expected_match: Option<bool>,
+    ) {
+        let (_context, matcher, team_id) = matcher_for_team("test_user").await;
+        let matcher = matcher.with_known_absent_properties(known_absent_person(listed));
+        let flag = person_property_flag(
+            1,
+            team_id,
+            "v1_plan_is_not_set",
+            "plan",
+            OperatorType::IsNotSet,
+        );
+        let overrides: HashMap<String, serde_json::Value> = HashMap::new();
         assert!(matcher.flag_evaluation_state.person_properties_pending());
 
         let result = matcher.get_match(&flag, Some(&overrides), None, None, &None);

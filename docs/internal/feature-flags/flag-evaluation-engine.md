@@ -575,7 +575,7 @@ Property overrides from the request body are merged on top of DB-fetched propert
 GeoIP-derived `$geoip_*` properties follow the same rule. They are added to the request overrides before evaluation, but only fill keys the request didn't supply.
 See [GeoIP enrichment of `person_properties`](rust-service-overview.md#geoip-enrichment-of-person_properties).
 
-Keys the request lists in `person_property_keys_known_absent` or `group_property_keys_known_absent` are removed from the merged map after every other step, so they also remove a value from the database, from an override, or from synthesis (`$initial_*` copies and the `$os`/`$os_name` alias).
+Keys the request lists in `person_property_keys_known_absent` or `group_property_keys_known_absent` are removed from the merged map before and after synthesis (`$initial_*` copies and the `$os`/`$os_name` alias). A listed key therefore loses its database and override values, never feeds a synthesized key, and never receives a synthesized value.
 Every reader takes its map from these merges: condition filters, feature enrollment, cohorts evaluated from properties, flag dependencies (through the dependency's own evaluation), v2 flags, and detailed analysis.
 Static and realtime cohort membership comes from stored tables, so known absence doesn't change it. Holdouts read no properties.
 See [Known-absent property keys](rust-service-overview.md#known-absent-property-keys).

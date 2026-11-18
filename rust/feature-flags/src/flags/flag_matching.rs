@@ -2810,6 +2810,12 @@ impl FeatureFlagMatcher {
             merged_properties.extend(overrides.iter_owned());
         }
 
+        // Listed keys are removed before synthesis, so a listed `$os` never fills `$os_name` or
+        // `$initial_os`. They are removed again after it, so synthesis never fills a listed key.
+        for key in &self.known_absent.person {
+            merged_properties.remove(key);
+        }
+
         // Mirror $os <-> $os_name so a condition keyed on either matches when the
         // person row carries only one of them (web reports $os, mobile $os_name).
         // Runs before initial-property population so an aliased $os can backfill $initial_os.
@@ -2820,7 +2826,6 @@ impl FeatureFlagMatcher {
         // the merged properties (which may come from DB or request overrides).
         populate_missing_initial_properties(&mut merged_properties);
 
-        // Known-absent keys go last, so they also remove values that the steps above copied in.
         for key in &self.known_absent.person {
             merged_properties.remove(key);
         }
