@@ -317,8 +317,9 @@ class HogQLCohortQuery:
 
     def get_query(self) -> SelectQuery | SelectSetQuery:
         query = self._get_conditions()
-        if InsightSelectionFinder(query).found:
-            raise QueryError("Cohort definitions cannot contain insight selections")
+        selection = InsightSelectionFinder(query)
+        if selection.found or selection.has_query_tags:
+            raise QueryError("Cohort definitions cannot contain insight selections or embedded query tags")
         return query
 
     def query_str(self, dialect: Literal["hogql", "clickhouse"]):

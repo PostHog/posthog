@@ -14,7 +14,7 @@ Detection parses HogQL expression fields, including quoted function names; liter
 The scan includes effective query modifiers and project test-account filters when the query enables them, including nested queries.
 HogQLX query tags also partition on every scope because their expanded queries and saved filters are absent from the outer table scan.
 Unknown scopes still include effective default denials, even when no explicit access-control row exists.
-Saved action steps and cohort definitions reject insight selections because their definitions are absent from the calling query's cache fingerprint.
+Saved action steps and cohort definitions reject insight selections and embedded query tags because their definitions are absent from the calling query's cache fingerprint.
 
 Keep row filtering on the parent when a junction already uses a predicate such as `account_id IN (SELECT id FROM system.accounts)`.
 That predicate applies the parent's team and object permissions, including its creator exemption.

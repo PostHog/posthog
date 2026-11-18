@@ -2497,11 +2497,17 @@ class TestProperty(BaseTest):
             ),
         )
 
-    @parameterized.expand(["matchesInsight", r"`matches\0Insight`", r'"matches\0Insight"'])
-    def test_action_steps_reject_insight_selections(self, name):
+    @parameterized.expand(
+        [f"{name}('{{}}')" for name in ("matchesInsight", r"`matches\0Insight`", r'"matches\0Insight"')]
+        + [
+            "<TrendsQuery filterTestAccounts={true} />",
+            """<TrendsQuery properties={[{type: 'hogql', key: "matchesInsight('{}')"}]} />""",
+        ]
+    )
+    def test_action_steps_reject_insight_selections(self, expression):
         action = create_action(
             team=self.team,
-            steps_json=[{"event": "$pageview", "properties": [{"type": "hogql", "key": f"{name}('{{}}')"}]}],
+            steps_json=[{"event": "$pageview", "properties": [{"type": "hogql", "key": expression}]}],
         )
         with self.assertRaisesRegex(QueryError, "Action steps cannot contain insight selections"):
             action_to_expr(action)

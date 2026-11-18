@@ -296,7 +296,7 @@ HogQLX query tags also partition on every scope because their expanded queries a
 Unknown resource sets still partition project keys by their readable scopes and real users by effective permissions, including default denials without explicit access-control rows.
 The actor-query payload can reference resources through source filters, actions, or cohorts that the outer table scan does not expand.
 This applies to raw HogQL and structured insight queries, including actor queries.
-Saved action steps and cohort definitions reject insight selections because their definitions are absent from the calling query's cache fingerprint.
+Saved action steps and cohort definitions reject insight selections and embedded query tags because their definitions are absent from the calling query's cache fingerprint.
 
 When a run has no user but does read access-controlled resources, the fingerprint uses `restricted_resources: ["*"]` so it can never collide with a real user's cache, and synthetic principals partition on their readable scopes so a narrow token can't reuse a broader token's cached rows.
 

@@ -1945,8 +1945,9 @@ def steps_to_expr(steps: Sequence[ActionStep], team: Team, events_alias: Optiona
 
             property_expr = property_to_expr(step.properties, team)
             # Saved action definitions are absent from the caller's query-cache fingerprint.
-            if InsightSelectionFinder(property_expr).found:
-                raise QueryError("Action steps cannot contain insight selections")
+            selection = InsightSelectionFinder(property_expr)
+            if selection.found or selection.has_query_tags:
+                raise QueryError("Action steps cannot contain insight selections or embedded query tags")
             exprs.append(property_expr)
 
         if len(exprs) == 1:

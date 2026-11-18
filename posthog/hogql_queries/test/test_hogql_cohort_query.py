@@ -29,8 +29,14 @@ from products.feature_flags.backend.models.organization_feature_flags_config imp
 class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
     """Tests for HogQLCohortQuery, particularly the optimization for multiple person property filters."""
 
-    @parameterized.expand(["matchesInsight", r"`matches\0Insight`", '"matchesInsight"'])
-    def test_saved_cohort_rejects_insight_selection(self, function_name) -> None:
+    @parameterized.expand(
+        [f"{name}('{{}}')" for name in ("matchesInsight", r"`matches\0Insight`", '"matchesInsight"')]
+        + [
+            "<TrendsQuery filterTestAccounts={true} />",
+            """<TrendsQuery properties={[{type: 'hogql', key: "matchesInsight('{}')"}]} />""",
+        ]
+    )
+    def test_saved_cohort_rejects_insight_selection(self, expression) -> None:
         cohort = Cohort.objects.create(
             team=self.team,
             name="saved behavioral filter",
@@ -48,7 +54,7 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
                                     "event_type": "events",
                                     "time_value": 7,
                                     "time_interval": "day",
-                                    "event_filters": [{"type": "hogql", "key": f"{function_name}('{{}}')"}],
+                                    "event_filters": [{"type": "hogql", "key": expression}],
                                 }
                             ],
                         }
