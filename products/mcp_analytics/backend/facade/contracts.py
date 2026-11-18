@@ -5,6 +5,7 @@ from uuid import UUID
 from .enums import SubmissionKind
 
 MCP_ANALYTICS_INTENT_ROUTING_FEATURE_FLAG = "mcp-analytics-intent-routing"
+MCP_ANALYTICS_INTENT_TOPICS_FEATURE_FLAG = "mcp-analytics-intent-topics"
 
 
 class IntentGenerationUnavailable(RuntimeError):
@@ -13,6 +14,32 @@ class IntentGenerationUnavailable(RuntimeError):
     Part of the facade contract: callers (e.g. the presentation layer) catch this to surface a
     clean error instead of a 500.
     """
+
+
+class IntentErasurePending(RuntimeError):
+    """Raised when erasure cannot yet prove writers drained or derived copies purged.
+
+    The project's write barrier stays frozen: this never means "done", and it never expires.
+    """
+
+
+class IntentInvalidationConflict(RuntimeError):
+    """Raised when a different erasure token, scope or operation owns the project's write barrier."""
+
+
+@dataclass(frozen=True)
+class IntentErasure:
+    """Handle for one project-wide intent erasure.
+
+    ``source_team_ids`` is every environment of ``project_id`` captured when the erasure was
+    prepared. Providers receive this handle, never caller-supplied ids.
+    """
+
+    project_id: int
+    invalidation_id: UUID
+    source_team_ids: tuple[int, ...]
+    verify_sources: bool = False
+    completed: bool = False
 
 
 @dataclass(frozen=True)
