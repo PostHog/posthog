@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
 
+import { openDeleteGroupTypeDialog } from 'lib/components/DeleteGroupTypeDialog/openDeleteGroupTypeDialog'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -15,7 +16,6 @@ import { GroupType } from '~/types'
 import { GroupsIntroduction } from 'products/groups/frontend/components/GroupsIntroduction'
 
 import { groupAnalyticsConfigLogic } from './groupAnalyticsConfigLogic'
-import { openDeleteGroupTypeDialog } from './openDeleteGroupTypeDialog'
 import { QuillGroupAnalyticsConfig } from './QuillGroupAnalyticsConfig'
 
 export function GroupAnalyticsConfig(): JSX.Element | null {
