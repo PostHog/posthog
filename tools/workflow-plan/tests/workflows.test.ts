@@ -2,11 +2,18 @@
 // job condition in a workflow file changed what runs; the planner itself is covered by plan.test.ts.
 import { load } from 'js-yaml'
 import { spawnSync } from 'node:child_process'
-import { readdirSync } from 'node:fs'
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-import { type JsonValue, evaluateCondition, evaluateValue, planFunctions } from '../src/expressions.ts'
+import {
+    type JsonValue,
+    evaluateCondition,
+    evaluateTemplate,
+    evaluateValue,
+    planFunctions,
+} from '../src/expressions.ts'
 import {
     type Outcome,
     type Scenario,
@@ -184,6 +191,7 @@ const EXPECTATIONS: Expectation[] = [
                 'get_clickhouse_versions',
                 'build-product-test-matrix',
                 'build_django_matrix',
+                'build-hogql-parser-rs',
                 'test-selection-verdict',
             ],
         }
@@ -229,6 +237,7 @@ const EXPECTATIONS: Expectation[] = [
                 'get_clickhouse_versions',
                 'build-product-test-matrix',
                 'build_django_matrix',
+                'build-hogql-parser-rs',
                 'prime-schema-cache',
                 'test-selection-verdict',
                 'capture-test-selection',
@@ -306,6 +315,7 @@ const EXPECTATIONS: Expectation[] = [
                 'django',
                 'get_clickhouse_versions',
                 'build_django_matrix',
+                'build-hogql-parser-rs',
                 'sdk-major-guard',
                 'backend-coverage-report',
             ],
@@ -1240,20 +1250,69 @@ describe('CI workflow run plans', () => {
         }).toEqual({ didNotRun: [], didNotSkip: [], filterRuns: false, productTimings: true })
     })
 
+    const fullDjangoLegs = ['Core', 'Core poe', 'Temporal', 'compat', 'json-targets']
     it.each([
-        ['3-hourly schedule', { ...schedule(), event: { schedule: '23 */3 * * *' } }, false],
+        ['3-hourly schedule', { ...schedule(), event: { schedule: '23 */3 * * *' } }, fullDjangoLegs, 1],
         [
             'off-hour schedule',
             { ...schedule(), event: { schedule: '23 1,2,4,5,7,8,10,11,13,14,16,17,19,20,22,23 * * *' } },
-            true,
+            ['Core'],
+            0,
         ],
-        ['schedule without a cron string', { ...schedule(), event: {} }, false],
-        ['manual dispatch', workflowDispatch(), false],
-        ['merge queue', mergeQueue(), false],
-    ] as const)('the core-only scheduled scope on %s', (_name, github, coreOnly) => {
+        ['schedule without a cron string', { ...schedule(), event: {} }, fullDjangoLegs, 1],
+        ['manual dispatch', workflowDispatch(), fullDjangoLegs, 1],
+        ['merge queue', mergeQueue(), ['Core', 'Temporal', 'compat', 'json-targets'], 1],
+    ] as const)('the core-only scheduled scope on %s', (_name, github, djangoLegs, productJobs) => {
         const depot = workflow(DEPOT_BACKEND)
         const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
-        expect(evaluateValue(depot.env?.CORE_ONLY_RUN, { github }, functions)).toBe(coreOnly)
+        const context = {
+            github,
+            needs: {
+                changes: { outputs: { legacy: 'true' } },
+                get_clickhouse_versions: {
+                    outputs: {
+                        oldest_supported_image: 'clickhouse/clickhouse-server:old',
+                        compat_matrix: '[{"clickhouse-server-image":"clickhouse/clickhouse-server:compat"}]',
+                    },
+                },
+                'turbo-discover': { outputs: { mode: 'full', run_legacy: 'true', matrix: '[{"group":"a"}]' } },
+            },
+        }
+        const buildInclude = (job: string): Record<string, JsonValue>[] => {
+            const step = depot.jobs[job]?.steps?.find((candidate) => candidate.id === 'build')
+            const env = Object.fromEntries(
+                Object.entries({ CORE_ONLY_RUN: depot.env?.CORE_ONLY_RUN, ...step?.env }).map(([name, value]) => [
+                    name,
+                    evaluateTemplate(value, context, functions),
+                ])
+            )
+            const dir = mkdtempSync(path.join(tmpdir(), 'matrix-'))
+            try {
+                const output = path.join(dir, 'output')
+                const result = spawnSync(
+                    'bash',
+                    ['--noprofile', '--norc', '-eo', 'pipefail', '-c', String(step?.run)],
+                    {
+                        env: { PATH: process.env.PATH, ...env, GITHUB_OUTPUT: output },
+                        encoding: 'utf8',
+                    }
+                )
+                expect(result.status, result.stderr || result.stdout).toBe(0)
+                return JSON.parse(/^include=(.*)$/m.exec(readFileSync(output, 'utf8'))![1]!)
+            } finally {
+                rmSync(dir, { recursive: true, force: true })
+            }
+        }
+        const legName = (entry: Record<string, JsonValue>): string =>
+            entry.compat
+                ? 'compat'
+                : entry['json-targets']
+                  ? 'json-targets'
+                  : `${entry.segment}${entry['person-on-events'] ? ' poe' : ''}`
+        expect({
+            djangoLegs: [...new Set(buildInclude('build_django_matrix').map(legName))],
+            productJobs: buildInclude('build-product-test-matrix').length,
+        }).toEqual({ djangoLegs, productJobs })
     })
 
     it.each([
