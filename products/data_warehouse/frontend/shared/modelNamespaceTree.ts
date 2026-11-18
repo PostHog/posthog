@@ -13,10 +13,39 @@ const segmentsBelowRoot = (name: string): string[] | null => {
     return segments.length >= 2 && segments[0] === MODELS_ROOT ? segments.slice(1) : null
 }
 
+export const folderNameToModelSegment = (folderName: string): string => {
+    const segment = folderName
+        .toLowerCase()
+        .replace(/[^a-z0-9_]/g, '_')
+        .replace(/_+/g, '_')
+        .replace(/^_|_$/g, '')
+    return /^[0-9]/.test(segment) ? `_${segment}` : segment
+}
+
+/** The name a model takes in a folder, or at the root when `folderName` is null. Null when the folder name has no usable segment. */
+export const modelNameForFolder = (modelName: string, folderName: string | null): string | null => {
+    const leaf = modelName.split('.').pop() ?? modelName
+    if (folderName === null) {
+        return leaf
+    }
+    const segment = folderNameToModelSegment(folderName)
+    return segment ? `${segment}.${leaf}` : null
+}
+
+/** True when `proposedName` names the stored model, given that the backend stores a bare name under the models root. */
+export const isSameModelName = (storedName: string, proposedName: string): boolean =>
+    storedName === proposedName || storedName === `${MODELS_ROOT}.${proposedName}`
+
 // Only the shown name changes; `name` keeps the full listed name that click, insert and join use.
-export const withoutModelsRoot = (node: TreeDataItem): TreeDataItem => {
+export const withoutModelsRoot = (node: TreeDataItem, folderName?: string): TreeDataItem => {
     const segments = segmentsBelowRoot(node.name)
-    return segments ? { ...node, displayName: segments.join('.') } : node
+    if (!segments) {
+        return node
+    }
+    // The folder already shows its segment, so a model named after it shows only the rest.
+    const folderSegment = folderName === undefined ? null : folderNameToModelSegment(folderName)
+    const shown = segments.length > 1 && segments[0] === folderSegment ? segments.slice(1) : segments
+    return { ...node, displayName: shown.join('.') }
 }
 
 // Groups derive from the listed name, never from the saved query's folder, so only a rename moves a model between groups.

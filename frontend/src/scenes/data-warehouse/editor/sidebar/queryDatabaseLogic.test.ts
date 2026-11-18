@@ -1185,7 +1185,18 @@ describe('queryDatabaseLogic', () => {
         const findViews = (items: TreeDataItem[]): TreeDataItem | undefined =>
             items.find((item) => item.record?.type === 'views')
 
+        let bodies: Record<string, unknown>[]
+
         beforeEach(async () => {
+            bodies = []
+            useMocks({
+                patch: {
+                    '/api/projects/:team_id/warehouse_saved_queries/:id/': async ({ request, params }) => {
+                        bodies.push((await request.json()) as Record<string, unknown>)
+                        return [200, { id: params.id }]
+                    },
+                },
+            })
             initKeaTests()
             localStorage.clear()
             ;(performQuery as jest.Mock).mockResolvedValue({ tables: {}, joins: [] })
@@ -1204,12 +1215,16 @@ describe('queryDatabaseLogic', () => {
                 savedQuery('filed', 'models.finance.arr', 'folder-1'),
                 savedQuery('filed-child', 'models.bt_child', 'folder-2'),
                 savedQuery('plain', 'scratchpad'),
+                savedQuery('scratch-test', 'models.scratch_test'),
+                savedQuery('scratch-done', 'models.scratch.done'),
+                savedQuery('scratch-filed', 'models.scratch.filed', 'folder-3'),
             ]
             const listedNames: Record<string, string> = { legacy: 'models.revenue' }
             viewsLogic.actions.loadDataWarehouseSavedQueriesSuccess(views)
             viewsLogic.actions.loadDataWarehouseSavedQueryFoldersSuccess([
                 { id: 'folder-1', name: 'Finance' },
                 { id: 'folder-2', name: 'marts' },
+                { id: 'folder-3', name: 'Scratch' },
             ])
             dbLogic.actions.loadDatabaseSuccess({
                 tables: Object.fromEntries(
@@ -1252,10 +1267,13 @@ describe('queryDatabaseLogic', () => {
             const views = findViews(logic.values.treeData)
 
             expect(shape(views?.children)).toEqual([
-                { Finance: ['finance.arr'] },
+                { Finance: ['arr'] },
                 { marts: ['orders', 'revenue'] },
                 { marts: ['bt_child'] },
                 'revenue',
+                { scratch: ['done'] },
+                { Scratch: ['filed'] },
+                'scratch_test',
                 'scratchpad',
             ])
             const legacy = views?.children?.find((item) => item.displayName === 'revenue')
@@ -1263,6 +1281,58 @@ describe('queryDatabaseLogic', () => {
             expect(legacy?.record?.view?.name).toEqual('revenue')
             const filed = views?.children?.find((item) => item.record?.type === 'folder' && item.name === 'marts')
             expect(filed?.children?.[0]?.name).toEqual('models.bt_child')
+        })
+
+        const dropView = (viewId: string, dropTargetId: string): void => {
+            logic.actions.moveDraggedViewToDropTarget(`view-${viewId}`, dropTargetId)
+            dataWarehouseViewsLogic
+                .findMounted()
+                ?.actions.loadDataWarehouseSavedQueryDownstreamReferencesSuccess(viewId, [])
+        }
+
+        const folderOf = (viewId: string): string | null | undefined =>
+            logic.values.dataWarehouseSavedQueries.find((view) => view.id === viewId)?.folder_id
+
+        test.each([
+            ['into a folder', 'scratch-test', 'view-folder-folder-3', 'models.scratch_test', 'scratch.scratch_test'],
+            ['back to the root', 'filed', 'views', 'models.finance.arr', 'arr'],
+        ])(
+            'dropping a model %s offers the matching name and changes nothing on cancel',
+            async (_case, viewId, dropTargetId, originalName, proposedName) => {
+                const folderBefore = folderOf(viewId)
+
+                dropView(viewId, dropTargetId)
+                expect(logic.values.renameView).toMatchObject({ id: viewId, originalName, name: proposedName })
+
+                logic.actions.closeRenameView()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.renameView).toBeNull()
+                expect(folderOf(viewId)).toEqual(folderBefore)
+                expect(bodies).toEqual([])
+            }
+        )
+
+        it('renames a dropped model and files it in the folder when the rename is confirmed', async () => {
+            dropView('scratch-test', 'view-folder-folder-3')
+            await expectLogic(logic, () => {
+                logic.actions.submitRenameView()
+            }).toFinishAllListeners()
+            await expectLogic(dataWarehouseViewsLogic.findMounted()!).toFinishAllListeners()
+
+            expect(bodies).toEqual([
+                { name: 'scratch.scratch_test' },
+                { id: 'scratch-test', folder_id: 'folder-3', soft_update: true },
+            ])
+            expect(logic.values.renameView).toBeNull()
+        })
+
+        it('files a model that already has the folder name without asking to rename it', async () => {
+            dropView('scratch-done', 'view-folder-folder-3')
+            await expectLogic(dataWarehouseViewsLogic.findMounted()!).toFinishAllListeners()
+
+            expect(logic.values.renameView).toBeNull()
+            expect(bodies).toEqual([{ id: 'scratch-done', folder_id: 'folder-3', soft_update: true }])
         })
 
         it('finds a model inside a group when searching and opens the group above it', () => {
