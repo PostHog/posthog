@@ -97,6 +97,9 @@ export const aiFeaturesSettingsLogic = kea<aiFeaturesSettingsLogicType>([
             posthog.capture('error_tracking_ai_issue_summaries_toggled', { ai_issue_summaries_enabled: enabled })
             lemonToast.success(enabled ? 'Issue summaries turned on' : 'Issue summaries turned off')
         },
+        setIssueSummariesEnabledFailure: ({ errorObject }) => {
+            lemonToast.error(errorObject?.detail ?? "Couldn't save this setting. Check your connection and try again.")
+        },
     }),
 
     afterMount(({ actions }) => {
