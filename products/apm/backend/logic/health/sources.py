@@ -1,7 +1,8 @@
 """Reads the health row for every service in a window from the spans table.
 
 A service's request rate comes from its entry spans: server spans and consumer spans. A service
-that emits neither, such as a scheduled job, falls back to its root spans so it still gets a row.
+that emits neither in an environment, such as a scheduled job, falls back to its root spans there
+so it still gets a row.
 The environment is the first non-empty resource attribute in the resolution order below, with the
 cluster name as the last fallback. A span that sets none of them has the empty environment, which
 the API returns as null, so it stays apart from an environment literally named `default`. Every
@@ -89,34 +90,52 @@ def _window_where(date_from: datetime, date_to: datetime) -> ast.Expr:
     )
 
 
+def _counted_span_where(date_from: datetime, date_to: datetime, environment: str | None) -> ast.Expr:
+    # Server and consumer spans are the request count. Root spans are the fallback for a service with
+    # neither, so a job's client spans count once each rather than once per downstream call. The
+    # fallback is decided per service and environment: a service with server spans in one environment
+    # and only root spans in another still counts the second environment's requests and errors, so the
+    # all-environments row equals the sum of the per-environment rows.
+    return parse_expr(
+        """
+        kind IN (2, 5) OR (
+            is_root_span AND (service_name, {env_expr}) NOT IN (
+                SELECT service_name, {env_expr}
+                FROM posthog.trace_spans
+                WHERE {where} AND {env_where} AND kind IN (2, 5)
+                GROUP BY service_name, {env_expr}
+            )
+        )
+        """,
+        placeholders={
+            "env_expr": environment_expr(),
+            "where": _window_where(date_from, date_to),
+            "env_where": _environment_where(environment),
+        },
+    )
+
+
 def _services_query(date_from: datetime, date_to: datetime, environment: str | None) -> ast.SelectQuery:
-    # Server and consumer spans are the request count. Root spans are the fallback for services with
-    # neither, so a job's client spans count once each rather than once per downstream call.
-    #
     # A team with more services than SERVICES_LIMIT needs the worst ones to survive the cutoff, so
     # the ranking (error rate, then error count, then name — the same order rank_services applies)
-    # runs in SQL before LIMIT, not after. The HAVING also drops services with no counted spans,
-    # which would otherwise waste a LIMIT slot ahead of a service that actually has traffic.
+    # runs in SQL before LIMIT, not after.
     query = parse_select(
         """
         SELECT
             service_name,
-            countIf(kind IN (2, 5)) AS entry_spans,
-            if(countIf(kind IN (2, 5)) > 0, countIf(kind IN (2, 5)), countIf(is_root_span)) AS span_count,
-            if(countIf(kind IN (2, 5)) > 0, countIf(kind IN (2, 5) AND status_code = 2), countIf(is_root_span AND status_code = 2)) AS error_count,
-            if(countIf(kind IN (2, 5)) > 0,
-               quantileIf(0.95)(duration_nano, kind IN (2, 5)),
-               quantileIf(0.95)(duration_nano, is_root_span)) / 1e6 AS p95_ms
+            count() AS span_count,
+            countIf(status_code = 2) AS error_count,
+            quantile(0.95)(duration_nano) / 1e6 AS p95_ms
         FROM posthog.trace_spans
-        WHERE {where} AND {env_where}
+        WHERE {where} AND {env_where} AND {counted}
         GROUP BY service_name
-        HAVING span_count > 0
         ORDER BY error_count / span_count DESC, error_count DESC, service_name
         LIMIT {limit}
         """,
         placeholders={
             "where": _window_where(date_from, date_to),
             "env_where": _environment_where(environment),
+            "counted": _counted_span_where(date_from, date_to, environment),
             "limit": ast.Constant(value=SERVICES_LIMIT),
         },
     )
@@ -227,10 +246,9 @@ def _sparkline_query(date_from: datetime, date_to: datetime, environment: str | 
         SELECT
             service_name,
             toInt(floor(dateDiff('second', {date_from}, timestamp) / {bucket_seconds})) AS bucket,
-            countIf(kind IN (2, 5)) AS entry_spans,
-            countIf(is_root_span) AS root_spans
+            count() AS span_count
         FROM posthog.trace_spans
-        WHERE {where} AND {env_where}
+        WHERE {where} AND {env_where} AND {counted}
         GROUP BY service_name, bucket
         ORDER BY service_name, bucket
         LIMIT 100000
@@ -242,6 +260,7 @@ def _sparkline_query(date_from: datetime, date_to: datetime, environment: str | 
             ),
             "where": _window_where(date_from, date_to),
             "env_where": _environment_where(environment),
+            "counted": _counted_span_where(date_from, date_to, environment),
         },
     )
     assert isinstance(query, ast.SelectQuery)
@@ -273,13 +292,12 @@ def list_services_health(
     seconds = max(1.0, (date_to - date_from).total_seconds())
     rows = _run(team, _services_query(date_from, date_to, environment))
     sparklines: dict[str, list[int]] = {}
-    has_entry: dict[str, bool] = {row[0]: row[1] > 0 for row in rows}  # row[1] is entry_spans
-    for service_name, bucket, entry_spans, root_spans in _run(team, _sparkline_query(date_from, date_to, environment)):
+    for service_name, bucket, span_count in _run(team, _sparkline_query(date_from, date_to, environment)):
         points = sparklines.setdefault(service_name, [0] * SPARKLINE_POINTS)
         if 0 <= bucket < SPARKLINE_POINTS:
-            points[bucket] += entry_spans if has_entry.get(service_name) else root_spans
+            points[bucket] += span_count
     services = []
-    for service_name, _entry_spans, span_count, error_count, p95_ms in rows:
+    for service_name, span_count, error_count, p95_ms in rows:
         if not span_count:
             continue
         health = HealthRow(

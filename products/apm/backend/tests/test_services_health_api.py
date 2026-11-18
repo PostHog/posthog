@@ -228,6 +228,22 @@ class TestServicesHealthAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(self._span_count(self._list(environment="prod", **window)), 3)
         self.assertEqual(self._span_count(self._list(environment="staging", **window)), 3)
 
+    def test_root_span_fallback_is_decided_per_environment(self) -> None:
+        # Server spans in prod must not hide the root client spans that are staging's only requests.
+        writer = SpanWriter(team_id=self.team.id, base=dt.datetime(2026, 6, 8, 8, 0, 0), uuid_prefix="019e8778")
+        for _ in range(2):
+            writer.span("split", kind=2, env="prod")
+        for i in range(3):
+            writer.span("split", kind=3, status_code=2 if i == 0 else 0, env="staging")
+        writer.insert()
+        window = {"date_from": "2026-06-08T07:00:00Z", "date_to": "2026-06-08T09:00:00Z"}
+
+        everything = self._list(environment=None, **window)["results"]
+        self.assertEqual([(r["health"]["span_count"], r["health"]["error_count"]) for r in everything], [(5, 1)])
+        self.assertEqual(sum(everything[0]["sparkline"]), 5)
+        staging = self._list(environment="staging", **window)["results"]
+        self.assertEqual([(r["health"]["span_count"], r["health"]["error_count"]) for r in staging], [(3, 1)])
+
     def test_defaults_to_the_last_hour_when_no_range_is_given(self) -> None:
         with patch(FLAG_PATCH, return_value=True):
             response = self.client.get(f"/api/projects/{self.team.id}/apm/services/")
