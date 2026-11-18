@@ -764,13 +764,14 @@ describe('exec tool', () => {
             expect(JSON.parse(result as string)).toEqual({ name: 'skill', content })
         })
 
-        it('throws a descriptive error when the inline JSON body is malformed', async () => {
+        it.each([
+            { case: 'is malformed', body: '{not-json}', expected: /Invalid JSON input:/ },
+            { case: 'is a JSON string', body: '"{\\"id\\":1}"', expected: /expected a JSON object, got a string/ },
+            { case: 'is a bare number', body: '42', expected: /expected a JSON object, got a number/ },
+            { case: 'is null', body: 'null', expected: /expected a JSON object, got null/ },
+        ])('throws a descriptive error when the inline JSON body $case', async ({ body, expected }) => {
             const exec = createExec()
-            await expect(
-                exec.handler(mockContext, {
-                    command: 'call mock-tool {not-json}',
-                })
-            ).rejects.toThrow(/Invalid JSON input:/)
+            await expect(exec.handler(mockContext, { command: `call mock-tool ${body}` })).rejects.toThrow(expected)
         })
 
         it.each([

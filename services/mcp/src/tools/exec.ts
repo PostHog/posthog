@@ -2221,12 +2221,21 @@ export function createExecTool(
                     if (!jsonBody) {
                         input = {}
                     } else {
+                        let parsed: unknown
                         try {
-                            input = JSON.parse(jsonBody) as Record<string, unknown>
+                            parsed = JSON.parse(jsonBody)
                         } catch (err) {
                             const detail = err instanceof Error ? err.message : String(err)
                             throw new ExecCommandError(`Invalid JSON input: ${detail}`, 'invalid_json')
                         }
+                        if (typeof parsed !== 'object' || parsed === null) {
+                            const received = parsed === null ? 'null' : `a ${typeof parsed}`
+                            throw new ExecCommandError(
+                                `Invalid JSON input: expected a JSON object, got ${received}. Pass the parameters as an object, for example {"id": 1}.`,
+                                'invalid_json'
+                            )
+                        }
+                        input = parsed as Record<string, unknown>
                     }
 
                     // `output_format` is hidden from exec-mode schemas — `--json` owns output
