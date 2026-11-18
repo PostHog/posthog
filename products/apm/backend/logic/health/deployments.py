@@ -1,6 +1,10 @@
 """Reads one service's versions in a window, each compared with the version that came before it.
 
-A version is the `service.version` resource attribute. Requests are entry spans (server and
+A version is the first resource attribute in VERSION_ATTRIBUTES the service sets. Most Kubernetes
+instrumentation never sets `service.version`, but every rollout creates a new replica set, so
+`k8s.replicaset.name` stands in for it. A service uses one source for the whole window: the first
+one any of its spans carry, so a service mid-way through adopting `service.version` doesn't mix
+replica set names with release names. Requests are entry spans (server and
 consumer), with root spans as the fallback for a service that has neither, as on the services tab.
 First seen and last seen are the first and last span in the window, so a version that started
 before the window shows the window's start.
@@ -8,10 +12,11 @@ before the window shows the window's start.
 
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Literal
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
@@ -22,6 +27,9 @@ from products.apm.backend.logic.health.sources import environment_expr, environm
 DEPLOYMENTS_LIMIT = 200
 MAX_BYTES_TO_READ = 10_000_000_000
 MAX_EXECUTION_SECONDS = 30
+
+VersionSource = Literal["service.version", "k8s.replicaset.name"]
+VERSION_ATTRIBUTES: tuple[VersionSource, ...] = ("service.version", "k8s.replicaset.name")
 
 
 @dataclass(frozen=True)
@@ -39,15 +47,32 @@ class DeploymentVersion:
     active: bool
 
 
+@dataclass(frozen=True)
+class DeploymentsResult:
+    versions: list[DeploymentVersion]
+    version_source: VersionSource | None
+
+
+def _version_exprs() -> tuple[ast.Expr, ast.Expr]:
+    """The version and the index of the attribute it came from, 0 for the most preferred."""
+    values = [f"nullIf(resource_attributes['{key}'], '')" for key in VERSION_ATTRIBUTES]
+    version = "coalesce(" + ", ".join(values) + ", '')"
+    rank = "multiIf(" + ", ".join(f"{v} IS NOT NULL, {i}" for i, v in enumerate(values)) + f", {len(values)})"
+    return parse_expr(version), parse_expr(rank)
+
+
 def _deployments_query(
     date_from: datetime, date_to: datetime, environment: str | None, service: str
 ) -> ast.SelectQuery:
     # Entry or root spans are chosen per environment, as on the services tab, so a version that
     # only has root spans in one environment keeps those requests when every environment is read.
+    version_expr, source_rank_expr = _version_exprs()
+    # Rows sort by source first, so the limit keeps the preferred source's newest versions.
     query = parse_select(
         """
         SELECT
             version,
+            source_rank,
             min(env_first_seen) AS first_seen,
             max(env_last_seen) AS last_seen,
             sum(entry_spans) AS entry_span_count,
@@ -56,7 +81,8 @@ def _deployments_query(
             arrayElement(quantilesMerge(0.95)(if(entry_spans > 0, entry_p95, root_p95)), 1) / 1e6 AS p95_ms
         FROM (
             SELECT
-                ifNull(resource_attributes['service.version'], '') AS version,
+                {version_expr} AS version,
+                {source_rank_expr} AS source_rank,
                 {env_expr} AS environment,
                 min(timestamp) AS env_first_seen,
                 max(timestamp) AS env_last_seen,
@@ -68,14 +94,16 @@ def _deployments_query(
                 quantilesStateIf(0.95)(duration_nano, is_root_span) AS root_p95
             FROM posthog.trace_spans
             WHERE {where} AND {env_where} AND service_name = {service}
-            GROUP BY version, environment
+            GROUP BY version, source_rank, environment
         )
-        GROUP BY version
+        GROUP BY version, source_rank
         HAVING version != '' AND requests > 0
-        ORDER BY first_seen DESC, version DESC
+        ORDER BY source_rank ASC, first_seen DESC, version DESC
         LIMIT {limit}
         """,
         placeholders={
+            "version_expr": version_expr,
+            "source_rank_expr": source_rank_expr,
             "env_expr": environment_expr(),
             "where": window_where(date_from, date_to),
             "env_where": environment_where(environment),
@@ -120,9 +148,20 @@ def compare_versions(rows: list[tuple]) -> list[DeploymentVersion]:
     return versions
 
 
+def pick_version_source(rows: list[tuple]) -> tuple[VersionSource | None, list[tuple]]:
+    """Keeps the rows of the most preferred source present, without their source column.
+
+    Rows are (version, source_rank, *metrics) sorted by source_rank first.
+    """
+    if not rows:
+        return None, []
+    rank = min(row[1] for row in rows)
+    return VERSION_ATTRIBUTES[rank], [(row[0], *row[2:]) for row in rows if row[1] == rank]
+
+
 def list_deployments(
     *, team: Team, date_from: datetime, date_to: datetime, environment: str | None, service: str
-) -> list[DeploymentVersion]:
+) -> DeploymentsResult:
     rows = execute_hogql_query(
         query_type="ApmDeploymentsQuery",
         query=_deployments_query(date_from, date_to, environment, service),
@@ -135,5 +174,6 @@ def list_deployments(
             read_overflow_mode="throw",
         ),
     ).results
+    version_source, rows = pick_version_source(rows)
     # The query keeps the newest versions under the limit; the comparison walks them oldest first.
-    return compare_versions(list(reversed(rows)))
+    return DeploymentsResult(versions=compare_versions(list(reversed(rows))), version_source=version_source)

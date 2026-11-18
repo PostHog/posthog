@@ -93,7 +93,7 @@ export type DependenciesResponseApi = zod.input<typeof DependenciesResponseApi>
 export type DependenciesResponseApiOutput = zod.output<typeof DependenciesResponseApi>
 
 export const DeploymentVersionApi = zod.object({
-    version: zod.string().describe('The service.version resource attribute.'),
+    version: zod.string().describe('The version, read from the attribute named by version_source.'),
     first_seen: zod.iso.datetime({ offset: true }).describe('First span of this version in the window.'),
     last_seen: zod.iso.datetime({ offset: true }).describe('Last span of this version in the window.'),
     requests: zod.number().describe('Requests counted in the window.'),
@@ -112,11 +112,18 @@ export const DeploymentVersionApi = zod.object({
 export type DeploymentVersionApi = zod.input<typeof DeploymentVersionApi>
 export type DeploymentVersionApiOutput = zod.output<typeof DeploymentVersionApi>
 
+export const VersionSourceEnumApi = zod
+    .enum(['service.version', 'k8s.replicaset.name'])
+    .describe('\* `service.version` - service.version\n\* `k8s.replicaset.name` - k8s.replicaset.name')
+
+export type VersionSourceEnumApi = zod.input<typeof VersionSourceEnumApi>
+export type VersionSourceEnumApiOutput = zod.output<typeof VersionSourceEnumApi>
+
 export const DeploymentsResponseApi = zod.object({
     results: zod
         .array(
             zod.object({
-                version: zod.string().describe('The service.version resource attribute.'),
+                version: zod.string().describe('The version, read from the attribute named by version_source.'),
                 first_seen: zod.iso.datetime({ offset: true }).describe('First span of this version in the window.'),
                 last_seen: zod.iso.datetime({ offset: true }).describe('Last span of this version in the window.'),
                 requests: zod.number().describe('Requests counted in the window.'),
@@ -139,6 +146,16 @@ export const DeploymentsResponseApi = zod.object({
             })
         )
         .describe('One row per version, oldest first.'),
+    version_source: zod
+        .union([
+            zod
+                .enum(['service.version', 'k8s.replicaset.name'])
+                .describe('\* `service.version` - service.version\n\* `k8s.replicaset.name` - k8s.replicaset.name'),
+            zod.null(),
+        ])
+        .describe(
+            'The resource attribute the versions come from: service.version when the service sets it, else k8s.replicaset.name, which changes on every Kubernetes rollout. Null when the spans carry neither.\n\n\* `service.version` - service.version\n\* `k8s.replicaset.name` - k8s.replicaset.name'
+        ),
     service: zod.string().describe('The service the versions belong to.'),
     environment: zod
         .string()
