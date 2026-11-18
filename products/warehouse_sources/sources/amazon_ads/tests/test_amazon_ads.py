@@ -2,7 +2,7 @@ import gzip
 import json
 import datetime as dt
 from collections.abc import Callable, Iterator
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 import time_machine
@@ -261,7 +261,7 @@ class TestGetRows:
         assert set(result.paths) == {"/auth/o2/token", "/v2/profiles"}
 
     @pytest.mark.parametrize("region", ["na", "eu", "fe"])
-    def test_targets_query_bad_request_is_non_retryable(self, region: str) -> None:
+    def test_targets_query_bad_request_is_non_retryable(self, region: Literal["na", "eu", "fe"]) -> None:
         # The unified Ads API rejects `sb_targets`/`sd_targets` (which share this path) with a 400
         # rather than an empty page when the profile has no campaigns of that ad product.
         driver = SourceDriver(
