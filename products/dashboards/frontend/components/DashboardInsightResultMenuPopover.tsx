@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { ReactNode, RefObject } from 'react'
 
 import { CapturedPersonsModal } from 'lib/components/ResultMenu/personsModalCapture'
-import { ResultMenu } from 'lib/components/ResultMenu/ResultMenu'
+import { ResultMenu, ResultMenuAction } from 'lib/components/ResultMenu/ResultMenu'
 import { ResultMenuPoint } from 'lib/components/ResultMenu/resultMenuTrigger'
 import { getPersonsRecordingFilters } from 'scenes/trends/persons-modal/getPersonsRecordingFilters'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
@@ -16,6 +16,41 @@ import { ReplayTabs } from '~/types'
 import { dashboardResultFilterLogic } from '../dashboardResultFilterLogic'
 import { getDashboardResultActors, getDashboardResultFilterLink } from '../dashboardResultFilters'
 import { dashboardInsightResultMenuLogic } from './dashboardInsightResultMenuLogic'
+
+function useDashboardFilterActions(
+    dashboardId: number | undefined,
+    tileId: number | undefined,
+    actors: CapturedPersonsModal | null,
+    label: string,
+    close: () => void
+): ResultMenuAction[] {
+    const logic = dashboardResultFilterLogic({ dashboardId: dashboardId ?? 0 })
+    const { selection: activeFilter } = useValues(logic)
+    const { selectResult } = useActions(logic)
+    if (dashboardId === undefined || tileId === undefined) {
+        return []
+    }
+    const query = actors ? getDashboardResultActors(actors) : null
+    const selection = query ? { dashboardId, tileId, label, query } : null
+    const active = activeFilter?.tileId === tileId && deepEqual(activeFilter.query, query)
+    return [
+        {
+            name: active ? 'Remove filter' : 'Filter dashboard by this result',
+            className: 'ResultMenu__filter',
+            to: selection ? getDashboardResultFilterLink(window.location.href, selection, active) : undefined,
+            inPlace: true,
+            disabledReason: selection
+                ? undefined
+                : 'Right-click a result that identifies people, groups, or sessions. Other breakdowns and warehouse identities cannot filter insights.',
+            onClick: () => {
+                if (selection) {
+                    selectResult(selection)
+                }
+                close()
+            },
+        },
+    ]
+}
 
 /** The open result menu. It mounts the result logic only while the menu is open, because every
  *  dashboard tile renders the menu trigger and each mounted logic slows every later dispatch. */
@@ -48,8 +83,13 @@ export function DashboardInsightResultMenuPopover({
     rowsUrl: string | undefined
     close: () => void
 }): JSX.Element {
-    const { selection: activeFilter } = useValues(dashboardResultFilterLogic({ dashboardId: dashboardId ?? 0 }))
-    const { selectResult } = useActions(dashboardResultFilterLogic({ dashboardId: dashboardId ?? 0 }))
+    const filterActions = useDashboardFilterActions(
+        dashboardId,
+        tileId,
+        actors,
+        typeof selectedResult === 'string' ? selectedResult : caption,
+        close
+    )
     const recordingQuery = actors?.query
     const { selectedResult: resolvedResult, resultLoading } = useValues(
         dashboardInsightResultMenuLogic({
@@ -66,21 +106,6 @@ export function DashboardInsightResultMenuPopover({
         ? 'Loading the selected result…'
         : 'Could not load the selected result. Right-click the data point again to retry.'
 
-    const filterActors = actors ? getDashboardResultActors(actors) : null
-    const filterSelection =
-        filterActors && dashboardId !== undefined && tileId !== undefined
-            ? {
-                  dashboardId,
-                  tileId,
-                  label: typeof selectedResult === 'string' ? selectedResult : caption,
-                  query: filterActors,
-              }
-            : null
-    const isActiveFilter =
-        !!filterSelection &&
-        !!activeFilter &&
-        activeFilter.tileId === tileId &&
-        deepEqual(activeFilter.query, filterSelection.query)
     return (
         <ResultMenu
             triggerRef={triggerRef}
@@ -89,27 +114,7 @@ export function DashboardInsightResultMenuPopover({
             interaction={position}
             close={close}
             actions={[
-                ...(dashboardId !== undefined && tileId !== undefined
-                    ? [
-                          {
-                              name: isActiveFilter ? 'Remove filter' : 'Filter dashboard by this result',
-                              className: 'ResultMenu__filter',
-                              to: filterSelection
-                                  ? getDashboardResultFilterLink(window.location.href, filterSelection, isActiveFilter)
-                                  : undefined,
-                              inPlace: true,
-                              disabledReason: filterSelection
-                                  ? undefined
-                                  : 'Right-click a result that identifies people, groups, or sessions. Other breakdowns and warehouse identities cannot filter insights.',
-                              onClick: () => {
-                                  if (filterSelection) {
-                                      selectResult(filterSelection)
-                                  }
-                                  close()
-                              },
-                          },
-                      ]
-                    : []),
+                ...filterActions,
 
                 {
                     name: sqlQuery ? 'View underlying rows' : 'View people',

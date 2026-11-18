@@ -16,7 +16,9 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
 
 
-def matches_insight(node: ast.Call, context: HogQLContext, events_alias: str) -> ast.Expr:
+def _parse_insight_selection(
+    node: ast.Call,
+) -> InsightActorsQuery | FunnelsActorsQuery | StickinessActorsQuery | PathsV2ActorsQuery:
     argument = node.args[0]
     if not isinstance(argument, ast.Constant) or not isinstance(argument.value, str):
         raise QueryError("matchesInsight expects a constant JSON actor query", node=node)
@@ -30,9 +32,6 @@ def matches_insight(node: ast.Call, context: HogQLContext, events_alias: str) ->
         query.source, (InsightActorsQuery, FunnelsActorsQuery, StickinessActorsQuery, PathsV2ActorsQuery)
     ):
         raise QueryError("matchesInsight requires a product analytics datapoint", node=node)
-    if context.team_id is None:
-        raise QueryError("matchesInsight requires a project", node=node)
-
     insight = query.source.source
     if insight.kind not in (
         "TrendsQuery",
@@ -51,8 +50,25 @@ def matches_insight(node: ast.Call, context: HogQLContext, events_alias: str) ->
     )
     if BREAKDOWN_OTHER_STRING_LABEL in (breakdown if isinstance(breakdown, list) else [breakdown]):
         raise QueryError("The Other breakdown cannot be used as a dashboard filter", node=node)
+    _normalize_breakdown(query.source, breakdown, node)
+    series = getattr(insight, "series", None)
     if (
-        isinstance(query.source, InsightActorsQuery)
+        (series and any(item.kind not in ("EventsNode", "ActionsNode") for item in series))
+        or getattr(insight, "customAggregationTarget", False)
+        or getattr(getattr(insight, "retentionFilter", None), "customAggregationTarget", False)
+    ):
+        raise QueryError("This insight does not identify PostHog users or groups", node=node)
+    return query.source
+
+
+def _normalize_breakdown(
+    source: InsightActorsQuery | FunnelsActorsQuery | StickinessActorsQuery | PathsV2ActorsQuery,
+    breakdown,
+    node: ast.Call,
+) -> None:
+    insight = source.source
+    if (
+        isinstance(source, InsightActorsQuery)
         and isinstance(insight, TrendsQuery)
         and isinstance(breakdown, list)
         and insight.breakdownFilter
@@ -61,21 +77,20 @@ def matches_insight(node: ast.Call, context: HogQLContext, events_alias: str) ->
     ):
         if len(breakdown) != 1:
             raise QueryError("The selected breakdown does not match the insight", node=node)
-        query.source.breakdown = breakdown[0]
-    series = getattr(insight, "series", None)
-    if (
-        (series and any(item.kind not in ("EventsNode", "ActionsNode") for item in series))
-        or getattr(insight, "customAggregationTarget", False)
-        or getattr(getattr(insight, "retentionFilter", None), "customAggregationTarget", False)
-    ):
-        raise QueryError("This insight does not identify PostHog users or groups", node=node)
+        source.breakdown = breakdown[0]
+
+
+def matches_insight(node: ast.Call, context: HogQLContext, events_alias: str) -> ast.Expr:
+    selection = _parse_insight_selection(node)
+    if context.team_id is None:
+        raise QueryError("matchesInsight requires a project", node=node)
 
     # Query runners depend on the resolver; importing here breaks that dependency cycle.
     from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
     from posthog.models import Team
 
     team = context.team or Team.objects.get(id=context.team_id)
-    runner = ActorsQueryRunner(query=ActorsQuery(source=query.source), team=team, user=context.user)
+    runner = ActorsQueryRunner(query=ActorsQuery(source=selection), team=team, user=context.user)
     runner.validate()
     if context.user is not None:
         runner.validate_query_runner_access(context.user)

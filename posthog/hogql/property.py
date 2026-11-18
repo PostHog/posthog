@@ -1941,7 +1941,13 @@ def steps_to_expr(steps: Sequence[ActionStep], team: Team, events_alias: Optiona
             # An action referencing itself here would re-enter action_to_expr until Python's recursion limit.
             if any(isinstance(prop, dict) and prop.get("type") == "behavioral" for prop in step.properties):
                 raise QueryError("Action steps can't filter on behavioral properties")
-            exprs.append(property_to_expr(step.properties, team))
+            from posthog.hogql.functions.insight_selection import InsightSelectionFinder  # noqa: PLC0415
+
+            property_expr = property_to_expr(step.properties, team)
+            # Saved action definitions are absent from the caller's query-cache fingerprint.
+            if InsightSelectionFinder(property_expr).found:
+                raise QueryError("Action steps cannot contain insight selections")
+            exprs.append(property_expr)
 
         if len(exprs) == 1:
             or_queries.append(exprs[0])

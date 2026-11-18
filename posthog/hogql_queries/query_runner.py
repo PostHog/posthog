@@ -3861,7 +3861,7 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         # cached result. `queried_resources` already leaves out the scopes they bypass.
         if not isinstance(user, User):
             if queried_resources is None:
-                return ["*"]
+                queried_resources = set(API_SCOPE_OBJECTS)
             restricted = queried_resources - user.readable_system_table_access_scopes()
             return sorted(restricted) or None
 

@@ -214,7 +214,7 @@ def queried_access_controlled_resources(
 
     # The macro can read tables through encoded actor queries, actions, and cohorts. Until those
     # references are expanded here, conservatively partition on every access-control scope.
-    if "matchesInsight" in query.model_dump_json():
+    if _contains_insight_selection(query):
         return None
 
     if getattr(query, "kind", None) == "AccountsTableQuery":
@@ -344,6 +344,29 @@ def queried_access_controlled_resources(
         if _references_data_warehouse(query)
         else set()
     )
+
+
+def _contains_insight_selection(value) -> bool:
+    from posthog.hogql.errors import BaseHogQLError  # noqa: PLC0415
+    from posthog.hogql.functions.insight_selection import InsightSelectionFinder  # noqa: PLC0415
+    from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select  # noqa: PLC0415
+
+    if isinstance(value, BaseModel):
+        return any(_contains_insight_selection(field) for field in value.__dict__.values())
+    if isinstance(value, dict):
+        return any(_contains_insight_selection(field) for field in value.values())
+    if isinstance(value, (list, tuple)):
+        return any(_contains_insight_selection(field) for field in value)
+    if not isinstance(value, str) or "(" not in value:
+        return False
+    # HogQL can appear in filters, formulas, ordering, and nested query nodes. Parse all call-bearing
+    # strings so quoted function names use the same decoding as execution. Unknown syntax fails closed.
+    for parser in (parse_expr, parse_select, parse_order_expr):
+        try:
+            return InsightSelectionFinder(parser(value)).found
+        except BaseHogQLError:
+            pass
+    return True
 
 
 def _with_fallback_parents(scopes: set[str], bypassed_scopes: frozenset[str]) -> set[str]:

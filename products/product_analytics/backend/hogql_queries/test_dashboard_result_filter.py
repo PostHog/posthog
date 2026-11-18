@@ -153,14 +153,20 @@ class TestDashboardResultFilterCache(BaseTest):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
-    @parameterized.expand([("hogql",), ("trends",), ("actors",)])
-    def test_insight_selection_partitions_cache_on_access_control(self, kind: str) -> None:
+    @parameterized.expand(
+        [
+            (kind, name)
+            for kind in ("hogql", "trends", "actors")
+            for name in ("matchesInsight", r"`matches\0Insight`", r'"matches\0Insight"')
+        ]
+    )
+    def test_insight_selection_partitions_cache_on_access_control(self, kind: str, name: str) -> None:
         source = TrendsQuery(
             series=[EventsNode(event="$pageview")],
             properties=[HogQLPropertyFilter(key="person_id in (select id from system.notebooks)")],
         )
         selection = ActorsQuery(source=InsightActorsQuery(source=source))
-        predicate = f"matchesInsight({escape_hogql_string(selection.model_dump_json())})"
+        predicate = f"{name}({escape_hogql_string(selection.model_dump_json())})"
         target = TrendsQuery(series=[EventsNode(event="$pageview")], properties=[HogQLPropertyFilter(key=predicate)])
         query = (
             HogQLQuery(query=f"select count() from events where {predicate}")

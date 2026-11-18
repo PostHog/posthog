@@ -2,6 +2,7 @@ import { useValues } from 'kea'
 
 import { Query } from '~/queries/Query/Query'
 import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
+import type { QueryContext } from '~/queries/types'
 import { InsightLogicProps, InsightModel } from '~/types'
 
 import { dashboardResultFilterLogic } from '../dashboardResultFilterLogic'
@@ -16,6 +17,7 @@ export function DashboardResultInsight({
     variablesOverride,
     loadPriority,
     fallback,
+    onDateRangeZoom,
 }: {
     dashboardId: number
     tileId: number
@@ -25,6 +27,7 @@ export function DashboardResultInsight({
     variablesOverride?: Record<string, HogQLVariable>
     loadPriority?: number
     fallback: JSX.Element
+    onDateRangeZoom?: QueryContext['onDateRangeZoom']
 }): JSX.Element {
     const { targets, loadQueue } = useValues(dashboardResultFilterLogic({ dashboardId }))
     if (!canFilterInsight(insight.query)) {
@@ -44,9 +47,11 @@ export function DashboardResultInsight({
             variablesOverride={variablesOverride}
             context={{
                 dashboardResultMenu: true,
+                onDateRangeZoom,
                 loadQueue,
                 insightProps: {
                     ...insightProps,
+                    retainResponseOnUnmount: true,
                     ...(filtered ? { doNotLoad: false, setQuery: undefined, dashboardId: undefined } : {}),
                     dashboardItemId: filtered ? getDashboardResultItemId(dashboardId, tileId) : insight.short_id,
                     cachedInsight: filtered ? metadata : insight,

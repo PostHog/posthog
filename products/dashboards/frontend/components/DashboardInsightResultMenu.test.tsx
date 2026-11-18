@@ -108,12 +108,8 @@ describe('dashboard result menu', () => {
         await waitFor(() => expect(screen.getByText('Open in SQL editor').closest('a')).not.toBeNull())
         expect(resultLogicMounted()).toBe(true)
         expect(screen.queryByText('View recordings')).not.toBeInTheDocument()
-        expect(queryRunner.performQuery).toHaveBeenCalledWith(
-            expect.objectContaining({ source: request.query, select: ['actor'] }),
-            expect.objectContaining({ signal: expect.any(AbortSignal) }),
-            undefined,
-            expect.any(String)
-        )
+        const sqlLink = new URL(screen.getByText('Open in SQL editor').closest('a')!.href)
+        expect(sqlLink.searchParams.get('open_query')).toBe("SELECT id FROM persons WHERE properties.country = 'US'")
         fireEvent.click(screen.getByText('View people'))
         expect(openedModal).toHaveBeenCalledWith(request)
     })

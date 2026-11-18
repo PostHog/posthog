@@ -472,6 +472,7 @@ function InsightCardInternal(
                         variablesOverride={variablesOverride}
                         loadPriority={loadPriority}
                         fallback={defaultInsight}
+                        onDateRangeZoom={onDateRangeZoom}
                     />
                 </React.Suspense>
             )

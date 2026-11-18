@@ -5,6 +5,7 @@ import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { InsightCard } from 'lib/components/Cards/InsightCard/InsightCard'
 
 import { useMocks } from '~/mocks/jest'
+import { InsightVizRenderer } from '~/queries/Query/queryNodeRenderers'
 import { InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { insightOnDashboard, tileFromInsight } from '~/scenes/dashboard/dashboardLogic.testHelpers'
 import { initKeaTests } from '~/test/init'
@@ -14,6 +15,7 @@ import { dashboardResultFilterLogic } from '../dashboardResultFilterLogic'
 
 describe('dashboard result insight execution', () => {
     afterEach(cleanup)
+    beforeAll(() => InsightVizRenderer.preload())
 
     it('filters and refreshes the target, preserves metadata, and restores its saved results when cleared', async () => {
         const result = (value: number): Record<string, unknown>[] => [
@@ -60,7 +62,7 @@ describe('dashboard result insight execution', () => {
         const logic = dashboardResultFilterLogic({ dashboardId: 777, tiles: [source, tile] })
         const unmount = logic.mount()
         try {
-            render(
+            const card = (
                 <InsightCard
                     insight={insight}
                     tile={tile}
@@ -75,6 +77,7 @@ describe('dashboard result insight execution', () => {
                     }}
                 />
             )
+            const rendered = render(card)
             await screen.findByText('160')
             expect(requests).toHaveLength(0)
             act(() =>
@@ -97,6 +100,10 @@ describe('dashboard result insight execution', () => {
                 properties: [expect.objectContaining({ key: expect.stringContaining('matchesInsight(') })],
             })
             expect(requests[0].filters_override).toBeUndefined()
+            rendered.unmount()
+            render(card)
+            await screen.findByText('42')
+            expect(requests).toHaveLength(1)
             act(() => {
                 dashboardResultFilterLogic({
                     dashboardId: 777,

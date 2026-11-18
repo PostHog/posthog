@@ -34,6 +34,20 @@ export function getDashboardResultItemId(dashboardId: number, tileId: number): `
     return `new-AdHoc.result-filter-${dashboardId}-${tileId}`
 }
 
+function isResultFilterGroup(value: unknown): value is { values: [unknown, unknown] } {
+    const group = value as { type?: FilterLogicalOperator; values?: unknown[] } | null
+    if (group?.type !== FilterLogicalOperator.And || !Array.isArray(group.values) || group.values.length !== 2) {
+        return false
+    }
+    const addedGroup = group.values[1] as { type?: FilterLogicalOperator; values?: HogQLPropertyFilter[] } | null
+    return (
+        addedGroup?.type === FilterLogicalOperator.And &&
+        addedGroup.values?.length === 1 &&
+        addedGroup.values[0]?.type === PropertyFilterType.HogQL &&
+        addedGroup.values[0]?.label === FILTER_LABEL
+    )
+}
+
 function withoutResultFilter(value: unknown): unknown {
     if (Array.isArray(value)) {
         return value
@@ -41,22 +55,8 @@ function withoutResultFilter(value: unknown): unknown {
             .map(withoutResultFilter)
     }
     if (value && typeof value === 'object') {
-        if (
-            'type' in value &&
-            value.type === FilterLogicalOperator.And &&
-            'values' in value &&
-            Array.isArray(value.values) &&
-            value.values.length === 2
-        ) {
-            const addedGroup = value.values[1]
-            if (
-                addedGroup?.type === FilterLogicalOperator.And &&
-                addedGroup.values?.length === 1 &&
-                addedGroup.values[0]?.type === PropertyFilterType.HogQL &&
-                addedGroup.values[0]?.label === FILTER_LABEL
-            ) {
-                return withoutResultFilter(value.values[0])
-            }
+        if (isResultFilterGroup(value)) {
+            return withoutResultFilter(value.values[0])
         }
         return Object.fromEntries(
             Object.entries(value)
@@ -105,7 +105,10 @@ export function getDashboardResultActors(request: CapturedPersonsModal): ActorsQ
     if ([breakdown].flat().includes(BREAKDOWN_OTHER_STRING_LABEL)) {
         return null
     }
-    const source = withoutResultFilter(query.source) as NonNullable<ActorsQuery['source']>
+    return normalizeResultActors(withoutResultFilter(query.source) as NonNullable<ActorsQuery['source']>)
+}
+
+function normalizeResultActors(source: NonNullable<ActorsQuery['source']>): ActorsQuery | null {
     if (
         source.kind === NodeKind.InsightActorsQuery &&
         source.source.kind === NodeKind.TrendsQuery &&
