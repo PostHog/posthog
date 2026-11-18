@@ -1,3 +1,4 @@
+import { createHash } from 'crypto'
 import fs from 'fs'
 import path from 'path'
 
@@ -33,6 +34,7 @@ import {
     isFirstPartyRoute,
     isVendorPromotion,
     parseDiscountRate,
+    parsePinnedLlmPrices,
     readEndpointsFromOpenRouter,
     renderDiscountReport,
     sanitizeReportCell,
@@ -1815,5 +1817,22 @@ describe('buildDirectProviderRows()', () => {
 
     it('rejects a payload without a models array', () => {
         expect(() => buildDirectProviderRows({ models: 'nope' }, [])).toThrow('no models array')
+    })
+})
+
+describe('parsePinnedLlmPrices()', () => {
+    const body = Buffer.from(JSON.stringify({ models: [{ provider: 'mistral', model: 'mistral-large-4' }] }))
+    const sha256 = createHash('sha256').update(body).digest('hex')
+
+    it('parses the asset when its bytes match the pinned hash', () => {
+        expect(parsePinnedLlmPrices(body, sha256)).toEqual({
+            models: [{ provider: 'mistral', model: 'mistral-large-4' }],
+        })
+    })
+
+    it('rejects an asset whose bytes changed after the pin', () => {
+        const replaced = Buffer.from(body.toString('utf-8').replace('mistral-large-4', 'mistral-large-5'))
+
+        expect(() => parsePinnedLlmPrices(replaced, sha256)).toThrow('checksum mismatch')
     })
 })

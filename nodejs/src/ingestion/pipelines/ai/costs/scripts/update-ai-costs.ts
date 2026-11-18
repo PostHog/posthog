@@ -1,7 +1,9 @@
+import { createHash } from 'crypto'
 import fs from 'fs'
 import bigDecimal from 'js-big-decimal'
 import path from 'path'
 
+import { parseJSON } from '~/common/utils/json-parse'
 import { normalizeProviderKey } from '~/ingestion/pipelines/ai/costs/provider-matching'
 import committedDirectProviderCostsRaw from '~/ingestion/pipelines/ai/costs/providers/direct-provider-costs.json'
 import committedOpenRouterCostsRaw from '~/ingestion/pipelines/ai/costs/providers/llm-costs.json'
@@ -688,8 +690,15 @@ export const fetchOpenRouterCosts = async (): Promise<RunTotals> => {
 
 /** Provider list prices read from each provider's own pricing page, USD per 1M
  * tokens, published as a release asset of https://github.com/Mattbusel/llm-prices.
- * Every row there carries the page it was read from and the date it was checked. */
-export const LLM_PRICES_URL = 'https://github.com/Mattbusel/llm-prices/releases/latest/download/prices.json'
+ * Every row there carries the page it was read from and the date it was checked.
+ *
+ * Pinned to one release and its SHA-256, so the scheduled run can only reproduce
+ * reviewed numbers. To take new prices, bump both in a PR (the hash is the
+ * release's prices.json.sha256 asset), run `pnpm update-ai-costs`, and check the
+ * JSON diff against each row's source page. */
+export const LLM_PRICES_VERSION = 'v1.8.0'
+export const LLM_PRICES_SHA256 = '959dc0ad506ff66fc7b112ea10e77455d67dbd9d0f6592f3f11dd788c7d2da64'
+export const LLM_PRICES_URL = `https://github.com/Mattbusel/llm-prices/releases/download/${LLM_PRICES_VERSION}/prices.json`
 
 export interface DirectProviderModel {
     /** Key `manualCostsByModel` resolves. */
@@ -781,13 +790,23 @@ export const buildDirectProviderRows = (
     })
 }
 
+/** Parses the release asset only if its bytes hash to the pinned SHA-256, so a
+ * replaced asset cannot change prices without a reviewed bump. */
+export const parsePinnedLlmPrices = (body: Buffer, expectedSha256: string = LLM_PRICES_SHA256): unknown => {
+    const actual = createHash('sha256').update(body).digest('hex')
+    if (actual !== expectedSha256.toLowerCase()) {
+        throw new Error(`llm-prices ${LLM_PRICES_VERSION} checksum mismatch: expected ${expectedSha256}, got ${actual}`)
+    }
+    return parseJSON(body.toString('utf-8'))
+}
+
 export const fetchDirectProviderCosts = async (): Promise<ModelCostRow[]> => {
     // eslint-disable-next-line no-restricted-globals
     const res = await fetch(LLM_PRICES_URL, { signal: AbortSignal.timeout(ENDPOINT_REQUEST_TIMEOUT_MS) })
     if (!res.ok) {
         throw new Error(`Failed to fetch llm-prices: ${res.status} ${res.statusText}`)
     }
-    return buildDirectProviderRows(await res.json())
+    return buildDirectProviderRows(parsePinnedLlmPrices(Buffer.from(await res.arrayBuffer())))
 }
 
 /** Direct-provider rows decorate the OpenRouter book, so a failed fetch leaves
