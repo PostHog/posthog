@@ -24,7 +24,7 @@ from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.hogai.chat_agent.runner import ChatAgentRunner
 from ee.hogai.core.ai_event_truncation import ai_event_truncator
-from ee.hogai.core.runner import MaxCallbackHandler, SubagentCallbackHandler
+from ee.hogai.core.runner import AI_EVENT_QUEUE_SIZE, MaxCallbackHandler, SubagentCallbackHandler
 from ee.hogai.llm import AI_GATEWAY_SERVED_KEY
 
 
@@ -89,6 +89,7 @@ class TestBaseAgentRunnerCallbackHandlers(BaseTest):
             flush_at=1,
             before_send=ai_event_truncator,
             capture_trace_context=True,
+            capture_ai_max_queue_size=AI_EVENT_QUEUE_SIZE,
         )
 
     @patch("ee.hogai.core.runner.is_cloud")
@@ -123,12 +124,14 @@ class TestBaseAgentRunnerCallbackHandlers(BaseTest):
             flush_at=1,
             before_send=ai_event_truncator,
             capture_trace_context=True,
+            capture_ai_max_queue_size=AI_EVENT_QUEUE_SIZE,
         )
         mock_get_client.assert_any_call(
             "US",
             flush_at=1,
             before_send=ai_event_truncator,
             capture_trace_context=True,
+            capture_ai_max_queue_size=AI_EVENT_QUEUE_SIZE,
         )
 
     @parameterized.expand(
