@@ -1,6 +1,6 @@
 import { PlaywrightSetup } from '@playwright-utils/playwright-setup'
 import { expect, test } from '@playwright-utils/workspace-test-base'
-import { Page, Route } from '@playwright/test'
+import { Browser, BrowserContext, Page, Route } from '@playwright/test'
 
 const RECIPIENT = 'reader@example.com'
 const UPDATE_URL = '**/messaging-preferences/update*'
@@ -56,6 +56,31 @@ async function createPreferencesPage(page: Page, playwrightSetup: PlaywrightSetu
     return { path, productNewsId: categoryIds[0], eventInvitesId: categoryIds[1], storedPreferences }
 }
 
+interface RecipientView {
+    context: BrowserContext
+    recipientPage: Page
+    productNews: ReturnType<Page['getByRole']>
+    eventInvites: ReturnType<Page['getByRole']>
+    allMarketing: ReturnType<Page['getByRole']>
+    offNote: ReturnType<Page['getByText']>
+    status: (id: string) => ReturnType<Page['getByTestId']>
+}
+
+async function openAsRecipient(browser: Browser, path: string): Promise<RecipientView> {
+    const context = await browser.newContext({ storageState: { cookies: [], origins: [] } })
+    const recipientPage = await context.newPage()
+    await recipientPage.goto(path)
+    return {
+        context,
+        recipientPage,
+        productNews: recipientPage.getByRole('checkbox', { name: 'Product news' }),
+        eventInvites: recipientPage.getByRole('checkbox', { name: 'Event invites' }),
+        allMarketing: recipientPage.getByRole('checkbox', { name: 'All marketing communications' }),
+        offNote: recipientPage.getByText('These topics are off because all marketing communications are off.'),
+        status: (id) => recipientPage.getByTestId(`${id}-status`),
+    }
+}
+
 test.describe('Message preferences page', () => {
     test('all marketing off holds topics off, and turning it back on restores them', async ({
         browser,
@@ -66,16 +91,10 @@ test.describe('Message preferences page', () => {
             page,
             playwrightSetup
         )
-        const recipientContext = await browser.newContext({ storageState: { cookies: [], origins: [] } })
-        const recipientPage = await recipientContext.newPage()
-        const productNews = recipientPage.getByRole('checkbox', { name: 'Product news' })
-        const eventInvites = recipientPage.getByRole('checkbox', { name: 'Event invites' })
-        const allMarketing = recipientPage.getByRole('checkbox', { name: 'All marketing communications' })
-        const offNote = recipientPage.getByText('These topics are off because all marketing communications are off.')
-        const status = (id: string): ReturnType<Page['getByTestId']> => recipientPage.getByTestId(`${id}-status`)
+        const { context, recipientPage, productNews, eventInvites, allMarketing, offNote, status } =
+            await openAsRecipient(browser, path)
 
         try {
-            await recipientPage.goto(path)
             await eventInvites.click()
             await expect(status(eventInvitesId)).toHaveText('Not subscribed')
             await expect
@@ -124,34 +143,6 @@ test.describe('Message preferences page', () => {
                     .toEqual({ $all: 'OPTED_IN', [productNewsId]: 'OPTED_IN', [eventInvitesId]: 'OPTED_OUT' })
             })
 
-            await test.step('a refused all marketing save turns the switch back', async () => {
-                await recipientPage.route(
-                    UPDATE_URL,
-                    (route) => route.fulfill({ status: 500, json: { error: 'All marketing save refused' } }),
-                    { times: 1 }
-                )
-                await allMarketing.click()
-                await expect(recipientPage.getByText('All marketing save refused')).toBeVisible()
-                await expect(allMarketing).toBeChecked()
-                await expect(status('$all')).toHaveText('Subscribed')
-                await expect(offNote).toBeHidden()
-                await expect(productNews).toBeChecked()
-                await expect(productNews).toBeEnabled()
-            })
-
-            await test.step('a refused topic save turns the topic back', async () => {
-                await recipientPage.route(
-                    UPDATE_URL,
-                    (route) => route.fulfill({ status: 500, json: { error: 'Topic save refused' } }),
-                    { times: 1 }
-                )
-                await productNews.click()
-                await expect(recipientPage.getByText('Topic save refused')).toBeVisible()
-                await expect(productNews).toBeChecked()
-                await expect(productNews).toBeEnabled()
-                await expect(status(productNewsId)).toHaveText('Subscribed')
-            })
-
             await test.step('all marketing off during a pending topic save keeps the new topic choice', async () => {
                 const heldSaves: (() => void)[] = []
                 const holdSave = async (route: Route): Promise<void> => {
@@ -167,8 +158,6 @@ test.describe('Message preferences page', () => {
                 await allMarketing.click()
                 await expect.poll(() => heldSaves.length).toBe(2)
 
-                // Each save posts every topic and all marketing, so the all-off save, applied last, decides
-                // what is stored for all of them
                 const topicSaved = recipientPage.waitForResponse(UPDATE_URL)
                 heldSaves[0]()
                 await topicSaved
@@ -196,7 +185,47 @@ test.describe('Message preferences page', () => {
                     .toEqual({ $all: 'OPTED_IN', [productNewsId]: 'OPTED_OUT', [eventInvitesId]: 'OPTED_OUT' })
             })
         } finally {
-            await recipientContext.close()
+            await context.close()
+        }
+    })
+
+    test('a refused save turns the switch back', async ({ browser, page, playwrightSetup }) => {
+        const { path, productNewsId } = await createPreferencesPage(page, playwrightSetup)
+        const { context, recipientPage, productNews, allMarketing, offNote, status } = await openAsRecipient(
+            browser,
+            path
+        )
+
+        try {
+            await test.step('a refused all marketing save turns all marketing back on', async () => {
+                await recipientPage.route(
+                    UPDATE_URL,
+                    (route) => route.fulfill({ status: 500, json: { error: 'All marketing save refused' } }),
+                    { times: 1 }
+                )
+                await allMarketing.click()
+                await expect(recipientPage.getByText('All marketing save refused')).toBeVisible()
+                await expect(allMarketing).toBeChecked()
+                await expect(status('$all')).toHaveText('Subscribed')
+                await expect(offNote).toBeHidden()
+                await expect(productNews).toBeChecked()
+                await expect(productNews).toBeEnabled()
+            })
+
+            await test.step('a refused topic save turns the topic back on', async () => {
+                await recipientPage.route(
+                    UPDATE_URL,
+                    (route) => route.fulfill({ status: 500, json: { error: 'Topic save refused' } }),
+                    { times: 1 }
+                )
+                await productNews.click()
+                await expect(recipientPage.getByText('Topic save refused')).toBeVisible()
+                await expect(productNews).toBeChecked()
+                await expect(productNews).toBeEnabled()
+                await expect(status(productNewsId)).toHaveText('Subscribed')
+            })
+        } finally {
+            await context.close()
         }
     })
 })
