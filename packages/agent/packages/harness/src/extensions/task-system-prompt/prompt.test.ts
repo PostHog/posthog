@@ -60,6 +60,10 @@ describe("buildTaskSystemPrompt", () => {
     expect(prompt).toContain("Task-Id: task-123");
     expect(prompt).not.toContain('git commit -m "$(cat');
     expect(prompt).not.toContain("/code/task/");
+    expect(prompt).toContain(
+      "*Created with [PostHog](https://posthog.com?ref=pr)*",
+    );
+    expect(prompt).not.toContain("[PostHog Desktop]");
     expect(prompt).toContain("Use the existing pull request.");
     expect(prompt).toContain("## Keeping the task summary");
     expect(prompt).toContain("task_summary_update");

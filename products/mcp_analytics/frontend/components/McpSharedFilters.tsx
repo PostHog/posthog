@@ -100,6 +100,7 @@ export function McpSharedFilters({
                                 </Button>
                             )}
                             <div className="ml-auto flex items-center gap-2">
+                                {trailingControls}
                                 <McpInternalUsersFilter dataAttr={`${dataAttrPrefix}-test-account-filter`} />
                                 <Button
                                     variant="outline"
@@ -110,7 +111,6 @@ export function McpSharedFilters({
                                     <IconRefresh />
                                     Refresh
                                 </Button>
-                                {trailingControls}
                             </div>
                         </div>
                         {activeFilters.length > 0 && (

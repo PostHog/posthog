@@ -42,9 +42,6 @@ export const scanner = (overrides: Partial<ReplayScannerApi> = {}): ReplayScanne
         prompt_question: 'Did the user struggle?',
         query: null,
         sampling_rate: 1,
-        // The API always serializes this (non-null column with a default), so a fixture without it
-        // would render the editor's form default instead of the scanner's own coverage.
-        sampling_mode: 'comprehensive',
         provider: 'google',
         model: 'gemini-3.8-flash',
         enabled: true,

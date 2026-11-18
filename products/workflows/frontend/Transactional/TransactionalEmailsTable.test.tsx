@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, AppContext, PreflightStatus } from '~/types'
 
 import type { CodeEmailApi } from 'products/messaging/frontend/generated/api.schemas'
 
@@ -36,6 +36,7 @@ describe('TransactionalEmailsTable', () => {
     afterEach(() => {
         cleanup()
         Reflect.deleteProperty(navigator, 'clipboard')
+        Reflect.deleteProperty(window.POSTHOG_APP_CONTEXT ?? {}, 'preflight')
     })
 
     it.each([
@@ -170,13 +171,16 @@ describe('TransactionalEmailsTable', () => {
                 '/api/projects/:team_id/transactional_code_emails/': [],
                 '/api/projects/:team_id/integrations/': { results: [] },
                 '/api/projects/:team_id/tags': [],
-                ...(selfHosted ? { '/_preflight': { cloud: false, is_debug: false } } : {}),
                 ...get,
             } as Record<string, any>,
         })
         if (!flagsLoaded) {
             window.localStorage.clear()
         }
+        window.POSTHOG_APP_CONTEXT = {
+            ...window.POSTHOG_APP_CONTEXT,
+            preflight: { cloud: !selfHosted } as PreflightStatus,
+        } as AppContext
         initKeaTests()
         if (flagsLoaded) {
             loadFlags(wizardOffered)
@@ -187,6 +191,34 @@ describe('TransactionalEmailsTable', () => {
             </Provider>
         )
     }
+
+    it.each([
+        ['tells a cloud team with emails that transactional emails never wait for the sending allowance', false],
+        ['says nothing about a sending allowance on a self-hosted instance, which has none', true],
+    ])('%s', async (_case, selfHosted) => {
+        renderWithCodeSends(
+            {
+                '/api/projects/:team_id/transactional_code_emails/': [
+                    codeEmail('password-reset', AccessControlLevel.Editor),
+                ],
+            },
+            { selfHosted }
+        )
+        expect(await screen.findByText('password-reset')).toBeInTheDocument()
+
+        expect(
+            Boolean(
+                screen.queryByText(
+                    "Transactional emails count toward your daily sending allowance and are still sent after it's used up."
+                )
+            )
+        ).toBe(!selfHosted)
+        expect(screen.queryByText('How sending allowances work')?.closest('a')?.getAttribute('href')).toBe(
+            selfHosted
+                ? undefined
+                : 'https://posthog.com/docs/workflows/sending-reputation#do-transactional-emails-count-against-the-allowance'
+        )
+    })
 
     it('keeps the first send from code on screen in the empty tab', async () => {
         jest.useFakeTimers()
