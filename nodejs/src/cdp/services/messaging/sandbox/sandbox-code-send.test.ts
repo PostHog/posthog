@@ -400,6 +400,27 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         }
     )
 
+    it('answers with the sandbox sender kind when its team hands sends to the intake consumer', async () => {
+        hub.CDP_INTAKE_KAFKA_ASYNC_TEAMS = String(world.team.id)
+        try {
+            const res = await sendFromCode(request(sandboxSend()))
+
+            expect(res.status).toEqual(202)
+            expect(res.body).toEqual({
+                status: 'queued',
+                invocation_id: expect.any(String),
+                replayed: false,
+                scheduled_at: null,
+                sender_kind: 'email_sandbox',
+                attachment_count: 0,
+                attachment_bytes: 0,
+            })
+            expect(queued).toEqual([])
+        } finally {
+            hub.CDP_INTAKE_KAFKA_ASYNC_TEAMS = ''
+        }
+    })
+
     const runLogs = (results: CyclotronJobInvocationResult[]): string[] =>
         results.flatMap((result) => result.logs).map((log) => log.message)
 
