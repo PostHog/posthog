@@ -43,6 +43,11 @@
         border-radius: 50%;
     }
 
+    // The app styles headings with its own text color, which would be unreadable on these grounds.
+    h2 {
+        color: inherit;
+    }
+
     &--light {
         color: black;
 
@@ -133,4 +138,8 @@
     .MCPWrapped__pop {
         animation: none;
     }
+}
+
+.MCPWrapped__teaser h2 {
+    color: inherit;
 }
