@@ -69,8 +69,9 @@ READERS: dict[str, str] = {
     "products/alerts/backend/facade/platform.py": "`follow_insight_alert` keeps copies in step (D1)",
     "products/logs/backend/tasks/tasks.py": "`follow_logs_alert` keeps copies in step (E5)",
     "products/alerts/backend/platform_insight_alert.py": "builds a copy's check input from its row (D1)",
-    "products/logs/backend/alert_source_cycle.py": "`_as_configured_now` checks the row (D3)",
-    "products/logs/backend/alert_signal_emitter.py": "signals read the row (D3)",
+    "products/logs/backend/alert_source_cycle.py": (
+        "`_as_configured_now` refreshes a copy the logs stack owns from its row (E2)"
+    ),
     "products/logs/backend/alert_incidents.py": "incident close reads `owner` from the row (E4)",
     "products/logs/backend/facade/api.py::_close_if_subscribed": "incident close reads `owner` from the row (E4)",
     "products/alerts/backend/platform_hooks.py": "creator and viewer of an alert with a row, else of the copy (G2)",
