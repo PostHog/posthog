@@ -16,6 +16,8 @@ import { NodeKind, type RecordingsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { ScannerModelEnumApi } from '../generated/api.schemas'
+import { visionQuotaLogic } from '../logics/visionQuotaLogic'
+import { makeQuota } from '../utils/quotaTestUtils'
 import { parseCsvParam, parseNumericParam, parseSortParam } from '../utils/urlParams'
 import { newScanner } from './newScanner'
 import { replayFiltersScannerLogic } from './replayFiltersScannerLogic'
@@ -594,6 +596,24 @@ describe('replayScannerLogic', () => {
                 'replay_vision_scanner_creation_started',
                 expect.objectContaining({ creation_method: 'ai', entry_point: 'replay_filters' })
             )
+        })
+
+        it('prefills both goal budget inputs at the org free credits until the person edits them', () => {
+            const popover = replayFiltersScannerLogic()
+            popover.mount()
+            visionQuotaLogic.actions.loadQuotaSuccess(makeQuota({ free_monthly_credits: 1000 }))
+
+            const prefilled = [logic.values.goalBudgetInput, popover.values.budget]
+            logic.actions.setGoalBudgetInput(4000)
+            popover.actions.setBudget(null)
+
+            expect([...prefilled, logic.values.goalBudgetInput, popover.values.budget]).toEqual([
+                1000,
+                1000,
+                4000,
+                null,
+            ])
+            popover.unmount()
         })
 
         // A click in the consent dialog closes both popovers before the confirm button's own click.
