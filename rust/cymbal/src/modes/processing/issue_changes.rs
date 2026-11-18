@@ -2,6 +2,8 @@
 //! `products/error_tracking/backend/tests/fixtures/issue_change_data.json`, and `snapshot` mirrors
 //! `IssueSnapshot.to_json` in `products/error_tracking/backend/logic/issue_changes.py`.
 
+use std::collections::HashMap;
+
 use chrono::{DateTime, SecondsFormat, Utc};
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -18,7 +20,13 @@ const MAX_SNAPSHOT_NAME_CHARS: usize = 500;
 #[derive(Debug, Clone, PartialEq)]
 pub enum IssueChange {
     Created,
-    StatusChanged { previous: String },
+    StatusChanged {
+        previous: String,
+    },
+    Spiking {
+        computed_baseline: f64,
+        current_bucket_value: i64,
+    },
 }
 
 impl IssueChange {
@@ -26,6 +34,7 @@ impl IssueChange {
         match self {
             IssueChange::Created => "created",
             IssueChange::StatusChanged { .. } => "status_changed",
+            IssueChange::Spiking { .. } => "spiking",
         }
     }
 
@@ -33,6 +42,13 @@ impl IssueChange {
         match self {
             IssueChange::Created => json!({}),
             IssueChange::StatusChanged { previous } => json!({ "previous": previous }),
+            IssueChange::Spiking {
+                computed_baseline,
+                current_bucket_value,
+            } => json!({
+                "computed_baseline": computed_baseline,
+                "current_bucket_value": current_bucket_value,
+            }),
         }
     }
 }
@@ -132,6 +148,26 @@ where
     Ok(())
 }
 
+pub async fn load_assignments<'c, E>(
+    executor: E,
+    issue_ids: &[Uuid],
+) -> Result<HashMap<Uuid, Assignment>, UnhandledError>
+where
+    E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+{
+    let rows: Vec<Assignment> = sqlx::query_as(
+        r#"
+        SELECT id, issue_id, user_id, role_id, created_at
+        FROM posthog_errortrackingissueassignment
+        WHERE issue_id = ANY($1)
+        "#,
+    )
+    .bind(issue_ids)
+    .fetch_all(executor)
+    .await?;
+    Ok(rows.into_iter().map(|row| (row.issue_id, row)).collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -148,6 +184,10 @@ mod tests {
             IssueChange::Created,
             IssueChange::StatusChanged {
                 previous: "resolved".to_string(),
+            },
+            IssueChange::Spiking {
+                computed_baseline: 12.5,
+                current_bucket_value: 140,
             },
         ] {
             let written = json!({ "kind": change.kind(), "data": change.data() });
