@@ -100,7 +100,7 @@ def pending_attestations(
         attestation
         for attestation in attestations
         if attestation.usable
-        and (not attestation.title or re.search(attestation.title, pr_title))
+        and applies_to(attestation, pr_title)
         and any(covers(attestation, path) for path in pr_file_paths)
         and _latest_completed(check_runs, attestation) is None
     ]
@@ -124,6 +124,11 @@ def _attested_files(
     if proven is None:
         return set()
     return {path for path in proven & pr_paths if covers(attestation, path)}
+
+
+def applies_to(attestation: Attestation, pr_title: str) -> bool:
+    """False when the entry's publisher posts no result for a PR with this title."""
+    return not attestation.title or re.search(attestation.title, pr_title) is not None
 
 
 def covers(attestation: Attestation, path: str) -> bool:
