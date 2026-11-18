@@ -179,7 +179,7 @@ def get_trace(team: Team, user: User | None, trace_id: str, timestamp_hint: date
     loaded = load_trace(team, user, trace_id, timestamp_hint)
     if not loaded.rows:
         raise TraceNotFoundError(trace_id)
-    return _to_trace(Trace(trace_id, loaded.rows, loaded.person))
+    return _to_trace(Trace(trace_id, loaded.rows, loaded.person, partial=loaded.truncated))
 
 
 def resolve_trace_window(team: Team, date_from: str | None, date_to: str | None) -> TraceWindow:
