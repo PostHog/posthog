@@ -74,6 +74,7 @@ from posthog.hogql.database.schema.cohort_membership import CohortMembershipTabl
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
 from posthog.hogql.database.schema.document_embeddings import (
     HOGQL_MODEL_TABLES,
+    HOGQL_POSTHOG_MODEL_TABLES,
     DocumentEmbeddingsTable,
     RawDocumentEmbeddingsTable,
 )
@@ -628,6 +629,7 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                         for name, table_node in root_tables.items()
                     },
                     # Add new tables here
+                    **{name: TableNode(name=name, table=table) for name, table in HOGQL_POSTHOG_MODEL_TABLES.items()},
                     "logs_volume_buckets": TableNode(name="logs_volume_buckets", table=LogsVolumeBucketsTable()),
                     "logs_pattern_buckets": TableNode(name="logs_pattern_buckets", table=LogsPatternBucketsTable()),
                     "ai_events": TableNode(name="ai_events", table=AiEventsTable()),
