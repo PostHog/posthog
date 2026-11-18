@@ -390,6 +390,17 @@ class PostgresDestinationWriter:
                     )
                 )
 
+    async def _drop_batch_index_column(self, client: PostgreSQLClient, table: str) -> None:
+        """Strip the per-batch dedup column before a staging table is published."""
+        async with self._write_cursor(client) as cursor:
+            await cursor.execute(
+                sql.SQL("ALTER TABLE {}.{} DROP COLUMN IF EXISTS {}").format(
+                    sql.Identifier(self._schema),
+                    sql.Identifier(table),
+                    sql.Identifier(self._batch_index_column),
+                )
+            )
+
     # --- writer protocol ----------------------------------------------------------------
 
     async def prepare_run(self, ctx: DestinationRunContext) -> None:
@@ -709,17 +720,7 @@ class PostgresDestinationWriter:
                     "refusing to replace it with the full refresh's staging table."
                 )
 
-            async with self._write_cursor(client) as cursor:
-                # TODO: `RedshiftDestinationWriter` inherits this statement, and Redshift may
-                # not accept `DROP COLUMN IF EXISTS`. If it does not, every Redshift full
-                # refresh fails here and no run ever publishes. Confirm against a real cluster.
-                await cursor.execute(
-                    sql.SQL("ALTER TABLE {}.{} DROP COLUMN IF EXISTS {}").format(
-                        sql.Identifier(self._schema),
-                        sql.Identifier(staging),
-                        sql.Identifier(self._batch_index_column),
-                    )
-                )
+            await self._drop_batch_index_column(client, staging)
 
             async with self._write_cursor(client) as cursor:
                 await cursor.execute(
@@ -748,9 +749,14 @@ class PostgresDestinationWriter:
         # The probe batch exports uses. `information_schema.tables` would be the obvious
         # query, but it only exists on the leader node of a Redshift cluster, and Redshift
         # inherits this method.
+        #
+        # `_ensure_table` only creates the schema once this returns, so a destination's
+        # first-ever run against a schema it hasn't created yet must read as "table missing"
+        # too, not raise: `InvalidSchemaName` is Postgres's and Redshift's error for a schema
+        # that does not exist, the same way `UndefinedTable` is for a table.
         try:
             await client.aget_table_columns(self._schema, table)
-        except psycopg.errors.UndefinedTable:
+        except (psycopg.errors.UndefinedTable, psycopg.errors.InvalidSchemaName):
             return False
         return True
 

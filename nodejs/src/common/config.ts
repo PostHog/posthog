@@ -50,6 +50,8 @@ export enum PluginServerMode {
     cdp_data_warehouse_events = 'cdp-data-warehouse-events',
     cdp_internal_events = 'cdp-internal-events',
     cdp_ses_webhooks = 'cdp-ses-webhooks',
+    cdp_intake_transactional_email = 'cdp-intake-transactional-email',
+    cdp_intake_workflow_webhook = 'cdp-intake-workflow-webhook',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     // TODO: remove once charts stop setting PLUGIN_SERVER_MODE=cdp-precalculated-filters.
     // The consumer is gone; an unknown mode would throw at boot, so keep the member until then.
@@ -135,6 +137,8 @@ export type CommonConfig = BaseServerConfig & {
     /** Host and port of the personhog identity server. */
     PERSONHOG_IDENTITY_ADDR: string
     PERSONHOG_ADDR: string
+    /** Host and port of a leader-mode router. CDP sends its consistent person reads there when it is set. */
+    PERSONHOG_LEADER_ADDR: string
     PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE: number
     PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS: string
     PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE: number
@@ -176,6 +180,8 @@ export type CommonConfig = BaseServerConfig & {
 
     // Kafka consumer base
     CONSUMER_BATCH_SIZE: number
+    /** KiB of message values per batch, 0 for no byte bound. Only KafkaConsumerV2 reads it. */
+    CONSUMER_BATCH_SIZE_KB: number
     CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: number
     CONSUMER_LOOP_STALL_THRESHOLD_MS: number
     CONSUMER_LOG_STATS_LEVEL: LogLevel
@@ -225,6 +231,7 @@ export type CommonConfig = BaseServerConfig & {
     HOGFLOW_SCHEDULER_POLL_INTERVAL_MS: number
     HOGFLOW_SCHEDULER_MAX_POLL_INTERVAL_MS: number
     HOGFLOW_SCHEDULER_HEALTH_TIMEOUT_MS: number
+    HOGFLOW_SCHEDULER_REQUEST_TIMEOUT_MS: number
     // Despite the EXTERNAL_REQUEST_ prefix this one only reaches `internalFetch`, so it is the
     // budget for calls to our own services. Third-party hosts use the sibling below.
     EXTERNAL_REQUEST_TIMEOUT_MS: number
@@ -410,6 +417,7 @@ export function getDefaultCommonConfig(): CommonConfig {
         // PersonHog gRPC
         PERSONHOG_ENABLED: false,
         PERSONHOG_ADDR: '',
+        PERSONHOG_LEADER_ADDR: '',
         PERSONS_STORE_MODE: 'pg',
         PERSONHOG_IDENTITY_ADDR: '',
         PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE: 0,
@@ -451,6 +459,7 @@ export function getDefaultCommonConfig(): CommonConfig {
 
         // Kafka consumer base
         CONSUMER_BATCH_SIZE: 500,
+        CONSUMER_BATCH_SIZE_KB: 0,
         CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: 30_000,
         CONSUMER_LOOP_STALL_THRESHOLD_MS: 60_000,
         CONSUMER_LOG_STATS_LEVEL: 'debug',
@@ -502,6 +511,7 @@ export function getDefaultCommonConfig(): CommonConfig {
         HOGFLOW_SCHEDULER_POLL_INTERVAL_MS: 60_000,
         HOGFLOW_SCHEDULER_MAX_POLL_INTERVAL_MS: 5 * 60_000,
         HOGFLOW_SCHEDULER_HEALTH_TIMEOUT_MS: 10 * 60_000,
+        HOGFLOW_SCHEDULER_REQUEST_TIMEOUT_MS: 30_000,
         EXTERNAL_REQUEST_TIMEOUT_MS: 3000,
         EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS: DEFAULT_THIRD_PARTY_REQUEST_TIMEOUT_MS,
         EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: 3000,

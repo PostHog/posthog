@@ -85,17 +85,35 @@ def _reject_settle_since(raw: str, reason: str) -> NoReturn:
     raise ComputeSettlementDeploymentError(f"GATEWAY_COMPUTE_SETTLE_SINCE {reason}")
 
 
+def _parse_utc(raw: str) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+
+
 def _settle_since() -> datetime | None:
     raw = settings.GATEWAY_COMPUTE_SETTLE_SINCE
     if not raw:
         return None
-    try:
-        parsed = datetime.fromisoformat(raw)
-    except ValueError:
+    value = _parse_utc(raw)
+    if value is None:
         _reject_settle_since(raw, "is not a valid ISO timestamp")
-    value = parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
     if value > timezone.now():
         _reject_settle_since(raw, "is in the future")
+    return value
+
+
+def _billable_since() -> datetime | None:
+    raw = settings.GATEWAY_COMPUTE_BILLABLE_SINCE
+    if not raw:
+        return None
+    value = _parse_utc(raw)
+    if value is None:
+        observe_compute_settlement("deployment_error")
+        logger.error("compute_settlement.invalid_billable_since", value=raw)
+        raise ComputeSettlementDeploymentError("GATEWAY_COMPUTE_BILLABLE_SINCE is not a valid ISO timestamp")
     return value
 
 
@@ -159,6 +177,7 @@ def _ai_product(run: TaskRun) -> str:
 
 def build_settlement_body(session: SandboxSession, run: TaskRun, cost: SandboxComputeCost) -> dict[str, Any]:
     assert session.user_attributed_at is not None
+    billable_since = _billable_since()
     window_end = _window_end(session)
     detail: dict[str, Any] = {
         "rate_cards": [
@@ -191,7 +210,8 @@ def build_settlement_body(session: SandboxSession, run: TaskRun, cost: SandboxCo
         {
             "obo": str(session.team_id),
             "run": str(session.task_run_id),
-            "billable": is_billable_sandbox_session(session),
+            "billable": is_billable_sandbox_session(session)
+            and (billable_since is None or session.user_attributed_at >= billable_since),
             "detail": detail,
             "reason": "sandbox compute",
             "strict": True,

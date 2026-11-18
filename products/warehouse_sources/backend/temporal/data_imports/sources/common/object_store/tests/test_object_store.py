@@ -24,7 +24,7 @@ from botocore.compat import HTTPHeaders
 from botocore.exceptions import ClientError
 from botocore.response import StreamingBody
 from botocore.stub import Stubber
-from deltalake import DeltaTable, WriterProperties, write_deltalake
+from deltalake import DeltaTable, write_deltalake
 from deltalake.exceptions import DeltaError, TableNotFoundError
 from fsspec.implementations.local import LocalFileSystem
 from parameterized import parameterized
@@ -51,6 +51,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.discovery import (
     TableDefinition,
+    explain_no_tables,
     group_tables,
     resolve_table_files,
 )
@@ -59,6 +60,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     BLOCKED_LOCATION_ERROR,
     FILE_PARSE_ERROR,
     INVALID_CONFIG_ERROR,
+    NO_IMPORTABLE_FILES_ERROR,
     NO_SUCH_BUCKET_ERROR,
     NO_TABLE_FILES_ERROR,
     TOO_MANY_FILES_ERROR,
@@ -446,6 +448,47 @@ class TestTableLimit:
         assert len(group_tables(objects, DiscoveryOptions(), root_name="root", max_tables=None)) == MAX_TABLES + 1
 
 
+class TestExplainNoTables:
+    @parameterized.expand(
+        [
+            ("empty_listing", [], "infer", None, "is empty or doesn't exist"),
+            ("only_folder_markers", ["exports/", "exports/2024/"], "infer", None, "is empty or doesn't exist"),
+            ("delta_without_a_log", ["exports/a.parquet"], "delta", None, "_delta_log"),
+            (
+                "delta_table_outside_the_glob",
+                ["sales/_delta_log/0.json", "sales/p.parquet"],
+                "delta",
+                "*.parquet",
+                "matches the wildcards",
+            ),
+            ("glob_matches_nothing", ["orders/a.csv"], "infer", "orders/*.parquet", "matches the wildcards"),
+            ("unknown_extensions", ["notes.md", "data/rows.txt"], "infer", None, "ends in .csv, .tsv"),
+            ("glob_matches_unknown_extensions", ["orders/a.txt", "x.csv"], "infer", "orders/*", "ends in .csv, .tsv"),
+            ("only_hidden_files", ["_SUCCESS", ".keep"], "infer", None, "though PostHog can read the bucket"),
+        ]
+    )
+    def test_names_why_discovery_found_no_table(
+        self, _name: str, paths: list[str], file_format: str, pattern: str | None, expected: str
+    ) -> None:
+        objects = [stored(path) for path in paths]
+        options = DiscoveryOptions(file_format=cast(Any, file_format))
+        assert group_tables(objects, options, root_name="root", pattern=pattern) == []
+
+        message = explain_no_tables(objects, options, pattern)
+
+        assert message.startswith(NO_IMPORTABLE_FILES_ERROR)
+        assert expected in message
+
+    def test_the_wizard_shows_the_reason(self) -> None:
+        store = MagicMock()
+        store.list_objects.return_value = [stored("exports/notes.md")]
+
+        valid, message = _source_with_store(store).validate_credentials(BUCKET_ROOT_CONFIG, 1)
+
+        assert not valid
+        assert message is not None and "ends in .csv" in message
+
+
 class TestResolveTableFiles:
     def test_a_folder_table_leaves_out_subfolders_that_are_tables_of_their_own(self, tmp_path: Path) -> None:
         for path in ("events/a.csv", "events/year=2024/b.csv", "events/clicks/c.csv"):
@@ -725,18 +768,14 @@ class TestReadTable:
         with pytest.raises(ObjectStorageError, match=FILE_PARSE_ERROR):
             read_rows(store, table)
 
-    @parameterized.expand([("plain", "orders.parquet", False), ("gzipped", "orders.parquet.gz", True)])
-    def test_a_parquet_file_with_one_brotli_column_is_a_parse_error(self, _name: str, path: str, gzipped: bool) -> None:
-        buffer = io.BytesIO()
-        pq.write_table(
-            pa.table({"id": ["1", "2"], "note": ["a", "b"]}),
-            buffer,
-            compression={"id": "snappy", "note": "brotli"},
-        )
-        content = gzip.compress(buffer.getvalue()) if gzipped else buffer.getvalue()
+    def test_a_row_group_with_fewer_column_chunks_than_the_schema_is_a_parse_error(self) -> None:
+        content = (Path(__file__).parent / "fixtures" / "row_group_missing_a_column_chunk.parquet").read_bytes()
 
-        with pytest.raises(ObjectStorageError, match=f"{FILE_PARSE_ERROR} '{path}' as Parquet: Brotli"):
-            list(iter_file_tables(io.BytesIO(content), stored(path), "parquet", CsvOptions()))
+        with pytest.raises(
+            ObjectStorageError,
+            match=f"{FILE_PARSE_ERROR} 'orders.parquet' as Parquet: The file only has 1 columns, requested metadata for column: 1",
+        ):
+            list(iter_file_tables(io.BytesIO(content), stored("orders.parquet"), "parquet", CsvOptions()))
 
     def test_a_corrupt_parquet_block_is_a_parse_error(self) -> None:
         buffer = io.BytesIO()
@@ -802,17 +841,6 @@ class TestReadTable:
         tables = list(iter_delta_tables(store.delta_uri("sales"), {}, "sales"))
 
         assert [(table.column_names, table.num_rows) for table in tables] == [(["id"], 0)]
-
-    @parameterized.expand([("whole_snapshot", False), ("by_file", True)])
-    def test_a_delta_table_with_brotli_compression_is_a_parse_error(self, _name: str, with_file_names: bool) -> None:
-        with tempfile.TemporaryDirectory() as folder:
-            path = str(Path(folder) / "sales")
-            write_deltalake(path, pa.table({"id": [1, 2]}), writer_properties=WriterProperties(compression="BROTLI"))
-
-            read = plan_delta_read(path, {}, "sales")
-
-            with pytest.raises(ObjectStorageError, match=f"{FILE_PARSE_ERROR} '.+' in the Delta table 'sales': Brotli"):
-                list(read.iter_tables(with_file_names=with_file_names))
 
 
 def _append(path: str) -> None:
@@ -1649,6 +1677,14 @@ class TestAccessDeniedMessage:
 
         assert not valid
         assert message is not None and message.startswith(NO_SUCH_BUCKET_ERROR)
+
+    def test_a_sync_also_sees_a_bare_forbidden_error(self) -> None:
+        store = MagicMock()
+        store.list_objects.side_effect = _forbidden_os_error()
+        source = _source_with_store(store)
+
+        with pytest.raises(ObjectStorageError, match=ACCESS_DENIED_ERROR):
+            source.get_schemas(BUCKET_ROOT_CONFIG, 1)
 
 
 BUCKET_ROOT_CONFIG = FakeObjectStorageConfig(

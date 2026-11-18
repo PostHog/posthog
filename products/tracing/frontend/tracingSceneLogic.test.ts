@@ -1,4 +1,5 @@
 import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -7,6 +8,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 
+import { makeSpan } from './__mocks__/span'
 import { tracingDataLogic } from './tracingDataLogic'
 import { TRACING_SCENE_VIEWER_ID, tracingFiltersLogic } from './tracingFiltersLogic'
 import { tracingSceneLogic } from './tracingSceneLogic'
@@ -54,6 +56,28 @@ describe('tracingSceneLogic', () => {
 
     const LOWER_TRACE_ID = '4bf92f3577b34da6a3ce929d0e0e4736'
     const UPPER_TRACE_ID = '4BF92F3577B34DA6A3CE929D0E0E4736'
+
+    it.each([
+        ['without a timestamp', { trace: LOWER_TRACE_ID }],
+        ['with a timestamp other than the root span', { trace: LOWER_TRACE_ID, ts: '2026-01-01T00:00:00Z' }],
+    ])('reports an open trace to Monitor recents under one link, opened %s', async (_name, urlParams) => {
+        const rootSpan = makeSpan({
+            trace_id: UPPER_TRACE_ID,
+            is_root_span: true,
+            name: 'GET /checkout',
+            timestamp: '2026-01-02T03:04:05Z',
+        })
+        jest.spyOn(api.tracing, 'getTrace').mockResolvedValue({ results: [rootSpan], hasMore: false })
+        mountAt(urlParams)
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.todayRecent).toEqual({
+            type: 'trace',
+            name: 'GET /checkout',
+            href: `/tracing?trace=${UPPER_TRACE_ID}&ts=2026-01-02T03%3A04%3A05Z`,
+        })
+    })
 
     it.each([
         ['a lowercase trace id', null, { trace: LOWER_TRACE_ID }, UPPER_TRACE_ID],

@@ -2,6 +2,7 @@ import uuid
 from collections.abc import AsyncIterator
 
 import pytest
+from unittest import mock
 
 from django.conf import settings
 
@@ -67,7 +68,11 @@ def table_name() -> str:
 
 
 def _ctx(
-    table_name: str, sync_type: str, primary_keys: tuple[str, ...] = (), schema_id: str = "schema"
+    table_name: str,
+    sync_type: str,
+    primary_keys: tuple[str, ...] = (),
+    schema_id: str = "schema",
+    schema: str = "public",
 ) -> DestinationRunContext:
     return DestinationRunContext(
         team_id=1,
@@ -81,7 +86,7 @@ def _ctx(
         table_name=table_name,
         sync_type=sync_type,
         primary_keys=primary_keys,
-        config={"schema": "public"},
+        config={"schema": schema},
     )
 
 
@@ -296,6 +301,23 @@ class TestFullRefresh:
             assert _read(dsn, table_name) == [(1, "old")]
         finally:
             _drop(dsn, table_name, staging_table_name(first), staging_table_name(second))
+
+
+class TestTableExistsAgainstAMissingSchema:
+    """`write_batch`'s first batch calls `_table_exists` before `_ensure_table` has had a
+    chance to run its `CREATE SCHEMA IF NOT EXISTS`, so a destination's first-ever run
+    against a schema nothing created yet must not raise out of this probe. Redshift (and
+    some Postgres error paths) report that case as `InvalidSchemaName`, worded
+    `schema "x" does not exist`, rather than `UndefinedTable`.
+    """
+
+    async def test_a_missing_schema_reads_as_the_table_missing(self) -> None:
+        ctx = _ctx("charges", "incremental", schema="metaads")
+        client = mock.AsyncMock(spec=PostgreSQLClient)
+        client.aget_table_columns.side_effect = psycopg.errors.InvalidSchemaName('schema "metaads" does not exist')
+        writer = PostgresDestinationWriter(ctx)
+
+        assert await writer._table_exists(client, "charges") is False
 
 
 class TestFullRefreshTableOwnership:

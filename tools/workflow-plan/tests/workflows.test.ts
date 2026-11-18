@@ -1203,6 +1203,18 @@ describe('CI workflow run plans', () => {
     })
 
     it.each([
+        ['ready PR', pullRequest(), false],
+        ['merge queue', mergeQueue(), false],
+        ['hourly schedule', schedule(), true],
+        ['manual dispatch', workflowDispatch(), true],
+    ] as const)('the persons-on-events legacy-mode leg on %s', (_name, github, runs) => {
+        const depot = workflow(DEPOT_BACKEND)
+        const step = depot.jobs.build_django_matrix?.steps?.find((step) => step.id === 'build')
+        const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
+        expect(evaluateValue(step?.env?.RUN_LEGACY_MODE_LEG, { github }, functions)).toBe(runs)
+    })
+
+    it.each([
         ['unrelated PR', pullRequest(), 'false', false],
         ['schema PR', pullRequest(), 'true', true],
         ['missing filter output', pullRequest(), '', true],
@@ -1221,6 +1233,42 @@ describe('CI workflow run plans', () => {
         expect(
             plan.jobs['code-quality']?.steps.find((step) => step.name === 'Check if "schema.py" is up to date')?.runs
         ).toBe(runs)
+    })
+
+    it.each([
+        ['PR without baseline changes', pullRequest(), 'false', true, false],
+        ['PR with baseline changes', pullRequest(), 'true', true, true],
+        ['draft PR with baseline changes', pullRequest({ draft: true }), 'true', true, true],
+        ['fork PR with baseline changes', pullRequest({ fork: true }), 'true', true, true],
+        ['forced full PR', pullRequest({ labels: ['run-ci-frontend'] }), 'true', true, true],
+        ['merge queue', mergeQueue(), 'true', true, true],
+        ['master push', push(), 'true', false, false],
+        ['nightly', schedule(), 'true', false, false],
+    ] as const)('Storybook selection artifacts on %s', (name, github, snapshotsBaseline, graphUpload, indexUpload) => {
+        const plan = planWorkflow(workflow('ci-storybook.yml'), {
+            name,
+            github,
+            jobOutputs: {
+                changes: {
+                    frontend: 'true',
+                    snapshots_baseline: snapshotsBaseline,
+                    merge_queue: name === 'merge queue' ? 'true' : 'false',
+                },
+            },
+            steps: { 'select-stories': { classify: { outputs: { mode: 'selective' } } } },
+        })
+        expect(plan.errors).toEqual([])
+        const steps = plan.jobs['build-storybook']?.steps
+        const uploadsGraph = steps?.find((step) => step.name === 'Upload module-graph artifact')?.runs
+        const uploadsIndex = steps?.find((step) => step.name === 'Upload story index artifact')?.runs
+        expect(uploadsGraph).toBe(graphUpload)
+        expect(uploadsIndex).toBe(indexUpload)
+        if (plan.jobs['select-stories']?.result === 'success') {
+            expect(uploadsGraph).toBe(true)
+        }
+        if (plan.jobs['check-baseline-removals']?.result === 'success') {
+            expect(uploadsIndex).toBe(true)
+        }
     })
 
     it.each([
@@ -1245,8 +1293,8 @@ describe('CI workflow run plans', () => {
     it.each([
         ['PR', pullRequest(), false, true],
         ['merge queue', mergeQueue(), false, true],
-        ['push', push(), false, true],
         ['manual full rebuild', workflowDispatch(), false, false],
+        ['hourly full rebuild', schedule(), false, false],
         ['all-crate change', pullRequest(), true, false],
     ] as const)('Rust change resolver on %s', (name, github, allCrates, runs) => {
         const wf = workflow('ci-rust.yml')
@@ -1260,6 +1308,35 @@ describe('CI workflow run plans', () => {
         })
         expect(plan.errors).toEqual([])
         expect(plan.jobs.affected?.steps.find((step) => step.name === 'Resolve the changed files')?.runs).toBe(runs)
+    })
+
+    it.each([
+        ['PR', pullRequest(), 'success'],
+        ['merge queue', mergeQueue(), 'success'],
+        ['master push', push(), 'skipped'],
+        ['hourly schedule', schedule(), 'success'],
+    ] as const)('Rust suite on %s', (name, github, result) => {
+        const wf = workflow('ci-rust.yml')
+        const plan = planWorkflow(wf, {
+            name,
+            github,
+            steps: {
+                ...allFiltersChanged(wf),
+                affected: { shards: { outputs: { matrix: '{"include":[{"packages":"common-types"}]}' } } },
+            },
+        })
+        expect(plan.errors).toEqual([])
+        for (const job of ['affected', 'build', 'test', 'linting']) {
+            expect(plan.jobs[job]?.result).toBe(result)
+        }
+        expect(plan.jobs.rust_tests?.result).toBe('success')
+    })
+
+    it('a PR branch named scheduled does not share the hourly Rust concurrency group', () => {
+        const group = workflow('ci-rust.yml').concurrency?.group
+        const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
+        const groupFor = (github: Scenario['github']): unknown => evaluateValue(group, { github }, functions)
+        expect(groupFor(pullRequest({ headRef: 'scheduled' }))).not.toBe(groupFor(schedule()))
     })
 
     it.each([

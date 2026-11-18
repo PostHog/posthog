@@ -768,6 +768,29 @@ function DataTableVisualizationContent({
                 ) : null}
             </>
         )
+    } else if (
+        effectiveVisualizationType !== ChartDisplayType.ActionsTable &&
+        !responseLoading &&
+        response &&
+        'hasMore' in response &&
+        response.hasMore
+    ) {
+        const rowLimit =
+            'limit' in response && typeof response.limit === 'number'
+                ? response.limit
+                : 'results' in response && Array.isArray(response.results)
+                  ? response.results.length
+                  : null
+        component = (
+            <>
+                {rowLimit !== null ? (
+                    <LemonBanner type="warning">
+                        {`This chart shows only the first ${rowLimit.toLocaleString()} rows. Add a LIMIT to the query to include more rows.`}
+                    </LemonBanner>
+                ) : null}
+                {component}
+            </>
+        )
     }
 
     if (props.embedded) {

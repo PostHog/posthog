@@ -13,6 +13,7 @@ import type {
     CohortApi,
     CohortCalculationHistoryResponseApi,
     CohortPersonsResponseApi,
+    CohortRealtimeRequestApi,
     CohortUsedInResponseApi,
     CohortUsedInWorkflowsBlockApi,
     CohortsActivityRetrieveParams,
@@ -367,6 +368,27 @@ export const cohortsPersonsRetrieve = async (
     return apiMutator<CohortPersonsResponseApi>(getCohortsPersonsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getCohortsRealtimeCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/cohorts/${id}/realtime/`
+}
+
+/**
+ * Turn realtime on or off for a cohort. Turning it on also turns it on for every realtime cohort it includes as criteria, and PostHog prepares them from past events before feature flags can target them.
+ */
+export const cohortsRealtimeCreate = async (
+    projectId: string,
+    id: number,
+    cohortRealtimeRequestApi: CohortRealtimeRequestApi,
+    options?: RequestInit
+): Promise<CohortApi> => {
+    return apiMutator<CohortApi>(getCohortsRealtimeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(cohortRealtimeRequestApi),
     })
 }
 

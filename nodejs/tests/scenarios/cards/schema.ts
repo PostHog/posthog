@@ -58,6 +58,13 @@ export const Card = z
                     ramp === undefined ||
                     ramp.reduce((sum, step) => sum + durationMs(step.for), 0) === durationMs(lasts),
                 { message: 'the ramp steps must add up to drive.for', path: ['ramp'] }
+            )
+            .refine(
+                ({ ramp }) => ramp === undefined || ramp.every((step, i) => i === 0 || step.scale > ramp[i - 1].scale),
+                {
+                    message: 'each ramp step must scale higher than the one before',
+                    path: ['ramp'],
+                }
             ),
         valves: z.array(ValveEntry).default([]),
         convergeWithin: Duration,

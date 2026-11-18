@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { Card, CardContent } from '@posthog/quill-primitives'
+import { Card, CardContent, Skeleton } from '@posthog/quill-primitives'
 
 import { cn } from 'lib/utils/css-classes'
 
@@ -47,7 +47,7 @@ const SCORECARDS: Scorecard[] = [
  * to exactly those. The counts and the filters share one predicate in the logic, so a
  * card can't report one number and show another.
  */
-export function ClusterScorecards(): JSX.Element {
+export function ClusterScorecards({ loading }: { loading: boolean }): JSX.Element {
     const { routeShapeCounts, clusterFilter } = useValues(mcpClusteringLogic)
     const { setClusterFilter } = useActions(mcpClusteringLogic)
 
@@ -76,17 +76,21 @@ export function ClusterScorecards(): JSX.Element {
                         >
                             <CardContent className="flex flex-col items-start">
                                 <span className="text-muted text-xs font-medium uppercase">{card.label}</span>
-                                <span className="mt-1 flex items-baseline gap-1">
-                                    <span
-                                        className={cn(
-                                            'text-2xl font-semibold tabular-nums',
-                                            card.danger && count > 0 ? 'text-danger' : ''
-                                        )}
-                                    >
-                                        {count}
+                                {loading ? (
+                                    <Skeleton className="mt-1 h-8 w-16" />
+                                ) : (
+                                    <span className="mt-1 flex items-baseline gap-1">
+                                        <span
+                                            className={cn(
+                                                'text-2xl font-semibold tabular-nums',
+                                                card.danger && count > 0 ? 'text-danger' : ''
+                                            )}
+                                        >
+                                            {count}
+                                        </span>
+                                        <span className="text-muted text-sm">of {routeShapeCounts.total}</span>
                                     </span>
-                                    <span className="text-muted text-sm">of {routeShapeCounts.total}</span>
-                                </span>
+                                )}
                                 <span className="text-muted mt-1 text-xs">{card.description}</span>
                             </CardContent>
                         </Card>

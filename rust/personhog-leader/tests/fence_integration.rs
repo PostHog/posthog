@@ -631,6 +631,30 @@ async fn a_revival_is_served_over_the_death_document() {
         .expect_err("the death document still answers");
     assert_eq!(status.code(), Code::NotFound);
 
+    // The same pre-death row, with properties the leader cannot parse.
+    let set_properties = |properties: String| {
+        let pool = pool.clone();
+        async move {
+            sqlx::query(
+                "UPDATE posthog_person SET properties = $3::jsonb WHERE team_id = $1 AND id = $2",
+            )
+            .bind(team_id as i32)
+            .bind(person_id)
+            .bind(properties)
+            .execute(&pool)
+            .await
+            .expect("write properties");
+        }
+    };
+    set_properties(format!("{{\"a\":{}1{}}}", "[".repeat(200), "]".repeat(200))).await;
+    let status = harness
+        .client
+        .get_person(get())
+        .await
+        .expect_err("the death document answers over an unparseable pre-death row");
+    assert_eq!(status.code(), Code::NotFound);
+    set_properties(r#"{"revived": true}"#.to_string()).await;
+
     // A stub-create revival: same id and uuid, version above the death document's.
     set_row(death.version + 1, false).await;
     let revived = harness

@@ -2821,6 +2821,10 @@ class TestIsConnectionDroppedError:
             # backend-connect timeout as "{:error, :timeout}", the Erlang GenServer call-timeout atom,
             # distinct from the POSIX-level ":etimedout". Same transient pooler class; reconnect recovers.
             psycopg.errors.ConnectionFailure("Failed to connect to database: {:error, :timeout}"),
+            # The bare-atom sibling of the above: some Supavisor versions report the same pool
+            # checkout/backend-connect timeout with the reason atom alone, not wrapped in the
+            # `{:error, ...}` tuple. Same transient pooler class; reconnect must catch it.
+            psycopg.errors.ConnectionFailure("Failed to connect to database: :timeout"),
             # Neon's proxy reports a compute that didn't wake from scale-to-zero before the auth
             # deadline as a ConnectionFailure — a transient drop the in-process recovery must catch.
             psycopg.errors.ConnectionFailure(
@@ -2908,6 +2912,14 @@ class TestIsConnectionDroppedError:
             psycopg.OperationalError(
                 'connection failed: connection to server at "203.0.113.5", port 5432 failed: '
                 "FATAL:  failed to connect to upstream 10.0.0.2:5432"
+            ),
+            # A Neon-style proxy refuses a connect because the branch's compute endpoint has no
+            # primary assigned yet — a brief failover/promotion window, not a permanent
+            # customer-facing restriction. Transient; the reconnect must catch it rather than
+            # letting it escape and fail the whole sync.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "203.0.113.5", port 5432 failed: '
+                "FATAL:  no primary available for branch ep-cool-branch-12345678"
             ),
         ],
     )
@@ -5682,8 +5694,8 @@ class TestValidateCredentialsErrorMapping:
             (
                 'connection failed: connection to server at "1.2.3.4", port 5432 failed: '
                 "server does not support SSL, but SSL was required",
-                "SSL/TLS connection is required but your database does not support it. "
-                "Please enable SSL/TLS on your PostgreSQL server.",
+                "Your database doesn't support encrypted connections, but your certificate settings need one. "
+                "Enable SSL/TLS on your database, or clear this source's certificate settings.",
             ),
             (
                 "consuming input failed: SSL connection has been closed unexpectedly",

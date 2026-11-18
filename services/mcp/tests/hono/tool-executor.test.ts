@@ -733,8 +733,9 @@ describe('ToolExecutor', () => {
                 } as any)
             }
 
-            async function renderSurvey(): Promise<any> {
+            async function renderSurvey(isCursor = false): Promise<any> {
                 const state = makeToolExecutorState([uiAppTool], { useSingleExec: true, renderUiEnabled: true })
+                vi.mocked(state.clientProfile.isCursor).mockReturnValue(isCursor)
                 return executor.handleToolCall(
                     { name: 'render-ui', arguments: { tool_name: 'survey-get', tool_input: { surveyId: 'abc' } } },
                     state
@@ -748,6 +749,16 @@ describe('ToolExecutor', () => {
 
                 expect(result._meta[APP_DATA_META_KEY]).toMatchObject({ id: 'abc', name: 'NPS' })
                 expect(result.structuredContent).not.toHaveProperty('name')
+                expect(result.structuredContent).not.toHaveProperty([APP_DATA_META_KEY])
+            })
+
+            it('carries the data in structuredContent instead of _meta for Cursor', async () => {
+                stubInnerTool(async () => ({ id: 'abc', name: 'NPS' }))
+
+                const result = await renderSurvey(true)
+
+                expect(result.structuredContent[APP_DATA_META_KEY]).toMatchObject({ id: 'abc', name: 'NPS' })
+                expect(result._meta).not.toHaveProperty([APP_DATA_META_KEY])
             })
 
             it('preloads query charts through exec as JSON, like the app does', async () => {

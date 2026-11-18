@@ -4,7 +4,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.db import models, transaction
-from django.db.models import Q
+from django.db.models import Model, Q
 from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema, extend_schema_field
@@ -35,6 +35,7 @@ from products.warehouse_sources.backend.facade import (
     warehouse_migration as migrations,
 )
 from products.warehouse_sources.backend.facade.destination_health import resume_destination
+from products.warehouse_sources.backend.facade.destinations import is_destination_type_enabled
 from products.warehouse_sources.backend.facade.models import (
     ExternalDataDestination,
     ExternalDataSchema,
@@ -54,6 +55,7 @@ from products.warehouse_sources.backend.presentation.destination_connect_tokens 
 from products.warehouse_sources.backend.presentation.destination_connection_check import (
     CONFIG_FAILURES,
     DestinationConnectionCheckError,
+    check_motherduck_destination,
     check_postgres_destination,
 )
 from products.warehouse_sources.backend.presentation.destination_connection_testing import (
@@ -61,6 +63,7 @@ from products.warehouse_sources.backend.presentation.destination_connection_test
     DestinationConnectionTestStepStatus,
     has_connection_test,
     run_connection_test,
+    run_motherduck_connection_test,
     run_postgres_connection_test,
 )
 from products.warehouse_sources.backend.presentation.views.destination_links import MAX_DESTINATIONS_PER_LINK
@@ -83,7 +86,25 @@ DESTINATION_INTEGRATION_KINDS: dict[str, tuple[str, ...]] = {
     ),
     str(ExternalDataDestination.Type.BIGQUERY): (str(IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT),),
     str(ExternalDataDestination.Type.AZURE_BLOB): (str(IntegrationKind.AZURE_BLOB),),
+    str(ExternalDataDestination.Type.MOTHERDUCK): (str(IntegrationKind.MOTHERDUCK),),
 }
+
+INTEGRATION_ACCESS_DENIED = (
+    "You do not have access to this integration. Ask a project admin for access, or connect your own credentials."
+)
+
+
+def can_use_integration(view: Any, integration: IntegrationRecord) -> bool:
+    """Whether the requesting user may use this integration's credentials.
+
+    The integration field only checks the team and kind, so without this a member denied an
+    integration could still write with its credentials through a destination.
+    """
+    user_access_control = getattr(view, "user_access_control", None)
+    if user_access_control is None:
+        return True
+    return user_access_control.check_access_level_for_object(cast(Model, integration), required_level="viewer")
+
 
 # Types a user may create. The PostHog warehouse row is created by the sync itself the first
 # time a schema resolves to it, and every team has exactly one, so it is not user-managed.
@@ -497,6 +518,8 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
             raise ValidationError(
                 {"type": "PostHog warehouse destinations are managed for you. Pick a different type."}
             )
+        if self.instance is None and not is_destination_type_enabled(self.context["get_team"](), destination_type):
+            raise ValidationError({"type": f"{destination_type} destinations are not available yet."})
 
         integration = attrs.get("integration", getattr(self.instance, "integration", None))
         if integration is None:
@@ -513,6 +536,11 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
         if integration.kind not in allowed_kinds:
             expected = " or ".join(f"'{kind}'" for kind in allowed_kinds)
             raise ValidationError({"integration": f"A {destination_type} destination needs a {expected} integration."})
+        if self.instance is None and not can_use_integration(self.context.get("view"), integration):
+            raise ValidationError({"integration": INTEGRATION_ACCESS_DENIED})
+
+        if destination_type == ExternalDataDestination.Type.MOTHERDUCK and isinstance(attrs.get("config"), dict):
+            self._check_motherduck_names(attrs["config"])
 
         if isinstance(attrs.get("config"), dict):
             attrs["config"] = self._trim_names(str(destination_type), attrs["config"])
@@ -530,6 +558,8 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
             self._reject_changed_prefill(migration_item_id, str(destination_type), integration)
         if destination_type == ExternalDataDestination.Type.POSTGRES:
             self._check_postgres_connection(integration, attrs.get("config"))
+        elif destination_type == ExternalDataDestination.Type.MOTHERDUCK:
+            self._check_motherduck_connection(integration, attrs.get("config"))
         elif destination_type == ExternalDataDestination.Type.REDSHIFT:
             self._check_redshift_target(integration, attrs.get("config"))
         else:
@@ -562,6 +592,25 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
     def _check_postgres_connection(self, integration: IntegrationRecord, config: dict[str, Any] | None) -> None:
         try:
             check_postgres_destination(integration, config)
+        except DestinationConnectionCheckError as error:
+            field = "config" if error.failure in CONFIG_FAILURES else "integration"
+            raise ValidationError({field: str(error)})
+
+    # The writer quotes both names into SQL and the connection string, so each must be text a
+    # quoted identifier can hold. Anything else would save, then fail every sync.
+    def _check_motherduck_names(self, config: dict[str, Any]) -> None:
+        for key in ("database", "schema"):
+            value = config.get(key)
+            if value is None:
+                continue
+            if not isinstance(value, str):
+                raise ValidationError({"config": f"The {key} must be text."})
+            if any(ord(character) < 0x20 or ord(character) == 0x7F for character in value):
+                raise ValidationError({"config": f"The {key} cannot contain control characters."})
+
+    def _check_motherduck_connection(self, integration: IntegrationRecord, config: dict[str, Any] | None) -> None:
+        try:
+            check_motherduck_destination(integration, config)
         except DestinationConnectionCheckError as error:
             field = "config" if error.failure in CONFIG_FAILURES else "integration"
             raise ValidationError({field: str(error)})
@@ -646,6 +695,7 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
         str(ExternalDataDestination.Type.BIGQUERY): ("dataset", "dataset_id", "project", "project_id"),
         str(ExternalDataDestination.Type.S3): ("bucket", "bucket_name", "prefix"),
         str(ExternalDataDestination.Type.AZURE_BLOB): ("container_name", "container", "prefix"),
+        str(ExternalDataDestination.Type.MOTHERDUCK): ("database", "schema"),
     }
 
     # Config fields whose names cannot hold a space, per type. A pasted bucket or container name
@@ -655,6 +705,7 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
         str(ExternalDataDestination.Type.REDSHIFT): ("host",),
         str(ExternalDataDestination.Type.S3): ("bucket", "bucket_name", "region"),
         str(ExternalDataDestination.Type.AZURE_BLOB): ("container_name", "container"),
+        str(ExternalDataDestination.Type.MOTHERDUCK): ("database", "schema"),
     }
 
     def _trim_names(self, destination_type: str, config: dict[str, Any]) -> dict[str, Any]:
@@ -1033,9 +1084,13 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             raise ValidationError(
                 {"type": "The PostHog warehouse is managed for you, so it has no connection to test."}
             )
+        if not can_use_integration(self, integration):
+            raise PermissionDenied(INTEGRATION_ACCESS_DENIED)
 
         if destination.type == ExternalDataDestination.Type.POSTGRES:
             run: ConnectionTestRun | None = run_postgres_connection_test(integration, destination.config)
+        elif destination.type == ExternalDataDestination.Type.MOTHERDUCK:
+            run = run_motherduck_connection_test(integration, destination.config)
         else:
             run = run_connection_test(destination.type, integration, destination.config)
         if run is None:

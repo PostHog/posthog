@@ -193,6 +193,21 @@ class RedshiftDestinationWriter(PostgresDestinationWriter):
     def _column_type(self, arrow_type: pa.DataType) -> str:
         return redshift_type_for(arrow_type)
 
+    async def _drop_batch_index_column(self, client: PostgreSQLClient, table: str) -> None:
+        """Redshift's `ALTER TABLE ... DROP COLUMN` has no `IF EXISTS` clause, so the check
+        has to happen on our side instead of the server's."""
+        existing = set(await client.aget_table_columns(self._schema, table))
+        if self._batch_index_column not in existing:
+            return
+        async with self._write_cursor(client) as cursor:
+            await cursor.execute(
+                sql.SQL("ALTER TABLE {}.{} DROP COLUMN {}").format(
+                    sql.Identifier(self._schema),
+                    sql.Identifier(table),
+                    sql.Identifier(self._batch_index_column),
+                )
+            )
+
     async def _load_batch(
         self, client: PostgreSQLClient, table: str, batch: pa.RecordBatch, column_names: list[str]
     ) -> None:

@@ -9,6 +9,7 @@
                 "backend/models/**",
                 "backend/migrations/**",
                 "backend/tasks/**",
+                "backend/temporal/**",
                 "backend/apps.py",
                 "backend/console.py",
                 "backend/integration_hooks.py",

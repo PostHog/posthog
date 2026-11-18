@@ -43,6 +43,23 @@ export const AlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Make a destination's message editable. A destination that sends the standard message from the alerts platform gets HogFunctions with that message and stops sending from the platform. A destination that already has HogFunctions keeps them. Returns the HogFunction IDs to edit.
+ */
+export const alertsDestinationsCustomizeCreateBodyHogFunctionIdsMax = 100
+
+export const AlertsDestinationsCustomizeCreateBody = /* @__PURE__ */ zod.object({
+    destination_id: zod
+        .uuid()
+        .nullish()
+        .describe("The destination's `id` from the destinations list. Use it for a destination with no HogFunctions."),
+    hog_function_ids: zod
+        .array(zod.uuid())
+        .max(alertsDestinationsCustomizeCreateBodyHogFunctionIdsMax)
+        .optional()
+        .describe("The destination's `hog_function_ids` from the destinations list, when it has HogFunctions."),
+})
+
+/**
  * Stop sending this alert to a destination. The alert keeps its email recipients.
  */
 export const alertsDestinationsDeleteCreateBodyHogFunctionIdsMax = 100
@@ -84,6 +101,19 @@ export const AlertsDestinationsPagerdutyCreateBody = /* @__PURE__ */ zod.object(
         .describe('\* `us` - us\n\* `eu` - eu')
         .default(alertsDestinationsPagerdutyCreateBodyPagerdutyRegionDefault)
         .describe('Region of the PagerDuty account.\n\n\* `us` - us\n\* `eu` - eu'),
+})
+
+/**
+ * Send a customized destination's standard message again. Its HogFunctions are deleted, with their edits, and the alerts platform sends it from then on. Only an alert the alerts platform checks can be reset.
+ */
+export const alertsDestinationsResetCreateBodyHogFunctionIdsMax = 100
+
+export const AlertsDestinationsResetCreateBody = /* @__PURE__ */ zod.object({
+    hog_function_ids: zod
+        .array(zod.uuid())
+        .min(1)
+        .max(alertsDestinationsResetCreateBodyHogFunctionIdsMax)
+        .describe('Every HogFunction of the customized destination, from the destinations list.'),
 })
 
 /**

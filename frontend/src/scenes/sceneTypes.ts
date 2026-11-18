@@ -235,6 +235,7 @@ export enum Scene {
     WorkflowsEmailDomain = 'WorkflowsEmailDomain',
     Wizard = 'Wizard',
     EarlyAccessFeature = 'EarlyAccessFeature',
+    ReleaseAll = 'ReleaseAll',
     ReleaseCalendar = 'ReleaseCalendar',
     Releases = 'Releases',
     Release = 'Release',
@@ -448,9 +449,9 @@ export const sceneToAccessControlResourceType: Partial<
     [Scene.ErrorTrackingIssue]: AccessControlResourceType.ErrorTracking,
 
     // Stamphog
-    [Scene.Stamphog]: AccessControlResourceType.Stamphog,
-    [Scene.StamphogRuns]: AccessControlResourceType.Stamphog,
-    [Scene.StamphogDigests]: AccessControlResourceType.Stamphog,
+    [Scene.Stamphog]: AccessControlResourceType.CodeReviewApproval,
+    [Scene.StamphogRuns]: AccessControlResourceType.CodeReviewApproval,
+    [Scene.StamphogDigests]: AccessControlResourceType.CodeReviewApproval,
 
     // Surveys
     [Scene.Survey]: AccessControlResourceType.Survey,

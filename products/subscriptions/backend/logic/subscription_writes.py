@@ -340,6 +340,10 @@ class _SubscriptionWrite:
         # actually sent. A stored option that the request never names must not reject the
         # request, because that leaves the row impossible to edit.
         submitted_delivery_config = attrs.get("delivery_config") or {}
+        if resource_type == Subscription.ResourceType.AI_PROMPT and submitted_delivery_config.get("image_size"):
+            raise SubscriptionRequestInvalidError(
+                {"delivery_config": ["Image size is only supported for insight and dashboard subscriptions."]}
+            )
         if (
             resource_type == Subscription.ResourceType.AI_PROMPT
             and self.partial

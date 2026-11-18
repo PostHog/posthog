@@ -132,7 +132,7 @@ from posthog.rate_limit import (
 from posthog.renderers import SafeJSONRenderer
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
-from posthog.scopes import scopes_not_covered
+from posthog.scopes.checks import scopes_not_covered
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA
 from posthog.shared_link_user import SharedLinkUser
 from posthog.user_permissions import UserPermissionsSerializerMixin

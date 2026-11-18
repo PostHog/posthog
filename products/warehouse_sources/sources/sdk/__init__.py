@@ -134,7 +134,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.fil
     normalize_column_name,
     normalize_delimiter,
     resolve_file_format,
-    uses_brotli_compression,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.grpc import tracked_interceptors
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
@@ -654,6 +653,5 @@ __all__ = [
     "unreachable_vendor_message",
     "update_sync_type_config_keys",
     "url_field",
-    "uses_brotli_compression",
     "validate_via_probe",
 ]

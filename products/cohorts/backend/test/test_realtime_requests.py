@@ -7,6 +7,7 @@ from posthog.test.base import BaseTest
 from unittest import mock
 
 from django.test import override_settings
+from django.utils import timezone
 
 from kombu.exceptions import OperationalError
 from parameterized import parameterized
@@ -89,7 +90,11 @@ class TestRealtimeCohortRequests(BaseTest):
         )
 
     def _cohort(self, *leaves: dict[str, Any]) -> Cohort:
-        cohort = Cohort.objects.create(team=self.team, filters={"properties": {"type": "AND", "values": list(leaves)}})
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={"properties": {"type": "AND", "values": list(leaves)}},
+            realtime_enabled_at=timezone.now(),
+        )
         # Cohorts saved before the column existed have no `condition_type`.
         Cohort.objects.filter(id=cohort.id).update(condition_type=None)
         return cohort

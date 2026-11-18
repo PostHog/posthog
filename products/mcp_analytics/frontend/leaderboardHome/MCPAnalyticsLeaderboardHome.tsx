@@ -129,6 +129,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                 dataAttrPrefix="mcp-dashboard"
                 onRefresh={reloadAll}
                 refreshing={dashboardLoading}
+                trailingControls={<LeaderboardSectionsMenu />}
             >
                 <McpDateFilter
                     dateFrom={dateFilter.dateFrom}
@@ -139,7 +140,6 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                     }}
                     dataAttr="mcp-dashboard-date-filter"
                 />
-                <LeaderboardSectionsMenu />
             </McpSharedFilters>
             <MCPAnalyticsFeedbackPrompt
                 contextKey={feedbackContextKey}

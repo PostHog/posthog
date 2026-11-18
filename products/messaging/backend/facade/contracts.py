@@ -369,6 +369,7 @@ class TransactionalEmailLogEntry:
     template_id: str | None
     # Empty when the template was deleted.
     template_name: str
+    code_email_id: str | None
     sending_domain: str
     opened: bool
     clicked: bool
@@ -430,6 +431,8 @@ class TransactionalEmailStatsRow:
     # The template id or the sending domain.
     key: str
     label: str
+    template_id: str | None
+    code_email_id: str | None
     sent: int
     delivered: int
     bounced: int

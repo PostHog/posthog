@@ -25,13 +25,16 @@ const ANY = 'any'
 export function QuillTransactionalEmailLogFilters({
     emailOptions,
     statusOptions,
+    reasonOptions,
 }: {
-    emailOptions: readonly FilterOption[]
+    emailOptions?: readonly FilterOption[]
     statusOptions: readonly FilterOption<EmailDeliveryStatusEnumApi>[]
+    reasonOptions?: readonly FilterOption[] | null
 }): JSX.Element {
     const { filters, pageLoading } = useValues(transactionalEmailLogLogic)
     const { setFilters, refresh } = useActions(transactionalEmailLogLogic)
-    const menuFiltersOn = filters.workflowId !== null || filters.status !== null
+    const menuFiltersOn =
+        (!!emailOptions && filters.workflowId !== null) || filters.status !== null || filters.reason !== null
 
     return (
         <div className="flex flex-wrap items-center gap-2">
@@ -55,14 +58,16 @@ export function QuillTransactionalEmailLogFilters({
             <DropdownMenu>
                 <FilterMenuTrigger active={menuFiltersOn} dataAttr="transactional-email-log-filter-menu" />
                 <DropdownMenuContent align="start" className="min-w-64">
-                    <FilterRadioSubMenu
-                        label="Email"
-                        options={[{ value: ANY, label: 'All emails' }, ...emailOptions]}
-                        value={filters.workflowId ?? ANY}
-                        defaultValue={ANY}
-                        onChange={(value) => setFilters({ workflowId: value === ANY ? null : value })}
-                        dataAttr="transactional-email-log-email-filter"
-                    />
+                    {emailOptions && (
+                        <FilterRadioSubMenu
+                            label="Email"
+                            options={[{ value: ANY, label: 'All emails' }, ...emailOptions]}
+                            value={filters.workflowId ?? ANY}
+                            defaultValue={ANY}
+                            onChange={(value) => setFilters({ workflowId: value === ANY ? null : value })}
+                            dataAttr="transactional-email-log-email-filter"
+                        />
+                    )}
                     <FilterRadioSubMenu<EmailDeliveryStatusEnumApi | typeof ANY>
                         label="Status"
                         options={[{ value: ANY, label: 'Any status' }, ...statusOptions]}
@@ -71,6 +76,16 @@ export function QuillTransactionalEmailLogFilters({
                         onChange={(value) => setFilters({ status: value === ANY ? null : value })}
                         dataAttr="transactional-email-log-status-filter"
                     />
+                    {reasonOptions && (
+                        <FilterRadioSubMenu
+                            label="Reason"
+                            options={[{ value: ANY, label: 'Any reason' }, ...reasonOptions]}
+                            value={filters.reason ?? ANY}
+                            defaultValue={ANY}
+                            onChange={(value) => setFilters({ reason: value === ANY ? null : value })}
+                            dataAttr="transactional-email-log-reason-filter"
+                        />
+                    )}
                     <FilterClearItem
                         active={menuFiltersOn}
                         onClear={() => setFilters({ workflowId: null, status: null })}

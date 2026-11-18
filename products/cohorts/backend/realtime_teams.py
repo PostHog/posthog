@@ -100,6 +100,11 @@ def realtime_level(team_id: int, *, fresh: bool = False) -> RealtimeCohortLevel:
     """
     if realtime_allowlist_matches(team_id):
         return RealtimeCohortLevel.SERVING
+    return access_row_level(team_id, fresh=fresh)
+
+
+def access_row_level(team_id: int, *, fresh: bool = False) -> RealtimeCohortLevel:
+    """The level the team's access row grants, without `REALTIME_COHORT_TEAM_ALLOWLIST`."""
     row = _access_row(team_id, fresh=fresh)
     return RealtimeCohortLevel(row.level) if row is not None else RealtimeCohortLevel.OFF
 

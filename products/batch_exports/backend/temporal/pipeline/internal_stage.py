@@ -252,6 +252,8 @@ async def get_s3_client():
             read_timeout=300,
             connector_args={"keepalive_timeout": 30},
             http_session_cls=AIOHTTPSession,
+            # connect directly to our internal stage without any egress proxy
+            proxies={},
         ),
     ) as s3_client:
         yield s3_client

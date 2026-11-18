@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-replica', operation='count_cohort_members' */\n            SELECT COUNT(*) as \"count!\"\n            FROM posthog_cohortpeople\n            WHERE cohort_id = ANY($1::bigint[])\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "edf01a4e6ad2600b92230d4deb8d928923bb2afd52bbd5552907cd8d317e95d1"
+}
