@@ -1235,21 +1235,41 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
 
     @parameterized.expand(
         [
-            ("reply_in_converted_channel", {"channel_type": "group"}, None, "private_channel"),
-            ("mention_in_converted_channel", {}, {"channel": {"is_private": True}}, "private_channel"),
-            ("mention_with_failed_lookup", {}, SlackApiError("ratelimited", {"error": "ratelimited"}), "unknown"),
-            ("mention_in_public_channel", {}, {"channel": {"is_private": False}}, "public_channel"),
+            ("reply_in_converted_channel", "public_channel", {"channel_type": "group"}, None, "private_channel"),
+            (
+                "mention_in_converted_channel",
+                "public_channel",
+                {},
+                {"channel": {"is_private": True}},
+                "private_channel",
+            ),
+            (
+                "mention_with_failed_lookup",
+                "public_channel",
+                {},
+                SlackApiError("ratelimited", {"error": "ratelimited"}),
+                "unknown",
+            ),
+            ("mention_in_public_channel", "public_channel", {}, {"channel": {"is_private": False}}, "public_channel"),
+            ("channel_made_public", "private_channel", {}, {"channel": {"is_private": False}}, "public_channel"),
         ]
     )
     @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
-    def test_resumed_run_reclassifies_a_public_thread(
-        self, _name, event_fields, conversations_info, expected_type, mock_slack_cls, _mock_execute_workflow
+    def test_resumed_run_refreshes_the_conversation_type(
+        self,
+        _name,
+        stored_type,
+        event_fields,
+        conversations_info,
+        expected_type,
+        mock_slack_cls,
+        _mock_execute_workflow,
     ):
         self.task_run.status = self.TaskRun.Status.COMPLETED
         self.task_run.save()
         mapping = self._create_mapping()
-        mapping.conversation_type = SlackThreadTaskMapping.ConversationType.PUBLIC_CHANNEL
+        mapping.conversation_type = stored_type
         mapping.save()
         mock_slack_instance = MagicMock()
         if isinstance(conversations_info, Exception):
