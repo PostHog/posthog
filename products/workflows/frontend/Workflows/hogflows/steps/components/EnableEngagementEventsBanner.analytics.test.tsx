@@ -97,7 +97,9 @@ describe('engagement events banner restricted area event', () => {
             const editor = app.workflowLogic({ id: 'new' })
             editor.mount()
             await app
-                .expectLogic(editor, () => editor.values.hogFunctionTemplatesById)
+                .expectLogic(editor, () => {
+                    void editor.values.hogFunctionTemplatesById
+                })
                 .toDispatchActions(['loadHogFunctionTemplatesByIdSuccess', 'loadHogFunctionTemplatesByIdSuccess'])
 
             app.rtl.render(
