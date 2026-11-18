@@ -660,6 +660,21 @@ class TestBillingSyncedQuota(_VisionQuotaTestCase):
         assert budget.blocked
         sync.delay.assert_called_once_with(str(self.organization.id))
 
+    def test_failed_billing_sync_enqueue_lets_the_next_read_retry(self) -> None:
+        self.organization.usage = None
+        self.organization.save()
+
+        with (
+            patch.object(quota, "UNSYNCED_ALLOWANCE", None),
+            patch("products.replay_vision.backend.quota.is_cloud", return_value=True),
+            patch("posthog.tasks.sync_billing.sync_from_billing") as sync,
+        ):
+            sync.delay.side_effect = [ConnectionError("broker down"), None]
+            compute_quota_snapshot(organization_id=self.organization.id)
+            compute_quota_snapshot(organization_id=self.organization.id)
+
+        assert sync.delay.call_count == 2
+
     @parameterized.expand(
         [
             # An unlimited plan (billing syncs no limit) gets the override as its cap.

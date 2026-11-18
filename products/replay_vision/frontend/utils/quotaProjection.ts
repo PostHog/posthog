@@ -53,6 +53,9 @@ export function hasCreditLimit(quota: VisionQuotaApi | null): quota is VisionQuo
  * so those surfaces speak in credits only. Unknown quota keeps the dollars rather than flickering them away.
  */
 export function hasBillableSpend(quota: VisionQuotaApi | null): boolean {
+    if (quota?.free_monthly_credits === null) {
+        return false
+    }
     if (!hasCreditLimit(quota)) {
         return true
     }

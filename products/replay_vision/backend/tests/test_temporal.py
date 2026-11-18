@@ -48,6 +48,7 @@ from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counte
 )
 
 from products.exports.backend.models.exported_asset import ExportedAsset
+from products.replay_vision.backend import quota
 from products.replay_vision.backend.api.observation_progress import _ObservationState, stream_observation_progress
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.enqueue_claims import (
@@ -110,6 +111,7 @@ from products.replay_vision.backend.temporal.activities.upload_video_to_gemini i
     upload_video_to_gemini_activity,
 )
 from products.replay_vision.backend.temporal.errors import (
+    BILLING_SYNC_PENDING_ERROR_TYPE,
     INELIGIBLE_SESSION_ERROR_TYPE,
     SCANNER_ADMISSION_BUSY_ERROR_TYPE,
     SCANNER_FAILURE_ERROR_TYPE,
@@ -535,6 +537,27 @@ class TestCreateObservationActivity:
             observation_id=None, was_created=False, scanner_type=scanner.scanner_type
         )
         assert not ReplayObservation.objects.filter(scanner=scanner, session_id="sess-quota").exists()
+
+    def test_retries_instead_of_skipping_while_billing_has_not_synced_the_org(self) -> None:
+        scanner = _make_scanner()
+        scanner.team.organization.usage = None
+        scanner.team.organization.save()
+
+        with patch.object(quota, "UNSYNCED_ALLOWANCE", None), pytest.raises(ApplicationError) as raised:
+            create_observation_activity(
+                CreateObservationInputs(
+                    scanner_id=scanner.id,
+                    team_id=scanner.team_id,
+                    session_id="sess-unsynced",
+                    triggered_by=ObservationTrigger.SCHEDULE,
+                    triggered_by_user_id=None,
+                    workflow_id="wf-unsynced",
+                )
+            )
+
+        assert raised.value.type == BILLING_SYNC_PENDING_ERROR_TYPE
+        assert not raised.value.non_retryable
+        assert not ReplayObservation.objects.filter(scanner=scanner, session_id="sess-unsynced").exists()
 
     def test_skips_insert_when_ai_data_processing_not_approved(self) -> None:
         scanner = _make_scanner()

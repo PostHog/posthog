@@ -604,11 +604,16 @@ def _request_billing_sync(organization_id: UUID) -> None:
     # posthog.tasks imports the usage report, which imports this module.
     from posthog.tasks.sync_billing import sync_from_billing  # noqa: PLC0415
 
+    key = f"replay_vision:billing_sync_requested:{organization_id}"
     try:
-        if cache.add(f"replay_vision:billing_sync_requested:{organization_id}", True, BILLING_SYNC_REQUEST_TTL_SECONDS):
-            sync_from_billing.delay(str(organization_id))
+        if cache.add(key, True, BILLING_SYNC_REQUEST_TTL_SECONDS):
+            try:
+                sync_from_billing.delay(str(organization_id))
+            except Exception:
+                # Free the slot so the next read retries the enqueue instead of waiting out the TTL.
+                cache.delete(key)
+                raise
     except Exception:
-        # The org stays blocked either way, and a later read requests the sync again.
         logger.exception("replay_vision.billing_sync_request_failed", organization_id=str(organization_id))
 
 
