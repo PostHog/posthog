@@ -40,7 +40,7 @@ import type {
 import { webOverviewItem, webQueryItem, webQueryKey } from '../items'
 import { useRecordRecentView } from '../pinHooks'
 import { WEB_ANALYTICS_SAVED_RANGE, webAnalyticsRange } from '../rangeOverride'
-import { useViewRange, type ViewRange, webAnalyticsRangeKey } from '../rangeStore'
+import { useViewRange, useViewRangeScope, type ViewRange, webAnalyticsRangeKey } from '../rangeStore'
 import { type RefreshItem, useViewRefresh, type ViewRefresh } from '../useViewRefresh'
 import type { ViewsAccess } from '../useViewsAccess'
 import { useViewsContext } from '../useViewsContext'
@@ -119,7 +119,11 @@ interface SharedWindow {
 }
 
 function useSharedWindow(dataScope: string): SharedWindow {
-    const range = useViewRange(webAnalyticsRangeKey(dataScope), 'web_analytics', WEB_ANALYTICS_SAVED_RANGE)
+    const range = useViewRange(
+        webAnalyticsRangeKey(useViewRangeScope(dataScope)),
+        'web_analytics',
+        WEB_ANALYTICS_SAVED_RANGE
+    )
     const values = webAnalyticsRange(range.choice)
     const interval = webAnalyticsInterval(values)
     const choices = useWebAnalyticsChoices(dataScope)

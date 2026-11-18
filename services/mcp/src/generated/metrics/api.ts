@@ -814,6 +814,7 @@ export const metricsValuesRetrieveQueryLimitDefault = 100
 export const metricsValuesRetrieveQueryLimitMax = 1000
 
 export const metricsValuesRetrieveQueryMatchDefault = `substring`
+export const metricsValuesRetrieveQuerySeriesStatsDefault = false
 export const metricsValuesRetrieveQueryServiceMax = 1024
 
 export const metricsValuesRetrieveQuerySparklinesDefault = true
@@ -843,6 +844,10 @@ export const MetricsValuesRetrieveQueryParams = () => zod.object({
         .describe(
             'How `value` matches a name. `substring` (default) and `prefix` are case-insensitive. `regex` is an RE2 pattern run with ClickHouse match(): case-sensitive and unanchored, so use `^` and `$` to anchor and `(?i)` to ignore case.\n\n\* `substring` - substring\n\* `prefix` - prefix\n\* `regex` - regex'
         ),
+    series_stats: zod
+        .boolean()
+        .default(metricsValuesRetrieveQuerySeriesStatsDefault)
+        .describe('Add `series_count` and `tag_key_count` for each name, over the last 24 hours.'),
     service: zod
         .string()
         .max(metricsValuesRetrieveQueryServiceMax)
