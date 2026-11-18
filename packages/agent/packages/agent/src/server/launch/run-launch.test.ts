@@ -35,6 +35,7 @@ function runWithState(state: Record<string, unknown>): TaskRun {
 
 function serverPolicy(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify({
+    run_id: "run-1",
     finish_tool: true,
     finish_report_required: false,
     report_activity_tool: false,
@@ -83,6 +84,12 @@ describe("run launch", () => {
         "{",
         false,
         "invalid_server",
+      ],
+      [
+        "the origin when the server policy is for another run",
+        serverPolicy({ run_id: "run-0", finish_tool: false }),
+        true,
+        "stale_server",
       ],
     ])("takes the run policy from %s", (_, policy, finishTool, source) => {
       const launch = readRunLaunch(

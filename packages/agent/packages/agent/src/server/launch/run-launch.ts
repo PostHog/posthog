@@ -20,7 +20,11 @@ export interface RunLaunchSources {
   readonly env: Readonly<Record<string, string | undefined>>;
 }
 
-export type RunPolicySource = "server" | "origin" | "invalid_server";
+export type RunPolicySource =
+  | "server"
+  | "origin"
+  | "invalid_server"
+  | "stale_server";
 
 export interface RunLaunch {
   readonly userId: number | null;
@@ -112,16 +116,17 @@ function readInteractionOrigin(
   );
 }
 
-function readRunPolicy({ task, taskRun, env }: RunLaunchSources): {
+function readRunPolicy({ payload, task, taskRun, env }: RunLaunchSources): {
   policy: RunPolicy;
   source: RunPolicySource;
 } {
-  const serverPolicy = env.POSTHOG_TASK_RUN_POLICY;
-  if (serverPolicy) {
-    const policy = parseServerRunPolicy(serverPolicy);
-    return policy
-      ? { policy, source: "server" }
-      : { policy: RESTRICTIVE_RUN_POLICY, source: "invalid_server" };
+  const raw = env.POSTHOG_TASK_RUN_POLICY;
+  const server = raw ? parseServerRunPolicy(raw) : undefined;
+  if (raw && !server) {
+    return { policy: RESTRICTIVE_RUN_POLICY, source: "invalid_server" };
+  }
+  if (server?.runId === payload.run_id) {
+    return { policy: server.policy, source: "server" };
   }
   return {
     policy: runPolicyFromOrigin({
@@ -129,7 +134,7 @@ function readRunPolicy({ task, taskRun, env }: RunLaunchSources): {
       endRunWhenDone: taskRun?.state?.end_run_when_done === true,
       callerEndsRun: taskRun?.state?.caller_ends_run === true,
     }),
-    source: "origin",
+    source: server ? "stale_server" : "origin",
   };
 }
 
