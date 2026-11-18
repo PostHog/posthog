@@ -2,7 +2,7 @@ import { combineUrl } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
-import type { WorkflowsConfig } from '~/types'
+import type { TeamWorkflowsConfigApi } from '~/generated/core/api.schemas'
 
 import {
     MAX_FREQUENCY_CAP_MESSAGES,
@@ -259,7 +259,7 @@ export function sendingRulesToSave(
     holdHours: number | null,
     engagementEvents: boolean,
     canEdit: boolean
-): WorkflowsConfig | null {
+): TeamWorkflowsConfigApi | null {
     // The backend lets only project admins change any part of workflows_config.
     if (!canEdit) {
         return null

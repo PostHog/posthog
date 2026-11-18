@@ -5,7 +5,7 @@ The relay forwards HTTP requests to one configured regional endpoint using mTLS.
 The only regional operation is an authenticated `GET /v1/probe`, which returns 204 without contacting an upstream.
 The probe rejects declared or streaming request bodies without waiting for their contents.
 Tasks owns registration and capability issuance.
-A development probe uses Tasks' Modal provisioning and an isolated relay sidecar. Product workflow integration and credential injection follow separately.
+A development probe uses Tasks' Modal provisioning and an isolated relay sidecar. An opt-in observation mode runs the same probe on an existing Tasks VM. Agent traffic and upstream credentials still use their current paths.
 
 ## Probe a real development VM
 
@@ -19,12 +19,13 @@ Guest -> private sidecar HTTP -> mTLS -> regional /v1/probe
 Trusted controller -> renew lease / replace capability file -> revoke on exit
 ```
 
-Build the relay for the sandbox's architecture and put it at `/usr/local/bin/egress-relay` in a prebuilt Modal image with Python 3 and OpenSSL.
+Build the relay for the sandbox's architecture and put it at `/usr/local/bin/egress-relay` in a prebuilt Modal image with Python 3 and OpenSSL. For an AMD64 image, build with `GOOS=linux GOARCH=amd64 CGO_ENABLED=0`.
 Run the regional proxy and registry first, using development signing keys and an ephemeral client CA.
 The CA key stays with the controller; the relay key stays in its sidecar.
 The mounted verifier bundle must include the run's signing key.
 
-Pass a JSON configuration file to `python manage.py probe_agent_egress --config /path/to/probe.json`:
+Set `AGENT_EGRESS_PROBE_CONFIG_DIR` to a dedicated directory containing only probe configuration files, writable only by the worker operator. Keep certificate keys outside it.
+Pass a JSON file from that directory to `python manage.py probe_agent_egress --config /path/to/probes/probe.json`:
 
 ```json
 {
@@ -55,6 +56,53 @@ Snapshots and normal agent startup are refused in this profile. Filesystem resto
 
 DNS remains outside this route. The probe does not establish complete containment, production ingress, durable audit delivery or product-workflow compatibility.
 Output contains status counts and sandbox/execution IDs. Proxy audit events still use the stdout contract below.
+
+### Run the probe through Temporal
+
+Start a development Tasks worker, then add `--temporal --task-queue <worker-queue>` to the probe command.
+The worker needs the same configuration directory setting, file and certificate paths. Both command modes reject file access unless development probes are enabled, and reject paths or symlinks outside that directory. Configuration errors omit file contents. Private keys and capabilities never enter workflow history.
+Ctrl+C cancels the workflow and requests cleanup. A rejected probe response fails the run without retrying it.
+
+```text
+Temporal workflow
+  create or recover VM and relay -> enroll execution
+  renew lease every 10s alongside probe requests
+  on completion, cancellation or failure -> revoke execution -> destroy VM
+```
+
+Both command modes use the same lifecycle and persist an owner, execution, VM and sidecar IDs under `state.agent_egress_probe`.
+Each activity reads that binding again. A restarted worker can renew a live lease; an expired execution needs a fresh VM and key.
+Old cleanup targets its own execution and VM, leaving a replacement alone. An already-deleted VM counts as cleaned up; other cleanup failures remain retryable and do not replace the original workflow failure.
+Revocation records its timestamp, initiating service and reason. Existing registrations have no invented audit history.
+
+Enrollment retries within a fixed three-minute window. A stable provider name recovers the VM even if the worker died before saving its ID. Retries keep the relay key and running process; expired or revoked authority stays denied. Heartbeats let Temporal detect worker loss before the 30-second lease expires, though recovery still depends on a worker being available in time.
+Retries reject changes to the registered configuration. They do not reload the running relay; changing certificates or settings requires a new execution.
+The workflow or command runner owns terminal cleanup. A failed preparation attempt cannot tear down a successful retry.
+Cleanup can find an unsaved VM by name. Cancellation markers expire after their enrollment deadline; requests past that deadline are rejected even after the marker is removed.
+Workflow termination skips cleanup, so authority expires with the lease and the VM stops at its TTL.
+The workflow remains development-only and sends synthetic probes.
+
+### Observe a development Tasks run
+
+Set `AGENT_EGRESS_OBSERVATION_CONFIG` on the Tasks worker to a probe JSON file under `AGENT_EGRESS_PROBE_CONFIG_DIR`. Its `team_id` and `run_id` must match the run. Set it before the workflow loads its context; leave `sandbox_id` out of the file.
+
+Observation is off by default. It requires `DEBUG=1`, `MODAL_DOCKER`, a noninteractive cloud run, full network access and an already-selected Modal VM runtime. Resumed VMs are excluded, and selected runs skip repository snapshots.
+An invalid observation configuration logs a warning and disables observation for that launch. Fixing the file lets later launches try again.
+
+```text
+Tasks creates VM and starts agent using existing routing
+  child workflow attaches isolated relay -> enrolls -> sends synthetic probes
+  completion or cancellation -> revokes execution -> stops only that relay
+Tasks retains ownership of the VM
+```
+
+The sidecar reserve takes 1 GiB from the main VM for its whole lifetime, even if observation never starts. A 2 GiB VM leaves the guest 1 GiB. Match guest memory allocations before comparing performance with an unobserved run. [Modal resource configuration](https://modal.com/docs/guide/sandbox-sidecars#resource-configuration).
+
+Each execution has its own relay name and capability file, so delayed writes or cleanup cannot affect a replacement. Observation lasts at most the configured 600 seconds. Tasks stops it before teardown, VM rotation or workflow continuation; it does not restart on the replacement or continuation. Attached cleanup gets one attempt and a ten-second activity deadline, including queue time. Failure is logged so Tasks can continue; authority expires with its lease if revocation cannot finish.
+
+Cleanup stops the relay and removes its guest capability file when Modal is reachable. The guest deliberately holds a bounded run capability; relay keys and upstream credentials belong outside it. This probe only authorizes `/v1/probe` and does not demonstrate an upstream credential adapter. An actor change invalidates its authorization through the registry.
+
+Observation failures stop that probe and are logged. They do not change the agent's network path. This tests lifecycle integration; it does not enforce agent egress, remove guest credentials or remove agentsh. Named-VM recovery applies to standalone probes, not to ordinary Tasks VM creation. Production certificates, credential adapters and enforced routing remain separate work.
 
 ## Run the processes
 
