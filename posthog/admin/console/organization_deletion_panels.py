@@ -135,6 +135,24 @@ def delete_organization(request: HttpRequest, obj: Model, form: forms.Form | Non
     if settings.DISABLE_BULK_DELETES:
         messages.error(request, "Bulk deletes are paused during a database migration. Try again later.")
         return HttpResponse(status=503)
+    # The same check as the organization API's delete. Deleting the organization would leave its
+    # subscription billing with nobody to see it, and cancelling is a money decision (final invoice,
+    # usage, credits) that staff make in billing, so this refuses instead of cancelling.
+    from ee.billing.billing_manager import organization_has_active_subscription
+
+    try:
+        has_active_subscription = organization_has_active_subscription(obj)
+    except Exception as error:
+        logger.exception("admin_console_organization_deletion_billing_check_failed", organization_id=str(obj.pk))
+        messages.error(request, f"Could not check the organization's subscription in billing: {error}")
+        return HttpResponse(status=503)
+    if has_active_subscription:
+        messages.error(
+            request,
+            f"Organization {obj.name} has an active subscription. "
+            "Cancel the subscription in billing first, then delete the organization.",
+        )
+        return HttpResponse(status=409)
     # Claim the organization in one update, so two staff members who confirm at once start one workflow.
     # Marking it pending also locks the members out, even while the workflow start below is still running.
     claimed = Organization.objects.filter(pk=obj.pk, is_pending_deletion=False).update(is_pending_deletion=True)

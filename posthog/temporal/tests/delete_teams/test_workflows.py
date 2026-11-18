@@ -59,6 +59,10 @@ def _recording_activities(
 
         return _fn
 
+    @activity.defn(name="notify_billing_organization_deleted_activity")
+    async def notify_billing_organization_deleted_activity(inputs: OrganizationRecordInputs) -> None:
+        calls.append("notify_billing_organization_deleted_activity")
+
     @activity.defn(name="deprovision_managed_warehouse_activity")
     async def deprovision_managed_warehouse_activity(inputs: OrganizationRecordInputs) -> None:
         calls.append("deprovision_managed_warehouse_activity")
@@ -86,6 +90,7 @@ def _recording_activities(
 
     mocks = [
         *[_team_activity(name) for name in CORE_ACTIVITY_ORDER],
+        notify_billing_organization_deleted_activity,
         deprovision_managed_warehouse_activity,
         check_project_pending_deletion_activity,
         delete_project_record_activity,
@@ -209,11 +214,64 @@ async def test_organization_workflow_deletes_record_then_emails():
         calls,
     )
     assert calls == [
+        "notify_billing_organization_deleted_activity",
         "deprovision_managed_warehouse_activity",
         *CORE_ACTIVITY_ORDER,
         "delete_organization_record_activity",
         "send_organization_deleted_email_activity",
     ]
+
+
+async def test_billing_notice_failure_does_not_block_organization_deletion():
+    # The notice is best-effort: billing being down must not stall a deletion the user asked for.
+    attempts: list[str] = []
+    calls: list[str] = []
+
+    @activity.defn(name="notify_billing_organization_deleted_activity")
+    async def failing_notice(inputs: OrganizationRecordInputs) -> None:
+        attempts.append("attempt")
+        raise RuntimeError("billing unavailable")
+
+    activities = [
+        *_recording_activities(calls, exclude=frozenset({"notify_billing_organization_deleted_activity"})),
+        failing_notice,
+    ]
+    task_queue = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue,
+            workflows=WORKFLOWS,
+            activities=activities,
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            await env.client.execute_workflow(
+                DeleteOrganizationWorkflow.run,
+                DeleteOrganizationWorkflowInputs(
+                    team_ids=[1],
+                    organization_id="11111111-1111-1111-1111-111111111111",
+                    user_id=7,
+                    organization_name="org",
+                    project_names=["a"],
+                ),
+                id=str(uuid.uuid4()),
+                task_queue=task_queue,
+            )
+
+    assert len(attempts) == 5  # exhausted SIDE_EFFECT_RETRY_POLICY, then swallowed
+    assert "delete_organization_record_activity" in calls
+
+
+@patch("ee.billing.billing_manager.notify_billing_organization_deleted")
+async def test_notify_billing_activity_sends_the_organization_id(notify_mock):
+    from posthog.temporal.delete_teams.activities import notify_billing_organization_deleted_activity
+
+    await ActivityEnvironment().run(
+        notify_billing_organization_deleted_activity,
+        OrganizationRecordInputs(organization_id="11111111-1111-1111-1111-111111111111", user_id=7),
+    )
+
+    notify_mock.assert_called_once_with("11111111-1111-1111-1111-111111111111")
 
 
 def _core_activities_with(target_name: str, target_fn) -> list:
@@ -324,7 +382,8 @@ async def test_warehouse_deprovision_failure_blocks_org_record_deletion():
                 )
 
     assert len(attempts) > 1  # durably retried until the test-only execution timeout
-    assert calls == []  # nothing else ran — the pointer-destroying cascade never started
+    # Only the billing notice, which deletes nothing, ran before; the pointer-destroying cascade never started.
+    assert calls == ["notify_billing_organization_deleted_activity"]
 
 
 async def test_recording_deletion_failure_does_not_block_workflow():

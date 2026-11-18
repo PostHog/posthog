@@ -1,6 +1,7 @@
 import temporalio.activity
 from temporalio.exceptions import ApplicationError
 
+from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.delete_teams.types import (
@@ -182,6 +183,23 @@ async def delete_project_record_activity(inputs: ProjectRecordInputs) -> None:
         from posthog.models.team.util import delete_project_record
 
         await database_sync_to_async_pool(delete_project_record)(inputs.project_id)
+
+
+def _notify_billing_organization_deleted(organization_id: str) -> None:
+    from ee.billing.billing_manager import notify_billing_organization_deleted
+
+    notify_billing_organization_deleted(organization_id)
+
+
+@temporalio.activity.defn
+async def notify_billing_organization_deleted_activity(inputs: OrganizationRecordInputs) -> None:
+    """Tell billing the organization is gone before any data goes, so it refuses a late subscription."""
+    async with Heartbeater():
+        try:
+            await database_sync_to_async_pool(_notify_billing_organization_deleted)(inputs.organization_id)
+        except Exception as e:
+            capture_exception(e)
+            raise
 
 
 def _deprovision_managed_warehouse(organization_id: str) -> None:

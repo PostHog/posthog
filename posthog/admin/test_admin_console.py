@@ -1180,6 +1180,44 @@ class TestAdminConsoleViews(BaseTest):
         self.organization.refresh_from_db()
         assert self.organization.is_pending_deletion == expect_pending
 
+    @parameterized.expand(
+        [
+            ("active_subscription", {"has_active_subscription": True}, None, 409, False),
+            ("no_subscription", {"has_active_subscription": False}, None, 302, True),
+            ("billing_unreachable", None, RuntimeError("billing down"), 503, False),
+        ]
+    )
+    @patch("ee.billing.billing_manager.BillingManager.get_billing")
+    @patch("ee.billing.billing_manager.get_cached_instance_license", return_value=MagicMock())
+    @patch("posthog.admin.console.organization_deletion_panels.start_delete_organization_workflow")
+    def test_deleting_an_organization_refuses_while_billing_reports_a_subscription(
+        self,
+        _name: str,
+        billing: dict | None,
+        billing_error: Exception | None,
+        expected_status: int,
+        expect_started: bool,
+        start: MagicMock,
+        _license: MagicMock,
+        get_billing: MagicMock,
+    ) -> None:
+        Group.objects.get_or_create(name=DELETION_AUTHORIZED_GROUP)[0].user_set.add(self.user)
+        get_billing.return_value = billing
+        get_billing.side_effect = billing_error
+        url = f"/admin/console/organizations/{self.organization.pk}/deletion/delete/"
+
+        with self.is_cloud(True):
+            preview = self.client.post(url, {"reason": "Customer asked to delete the organization"})
+            response = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
+
+        assert response.status_code == expected_status
+        assert start.called == expect_started
+        self.organization.refresh_from_db()
+        assert self.organization.is_pending_deletion == expect_started
+        if expected_status == 409:
+            shown = " ".join(str(message) for message in response.wsgi_request._messages)
+            assert "Cancel the subscription in billing first" in shown
+
     @parameterized.expand([("active", False), ("pending_deletion", True)])
     def test_the_old_model_counts_page_opens_the_data_tool_for_every_staff_member(
         self, _name: str, pending_deletion: bool
