@@ -1,6 +1,6 @@
 from parameterized import parameterized
 
-from products.ai_observability.backend.logic.eval_suggestions import adapters, cards
+from products.ai_observability.backend.logic.eval_suggestions import adapters, cards, catalog
 from products.ai_observability.backend.logic.eval_suggestions.coverage import EvalFix, FilterChange
 from products.ai_observability.backend.logic.eval_suggestions.profile import FieldMeaning, StructuredGap
 
@@ -27,6 +27,13 @@ def test_a_code_check_keeps_its_title_and_reports_counts_from_its_sample(
     assert text.headline == "Unrecovered tool or model failures"
     assert text.outcome.startswith(opening)
     assert (text.observation, text.observation_scope) == (observation, "Sampled from the last 7 days")
+
+
+@parameterized.expand([("sentiment", "generation"), ("user_correction", "session")])
+def test_a_screened_judge_counts_the_traces_screening_read(key: str, target: str) -> None:
+    text = cards.judge_text(catalog.template(key), target, 5, 40)
+
+    assert text.observation == "5 of 40 sampled traces flagged by a screening model"
 
 
 @parameterized.expand(

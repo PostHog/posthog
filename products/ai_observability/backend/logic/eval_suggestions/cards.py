@@ -160,13 +160,14 @@ JUDGES: dict[str, _JudgeWords] = {
 
 
 def judge_text(template: EvalTemplate, target: str, flagged_count: int, screened: int) -> CardText:
-    """A catalog judge that a screening model flagged on `flagged_count` of `screened` sampled units."""
+    """A catalog judge that a screening model flagged in `flagged_count` of `screened` sampled traces. Screening
+    reads one item per trace whatever the judge's target, so the observation counts traces."""
     words = JUDGES.get(template.key) or _JudgeWords(title=template.name, summary=_sentence(template.description))
     return CardText(
         headline=words.title,
         outcome=words.summary.replace("{units}", UNITS.get(target, "traces")),
         reason="",
-        observation=flagged(flagged_count, screened, target, "flagged by a screening model"),
+        observation=flagged(flagged_count, screened, "trace", "flagged by a screening model"),
         observation_scope=sampled_from(WINDOW),
     )
 
