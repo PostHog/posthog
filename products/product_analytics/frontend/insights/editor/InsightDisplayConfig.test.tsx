@@ -12,6 +12,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { useMocks } from '~/mocks/jest'
 import {
     InsightQueryNode,
+    FunnelsQuery,
     LifecycleQuery,
     NodeKind,
     RetentionQuery,
@@ -19,7 +20,7 @@ import {
     TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { BaseMathType, ChartDisplayType, InsightShortId } from '~/types'
+import { BaseMathType, ChartDisplayType, FunnelVizType, InsightShortId } from '~/types'
 
 import { InsightDisplayConfig } from './InsightDisplayConfig'
 
@@ -337,6 +338,37 @@ describe('InsightDisplayConfig', () => {
                 }
             }
         })
+    })
+
+    it.each([undefined, false, true])('persists dashboard summary opt-in from %s', async (showSummaryOnDashboards) => {
+        setupAndRender({
+            kind: NodeKind.FunnelsQuery,
+            series: [...pageviewSeries, ...pageviewSeries],
+            funnelsFilter: { showSummaryOnDashboards },
+        })
+        await openOptionsMenu()
+        const checkbox = screen.getByLabelText('Show summary on dashboards')
+        expect(checkbox).toHaveAttribute('aria-checked', String(showSummaryOnDashboards === true))
+
+        await userEvent.click(checkbox)
+        const vizLogic = insightVizDataLogic(insightProps)
+        expect((vizLogic.values.querySource as FunnelsQuery).funnelsFilter?.showSummaryOnDashboards).toBe(
+            showSummaryOnDashboards !== true
+        )
+        await userEvent.click(checkbox)
+        expect((vizLogic.values.querySource as FunnelsQuery).funnelsFilter?.showSummaryOnDashboards).toBe(
+            showSummaryOnDashboards === true
+        )
+    })
+
+    it('omits the dashboard summary option for historical funnel trends', async () => {
+        setupAndRender({
+            kind: NodeKind.FunnelsQuery,
+            series: [...pageviewSeries, ...pageviewSeries],
+            funnelsFilter: { funnelVizType: FunnelVizType.Trends },
+        })
+        await openOptionsMenu()
+        expect(screen.queryByLabelText('Show summary on dashboards')).not.toBeInTheDocument()
     })
 
     describe('options count', () => {

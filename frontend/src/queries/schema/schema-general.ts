@@ -2217,6 +2217,8 @@ export interface FunnelExclusionActionsNode extends ActionsNode, FunnelExclusion
 export type FunnelExclusion = FunnelExclusionEventsNode | FunnelExclusionActionsNode
 
 export type FunnelsFilter = {
+    /** @default false */
+    showSummaryOnDashboards?: boolean
     /** @default [] */
     exclusions?: FunnelExclusion[]
     /** @default vertical */

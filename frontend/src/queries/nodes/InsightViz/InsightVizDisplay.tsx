@@ -259,8 +259,13 @@ export function InsightVizDisplay({
     } = useValues(insightVizDataLogic(insightProps))
     const { loadData, updateQuerySource } = useActions(insightVizDataLogic(insightProps))
     const { exportContext, queryId, insightDataError } = useValues(insightDataLogic(insightProps))
-    const { funnelVizType, hasFunnelResults, isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } =
-        useValues(funnelDataLogic(insightProps))
+    const {
+        funnelsFilter,
+        funnelVizType,
+        hasFunnelResults,
+        isFunnelWithEnoughSteps,
+        isFunnelWithIncompleteDataWarehouseStep,
+    } = useValues(funnelDataLogic(insightProps))
 
     const explainChartEnabled = useFeatureFlag('EXPLAIN_CHART')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
@@ -638,11 +643,14 @@ export function InsightVizDisplay({
                 {showingResults && (
                     <QuillSurfaceContext.Provider value={quillSurface}>
                         <ExplainEmptyInsightContext.Provider value={!embedded}>
-                            {embedded && isFunnels && hasFunnelResults && (
-                                <Suspense fallback={null}>
-                                    <FunnelCardSummary />
-                                </Suspense>
-                            )}
+                            {embedded &&
+                                isFunnels &&
+                                hasFunnelResults &&
+                                funnelsFilter?.showSummaryOnDashboards === true && (
+                                    <Suspense fallback={null}>
+                                        <FunnelCardSummary />
+                                    </Suspense>
+                                )}
                             {!embedded &&
                                 ((isFunnels && hasFunnelResults) ||
                                     isPaths ||
