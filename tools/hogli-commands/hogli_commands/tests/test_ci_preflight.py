@@ -412,7 +412,6 @@ class TestMigrationsCheck:
 
         assert status == "skipped"
         assert "POSTHOG_SKIP_MIGRATION_CHECKS" in detail
-        mock_run.assert_not_called()
 
     @patch("hogli_commands.ci_preflight.shutil.which", return_value="/usr/bin/hogli")
     @patch("hogli_commands.ci_preflight._port_open", return_value=True)

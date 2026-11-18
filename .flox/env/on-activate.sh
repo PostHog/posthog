@@ -348,7 +348,7 @@ _PNPM_SKIP=0
 _PNPM_COMMAND="pnpm install"
 if [[ -d "$FLOX_ENV_PROJECT/nodejs/node_modules/re2" ]] &&
   ! (cd "$FLOX_ENV_PROJECT/nodejs" && node -e 'try { require("re2") } catch (e) { process.exit(e.code === "ERR_DLOPEN_FAILED" ? 1 : 0) }') 2>/dev/null; then
-  _PNPM_COMMAND="pnpm install && pnpm rebuild re2 node-rdkafka lz4 cpu-features"
+  _PNPM_COMMAND="pnpm install && pnpm -r rebuild re2 node-rdkafka lz4 cpu-features"
   _PNPM_SKIP=0
 fi
 _UV_SKIP=0
