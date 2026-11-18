@@ -66,7 +66,9 @@ import {
     mergeAiBlobPointersFanIn,
 } from './steps/offload-ai-blobs-step'
 import { createProcessAiEventStep } from './steps/process-ai-event-step'
+import { createRecordAiOverageUsageStep } from './steps/record-ai-overage-usage-step'
 import { createSplitAiEventsStep } from './steps/split-ai-events-step'
+import { createStampAiEventBytesStep } from './steps/stamp-ai-event-bytes-step'
 import { createValidateAiEventTokensStep } from './steps/validate-ai-event-tokens'
 
 export interface AiIngestionPipelineConfig {
@@ -176,7 +178,7 @@ export function createAiIngestionPipeline<
             // events count under token:client_ip.
             .pipeChunk(createRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
             .pipeChunk(prefetchTeamsStep(teamManager, teamsPrefetchEnabled))
-            .parseMessage()
+            .parseMessage({ measureEventBytes: true })
             .resolveTeam()
             .pipe(createValidateAiEventTokensStep())
             .pipe(createValidateEventMetadataStep())
@@ -239,6 +241,7 @@ export function createAiIngestionPipeline<
             })
             .pipe(createNormalizeEventStep())
             .pipe(createProcessAiEventStep())
+            .pipe(createStampAiEventBytesStep())
             // Blob offload: extract blobs sequentially (cheap, no I/O), then
             // upload them through a fan-out/fan-in stage so per-blob uploads
             // share one concurrency cap across the whole chunk and reuse the
@@ -264,6 +267,7 @@ export function createAiIngestionPipeline<
                 retry: { tries: 5, sleepMs: 100, name: 'readonly_process_groups' },
             })
             .pipe(createRecordEventUsageStep(resolveAiUsageKey))
+            .pipe(createRecordAiOverageUsageStep())
             .pipe(createCreateEventStep(EVENTS_OUTPUT))
             // Double-write to events + ai_events outputs.
             .pipe(createSplitAiEventsStep())

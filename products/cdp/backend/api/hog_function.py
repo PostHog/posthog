@@ -44,7 +44,7 @@ from posthog.helpers.trigram_search import (
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.plugins.plugin_server_api import create_hog_invocation_test, rerun_hog_invocations
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 
 from products.batch_exports.backend.facade import api as batch_exports_api
 from products.batch_exports.backend.facade.contracts import InvalidBatchExportFilters
@@ -80,6 +80,7 @@ from products.cdp.backend.services.destination_test_runs import (
     sends_real_requests,
     without_request_origins,
 )
+from products.cdp.backend.services.hog_function_content import comparable_content
 from products.cdp.backend.services.icons import CDPIconsService
 from products.cdp.backend.site_functions import get_transpiled_function
 from products.cdp.backend.validation import (
@@ -260,48 +261,6 @@ def _worker_error_messages(response: requests.Response) -> list[str]:
                 return [str(value)]
     text = (response.text or "").strip()
     return [text] if text else [f"The worker returned {response.status_code}."]
-
-
-def _without(value: Any, keys: tuple[str, ...]) -> Any:
-    return {k: v for k, v in value.items() if k not in keys} if isinstance(value, dict) else value
-
-
-def _inputs_without_derived(inputs: Any) -> Any:
-    if not isinstance(inputs, dict):
-        return inputs
-    return {
-        key: _without(value, ("bytecode", "bytecode_contract", "transpiled", "order")) for key, value in inputs.items()
-    }
-
-
-def comparable_content(content: dict) -> dict:
-    """A config snapshot with the values validation derives from it dropped: filter and input
-    bytecode, the runtime stamp beside it, transpiled JS, input ordering.
-
-    A background re-save can change those on its own without the config changing at all — most often
-    `refresh_affected_hog_functions` recompiling filter bytecode after an action or cohort edit — so
-    comparing them would version a plain rename.
-    """
-    filter_derived = ("bytecode", "bytecode_error", "bytecode_contract", "transpiled")
-    mappings = content.get("mappings")
-    return {
-        **content,
-        "filters": _without(content.get("filters"), filter_derived),
-        "inputs": _inputs_without_derived(content.get("inputs")),
-        "masking": _without(content.get("masking"), ("bytecode",)),
-        "mappings": [
-            {
-                **mapping,
-                "filters": _without(mapping.get("filters"), filter_derived),
-                "inputs": _inputs_without_derived(mapping.get("inputs")),
-            }
-            if isinstance(mapping, dict)
-            else mapping
-            for mapping in mappings
-        ]
-        if isinstance(mappings, list)
-        else mappings,
-    }
 
 
 def explicit_secret_input_keys(raw_inputs: Any) -> set[str]:
@@ -961,8 +920,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
     def create(self, validated_data: dict, *args, **kwargs) -> HogFunction:
         # An in-process caller has no request to take the acting user from, so it passes
-        # `created_by` to `save()` instead.
-        validated_data["created_by"] = validated_data.get("created_by") or self.context["request"].user
+        # `created_by` to `save()` instead, or None for a function no person asked for.
+        request = self.context.get("request")
+        validated_data["created_by"] = validated_data.get("created_by") or (request.user if request else None)
 
         template_id = validated_data.get("template_id")
         if template_id:
@@ -1835,6 +1795,12 @@ class HogFunctionViewSet(
             except HogFunction.DoesNotExist:
                 locked = None
                 before_update = None
+
+            # The serializer saves the instance it loaded before this lock. A delete that committed in
+            # between, such as a queryset update that retires an alert's destinations, would be undone
+            # by that save writing `deleted=False` back, so only an explicit undelete may proceed.
+            if locked is not None and locked.deleted and serializer.validated_data.get("deleted") is not False:
+                raise exceptions.NotFound()
 
             route_to_draft = route_to_draft and locked is not None
 

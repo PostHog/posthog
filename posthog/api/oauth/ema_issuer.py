@@ -38,7 +38,7 @@ ID-JAG exchange reject every issuer the application registered, without deleting
 configurations.
 
 The scope is in `AUTHORIZATION_SERVER_ONLY_SCOPES`, so the authorization server metadata lists it
-and no other discovery document does. `posthog/scopes.py` explains that class. Because a client can
+and no other discovery document does. `posthog/scopes/oauth.py` explains that class. Because a client can
 copy the whole list into `/authorize`, `requests_ema_issuer` counts a request as an EMA setup only
 when the scope comes alone or with identity scopes.
 """
@@ -69,7 +69,7 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplic
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.user import User
-from posthog.scopes import ALWAYS_ALLOWED_SCOPES, EMA_ISSUER_MANAGE_SCOPE
+from posthog.scopes.oauth import ALWAYS_ALLOWED_SCOPES, EMA_ISSUER_MANAGE_SCOPE
 from posthog.utils import absolute_uri
 
 logger = structlog.get_logger(__name__)

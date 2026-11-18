@@ -33,6 +33,8 @@ from products.managed_warehouse.backend.trino_connection import connect_managed_
 from products.managed_warehouse.backend.trino_materialization import compile_trino_shadow_query
 
 if TYPE_CHECKING:
+    from django.db.models import QuerySet
+
     from trino.dbapi import Connection
 
     from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
@@ -115,9 +117,24 @@ def check_trino_compile(
             yield _check(team, saved_query, target, connection)
 
 
+def trino_compile_check_saved_query_ids(
+    team_id: int, *, saved_query_ids: Sequence[str] | None = None, limit: int | None = None
+) -> list[str]:
+    """Return the ids that ``check_trino_compile`` checks for these arguments, in the order it checks them."""
+    ids = _saved_queries(team_id, saved_query_ids, ()).values_list("id", flat=True)
+    return [str(saved_query_id) for saved_query_id in (ids[:limit] if limit is not None else ids)]
+
+
 def _load_saved_queries(
     team_id: int, saved_query_ids: Sequence[str] | None, limit: int | None, skip_ids: Iterable[str]
 ) -> list[DataWarehouseSavedQuery]:
+    queryset = _saved_queries(team_id, saved_query_ids, skip_ids)
+    return list(queryset[:limit] if limit is not None else queryset)
+
+
+def _saved_queries(
+    team_id: int, saved_query_ids: Sequence[str] | None, skip_ids: Iterable[str]
+) -> QuerySet[DataWarehouseSavedQuery]:
     from products.data_modeling.backend.facade.models import (  # noqa: PLC0415 -- the facade loads lazily
         DataWarehouseSavedQuery,
     )
@@ -125,8 +142,7 @@ def _load_saved_queries(
     queryset = DataWarehouseSavedQuery.objects.filter(team_id=team_id).exclude(deleted=True).order_by("name")
     if saved_query_ids is not None:
         queryset = queryset.filter(id__in=saved_query_ids)
-    queryset = queryset.exclude(id__in=list(skip_ids))
-    return list(queryset[:limit] if limit is not None else queryset)
+    return queryset.exclude(id__in=list(skip_ids))
 
 
 def _check(

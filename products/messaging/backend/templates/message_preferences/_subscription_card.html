@@ -1,0 +1,31 @@
+<div class="bg-gray-50 rounded-lg p-6 transition-all duration-200 hover:shadow-md">
+    <div class="flex items-start justify-between gap-4">
+        <div class="flex-1 min-w-0{% if is_topic %} group-data-all-off:opacity-60{% endif %}">
+            <h3 id="{{ category.id }}-name" class="text-lg font-medium text-gray-900">{{ category.name }}</h3>
+            <p class="text-sm text-gray-500 mt-1">{{ category.description }}</p>
+        </div>
+        <div class="flex flex-col items-end flex-shrink-0 w-40">
+            <div class="relative inline-block w-12 select-none{% if is_topic %} group-data-all-off:opacity-60{% endif %}">
+                <input type="checkbox"
+                       name="{{ category.id }}"
+                       id="{{ category.id }}"
+                       aria-labelledby="{{ category.id }}-name"
+                       {% if is_topic %}data-topic data-saved-status="{{ category.status }}"{% endif %}
+                       {% if is_topic and all_marketing_opted_out %}disabled aria-describedby="all-marketing-off-note"{% elif category.status != "OPTED_OUT" %}checked{% endif %}
+                       class="toggle-checkbox peer absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer transition-transform duration-200 ease-in-out checked:translate-x-full checked:bg-blue-500 disabled:cursor-not-allowed" />
+                <label for="{{ category.id }}"
+                       class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer peer-disabled:cursor-not-allowed">
+                </label>
+            </div>
+            {% if is_topic and all_marketing_opted_out or category.status == "OPTED_OUT" %}
+                <span class="text-xs font-medium mt-1 text-right text-gray-500"
+                      data-status-for="{{ category.id }}"
+                      data-attr="{{ category.id }}-status">Not subscribed</span>
+            {% else %}
+                <span class="text-xs font-medium mt-1 text-right text-green-700"
+                      data-status-for="{{ category.id }}"
+                      data-attr="{{ category.id }}-status">Subscribed</span>
+            {% endif %}
+        </div>
+    </div>
+</div>

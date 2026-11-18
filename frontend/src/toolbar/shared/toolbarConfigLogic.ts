@@ -13,17 +13,19 @@ import {
 import type { PostHog } from 'posthog-js/dist/module'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { asToolbarProject, toolbarAppPath, ToolbarProject } from 'lib/toolbar/toolbarProject'
+import { registerToolbarRuntime } from 'lib/toolbar/toolbarRuntime'
 
 import { toolbarLogger } from '~/toolbar/shared/toolbarLogger'
 import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/shared/toolbarPosthogJS'
 import { TOOLBAR_USER_INTENTS, ToolbarProps, ToolbarUserIntent } from '~/types'
 
 import type { ExperimentIdType } from '../../types'
-import { asToolbarProject, ToolbarProject } from './toolbarProject'
 import {
     asNonEmptyString,
     cleanToolbarAuthHash,
     generatePKCE,
+    joinWithUiHost,
     LOCALSTORAGE_KEY,
     OAUTH_LOCALSTORAGE_KEY,
     PKCE_STORAGE_KEY,
@@ -494,6 +496,13 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     })),
 
     afterMount(({ props, values, actions, cache }) => {
+        cache.unregisterRuntime = registerToolbarRuntime({
+            uiHost: () => values.uiHost,
+            posthog: () => values.posthog,
+            isAuthenticated: () => values.isAuthenticated,
+            authenticate: () => actions.authenticate(),
+            project: () => values.project,
+        })
         if (!values.ownsPageSession) {
             return
         }
@@ -540,6 +549,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     }),
 
     beforeUnmount(({ values, cache }) => {
+        cache.unregisterRuntime?.()
         if (cache.hashRetryTimeout !== undefined) {
             clearTimeout(cache.hashRetryTimeout)
         }
@@ -548,6 +558,12 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         }
     }),
 ])
+
+/** A PostHog app URL inside the project the toolbar session is scoped to. */
+export function toolbarAppUrl(path: string): string {
+    const values = toolbarConfigLogic.findMounted()?.values
+    return joinWithUiHost(values?.uiHost ?? '', toolbarAppPath(values?.project ?? null, path))
+}
 
 // Hostnames we trust enough to skip the authentication confirmation modal
 // and the reachability check, and to accept legacy (pre-uiHost-binding) tokens on.

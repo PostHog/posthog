@@ -537,16 +537,18 @@ def test_query_permission_error_is_not_retried(monkeypatch):
     assert session.post.call_count == 1
 
 
-def test_query_server_error_bubbles_http_error_after_max_retries(monkeypatch):
+def test_query_server_error_marks_retryable_after_max_retries(monkeypatch):
     monkeypatch.setattr(gsc.time, "sleep", lambda _s: None)
     monkeypatch.setattr(gsc, "_throttle", lambda _site: None)
 
     session = mock.MagicMock()
     session.post.return_value = _fake_response(500)
 
-    # A persistent 5xx exhausts the inline budget and surfaces the real HTTPError (retryable
-    # at the activity level), not the quota error.
-    with pytest.raises(requests.HTTPError):
+    # A persistent 5xx exhausts the inline budget. A bare HTTPError here used to reach
+    # get_non_retryable_errors/error tracking unmarked and get reported as a bug even though
+    # Temporal retries it anyway — raising the same marked error list_sites/list_sitemaps use
+    # keeps it classified as a self-recovering retry instead of noise.
+    with pytest.raises(GoogleSearchConsoleServerError, match=r"\(retryable\)"):
         _query_search_analytics(session, "sc-domain:example.com", "2026-04-15", "2026-04-15", ["date"], 0)
 
     assert session.post.call_count == QUOTA_MAX_RETRIES + 1
@@ -804,16 +806,26 @@ def test_property_listing_separates_quota_from_permission_denial(
 
 
 @pytest.mark.parametrize("resource_name", ["sites", "sitemaps"])
-def test_property_listing_marks_server_error_retryable(monkeypatch, resource_name):
-    # `list_sites`/`list_sitemaps` have no inline retry budget, so a bare Google-side 5xx used to
-    # reach `get_non_retryable_errors` as an unmarked HTTPError and get reported as an exception
-    # even though Temporal retries it anyway.
+@pytest.mark.parametrize(
+    "configure_session",
+    [
+        # A bare Google-side 5xx response used to reach `get_non_retryable_errors` as an
+        # unmarked HTTPError and get reported as an exception even though Temporal retries it anyway.
+        lambda session: setattr(session.get, "return_value", _fake_response(500)),
+        # `AuthorizedSession` refreshes the token before `session.get` returns anything, so a
+        # 502 from the token endpoint raised `RefreshError` here with no inline retry budget,
+        # same as the 5xx response case.
+        lambda session: setattr(session.get, "side_effect", RefreshError(_HTML_502_BODY)),
+    ],
+    ids=["5xx_response", "refresh_error_502"],
+)
+def test_property_listing_marks_server_error_retryable(monkeypatch, resource_name, configure_session):
     config = GoogleSearchConsoleSourceConfig(
         site_url="https://example.com/",
         google_search_console_integration_id=1,
     )
     session = mock.MagicMock()
-    session.get.return_value = _fake_response(500)
+    configure_session(session)
     monkeypatch.setattr(gsc, "google_search_console_session", lambda *a, **kw: session)
 
     response = google_search_console_source(

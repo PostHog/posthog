@@ -979,6 +979,20 @@ class TestWorkflowImportAPI(APIBaseTest):
         assert [item["status"] for item in response["segment_cohorts"]] == [first, "not_converted"]
         assert "creates at most 1 cohorts" in response["segment_cohorts"][1]["reason"]
 
+    def test_segment_cohort_refused_at_the_plan_limit_reports_the_limit(self) -> None:
+        with (
+            self.settings(REALTIME_COHORT_DEFAULT_MAX_COHORTS=0),
+            patch("posthog.event_usage.report_user_action") as report_user_action,
+        ):
+            response = self._segment_import()
+
+        assert [item["status"] for item in response["segment_cohorts"]] == ["not_converted"]
+        assert [
+            {key: call.args[2][key] for key in ("limit", "allowed", "used", "source")}
+            for call in report_user_action.call_args_list
+            if call.args[1] == "cohort realtime limit reached"
+        ] == [{"limit": "cohorts", "allowed": 0, "used": 0, "source": "workflow_import"}]
+
     def test_segment_only_in_an_exit_condition_makes_no_cohort(self) -> None:
         source = _onboarding_campaign()
         campaign = {**source.campaign, "global_exit_conditions": {"and": [{"segment": {"id": 16}}]}}
@@ -1088,6 +1102,7 @@ class TestWorkflowImportAPI(APIBaseTest):
         [
             ("templates not a container", {"templates": "invalid"}),
             ("campaign id too long", {"campaign_id": "9" * 201}),
+            ("resend source", {"source": "resend"}),
         ]
     )
     def test_rejects_malformed_campaigns_before_saving(self, _name: str, change: dict[str, Any]) -> None:
@@ -1096,7 +1111,7 @@ class TestWorkflowImportAPI(APIBaseTest):
         entry: dict[str, Any] = {"campaign": campaign, "actions": source.actions}
         if "templates" in change:
             entry["templates"] = change["templates"]
-        body = {"source": "customerio", "campaigns": [entry]}
+        body = {"source": change.get("source", "customerio"), "campaigns": [entry]}
         response = self._post(body)
 
         assert response.status_code == 400

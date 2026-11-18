@@ -125,7 +125,7 @@ const meta: Meta<StoryArgs> = {
                 '/api/projects/:project_id/feature_flags/my_flags': listMyFlagsAPIResponse,
                 '/api/projects/:project_id/actions/': listActionsAPIResponse,
                 '/api/projects/:project_id/web_experiments/': listExperimentsAPIResponse,
-                '/api/environments/:team_id/web_vitals/': listWebVitalsAPIResponse,
+                '/api/projects/:team_id/web_vitals/': listWebVitalsAPIResponse,
                 '/api/users/@me/hedgehog_config/': {},
             },
         })

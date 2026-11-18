@@ -11,6 +11,21 @@ const ActionFiltersSchema = z.object({
     actions: z.array(z.any()).optional(),
 })
 
+const PropertyGroupTypeSchema = z.enum(['AND', 'OR'])
+
+// Keep in sync with PropertyFiltersOrGroupField in products/cdp/backend/validation.py.
+const ConditionFiltersSchema = ActionFiltersSchema.extend({
+    properties: z
+        .union([
+            z.array(z.any()),
+            z.object({
+                type: PropertyGroupTypeSchema,
+                values: z.array(z.object({ type: PropertyGroupTypeSchema, values: z.array(z.any()) })),
+            }),
+        ])
+        .optional(),
+})
+
 const DURATION_STRING = z.string().superRefine((v, ctx) => {
     if (!/\d/.test(v)) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Please enter a duration' })
@@ -232,7 +247,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         config: z.object({
             conditions: z.array(
                 z.object({
-                    filters: ActionFiltersSchema,
+                    filters: ConditionFiltersSchema,
                     name: z.string().optional(), // Custom name for the condition
                 })
             ),

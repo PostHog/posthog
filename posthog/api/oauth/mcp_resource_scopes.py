@@ -7,7 +7,7 @@ import structlog
 
 from posthog.cloud_utils import is_dev_mode
 from posthog.mcp_tool_definitions import mcp_tool_required_scopes
-from posthog.scopes import OAUTH_SCOPES_SUPPORTED
+from posthog.scopes.oauth import OAUTH_SCOPES_SUPPORTED
 
 logger = structlog.get_logger(__name__)
 
