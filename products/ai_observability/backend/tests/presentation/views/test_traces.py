@@ -22,7 +22,16 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 
 from products.ai_observability.backend.logic.traces import trace_queries
 
-from .trace_fixtures import GENERATION, T0, TRACE_EVENT, TraceEvents, create_trace, encode_segment, restrict_property
+from .trace_fixtures import (
+    GENERATION,
+    T0,
+    TRACE_EVENT,
+    QuerySlotRecorder,
+    TraceEvents,
+    create_trace,
+    encode_segment,
+    restrict_property,
+)
 
 if TYPE_CHECKING:
     from rest_framework.response import _MonkeyPatchedResponse
@@ -517,6 +526,18 @@ class TestTraceListViewSet(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == 429
         assert response["Retry-After"] == str(CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS)
+
+    def test_a_page_is_built_after_its_query_slot_is_released(self) -> None:
+        self.events.seed_traces("trace-1")
+
+        with QuerySlotRecorder().recording("load_trace_list") as recorder:
+            response = self._get()
+
+        assert (response.status_code, recorder.loaded_while_holding, recorder.built_while_holding) == (
+            200,
+            [True],
+            [False],
+        )
 
     def test_the_two_reads_match_their_snapshots(self) -> None:
         self.events.add("trace-1", properties={"plan": "pro"})
