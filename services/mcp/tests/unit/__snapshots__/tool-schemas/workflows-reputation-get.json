@@ -1,6 +1,20 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "days": {
+            "anyOf": [
+                {
+                    "const": 30,
+                    "type": "number"
+                },
+                {
+                    "const": 7,
+                    "type": "number"
+                }
+            ],
+            "default": 30,
+            "description": "How many days the rates and the provider breakdown cover. 7 is the window the daily sending tier check uses to lower a tier.\n\n* `30` - 30\n* `7` - 7"
+        },
         "fields": {
             "description": "Optional subset of response fields to return, each a dot-path from the allowlist. Omit to return all fields. Request only the fields your task needs to keep responses small.",
             "items": {
