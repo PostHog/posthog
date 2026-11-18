@@ -10707,25 +10707,29 @@ snapshots:
     scenes-app-application-observability-endpoint-time-spent--no-sampled-requests--light:
         hash: v1.k794b7964.afb1f3de27bb41a36eff7b04239fac21f789106c3a22004c83e4fa7b91071c78.51NrJz2iYCKh19-09PX6smg9xEAqBe_r8Lq-3yMpNzo
     scenes-app-application-observability-health-tables--endpoints-filtered-by-search--dark:
-        hash: v1.k794b7964.59d0374622d9240843d1ede3b0aa6f6e6992db3bf2c3b79e9409dd0ba720eaeb.qWjjGxpeqySZl9lpiLbAX2q_SMychNLqZlXFjlOfLPU
+        hash: v1.k794b7964.8bfb43affd4b2aeeb3506f1f84519ec53ad9f20904be2639d1f902efa9ac11ff.VasfBLHz6kb_z9TLSqkAdzF6ZAV6pWYGZOiMRM6GDWA
     scenes-app-application-observability-health-tables--endpoints-filtered-by-search--light:
-        hash: v1.k794b7964.5bd3f419154e47fed4221b76a856947e8806e8438df1b54fb14e439dce15aeb1.7VAR_wxPXADqH6v-5gO9IisbWH2j81QjRjy-c65lwhI
+        hash: v1.k794b7964.c59c67a7480d9708217e9b6a644e9f732646c4021e56437243a115a314872d42.6SoQnNNuxP-z5rgv47CdPtDXJrh5e5d45sXWhW8uY4k
+    scenes-app-application-observability-health-tables--endpoints-quiet-in-requests-per-minute--dark:
+        hash: v1.k794b7964.6663b289bf837e488b0a564e6cfbe81c4c2af06213f80d009d2a1771233312c9.TbCAEzv-cg2eU1UgACuuZ_z_j2w8DdZ9VqucDXZLZcA
+    scenes-app-application-observability-health-tables--endpoints-quiet-in-requests-per-minute--light:
+        hash: v1.k794b7964.4b4e30bdfed2f32fa87ccca5d017fb01ba6efc2ca59334fa88cf0d225d9dd4b5.FSXRF2c2TheAAjAg86bbh_Z9uXndJebwGtyl1wfoSjE
     scenes-app-application-observability-health-tables--services-with-error-rate-bars--dark:
-        hash: v1.k794b7964.7f424f047fac26e09fa04b6524f846c6ca3f30ca236942b704abc09355120636.nLociw-D_9VV9W5MX5CfFDJdWAdwYmzGH45bycBv6ik
+        hash: v1.k794b7964.a4f3be95b7acf85264f41432f65a1f1da60e78bad0a892ce847b2c569e125c85.lGoYcbpg7434TYO6NSY334jPOmXOecRVXpzzGeS1nlM
     scenes-app-application-observability-health-tables--services-with-error-rate-bars--light:
-        hash: v1.k794b7964.3597963d8f2e9d38c4b69a9e2b9635c30799e32178a64592a148db2299426c36.eHyRmrsbdB3GJr0yUO4Gwl9v1z1qWgvm4TwRX6-ldGc
+        hash: v1.k794b7964.5adf92a5a9651b93ec6b84963762568b2121f0877b8ec44eeed86e5d15202881._Pi5ScFZDctsrbstB3Fmq0TTJt-UjshwNeoFJYn4Z3c
     scenes-app-application-observability-live-refresh--live--dark:
-        hash: v1.k794b7964.0fe2006d1feab3bf61c9d01fd63f232e798e00f7f6761a5afeb69e706ebc209c.MLCdgCcfvTS-15S0uhqWTHQToSLhxG8SkPiIY1pnqVs
+        hash: v1.k794b7964.ead5f583e7368e187e7a6fd20a3d30f605d0ff4e98032d14f70773e3a3b249c5.Y0WiD9Ji56R5bd0wFah5jZqjqB8jZD5RL-CUOwdszFU
     scenes-app-application-observability-live-refresh--live--light:
-        hash: v1.k794b7964.156fd7f1a62d97daa833d7bbf62251b6d7a41b7626dc17cce8346ebc7b62b956.mnWhSeta5nIpdSAFcoMbmttNZ5qcBx-Ldm83Xij1_Qc
+        hash: v1.k794b7964.eec812d6f49945578ff69b730ebb2d8b70146c5665f6b3f05e388a821235cefe.EZGvFiakavd99j1epNM_GN6HWw4c60Dkxt_JWccmmGk
     scenes-app-application-observability-live-refresh--paused--dark:
-        hash: v1.k794b7964.adcbd373c3dbe3fbeab0a152873f5fcc3c968cbd591c23cb43231e5315df231b.VGXnIyH70zdDGmlR3SbTaxZf23IID6fgnBX2tkMSTN0
+        hash: v1.k794b7964.8676e416d9162fc401182551f9b8db9b00c7ab1955e6ba226480da9f8f5b92ea.ZXqqH28o7XtnpS_sI7hYK2OrVdrTPT9rq98ZjSRYXQs
     scenes-app-application-observability-live-refresh--paused--light:
-        hash: v1.k794b7964.0e34ef18a022690a35c0318b25fb06c5da28fbfef7f17bc2596711e69cbc9a64.x0X0t3ElZJcgKbsPgaY6X4qm-2MVinzuje16fDVFkUw
+        hash: v1.k794b7964.967afe21f61979e18a36d71c36ac5f6643e1a4a910a4d14d20eea5c2599363bf.D4RJ79aqTyIsc-4sEwdi5DFAilbpGuu0GmMPhbg0nVk
     scenes-app-application-observability-service--service-page--dark:
-        hash: v1.k794b7964.f141e9fb803a5f4c6b81ba7331abfd8743c1b1773d8460d5aba8812eebccd4f7.1U39MgZ0Pz5OIdxqXf12RAfgd6aEMCgWy-PrEgU4A2w
+        hash: v1.k794b7964.bd2201440b1350f6566bd1deecf35781855ed5b73569e0d8c160deb97de8ce87.wKVmr-1qpR7YAHaqi5kOnl-46fFVy5SJPE2ai1AalZI
     scenes-app-application-observability-service--service-page--light:
-        hash: v1.k794b7964.9065bd04a7ec266e3f54a162a49bfed5ce8d9403e3228ff9fb57f8389b4206dc.GfVP_6N4S0z3OAQ9AeogUgVUBjbPnalLlVt8yQQ_hgU
+        hash: v1.k794b7964.db4694276960fd14bad76748aca50f7c150cc23c688a7fa23598a3ec47c0a664.Uul9ybnAMyXrQRiBSf5O2gd1mgihD4kBoovF65sA-P4
     scenes-app-batchexports--backfills-empty--dark:
         hash: v1.k794b7964.8addbab5dc9322002703f43982a0f950666fd19066808134206cf88a4d3fca23.rQn27PGaf9lf989r2DJBj1BYEWNECVUB8h3wcMgQo5c
     scenes-app-batchexports--backfills-empty--light:
