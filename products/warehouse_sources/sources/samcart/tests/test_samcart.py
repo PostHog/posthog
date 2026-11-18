@@ -92,12 +92,13 @@ class TestListEndpoints:
     def test_resumes_from_the_saved_cursor(self) -> None:
         result = _driver().run(
             "Subscriptions",
-            [_page([{"id": "sub_9"}])],
+            route({"/v2/products": [_page([])], "/v2/subscriptions": [_page([{"id": "sub_9"}])]}),
             resume_state=SamCartResumeConfig(cursor="cur_9"),
         )
 
         assert result.raised is None
-        assert result.params("cursor") == ["cur_9"]
+        # The product catalog is read from the start; only the subscription walk resumes.
+        assert result.params("cursor") == [None, "cur_9"]
         assert [row["id"] for row in result.rows] == ["sub_9"]
 
     def test_refuses_a_redirect_so_the_api_key_stays_on_samcart(self) -> None:
@@ -112,6 +113,43 @@ class TestListEndpoints:
         assert result.raised is not None
         assert "refusing to follow" in str(result.raised)
         assert [request.origin for request in result.requests] == ["https://api.samcart.com"]
+
+
+class TestSubscriptions:
+    def test_adds_the_sku_of_each_subscribed_product_from_the_product_catalog(self) -> None:
+        result = _driver().run(
+            "Subscriptions",
+            route(
+                {
+                    "/v2/products": [
+                        _page([{"id": "prod_a", "sku": "SKU-A"}], next_cursor="prod_cur_2"),
+                        _page([{"id": "prod_b", "sku": None}]),
+                    ],
+                    "/v2/subscriptions": [
+                        _page(
+                            [
+                                {"id": "sub_1", "product_id": "prod_a"},
+                                {"id": "sub_2", "product_id": "prod_b"},
+                                {"id": "sub_3", "product_id": "prod_deleted"},
+                            ],
+                            next_cursor="sub_cur_2",
+                        ),
+                        _page([{"id": "sub_4", "product_id": "prod_a"}]),
+                    ],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert {row["id"]: row["sku"] for row in result.rows} == {
+            "sub_1": "SKU-A",
+            "sub_2": None,
+            "sub_3": None,
+            "sub_4": "SKU-A",
+        }
+        assert result.paths == ["/v2/products", "/v2/products", "/v2/subscriptions", "/v2/subscriptions"]
+        assert result.params("cursor") == [None, "prod_cur_2", None, "sub_cur_2"]
+        assert result.saved_states == [SamCartResumeConfig(cursor="sub_cur_2")]
 
 
 class TestOrders:
