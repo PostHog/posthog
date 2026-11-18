@@ -2,7 +2,7 @@ from collections.abc import Callable
 from contextlib import nullcontext, suppress
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import time_machine
 from posthog.test.base import APIBaseTest, flush_persons_and_events
@@ -2531,8 +2531,8 @@ class TestCohortCalculationTasks(APIBaseTest):
 
     def test_mid_copy_failure_keeps_clickhouse_rows_so_postgres_remains_a_subset(self) -> None:
         run = uuid4().hex[:8]
-        # Deterministic ascending UUIDs so CH_PAGE_SIZE=2 splits the copy cleanly across two batches.
-        uuids = sorted(uuid4() for _ in range(3))
+        # Deterministic ascending UUIDs in both high and low halves so ClickHouse ORDER BY person_id splits cleanly.
+        uuids = [UUID(f"{int(run, 16):08x}-0000-0000-0000-{i:012x}") for i in range(1, 4)]
         persons = [
             create_person(team=self.team, distinct_ids=[f"{run}-{i}"], properties={"tag": f"{run}-in"}, uuid=u)
             for i, u in enumerate(uuids)
@@ -2849,8 +2849,11 @@ class TestCohortCalculationTasks(APIBaseTest):
 
     def test_replace_retry_after_partial_postgres_prune_converges(self) -> None:
         # A retry after a partial Postgres prune converges both stores exact.
+        run = uuid4().hex[:8]
         kept, new, stale1, stale2 = (
-            create_person(team=self.team, distinct_ids=[name], properties={"tag": tag}, uuid=uuid4())
+            create_person(
+                team=self.team, distinct_ids=[f"{run}-{name}"], properties={"tag": f"{run}-{tag}"}, uuid=uuid4()
+            )
             for name, tag in (("kept", "in"), ("new", "in"), ("stale1", "out"), ("stale2", "out"))
         )
         flush_persons_and_events()
@@ -2858,7 +2861,7 @@ class TestCohortCalculationTasks(APIBaseTest):
             team=self.team,
             name="static replace retry",
             is_static=True,
-            query={"kind": "HogQLQuery", "query": "SELECT id FROM persons WHERE properties.tag = 'in'"},
+            query={"kind": "HogQLQuery", "query": f"SELECT id FROM persons WHERE properties.tag = '{run}-in'"},
         )
         cohort.insert_users_list_by_uuid([str(kept.uuid), str(stale1.uuid), str(stale2.uuid)], team_id=self.team.pk)
         claimed_at = timezone.now().replace(microsecond=0) + timedelta(seconds=10)
@@ -2940,8 +2943,11 @@ class TestCohortCalculationTasks(APIBaseTest):
         from posthog.models.event.new_events_schema import use_new_events_schema
         from posthog.models.instance_setting import override_instance_config
 
+        run = uuid4().hex[:8]
         kept, stale, manual = (
-            create_person(team=self.team, distinct_ids=[name], properties={"tag": tag}, uuid=uuid4())
+            create_person(
+                team=self.team, distinct_ids=[f"{run}-{name}"], properties={"tag": f"{run}-{tag}"}, uuid=uuid4()
+            )
             for name, tag in (("kept", "in"), ("stale", "out"), ("manual", "out"))
         )
         flush_persons_and_events()
@@ -2949,7 +2955,7 @@ class TestCohortCalculationTasks(APIBaseTest):
             team=self.team,
             name="new-events-schema replace",
             is_static=True,
-            query={"kind": "HogQLQuery", "query": "SELECT id FROM persons WHERE properties.tag = 'in'"},
+            query={"kind": "HogQLQuery", "query": f"SELECT id FROM persons WHERE properties.tag = '{run}-in'"},
         )
         start = timezone.now().replace(microsecond=0)
         cohort.insert_users_list_by_uuid([str(kept.uuid), str(stale.uuid)], team_id=self.team.pk)
