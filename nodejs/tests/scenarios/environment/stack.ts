@@ -31,6 +31,8 @@ export const STACK = {
 
 export type Hogli = { command: string; cwd: string }
 
+const HOGLI_STOP_GRACE_MS = 5000
+
 async function hogliExit(
     hogli: Hogli,
     args: string[],
@@ -47,7 +49,11 @@ async function hogliExit(
             sendSignal(-child.pid, sig)
         }
     }
-    const abort = (): void => stopGroup('SIGTERM')
+    let kill: NodeJS.Timeout | undefined
+    const abort = (): void => {
+        stopGroup('SIGTERM')
+        kill = setTimeout(() => stopGroup('SIGKILL'), HOGLI_STOP_GRACE_MS)
+    }
     signal.addEventListener('abort', abort, { once: true })
     try {
         const code = await new Promise<number | null>((resolve, reject) => {
@@ -61,6 +67,7 @@ async function hogliExit(
         return code
     } finally {
         signal.removeEventListener('abort', abort)
+        clearTimeout(kill)
     }
 }
 

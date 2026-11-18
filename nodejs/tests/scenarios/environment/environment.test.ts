@@ -1099,12 +1099,22 @@ describe('scenario environment', () => {
                     process.exit(3)
                 }
                 if (stack.hangs && !stack.ready) {
-                    const waiter = require('child_process').spawn(
+                    fs.writeFileSync(path.join(__dirname, 'hogli-group'), String(process.pid))
+                    const ignoreTerm = stack.ignoresTerm ? "process.on('SIGTERM', () => undefined); " : ''
+                    if (stack.ignoresTerm) {
+                        process.on('SIGTERM', () => undefined)
+                        setInterval(() => undefined, 60_000)
+                    }
+                    require('child_process').spawn(
                         process.execPath,
-                        ['-e', 'setInterval(() => undefined, 60_000)'],
+                        [
+                            '-e',
+                            ignoreTerm +
+                                "require('fs').writeFileSync(process.argv[1], String(process.pid)); setInterval(() => undefined, 60_000)",
+                            path.join(__dirname, 'waiting'),
+                        ],
                         { stdio: 'ignore' }
                     )
-                    fs.writeFileSync(path.join(__dirname, 'waiting'), String(waiter.pid))
                     return
                 }
                 if (stack.firstStartS !== undefined && Number(flags.timeout ?? 300) < stack.firstStartS) {
@@ -1137,7 +1147,13 @@ describe('scenario environment', () => {
                 }
                 fs.writeFileSync(
                     stateFile,
-                    JSON.stringify({ running: true, ready: false, firstStartS: stack.firstStartS, hangs: stack.hangs })
+                    JSON.stringify({
+                        running: true,
+                        ready: false,
+                        firstStartS: stack.firstStartS,
+                        hangs: stack.hangs,
+                        ignoresTerm: stack.ignoresTerm,
+                    })
                 )
             } else if (verb === 'dev:sync-hog-templates') {
                 const { Client } = require(${JSON.stringify(require.resolve('pg'))})
@@ -1314,6 +1330,7 @@ describe('scenario environment', () => {
             busy?: boolean
             firstStartS?: number
             hangs?: boolean
+            ignoresTerm?: boolean
         }): void => writeFileSync(path.join(fakes, 'stack.json'), JSON.stringify(stack))
         const stackOf = (): { running: boolean; ready: boolean } =>
             parseJSON(readFileSync(path.join(fakes, 'stack.json'), 'utf8'))
@@ -1431,8 +1448,8 @@ describe('scenario environment', () => {
         afterEach(async () => {
             await environment?.down()
             environment = undefined
-            if (existsSync(path.join(fakes, 'waiting'))) {
-                processes.signal(Number(readFileSync(path.join(fakes, 'waiting'), 'utf8')), 'SIGKILL')
+            if (existsSync(path.join(fakes, 'hogli-group'))) {
+                processes.signal(-Number(readFileSync(path.join(fakes, 'hogli-group'), 'utf8')), 'SIGKILL')
             }
             portHolder?.close()
             portHolder = undefined
@@ -1529,22 +1546,29 @@ describe('scenario environment', () => {
             30_000
         )
 
-        it('stops the first start of the stack when the run is cancelled while hogli waits for it', async () => {
-            writeStack({ running: false, ready: false, hangs: true })
-            environment = environmentOf()
-            const cancel = new AbortController()
+        it.each([
+            ['stop on SIGTERM', false],
+            ['ignore SIGTERM', true],
+        ])(
+            'stops the first start of the stack when the run is cancelled while hogli waits for it, when hogli and its waiter %s',
+            async (_, ignoresTerm) => {
+                writeStack({ running: false, ready: false, hangs: true, ignoresTerm })
+                environment = environmentOf()
+                const cancel = new AbortController()
 
-            const up = environment.up(cancel.signal).then(
-                () => 'up',
-                (error: Error) => error.name
-            )
-            await waitForExpect(() => expect(existsSync(path.join(fakes, 'waiting'))).toBe(true), 10_000, 20)
-            const waiting = Number(readFileSync(path.join(fakes, 'waiting'), 'utf8'))
-            cancel.abort()
+                const up = environment.up(cancel.signal).then(
+                    () => 'up',
+                    (error: Error) => error.name
+                )
+                await waitForExpect(() => expect(existsSync(path.join(fakes, 'waiting'))).toBe(true), 10_000, 20)
+                const waiting = Number(readFileSync(path.join(fakes, 'waiting'), 'utf8'))
+                cancel.abort()
 
-            expect(await up).toBe('AbortError')
-            await waitForExpect(() => expect(() => process.kill(waiting, 0)).toThrow(), 5000, 20)
-        }, 30_000)
+                expect(await up).toBe('AbortError')
+                await waitForExpect(() => expect(() => process.kill(waiting, 0)).toThrow(), 5000, 20)
+            },
+            30_000
+        )
 
         it('records a role that dies and starts it again', async () => {
             const role = 'cdp-processed-events'
