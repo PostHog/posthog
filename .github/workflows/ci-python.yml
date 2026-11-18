@@ -723,6 +723,23 @@ jobs:
             - name: Check vendor imports (import-linter)
               run: lint-imports
 
+            # hoglint takes over from the two steps above, and runs in shadow until then. A
+            # vendor-only diff does not start Backend CI, so it runs here too. It reports the
+            # boundary findings a pull request adds, as annotations and a step summary, and the
+            # step always exits 0.
+            - name: Check boundaries (hoglint, shadow)
+              env:
+                  HOGLINT_SHADOW_UNTIL: Tuesday, Nov 24
+              run: |
+                  output="$RUNNER_TEMP/hoglint.txt"
+                  if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+                      timeout --kill-after=10s 5m hoglint compare --base HEAD^1 > "$output" 2>&1 || true
+                      python .github/scripts/hoglint_shadow.py "$output" --until "$HOGLINT_SHADOW_UNTIL" --base HEAD^1 || true
+                  else
+                      timeout --kill-after=10s 5m hoglint check > "$output" 2>&1 || true
+                      python .github/scripts/hoglint_shadow.py "$output" --until "$HOGLINT_SHADOW_UNTIL" || true
+                  fi
+
             # The Django matrix runs every repo invariant, but it does not start for a vendor-only
             # diff. So this job runs the ones that walk the vendor tree. The full run takes all
             # of them. A vendors run takes the ones that check code a vendor writes, and scopes
