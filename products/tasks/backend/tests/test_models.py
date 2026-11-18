@@ -2776,6 +2776,16 @@ class TestTaskRun(TestCase):
         self.assertEqual(handle.signal.await_count, 2)
         self.assertIsNone(run.agent_status)
 
+    @parameterized.expand([TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED])
+    def test_a_finished_run_takes_no_liveness(self, status):
+        run = TaskRun.objects.create(task=self.task, team=self.team, status=status)
+
+        run.record_heartbeat()
+
+        run.refresh_from_db()
+        self.assertIsNone(run.last_heartbeat_at)
+        self.assertIsNone(run.agent_status)
+
     @patch("posthog.temporal.common.client.sync_connect")
     def test_signal_agent_turn_completed_marks_agent_ready(self, mock_connect):
         run = TaskRun.objects.create(
