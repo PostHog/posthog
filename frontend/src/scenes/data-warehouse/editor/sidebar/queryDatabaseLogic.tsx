@@ -2290,7 +2290,8 @@ export interface queryDatabaseLogicMeta {
             propertyDefinitionLists: Record<string, SidebarPropertyDefinitionList>,
             databaseFieldsComplete: boolean,
             tableFieldsStatus: TableFieldsStatus,
-            metricsLoadFailed: boolean
+            metricsLoadFailed: boolean,
+            metricsLoading: boolean
         ) => TreeDataItem[]
         displayedTreeData: (
             searchText: string,
