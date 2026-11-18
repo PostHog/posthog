@@ -413,6 +413,13 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
             "/i/v0/ai/otel/",
             post(otel::otel_handler).options(otel::options),
         )
+        // OTLP exporters configured with the generic `OTEL_EXPORTER_OTLP_ENDPOINT`
+        // append the signal path to it. Only traces are accepted, so logs and
+        // metrics exports still get a 404.
+        .route(
+            "/i/v0/ai/otel/v1/traces",
+            post(otel::otel_handler).options(otel::options),
+        )
         .layer(DefaultBodyLimit::max(otel::OTEL_BODY_SIZE));
 
     // Each deployment registers its own ingress and nothing else. The AI paths
