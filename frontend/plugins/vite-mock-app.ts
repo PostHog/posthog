@@ -52,6 +52,11 @@ function findFile(pathname: string): string | null {
     return null
 }
 
+function notFound(response: ServerResponse): void {
+    response.statusCode = 404
+    response.end()
+}
+
 function isPageRequest(request: IncomingMessage, pathname: string): boolean {
     return request.method === 'GET' && !!request.headers.accept?.includes('text/html') && !extname(pathname)
 }
@@ -85,6 +90,10 @@ export function mockAppPlugin(): Plugin {
                     createReadStream(file).pipe(response)
                     return
                 }
+                // Vite would answer a missing file with the shell, which hides it from the browser.
+                if (MOUNTS.some(({ url }) => pathname.startsWith(url))) {
+                    return notFound(response)
+                }
                 if (!isPageRequest(request, pathname)) {
                     return next()
                 }
@@ -95,6 +104,19 @@ export function mockAppPlugin(): Plugin {
                 } catch (error) {
                     next(error)
                 }
+            })
+        },
+        configurePreviewServer(server) {
+            // The preview server answers every unknown URL with index.html and a 200, so a missing
+            // chunk or static file would reach the app as HTML and never show up as a failed request.
+            server.middlewares.use((request: Connect.IncomingMessage, response: ServerResponse, next) => {
+                const pathname = decodeURIComponent(new URL(request.url ?? '/', 'http://localhost').pathname)
+                const ext = extname(pathname)
+                const file = resolve(outDir, `.${pathname}`)
+                if (ext && ext !== '.html' && (!file.startsWith(outDir) || !existsSync(file))) {
+                    return notFound(response)
+                }
+                next()
             })
         },
         writeBundle() {

@@ -37,7 +37,7 @@ You might need to install Playwright first: `pnpm --filter=@posthog/playwright e
 
 ### Without a backend
 
-The specs in `playwright/mock-app/` run against the mock app: the production Vite build of the app, with API responses from the mocks that Storybook uses.
+The specs in `playwright/mock-app/` run against the mock app: a Vite build of the app, with API responses from the mocks that Storybook uses.
 They need no Python, docker or database.
 
 ```bash

@@ -7,7 +7,8 @@ import { MOCK_APP_SHELL, mockAppPlugin } from './plugins/vite-mock-app'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
-// Plugins of the base configs that write files for Django or send people to its port.
+// Plugins of the base configs that write files for Django and the app build's file step, or send
+// people to Django's port.
 const BACKEND_PLUGINS = new Set([
     'html-generation',
     'public-assets-copy',
@@ -21,7 +22,9 @@ async function withoutBackendPlugins(plugins: PluginOption[]): Promise<PluginOpt
     return resolved.filter((plugin) => !(plugin && 'name' in plugin && BACKEND_PLUGINS.has(plugin.name)))
 }
 
-// The production Vite build (vite.app.config.mts), behind a static shell with mocked API responses.
+// The app behind a static shell with mocked API responses. It shares the plugins, aliases and module
+// resolution of the app's Vite build (vite.app.config.mts) but replaces its whole `build` block, so it is
+// not the production build: it has no import map and uses Vite's default preload lists.
 export default defineConfig(async (env): Promise<UserConfig> => {
     const appConfig = await loadConfigFromFile(env, resolve(__dirname, 'vite.app.config.mts'))
     if (!appConfig) {
@@ -38,6 +41,11 @@ export default defineConfig(async (env): Promise<UserConfig> => {
         plugins: [...(await withoutBackendPlugins(base.plugins ?? [])), mockAppPlugin()],
         // The app build loads its files from an asset host that only Django knows. This site serves them itself.
         experimental: { ...base.experimental, renderBuiltUrl: undefined },
+        // The app config names the hashed worker files of the esbuild build when that build has run. This
+        // site serves only the fixed names, and without the define the app asks for those.
+        define: Object.fromEntries(
+            Object.entries(base.define ?? {}).filter(([name]) => name !== '__POSTHOG_WORKER_FILES__')
+        ),
         server,
         preview: server,
         build: {

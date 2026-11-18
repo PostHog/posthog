@@ -81,5 +81,15 @@ test('the mock app boots signed in and renders the core scenes', async ({ page }
         })
     }
 
+    await test.step('debug query loads its web worker', async () => {
+        // The app loads web workers by URL from /static, outside the module graph.
+        const editorWorker = page.waitForResponse((response) =>
+            new URL(response.url()).pathname.startsWith('/static/monacoEditorWorker')
+        )
+        await goToInApp(page, `${PROJECT}/debug`)
+        await expect(page).toHaveTitle('Debug query • PostHog')
+        expect((await editorWorker).status()).toBe(200)
+    })
+
     expect(failures).toEqual([])
 })
