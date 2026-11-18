@@ -1669,6 +1669,7 @@ dependencies = [
  "common-dns",
  "common-kafka",
  "common-metrics",
+ "common-posthog",
  "common-types",
  "envconfig",
  "fernet",
@@ -3103,6 +3104,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+ "uuid",
 ]
 
 [[package]]

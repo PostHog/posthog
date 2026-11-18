@@ -8,8 +8,12 @@ use std::sync::{Arc, OnceLock};
 use std::task::{Context, Waker};
 use std::time::Instant;
 
-use posthog::PostHogError;
+use posthog::{CaptureFailure, PostHogError};
 use serde_json::Value;
+
+pub mod capture_outcomes;
+
+use capture_outcomes::{event_outcome, request_outcome, EventOutcome};
 
 /// Hard cap on captured exceptions per process per minute. Bounds both outage
 /// storms (every request failing at once) and self-amplification: cymbal
@@ -22,6 +26,10 @@ const MAX_CAPTURES_PER_MINUTE: u32 = 10;
 /// every service that inits through this crate; the `service` label keeps them
 /// cleanly faceted regardless of scrape topology.
 const SDK_DELIVERY_FAILURES: &str = "posthog_sdk_delivery_failures_total";
+
+const SDK_CAPTURE_UNPERSISTED_EVENTS: &str = "posthog_sdk_capture_unpersisted_events_total";
+
+const SDK_CAPTURE_REQUEST_FAILURES: &str = "posthog_sdk_capture_request_failures_total";
 
 static SERVICE: OnceLock<ServiceContext> = OnceLock::new();
 static CAPTURE_WINDOW: RateWindow = RateWindow::new();
@@ -186,12 +194,49 @@ fn report_sdk_error(service: &'static str, err: &PostHogError<'_>) {
         "reason" => reason,
     )
     .increment(1);
+    if let PostHogError::Capture(failure) = err {
+        record_capture_failure(service, failure);
+    }
     tracing::warn!(
         service,
         surface,
         reason,
         "posthog-rs dropped telemetry after terminal delivery failure"
     );
+}
+
+fn record_capture_failure(service: &'static str, failure: &CaptureFailure<'_>) {
+    if let Some(error) = failure.error() {
+        let outcome = request_outcome(error);
+        metrics::counter!(
+            SDK_CAPTURE_REQUEST_FAILURES,
+            "service" => service,
+            "status" => outcome.status,
+            "error" => outcome.error,
+        )
+        .increment(1);
+        return;
+    }
+    for result in failure.event_results().values() {
+        let outcome = event_outcome(result);
+        if !matches!(outcome.result, "ok" | "warning") {
+            count_unpersisted(service, outcome, 1);
+        }
+        if let Some(copies) = result.duplicates_dropped.filter(|n| *n > 0) {
+            count_unpersisted(service, EventOutcome::DUPLICATE_COPY, u64::from(copies));
+        }
+    }
+}
+
+fn count_unpersisted(service: &'static str, outcome: EventOutcome, events: u64) {
+    metrics::counter!(
+        SDK_CAPTURE_UNPERSISTED_EVENTS,
+        "service" => service,
+        "result" => outcome.result,
+        "class" => outcome.class,
+        "detail" => outcome.detail,
+    )
+    .increment(events);
 }
 
 /// Map a `PostHogError` to bounded `(surface, reason)` metric labels. `surface`

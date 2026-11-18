@@ -16,3 +16,4 @@ tracing = { workspace = true }
 [dev-dependencies]
 httpmock = { workspace = true }
 metrics-util = { workspace = true }
+uuid = { workspace = true }
