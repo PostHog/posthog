@@ -389,10 +389,13 @@ class MCPToolFailureOccurrencesQueryRunner(HarnessLabelQueryRunner[MCPToolFailur
         return _tool_call_where(self.query, self.query_date_range, self.team, extra=extra)
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        # The sort key is sort_ts, not timestamp. On the JSON events table, ClickHouse renames a
+        # subquery column that shares an events column's name to a suffixed name such as
+        # timestamp_0, while the sort still asks for timestamp, so the query fails.
         return parse_select(
             """
             SELECT
-                timestamp AS ts,
+                sort_ts,
                 distinct_id,
                 session_id,
                 {harness_label} AS harness,
@@ -401,7 +404,7 @@ class MCPToolFailureOccurrencesQueryRunner(HarnessLabelQueryRunner[MCPToolFailur
                 error_status
             FROM (
                 SELECT
-                    timestamp,
+                    timestamp AS sort_ts,
                     distinct_id,
                     substring({_CONVERSATION_ID}, 1, 200) AS session_id,
                     if(toString(properties.$mcp_intent) = '{}', '', substring(toString(properties.$mcp_intent), 1, 1000)) AS intent,
@@ -411,7 +414,7 @@ class MCPToolFailureOccurrencesQueryRunner(HarnessLabelQueryRunner[MCPToolFailur
                 FROM events
                 WHERE {where}
             )
-            ORDER BY ts DESC
+            ORDER BY sort_ts DESC
             LIMIT 50
             """,
             placeholders={
@@ -724,23 +727,24 @@ class MCPToolSampleIntentsQueryRunner(HarnessLabelQueryRunner[MCPToolSampleInten
                 parse_expr("toString(properties.$mcp_intent) != '{}'"),
             ],
         )
+        # sort_ts carries its own name for the reason given in MCPToolFailureOccurrencesQueryRunner.to_query.
         return parse_select(
             """
             SELECT
-                timestamp,
+                sort_ts,
                 intent,
                 intent_source,
                 {harness_label} AS harness
             FROM (
                 SELECT
-                    timestamp,
+                    timestamp AS sort_ts,
                     toString(properties.$mcp_intent) AS intent,
                     toString(properties.$mcp_intent_source) AS intent_source,
                     {token} AS h
                 FROM events
                 WHERE {where}
             )
-            ORDER BY timestamp DESC
+            ORDER BY sort_ts DESC
             LIMIT 5
             """,
             placeholders={
