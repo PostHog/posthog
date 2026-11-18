@@ -87,6 +87,10 @@ ERROR_TRACKING_SEVERITY_INFERENCE_OUTCOMES = Counter(
 ISSUE_TAG_WORKER_SLOTS = threading.BoundedSemaphore(
     max(1, (settings.MAX_CONCURRENT_ACTIVITIES or DEFAULT_MAX_CONCURRENT_TASKS) // 8)
 )
+# Rule runs on merge targets block on event reads, so they get their own eighth. A slow Jev run then cannot hold them.
+MERGE_TARGET_TAG_WORKER_SLOTS = threading.BoundedSemaphore(
+    max(1, (settings.MAX_CONCURRENT_ACTIVITIES or DEFAULT_MAX_CONCURRENT_TASKS) // 8)
+)
 ERROR_TRACKING_ISSUE_TAGGER_OUTCOMES = Counter(
     "error_tracking_issue_created_tagger_total",
     "Issue-created tagger runs by tagger and outcome. Runs skipped before any tagger starts have tagger none",
@@ -336,19 +340,12 @@ def tag_issue_created_activity(inputs: IssueCreatedWorkflowInputs) -> None:
     # The runner imports the lifecycle rendering module, whose package imports this module.
     from products.error_tracking.backend.logic.issue_tags.runner import run_issue_taggers  # noqa: PLC0415
 
-    # Skip instead of wait, because a waiting activity still holds its slot. The issue then gets no tags.
-    if not ISSUE_TAG_WORKER_SLOTS.acquire(blocking=False):
-        logger.warning("error_tracking_issue_tags_worker_busy", team_id=inputs.team_id, issue_id=inputs.issue_id)
-        ERROR_TRACKING_ISSUE_TAGGER_OUTCOMES.labels(tagger="none", outcome=IssueTaggerOutcome.WORKER_BUSY).inc()
-        return
-    try:
-        _tag_issue_created(
-            inputs,
-            ERROR_TRACKING_ISSUE_TAGGER_OUTCOMES,
-            lambda load_event_properties: run_issue_taggers(inputs.team_id, inputs.issue_id, load_event_properties),
-        )
-    finally:
-        ISSUE_TAG_WORKER_SLOTS.release()
+    _tag_issue_created(
+        inputs,
+        ISSUE_TAG_WORKER_SLOTS,
+        ERROR_TRACKING_ISSUE_TAGGER_OUTCOMES,
+        lambda load_event_properties: run_issue_taggers(inputs.team_id, inputs.issue_id, load_event_properties),
+    )
 
 
 @activity.defn
@@ -358,9 +355,9 @@ def tag_issue_created_merge_target_activity(inputs: IssueCreatedWorkflowInputs) 
     # The runner imports the lifecycle rendering module, whose package imports this module.
     from products.error_tracking.backend.logic.issue_tags.runner import run_rule_tagger_on_merge_target  # noqa: PLC0415
 
-    # A rule run makes no model call, so this activity takes no tag worker slot.
     _tag_issue_created(
         inputs,
+        MERGE_TARGET_TAG_WORKER_SLOTS,
         ERROR_TRACKING_MERGE_TARGET_TAGGER_OUTCOMES,
         lambda load_event_properties: run_rule_tagger_on_merge_target(
             inputs.team_id, inputs.fingerprint, load_event_properties
@@ -369,6 +366,23 @@ def tag_issue_created_merge_target_activity(inputs: IssueCreatedWorkflowInputs) 
 
 
 def _tag_issue_created(
+    inputs: IssueCreatedWorkflowInputs,
+    slots: threading.BoundedSemaphore,
+    outcomes: Counter,
+    run_taggers: Callable[[Callable[[Team], dict[str, object]]], "tuple[TaggerRun, ...] | IssueTaggingSkipReason"],
+) -> None:
+    # Skip instead of wait, because a waiting activity still holds its slot. The issue then gets no tags.
+    if not slots.acquire(blocking=False):
+        logger.warning("error_tracking_issue_tags_worker_busy", team_id=inputs.team_id, issue_id=inputs.issue_id)
+        outcomes.labels(tagger="none", outcome=IssueTaggerOutcome.WORKER_BUSY).inc()
+        return
+    try:
+        _run_taggers(inputs, outcomes, run_taggers)
+    finally:
+        slots.release()
+
+
+def _run_taggers(
     inputs: IssueCreatedWorkflowInputs,
     outcomes: Counter,
     run_taggers: Callable[[Callable[[Team], dict[str, object]]], "tuple[TaggerRun, ...] | IssueTaggingSkipReason"],
