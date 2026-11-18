@@ -3230,11 +3230,15 @@ class TaskRun(models.Model):
         if agent_status is not None:
             updates["agent_status"] = agent_status
         try:
-            TaskRun.objects.filter(id=run_id, team_id=team_id).update(**updates)
+            written = (
+                TaskRun.objects.filter(id=run_id, team_id=team_id)
+                .exclude(status__in=(TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED))
+                .update(**updates)
+            )
         except DatabaseError:
             logger.warning("task_run.liveness_write_failed", task_run_id=str(run_id), exc_info=True)
             return False
-        return True
+        return bool(written)
 
     def set_agent_status(self, agent_status: "TaskRun.AgentStatus") -> None:
         if TaskRun.write_liveness(self.pk, self.team_id, agent_status=agent_status):
