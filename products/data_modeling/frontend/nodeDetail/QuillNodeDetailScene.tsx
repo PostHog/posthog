@@ -22,6 +22,7 @@ import { QuillNodeDetailOverview } from './QuillNodeDetailOverview'
 import { QuillNodeDetailQuery } from './QuillNodeDetailQuery'
 import { QuillNodeDetailTests } from './QuillNodeDetailTests'
 import { QuillNodeDetailTestsTabLabel } from './QuillNodeDetailTestsTabLabel'
+import { QuillPlanFloorClampNotice } from './QuillPlanFloorClampNotice'
 
 const TAB_LABELS: Record<NodeDetailSceneTab, string> = {
     query: 'Query',
@@ -75,6 +76,7 @@ function TabPanel({
 export function QuillNodeDetailScene({ id }: { id: string }): JSX.Element {
     const {
         node,
+        savedQuery,
         savedQueryDeleted,
         nodeLoading,
         availableTabs,
@@ -124,6 +126,15 @@ export function QuillNodeDetailScene({ id }: { id: string }): JSX.Element {
     return (
         <SceneContent>
             <QuillNodeDetailHeader id={id} />
+            {savedQuery?.plan_clamp && (
+                <QuillPlanFloorClampNotice
+                    subject={node.type === 'endpoint' ? 'endpoint' : 'view'}
+                    savedQueryId={savedQuery.id}
+                    previousSeconds={savedQuery.plan_clamp.previous_target_seconds}
+                    planFloorSeconds={savedQuery.plan_clamp.plan_floor_seconds}
+                    at={savedQuery.plan_clamp.at}
+                />
+            )}
             <QuillNodeDetailOverview id={id} metadata={modelMetadata} />
             {!effectiveTab ? (
                 <Skeleton className="h-8 w-96 max-w-full" />
