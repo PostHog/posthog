@@ -26,6 +26,10 @@ class _MarkerOrder(TraversingVisitor):
             elif isinstance(value, (str, int)) and not isinstance(value, bool) and value in MARKERS:
                 self.markers.append(MARKERS[value])
 
+    def visit_json_subcolumn_access(self, node: ast.JsonSubcolumnAccess) -> None:
+        if node.keys[0] in MARKERS:
+            self.markers.append(MARKERS[node.keys[0]])
+
 
 class TestFastPropertyFiltersFirst(SimpleTestCase):
     def _filter_order(
@@ -79,14 +83,26 @@ class TestFastPropertyFiltersFirst(SimpleTestCase):
                 ["deep", "fast"],
             ),
             (
-                "call_with_an_argument_that_can_throw_stays",
-                "properties.query.kind = 'deep' AND transform(properties.plan, ['fast'], [1], event::int) > 7",
-                ["deep", "fast", "seven"],
+                "negated_comparison_stays",
+                "properties.query.kind = 'deep' AND properties.query_type != 'fast'",
+                ["deep", "fast"],
+            ),
+            (
+                "test_that_a_property_is_set_moves",
+                "properties.query.kind = 'deep' AND properties.fast IS NOT NULL",
+                ["fast", "deep"],
             ),
         ]
     )
     def test_filter_order_on_the_native_table(self, _name: str, where: str, expected: list[str]) -> None:
         assert self._filter_order(where) == expected
+
+    def test_a_conversion_with_an_argument_that_can_throw_stays(self) -> None:
+        order = self._filter_order(
+            "properties.query.kind = 'deep' AND transform(properties.plan, {keys}, {values}, event::int) > 7",
+            placeholders={"keys": ast.Constant(value=["fast"]), "values": ast.Constant(value=[1])},
+        )
+        assert order == ["deep", "fast", "seven"]
 
     def test_a_list_passed_as_one_constant_moves(self) -> None:
         order = self._filter_order(

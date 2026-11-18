@@ -8,13 +8,14 @@ with many parts. Without it, two filters on one JSON column tie, and a tie keeps
 that parses a whole property then runs before a filter that reads one small value, when the query wrote it first.
 
 A fast filter compares one path of a native JSON column with constants. Its read is bare, or wrapped in conversions that
-give NULL for a value they cannot convert, so it cannot fail on one row and pass on another. That makes it safe to run
-before a filter that the query wrote first. A filter that can fail on some rows, such as ``properties.plan::int > 0``,
-keeps its written order, and so does every other filter, so a filter that guards a later conversion still runs before
-it. A fast filter can hold a constant that ClickHouse cannot compare with the read, such as ``properties.plan = 5`` on
-text. That filter matches no row wherever it runs, so the move can only make a query that returns nothing report the
-error. The position of a fast filter against filters on other columns changes nothing, because ClickHouse orders those
-by column size.
+give NULL for a value they cannot convert, so the read cannot fail. Its comparison is positive, such as ``=``, ``<`` or
+``IN``, or it tests for NULL. A positive comparison is true only for a row on which ClickHouse evaluated it. So one
+with a constant that ClickHouse cannot compare with the read, such as ``properties.plan = 5`` on text, matches no row
+wherever it runs, and the move can only make a query that returns nothing report the error. A negated comparison is
+also true for a row without the property, where ClickHouse never evaluates it, so it keeps its written order. So does a
+filter that can fail on some rows, such as ``properties.plan::int > 0``, and every other filter. A filter that guards a
+later conversion therefore still runs before it. The position of a fast filter against filters on other columns
+changes nothing, because ClickHouse orders those by column size.
 """
 
 from posthog.hogql import ast
@@ -23,16 +24,14 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.schema.util.where_clause_extractor import top_level_conjuncts
 from posthog.hogql.visitor import TraversingVisitor
 
-_COMPARISONS_WITH_CONSTANTS = frozenset(
+_POSITIVE_COMPARISONS = frozenset(
     {
         ast.CompareOperationOp.Eq,
-        ast.CompareOperationOp.NotEq,
         ast.CompareOperationOp.Lt,
         ast.CompareOperationOp.LtEq,
         ast.CompareOperationOp.Gt,
         ast.CompareOperationOp.GtEq,
         ast.CompareOperationOp.In,
-        ast.CompareOperationOp.NotIn,
     }
 )
 
@@ -60,6 +59,10 @@ def _property_read(expr: ast.Expr) -> ast.Expr:
             return expr
 
 
+def _is_not_null_test(term: ast.CompareOperation) -> bool:
+    return term.op == ast.CompareOperationOp.NotEq and isinstance(term.right, ast.Constant) and term.right.value is None
+
+
 def _is_constant(expr: ast.Expr) -> bool:
     if isinstance(expr, (ast.Tuple, ast.Array)):
         return all(isinstance(item, ast.Constant) for item in expr.exprs)
@@ -80,7 +83,9 @@ def _reads_a_json_column_path(property_read: ast.PropertyAccess, context: HogQLC
 
 
 def _is_fast_property_filter(term: ast.Expr, context: HogQLContext) -> bool:
-    if not isinstance(term, ast.CompareOperation) or term.op not in _COMPARISONS_WITH_CONSTANTS:
+    if not isinstance(term, ast.CompareOperation):
+        return False
+    if term.op not in _POSITIVE_COMPARISONS and not _is_not_null_test(term):
         return False
     property_read = _property_read(term.left)
     return (
