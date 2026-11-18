@@ -20,6 +20,7 @@ import type {
 
 import { pageReportPath } from '../pageReports/pageReportsUtils'
 import { AiVisibilityCompetitorReview } from './AiVisibilityCompetitorReview'
+import { aiVisibilityCompetitorReviewLogic } from './aiVisibilityCompetitorReviewLogic'
 import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
 import { ContentAutopilotKpiDelta } from './ContentAutopilotKpiDelta'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
@@ -31,7 +32,8 @@ import { visibilityChange } from './rankingsReport'
 import { brandedAnswersNote, filtersHeading, segmentPrompts, windowRange } from './utils'
 
 const CHART_CONFIG: TimeSeriesLineChartConfig = {
-    xAxis: { interval: 'day' },
+    // The labels are calendar days, so UTC keeps each tick and tooltip date on its own day.
+    xAxis: { interval: 'day', timezone: 'UTC' },
     yAxis: { format: 'percentage_scaled', showGrid: true },
     legend: { show: true },
     showCrosshair: true,
@@ -43,14 +45,20 @@ const VisibilityChart = (): JSX.Element | null => {
     const { chart } = useValues(contentAutopilotRankingsLogic)
     const theme = useChartTheme()
     const series = useMemo<Series[]>(
-        () => (chart?.series ?? []).map(({ domain, label, data }) => ({ key: domain, label, data })),
-        [chart]
+        () =>
+            (chart?.series ?? []).map(({ domain, label, colorIndex, data }) => ({
+                key: domain,
+                label,
+                color: theme.colors[colorIndex % theme.colors.length],
+                data,
+            })),
+        [chart, theme]
     )
     if (!chart) {
         return null
     }
     return (
-        <div className="h-80 min-w-0 flex flex-col p-2">
+        <div className="h-64 min-w-0 flex flex-col p-2">
             <TimeSeriesLineChart series={series} labels={chart.labels} theme={theme} config={CHART_CONFIG} />
         </div>
     )
@@ -60,6 +68,7 @@ export const ContentAutopilotRankings = (): JSX.Element => {
     const { rankings, rankingsLoading, rankingsError } = useValues(contentAutopilotRankingsLogic)
     const { loadRankings } = useActions(contentAutopilotRankingsLogic)
     const { setWorkspaceTab } = useActions(contentAutopilotLogic)
+    const { reviewShown } = useValues(aiVisibilityCompetitorReviewLogic)
 
     if (rankingsError === 'forbidden') {
         return <ContentAutopilotPromptsDisabled />
@@ -89,6 +98,9 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                             Competitors are the ones you confirmed in{' '}
                             <Link onClick={() => setWorkspaceTab('settings')}>settings</Link>.
                         </>
+                    ) : reviewShown ? (
+                        // The review card below the header offers the same action.
+                        'Competitors are guessed from the sites the engines cite most.'
                     ) : (
                         <>
                             Competitors are guessed from the sites the engines cite most.{' '}
@@ -144,7 +156,7 @@ export const ContentAutopilotRankings = (): JSX.Element => {
         <section className="@container/rankings flex flex-col gap-4" data-attr="content-autopilot-rankings">
             {header}
             <AiVisibilityCompetitorReview />
-            <div className="grid grid-cols-1 @5xl/rankings:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 @5xl/rankings:grid-cols-2 items-start gap-4">
                 <PagePerformanceCard className="min-w-0">
                     <PagePerformanceCardHeader title="Visibility" />
                     <VisibilityChart />
