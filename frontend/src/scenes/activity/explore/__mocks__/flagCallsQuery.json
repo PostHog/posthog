@@ -1,0 +1,126 @@
+{
+    "columns": [
+        "*",
+        "properties.$feature_flag",
+        "properties.$feature_flag_response",
+        "person_display_name -- Person",
+        "coalesce(properties.$current_url, properties.$screen_name) -- Url / Screen",
+        "properties.$lib",
+        "timestamp"
+    ],
+    "hasMore": false,
+    "results": [
+        [
+            {
+                "uuid": "0185f4a2-1c00-7000-8000-000000000001",
+                "event": "$feature_flag_called",
+                "properties": {
+                    "$feature_flag": "new-checkout",
+                    "$feature_flag_response": "true",
+                    "$lib": "web",
+                    "$current_url": "https://app.example.com/checkout"
+                },
+                "timestamp": "2023-01-27T18:42:10.000Z",
+                "team_id": 1,
+                "distinct_id": "person-1",
+                "elements_chain": "",
+                "created_at": "2023-01-27T18:42:10.000Z"
+            },
+            "new-checkout",
+            "true",
+            {
+                "display_name": "ana@example.com",
+                "distinct_id": "person-1"
+            },
+            "https://app.example.com/checkout",
+            "web",
+            "2023-01-27T18:42:10.000Z"
+        ],
+        [
+            {
+                "uuid": "0185f4a2-1c00-7000-8000-000000000002",
+                "event": "$feature_flag_called",
+                "properties": {
+                    "$feature_flag": "pricing-page-test",
+                    "$feature_flag_response": "control",
+                    "$lib": "web",
+                    "$current_url": "https://app.example.com/pricing"
+                },
+                "timestamp": "2023-01-27T18:40:02.000Z",
+                "team_id": 1,
+                "distinct_id": "person-2",
+                "elements_chain": "",
+                "created_at": "2023-01-27T18:40:02.000Z"
+            },
+            "pricing-page-test",
+            "control",
+            {
+                "display_name": "ben@example.com",
+                "distinct_id": "person-2"
+            },
+            "https://app.example.com/pricing",
+            "web",
+            "2023-01-27T18:40:02.000Z"
+        ],
+        [
+            {
+                "uuid": "0185f4a2-1c00-7000-8000-000000000003",
+                "event": "$feature_flag_called",
+                "properties": {
+                    "$feature_flag": "onboarding-v2",
+                    "$feature_flag_response": "false",
+                    "$lib": "posthog-node"
+                },
+                "timestamp": "2023-01-27T18:31:47.000Z",
+                "team_id": 1,
+                "distinct_id": "person-3",
+                "elements_chain": "",
+                "created_at": "2023-01-27T18:31:47.000Z"
+            },
+            "onboarding-v2",
+            "false",
+            {
+                "display_name": "device-7f3e",
+                "distinct_id": "person-3"
+            },
+            null,
+            "posthog-node",
+            "2023-01-27T18:31:47.000Z"
+        ],
+        [
+            {
+                "uuid": "0185f4a2-1c00-7000-8000-000000000004",
+                "event": "$feature_flag_called",
+                "properties": {
+                    "$feature_flag": "pricing-page-test",
+                    "$feature_flag_response": "test",
+                    "$lib": "posthog-ios",
+                    "$screen_name": "Settings"
+                },
+                "timestamp": "2023-01-27T17:58:15.000Z",
+                "team_id": 1,
+                "distinct_id": "person-4",
+                "elements_chain": "",
+                "created_at": "2023-01-27T17:58:15.000Z"
+            },
+            "pricing-page-test",
+            "test",
+            {
+                "display_name": "cleo@example.com",
+                "distinct_id": "person-4"
+            },
+            "Settings",
+            "posthog-ios",
+            "2023-01-27T17:58:15.000Z"
+        ]
+    ],
+    "types": [
+        "Tuple(UUID, String, String, DateTime64(6, 'UTC'), Int64, String, String, DateTime64(6, 'UTC'))",
+        "String",
+        "String",
+        "Tuple(String, String)",
+        "Nullable(String)",
+        "Nullable(String)",
+        "DateTime64(6, 'UTC')"
+    ]
+}

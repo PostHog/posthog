@@ -1180,6 +1180,7 @@ export enum ActivityTab {
     ExploreEvents = 'events',
     LiveEvents = 'live',
     ExploreSessions = 'sessions',
+    ExploreFlagCalls = 'flag-calls',
 }
 
 export enum ProgressStatus {
