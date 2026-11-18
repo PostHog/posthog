@@ -1498,6 +1498,7 @@ rules:
                               |OrganizationDomain
                               |OrganizationIPRestrictions
                               |OrganizationEventsRetentionConfig
+                              |OrganizationExternalProjectLink
                               |OrganizationFeatureFlagsConfig
                               |OrganizationIntegration
                               |OrganizationInvite
@@ -1583,6 +1584,7 @@ rules:
                         |OrganizationDomain
                         |OrganizationIPRestrictions
                         |OrganizationEventsRetentionConfig
+                        |OrganizationExternalProjectLink
                         |OrganizationFeatureFlagsConfig
                         |OrganizationIntegration
                         |OrganizationInvite
