@@ -84,7 +84,11 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     resolve_org_github_login_to_users,
     resolve_org_users_by_uuid,
 )
-from products.signals.backend.report_generation.select_repo import RepoSelectionResult, persisted_repo_selection
+from products.signals.backend.report_generation.select_repo import (
+    RepoSelectionResult,
+    persisted_repo_selection,
+    repo_selection_set_by_person,
+)
 from products.signals.backend.report_metrics import (
     ReportMetric,
     ReportMetricKind,
@@ -1620,8 +1624,9 @@ def _refresh_inferred_repository(*, team_id: int, report_id: str, attribution: A
 
     An inferred target is a reading of the report's text, so a rewrite that moves the report onto a
     different repository leaves it pointing somewhere the report no longer describes. Only a selection
-    this same inference wrote is re-derived; one the scout named or the selection agent chose is a
-    decision, not a reading, and a content edit does not overturn it.
+    this same inference wrote is re-derived; one the scout named, the selection agent chose, or a
+    person picked is a decision, not a reading, and a content edit does not overturn it. A person's
+    pick is stored `autostart_eligible=False` like an inferred one, so it is told apart by its author.
 
     New content that links nothing keeps the existing target. A repository the reader can override at
     Create PR time costs less than clearing it, since a cleared selection reads as the scout's
@@ -1633,6 +1638,8 @@ def _refresh_inferred_repository(*, team_id: int, report_id: str, attribution: A
 
     selection = persisted_repo_selection(report_id)
     if selection is None or selection.autostart_eligible or selection.repository is None:
+        return
+    if repo_selection_set_by_person(team_id, report_id):
         return
     report = SignalReport.objects.filter(team_id=team_id, id=report_id).values("title", "summary").first()
     if report is None:
