@@ -13174,8 +13174,7 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "workflows-resend-import"
+        }
     },
     "provider-imports-get": {
         "description": "Get one import run: each step's status and last error, a breakdown in `counts`, and in `items` each template, workflow or domain it handled with a link and notes on what to review. Show the user the notes and each step's failures. A step that is `running` with a `last_error` is retrying by itself.",
@@ -13190,8 +13189,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "workflows-resend-import"
+        }
     },
     "provider-imports-list": {
         "description": "List this project's most recent imports from other email tools, newest first. Use it to find a run that is already active before you start another.",
@@ -13206,8 +13204,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "workflows-resend-import"
+        }
     },
     "provider-imports-providers": {
         "description": "List the email tools this project can import from, what each one can bring over (`steps`, with the keys to pass to provider-imports-create), what stays behind (`not_imported`), and what the person does afterward (`next_steps`). `retains_credentials: false` means PostHog deletes the API key when the run ends, so every import needs it again. Load the migrating-from-email-providers skill before you start a move.",
@@ -13222,8 +13219,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "workflows-resend-import"
+        }
     },
     "proxy-create": {
         "description": "Create a new managed reverse proxy for a custom domain. Provide the domain (e.g. 'e.example.com') that will proxy requests to PostHog. The response includes the CNAME target — the user must add a CNAME DNS record pointing their domain to this target. Once DNS propagates, the proxy is automatically verified and an SSL certificate is issued. The proxy starts in 'waiting' status until DNS is verified.",

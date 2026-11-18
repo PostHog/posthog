@@ -8,7 +8,7 @@ people. A send to any address reads the blocking rules this import fills, so Pos
 import hashlib
 from bisect import bisect_right
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from functools import partial
@@ -38,9 +38,11 @@ from products.messaging.backend.provider_imports.base import (
     UnknownImportStep,
 )
 from products.messaging.backend.provider_imports.emails import exact_email, normalized_email
+from products.messaging.backend.provider_imports.senders import sender_for_address
 from products.messaging.backend.services.imported_data import (
     ImportedCategory,
     ImportedSuppression,
+    carry_opt_outs,
     import_categories,
     import_opt_outs,
     import_suppressions,
@@ -446,6 +448,7 @@ def _save_global_unsubscribes(context: ImportContext, entries: list[dict[str, An
     emails = {exact_email(entry.get("email")) if isinstance(entry, dict) else None for entry in entries}
     valid = {email: [ALL_MESSAGE_PREFERENCE_CATEGORY_ID] for email in emails if email}
     changed = import_opt_outs(context.team_id, valid, context.created_by_id)
+    _carry_to_every_spelling(context, valid)
     return SavedPage(imported=changed, counts={"opted_out": changed, "invalid": len(entries) - len(valid)})
 
 
@@ -489,7 +492,18 @@ def _save_group_unsubscribes(context: ImportContext, category: ImportedCategory 
     changed = import_opt_outs(
         context.team_id, {address: [category_id] for address in valid} if category_id else {}, context.created_by_id
     )
+    if category_id:
+        _carry_to_every_spelling(context, valid)
     return SavedPage(imported=changed, counts={"opted_out": changed, "invalid": len(emails) - len(valid)})
+
+
+def _carry_to_every_spelling(context: ImportContext, addresses: Iterable[str]) -> None:
+    # A send matches an opt-out by exact address, and SendGrid keeps the case the address arrived in.
+    carry_opt_outs(
+        context.team_id,
+        [spelling for address in addresses for spelling in (address, address.lower())],
+        context.created_by_id,
+    )
 
 
 SENDERS_NEED_FULL_ACCESS = (
@@ -567,7 +581,7 @@ def _save_senders(context: ImportContext, results: list[dict[str, Any]]) -> Save
     items: list[ImportItem] = []
     for sender in results:
         address = str(sender.get("from_email") or "")
-        integration = posthog_senders.get(address.lower())
+        integration = sender_for_address(address, posthog_senders) if address else None
         ready = bool(integration and integration.config.get("verified"))
         counts["ready" if ready else "needs_setup"] += 1
         notes: list[str] = []

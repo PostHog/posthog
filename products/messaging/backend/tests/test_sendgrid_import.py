@@ -1,3 +1,4 @@
+import json
 from collections.abc import Callable
 from typing import Any
 from urllib.parse import urlparse
@@ -9,6 +10,8 @@ from django.test import SimpleTestCase, override_settings
 
 import requests
 from parameterized import parameterized
+
+from posthog.integrations import IntegrationManager
 
 from products.messaging.backend.models.email_hard_bounce import EmailHardBounce
 from products.messaging.backend.models.message_category import MessageCategory
@@ -131,13 +134,32 @@ class TestSendGridImport(BaseTest):
         assert self._preferences() == {
             "unsubscribed@example.com": {ALL_MESSAGE_PREFERENCE_CATEGORY_ID: "OPTED_OUT"},
             "Grüße.Unsub@example.com": {ALL_MESSAGE_PREFERENCE_CATEGORY_ID: "OPTED_OUT"},
+            "grüße.unsub@example.com": {ALL_MESSAGE_PREFERENCE_CATEGORY_ID: "OPTED_OUT"},
             "left-updates@example.com": {
                 category_ids["sendgrid_101"]: "OPTED_OUT",
                 category_ids["sendgrid_102"]: "OPTED_OUT",
             },
             "Björk.Group@example.com": {category_ids["sendgrid_101"]: "OPTED_OUT"},
+            "björk.group@example.com": {category_ids["sendgrid_101"]: "OPTED_OUT"},
         }
         assert run.status == "completed"
+
+    @parameterized.expand([("global", "global_unsubscribes"), ("group", "group_unsubscribes")])
+    def test_an_opt_out_reaches_every_spelling_of_the_address(self, _name: str, step: str) -> None:
+        if step == "global_unsubscribes":
+            self.state.account["unsubscribes"] = [{"created": 1, "email": "Mixed.Case@Example.com"}]
+        else:
+            self.state.account["group_suppressions"] = {"101": ["Mixed.Case@Example.com"], "102": [], "103": []}
+        MessageRecipientPreference.objects.create(
+            team_id=self.team.id, identifier="MIXED.case@example.com", preferences={}
+        )
+
+        self._run([step])
+
+        preferences = self._preferences()
+        assert set(preferences) == {"Mixed.Case@Example.com", "mixed.case@example.com", "MIXED.case@example.com"}
+        assert len({json.dumps(value, sort_keys=True) for value in preferences.values()}) == 1
+        assert all("OPTED_OUT" in value.values() for value in preferences.values())
 
     def test_group_category_comes_across_with_its_name(self) -> None:
         run = self._run(["suppression_groups"])
@@ -145,6 +167,21 @@ class TestSendGridImport(BaseTest):
         names = set(MessageCategory.objects.filter(team_id=self.team.id).values_list("name", flat=True))
         assert names == {"Product updates", "Événements 🎉", "Empty group"}
         assert any("default group" in warning for warning in run.progress["suppression_groups"]["warnings"])
+
+    def test_a_sender_on_a_verified_domain_is_ready(self) -> None:
+        IntegrationManager.email.credentials.create(
+            self.team.id,
+            external_id="team@example.com",
+            config={"email": "team@example.com", "domain": "example.com", "verified": True, "name": "Acme"},
+            sensitive_config={},
+            created_by_id=self.user.id,
+        )
+
+        run = self._run(["senders"])
+
+        senders = {item["label"]: item for item in run.progress["senders"]["items"]}
+        assert senders["Acme <hello@example.com>"]["notes"] == []
+        assert run.progress["senders"]["counts"] == {"ready": 1, "needs_setup": 1}
 
     def test_senders_domains_and_lists_are_listed_with_what_to_do(self) -> None:
         run = self._run(["lists", "senders", "domains"])

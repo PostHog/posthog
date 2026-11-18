@@ -132,7 +132,6 @@ tools:
             active returns 409. Importing again adds what's new and leaves anything changed or deleted in PostHog as it
             is. Creates people only when the `new_people` step is selected, and each new person counts as one event, so
             ask the user before including it. Imported drafts never send on their own.
-        feature_flag: workflows-resend-import
     provider-imports-get:
         operation: messaging_provider_imports_retrieve
         enabled: true
@@ -147,7 +146,6 @@ tools:
             Get one import run: each step's status and last error, a breakdown in `counts`, and in `items` each
             template, workflow or domain it handled with a link and notes on what to review. Show the user the notes and
             each step's failures. A step that is `running` with a `last_error` is retrying by itself.
-        feature_flag: workflows-resend-import
     provider-imports-list:
         operation: messaging_provider_imports_list
         enabled: true
@@ -162,7 +160,6 @@ tools:
         description: >
             List this project's most recent imports from other email tools, newest first. Use it to find a run that is
             already active before you start another.
-        feature_flag: workflows-resend-import
     provider-imports-providers:
         operation: messaging_provider_imports_providers_list
         enabled: true
@@ -178,7 +175,6 @@ tools:
             pass to provider-imports-create), what stays behind (`not_imported`), and what the person does afterward
             (`next_steps`). `retains_credentials: false` means PostHog deletes the API key when the run ends, so every
             import needs it again. Load the migrating-from-email-providers skill before you start a move.
-        feature_flag: workflows-resend-import
     supabase-auth-emails-settings-get:
         operation: messaging_supabase_auth_emails_settings_retrieve
         enabled: true
