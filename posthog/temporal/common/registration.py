@@ -196,9 +196,10 @@ def load_registrations() -> dict[str, TemporalRegistration]:
         # Product apps are named `products.<product>.backend`.
         product = module.__name__.split(".")[1]
         declared = getattr(module, REGISTRATION_ATTRIBUTE, None)
-        # A product that still hands out WORKFLOWS and ACTIVITIES lists has no declaration yet.
         if declared is None:
-            continue
+            raise TemporalRegistrationError(
+                f"{product}: {REGISTRATION_MODULE} must declare {REGISTRATION_ATTRIBUTE}, or the worker hosts none of its code"
+            )
         validate_registration(product, declared)
         registrations[product] = declared
     _check_unique_histograms(registrations)
