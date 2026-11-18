@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 
 
 ACCOUNT_PERSONS_CATALOG_FLAG = "account-persons-builtin-catalog"
+ACCOUNT_PERSONS_FEWER_HOPS_FLAG = "account-persons-fewer-hops"
 PERSON_COLUMNS = frozenset({"id", "created_at", "last_seen_at", "is_identified", "team_id"})
 MEMBERSHIP_COLUMNS = frozenset({"person_id", "distinct_ids", "account_first_seen", "account_last_seen"})
 
@@ -112,18 +113,17 @@ class AccountPersonsCatalog:
         self.team = team
         self.user = user
         self.variant: str | None = None
+        self.query_variant: str | None = None
         self.database: Database | None = None
         self.build_duration_ms = 0.0
         self.cache_hit = False
         self.failed = False
 
-    @contextmanager
-    def run(self, *, track: bool = True) -> Iterator[None]:
-        started_at = perf_counter()
+    def get_variant(self, flag: str) -> str | None:
         org_id = str(self.team.organization_id)
         team_id = str(self.team.pk)
         variant = get_feature_flag_or_none(
-            ACCOUNT_PERSONS_CATALOG_FLAG,
+            flag,
             str(self.user.distinct_id),
             groups={"organization": org_id, "project": team_id},
             group_properties={"organization": {"id": org_id}, "project": {"id": team_id}},
@@ -131,18 +131,33 @@ class AccountPersonsCatalog:
             only_evaluate_locally=True,
             send_feature_flag_events=False,
         )
-        if variant not in {"control", "test"}:
+        return str(variant) if variant in {"control", "test"} else None
+
+    @contextmanager
+    def run(self, *, track: bool = True) -> Iterator[None]:
+        started_at = perf_counter()
+        self.variant = self.get_variant(ACCOUNT_PERSONS_CATALOG_FLAG)
+        self.query_variant = self.get_variant(ACCOUNT_PERSONS_FEWER_HOPS_FLAG)
+        properties: dict[str, str] = {}
+        if self.variant is not None:
+            properties.update(
+                {
+                    "catalog_experiment": ACCOUNT_PERSONS_CATALOG_FLAG,
+                    "catalog_variant": self.variant,
+                    f"$feature/{ACCOUNT_PERSONS_CATALOG_FLAG}": self.variant,
+                }
+            )
+        if self.query_variant is not None:
+            properties.update(
+                {
+                    "query_experiment": ACCOUNT_PERSONS_FEWER_HOPS_FLAG,
+                    "query_variant": self.query_variant,
+                    f"$feature/{ACCOUNT_PERSONS_FEWER_HOPS_FLAG}": self.query_variant,
+                }
+            )
+        if not track or not properties:
             yield
             return
-        self.variant = str(variant)
-        if not track:
-            yield
-            return
-        properties = {
-            "catalog_experiment": ACCOUNT_PERSONS_CATALOG_FLAG,
-            "catalog_variant": self.variant,
-            f"$feature/{ACCOUNT_PERSONS_CATALOG_FLAG}": self.variant,
-        }
         emit_slo_started(
             distinct_id=str(self.user.distinct_id),
             properties=SloStartedProperties(
