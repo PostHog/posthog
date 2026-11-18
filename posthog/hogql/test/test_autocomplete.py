@@ -934,26 +934,31 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         [
             (
                 "",
-                [
-                    "models.revenue",
-                    "models.marts.revenue",
-                    "models.clash",
-                    "clash",
-                    "charge",
-                    "my_endpoint_v1",
-                    "models.costs",
-                    "models.finance.fees",
-                ],
+                {
+                    # The stored name leads the filter text, so typing `rev` ranks the model like a prefix match.
+                    "models.revenue": "revenue models.revenue",
+                    "models.marts.revenue": "marts.revenue models.marts.revenue",
+                    "models.clash": "clash models.clash",
+                    "clash": None,
+                    "charge": None,
+                    "my_endpoint_v1": None,
+                    "models.costs": None,
+                    "models.finance.fees": None,
+                },
                 ["revenue", "marts.revenue", "models.charge", "models.my_endpoint_v1", "costs", "finance.fees"],
             ),
-            ("models.", ["revenue", "marts.revenue", "clash", "costs", "finance.fees"], ["models.revenue", "charge"]),
-            ("models.marts.", ["revenue"], []),
-            ("marts.", ["revenue"], []),
-            ("finance.", [], ["fees"]),
+            (
+                "models.",
+                {"revenue": None, "marts.revenue": None, "clash": None, "costs": None, "finance.fees": None},
+                ["models.revenue", "charge"],
+            ),
+            ("models.marts.", {"revenue": None}, []),
+            ("marts.", {"revenue": None}, []),
+            ("finance.", {}, ["fees"]),
         ]
     )
     def test_autocomplete_suggests_authored_models_under_the_models_root(
-        self, typed: str, suggested: list[str], not_suggested: list[str]
+        self, typed: str, suggested: dict[str, str | None], not_suggested: list[str]
     ) -> None:
         for name, origin in [
             ("revenue", None),
@@ -975,9 +980,11 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
 
         results = self._select(query=query, start=len(query), end=len(query))
 
-        insert_texts = {x.label: x.insertText for x in results.suggestions}
-        assert {label: insert_texts.get(label) for label in suggested} == {label: label for label in suggested}
-        assert not set(not_suggested) & insert_texts.keys()
+        items = {x.label: (x.insertText, x.filterText) for x in results.suggestions}
+        assert {label: items.get(label) for label in suggested} == {
+            label: (label, filter_text) for label, filter_text in suggested.items()
+        }
+        assert not set(not_suggested) & items.keys()
 
     def test_autocomplete_deleted_warehouse_view(self):
         DataWarehouseSavedQuery.objects.create(

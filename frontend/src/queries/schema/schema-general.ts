@@ -1107,6 +1107,11 @@ export interface AutocompleteCompletionItem {
      * suggestion, for example a function whose return type fits the comparison being written.
      */
     sortText?: string
+    /**
+     * The text the editor matches the typed word against, when it differs from the label.
+     * Set when the label carries a prefix the user may not type, for example a model listed under `models.`.
+     */
+    filterText?: string
 }
 
 export interface HogQLAutocompleteResponse {
