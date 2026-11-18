@@ -68,7 +68,6 @@ def test_a_changed_default_auth_type_fails_the_generation(tmp_path: Path) -> Non
         patch.object(zendesk, "credential_auth_type", new_callable=PropertyMock, return_value="token"),
         patch.object(command_module, "CREDENTIAL_KINDS_PATH", tmp_path / "kinds.py"),
         patch.object(command_module, "CREDENTIAL_AUTH_TYPES_PATH", tmp_path / "auth_types.py"),
-        patch.object(command_module, "CLASSIFICATION_AUDIT_PATH", tmp_path / "audit.csv"),
     ):
         with pytest.raises(ChangedFrozenValueError, match=f"{kind}: 'credentials' -> 'token'"):
             render_credential_auth_types()

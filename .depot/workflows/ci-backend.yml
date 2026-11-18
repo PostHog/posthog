@@ -356,7 +356,6 @@ jobs:
                         - 'products/ai_observability/shared/**'
                         - 'packages/llm-normalizer/src/normalizer/recipe/default_recipes/**'
                         - 'products/canvas/packages/canvas_builder/**'
-                        - bin/build-schema-latest-versions.py
                         - bin/check_uv_python_compatibility.py
                         - bin/find_python_dependencies.py
                         - pyproject.toml
@@ -460,7 +459,6 @@ jobs:
                         # The personhog gRPC stubs that posthog/personhog_client imports
                         - 'packages/personhog-proto/**'
                         - 'posthog/**/*'
-                        - bin/build-schema-latest-versions.py
                         - bin/check_uv_python_compatibility.py
                         - bin/find_python_dependencies.py
                         - pyproject.toml

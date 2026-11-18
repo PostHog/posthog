@@ -6,24 +6,27 @@ kind or default auth type of an existing source fails the render, because integr
 values. Write such a change with `python manage.py generate_source_field_classification --allow-changed-defaults`.
 """
 
+from pathlib import Path
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.credential_auth_type import (
+    CREDENTIAL_AUTH_TYPES_PATH,
     render_credential_auth_types,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.credential_kind import (
+    CREDENTIAL_KINDS_PATH,
     render_credential_kinds,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_input_classification import (
+    CLASSIFICATION_AUDIT_PATH,
     render_classification_audit,
 )
 
-CREDENTIAL_KINDS = "products/warehouse_sources/backend/facade/credential_kinds.py"
-CREDENTIAL_AUTH_TYPES = "products/warehouse_sources/backend/facade/credential_auth_types.py"
-CLASSIFICATION_AUDIT = "products/warehouse_sources/backend/temporal/data_imports/sources/field_classification.csv"
+REPO_ROOT = Path(__file__).resolve().parents[7]
 
 
 def render() -> dict[str, str]:
     return {
-        CREDENTIAL_KINDS: render_credential_kinds(),
-        CREDENTIAL_AUTH_TYPES: render_credential_auth_types(),
-        CLASSIFICATION_AUDIT: render_classification_audit(),
+        str(CREDENTIAL_KINDS_PATH.relative_to(REPO_ROOT)): render_credential_kinds(),
+        str(CREDENTIAL_AUTH_TYPES_PATH.relative_to(REPO_ROOT)): render_credential_auth_types(),
+        str(CLASSIFICATION_AUDIT_PATH.relative_to(REPO_ROOT)): render_classification_audit(),
     }
