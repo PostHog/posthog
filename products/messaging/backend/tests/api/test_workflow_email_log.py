@@ -1,0 +1,166 @@
+from datetime import UTC, datetime, timedelta
+
+import time_machine
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+
+from parameterized import parameterized
+from rest_framework import status
+
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership, Team
+from posthog.test.persons import create_person
+from posthog.uuidt import UUIDT
+
+from products.access_control.backend.facade.testing import create_access_control
+from products.workflows.backend.facade.testing import create_workflow_for_test
+
+NOW = datetime(2026, 6, 15, 12, 0, 0, tzinfo=UTC)
+
+
+@time_machine.travel(NOW, tick=False)
+class TestWorkflowEmailLog(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.workflow_id = str(create_workflow_for_test(team_id=self.team.id, name="Onboarding").id)
+        self.team.workflows_config.capture_workflows_engagement_events = True
+        self.team.workflows_config.save()
+
+    def _email_event(
+        self,
+        event: str,
+        run_id: str,
+        step: str,
+        at: datetime,
+        *,
+        distinct_id: str = "jane",
+        workflow_id: str | None = None,
+        team: Team | None = None,
+        **properties: str,
+    ) -> None:
+        _create_event(
+            team=team or self.team,
+            event=f"$workflows_email_{event}",
+            distinct_id=distinct_id,
+            timestamp=at,
+            properties={
+                "$workflow_id": workflow_id or self.workflow_id,
+                "$workflow_action_id": step,
+                "$workflow_invocation_id": run_id,
+                "$email_to": f"{distinct_id}@example.com",
+                "$email_subject": f"Hello from {step}",
+                **properties,
+            },
+        )
+
+    def _run_id(self, started: datetime) -> str:
+        return str(UUIDT(unix_time_ms=int(started.timestamp() * 1000)))
+
+    def _url(self, suffix: str = "") -> str:
+        return f"/api/projects/{self.team.id}/workflow_email_log/{suffix}"
+
+    def test_lists_each_step_of_a_run_as_its_own_send(self):
+        run_started = NOW - timedelta(days=2)
+        run_id = self._run_id(run_started)
+        welcome_at = run_started + timedelta(minutes=1)
+        nudge_at = run_started + timedelta(days=1)
+        self._email_event("sent", run_id, "welcome", welcome_at)
+        self._email_event("delivered", run_id, "welcome", welcome_at + timedelta(seconds=5))
+        self._email_event("link_clicked", run_id, "welcome", welcome_at + timedelta(hours=1))
+        self._email_event("sent", run_id, "nudge", nudge_at)
+        self._email_event("bounced", run_id, "nudge", nudge_at + timedelta(seconds=5))
+        other_workflow = str(create_workflow_for_test(team_id=self.team.id, name="Other").id)
+        self._email_event("sent", self._run_id(run_started), "welcome", welcome_at, workflow_id=other_workflow)
+        flush_persons_and_events()
+
+        response = self.client.get(self._url(), {"workflow_id": self.workflow_id})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert [(s["action_id"], s["status"], s["opened"], s["clicked"]) for s in body["results"]] == [
+            ("nudge", "bounced", False, False),
+            ("welcome", "delivered", True, True),
+        ]
+        assert (body["has_more"], body["engagement_events_enabled"]) == (False, True)
+
+    def test_says_when_engagement_events_are_off(self):
+        self.team.workflows_config.capture_workflows_engagement_events = False
+        self.team.workflows_config.save()
+
+        body = self.client.get(self._url(), {"workflow_id": self.workflow_id}).json()
+
+        assert (body["results"], body["engagement_events_enabled"]) == ([], False)
+
+    def test_shows_a_send_with_its_timeline_and_what_the_recipient_did(self):
+        create_person(team=self.team, distinct_ids=["jane", "jane-anonymous"])
+        run_started = NOW - timedelta(days=3)
+        run_id = self._run_id(run_started)
+        sent_at = run_started + timedelta(hours=2)
+        self._email_event("sent", run_id, "welcome", sent_at)
+        self._email_event("delivered", run_id, "welcome", sent_at + timedelta(seconds=5))
+        self._email_event("opened", run_id, "welcome", sent_at + timedelta(minutes=3))
+        self._email_event("sent", run_id, "nudge", sent_at + timedelta(minutes=10))
+        for event, distinct_id, offset in [
+            ("$pageview", "jane-anonymous", -timedelta(hours=1)),
+            ("$pageview", "jane", timedelta(minutes=4)),
+            ("upgraded_plan", "jane", timedelta(minutes=6)),
+        ]:
+            _create_event(
+                team=self.team,
+                event=event,
+                distinct_id=distinct_id,
+                timestamp=sent_at + offset,
+                properties={"$session_id": "s1"},
+            )
+        flush_persons_and_events()
+
+        detail = self.client.get(self._url(f"{run_id}/"), {"action_id": "welcome"})
+        activity = self.client.get(self._url(f"{run_id}/activity/"), {"action_id": "welcome"})
+
+        assert detail.status_code == status.HTTP_200_OK, detail.json()
+        assert [e["kind"] for e in detail.json()["timeline"]] == ["sent", "delivered", "opened"]
+        assert detail.json()["subject"] == "Hello from welcome"
+        assert activity.status_code == status.HTTP_200_OK, activity.json()
+        body = activity.json()
+        assert datetime.fromisoformat(body["sent_at"]) == sent_at
+        assert [e["event"] for e in body["before"]] == ["$pageview"]
+        assert [e["event"] for e in body["after"]] == ["$pageview", "upgraded_plan"]
+
+    @parameterized.expand(
+        [
+            ("another_projects_send", "other_team", status.HTTP_404_NOT_FOUND),
+            ("a_workflow_the_user_cannot_view", "hog_flow", status.HTTP_404_NOT_FOUND),
+            ("no_person_access", "person", status.HTTP_403_FORBIDDEN),
+            ("no_query_access", "query", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_hides_what_the_user_cannot_see(self, _name, denied, activity_status):
+        run_id = self._run_id(NOW - timedelta(hours=1))
+        other_team = Team.objects.create(organization=self.organization)
+        self._email_event(
+            "sent", run_id, "welcome", NOW - timedelta(minutes=30), team=other_team if denied == "other_team" else None
+        )
+        flush_persons_and_events()
+        if denied != "other_team":
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+                {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+            ]
+            self.organization.save()
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+            create_access_control(
+                team_id=self.team.id,
+                resource=denied,
+                resource_id=self.workflow_id if denied == "hog_flow" else None,
+                access_level="none",
+                organization_member_id=self.organization_membership.id,
+            )
+
+        listed = self.client.get(self._url(), {"workflow_id": self.workflow_id})
+        detail = self.client.get(self._url(f"{run_id}/"), {"action_id": "welcome"})
+        activity = self.client.get(self._url(f"{run_id}/activity/"), {"action_id": "welcome"})
+
+        visible = denied in ("person", "query")
+        assert listed.status_code == (status.HTTP_200_OK if denied != "hog_flow" else status.HTTP_404_NOT_FOUND)
+        assert detail.status_code == (status.HTTP_200_OK if visible else status.HTTP_404_NOT_FOUND)
+        assert activity.status_code == activity_status
