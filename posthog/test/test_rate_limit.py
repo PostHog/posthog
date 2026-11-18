@@ -16,12 +16,13 @@ from redis.exceptions import RedisError
 from rest_framework import exceptions, status
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
-from rest_framework.views import APIView, exception_handler
+from rest_framework.views import APIView
 
 from posthog import models, rate_limit
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.auth import ProjectSecretAPIKeyAuthentication
+from posthog.exceptions import exception_handler
 from posthog.models import Team
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -1073,6 +1074,7 @@ class TestReserveUnits(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.enterContext(override_instance_config("RATE_LIMIT_ENABLED", True))
+        cache.clear()
         self._clear_policy_caches()
         self.token = generate_random_token_secret()
         ProjectSecretAPIKey.objects.create(
@@ -1089,7 +1091,6 @@ class TestReserveUnits(BaseTest):
         super().tearDown()
 
     def _clear_policy_caches(self) -> None:
-        cache.clear()
         rate_limit.is_rate_limit_enabled.cache_clear()
         rate_limit.get_team_allow_list.cache_clear()
 
@@ -1118,8 +1119,9 @@ class TestReserveUnits(BaseTest):
                 [throttle_class() for throttle_class in throttle_classes], request, self.view, recipients - 1
             )
         except exceptions.Throttled as refusal:
-            response = exception_handler(refusal, {})
+            response = exception_handler(refusal, {"request": request})
             assert response is not None
+            self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
             return response.headers["Retry-After"]
         return None
 
