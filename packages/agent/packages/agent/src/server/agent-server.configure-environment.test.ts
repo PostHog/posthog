@@ -25,6 +25,7 @@ interface TestableServer {
     prewarmed?: boolean | null;
     executionEnvironment?: "local" | "cloud";
     sharedPromptCache?: boolean;
+    runPolicySource?: string;
   }): GatewayEnv;
 }
 
@@ -282,6 +283,7 @@ describe("AgentServer.configureEnvironment", () => {
       sandboxEnvironmentId: "environment-123",
       snapshotKind: "filesystem",
       prewarmed: false,
+      runPolicySource: "origin",
     });
 
     expect(env.anthropicCustomHeaders).toBe(
@@ -304,6 +306,7 @@ describe("AgentServer.configureEnvironment", () => {
         "x-posthog-property-task_snapshot_kind: filesystem",
         "x-posthog-property-task_prewarmed: false",
         "x-posthog-property-task_execution_environment: cloud",
+        "x-posthog-property-task_run_policy_source: origin",
         "X-PostHog-Task-Run-Id: run-xyz",
         "X-PostHog-Project-Id: 1",
       ].join("\n"),

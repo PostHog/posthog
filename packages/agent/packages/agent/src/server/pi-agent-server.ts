@@ -751,6 +751,7 @@ export class PiAgentServer {
           ai_stage: launch.aiStage,
           ai_agent_name: launch.aiAgentName,
           task_execution_environment: "cloud",
+          task_run_policy_source: launch.policySource,
         },
       },
       this.logger,

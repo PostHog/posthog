@@ -38,6 +38,7 @@ export interface GatewayEnvInput {
   prewarmed?: boolean | null;
   executionEnvironment?: "local" | "cloud";
   sharedPromptCache?: boolean;
+  runPolicySource?: string;
 }
 
 export function buildGatewayEnv(
@@ -64,6 +65,7 @@ export function buildGatewayEnv(
     prewarmed,
     executionEnvironment,
     sharedPromptCache,
+    runPolicySource,
   }: GatewayEnvInput = {},
   logger: Logger,
 ): GatewayEnv {
@@ -129,6 +131,7 @@ export function buildGatewayEnv(
     task_snapshot_kind: snapshotKind,
     task_prewarmed: prewarmed,
     task_execution_environment: executionEnvironment ?? "cloud",
+    task_run_policy_source: runPolicySource,
   };
   // The Claude path appends the project scope in buildEnvironment from
   // POSTHOG_PROJECT_ID; the codex path has no such hook, so its record below
