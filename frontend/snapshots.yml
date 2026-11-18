@@ -6686,6 +6686,14 @@ snapshots:
         hash: v1.k794b7964.42f446b124bea09236f2bed461731e121face0443254e8d8ca16e3df0f6f4b7a.fygV3-fMSGpy4iismNlUQfIZLx_VcMF7pF5ArdYIzgw
     metrics-metricsdashboardimportmodal--import-summary--light:
         hash: v1.k794b7964.e7a41111b399b2b31b9533056e60b1c84182701b2ad4d70ae637610adc776a08.z85gVPCQ05epK3Q41EPh9OWDK2tVbfeAATkLqqH5j7U
+    metrics-save-as-metric--duration-with-dropped-filter--dark:
+        hash: v1.k794b7964.ddf807b6ffc73e6c2c72b04a1492de1f5ef155fc6c68296c7f6fe20d0ff7fb45.XmtCDvc4JZorbNTjXwybf-V42M22hQAw3J02LYUf4hA
+    metrics-save-as-metric--duration-with-dropped-filter--light:
+        hash: v1.k794b7964.edee73dde977ac6a0c464b32f1bb22037cea37d383944d5f1fb0a1094e8ffbaa.aqBeSMz1AV-o2ofkq9V-9TgwZz6MxAkREGh8hI2QYGY
+    metrics-save-as-metric--requests--dark:
+        hash: v1.k794b7964.be5562d6a6ab71fbb606208c9d781efab82db55c1731fe06cb95f4dbfea86478.ZXiU_Mzu6bSmzqlByiNyl5nlIk0tZ5-T9F-6uWe1gLA
+    metrics-save-as-metric--requests--light:
+        hash: v1.k794b7964.65be6bc1207b6f8f4951ce85de81d316f6c0a60443a34fc3727496e67293b39e.wqTZbxmb0jLqYwKG4dsujt62YNkVz1U3lHpJLHRT4RM
     metrics-suggesteddashboardsmenu--open--dark:
         hash: v1.k794b7964.159ce3aab7e86a2016095c51e2911ae7b78e3b15a1b7e74004658166fd838a0d.v2fu0ShWfySoeTxGA3QGUxrH9ffzdg4xt6KcRMkI2BU
     metrics-suggesteddashboardsmenu--open--light:
