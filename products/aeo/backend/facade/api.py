@@ -23,6 +23,7 @@ from django.db.models import (
     Count,
     Exists,
     ExpressionWrapper,
+    F,
     Max,
     Min,
     OuterRef,
@@ -104,6 +105,7 @@ from products.aeo.backend.facade.contracts import (
     PromptSetCounts,
     PromptSetDomain,
     PromptSetEngineCounts,
+    PromptSetEngineTopicCounts,
     PromptSetMovers,
     PromptSetOverview,
     PromptSetRankings,
@@ -679,7 +681,9 @@ def get_prompt_set_overview(
     tz = ZoneInfo(timezone_name)
     return stored_result(
         team_id,
-        "overview",
+        # The name changes with the fields of `PromptSetOverview`, because a result stored by a release with
+        # other fields loads without the new ones.
+        "overview_v2",
         # The window ends today in the team's timezone, so a new day is a new result.
         (timezone_name, timezone.now().astimezone(tz).date(), days, branded.value, engine, topic),
         lambda: _compute_prompt_set_overview(
@@ -737,6 +741,13 @@ def _compute_prompt_set_overview(
         )
         for topic in sorted(active_prompts.keys() | topic_checks.keys())
     )
+    engine_topics = tuple(
+        PromptSetEngineTopicCounts(**row)
+        for row in current.filter(check_failed=False)
+        .values("engine", topic=F("prompt_topic"))
+        .annotate(answers=Count("id"), mentioned=Count("id", filter=mention_filter()))
+        .order_by("engine", "topic")
+    )
 
     current_counts = PromptSetCounts(**_set_counts(current.aggregate(**counts)))
     return PromptSetOverview(
@@ -756,6 +767,7 @@ def _compute_prompt_set_overview(
         non_branded_answers=split["answers"] - split["branded"],
         engines=engines,
         topics=topics,
+        engine_topics=engine_topics,
         top_domains=_top_domains(
             team_id,
             since=window_start,

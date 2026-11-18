@@ -10,6 +10,7 @@ import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceC
 import { AiVisibilityCompetitorReview } from './AiVisibilityCompetitorReview'
 import { ContentAutopilotCitedSitesTable } from './ContentAutopilotCitedSitesTable'
 import { ContentAutopilotEngineTable } from './ContentAutopilotEngineTable'
+import { ContentAutopilotEngineTopicHeatmap } from './ContentAutopilotEngineTopicHeatmap'
 import { contentAutopilotFiltersLogic } from './contentAutopilotFiltersLogic'
 import { ContentAutopilotFirstRunCard } from './ContentAutopilotFirstRunCard'
 import { ContentAutopilotKpiStat } from './ContentAutopilotKpiStat'
@@ -28,6 +29,7 @@ import { ContentAutopilotStatStrip } from './ContentAutopilotStatStrip'
 import { ContentAutopilotVisibilityChart } from './ContentAutopilotVisibilityChart'
 import { ContentAutopilotVisibilityDashboardButton } from './ContentAutopilotVisibilityDashboardButton'
 import { POSITION_DESCRIPTION } from './promptReport'
+import { engineTopicGrid } from './promptsOverview'
 import { brandedAnswersNote, filtersHeading, segmentPrompts, sortEngines } from './utils'
 
 export const ContentAutopilotPromptsOverview = (): JSX.Element => {
@@ -202,6 +204,13 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                     </div>
                 </PagePerformanceCard>
             </div>
+
+            <ContentAutopilotEngineTopicHeatmap
+                grid={engineTopicGrid(overview)}
+                days={overview.days}
+                selectedTopic={topic}
+                onSelectTopic={selectOverviewTopic}
+            />
 
             <div className="grid grid-cols-1 @3xl/prompts-overview:grid-cols-2 gap-4">
                 <PagePerformanceCard className="min-w-0">
