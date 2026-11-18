@@ -20,11 +20,11 @@ Whether a docs page is safe to build is the docs repository's call.
 A person reviews every writer pull request before it merges, and that review is the control the writer relies on.
 Never auto-merge a writer pull request.
 Each pull request asks the source pull request's author to review it: they know the change best, and without the request nobody learns the pull request exists. A bot author gets no request.
-A flagged pull request opens as a draft that lists what a reviewer should check first: grounding that did not run, added lines the server could not ground in the source change, edits to existing pages the merge check did not suggest, and flagged nav or redirect edits.
+A flagged pull request opens as a draft that lists what a reviewer should check first: grounding that did not run, added lines the server could not ground in the source change, edits to existing pages the merge check did not suggest, flagged nav or redirect edits, edits to rules files such as `AGENTS.md`, and a failed run of the docs repository's own format command.
 A pull request still unapproved after 7 days closes and its branch is deleted, so unreviewed pull requests do not pile up in the docs repository.
 Each closed pull request captures one `knowledge_writer outcome` event, since auto-merge needs a measured approve rate and time to approval.
 
-Publish checks the `writer-change.json` the run uploads before any branch exists. It refuses what a reviewer cannot be relied on to catch or what would run when the site builds: paths outside the docs folders and the companion files in `COMPANION_PATHS`, non-text files, nav code that is not plain data, and redirects that leave the site or could take over a live page.
+Publish checks the `writer-change.json` the run uploads before any branch exists. It refuses what a reviewer cannot be relied on to catch or what would run when the site builds: paths outside the docs folders other than the companion files in `COMPANION_PATHS` and the existing `RULES_FILE_NAMES` files in the root or a folder above a changed page, non-text files, nav code that is not plain data, and redirects that leave the site or could take over a live page.
 A nav or redirect edit it cannot tie to a page the change adds or removes is still plain data a reviewer can judge, so it opens a draft pull request that lists the edit instead of throwing the run away.
 The sandbox cannot push, so the server commits exactly what it checked, on the docs integration's token, to a branch it creates from the base the run started on.
 The checks are a second layer under the review, not a replacement for it.

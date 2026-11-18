@@ -26,7 +26,6 @@ from ..facade.contracts import DocsRequest
 from ..feature_flags import open_pull_requests_flag_state
 from ..settings import WriterSettings, docs_source_for, writer_settings
 from .docs_pages import (
-    COMPANION_PATHS,
     DOCS_SOURCE_EXTENSIONS,
     CompanionCheck,
     PatchMismatch,
@@ -36,6 +35,7 @@ from .docs_pages import (
     companion_check,
     decoded_text,
     extra_pages,
+    is_companion_path,
     is_editable_base_mode,
 )
 from .grounding import MAX_GROUNDED_LINES, GroundingResult, ground_draft
@@ -117,6 +117,7 @@ class DraftFlags:
     grounding: GroundingResult
     extra_pages: tuple[str, ...]
     companion_flags: tuple[str, ...]
+    format_failure: str | None = None
 
     @property
     def is_ready_for_review(self) -> bool:
@@ -125,6 +126,7 @@ class DraftFlags:
             and not self.grounding.unsupported_lines
             and not self.extra_pages
             and not self.companion_flags
+            and self.format_failure is None
         )
 
 
@@ -155,10 +157,16 @@ def flag_sections(flags: DraftFlags) -> list[str]:
     if flags.companion_flags:
         listed_flags = tuple(listed_line(flag) for flag in flags.companion_flags[:MAX_LISTED_COMPANION_FLAGS])
         unlisted_count = len(flags.companion_flags) - len(listed_flags)
-        sections.append("These nav and redirect edits are not tied to a page this change adds or removes:")
+        sections.append("Check these edits outside the docs pages:")
         sections.append(fenced_block(listed_flags))
         if unlisted_count:
-            sections.append(f"{unlisted_count} more nav and redirect edits are not listed.")
+            sections.append(f"{unlisted_count} more edits outside the docs pages are not listed.")
+    if flags.format_failure is not None:
+        sections.append(
+            "The repository's format command failed in the writer's sandbox. "
+            "Run it on the changed files before you merge:"
+        )
+        sections.append(fenced_block((listed_line(flags.format_failure),)))
     return sections
 
 
@@ -428,6 +436,7 @@ def publish_change(
         grounding=ground_draft(source_github(team_id, source_change), source_change, changed_files),
         extra_pages=extra_pages(changed_files, docs_folders, routed_page_keys(task_id, team_id)),
         companion_flags=publication.flags,
+        format_failure=change.format_failure,
     )
     draft = replace(draft, flags=flags)
     is_opening_pull_requests = open_pull_requests_flag_state(Team.objects.get(id=team_id))
@@ -609,6 +618,9 @@ def capture_draft(
             "companion_flags": [listed_line(flag) for flag in flags.companion_flags[:MAX_LISTED_COMPANION_FLAGS]]
             if flags is not None
             else None,
+            "format_failure": listed_line(flags.format_failure)
+            if flags is not None and flags.format_failure is not None
+            else None,
             "team_id": draft.team_id,
         },
     )
@@ -674,7 +686,7 @@ def publication_check(
 
 
 def is_page_source_or_companion(path: str) -> bool:
-    return path.endswith(DOCS_SOURCE_EXTENSIONS) or path in COMPANION_PATHS
+    return path.endswith(DOCS_SOURCE_EXTENSIONS) or is_companion_path(path)
 
 
 def routed_page_keys(task_id: UUID, team_id: int) -> frozenset[str]:

@@ -28,6 +28,7 @@ class WriterChange:
     written: Mapping[str, bytes]
     deleted: frozenset[str]
     patches: Mapping[str, str]
+    format_failure: str | None = None
 
     @property
     def paths(self) -> frozenset[str]:
@@ -78,7 +79,26 @@ def parse_writer_change(raw: bytes) -> WriterChange:
     if base_tree_lookup_count(all_paths) > MAX_BASE_TREE_LOOKUPS:
         raise WriterChangeRefused("too_many_changed_files")
     written = {path: decoded_content(content) for path, content in written_entries.items()}
-    return WriterChange(written=written, deleted=frozenset(deleted_entries), patches=patch_entries)
+    return WriterChange(
+        written=written,
+        deleted=frozenset(deleted_entries),
+        patches=patch_entries,
+        format_failure=format_failure(manifest.get("format")),
+    )
+
+
+def format_failure(format_entry: object) -> str | None:
+    if format_entry is None:
+        return None
+    command = format_entry.get("command") if isinstance(format_entry, dict) else None
+    exit_code = format_entry.get("exit_code") if isinstance(format_entry, dict) else None
+    if not isinstance(command, str) or not (exit_code is None or type(exit_code) is int):
+        raise WriterChangeRefused("manifest_unreadable")
+    if exit_code == 0:
+        return None
+    if exit_code is None:
+        return f"{command} (did not finish)"
+    return f"{command} (exited with {exit_code})"
 
 
 def is_patches_shape(patch_entries: object, written_entries: dict) -> TypeGuard[dict[str, str]]:

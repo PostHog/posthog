@@ -132,11 +132,18 @@ def build_writer_prompt(
         "Change only what the change requires. "
         "Keep each page's existing structure, headings and wording where they are still true.",
         "Keep changes inside the docs folder. A change to any other file is published only when that file already "
-        "exists and links many docs pages, such as a nav or redirect file, and each changed block names a page "
-        "this branch adds, removes or renames. A new redirect must start from a page this branch removes or renames.",
-        "If the repository documents a style guide or writing rules, for example in AGENTS.md, CONTRIBUTING "
-        "or a docs README, follow them. If it documents a lint or format command for docs, run it on the files "
-        "you changed before you write the change file. Do not assume either exists, and do not add one.",
+        "exists and either links many docs pages, such as a nav or redirect file, with each changed block naming a "
+        "page this branch adds, removes or renames, or is one of the rules files named below in the repository root "
+        "or a folder above a page you change. A new redirect must start from a page this branch removes or renames.",
+        f"Before you edit, read the {', '.join(sorted(docs_pages.RULES_FILE_NAMES))} files in the repository root "
+        "and in each folder above the pages you change, and the style guides they link, then follow them. "
+        "The check prints each one that applies as a `rules:` line, so read any it names that you have not read. "
+        "If your change makes one of those files wrong, update it in the same change, editing only what became wrong.",
+        "If those files or the repository's README name a command that formats or lints docs, write that command, "
+        f"unchanged, to `{docs_pages.WRITER_FORMAT_COMMAND_PATH}`. "
+        "The check runs it each time, before it stages your change. "
+        "Never install or download a tool or a dependency, and never swap in a different formatter or version: "
+        "if the command fails, the pull request lists the failure for the reviewer.",
     ]
     if routing.page_urls:
         sections.append(

@@ -2,6 +2,7 @@ import os
 import re
 import json
 import base64
+import signal
 import string
 import subprocess
 from bisect import bisect_right
@@ -19,6 +20,10 @@ SOURCE_DIFF_ATTACHMENT_NAME = "knowledge-writer-source.diff"
 HARNESS_FOLDER = ".posthog"
 WRITER_QUOTES_PATH = ".git/writer-quotes.json"
 COMPANION_PATHS = frozenset({"vercel.json", "src/navs/index.js"})
+RULES_FILE_NAMES = frozenset({"AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md"})
+WRITER_FORMAT_COMMAND_PATH = ".git/writer-format-command"
+FORMAT_TIMEOUT_SECONDS = 300
+FORMAT_OUTPUT_TAIL_LINES = 20
 MAX_COMPANION_PATCH_CHARACTERS = 16_384
 PAGE_CHANGING_STATUSES = frozenset({"added", "removed"})
 SITE_PATH_PATTERN = re.compile(r"/(?![/\\])[^\s\\\x00-\x1f\x7f]*")
@@ -600,10 +605,17 @@ def companion_check(
     companion_files = [
         changed_file for changed_file in changed_files if not is_docs_path(changed_file["filename"], docs_folders)
     ]
+    rules_flags = [
+        f"{changed_file['filename']}: edits a rules file that agents follow"
+        for changed_file in changed_files
+        if is_rules_file(changed_file["filename"])
+    ]
     if not companion_files:
-        return CompanionCheck(refusal=None, flags=())
+        return CompanionCheck(refusal=None, flags=tuple(rules_flags))
+    folders_with_rules = rules_folders(changed_files, docs_folders)
     unlisted_companion = next(
-        (changed_file for changed_file in companion_files if not is_listed_companion(changed_file)), None
+        (changed_file for changed_file in companion_files if not is_listed_companion(changed_file, folders_with_rules)),
+        None,
     )
     if unlisted_companion is not None:
         return companion_refused(unlisted_companion["filename"])
@@ -618,6 +630,7 @@ def companion_check(
         else [
             f"{changed_file['filename']}: edited, but this change adds or removes no page"
             for changed_file in companion_files
+            if not is_rules_file(changed_file["filename"])
         ]
     )
     for changed_file in companion_files:
@@ -625,6 +638,8 @@ def companion_check(
         base_text, head_text = base_texts.get(filename), head_texts.get(filename)
         if is_companion_edit_too_large(changed_file, base_text, head_text):
             return companion_refused(filename)
+        if is_rules_file(filename):
+            continue
         file_flags = (
             redirect_flags(filename, base_text, head_text, page_paths, removed_page_paths, docs_url_path)
             if filename.endswith(".json")
@@ -633,7 +648,7 @@ def companion_check(
         if file_flags is None:
             return companion_refused(filename)
         flags.extend(file_flags)
-    return CompanionCheck(refusal=None, flags=tuple(dict.fromkeys(flags)))
+    return CompanionCheck(refusal=None, flags=tuple(dict.fromkeys([*flags, *rules_flags])))
 
 
 def is_companion_edit_too_large(changed_file: dict, base_text: str | None, head_text: str | None) -> bool:
@@ -710,12 +725,34 @@ def changed_page_keys(
     )
 
 
-def is_listed_companion(changed_file: dict) -> bool:
+def is_listed_companion(changed_file: dict, folders_with_rules: frozenset[str]) -> bool:
+    filename = changed_file["filename"]
     return (
-        changed_file["filename"] in COMPANION_PATHS
+        (filename in COMPANION_PATHS or is_nearby_rules_file(filename, folders_with_rules))
         and changed_file.get("status") == "modified"
         and isinstance(changed_file.get("patch"), str)
     )
+
+
+def is_companion_path(path: str) -> bool:
+    return path in COMPANION_PATHS or is_rules_file(path)
+
+
+def is_rules_file(path: str) -> bool:
+    return path.rpartition("/")[2] in RULES_FILE_NAMES
+
+
+def rules_folders(changed_files: list[dict], docs_folders: tuple[str, ...]) -> frozenset[str]:
+    return frozenset(
+        folder
+        for changed_file in changed_files
+        if is_docs_path(changed_file["filename"], docs_folders)
+        for folder in ancestor_directories(changed_file["filename"])
+    )
+
+
+def is_nearby_rules_file(path: str, folders_with_rules: frozenset[str]) -> bool:
+    return is_rules_file(path) and path.rpartition("/")[0] in folders_with_rules
 
 
 def changed_lines(patch: str) -> list[str]:
@@ -868,6 +905,7 @@ class SandboxChange:
 def sandbox_change_check(settings: SandboxChangeSettings) -> int:
     if os.path.lexists(settings.manifest_path):
         os.remove(settings.manifest_path)
+    format_result = run_format_command(settings.base_sha)
     subprocess.run(["git", "add", "-A", "--", ".", f":(exclude){HARNESS_FOLDER}"], check=True)
     subprocess.run(["git", "rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", HARNESS_FOLDER], check=True)
     listed = git_output("diff", "--cached", "--raw", "-z", "--no-renames", settings.base_sha).split(b"\0")
@@ -879,6 +917,8 @@ def sandbox_change_check(settings: SandboxChangeSettings) -> int:
     companion = companion_check(
         change.changed_files, settings.docs_folders, settings.docs_url_path, change.base_texts, change.head_texts
     )
+    for rules_path in applicable_rules_files(change.changed_files, settings.docs_folders):
+        show_agent(f"rules: {rules_path}")
     for warning in companion.flags:
         show_agent(f"warning: {warning}")
     if companion.refused_path is not None:
@@ -890,7 +930,14 @@ def sandbox_change_check(settings: SandboxChangeSettings) -> int:
     spread_problem = change_spread_problem([*change.written, *change.deleted], settings)
     if spread_problem is not None:
         change.problems.append(spread_problem)
-    manifest = json.dumps({"written": change.written, "deleted": change.deleted, "patches": change.patches})
+    manifest = json.dumps(
+        {
+            "written": change.written,
+            "deleted": change.deleted,
+            "patches": change.patches,
+            **({"format": format_result} if format_result is not None else {}),
+        }
+    )
     manifest_bytes = len(manifest.encode())
     if manifest_bytes > settings.max_change_bytes:
         change.problems.append(
@@ -903,6 +950,84 @@ def sandbox_change_check(settings: SandboxChangeSettings) -> int:
         manifest_file.write(manifest)
     show_agent(f"Wrote {settings.manifest_path}")
     return 0
+
+
+def run_format_command(base_sha: str) -> dict | None:
+    try:
+        command = Path(WRITER_FORMAT_COMMAND_PATH).read_text().strip()
+    except OSError:
+        return None
+    if not command:
+        return None
+    edited_before = paths_changed_since(base_sha)
+    exit_code, output = run_with_timeout(command)
+    restore_paths_formatted_outside_change(base_sha, edited_before)
+    if exit_code is None:
+        show_agent(f"warning: the format command `{command}` did not finish within {FORMAT_TIMEOUT_SECONDS} seconds")
+    if exit_code:
+        output_tail = "\n".join(output.splitlines()[-FORMAT_OUTPUT_TAIL_LINES:])
+        show_agent(f"warning: the format command `{command}` exited with {exit_code}:\n{output_tail}")
+    return {"command": command, "exit_code": exit_code}
+
+
+def run_with_timeout(command: str) -> tuple[int | None, str]:
+    process = subprocess.Popen(
+        ["bash", "-c", command],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        errors="replace",
+        start_new_session=True,
+    )
+    try:
+        output, _ = process.communicate(timeout=FORMAT_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.communicate()
+        return None, ""
+    return process.returncode, output
+
+
+def paths_changed_since(base_sha: str) -> frozenset[str]:
+    tracked = git_output(
+        "diff", "--name-only", "--no-renames", "-z", base_sha, "--", ".", f":(exclude){HARNESS_FOLDER}"
+    )
+    untracked = git_output("ls-files", "--others", "--exclude-standard", "-z", "--", ".", f":(exclude){HARNESS_FOLDER}")
+    return frozenset(
+        path.decode("utf-8", "replace") for path in [*tracked.split(b"\0"), *untracked.split(b"\0")] if path
+    )
+
+
+def restore_paths_formatted_outside_change(base_sha: str, edited_before: frozenset[str]) -> None:
+    formatted_outside_change = sorted(paths_changed_since(base_sha) - edited_before)
+    if not formatted_outside_change:
+        return
+    listed_in_base = git_output(
+        "--literal-pathspecs", "ls-tree", "-r", "--name-only", "-z", base_sha, "--", *formatted_outside_change
+    )
+    paths_in_base = sorted(path.decode("utf-8", "replace") for path in listed_in_base.split(b"\0") if path)
+    if paths_in_base:
+        git_output("--literal-pathspecs", "checkout", base_sha, "--", *paths_in_base)
+    for created_path in sorted(set(formatted_outside_change) - set(paths_in_base)):
+        git_output("--literal-pathspecs", "rm", "-q", "--cached", "--ignore-unmatch", "--", created_path)
+        if os.path.lexists(created_path):
+            os.remove(created_path)
+    show_agent(
+        "The format command changed files you did not edit, so the check put them back: "
+        + ", ".join(formatted_outside_change)
+    )
+
+
+def applicable_rules_files(changed_files: list[dict], docs_folders: tuple[str, ...]) -> list[str]:
+    candidate_paths = [
+        f"{folder}/{name}" if folder else name
+        for folder in sorted(rules_folders(changed_files, docs_folders))
+        for name in sorted(RULES_FILE_NAMES)
+    ]
+    if not candidate_paths:
+        return []
+    listed = git_output("--literal-pathspecs", "ls-files", "-z", "--", *candidate_paths)
+    return sorted(path.decode("utf-8", "replace") for path in listed.split(b"\0") if path)
 
 
 def ungrounded_lines(changed_files: list[dict]) -> list[str]:
@@ -951,7 +1076,7 @@ def read_staged_path(change: SandboxChange, settings: SandboxChangeSettings, raw
     name = path.decode("utf-8", "replace")
     old_mode_field, new_mode_field, old_blob, new_blob = raw_entry.lstrip(b":").split()[:4]
     base_mode, new_mode = int(old_mode_field, 8) or None, int(new_mode_field, 8)
-    is_companion = name in COMPANION_PATHS
+    is_companion = is_companion_path(name)
     if len(path) > settings.max_path_bytes:
         change.problems.append(f"{name}: the path is longer than {settings.max_path_bytes} bytes, use a shorter name")
     if name.encode() != path:
@@ -959,8 +1084,9 @@ def read_staged_path(change: SandboxChange, settings: SandboxChangeSettings, raw
     if not is_companion and not is_docs_path(name, settings.docs_folders):
         docs_folders_named = ", ".join(f"{folder}/" for folder in settings.docs_folders)
         change.problems.append(
-            f"{name}: only files under {docs_folders_named} and the files {', '.join(sorted(COMPANION_PATHS))} "
-            "can change, undo this change"
+            f"{name}: only files under {docs_folders_named}, the files {', '.join(sorted(COMPANION_PATHS))}, "
+            f"and the {', '.join(sorted(RULES_FILE_NAMES))} files above a changed docs page can change, "
+            "undo this change"
         )
         return
     if not is_companion and not name.endswith(DOCS_SOURCE_EXTENSIONS):
@@ -1037,6 +1163,11 @@ def companion_problem(refused_path: str, change: SandboxChange, settings: Sandbo
         return (
             f"{refused_path}: the edit is larger than {MAX_COMPANION_PATCH_CHARACTERS} characters, "
             "keep it to the entries for the pages this change adds, removes or renames"
+        )
+    if is_rules_file(refused_path):
+        return (
+            f"{refused_path}: only the {', '.join(sorted(RULES_FILE_NAMES))} files in the repository root "
+            "or in a folder above a docs page this change edits can change, undo this change"
         )
     if refused_path.endswith(".json"):
         return (

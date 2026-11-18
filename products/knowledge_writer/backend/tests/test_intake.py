@@ -29,7 +29,11 @@ from products.knowledge_writer.backend.facade.contracts import MergeCheckReport
 from products.knowledge_writer.backend.facade.enums import DocsChangeKind, DocsRequestSource, MergeCheckFailure
 from products.knowledge_writer.backend.feature_flags import AGENT_LAUNCH_FLAG, OPEN_PULL_REQUESTS_FLAG
 from products.knowledge_writer.backend.logic import caps, intake
-from products.knowledge_writer.backend.logic.docs_pages import SOURCE_DIFF_ATTACHMENT_NAME, WRITER_QUOTES_PATH
+from products.knowledge_writer.backend.logic.docs_pages import (
+    SOURCE_DIFF_ATTACHMENT_NAME,
+    WRITER_FORMAT_COMMAND_PATH,
+    WRITER_QUOTES_PATH,
+)
 from products.knowledge_writer.backend.logic.grounding import GroundingReply, LineSupport
 from products.knowledge_writer.backend.logic.launch import WRITER_IDLE_TIMEOUT_SECONDS, change_manifest_script
 from products.knowledge_writer.backend.logic.pull_requests import (
@@ -89,6 +93,7 @@ BASE_FILES = {
     "vercel.json": json.dumps(VERCEL_BASE),
     WORKFLOW_PATH: "  - run: make test\n",
     SIBLING_OF_DOCS_PATH: "build()\n",
+    "AGENTS.md": "Docs follow the style guide.\n",
 }
 REGULAR_FILE_MODE = 0o100644
 SYMLINK_MODE = 0o120000
@@ -164,12 +169,14 @@ def _change(
     *,
     base_files: Mapping[str, str] = BASE_FILES,
     patches: Mapping[str, str] | None = None,
+    format_result: Mapping[str, object] | None = None,
 ) -> bytes:
     written = written or {}
     encoded = {path: base64.b64encode(text.encode()).decode() for path, text in written.items()}
     git_patches = {path: _git_patch(base_files[path], text) for path, text in written.items() if path in base_files}
     shipped_patches = git_patches if patches is None else patches
-    return json.dumps({"written": encoded, "deleted": list(deleted), "patches": shipped_patches}).encode()
+    manifest = {"written": encoded, "deleted": list(deleted), "patches": shipped_patches}
+    return json.dumps({**manifest, "format": format_result} if format_result else manifest).encode()
 
 
 DOCS_CHANGE = _change({DOCS_PAGE_PATH: "Retention lasts 90 days.\n"})
@@ -182,6 +189,10 @@ NEW_PAGE_AND_UNRELATED_NAV_EDIT_FILES = {
     **NEW_PAGE_FILES,
     NAV_PATH: _nav(NEW_PAGE_NAV_LINE, replaced={"'/pricing'": "'/plans'"}),
 }
+RULES_FILE_EDIT_FLAG = "AGENTS.md: edits a rules file that agents follow"
+ADDED_RULES_LINE = "Docs follow the style guide. Add each new page to the nav."
+FAILED_FORMAT = {"command": "pnpm format:docs", "exit_code": 2}
+FAILED_FORMAT_LINE = "pnpm format:docs (exited with 2)"
 UNRELATED_NAV_EDIT_FLAGS = [
     f"{NAV_PATH}: changes a link to /pricing, which is not a page this change adds or removes",
     f"{NAV_PATH}: changes a link to /plans, which is not a page this change adds or removes",
@@ -634,6 +645,7 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
     (_change(deleted=(NEW_PAGE_PATH,)), {}, "unsafe_base_entry"),
     (_change({DOCS_PAGE_PATH: "x", WORKFLOW_PATH: "x"}), {}, "changed_paths_outside_docs"),
     (_change(deleted=(WORKFLOW_PATH,)), {}, "changed_paths_outside_docs"),
+    (_change({DOCS_PAGE_PATH: "x", "contents/AGENTS.md": "x"}), {}, "changed_paths_outside_docs"),
     (_change({SIBLING_OF_DOCS_PATH: "x"}), {}, "changed_paths_outside_docs"),
     (_change({DOCS_PAGE_PATH: "x", "contents/docs/session-replay/build.js": "x"}), {}, "non_page_file"),
     *(
@@ -704,7 +716,7 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
 
 
 @pytest.mark.parametrize(
-    "author_login, docs_github_state, create_reply, expected_review, published_files, quotes, "
+    "author_login, docs_github_state, create_reply, expected_review, published_files, published_format, quotes, "
     "expected_draft, expected_body_flags, expected_event_flags",
     [
         pytest.param(
@@ -713,6 +725,7 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
             OPENED,
             ("octo-person", None, None),
             NEW_PAGE_FILES,
+            None,
             SUPPORTED_QUOTES,
             False,
             [],
@@ -726,6 +739,7 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
             (None, "no_human_author", None),
             NEW_PAGE_FILES,
             None,
+            None,
             True,
             [GROUNDING_DID_NOT_RUN],
             (False, [], [], []),
@@ -737,6 +751,7 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
             OPENED,
             (None, "review_request_failed", 422),
             NEW_PAGE_AND_UNROUTED_PAGE_FILES,
+            None,
             {NEW_PAGE_HEADING: "Retention presets last forever", NEW_PAGE_LINE: "github.com/PostHog/posthog/pull"},
             True,
             [NEW_PAGE_HEADING, NEW_PAGE_LINE, SHARING_PAGE_PATH],
@@ -749,6 +764,7 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
             OPENED,
             ("octo-person", None, None),
             NEW_PAGE_AND_UNROUTED_PAGE_FILES,
+            None,
             SUPPORTED_QUOTES,
             True,
             [SHARING_PAGE_PATH],
@@ -761,6 +777,7 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
             ALREADY_EXISTS,
             ("octo-person", None, None),
             NEW_PAGE_FILES,
+            None,
             SUPPORTED_QUOTES,
             False,
             [],
@@ -773,6 +790,7 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
             OPENED,
             ("octo-person", None, None),
             NEW_PAGE_FILES,
+            None,
             SUPPORTED_QUOTES,
             False,
             [],
@@ -785,11 +803,25 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
             OPENED,
             ("octo-person", None, None),
             NEW_PAGE_AND_UNRELATED_NAV_EDIT_FILES,
+            None,
             SUPPORTED_QUOTES,
             True,
             UNRELATED_NAV_EDIT_FLAGS,
             (True, [], [], UNRELATED_NAV_EDIT_FLAGS),
             id="nav_edit_to_an_entry_linking_no_changed_page_opens_a_draft_listing_it",
+        ),
+        pytest.param(
+            "octo-person",
+            {},
+            OPENED,
+            ("octo-person", None, None),
+            {**NEW_PAGE_FILES, "AGENTS.md": f"{ADDED_RULES_LINE}\n"},
+            FAILED_FORMAT,
+            SUPPORTED_QUOTES,
+            True,
+            [RULES_FILE_EDIT_FLAG, FAILED_FORMAT_LINE],
+            (True, [ADDED_RULES_LINE], [], [RULES_FILE_EDIT_FLAG]),
+            id="rules_file_edit_and_failed_format_command_open_a_draft_listing_both",
         ),
     ],
 )
@@ -804,6 +836,7 @@ def test_a_finished_writer_run_commits_only_a_gated_change_and_opens_one_linked_
     create_reply: dict,
     expected_review: tuple[str | None, str | None, int | None],
     published_files: Mapping[str, str],
+    published_format: Mapping[str, object] | None,
     quotes: Mapping[str, str] | None,
     expected_draft: bool,
     expected_body_flags: list[str],
@@ -846,7 +879,7 @@ def test_a_finished_writer_run_commits_only_a_gated_change_and_opens_one_linked_
         _finish_run(
             started.task_id,
             django_capture_on_commit_callbacks,
-            change=_change(published_files, base_files=published_base_files),
+            change=_change(published_files, base_files=published_base_files, format_result=published_format),
             github=docs_github,
         )
     create_for_new_page.assert_called_once()
@@ -899,7 +932,15 @@ def test_a_finished_writer_run_commits_only_a_gated_change_and_opens_one_linked_
     assert create_pull_request.call_args.kwargs["draft"] is expected_draft
     assert LINK_BACK_START in body
     assert COMMIT_URL in body
-    flaggable = (GROUNDING_DID_NOT_RUN, NEW_PAGE_HEADING, NEW_PAGE_LINE, SHARING_PAGE_PATH, *UNRELATED_NAV_EDIT_FLAGS)
+    flaggable = (
+        GROUNDING_DID_NOT_RUN,
+        NEW_PAGE_HEADING,
+        NEW_PAGE_LINE,
+        SHARING_PAGE_PATH,
+        *UNRELATED_NAV_EDIT_FLAGS,
+        RULES_FILE_EDIT_FLAG,
+        FAILED_FORMAT_LINE,
+    )
     assert [flag for flag in flaggable if flag in body] == expected_body_flags
     stored = tasks_facade.read_task_state_entry(started.task_id, team.id, PULL_REQUEST_STATE_KEY)
     assert isinstance(stored, dict)
@@ -1356,11 +1397,25 @@ NAV_HEAD_TEXT = """export const docsMenu = [
 
 
 @pytest.mark.parametrize(
-    "is_adding_page_with_nav_edit, source_diff, quote_by_line, routed_page_keys, expected_warnings",
+    "is_adding_page_with_nav_edit, is_editing_rules_with_failing_format, source_diff, quote_by_line, "
+    "routed_page_keys, expected_warnings",
     [
-        (False, None, None, frozenset(), []),
+        (False, False, None, None, frozenset(), []),
+        (
+            False,
+            True,
+            None,
+            None,
+            frozenset(),
+            [
+                "warning: the format command `printf '// formatted\\n' >> src/navs/index.js; echo unformatted; "
+                "exit 3` exited with 3:",
+                "warning: AGENTS.md: edits a rules file that agents follow",
+            ],
+        ),
         (
             True,
+            False,
             None,
             None,
             frozenset(),
@@ -1371,12 +1426,14 @@ NAV_HEAD_TEXT = """export const docsMenu = [
         ),
         (
             False,
+            False,
             SOURCE_DIFF_BACKING_RETENTION,
             {"Retention lasts 90 days.": "Retention lasts 90 days"},
             frozenset({"session-replay/exports"}),
             [f"warning: {DOCS_PAGE_PATH}: edits an existing page outside the pages likely affected"],
         ),
         (
+            False,
             False,
             SOURCE_DIFF_BACKING_RETENTION,
             {"Retention lasts 90 days.": "lasts forever and ever"},
@@ -1388,6 +1445,7 @@ NAV_HEAD_TEXT = """export const docsMenu = [
 def test_the_sandbox_change_check_runs_without_posthog_on_the_path(
     tmp_path: Path,
     is_adding_page_with_nav_edit: bool,
+    is_editing_rules_with_failing_format: bool,
     source_diff: str | None,
     quote_by_line: dict[str, str] | None,
     routed_page_keys: frozenset[str],
@@ -1414,6 +1472,8 @@ def test_the_sandbox_change_check_runs_without_posthog_on_the_path(
     nav = tmp_path / "src" / "navs" / "index.js"
     nav.parent.mkdir(parents=True)
     nav.write_text(NAV_BASE_TEXT)
+    rules = tmp_path / "AGENTS.md"
+    rules.write_text("Docs follow the style guide.\n")
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, env=git_env, check=True)
     subprocess.run(["git", "add", "-A"], cwd=tmp_path, env=git_env, check=True)
     tree = subprocess.run(["git", "write-tree"], cwd=tmp_path, env=git_env, check=True, capture_output=True, text=True)
@@ -1430,6 +1490,11 @@ def test_the_sandbox_change_check_runs_without_posthog_on_the_path(
     if is_adding_page_with_nav_edit:
         (page.parent / "exports.mdx").write_text("Export your recordings.\n")
         nav.write_text(NAV_HEAD_TEXT)
+    if is_editing_rules_with_failing_format:
+        rules.write_text("Docs follow the style guide. Remove retired pages from the nav.\n")
+        (tmp_path / WRITER_FORMAT_COMMAND_PATH).write_text(
+            "printf '// formatted\\n' >> src/navs/index.js; echo unformatted; exit 3\n"
+        )
     if source_diff is not None:
         attachment = tmp_path / ".posthog" / "attachments" / "run" / "file" / SOURCE_DIFF_ATTACHMENT_NAME
         attachment.parent.mkdir(parents=True)
@@ -1448,6 +1513,13 @@ def test_the_sandbox_change_check_runs_without_posthog_on_the_path(
 
     assert (check.returncode, check.stderr) == (0, "")
     assert [line for line in check.stdout.splitlines() if line.startswith("warning:")] == expected_warnings
+    assert "rules: AGENTS.md" in check.stdout.splitlines()
     manifest = json.loads((tmp_path / ".git" / WRITER_CHANGE_ARTIFACT_NAME).read_text())
+    assert nav.read_text() == (NAV_HEAD_TEXT if is_adding_page_with_nav_edit else NAV_BASE_TEXT)
+    assert manifest.get("format") == (
+        {"command": "printf '// formatted\\n' >> src/navs/index.js; echo unformatted; exit 3", "exit_code": 3}
+        if is_editing_rules_with_failing_format
+        else None
+    )
     assert manifest["patches"][DOCS_PAGE_PATH] == "@@ -1 +1 @@\n-Retention lasts 30 days.\n+Retention lasts 90 days.\n"
     assert manifest["deleted"] == [str(removed_page.relative_to(tmp_path))]
