@@ -43229,6 +43229,10 @@ async function decide(input, api) {
             return againstProven;
         }
     }
+    const otherPulls = (await api.pullsWithCommit(proven.sha)).filter(number => number !== pr.number);
+    if (otherPulls.length > 0) {
+        return miss('shared-head', `${proven.sha} is also in ${otherPulls.map(number => `#${number}`).join(', ')}`);
+    }
     const modeChanges = await changedModes(input, api, current, proven.sha);
     if (modeChanges.length > 0) {
         return miss('inputs-changed', `mode of ${modeChanges.slice(0, DETAIL_SAMPLE).join(', ')}`);
@@ -43397,6 +43401,16 @@ function githubApi(token, signal) {
                 request
             });
             return commits.map(commit => commit.sha);
+        },
+        async pullsWithCommit(sha) {
+            const response = await client.rest.repos.listPullRequestsAssociatedWithCommit({
+                owner,
+                repo,
+                commit_sha: sha,
+                per_page: 100,
+                request
+            });
+            return response.data.map(pull => pull.number);
         },
         async timeline(pullNumber) {
             const response = await client.graphql(TIMELINE_QUERY, {

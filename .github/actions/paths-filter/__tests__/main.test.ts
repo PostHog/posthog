@@ -101,7 +101,8 @@ describe('reuse wiring', () => {
         pulls: {listFiles: {endpoint: {merge: () => ({})}}},
         repos: {
           compareCommitsWithBasehead: async () => ({data: {files: [rows[0]]}}),
-          listCommits: async () => ({data: []})
+          listCommits: async () => ({data: []}),
+          listPullRequestsAssociatedWithCommit: async () => ({data: [{number: 1}]})
         },
         checks: {
           listForRef: async () => ({

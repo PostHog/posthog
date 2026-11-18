@@ -95,6 +95,7 @@ function api(overrides: Partial<ReuseApi> = {}): () => ReuseApi {
     checkRuns: async () => [green],
     modes: async (_, paths) => new Map(paths.map(path => [path, 33188])),
     pullCommits: async () => [EARLIER_HEAD, PREVIOUS_HEAD],
+    pullsWithCommit: async () => [7],
     timeline: async () => ({readyForReviewAt: READY_AT, baseChangedAt: null}),
     changedOnBranchSince: async () => false,
     ...overrides
@@ -239,6 +240,7 @@ describe('reuse of an earlier passing result', () => {
       {timeline: async () => ({readyForReviewAt: READY_AT, baseChangedAt: '2026-11-10T13:30:00Z'})},
       'base-changed'
     ],
+    ['another pull request shares the head that ran', {}, {pullsWithCommit: async () => [7, 8]}, 'shared-head'],
     ['the run is more than a day old', {now: NOW + 2 * 24 * 60 * 60 * 1000}, {}, 'previous-too-old'],
     ['the workflow is re-run', {runAttempt: 2}, {}, 're-run'],
     ['the file that defines the filters is unknown', {config: {...config, filterSource: null}}, {}, 'error'],
