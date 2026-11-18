@@ -102,6 +102,8 @@ def _date_filter_value(value: Any) -> str | None:
 SIGNER_CAPABILITY_FIELDS = ("signature_link",)
 # `approval_link` lets the holder approve or reject the request on the approver's behalf.
 APPROVER_CAPABILITY_FIELDS = ("approval_link",)
+# `follower_link` opens the follower's view of the request and its documents without a login.
+FOLLOWER_CAPABILITY_FIELDS = ("follower_link",)
 
 
 def _scrub_signer_capabilities(signer: dict[str, Any]) -> dict[str, Any]:
@@ -114,6 +116,12 @@ def _scrub_approver_capabilities(approver: dict[str, Any]) -> dict[str, Any]:
     for field_name in APPROVER_CAPABILITY_FIELDS:
         approver.pop(field_name, None)
     return approver
+
+
+def _scrub_follower_capabilities(follower: dict[str, Any]) -> dict[str, Any]:
+    for field_name in FOLLOWER_CAPABILITY_FIELDS:
+        follower.pop(field_name, None)
+    return follower
 
 
 def _scrub_signature_request_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -133,6 +141,8 @@ def _row_transform_for(config: YousignEndpointConfig) -> Callable[[dict[str, Any
         return _scrub_signer_capabilities
     if config.name == "approvers":
         return _scrub_approver_capabilities
+    if config.name == "followers":
+        return _scrub_follower_capabilities
     if config.name == "signature_requests":
         return _scrub_signature_request_row
     return None
@@ -240,7 +250,7 @@ def yousign_source(
                     "data_selector": parent_config.data_selector,
                 },
                 child_endpoint_extra={
-                    "paginator": SinglePagePaginator(),
+                    "paginator": _cursor_paginator() if config.paginated else SinglePagePaginator(),
                     "data_selector": config.data_selector,
                 },
             ),

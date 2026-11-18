@@ -5019,6 +5019,7 @@ export namespace Schemas {
         valueColumn: string | null;
         xAxisColumn: string | null;
         xAxisLabel: string | null;
+        xAxisSortOrder: HeatmapSortOrder | null;
         yAxisColumn: string | null;
         yAxisLabel: string | null;
     }>;
@@ -5940,6 +5941,7 @@ export namespace Schemas {
      * * `static` - Static
      * * `person_properties` - Person properties
      * * `daily` - Daily
+     * * `off` - Off
      * * `building` - Building
      * * `rebuilding` - Rebuilding
      * * `ready` - Ready
@@ -5949,6 +5951,7 @@ export namespace Schemas {
         | "static"
         | "person_properties"
         | "daily"
+        | "off"
         | "building"
         | "rebuilding"
         | "ready"
@@ -5989,11 +5992,12 @@ export namespace Schemas {
         | "too_large_to_build";
     export type CohortRealtimeReadiness = {
         /**
-         * Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `daily`: its criteria are not supported in realtime, so its membership only comes from the once-a-day calculation. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
+         * Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `off`: the cohort qualifies and realtime is off for it, so feature flags cannot target it until it is turned on. `daily`: its criteria are not supported in realtime, so its membership only comes from the once-a-day calculation. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
          *
          * * `static` - Static
          * * `person_properties` - Person properties
          * * `daily` - Daily
+         * * `off` - Off
          * * `building` - Building
          * * `rebuilding` - Rebuilding
          * * `ready` - Ready
@@ -6009,14 +6013,14 @@ export namespace Schemas {
          */
         build: CohortHistoryBuild | null;
         /**
-         * Why feature flags can't target the cohort. `history_over_limit`, on a `daily` cohort: its criteria look back further than `history_limit_days`. `too_large_to_build`, on a `needs_attention` cohort: the events in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, including a `daily` cohort that other criteria keep off realtime.
+         * Why feature flags can't target the cohort. `history_over_limit`, on a `daily` cohort: its criteria look back further than realtime cohorts can. On an `off` cohort: its criteria look back further than the project's plan allows, so it can't be turned on. `too_large_to_build`, on a `needs_attention` cohort: the events in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, including a `daily` cohort that other criteria keep off realtime.
          *
          * * `history_over_limit` - History over limit
          * * `too_large_to_build` - Too large to build
          */
         reason: CohortRealtimeUnavailableReasonEnum | NullEnum;
         /**
-         * The most days realtime cohort criteria can look back. Null unless the reason is `history_over_limit`.
+         * The most days realtime cohort criteria can look back on the project's plan. Null unless the reason is `history_over_limit`.
          */
         history_limit_days: number | null;
     };
@@ -6057,6 +6061,7 @@ export namespace Schemas {
          * Whether feature flags can target this cohort, and the progress of the build that gets it there. Null outside the realtime cohort flag targeting rollout, on projects the realtime pipeline does not cover, and for cohorts that match on neither events nor person properties, which nothing in the flag API decides on.
          */
         realtime: CohortRealtimeReadiness | null;
+        realtime_enabled?: boolean | undefined;
         experiment_set: Array<number>;
         /**
          * How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.
@@ -7510,6 +7515,7 @@ export namespace Schemas {
         | "aws-redshift"
         | "s3-compatible"
         | "snowflake"
+        | "motherduck"
         | "youtube-analytics"
         | "twitter-ads";
     export type ErrorTrackingExternalReferenceIntegration = {
@@ -12067,6 +12073,7 @@ export namespace Schemas {
             api_version: string | null;
             supported_api_versions: Array<string>;
             file_name: string | null;
+            supports_table_discovery: boolean;
         }> | null;
         /**
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
@@ -12304,6 +12311,18 @@ export namespace Schemas {
          * Whether this source supports per-column sync selection via `enabled_columns`.
          */
         supports_column_selection: boolean;
+        /**
+         * Whether tables can be added to this source by their path with the add_table endpoint. True for object storage sources whose files URL names a folder, not one file or a pattern.
+         */
+        supports_adding_tables: boolean;
+        /**
+         * For object storage sources: the folder that add_table resolves relative paths against, as `<bucket>/<folder>/`, such as `my-bucket/exports/`. It is the folder of the source's files URL. Null for other sources, for a files URL that names one file or a pattern, or when the URL can't be read.
+         */
+        table_root: string | null;
+        /**
+         * Whether PostHog can find new tables in this source on its own, with refresh_schemas. False for a source that reads tables from anywhere in its bucket. Add tables to such a source by their path.
+         */
+        supports_table_discovery: boolean;
         /**
          * The name of the file a file upload source imports. Null for other sources or when it is unknown.
          */
@@ -16423,6 +16442,7 @@ export namespace Schemas {
         cohort_type: CohortTypeEnum | BlankEnum | NullEnum;
         condition_type: CohortConditionTypeFlags | null;
         realtime: CohortRealtimeReadiness | null;
+        realtime_enabled: boolean;
         experiment_set: Array<number>;
         search_match_type: SearchMatchTypeEnum | NullEnum;
         _create_in_folder: string;
@@ -16570,6 +16590,9 @@ export namespace Schemas {
         supports_webhooks: boolean;
         webhook_not_registered: boolean;
         supports_column_selection: boolean;
+        supports_adding_tables: boolean;
+        table_root: string | null;
+        supports_table_discovery: boolean;
         file_name: string | null;
         api_version: string | null;
         api_version_deprecation: ExternalDataSourceApiVersionDeprecation | null;
@@ -17235,6 +17258,28 @@ export namespace Schemas {
      * * `1` - Monday
      */
     export type WeekStartDayEnum = 0 | 1;
+    /**
+     * * `off` - Off
+     * * `serving` - Serving
+     */
+    export type RealtimeCohortsAccessEnum = "off" | "serving";
+    export type TeamRealtimeCohorts = {
+        /**
+         * `serving` when the request's user sees realtime cohorts in this project: whether feature flags can target each cohort, and the control to turn realtime on and off for it. `off` otherwise.
+         *
+         * * `off` - Off
+         * * `serving` - Serving
+         */
+        access: RealtimeCohortsAccessEnum;
+        /**
+         * How many cohorts in this project have realtime on. Null when `access` is `off`.
+         */
+        cohorts_used: number | null;
+        /**
+         * How many cohorts in this project the plan allows to have realtime on. Null when `access` is `off`, or when the plan sets no limit.
+         */
+        max_cohorts: number | null;
+    };
     export type TeamRevenueAnalyticsConfig = Partial<{
         base_currency: BaseCurrencyEnum;
         events: unknown;
@@ -17278,6 +17323,7 @@ export namespace Schemas {
         email_tracking_consent_mode: EmailTrackingConsentModeEnum;
         email_utm_tags_enabled: boolean;
         email_utm_params: EmailUtmParams;
+        email_workflow_run_link_tag_enabled: boolean;
         workflow_task_rate_limit_per_day: number | null;
         workflow_task_team_rate_limit_per_day: number | null;
         replay_vision_scan_rate_limit_per_day: number | null;
@@ -17739,9 +17785,17 @@ export namespace Schemas {
         user_access_level: string | null;
         managed_viewsets: Record<string, boolean>;
         /**
+         * Realtime cohorts as the request's user sees them in this project.
+         */
+        realtime_cohorts: TeamRealtimeCohorts & unknown;
+        /**
          * Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table.
          */
         flag_evaluations_mode: FlagEvaluationsModeEnum & unknown;
+        /**
+         * Whether this project's events table holds none of its new $feature_flag_called events, so they can only be read from the flag_evaluations table.
+         */
+        flag_calls_only_in_flag_evaluations: boolean;
         /**
          * Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted.
          */

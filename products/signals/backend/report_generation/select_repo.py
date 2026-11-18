@@ -35,6 +35,7 @@ from products.tasks.backend.facade.repo_selection import (
     RepoSelectionRejectedError,
     RepoSelectionResult,
     RepoSelectionUnavailableError,
+    list_team_connected_repositories,
     resolve_team_github_integration,
     select_repository,
 )
@@ -54,6 +55,7 @@ __all__ = [
     "RepoSelectionResult",
     "persisted_repo_selection",
     "resolve_team_github_integration",
+    "saved_repository_connected",
     "select_repository_for_report",
     "select_repository_for_team",
 ]
@@ -73,6 +75,18 @@ def persisted_repo_selection(report_id: str) -> RepoSelectionResult | None:
     if artefact is None:
         return None
     return RepoSelectionResult.model_validate_json(artefact.content)
+
+
+def saved_repository_connected(team_id: int, repository: str) -> bool:
+    """Whether the team's GitHub installation still reaches a repository a report saved earlier.
+
+    A team that removes an installation and connects another keeps the old repository on every
+    saved report, and a scout can save one the installation never reached. Both fail at clone.
+    The cached list is read as is, so an installation whose cache was never synced reads as
+    unknown, not as unreachable.
+    """
+    connected = list_team_connected_repositories(team_id)
+    return not connected or repository.lower() in connected
 
 
 async def select_repository_for_team(

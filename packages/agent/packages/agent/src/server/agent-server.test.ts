@@ -317,7 +317,7 @@ interface NativeResumeTestServer {
   ): Promise<{ sessionId: string; warm: boolean } | null>;
 }
 
-let nextTestPort = 20000;
+let nextTestPort = 20000 + Math.floor(Math.random() * 20000);
 
 function getNextTestPort(): number {
   const port = nextTestPort;
@@ -1149,6 +1149,49 @@ describe("AgentServer HTTP Mode", () => {
 
       expect(testServer.session?.sessionMeta.channelMode).toBeUndefined();
     }, 30000);
+
+    it.each(["knowledge_writer", "user_created"])(
+      "lets only a %s-origin task push its task branch when createPr is false",
+      async (originProduct) => {
+        await mkdir("/tmp/workspace", { recursive: true });
+        mswServer.use(
+          http.get(
+            "http://localhost:8000/api/projects/:projectId/tasks/:taskId/",
+            () =>
+              HttpResponse.json({
+                id: "test-task-id",
+                title: "Test task",
+                description: null,
+                origin_product: originProduct,
+                repository: null,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              }),
+          ),
+        );
+
+        const testServer = createServer({
+          createPr: false,
+        }) as unknown as TestableServer & { start(): Promise<void> };
+        await testServer.start();
+        const prompt = testServer.buildCloudSystemPrompt();
+
+        const isWriter = originProduct === "knowledge_writer";
+        expect(prompt.includes("push only to the branch your task names")).toBe(
+          isWriter,
+        );
+        expect(prompt.includes("Publishing is disabled for this run.")).toBe(
+          !isWriter,
+        );
+        expect(
+          prompt.includes("stop with local changes ready for review"),
+        ).toBe(!isWriter);
+        expect(prompt.includes("Always create the PR as a draft.")).toBe(
+          !isWriter,
+        );
+      },
+      30000,
+    );
 
     it("links native agent state before initializing the session", async () => {
       const originalClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
@@ -7750,13 +7793,11 @@ describe("AgentServer HTTP Mode", () => {
         expect(prompt).toContain("Generated-By: PostHog Desktop");
         expect(prompt).not.toContain("test-task-id");
         expect(prompt).not.toContain("gh pr create --draft");
-        // If the user does explicitly ask for a PR in this review-first mode,
-        // the agent must still use the PostHog Desktop footer, not Claude Code's default.
         expect(prompt).toContain(
           "If the user explicitly asks you to open a pull request",
         );
         expect(prompt).toContain(
-          "*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)*",
+          "*Created with [PostHog](https://posthog.com?ref=pr)*",
         );
         expect(prompt).toContain(".github/pull_request_template.md");
         expect(prompt).toContain(".github/PULL_REQUEST_TEMPLATE/*.md");
@@ -7984,9 +8025,8 @@ describe("AgentServer HTTP Mode", () => {
       const prompt = (s as unknown as TestableServer).buildCloudSystemPrompt();
       expect(prompt).toContain("gh pr create --draft");
       expect(prompt).not.toContain("stop with local changes ready for review");
-      // Manual runs keep the PostHog Desktop attribution.
       expect(prompt).toContain(
-        "Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)",
+        "Created with [PostHog](https://posthog.com?ref=pr)",
       );
     });
 
@@ -8483,7 +8523,7 @@ describe("AgentServer HTTP Mode", () => {
           origin: "desktop",
           launchOptions: {},
           source: INBOX_REPORT,
-          footer: `*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr) from an [inbox report](${INBOX_REPORT.url})*`,
+          footer: `*Created with [PostHog](https://posthog.com?ref=pr) from an [inbox report](${INBOX_REPORT.url})*`,
         },
         {
           label: "mobile client",
@@ -8521,7 +8561,7 @@ describe("AgentServer HTTP Mode", () => {
         expect(prompt).toContain("**Why**");
         expect(prompt).toContain("Keep the PR description brief");
         expect(prompt).toContain(
-          "*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)*",
+          "*Created with [PostHog](https://posthog.com?ref=pr)*",
         );
         expect(prompt).not.toContain("from a [Slack thread]");
       });

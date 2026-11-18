@@ -45,6 +45,13 @@ export interface memberOffboardingLogicActions {
     postRemoveMember: (userUuid: string) => {
         userUuid: string
     } // membersLogic
+    loadCurrentOrganizationSuccess: (
+        currentOrganization: OrganizationType | null,
+        payload?: any
+    ) => {
+        currentOrganization: OrganizationType | null
+        payload?: any
+    } // organizationLogic
     close: () => {
         value: true
     }
@@ -154,7 +161,12 @@ export const memberOffboardingLogic = kea<memberOffboardingLogicType>([
     path(['scenes', 'settings', 'organization', 'memberOffboardingLogic']),
     connect({
         values: [organizationLogic, ['currentOrganization'], userLogic, ['user']],
-        actions: [membersLogic, ['loadMemberScopedApiKeys', 'postRemoveMember']],
+        actions: [
+            membersLogic,
+            ['loadMemberScopedApiKeys', 'postRemoveMember'],
+            organizationLogic,
+            ['loadCurrentOrganizationSuccess'],
+        ],
     }),
     actions({
         open: (member: OrganizationMemberType) => ({ member }),
@@ -193,13 +205,11 @@ export const memberOffboardingLogic = kea<memberOffboardingLogicType>([
             __default: null as MemberOffboardingResourceApi[] | null,
             loadResources: async (_, breakpoint) => {
                 const member = values.member
-                if (!member) {
+                const organizationId = values.currentOrganization?.id
+                if (!member || !organizationId) {
                     return null
                 }
-                const resources = await membersOffboardingPreviewRetrieve(
-                    values.currentOrganization?.id ?? '@current',
-                    member.user.uuid
-                )
+                const resources = await membersOffboardingPreviewRetrieve(organizationId, member.user.uuid)
                 breakpoint()
                 return resources
             },
@@ -276,11 +286,12 @@ export const memberOffboardingLogic = kea<memberOffboardingLogicType>([
         removed: {
             __default: false,
             remove: async () => {
-                if (!values.member || values.resourcesLoading || values.savingResourcesLoading) {
+                const organizationId = values.currentOrganization?.id
+                if (!values.member || !organizationId || values.resourcesLoading || values.savingResourcesLoading) {
                     return false
                 }
                 const member = values.member
-                await membersDestroy(values.currentOrganization?.id ?? '@current', member.user.uuid)
+                await membersDestroy(organizationId, member.user.uuid)
                 lemonToast.success(`Removed ${fullNameOrEmail(member.user)} from organization`)
                 actions.close()
                 actions.postRemoveMember(member.user.uuid)
@@ -339,6 +350,12 @@ export const memberOffboardingLogic = kea<memberOffboardingLogicType>([
         open: ({ member }) => {
             actions.loadMemberScopedApiKeys(member)
             actions.loadResources()
+        },
+        loadCurrentOrganizationSuccess: () => {
+            // The review needs the organization id, so a modal opened before it loaded waits for it here.
+            if (values.member && values.resources === null && !values.resourcesLoading) {
+                actions.loadResources()
+            }
         },
     })),
 ])

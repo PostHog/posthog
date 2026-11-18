@@ -279,6 +279,10 @@ class TestSignalSpend(BaseTest):
         implementation_kind: str | None = None,
         mode: str = "background",
     ) -> TaskRun:
+        if task is not None:
+            task.runs.filter(status__in=[TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS]).update(
+                status=TaskRun.Status.COMPLETED
+            )
         task = task or Task.objects.create(
             team=self.team,
             title="Example research",

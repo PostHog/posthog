@@ -2,7 +2,11 @@ import { Code, ConnectError } from '@connectrpc/connect'
 import { DateTime } from 'luxon'
 
 import { PersonHogPersonWriteRepository } from '~/common/personhog/personhog-person-write-repository'
-import { PersonhogFencedError, PersonhogPropertiesSizeError } from '~/common/personhog/persons'
+import {
+    PersonhogFencedError,
+    PersonhogPropertiesDepthError,
+    PersonhogPropertiesSizeError,
+} from '~/common/personhog/persons'
 import { PersonClaimedByLifecycleOpError } from '~/common/persons/repositories/person-repository'
 import { NoRowsUpdatedError } from '~/common/utils/utils'
 import { InternalPerson } from '~/types'
@@ -1002,8 +1006,11 @@ describe('PersonhogPersonsStore', () => {
         expect(edgeOf('1:d1')).toBeUndefined()
     })
 
-    it('drops a size-rejected segment from the lane rather than retrying it forever', async () => {
-        repository.updatePersonProperties.mockRejectedValue(new PersonhogPropertiesSizeError('too big', 1, '7'))
+    it.each([
+        ['size', new PersonhogPropertiesSizeError('too big', 1, '7')],
+        ['nesting', new PersonhogPropertiesDepthError('too deep', 1, '7')],
+    ])('drops a %s-rejected segment from the lane rather than retrying it forever', async (_limit, refusal) => {
+        repository.updatePersonProperties.mockRejectedValue(refusal)
         const bound = store.forBatch(0)
         await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
         await bound.flush()
