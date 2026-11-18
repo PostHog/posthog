@@ -28,7 +28,7 @@ from posthog.mcp_tool_definitions import get_mcp_tool_definitions
 from posthog.models import OAuthApplication
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
-from posthog.models.oauth import find_oauth_access_token
+from posthog.models.oauth import OAuthAccessToken, find_oauth_access_token
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
@@ -1678,6 +1678,58 @@ class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
         config.refresh_from_db()
         assert config.write_scopes == ["dashboard:write"]
 
+    @parameterized.expand(
+        [
+            ("plain_member", False, False, False, status.HTTP_403_FORBIDDEN),
+            ("scout_author", True, False, False, status.HTTP_200_OK),
+            ("project_admin", False, True, False, status.HTTP_200_OK),
+            # The scout's runs act as its author, so the author leg alone would let a scout grant itself actions.
+            ("authors_sandbox_token", True, False, True, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_granting_report_actions_requires_the_acting_user_or_an_admin_outside_a_sandbox(
+        self, _name: str, is_author: bool, is_admin: bool, from_sandbox: bool, expected: int
+    ) -> None:
+        config = self._config()
+        self._authored_by(self.user if is_author else self._other_member())
+        if is_admin:
+            self._become_admin()
+        if from_sandbox:
+            app = OAuthApplication.objects.create(
+                name="Synthetic scout sandbox",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="https://example.com/callback",
+                algorithm="RS256",
+                organization=self.organization,
+                user=self.user,
+            )
+            token = OAuthAccessToken.objects.create(
+                user=self.user,
+                application=app,
+                token="pha_synthetic_scout_config",
+                scope="signal_scout:read signal_scout:write inbox:write task:write",
+                expires=timezone.now() + timedelta(hours=1),
+                scoped_teams=[self.team.id],
+                sandbox_task_id=uuid4(),
+            )
+            self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"report_actions": ["make_it_green"], "max_report_actions_per_day": 5},
+            format="json",
+        )
+
+        assert response.status_code == expected, response.json()
+        config.refresh_from_db()
+        granted = expected == status.HTTP_200_OK
+        assert config.report_actions == (["make_it_green"] if granted else [])
+        assert config.max_report_actions_per_day == (5 if granted else 3)
+        if granted:
+            assert response.json()["report_actions"] == ["make_it_green"]
+
     def test_a_stored_object_is_not_a_grant_to_compare_against(self) -> None:
         # The mint path treats a non-list column as no grant, so the gate must read it the same
         # way. Iterating the object's keys would make a non-author's request for exactly those
@@ -2340,6 +2392,24 @@ class TestWriteScopesValidation(SimpleTestCase):
             assert serializer.validated_data["write_scopes"] == expected
         else:
             assert "write_scopes" in serializer.errors
+
+    @parameterized.expand(
+        [
+            ("deduped_and_sorted", ["make_it_green", "ask", "ask"], True, ["ask", "make_it_green"]),
+            # Merging stays with a person, so no config can carry it.
+            ("get_it_merged", ["get_it_merged"], False, None),
+            ("unknown_kind", ["update_branch"], False, None),
+        ]
+    )
+    def test_report_actions_validation(
+        self, _name: str, kinds: list[str], valid: bool, expected: list[str] | None
+    ) -> None:
+        serializer = SignalScoutConfigUpdateSerializer(data={"report_actions": kinds}, partial=True)
+        assert serializer.is_valid() is valid, serializer.errors
+        if valid:
+            assert serializer.validated_data["report_actions"] == expected
+        else:
+            assert "report_actions" in serializer.errors
 
     @parameterized.expand(
         [

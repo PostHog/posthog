@@ -87,6 +87,7 @@ from products.signals.backend.background_pilot import OPT_OUT_DELETED, capture_b
 from products.signals.backend.constants import SYSTEM_SCOUT_NAMES
 from products.signals.backend.facade.source_scouts import SOURCE_TEMPLATE_METADATA_KEYS
 from products.signals.backend.models import (
+    DEFAULT_SCOUT_REPORT_ACTIONS_PER_DAY,
     SignalProjectProfile,
     SignalReport,
     SignalReportCheck,
@@ -289,6 +290,7 @@ from products.signals.backend.scout_harness.trial_access import (
 )
 from products.signals.backend.scout_harness.trial_views import ScoutTrialConfigMixin
 from products.signals.backend.scout_report import InvalidScoutReportError
+from products.signals.backend.scout_report_actions import stored_report_actions
 from products.signals.backend.task_attribution import resolve_request_attribution
 from products.signals.backend.tasks import enqueue_project_profile_build
 from products.signals.backend.trial.service import TrialService
@@ -3413,7 +3415,34 @@ def _resolve_scout_config_grants(
                 user_id=cast(User, request.user).pk,
                 field="custom_image_id",
             )
+    _assert_can_change_scout_report_actions(request=request, team=team, skill_name=skill_name, config=config, data=data)
     return resolved
+
+
+def _assert_can_change_scout_report_actions(
+    *, request: Request, team: Team, skill_name: str, config: SignalScoutConfig | None, data: Mapping[str, Any]
+) -> None:
+    """Gate on changing which report actions a scout may start, or how many a day.
+
+    A report action starts an agent run as the scout's acting user, so it clears the write access
+    bar. A sandbox token is refused outright: a scout acts as that same person, so the acting-user
+    leg alone would let a scout grant itself actions.
+    """
+    current_actions = set(stored_report_actions(config.report_actions)) if config else set()
+    current_cap = config.max_report_actions_per_day if config else DEFAULT_SCOUT_REPORT_ACTIONS_PER_DAY
+    changes_actions = "report_actions" in data and set(data["report_actions"]) != current_actions
+    changes_cap = "max_report_actions_per_day" in data and data["max_report_actions_per_day"] != current_cap
+    if not changes_actions and not changes_cap:
+        return
+    if _sandbox_bound_task_id(request) is not None:
+        raise exceptions.PermissionDenied("Sandbox tokens cannot change which report actions a scout may start.")
+    assert_can_grant_scout_write_scopes(
+        request=request,
+        team=team,
+        skill_name=skill_name,
+        config=config,
+        added_scopes={"inbox:write", "task:write"},
+    )
 
 
 def guard_scout_lifecycle_fields(

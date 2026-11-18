@@ -780,6 +780,7 @@ def inbox_report_action_properties(
     outcome: str,
     state: ReportActionState | None = None,
     limit_code: str | None = None,
+    scout_skill_name: str | None = None,
 ) -> dict[str, object]:
     """Properties of the server-side `Inbox report action` event, in the shape the inbox sends."""
     properties: dict[str, object] = {
@@ -803,4 +804,6 @@ def inbox_report_action_properties(
         properties["question_intent"] = action.intent.value
     if limit_code is not None:
         properties["limit_code"] = limit_code
+    if scout_skill_name is not None:
+        properties["scout_skill_name"] = scout_skill_name
     return properties

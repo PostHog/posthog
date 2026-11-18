@@ -2253,6 +2253,17 @@ export interface SignalScoutConfigOptionsApi {
      * @maxItems 16
      */
     write_scopes?: string[]
+    /**
+     * Report actions this scout may start on inbox reports, from `ask`, `make_it_green`, `suggested_prompt`. Empty by default, and then every request the scout makes to start one is refused. `get_it_merged` can never be granted: a person merges. Each action starts an agent run that acts as the person the scout's runs act as. Only that person or a project admin can set it, and a scoped API key must carry `inbox:write` and `task:write`. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+     * @maxItems 3
+     */
+    report_actions?: string[]
+    /**
+     * How many report actions this scout may start in a rolling 24 hours, across all its runs. Defaults to 3. Changing it needs the same access as `report_actions`.
+     * @minimum 0
+     * @maximum 20
+     */
+    max_report_actions_per_day?: number
     /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
     lifecycle_locked?: boolean
     /**
@@ -2586,6 +2597,17 @@ export interface SignalScoutConfigApi {
      * @maxItems 16
      */
     readonly write_scopes: readonly string[]
+    /**
+     * Report actions this scout may start on inbox reports, from `ask`, `make_it_green`, `suggested_prompt`. Empty by default, and then every request the scout makes to start one is refused. `get_it_merged` can never be granted: a person merges. Each action starts an agent run that acts as the person the scout's runs act as. Only that person or a project admin can set it, and a scoped API key must carry `inbox:write` and `task:write`. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+     * @maxItems 3
+     */
+    readonly report_actions: readonly string[]
+    /**
+     * How many report actions this scout may start in a rolling 24 hours, across all its runs. Defaults to 3. Changing it needs the same access as `report_actions`.
+     * @minimum 0
+     * @maximum 20
+     */
+    readonly max_report_actions_per_day: number
     /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
     readonly lifecycle_locked: boolean
     /**

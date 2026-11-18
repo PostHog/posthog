@@ -2528,18 +2528,19 @@ async def test_run_clones_the_scouts_pinned_repositories_when_a_token_can_be_min
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "emit,acting_user_resolves,expected_grant,expected_mcp_scopes",
+    "emit,acting_user_resolves,expected_grant,expected_mcp_scopes,expected_report_actions",
     [
         pytest.param(
             True,
             True,
             ["dashboard:write", "notebook:write"],
             {"preset": "signals_scout", "extra_write_scopes": ["dashboard:write", "notebook:write"]},
+            ["make_it_green"],
             id="live_run_holds_the_grant",
         ),
         # Dry run is how a person previews a scout before trusting it, so a dry run that could
         # edit dashboards would do the thing they wanted to look at first.
-        pytest.param(False, True, [], "signals_scout", id="dry_run_holds_no_grant"),
+        pytest.param(False, True, [], "signals_scout", [], id="dry_run_holds_no_grant"),
         # The grant was approved for the person the runs act as. When that identity no longer
         # resolves, the team fallback is a member who never approved it and cannot revoke it. The
         # default notebook scope was granted by the fleet rather than a person, so it stays.
@@ -2548,12 +2549,13 @@ async def test_run_clones_the_scouts_pinned_repositories_when_a_token_can_be_min
             False,
             ["notebook:write"],
             {"preset": "signals_scout", "extra_write_scopes": ["notebook:write"]},
+            [],
             id="team_fallback_holds_only_the_default_grant",
         ),
     ],
 )
 async def test_run_mints_the_scouts_granted_write_scopes_and_stamps_them_on_the_run(
-    ateam, aerrors_skill, emit, acting_user_resolves, expected_grant, expected_mcp_scopes
+    ateam, aerrors_skill, emit, acting_user_resolves, expected_grant, expected_mcp_scopes, expected_report_actions
 ):
     # The grant is what the run's token carries, so a composition that loses it leaves a scout
     # unable to do the job it was granted for, and one that passes the column through unfiltered
@@ -2567,6 +2569,8 @@ async def test_run_mints_the_scouts_granted_write_scopes_and_stamps_them_on_the_
             skill_name="signals-scout-errors",
             emit=emit,
             write_scopes=["dashboard:write", "feature_flag:write", "notebook:write"],
+            # A hand-edited stored kind outside the allowlist must not reach the stamp the endpoint reads.
+            report_actions=["make_it_green", "get_it_merged"],
         )
 
     await database_sync_to_async(_seed_config, thread_sensitive=False)()
@@ -2606,6 +2610,7 @@ async def test_run_mints_the_scouts_granted_write_scopes_and_stamps_them_on_the_
         thread_sensitive=False,
     )()
     assert metadata.get("write_scopes", []) == expected_grant
+    assert metadata.get("report_actions", []) == expected_report_actions
 
 
 @pytest.mark.asyncio
