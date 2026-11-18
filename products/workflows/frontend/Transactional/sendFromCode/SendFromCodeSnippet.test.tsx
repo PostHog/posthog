@@ -45,6 +45,6 @@ describe('SendFromCodeSnippet', () => {
 
         fireEvent.click(screen.getByText('cURL'))
 
-        expect(snippet).toHaveTextContent(`curl -X POST ${backendHost ?? 'http://localhost'}/api/projects/`)
+        expect(snippet).toHaveTextContent(`curl -X POST ${backendHost ?? 'http://localhost'}/api/messaging/send/email/`)
     })
 })
