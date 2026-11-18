@@ -2348,17 +2348,20 @@ export namespace Schemas {
         | "preset-13"
         | "preset-14"
         | "preset-15";
+    export type YAxisPosition2 = "auto" | "left" | "right";
     export type ResultCustomizationByValue = Partial<{
         assignmentBy: string;
         color: DataColorToken | null;
         customColor: string | null;
         hidden: boolean | null;
         label: string | null;
+        yAxisPosition: YAxisPosition2 | null;
     }>;
     export type ResultCustomizationByPosition = Partial<{
         assignmentBy: string;
         color: DataColorToken | null;
         hidden: boolean | null;
+        yAxisPosition: YAxisPosition2 | null;
     }>;
     export type YAxisScaleType = "log10" | "linear";
     export type TrendsFilter = Partial<{
@@ -5068,6 +5071,7 @@ export namespace Schemas {
         barGap: number | null;
         boxPlot: BoxPlotSettings | null;
         chartStyle: ChartStyle | null;
+        colorBarsByCategory: boolean | null;
         goalLines: Array<GoalLine> | null;
         heatmap: HeatmapSettings | null;
         leftYAxisSettings: YAxisSettings | null;
@@ -5089,6 +5093,8 @@ export namespace Schemas {
         showYAxisBorder: boolean | null;
         stackBars100: boolean | null;
         valueLabelBackground: boolean | null;
+        valueLabelBackgroundColor: string | null;
+        valueLabelColor: string | null;
         valueLabelFontSize: number | null;
         valueLabelPosition: ValueLabelPosition | null;
         valueLabelRotation: number | null;

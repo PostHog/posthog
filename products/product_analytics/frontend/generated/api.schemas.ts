@@ -2114,18 +2114,28 @@ export const DataColorTokenApi = {
     Preset15: 'preset-15',
 } as const
 
+export type YAxisPosition2Api = (typeof YAxisPosition2Api)[keyof typeof YAxisPosition2Api]
+
+export const YAxisPosition2Api = {
+    Auto: 'auto',
+    Left: 'left',
+    Right: 'right',
+} as const
+
 export interface ResultCustomizationByValueApi {
     assignmentBy?: 'value'
     color?: DataColorTokenApi | null
     customColor?: string | null
     hidden?: boolean | null
     label?: string | null
+    yAxisPosition?: YAxisPosition2Api | null
 }
 
 export interface ResultCustomizationByPositionApi {
     assignmentBy?: 'position'
     color?: DataColorTokenApi | null
     hidden?: boolean | null
+    yAxisPosition?: YAxisPosition2Api | null
 }
 
 export type YAxisScaleTypeApi = (typeof YAxisScaleTypeApi)[keyof typeof YAxisScaleTypeApi]
@@ -8576,6 +8586,8 @@ export interface ChartSettingsApi {
     boxPlot?: BoxPlotSettingsApi | null
     /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
     chartStyle?: ChartStyleApi | null
+    /** Color each X-axis category in single-series bar charts. */
+    colorBarsByCategory?: boolean | null
     goalLines?: GoalLineApi[] | null
     heatmap?: HeatmapSettingsApi | null
     leftYAxisSettings?: YAxisSettingsApi | null
@@ -8600,6 +8612,8 @@ export interface ChartSettingsApi {
     /** Whether we fill the bars to 100% in stacked mode */
     stackBars100?: boolean | null
     valueLabelBackground?: boolean | null
+    valueLabelBackgroundColor?: string | null
+    valueLabelColor?: string | null
     valueLabelFontSize?: number | null
     valueLabelPosition?: ValueLabelPositionApi | null
     valueLabelRotation?: number | null
