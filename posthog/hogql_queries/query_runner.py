@@ -3784,7 +3784,7 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         # from - so queries on events, persons and other non-access-controlled tables share one cache
         # entry (incl. userless cache warming).
         queried_resources = queried_access_controlled_resources(
-            self.query, self.team, bypassed_scopes=self._bypassed_access_scopes
+            self.query, self.team, bypassed_scopes=self._bypassed_access_scopes, modifiers=self.modifiers
         )
 
         if isinstance(self.user, User) and not self.team.organization.is_feature_available(

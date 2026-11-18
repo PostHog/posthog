@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
@@ -9,6 +10,8 @@ from posthog.schema import (
     ActorsQuery,
     Breakdown,
     BreakdownFilter,
+    CachedTrendsQueryResponse,
+    CacheMissResponse,
     DataWarehouseNode,
     EventsNode,
     HogQLPropertyFilter,
@@ -22,8 +25,11 @@ from posthog.hogql.escape_sql import escape_hogql_string
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
+from posthog.query_cache import QueryCache
+from posthog.query_cache.storage import delete_entry
 from posthog.test.persons import create_group_type_mapping, create_person
 from posthog.uuidt import uuid7
 
@@ -174,6 +180,9 @@ class TestDashboardResultFilterCache(BaseTest):
                 "metadata_breakdowns",
                 "warehouse",
                 "warehouse_id",
+                "test_accounts",
+                "actors_test_accounts",
+                "saved_modifiers",
             )
             for name in ("matchesInsight", r"`matches\0Insight`", r'"matches\0Insight"')
         ]
@@ -204,14 +213,39 @@ class TestDashboardResultFilterCache(BaseTest):
                     distinct_id_field=predicate if kind == "warehouse" else "distinct_id",
                 )
             ]
+        elif kind in ("test_accounts", "actors_test_accounts"):
+            target.properties = []
+            target.filterTestAccounts = True
+            self.team.test_account_filters = [{"type": "hogql", "key": predicate}]
+            self.team.save()
+        elif kind == "saved_modifiers":
+            target.properties = []
+            self.team.modifiers = {
+                "dataWarehouseEventsModifiers": [
+                    {
+                        "table_name": "events",
+                        "id_field": predicate,
+                        "timestamp_field": "timestamp",
+                        "distinct_id_field": "distinct_id",
+                    }
+                ]
+            }
+            self.team.save()
         query = (
             HogQLQuery(query=f"select count() from events where {predicate}")
             if kind == "hogql"
+            else HogQLQuery(query="select count() from events")
+            if kind == "saved_modifiers"
             else ActorsQuery(source=InsightActorsQuery(source=target))
-            if kind == "actors"
+            if kind in ("actors", "actors_test_accounts")
             else target
         )
-        runner_class = {"hogql": HogQLQueryRunner, "actors": ActorsQueryRunner}.get(kind, TrendsQueryRunner)
+        runner_class = {
+            "hogql": HogQLQueryRunner,
+            "saved_modifiers": HogQLQueryRunner,
+            "actors": ActorsQueryRunner,
+            "actors_test_accounts": ActorsQueryRunner,
+        }.get(kind, TrendsQueryRunner)
         access = AccessControl.objects.create(team=self.team, resource="notebook", access_level="none")
         denied_runner = runner_class(query=query, team=self.team, user=self.user)
         assert "notebook" in denied_runner.get_cache_payload()["restricted_resources"]
@@ -221,3 +255,40 @@ class TestDashboardResultFilterCache(BaseTest):
         access.save()
         granted_key = runner_class(query=query, team=self.team, user=self.user).get_cache_key()
         assert denied_key != granted_key
+
+    def test_saved_test_account_selection_does_not_share_an_admin_cache_entry(self) -> None:
+        source = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            properties=[HogQLPropertyFilter(key="event in (select title from system.notebooks)")],
+        )
+        selection = ActorsQuery(source=InsightActorsQuery(source=source))
+        self.team.test_account_filters = [
+            {"type": "hogql", "key": f"matchesInsight({escape_hogql_string(selection.model_dump_json())})"}
+        ]
+        self.team.save()
+        query = TrendsQuery(series=[EventsNode(event="$pageview")], filterTestAccounts=True)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        admin_runner = TrendsQueryRunner(query=query, team=self.team, user=self.user)
+        admin_key = admin_runner.get_cache_key()
+        self.addCleanup(delete_entry, admin_key)
+        now = datetime.now(UTC)
+        response = CachedTrendsQueryResponse(
+            results=[],
+            cache_key=admin_key,
+            is_cached=False,
+            last_refresh=now,
+            next_allowed_client_refresh=now + timedelta(minutes=5),
+            timezone=self.team.timezone,
+        )
+        assert QueryCache(team_id=self.team.pk, cache_key=admin_key).store_result(
+            response=response.model_dump(), target_age=None
+        )
+        admin_response = admin_runner.run(execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
+        assert isinstance(admin_response, CachedTrendsQueryResponse) and admin_response.is_cached
+
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        AccessControl.objects.create(team=self.team, resource="notebook", access_level="none")
+        denied_runner = TrendsQueryRunner(query=query, team=self.team, user=self.user)
+        assert isinstance(denied_runner.run(execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE), CacheMissResponse)

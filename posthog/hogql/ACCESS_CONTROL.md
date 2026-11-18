@@ -291,6 +291,7 @@ Two things keep cache hit rates high:
 
 Queries containing `matchesInsight` conservatively partition on all access-control scopes.
 Function detection parses HogQL expression fields, including quoted function names, and ignores literal property values and request metadata.
+It includes effective query modifiers and enabled project test-account filters, including those used by nested queries.
 Unknown resource sets still partition project keys by their readable scopes and real users by effective permissions, including default denials without explicit access-control rows.
 The actor-query payload can reference resources through source filters, actions, or cohorts that the outer table scan does not expand.
 This applies to raw HogQL and structured insight queries, including actor queries.

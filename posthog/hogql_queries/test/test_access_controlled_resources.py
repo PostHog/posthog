@@ -178,9 +178,17 @@ class TestQueriedAccessControlledResources(BaseTest):
                 },
             ),
             ("metadata", {"tags": {"name": "("}}),
+            ("disabled_saved_selection", {"filterTestAccounts": False}),
+            ("saved_regex", {"filterTestAccounts": True}),
         ]
     )
     def test_structured_query_reads_no_system_table(self, _name, fields):
+        if _name == "disabled_saved_selection":
+            self.team.test_account_filters = [{"type": "hogql", "key": "matchesInsight('{}')"}]
+        elif _name == "saved_regex":
+            self.team.test_account_filters = [
+                {"type": "event", "key": "$pathname", "operator": "regex", "value": "^/checkout(/.*)?$"}
+            ]
         query = TrendsQuery.model_validate(
             {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}], **fields}
         )

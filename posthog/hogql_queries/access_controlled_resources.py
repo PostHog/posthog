@@ -12,6 +12,7 @@ from posthog.schema import (
     EntityType,
     FunnelsDataWarehouseNode,
     HogQLQuery,
+    HogQLQueryModifiers,
     LifecycleDataWarehouseNode,
     MarketingAnalyticsRecommendationsQuery,
     MarketingAnalyticsSearchQuery,
@@ -184,6 +185,7 @@ def queried_access_controlled_resources(
     team: "Team",
     *,
     bypassed_scopes: frozenset[str] = frozenset(),
+    modifiers: HogQLQueryModifiers | None = None,
     _catalog: Optional[_WarehouseCatalog] = None,
 ) -> Optional[set[str]]:
     """The set of access-control scope names a query reads, e.g. "notebook", "warehouse_table".
@@ -214,7 +216,9 @@ def queried_access_controlled_resources(
 
     # The macro can read tables through encoded actor queries, actions, and cohorts. Until those
     # references are expanded here, conservatively partition on every access-control scope.
-    if _contains_insight_selection(query):
+    if _contains_insight_selection(
+        [query, modifiers if modifiers is not None else team.modifiers], team.test_account_filters
+    ):
         return None
 
     if getattr(query, "kind", None) == "AccountsTableQuery":
@@ -328,6 +332,7 @@ def queried_access_controlled_resources(
                     HogQLQuery(query=view_sql),
                     team,
                     bypassed_scopes=bypassed_scopes,
+                    modifiers=modifiers,
                     _catalog=catalog,
                 )
                 if nested is None:
@@ -346,13 +351,18 @@ def queried_access_controlled_resources(
     )
 
 
-def _contains_insight_selection(value) -> bool:
+def _contains_insight_selection(value, test_account_filters=None) -> bool:
     if isinstance(value, BaseModel):
         value = value.__dict__
     if isinstance(value, (list, tuple)):
-        return any(_contains_insight_selection(field) for field in value)
+        return any(_contains_insight_selection(field, test_account_filters) for field in value)
     if not isinstance(value, dict):
         return False
+
+    if (value.get("filterTestAccounts") or value.get("filter_test_accounts")) and _contains_insight_selection(
+        test_account_filters
+    ):
+        return True
 
     expressions = []
     if value.get("kind") == "HogQLQuery":
@@ -385,7 +395,9 @@ def _contains_insight_selection(value) -> bool:
         )
     )
     return any(_hogql_contains_insight_selection(expr) for expr in expressions) or any(
-        _contains_insight_selection(field) for name, field in value.items() if name not in ("tags", "name", "value")
+        _contains_insight_selection(field, test_account_filters)
+        for name, field in value.items()
+        if name not in ("tags", "name", "value")
     )
 
 
