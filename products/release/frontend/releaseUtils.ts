@@ -85,6 +85,7 @@ export interface ReleaseSpan {
     tone?: ReleaseSpanTone
     from: string
     to: string
+    ongoing?: boolean
     label?: string
     href: string
     count?: number
@@ -1076,6 +1077,7 @@ function experimentSpan(experiment: ExperimentBasicApi, today: dayjs.Dayjs, end:
         kind: finished ? 'experiment_done' : 'experiment',
         from,
         to: finished && experiment.end_date ? experiment.end_date.slice(0, 10) : end,
+        ongoing: !finished,
         label: finished
             ? 'Experiment complete'
             : isExperimentPaused(experiment)
@@ -1119,7 +1121,14 @@ function releaseSpans(facts: ReleaseFacts): ReleaseSpan[] {
                 ? dayjs(earlyAccessFrom).subtract(1, 'day').format('YYYY-MM-DD')
                 : end
         if (!earlyAccessFrom || earlyAccessFrom > from) {
-            spans.push({ ...flagLook(facts), key: 'flag', kind: 'flag', from, to })
+            spans.push({
+                ...flagLook(facts),
+                key: 'flag',
+                kind: 'flag',
+                from,
+                to,
+                ongoing: !earlyAccessFrom && !facts.ended,
+            })
         }
     }
     for (const item of opened) {
@@ -1132,6 +1141,7 @@ function releaseSpans(facts: ReleaseFacts): ReleaseSpan[] {
                     : `Early access, ${item.stage}`,
             from: item.created_at.slice(0, 10),
             to: end,
+            ongoing: true,
             href: urls.earlyAccessFeature(item.id),
         })
     }
