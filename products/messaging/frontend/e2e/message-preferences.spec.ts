@@ -482,18 +482,90 @@ test.describe('Message preferences page', () => {
                     [eventInvitesId]: 'OPTED_OUT',
                 })
             })
+        } finally {
+            await recipientContext.close()
+        }
+    })
+
+    test('a refused change turns back unless the recipient clicked that switch again', async ({
+        browser,
+        page,
+        playwrightSetup,
+    }) => {
+        const { path, productNewsId, eventInvitesId, storedPreferences } = await createPreferencesPage(
+            page,
+            playwrightSetup
+        )
+        const recipientContext = await browser.newContext({ storageState: { cookies: [], origins: [] } })
+        const recipientPage = await recipientContext.newPage()
+        const productNews = recipientPage.getByRole('checkbox', { name: 'Product news' })
+        const eventInvites = recipientPage.getByRole('checkbox', { name: 'Event invites' })
+        const allMarketing = recipientPage.getByRole('checkbox', { name: 'All marketing communications' })
+        const tracking = recipientPage.getByRole('checkbox', { name: 'Open and click tracking' })
+        const successToast = recipientPage.getByText('Preferences updated successfully')
+        const refusals = recipientPage.getByText('Something went wrong')
+        const status = (id: string): ReturnType<Page['getByTestId']> => recipientPage.getByTestId(`status-${id}`)
+        const refuse = (route: Route): Promise<void> =>
+            route.fulfill({ status: 500, json: { error: 'Something went wrong' } })
+        // One handler takes every save in a step: a single-use route that ends lets a held save through
+        let handleSave = async (route: Route): Promise<void> => route.continue()
+        await recipientPage.route(UPDATE_URL, (route) => handleSave(route))
+
+        try {
+            // Messages leave on a timer, so a paused clock lets the steps count them
+            await recipientPage.clock.install()
+            await recipientPage.goto(path)
+            await recipientPage.clock.pauseAt(Date.now() + 1000)
+            await productNews.click()
+            await expect(status(productNewsId)).toHaveText('Not subscribed')
+            await expect(eventInvites).toBeChecked()
+            await expect(tracking).toBeChecked()
+
+            await test.step('a refused topic change turns back though a pending tracking save sent it', async () => {
+                const topicRefusal = responseGate()
+                const trackingRefusal = responseGate()
+                let saves = 0
+                handleSave = async (route) => {
+                    saves++
+                    if (saves === 1) {
+                        await topicRefusal.opened
+                        await refuse(route)
+                    } else if (saves === 2) {
+                        await trackingRefusal.opened
+                        await refuse(route)
+                    } else {
+                        await route.continue()
+                    }
+                }
+                await productNews.click()
+                await tracking.click()
+                topicRefusal.open()
+                await expect(refusals).toHaveCount(1)
+                await expect(productNews).not.toBeChecked()
+                await eventInvites.click()
+                await expect(successToast).toHaveCount(2)
+                trackingRefusal.open()
+                await expect(refusals).toHaveCount(2)
+                await expect(status(eventInvitesId)).toHaveText('Not subscribed')
+                await expect(status(productNewsId)).toHaveText('Not subscribed')
+                await expect(status('$email_tracking')).toHaveText('Tracking allowed')
+                expect(await storedPreferences('product_news')).toEqual({
+                    $all: 'OPTED_IN',
+                    [productNewsId]: 'OPTED_OUT',
+                    [eventInvitesId]: 'OPTED_OUT',
+                })
+            })
 
             await test.step('an older refusal does not undo a newer click on the same switch', async () => {
                 const refusal = responseGate()
                 const committed = responseGate()
                 const answer = responseGate()
-                // One handler takes every save: a single-use route that ends lets the held save through
                 let saves = 0
-                const handleSave = async (route: Route): Promise<void> => {
+                handleSave = async (route) => {
                     saves++
                     if (saves === 1) {
                         await refusal.opened
-                        await route.fulfill({ status: 500, json: { error: 'Something went wrong' } })
+                        await refuse(route)
                     } else if (saves === 3) {
                         const response = await route.fetch()
                         committed.open()
@@ -503,16 +575,13 @@ test.describe('Message preferences page', () => {
                         await route.continue()
                     }
                 }
-                await recipientPage.route(UPDATE_URL, handleSave)
-                const refusals = recipientPage.getByText('Something went wrong')
-                const [savedBefore, refusedBefore] = [await successToast.count(), await refusals.count()]
                 await allMarketing.click()
                 await allMarketing.click()
-                await expect(successToast).toHaveCount(savedBefore + 1)
+                await expect(successToast).toHaveCount(3)
                 await allMarketing.click()
                 await committed.opened
                 refusal.open()
-                await expect(refusals).toHaveCount(refusedBefore + 1)
+                await expect(refusals).toHaveCount(3)
                 await expect(allMarketing).not.toBeChecked()
                 await tracking.click()
                 answer.open()
@@ -524,7 +593,6 @@ test.describe('Message preferences page', () => {
                     [productNewsId]: 'OPTED_OUT',
                     [eventInvitesId]: 'OPTED_OUT',
                 })
-                await recipientPage.unroute(UPDATE_URL, handleSave)
             })
         } finally {
             await recipientContext.close()

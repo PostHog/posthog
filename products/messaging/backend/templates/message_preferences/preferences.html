@@ -83,7 +83,7 @@
                 // Each choice as the newest accepted save sent it. Saves can commit out of order, so the read-back corrects it.
                 const accepted = savedChoices(document)
                 const acceptedBy = {}
-                const sentBy = {}
+                const clickedBy = {}
                 const saving = new Set()
                 let savesPending = 0
                 let savesStarted = 0
@@ -144,6 +144,7 @@
                 async function savePreferences(changedToggle) {
                     savesPending++
                     const saveNumber = ++savesStarted
+                    clickedBy[changedToggle.name] = saveNumber
                     const choices = {}
                     toggles.forEach((toggle) => {
                         // Only submit the tracking answer when that toggle is the one that changed:
@@ -151,7 +152,6 @@
                         // The backend preserves a stored answer when the key is absent.
                         if (toggle.name !== '$email_tracking' || toggle === changedToggle) {
                             choices[toggle.name] = wanted[toggle.name]
-                            sentBy[toggle.name] = saveNumber
                         }
                     })
 
@@ -183,8 +183,8 @@
                     } catch (error) {
                         showToast(error.message || 'Failed to update preferences', true)
                         // A refused change turns back now, so a click before the read-back cannot resend it.
-                        // A newer save of the same choice carries a later click, so that one stays.
-                        if (sentBy[changedToggle.name] === saveNumber) {
+                        // A newer click on the same switch stays.
+                        if (clickedBy[changedToggle.name] === saveNumber) {
                             wanted[changedToggle.name] = accepted[changedToggle.name]
                             render()
                         }
