@@ -19,7 +19,15 @@ export interface CreateProjectItem {
     label: string
 }
 
-export type ListItem = ProjectListItem | CreateProjectItem
+/** A project on another PostHog instance, such as the organization's workspace in another cloud region. */
+export interface ExternalProjectItem {
+    type: 'external'
+    id: string
+    name: string
+    url: string
+}
+
+export type ListItem = ProjectListItem | ExternalProjectItem | CreateProjectItem
 
 /** Whether a name matches what the user typed in an account switcher's search field. */
 export function matchesSwitcherSearch(name: string, search: string): boolean {
@@ -175,6 +183,9 @@ export const newAccountMenuLogic = kea<newAccountMenuLogicType>([
                         isCurrent: team.id === currentTeam?.id,
                         logoMediaId: logoMediaIds.get(team.project_id) ?? null,
                     }))
+                const externalProjects: ExternalProjectItem[] = (organization?.external_project_links ?? [])
+                    .filter((link) => matchesSwitcherSearch(link.name, searchValue))
+                    .map((link) => ({ type: 'external', id: `external-${link.id}`, name: link.name, url: link.url }))
                 const createItem: CreateProjectItem = {
                     type: 'create',
                     id: 'create-new-project',
@@ -182,7 +193,7 @@ export const newAccountMenuLogic = kea<newAccountMenuLogicType>([
                     // TODO: Uncomment this when we have a way to create projects with a name
                     // label: searchValue.trim() ? `Create '${searchValue.trim()}'` : 'New project',
                 }
-                return [...projects, createItem]
+                return [...projects, ...externalProjects, createItem]
             },
         ],
         projectGroups: [
