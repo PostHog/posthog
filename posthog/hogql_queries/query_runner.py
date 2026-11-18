@@ -3,7 +3,7 @@ import inspect
 import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Iterator, Sequence
-from contextlib import ExitStack, contextmanager, suppress
+from contextlib import ExitStack, contextmanager, nullcontext, suppress
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from functools import cache, cached_property, wraps
@@ -141,7 +141,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database, remove_product_internal_tables
+from posthog.hogql.database.database import Database, reading_product_internal_tables
 from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import prepare_and_print_ast, to_printed_hogql
 from posthog.hogql.query import create_default_modifiers_for_team
@@ -2193,7 +2193,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # Kill switch: build per access so query threads never share schema state. No timings
             # measure here because concurrent threads reach this path and HogQLTimings is not
             # thread-safe.
-            return self._restrict_database(self._create_database(trigger="shared_kill_switch"))
+            return self._create_database(trigger="shared_kill_switch")
         if self._shared_database is None:
             # Concurrent query threads (funnels compare mode) can first-touch this property at the
             # same time. The lock makes the build run once, and keeps the measure on the single
@@ -2201,29 +2201,23 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             with self._shared_database_build_lock:
                 if self._shared_database is None:
                     with self.timings.measure("build_shared_database"):
-                        self._shared_database = self._restrict_database(
-                            self._create_database(timings=self.timings, trigger="shared")
-                        )
+                        self._shared_database = self._create_database(timings=self.timings, trigger="shared")
         return self._shared_database
 
-    # User-authored HogQL reaches a runner through queries and expressions alike, so every runner drops
-    # product-internal tables unless it is one of the few product queries that reads them.
+    # Product-internal tables are left out of every database unless the runner is one of the few
+    # product queries that reads them.
     reads_product_internal_tables: ClassVar[bool] = False
 
-    def _restrict_database(self, database: Database) -> Database:
-        if not self.reads_product_internal_tables:
-            remove_product_internal_tables(database)
-        return database
-
     def _create_database(self, *, timings: HogQLTimings | None = None, trigger: str) -> Database:
-        return Database.create_for(
-            team=self.team,
-            user=self.user,
-            user_access_control=self.user_access_control,
-            modifiers=self.modifiers,
-            timings=timings,
-            trigger=trigger,
-        )
+        with reading_product_internal_tables() if self.reads_product_internal_tables else nullcontext():
+            return Database.create_for(
+                team=self.team,
+                user=self.user,
+                user_access_control=self.user_access_control,
+                modifiers=self.modifiers,
+                timings=timings,
+                trigger=trigger,
+            )
 
     def build_hogql_context(self, **kwargs: Any) -> HogQLContext:
         """Context for execute_hogql_query calls this runner makes, wired to the shared database."""

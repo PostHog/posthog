@@ -9,6 +9,8 @@ import dataclasses
 import pickletools
 from collections import defaultdict
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import UTC, datetime
 from functools import cache, lru_cache
 from types import MappingProxyType
@@ -776,6 +778,19 @@ def _system_table_required_features() -> Mapping[str, str]:
 PRODUCT_INTERNAL_POSTHOG_TABLES = frozenset(
     {"raw_mcp_intent_assignments", "mcp_intent_assignments", "mcp_intent_calls_hourly", "mcp_intent_topic_daily"}
 )
+
+
+_PRODUCT_INTERNAL_TABLES_ALLOWED: ContextVar[bool] = ContextVar("product_internal_tables_allowed", default=False)
+
+
+@contextmanager
+def reading_product_internal_tables() -> Iterator[None]:
+    """Let databases built in this block keep the product-internal tables. Only their own product's code opts in."""
+    token = _PRODUCT_INTERNAL_TABLES_ALLOWED.set(True)
+    try:
+        yield
+    finally:
+        _PRODUCT_INTERNAL_TABLES_ALLOWED.reset(token)
 
 
 def remove_product_internal_tables(database: Database) -> None:
@@ -2619,6 +2634,11 @@ class Database(BaseModel):
                 posthog_node = database.tables.children.get("posthog")
                 if posthog_node is not None:
                     posthog_node.children.pop("billing_usage_records", None)
+
+        # Every builder gets these tables only inside reading_product_internal_tables(), so user-authored
+        # HogQL never reaches them whichever path built its database.
+        if not _PRODUCT_INTERNAL_TABLES_ALLOWED.get():
+            remove_product_internal_tables(database)
 
         # Removing the node, rather than denying the table at query time, keeps an org whose mode
         # hides the table from learning that it exists. serialize(), information_schema and get_table()

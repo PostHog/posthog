@@ -49,7 +49,7 @@ from posthog.hogql.constants import (
     LimitContext,
 )
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
+from posthog.hogql.database.database import Database, reading_product_internal_tables
 from posthog.hogql.database.models import DateDatabaseField, StringDatabaseField
 from posthog.hogql.errors import ExposedHogQLError, ImpossibleASTError, QueryError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -241,7 +241,10 @@ class TestPrinter(BaseTest):
     def test_events_retention_floor_applied(self, table: str, months: int, floored_column: str):
         self.team.event_retention_months = months
         context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
-        with patch("products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled", return_value=True):
+        with (
+            patch("products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled", return_value=True),
+            reading_product_internal_tables(),
+        ):
             sql = self._select(f"select count() from {table}", context=context)
         assert f"toIntervalMonth({months})" in sql
         assert f"greater({floored_column}, minus(now" in sql

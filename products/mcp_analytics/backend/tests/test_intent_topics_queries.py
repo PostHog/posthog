@@ -19,6 +19,7 @@ from posthog.schema import (
     MCPToolIntentProfileQuery,
 )
 
+from posthog.hogql.database.database import PRODUCT_INTERNAL_POSTHOG_TABLES, Database, reading_product_internal_tables
 from posthog.hogql.errors import QueryError
 from posthog.hogql.printer.utils import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
@@ -181,6 +182,17 @@ class TestIntentResultsAreNeverStored(_Base):
         assert [t.calls for t in first.results] == [5]
         assert (first.is_cached, second.is_cached) == (False, False)
 
+    def test_databases_leave_out_intent_tables_unless_product_code_opts_in(self) -> None:
+        # Batch exports, insights and every other builder resolve user HogQL against Database.create_for.
+        tables = [["posthog", name] for name in sorted(PRODUCT_INTERNAL_POSTHOG_TABLES)]
+
+        default = Database.create_for(team=self.team)
+        with reading_product_internal_tables():
+            opted_in = Database.create_for(team=self.team)
+
+        assert [default.has_table(t) for t in tables] == [False] * len(tables)
+        assert [opted_in.has_table(t) for t in tables] == [True] * len(tables)
+
     @parameterized.expand(
         [
             ("assignments", "mcp_intent_assignments"),
@@ -315,6 +327,8 @@ class TestSimilarToolsQuery(_Base):
 class TestIntentMapQuery(_Base):
     def setUp(self) -> None:
         super().setUp()
+        # These tests read the product-internal intent tables directly, as the product's own code does.
+        self.enterContext(reading_product_internal_tables())
         _insert_assignment(self.team.pk, "p1", self.t_insights, x=1.0, y=0.1, intent_text="plot signups", timestamp=NOW)
         # p2 moved from insights to flags: its older assignment must not resurface under a filter.
         _insert_assignment(self.team.pk, "p2", self.t_insights, x=0.9, y=0.0, timestamp=NOW - timedelta(days=2))
@@ -404,6 +418,11 @@ class TestIntentMapQuery(_Base):
 
 
 class TestIntentTopicsAccess(_Base):
+    def setUp(self) -> None:
+        super().setUp()
+        # These tests read the product-internal intent tables directly, as the product's own code does.
+        self.enterContext(reading_product_internal_tables())
+
     def _restrict(self, property_name: str) -> None:
         self.organization.available_product_features = [
             {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}

@@ -22,6 +22,7 @@ from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
+from posthog.hogql.database.database import reading_product_internal_tables
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -241,12 +242,13 @@ def _run_assign(team: Team, *, window_start: datetime, window_end: datetime) -> 
                 pca=pca,
             )
             query.execute(team, settings=ASSIGNMENT_INSERT_SETTINGS)
-        response = execute_hogql_query(
-            query=parse_select(_ASSIGNMENT_COUNTS_SQL, placeholders={"run_id": ast.Constant(value=run.run_id)}),
-            team=team,
-            workload=Workload.OFFLINE,
-            modifiers=HogQLQueryModifiers(useNewEventsSchema=False),
-        )
+        with reading_product_internal_tables():
+            response = execute_hogql_query(
+                query=parse_select(_ASSIGNMENT_COUNTS_SQL, placeholders={"run_id": ast.Constant(value=run.run_id)}),
+                team=team,
+                workload=Workload.OFFLINE,
+                modifiers=HogQLQueryModifiers(useNewEventsSchema=False),
+            )
         n_intents, n_outliers = (
             (int(response.results[0][0]), int(response.results[0][1])) if response.results else (0, 0)
         )

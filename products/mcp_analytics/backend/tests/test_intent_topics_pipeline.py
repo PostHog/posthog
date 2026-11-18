@@ -16,6 +16,7 @@ import responses
 
 from posthog.schema import DateRange, MCPIntentTopicsQuery  # noqa: E402
 
+from posthog.hogql.database.database import reading_product_internal_tables
 from posthog.hogql.parser import parse_select  # noqa: E402
 from posthog.hogql.query import execute_hogql_query  # noqa: E402
 
@@ -48,6 +49,8 @@ def _blob_vectors(axis: int, n: int, seed: int) -> list[list[float]]:
 class TestRunSync(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        # These tests read the product-internal intent tables directly, as the product's own code does.
+        self.enterContext(reading_product_internal_tables())
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
         self.worker = responses.RequestsMock(assert_all_requests_are_fired=False)
@@ -278,6 +281,8 @@ class TestRunSync(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBase
 class TestRefitThenAssign(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        # These tests read the product-internal intent tables directly, as the product's own code does.
+        self.enterContext(reading_product_internal_tables())
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
         hourly_rows: list[HourlyCalls] = []
