@@ -4442,9 +4442,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS],
         ],
+        // dashboard-v2 (by project) turns the behaviour on; dashboard-v2-users (by person) picks who sees it.
         dashboardV2Enabled: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.DASHBOARD_V2],
+            (featureFlags: FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.DASHBOARD_V2] && !!featureFlags[FEATURE_FLAGS.DASHBOARD_V2_USERS],
         ],
         tileGroupDisplay: [
             (s) => [s.dashboard, s.placement],
