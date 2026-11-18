@@ -18,7 +18,11 @@ from posthog.storage.object_storage import ObjectStorage, UnavailableStorage
 from posthog.utils import generate_cache_key
 
 from products.mcp_analytics.backend import intent_erasure_rollups as erasure
-from products.mcp_analytics.backend.facade.clickhouse_schema import MCP_INTENT_TOPIC_DAILY_WRITABLE_TABLE
+from products.mcp_analytics.backend.facade.clickhouse_schema import (
+    MCP_INTENT_CALLS_HOURLY_DATA_TABLE,
+    MCP_INTENT_TOPIC_DAILY_DATA_TABLE,
+    MCP_INTENT_TOPIC_DAILY_WRITABLE_TABLE,
+)
 from products.mcp_analytics.backend.facade.contracts import IntentErasure, IntentErasurePending
 from products.mcp_analytics.backend.intent_topics.corpus import HourlyCalls
 from products.mcp_analytics.backend.intent_topics.rollups import insert_hourly_calls
@@ -194,28 +198,30 @@ class TestPurgeRollupsAndCaches(_FakeCacheStores, SimpleTestCase):
             project_id=self.erased, invalidation_id=uuid4(), source_team_ids=(self.erased, self.sibling)
         )
 
-    @parameterized.expand(
-        [
-            ("hourly_project", "hourly", "erased"),
-            ("hourly_sibling_environment", "hourly", "sibling"),
-            ("daily_project", "daily", "erased"),
-        ]
-    )
-    def test_surviving_rollup_rows_keep_the_erasure_pending(self, _name: str, table: str, team: str) -> None:
-        _insert_rollup(table, getattr(self, team))
+    def _rollup_teams(self) -> set[tuple[str, int]]:
+        teams = (self.erased, self.sibling, self.other)
+        return {
+            (table, team_id)
+            for table in (MCP_INTENT_CALLS_HOURLY_DATA_TABLE, MCP_INTENT_TOPIC_DAILY_DATA_TABLE)
+            for (team_id,) in sync_execute(
+                f"SELECT DISTINCT team_id FROM {table} WHERE team_id IN %(teams)s", {"teams": teams}
+            )
+        }
 
-        with pytest.raises(IntentErasurePending):
-            erasure.purge_rollups_and_caches(erasure=self.erasure, cluster=self.cluster)
-
-    def test_completes_when_only_other_projects_have_rollup_rows(self) -> None:
-        _insert_rollup("hourly", self.other)
-        _insert_rollup("daily", self.other)
+    def test_purges_the_project_rollups_and_keeps_other_projects(self) -> None:
+        for team_id in (self.erased, self.sibling, self.other):
+            _insert_rollup("hourly", team_id)
+            _insert_rollup("daily", team_id)
         self.default_redis.set(
             caches["default"].make_key(generate_cache_key(self.erased, "invented intent corpus")), b"digest"
         )
 
         erasure.purge_rollups_and_caches(erasure=self.erasure, cluster=self.cluster)
 
+        assert self._rollup_teams() == {
+            (MCP_INTENT_CALLS_HOURLY_DATA_TABLE, self.other),
+            (MCP_INTENT_TOPIC_DAILY_DATA_TABLE, self.other),
+        }
         assert not self.default_redis.exists(
             caches["default"].make_key(generate_cache_key(self.erased, "invented intent corpus"))
         )
