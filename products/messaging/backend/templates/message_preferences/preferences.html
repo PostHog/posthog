@@ -138,7 +138,7 @@
 
                 async function savePreferences(changedToggle) {
                     savesPending++
-                    savesStarted++
+                    const saveNumber = ++savesStarted
                     const choices = {}
                     toggles.forEach((toggle) => {
                         // Only submit the tracking answer when that toggle is the one that changed:
@@ -170,9 +170,11 @@
                         showToast('Preferences updated successfully', false)
                     } catch (error) {
                         showToast(error.message || 'Failed to update preferences', true)
-                        // A refused change turns back now, so a save started before the read-back cannot resend it
-                        if (wanted[changedToggle.name] === choices[changedToggle.name]) {
+                        // A refused change turns back now, so a click before the read-back cannot resend it.
+                        // A later save already sent its own choices, which the read-back will settle.
+                        if (saveNumber === savesStarted) {
                             wanted[changedToggle.name] = !choices[changedToggle.name]
+                            render()
                         }
                     } finally {
                         savesPending--

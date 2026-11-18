@@ -279,7 +279,10 @@ test.describe('Message preferences page', () => {
                 await recipientPage.evaluate(() => Reflect.deleteProperty(AbortSignal, 'timeout'))
                 await allMarketing.click()
                 await read.opened
-                await expect(allMarketing).not.toBeChecked()
+                // The refused change turns back before the read-back ends, so topics unlock at once
+                await expect(allMarketing).toBeChecked()
+                await expect(eventInvites).toBeEnabled()
+                await expect(status('$all')).toHaveText('Saving…')
                 await recipientPage.clock.runFor(10_000)
                 await expect(
                     recipientPage.getByText("Couldn't confirm your preferences.", { exact: false })
@@ -343,11 +346,9 @@ test.describe('Message preferences page', () => {
                 const warningsBefore = await unconfirmed.count()
                 await allMarketing.click()
                 await committed.opened
-                const laterSave = recipientPage.waitForResponse((response) =>
-                    response.url().includes('/messaging-preferences/update')
-                )
+                const savedBefore = await successToast.count()
                 await allMarketing.click()
-                await laterSave
+                await expect(successToast).toHaveCount(savedBefore + 1)
                 answer.open()
                 await expect(unconfirmed).toHaveCount(warningsBefore + 1)
                 await expect(status('$all')).toHaveText('Subscribed')
@@ -358,6 +359,47 @@ test.describe('Message preferences page', () => {
                     $all: 'OPTED_IN',
                     [productNewsId]: 'OPTED_OUT',
                     [eventInvitesId]: 'OPTED_IN',
+                })
+            })
+
+            await test.step('a refusal that answers after a later save committed the same choice keeps it', async () => {
+                const answer = responseGate()
+                const read = responseGate()
+                const readAnswer = responseGate()
+                await recipientPage.route(
+                    isPageRead,
+                    async (route) => {
+                        const response = await route.fetch()
+                        read.open()
+                        await readAnswer.opened
+                        await route.fulfill({ response })
+                    },
+                    { times: 1 }
+                )
+                await recipientPage.route(
+                    UPDATE_URL,
+                    async (route) => {
+                        await answer.opened
+                        await route.fulfill({ status: 500, json: { error: 'Something went wrong' } })
+                    },
+                    { times: 1 }
+                )
+                const refusals = recipientPage.getByText('Something went wrong')
+                const [savedBefore, refusedBefore] = [await successToast.count(), await refusals.count()]
+                await eventInvites.click()
+                await productNews.click()
+                await expect(successToast).toHaveCount(savedBefore + 1)
+                answer.open()
+                await expect(refusals).toHaveCount(refusedBefore + 1)
+                await read.opened
+                await expect(eventInvites).not.toBeChecked()
+                readAnswer.open()
+                await expect(status(eventInvitesId)).toHaveText('Not subscribed')
+                await expect(eventInvites).not.toBeChecked()
+                expect(await storedPreferences('event_invites')).toEqual({
+                    $all: 'OPTED_IN',
+                    [productNewsId]: 'OPTED_IN',
+                    [eventInvitesId]: 'OPTED_OUT',
                 })
             })
         } finally {
