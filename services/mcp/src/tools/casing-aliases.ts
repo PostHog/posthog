@@ -19,7 +19,8 @@ function toCamelCase(name: string): string {
 function innerObject(schema: z.ZodType): z.ZodObject | undefined {
     let current: unknown = schema
     for (let depth = 0; depth < MAX_PIPE_DEPTH && current instanceof z.ZodPipe; depth++) {
-        current = current.out
+        // `z.preprocess` puts its transform on `.in`; `.transform()` puts it on `.out`.
+        current = current.in instanceof z.ZodTransform ? current.out : current.in
     }
     return current instanceof z.ZodObject ? current : undefined
 }
@@ -30,7 +31,8 @@ function casingAliasMap(schema: z.ZodType): Record<string, readonly string[]> | 
         return undefined
     }
     const declared = new Set(Object.keys(object.shape))
-    const existingAliases = new Set(Object.values(readParamAliases(schema) ?? {}).flat())
+    const existing = readParamAliases(schema) ?? {}
+    const existingAliases = new Set(Object.values(existing).flat())
     const aliasMap: Record<string, readonly string[]> = {}
     for (const name of declared) {
         if (!PLAIN_PARAM_NAME.test(name)) {
@@ -38,7 +40,8 @@ function casingAliasMap(schema: z.ZodType): Record<string, readonly string[]> | 
         }
         const twin = name.includes('_') ? toCamelCase(name) : toSnakeCase(name)
         if (twin !== name && !declared.has(twin) && !existingAliases.has(twin)) {
-            aliasMap[name] = [twin]
+            // This layer runs before the tool's own aliases, so it repeats them first to keep them ahead of the twin.
+            aliasMap[name] = [...(existing[name] ?? []), twin]
         }
     }
     return Object.keys(aliasMap).length > 0 ? aliasMap : undefined

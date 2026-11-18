@@ -58,6 +58,13 @@ describe('mergeToolFactories', () => {
             ['query-error-tracking-issue', { issue_id: 'issue-1' }, 'issueId', 'issue_id'],
             ['switch-project', { project_id: 2 }, 'projectId', 'project_id'],
             ['code-review-approvals-runs-create', { repository: 'o/r', prNumber: 7 }, 'pr_number', 'prNumber'],
+            // Its schema ends in `.transform()`, so the params sit on the pipe's input side.
+            [
+                'tasks-create-and-run',
+                { description: 'd', scheduledAt: '2030-01-01T00:00:00Z' },
+                'scheduled_at',
+                'scheduledAt',
+            ],
         ])('%s accepts the other casing of a param', (name, input, canonical, alias) => {
             const result = schemaOf(name).safeParse(input)
             expect(result.success).toBe(true)
@@ -69,6 +76,15 @@ describe('mergeToolFactories', () => {
         it('keeps the declared name when a call sends both casings', () => {
             const result = schemaOf('query-error-tracking-issue').safeParse({ issueId: 'declared', issue_id: 'alias' })
             expect((result.data as Record<string, unknown>).issueId).toBe('declared')
+        })
+
+        it("keeps a tool's own alias ahead of the casing twin", () => {
+            const result = schemaOf('skill-file-delete').safeParse({
+                skill_name: 's',
+                path: 'keep.md',
+                filePath: 'other.md',
+            })
+            expect((result.data as Record<string, unknown>).file_path).toBe('keep.md')
         })
 
         it('does not change the advertised schema', () => {
