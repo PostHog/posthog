@@ -594,6 +594,8 @@ class TrinoDuplicateOutputNameLowerer(CloningVisitor):
             return lowered
         taken = {projection.alias for projection in lowered.select if isinstance(projection, ast.Alias)}
         holders: dict[str, ast.Alias] = {}
+        # The suffix only grows, so each taken name is probed once and a crafted query cannot make this quadratic.
+        suffix = 0
         for index, projection in enumerate(lowered.select):
             if not isinstance(projection, ast.Alias):
                 continue
@@ -605,9 +607,10 @@ class TrinoDuplicateOutputNameLowerer(CloningVisitor):
             renamed = holder if holder.hidden and not projection.hidden else projection
             if renamed is holder:
                 holders[projection.alias] = projection
-            suffix = index
+            suffix = max(suffix, index)
             while (alias := f"__hogql_duplicate_{renamed.alias}_{suffix}") in taken:
                 suffix += 1
+            suffix += 1
             taken.add(alias)
             renamed.alias = alias
             renamed.hidden = False
