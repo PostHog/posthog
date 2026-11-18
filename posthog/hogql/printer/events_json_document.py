@@ -127,21 +127,28 @@ def json_document_sql(
     return f"concat('{{', arrayStringConcat({pairs}, ','), '}}')"
 
 
-def stored_properties_document_sql(properties_sql: str) -> str:
+def stored_properties_document_sql(properties_sql: str, temporary_properties_sql: str | None = None) -> str:
     """The event properties column as document text in its stored shape, which batch exports send.
 
-    Unlike `event_document_sql`, flags stay in the `$feature_flags` map and temporary properties are left out. The map
-    is left out when it is empty, and so are declared string defaults. The query or view that runs this needs
-    `json_type_escape_dots_in_keys = 1`, or a dotted key prints as `a%2Eb`.
+    Unlike `event_document_sql`, flags stay in the `$feature_flags` map. The map is left out when it is empty, and so
+    are declared string defaults. The query or view that runs this needs `json_type_escape_dots_in_keys = 1`, or a
+    dotted key prints as `a%2Eb`.
 
-    The batch export query and `events_json_recent_mv` both call this. A realtime export reads the text the view
-    stored, and other exports build it at query time, so the two must produce the same text.
+    When `temporary_properties_sql` is given, its members follow the members of `properties_sql`, so keys such as
+    `$set` are in the document. `events_json_recent_mv` passes it. The batch export query on `events_json` does not,
+    so the two texts differ by exactly those keys.
     """
-    return json_document_sql(
-        properties_sql,
-        exclude_empty_key=_FEATURE_FLAGS_KEY,
-        declared_string_paths=EVENTS_PROPERTIES_DECLARED_STRING_PATHS,
-    )
+    pairs = [
+        json_member_pairs_sql(
+            properties_sql,
+            exclude_empty_key=_FEATURE_FLAGS_KEY,
+            declared_string_paths=EVENTS_PROPERTIES_DECLARED_STRING_PATHS,
+        )
+    ]
+    if temporary_properties_sql is not None:
+        pairs.append(json_member_pairs_sql(temporary_properties_sql))
+    members = pairs[0] if len(pairs) == 1 else f"arrayConcat({', '.join(pairs)})"
+    return f"concat('{{', arrayStringConcat({members}, ','), '}}')"
 
 
 def person_document_sql(person_properties_sql: str) -> str:

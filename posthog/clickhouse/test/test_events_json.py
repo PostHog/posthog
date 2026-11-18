@@ -38,7 +38,7 @@ def test_is_temporary_event_property(key: str, expected: bool) -> None:
 
 
 class TestEventsJsonRecent(ClickhouseTestMixin, BaseTest):
-    def test_stores_the_text_batch_exports_read_from_events_json_and_keeps_flag_calls(self) -> None:
+    def test_stores_export_documents_with_temporary_properties_and_keeps_flag_calls(self) -> None:
         # Both MVs read Kafka tables. A Null table with the Kafka columns, virtual ones included with Kafka's types,
         # lets one insert feed both of them.
         source = "test_events_json_recent_source"
@@ -103,7 +103,7 @@ class TestEventsJsonRecent(ClickhouseTestMixin, BaseTest):
             f"""
             SELECT
                 uuid,
-                {stored_properties_document_sql("properties")},
+                {stored_properties_document_sql("properties", "temporary_properties")},
                 {person_document_sql("person_properties")},
                 {json_document_sql("temporary_properties")}
             FROM events_json
@@ -126,6 +126,7 @@ class TestEventsJsonRecent(ClickhouseTestMixin, BaseTest):
                 "$browser": "Chrome",
                 "$current_url": "https://example.com/a/b?x=1",
                 "$feature_flags": {"flag-a": "true", "flag-b": "variant"},
+                "$set": {"email": "a@example.com"},
                 "a.b": 1,
                 "nested": {"x.y": [1, 2.5, "s"]},
                 "text": 'héllo 🦔 "quoted" /x/y/',
