@@ -547,6 +547,41 @@ jobs:
                           exit 1
                         fi
 
+                  # The stamphog server reads .stamphog/policy.yml from the default branch as soon as
+                  # it merges, but the engine that parses it ships only with the next stamphog worker
+                  # deploy. A policy that needs a new engine feature in the same PR stops every review
+                  # until that deploy, because the old engine rejects the policy at import. So the
+                  # engine on the base branch must load this branch's policy.
+                  - name: Check the base branch's stamphog engine loads this policy
+                    shell: bash
+                    env:
+                        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+                    run: |
+                        [ "$RUN_STAMPHOG" = "true" ] || { echo "pr-approval-agent unchanged — skipping"; exit 0; }
+                        [ -n "$BASE_SHA" ] || { echo "not a pull request — skipping"; exit 0; }
+                        policy=.stamphog/policy.yml
+                        engine=products/stamphog/packages/pr-approval-agent
+                        git fetch --no-tags --depth=1 --filter=blob:none origin "$BASE_SHA"
+                        if [ -z "$(git diff --name-only --no-renames "$BASE_SHA" HEAD -- "$policy")" ]; then
+                          echo "$policy is unchanged — skipping"
+                          exit 0
+                        fi
+                        if [ ! -f "$policy" ] || [ -z "$(git ls-tree "$BASE_SHA" -- "$engine")" ]; then
+                          echo "no $policy on this branch, or no engine at $engine on the base branch — skipping"
+                          exit 0
+                        fi
+                        base=$(mktemp -d)/base
+                        git worktree add --detach --no-checkout "$base" "$BASE_SHA"
+                        trap 'git worktree remove --force "$base"' EXIT
+                        git -C "$base" sparse-checkout set --no-cone "/$engine/"
+                        git -C "$base" checkout --quiet
+                        mkdir -p "$base/.stamphog"
+                        cp "$policy" "$base/.stamphog/policy.yml"
+                        if ! (cd "$base" && STAMPHOG_REPO_ROOT="$base" python "$engine/review_local.py" --help >/dev/null); then
+                          echo "::error file=$policy::The stamphog engine on the base branch cannot load this policy, so every review would fail from the merge until the stamphog worker redeploys. Merge the engine change first, then change the policy in a later PR."
+                          exit 1
+                        fi
+
                   - name: Run dependency detection script tests
                     shell: bash
                     run: |

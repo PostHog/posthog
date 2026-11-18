@@ -1317,10 +1317,11 @@ def _run_reviewer(
     )
     if result.exit_code != 0:
         # The reviewer reads an untrusted PR head, so its stderr can contain repository content.
-        # This message reaches run.error, so keep the stderr in the worker log only.
+        # This message reaches run.error, so keep the stderr in the worker log only. Keep its end,
+        # because a Python traceback names the exception on its last line.
         activity.logger.error(
             f"Reviewer exited with code {result.exit_code} for run {run.id}: "
-            f"{scrub_credentials(result.stderr, *scrub_tokens, gateway_token)[:500]}"
+            f"{scrub_credentials(result.stderr, *scrub_tokens, gateway_token)[-1000:]}"
         )
         raise RuntimeError(f"reviewer exited with code {result.exit_code}")
     return result

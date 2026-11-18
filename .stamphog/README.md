@@ -36,3 +36,9 @@ Two folders currently take it up: [`products/desktop/`](../products/desktop/AGEN
 Open a PR that edits these files.
 Stamphog can never auto-approve it: the `stamphog_policy` deny category matches `.stamphog/**`, any `AGENT_APPROVALS.md`, and the engine itself, so every change routes to a human reviewer.
 The loader also hard-fails if that self-governance entry is missing or loses a shipped pattern, so it cannot be dropped silently.
+
+A policy change takes effect when it merges, because the server reads `policy.yml` from the default branch.
+An engine change takes effect only when the stamphog worker redeploys.
+So a policy that uses a new engine feature must merge after the engine change, in a separate PR.
+Otherwise the deployed engine rejects the policy at startup, and every review fails until the redeploy.
+CI checks this: the `Check the base branch's stamphog engine loads this policy` step loads the changed `policy.yml` with the engine from the base branch.
