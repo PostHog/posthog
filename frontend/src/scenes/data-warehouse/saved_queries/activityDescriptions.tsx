@@ -244,7 +244,7 @@ function describePlanFloorClamp(logItem: ActivityLogItem, viewName: JSX.Element)
         description: (
             <>
                 PostHog changed sync frequency from <strong>{before}</strong> to <strong>{after}</strong> on {viewName},
-                the fastest the organization's plan allows
+                the fastest the organization's plan allowed
             </>
         ),
     }

@@ -19,8 +19,8 @@ export function planFloorClampMessage(
     previousSeconds: number | null,
     planFloorSeconds: number
 ): string {
-    const now = `This ${subject} now refreshes ${everyCadence(planFloorSeconds)}, the fastest your plan allows.`
-    return previousSeconds === null ? now : `${now} It refreshed ${everyCadence(previousSeconds)} before.`
+    const limited = `Your plan's refresh limit set this ${subject} to refresh ${everyCadence(planFloorSeconds)}.`
+    return previousSeconds === null ? limited : `${limited} It refreshed ${everyCadence(previousSeconds)} before.`
 }
 
 export interface PlanFloorClampBannerProps {

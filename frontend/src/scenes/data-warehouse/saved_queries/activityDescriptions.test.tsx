@@ -94,7 +94,7 @@ describe('dataWarehouseSavedQueryActivityDescriber', () => {
         expect(
             describeText([change('sync_frequency_interval', '0:15:00', '6:00:00')], 'sync_frequency_plan_floor')
         ).toBe(
-            "PostHog changed sync frequency from 15 minutes to 6 hours on daily view, the fastest the organization's plan allows"
+            "PostHog changed sync frequency from 15 minutes to 6 hours on daily view, the fastest the organization's plan allowed"
         )
     })
 
