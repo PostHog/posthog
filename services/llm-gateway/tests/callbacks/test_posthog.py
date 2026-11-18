@@ -132,8 +132,8 @@ class TestPostHogCallback:
         standard_logging_object: dict,
         mock_posthog_client: tuple,
     ) -> None:
-        # The local-dev knob: with ai_lane_capture=False the client truncates AI content and
-        # redacts media instead of sending it in full.
+        # The setting reaches the client as `enable_full_ai_capture`, which only the SDK's
+        # provider wrappers read.
         mock_cls, _ = mock_posthog_client
         callback = PostHogCallback(api_key="test-key", host="https://test.posthog.com", ai_lane_capture=False)
         kwargs = {"standard_logging_object": standard_logging_object, "litellm_params": {}}
