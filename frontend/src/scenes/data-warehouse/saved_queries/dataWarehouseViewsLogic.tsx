@@ -398,6 +398,9 @@ export interface dataWarehouseViewsLogicActions {
     runDataWarehouseSavedQuerySuccess: (viewId: string) => {
         viewId: string
     }
+    setLastCreatedDataWarehouseSavedQuery: (view: DataWarehouseSavedQuerySummary) => {
+        view: DataWarehouseSavedQuerySummary
+    }
     updateDataWarehouseSavedQuery: (view: DataWarehouseSavedQueryUpdate) => DataWarehouseSavedQueryUpdate
     updateDataWarehouseSavedQueryFailed: (viewId: string) => {
         viewId: string
@@ -481,9 +484,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             null as DataWarehouseSavedQuerySummary | null,
             {
                 createDataWarehouseSavedQuery: () => null,
-                // The create loader appends the new view to the list it returns.
-                createDataWarehouseSavedQuerySuccess: (_, { dataWarehouseSavedQueries }) =>
-                    dataWarehouseSavedQueries.at(-1) ?? null,
+                setLastCreatedDataWarehouseSavedQuery: (_, { view }) => view,
             },
         ],
         initialDataWarehouseSavedQueryLoading: [
@@ -572,6 +573,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         revertMaterialization: (viewId: string) => ({ viewId }),
         addMaterializingViews: (viewIds: string[]) => ({ viewIds }),
         clearMaterializingView: (viewId: string) => ({ viewId }),
+        setLastCreatedDataWarehouseSavedQuery: (view: DataWarehouseSavedQuerySummary) => ({ view }),
     }),
     loaders(({ values, actions }) => ({
         materializationAction: [
@@ -685,6 +687,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                     }
                     posthog.capture('view created')
                     globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateSavedView)
+                    actions.setLastCreatedDataWarehouseSavedQuery(newView)
 
                     return [...values.dataWarehouseSavedQueries, newView]
                 },
