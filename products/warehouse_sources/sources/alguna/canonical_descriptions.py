@@ -19,6 +19,16 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updated_at": "Timestamp when the metric was last updated.",
         },
     },
+    "bundles": {
+        "description": "A product bundle: several priced products grouped into one reusable unit that plans, subscriptions and quotes reference by a single ID.",
+        "docs_url": "https://alguna.com/docs/api-reference/v2/2026-04-01/product-bundles/list-product-bundles",
+        "columns": {
+            "description": "A brief description of the bundle.",
+            "id": "Unique identifier for the bundle.",
+            "name": "The name of the bundle.",
+            "prices": "Prices included in this bundle.",
+        },
+    },
     "credit_notes": {
         "description": "A credit note that reduces or offsets what a customer owes, optionally tied to an invoice.",
         "docs_url": "https://alguna.com/docs/api-reference/v2/2026-04-01/credit-notes/list-credit-notes",
@@ -72,6 +82,31 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "tax_status": "Customer tax status.",
             "tax_type": "Type of tax applied to the customer.",
             "updated_at": "Timestamp when the customer was last updated.",
+        },
+    },
+    "customer_connected_accounts": {
+        "description": "A link between an Alguna customer and its account in a connected external system, such as a Stripe customer or a HubSpot company.",
+        "docs_url": "https://alguna.com/docs/api-reference/v2/2026-04-01/customers/list-connected-accounts-for-a-customer",
+        "columns": {
+            "customer_id": "Alguna customer ID the connected account belongs to.",
+            "external_id": "Identifier of the account in the external system.",
+            "id": "Unique identifier for the connected account link.",
+            "integration_id": "Identifier of the integration the account is connected through.",
+        },
+    },
+    "customer_entitlements": {
+        "description": "An active entitlement of a customer, from the current published version of one of its active subscriptions or from the default profile.",
+        "docs_url": "https://alguna.com/docs/api-reference/v2/2026-04-01/customers/list-active-entitlements-for-a-customer",
+        "columns": {
+            "allocation": "Credit allocation config.",
+            "customer_id": "Alguna customer ID the entitlement belongs to.",
+            "key": "Entitlement key.",
+            "mode": "Entitlement mode (static or grant_based).",
+            "subscription_id": "Owning subscription ID; null for default-profile entitlements.",
+            "timing": "Timing config.",
+            "type": "Entitlement type (boolean, number, string or credit_allocation).",
+            "value": "Entitlement value.",
+            "version_id": "Owning subscription version ID; null for default-profile entitlements.",
         },
     },
     "invoices": {
@@ -201,6 +236,18 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "status": "Version status.",
             "subscription_id": "Subscription this version belongs to.",
             "updated_at": "When the version was last updated.",
+        },
+    },
+    "subscription_revenue": {
+        "description": "Monthly recurring revenue (MRR), annual recurring revenue (ARR) and annual contract value (ACV) for the current active version of a subscription.",
+        "docs_url": "https://alguna.com/docs/api-reference/v2/2026-04-01/subscriptions/get-subscription-revenue-metrics",
+        "columns": {
+            "acv": "Annual contract value.",
+            "arr": "Annual recurring revenue.",
+            "currency": "ISO 4217 currency code.",
+            "mrr": "Monthly recurring revenue.",
+            "recurring_revenue_status": "Whether MRR and ARR include all matrix-priced recurring revenue (complete, partial or unavailable).",
+            "subscription_id": "Subscription ID.",
         },
     },
     "wallets": {

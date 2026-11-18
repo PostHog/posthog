@@ -6,6 +6,7 @@ from products.warehouse_sources.sources.alguna.settings import ALGUNA_ENDPOINTS,
 from products.warehouse_sources.sources.sdk import (
     BearerTokenAuth,
     ClientConfig,
+    Endpoint,
     OffsetPaginator,
     RESTAPIConfig,
     RESTClient,
@@ -61,6 +62,10 @@ def _source_response(
     items_fn: Any,
     column_hints: Any = None,
 ) -> SourceResponse:
+    if config.partition_key is None:
+        return SourceResponse(
+            name=config.name, items=items_fn, primary_keys=config.primary_keys, column_hints=column_hints
+        )
     return SourceResponse(
         name=config.name,
         items=items_fn,
@@ -125,6 +130,17 @@ def _top_level_source(
     return _source_response(config, lambda: resource, column_hints=resource.column_hints)
 
 
+def _child_endpoint_extra(config: AlgunaEndpointConfig) -> Endpoint:
+    if config.data_selector is None:
+        # A bare-object body (e.g. /subscriptions/{id}/revenue) becomes one row.
+        return {"paginator": SinglePagePaginator()}
+    return {
+        "paginator": SinglePagePaginator(),
+        "data_selector": config.data_selector,
+        "data_selector_required": True,
+    }
+
+
 def _declarative_fanout_source(
     api_key: str,
     config: AlgunaEndpointConfig,
@@ -154,11 +170,7 @@ def _declarative_fanout_source(
                 "data_selector": "data",
                 "data_selector_required": True,
             },
-            child_endpoint_extra={
-                "paginator": SinglePagePaginator(),
-                "data_selector": "data",
-                "data_selector_required": True,
-            },
+            child_endpoint_extra=_child_endpoint_extra(config),
         ),
     )
     return _source_response(config, lambda: dependent_resource)

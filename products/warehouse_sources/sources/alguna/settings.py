@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField
+from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField, ResponseAction
 
 # Alguna list endpoints paginate with limit/offset.
 PAGE_LIMIT = 100
@@ -31,7 +31,11 @@ class AlgunaEndpointConfig:
     # the endpoints that sort.
     sort: str | None = "created_at:asc"
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
-    partition_key: str = "created_at"
+    # None for the endpoints whose rows carry no created_at (bundles, per-customer and
+    # per-subscription lookups); those tables are not partitioned.
+    partition_key: str | None = "created_at"
+    # None for an endpoint that returns one bare object instead of a `data` list.
+    data_selector: str | None = "data"
     # Whether the endpoint offset-paginates. False for a fan-out child that returns its whole
     # collection in one response (e.g. /subscriptions/{id}/versions).
     paginated: bool = True
@@ -45,8 +49,12 @@ class AlgunaEndpointConfig:
     query_fanout: AlgunaQueryFanout | None = None
 
 
+# A customer or subscription deleted between the parent listing and the child fetch 404s.
+_IGNORE_CHILD_404: list[ResponseAction] = [{"status_code": 404, "action": "ignore"}]
+
 ALGUNA_ENDPOINTS: dict[str, AlgunaEndpointConfig] = {
     "billable_metrics": AlgunaEndpointConfig(name="billable_metrics", path="/metrics"),
+    "bundles": AlgunaEndpointConfig(name="bundles", path="/bundles", sort=None, partition_key=None),
     "credit_notes": AlgunaEndpointConfig(
         name="credit_notes",
         path="/credit-notes",
@@ -55,6 +63,42 @@ ALGUNA_ENDPOINTS: dict[str, AlgunaEndpointConfig] = {
         query_fanout=AlgunaQueryFanout(parent_name="customers", query_param="customer_id"),
     ),
     "customers": AlgunaEndpointConfig(name="customers", path="/customers"),
+    "customer_connected_accounts": AlgunaEndpointConfig(
+        name="customer_connected_accounts",
+        path="/customers/{customer_id}/connected-accounts",
+        sort=None,
+        primary_keys=["customer_id", "id"],
+        partition_key=None,
+        paginated=False,
+        fanout=DependentEndpointConfig(
+            parent_name="customers",
+            resolve_param="customer_id",
+            resolve_field="id",
+            # The connected-account payload already carries customer_id.
+            include_from_parent=[],
+            child_response_actions=_IGNORE_CHILD_404,
+        ),
+    ),
+    "customer_entitlements": AlgunaEndpointConfig(
+        name="customer_entitlements",
+        path="/customers/{customer_id}/entitlements",
+        sort=None,
+        # Entitlements have no id. A key is unique within the subscription that grants it;
+        # subscription_id is null for default-profile entitlements. Full refresh only, so the key
+        # is never used to merge.
+        primary_keys=["customer_id", "subscription_id", "key"],
+        partition_key=None,
+        paginated=False,
+        fanout=DependentEndpointConfig(
+            parent_name="customers",
+            resolve_param="customer_id",
+            resolve_field="id",
+            # The entitlement payload carries no customer id, so copy it down from the parent.
+            include_from_parent=["id"],
+            parent_field_renames={"id": "customer_id"},
+            child_response_actions=_IGNORE_CHILD_404,
+        ),
+    ),
     "invoices": AlgunaEndpointConfig(name="invoices", path="/invoices"),
     "payments": AlgunaEndpointConfig(name="payments", path="/payments", sort=None),
     "plans": AlgunaEndpointConfig(name="plans", path="/plans"),
@@ -75,6 +119,23 @@ ALGUNA_ENDPOINTS: dict[str, AlgunaEndpointConfig] = {
             resolve_field="id",
             # The version payload already carries subscription_id; nothing to copy down.
             include_from_parent=[],
+        ),
+    ),
+    "subscription_revenue": AlgunaEndpointConfig(
+        name="subscription_revenue",
+        path="/subscriptions/{subscription_id}/revenue",
+        sort=None,
+        primary_keys=["subscription_id"],
+        partition_key=None,
+        paginated=False,
+        data_selector=None,
+        fanout=DependentEndpointConfig(
+            parent_name="subscriptions",
+            resolve_param="subscription_id",
+            resolve_field="id",
+            # The revenue payload already carries subscription_id.
+            include_from_parent=[],
+            child_response_actions=_IGNORE_CHILD_404,
         ),
     ),
     "wallets": AlgunaEndpointConfig(name="wallets", path="/wallets", sort=None),
