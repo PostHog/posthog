@@ -1732,6 +1732,15 @@ export const SETTINGS_MAP: SettingSection[] = [
         flag: 'PRODUCT_BUSINESS_KNOWLEDGE',
         settings: [
             {
+                id: 'business-knowledge-connect-agent',
+                title: 'Connect your agent',
+                description:
+                    'Let your own AI agent search this business knowledge through the PostHog MCP server. The agent signs in with a project secret API key, so it works without a user.',
+                component: <ConnectAgentSetting />,
+                flag: 'BUSINESS_KNOWLEDGE_MCP',
+                keywords: ['business', 'knowledge', 'agent', 'mcp', 'api key', 'secret', 'search'],
+            },
+            {
                 id: 'business-knowledge-learn-from-support',
                 title: 'Self-learning',
                 description:
@@ -1747,15 +1756,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Let business knowledge read these repositories when answering a question. It searches file names and the README, then reads a file. It does not index the code.',
                 component: <GithubReposSetting />,
                 keywords: ['business', 'knowledge', 'github', 'repository', 'code'],
-            },
-            {
-                id: 'business-knowledge-connect-agent',
-                title: 'Connect your agent',
-                description:
-                    'Let your own AI agent search this business knowledge through the PostHog MCP server. The agent signs in with a project secret API key, so it works without a user.',
-                component: <ConnectAgentSetting />,
-                flag: 'BUSINESS_KNOWLEDGE_MCP',
-                keywords: ['business', 'knowledge', 'agent', 'mcp', 'api key', 'secret', 'search'],
             },
         ],
     },
