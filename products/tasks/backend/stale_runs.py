@@ -57,7 +57,7 @@ def _idle_timeout(profile_key: str | None, origin_product: str | None, run_timeo
     )
 
 
-def collect_stale_live_runs(*, limit: int = 10_000) -> list[StaleRunCount]:
+def collect_stale_live_runs() -> list[StaleRunCount]:
     now = timezone.now()
     counts: Counter[tuple[str | None, str, StaleRule]] = Counter()
     runs = (
@@ -72,7 +72,8 @@ def collect_stale_live_runs(*, limit: int = 10_000) -> list[StaleRunCount]:
             "queued_at",
             "created_at",
             "updated_at",
-        )[:limit]
+        )
+        .iterator(chunk_size=2000)
     )
     for (
         profile_key,
