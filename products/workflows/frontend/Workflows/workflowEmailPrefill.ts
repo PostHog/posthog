@@ -6,7 +6,7 @@ import type { HogFlow, HogFlowAction } from './hogflows/types'
 import type { WorkflowTriggerConfig } from './workflowTriggerPrefill'
 
 export const EMAIL_ACTION_ID = 'action_function_email_prefilled'
-// The same "One time" setting as the trigger's frequency picker, so the editor shows it selected.
+// The frequency picker's "One time per period" with the period "ever", so the editor shows it selected.
 const ONCE_PER_PERSON_MASKING = { hash: '{person.id}', ttl: null, threshold: null }
 
 /**
