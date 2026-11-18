@@ -109,12 +109,12 @@ class TestSetIssueTag(BaseTest):
     ) -> None:
         issue = ErrorTrackingIssue.objects.create(team=self.team)
         with time_machine.travel("2026-01-05T10:00:00Z", tick=False), self.captureOnCommitCallbacks(execute=True):
-            set_issue_tag(self.team.id, issue.id, "blocks_checkout", self._answer(first, value=True), first)
+            set_issue_tag(self.team.id, issue.id, BLOCKS_CHECKOUT, self._answer(first, value=True), first)
         _, first_version = _latest_clickhouse_answer(issue)
 
         with time_machine.travel("2026-01-05T10:01:00Z", tick=False), self.captureOnCommitCallbacks(execute=True):
             stored = set_issue_tag(
-                self.team.id, issue.id, "blocks_checkout", self._answer(second, value=second_value), second
+                self.team.id, issue.id, BLOCKS_CHECKOUT, self._answer(second, value=second_value), second
             )
 
         tag = ErrorTrackingIssueTag.objects.for_team(self.team.id).get(issue=issue, key="blocks_checkout")
@@ -127,12 +127,12 @@ class TestSetIssueTag(BaseTest):
     def test_a_later_write_wins_in_clickhouse_when_its_clock_reads_earlier(self) -> None:
         issue = ErrorTrackingIssue.objects.create(team=self.team)
         with time_machine.travel("2026-01-05T10:01:00Z", tick=False), self.captureOnCommitCallbacks(execute=True):
-            set_issue_tag(self.team.id, issue.id, "blocks_checkout", self._answer(Source.JEV, value=True), Source.JEV)
+            set_issue_tag(self.team.id, issue.id, BLOCKS_CHECKOUT, self._answer(Source.JEV, value=True), Source.JEV)
         _, first_version = _latest_clickhouse_answer(issue)
 
         with time_machine.travel("2026-01-05T10:00:00Z", tick=False), self.captureOnCommitCallbacks(execute=True):
             set_issue_tag(
-                self.team.id, issue.id, "blocks_checkout", self._answer(Source.MANUAL, value=False), Source.MANUAL
+                self.team.id, issue.id, BLOCKS_CHECKOUT, self._answer(Source.MANUAL, value=False), Source.MANUAL
             )
 
         value, version = _latest_clickhouse_answer(issue)
@@ -140,13 +140,12 @@ class TestSetIssueTag(BaseTest):
 
     def test_manual_replaces_an_answer_from_a_tagger_the_definition_no_longer_lists(self) -> None:
         issue = ErrorTrackingIssue.objects.create(team=self.team)
-        set_issue_tag(self.team.id, issue.id, "blocks_checkout", self._answer(NEW_TAGGER, value=True), NEW_TAGGER)
+        set_issue_tag(self.team.id, issue.id, BLOCKS_CHECKOUT, self._answer(NEW_TAGGER, value=True), NEW_TAGGER)
         without_new_tagger = dataclasses.replace(BLOCKS_CHECKOUT, taggers=BLOCKS_CHECKOUT.taggers[1:])
 
-        with patch.object(registry, "ISSUE_TAG_DEFINITIONS", (without_new_tagger,)):
-            stored = set_issue_tag(
-                self.team.id, issue.id, "blocks_checkout", self._answer(Source.MANUAL, value=False), Source.MANUAL
-            )
+        stored = set_issue_tag(
+            self.team.id, issue.id, without_new_tagger, self._answer(Source.MANUAL, value=False), Source.MANUAL
+        )
 
         assert stored is True
 
@@ -155,7 +154,7 @@ class TestSetIssueTag(BaseTest):
 
         with patch.object(writer, "issue_tags_enabled", new=lambda team_id: False):
             stored = set_issue_tag(
-                self.team.id, issue.id, "blocks_checkout", self._answer(Source.MANUAL, value=True), Source.MANUAL
+                self.team.id, issue.id, BLOCKS_CHECKOUT, self._answer(Source.MANUAL, value=True), Source.MANUAL
             )
 
         assert stored is False
@@ -170,15 +169,15 @@ class TestSetIssueTag(BaseTest):
             patch.object(ActivityLog.objects, "create", side_effect=IntegrityError("write timed out")),
             self.assertRaises(IntegrityError),
         ):
-            set_issue_tag(self.team.id, issue.id, "blocks_checkout", self._answer(Source.JEV, value=True), Source.JEV)
+            set_issue_tag(self.team.id, issue.id, BLOCKS_CHECKOUT, self._answer(Source.JEV, value=True), Source.JEV)
 
         assert not ErrorTrackingIssueTag.objects.for_team(self.team.id).filter(issue=issue).exists()
 
     def test_logs_each_change_on_the_issue_with_the_person_for_a_manual_answer(self) -> None:
         issue = ErrorTrackingIssue.objects.create(team=self.team, name="TypeError: cart is undefined")
 
-        set_issue_tag(self.team.id, issue.id, "blocks_checkout", self._answer(Source.JEV, value=False), Source.JEV)
-        set_issue_tag(self.team.id, issue.id, "blocks_checkout", self._answer(Source.MANUAL, value=True), Source.MANUAL)
+        set_issue_tag(self.team.id, issue.id, BLOCKS_CHECKOUT, self._answer(Source.JEV, value=False), Source.JEV)
+        set_issue_tag(self.team.id, issue.id, BLOCKS_CHECKOUT, self._answer(Source.MANUAL, value=True), Source.MANUAL)
 
         changes_by_user = dict(_issue_activity(issue).values_list("user_id", "detail__changes"))
         jev_answer = {"key": "blocks_checkout", "value": False, "source": "jev"}
@@ -204,8 +203,8 @@ class TestSetIssueTag(BaseTest):
         )
         issue = ErrorTrackingIssue.objects.create(team=child)
 
-        set_issue_tag(child.id, issue.id, "blocks_checkout", self._answer(Source.JEV, value=False), Source.JEV)
-        stored = set_issue_tag(child.id, issue.id, "blocks_checkout", self._answer(Source.JEV, value=True), Source.JEV)
+        set_issue_tag(child.id, issue.id, BLOCKS_CHECKOUT, self._answer(Source.JEV, value=False), Source.JEV)
+        stored = set_issue_tag(child.id, issue.id, BLOCKS_CHECKOUT, self._answer(Source.JEV, value=True), Source.JEV)
 
         tag = ErrorTrackingIssueTag.objects.for_team(child.id).get(issue=issue, key="blocks_checkout")
         assert (stored, tag.value) == (True, True)
@@ -269,6 +268,45 @@ class TestCarryIssueTagsOnMerge(BaseTest):
 
         assert self._target_answer(target) == expected
         assert _issue_activity(target).count() == int(expected != on_target)
+
+    @parameterized.expand(
+        [
+            ("rule_label_from_a_source", None, Source.RULE, []),
+            (
+                "manual_label_over_a_rule_label",
+                Source.RULE,
+                Source.MANUAL,
+                [
+                    {
+                        "type": "ErrorTrackingIssue",
+                        "action": "created",
+                        "field": "tag",
+                        "before": None,
+                        "after": {"key": "blocks_checkout", "value": True, "source": "manual"},
+                    }
+                ],
+            ),
+        ]
+    )
+    def test_the_activity_log_holds_no_rule_answer_that_a_merge_carries_or_replaces(
+        self,
+        _name: str,
+        on_target: ErrorTrackingIssueTag.Source | None,
+        on_source: ErrorTrackingIssueTag.Source,
+        logged: list[dict[str, object]],
+    ) -> None:
+        target = ErrorTrackingIssue.objects.create(team=self.team)
+        if on_target is not None:
+            self._tag(target, on_target, True)
+        source = ErrorTrackingIssue.objects.create(team=self.team)
+        self._tag(source, on_source, True)
+
+        target.merge([source.id])
+
+        assert self._target_answer(target) == (on_source, True)
+        assert [
+            change for entry in _issue_activity(target) for change in (entry.detail or {}).get("changes", [])
+        ] == logged
 
     def test_a_carried_label_is_logged_on_the_target_and_reaches_clickhouse(self) -> None:
         target = ErrorTrackingIssue.objects.create(team=self.team, name="TypeError: cart is undefined")

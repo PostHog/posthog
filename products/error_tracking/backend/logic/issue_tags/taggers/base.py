@@ -24,8 +24,7 @@ class TagAnswer:
 @frozen
 class TagContext:
     issue: ErrorTrackingIssue
-    # The issue's exception event as text, built the way `build_severity_state` builds severity's Jev input.
-    state: str
+    event_properties: dict[str, object]
 
 
 class Tagger(Protocol):

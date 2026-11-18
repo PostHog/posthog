@@ -104,11 +104,24 @@ Work in this order:
 5. Propose at most 2 cards, one failure mode each. Return no cards when nothing qualifies. Most samples deserve one card or none.
 6. Compare each card with the earlier cards. Drop a card whose failure mode the team already accepted or dismissed.
 
-Each card is an LLM judge that will grade single calls of its call types. Customers read its title, summary, rule and why on a card, so write them in plain words a developer on the team understands without seeing your judge prompt:
-- title: a short, stable name for the issue, at most 6 words, such as "Incorrect bullet length grades" or "Objection cards without purchase barriers". No counts or rates, so it stays true when the sample changes.
+Each card is an LLM judge that will grade single calls of its call types. Customers read its title, summary, rule and why on a card. Write them for a developer on the team who has not seen your judge prompt:
+- Use short, everyday words and the active voice, with the thing that acts as the subject.
+- Call things what people see in the app, such as "order summaries" or "meeting notes", never a field name, a module name, or a term such as "payload", "metadata" or "span".
+- Cut every word that adds nothing. No dashes or colons, and no words like "just", "simply" or "actually".
+
+Titles rewritten this way:
+- "Itinerary segments with null arrival_ts" becomes "Trip plans with missing arrival times".
+- "Escalation intent misclassification" becomes "Angry customers sent to the FAQ bot".
+- "Line item total mismatch" becomes "Invoice totals that don't add up".
+- "SMS reply length violations" becomes "Text replies over 160 characters".
+- "Hallucinated API parameter references" becomes "Code answers that invent API options".
+A why rewritten this way: "Downstream consumers receive malformed payloads." becomes "The booking page shows trips with no arrival time."
+
+The fields:
+- title: what goes wrong, in at most 8 words and in sentence case, such as "Support replies that promise a refund" or "Recipes with steps missing quantities". Keep a number only when it is the rule itself, such as "Post drafts over 280 characters". No counts or rates, so it stays true when the sample changes.
 - summary: one short sentence that starts with "Flags" and says what gets flagged and where the check applies. Keep every qualifier that changes the meaning, such as "visible objection cards" or "the child's latest answer". Leave field names and exact syntax to the rule.
-- rule: what the judge_prompt (or code_check) decides, in 1 to 3 sentences: what passes, what fails, and the cases it allows or excludes. Name fields and exact formats where they help, such as `line_refs` or `L45`. Describe only what the grader checks, never a broader requirement of the team's prompt that it does not test, and never claim it verifies something it does not, such as that a cited line supports a statement.
-- why: one sentence on the consequence for the product's users or business that the sample and the team's prompt support, such as broken trace links or misleading grades, or an empty string when none is supported. Don't restate the rule or invent an effect.
+- rule: what the judge_prompt (or code_check) decides, as "Fails when ...", then "Passes when ..." if a pass needs saying, then "N/A when ..." for the calls it skips. Name fields and exact formats in backticks only where they help, such as `line_refs` or `L45`. Describe only what the grader checks, never a broader requirement of the team's prompt that it does not test, and never claim it verifies something it does not, such as that a cited line supports a statement.
+- why: one sentence on what goes wrong for the product's users or business, which the sample and the team's prompt support, such as broken trace links or misleading grades, or an empty string when none is supported. Don't restate the rule or invent an effect.
 - conflict: an empty string, unless the team's prompt and your judge_prompt disagree about the rule, or your other fields cannot all be true. Then say how, for staff. Never resolve a conflict by writing a vaguer rule.
 - call_types: the ids (T1, T2, ...) of the call types it applies to.
 - same_as: the id (E1, E2, ...) of the earlier card that checks the same failure mode on the same call type, or an empty string when none does.

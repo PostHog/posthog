@@ -127,6 +127,8 @@ _RUNNER_AGGREGATIONS: dict[MetricAggregation, str] = {
     MetricAggregation.MAX: "max",
     MetricAggregation.RATE: "rate",
     MetricAggregation.INCREASE: "increase",
+    MetricAggregation.COUNT_RATE: "count_rate",
+    MetricAggregation.COUNT_INCREASE: "count_increase",
 }
 
 
@@ -205,8 +207,10 @@ def _output_unit(ingested: str | None, clause: MetricQueryClause) -> str | None:
     A histogram quantile of series that all carry no unit reads the unit from
     a Prometheus name suffix: a percentile is in the unit of the observations,
     and `http_request_duration_seconds` observes seconds."""
-    if ingested is None or clause.aggregation is MetricAggregation.COUNT:
+    if ingested is None or clause.aggregation in (MetricAggregation.COUNT, MetricAggregation.COUNT_INCREASE):
         return None
+    if clause.aggregation is MetricAggregation.COUNT_RATE:
+        return "1/s"
     if clause.aggregation is MetricAggregation.RATE or clause.range_function is MetricRangeFunction.RATE:
         return f"{ingested or '1'}/s"
     if not ingested and clause.aggregation is MetricAggregation.HISTOGRAM_QUANTILE:
