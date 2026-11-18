@@ -35,9 +35,9 @@ ORDER_PAID_EXCLUDING_TEST_PLANS = {
     **ORDER_PAID,
     "properties": [{"key": "plan", "value": ["test"], "operator": "is_not", "type": "event"}],
 }
-ORDER_PAID_BY_HOGQL_DISTINCT_ID = {
+ORDER_PAID_EXCLUDING_TEST_PLANS_BY_HOGQL = {
     **ORDER_PAID,
-    "properties": [{"key": "distinct_id = 'user-1' AND person_id IS NOT NULL", "type": "hogql"}],
+    "properties": [{"key": "properties.plan NOT ILIKE '%test%'", "type": "hogql"}],
 }
 FINANCE_ORGANIZATIONS = {
     "key": "industry",
@@ -133,13 +133,13 @@ class TestSessionRecordingsListByUnsessionedEvents(ClickhouseTestMixin, APIBaseT
                 False,
             ),
             (
-                "hogql_filter_naming_joined_fields",
+                "hogql_filter_turns_match_off",
                 True,
                 "user-1",
                 INSIDE_WINDOW,
                 None,
-                [ORDER_PAID_BY_HOGQL_DISTINCT_ID],
-                True,
+                [ORDER_PAID_EXCLUDING_TEST_PLANS_BY_HOGQL],
+                False,
             ),
             ("and_with_a_sessioned_filter", True, "user-1", INSIDE_WINDOW, None, [ORDER_PAID, PAGEVIEW], True),
         ]

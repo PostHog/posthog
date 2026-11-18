@@ -219,6 +219,8 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             # that an excluded event without a session id should remove.
             or self.negated_entities
             or self._collect_negative_properties()
+            # A HogQL filter has no operator, so whether it excludes events can't be read from it.
+            or self._has_hogql_property()
             # Without an event or action filter there is no event to match by time.
             or not self.entities
             or all(isinstance(entity, DataWarehouseNode) for entity in self.entities)
@@ -231,6 +233,17 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             return False
         return feature_enabled_or_false(
             UNSESSIONED_EVENTS_FLAG, str(self._team.id), only_evaluate_locally=True, send_feature_flag_events=False
+        )
+
+    def _has_hogql_property(self) -> bool:
+        entity_properties = [
+            prop
+            for entity in self.entities
+            if not isinstance(entity, DataWarehouseNode)
+            for prop in entity.properties or []
+        ]
+        return any(
+            getattr(prop, "type", None) == "hogql" for prop in [*(self._query.properties or []), *entity_properties]
         )
 
     def _date_range_days(self) -> int:
