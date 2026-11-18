@@ -253,7 +253,7 @@ export function getDefaultKafkaWarpstreamCyclotronProducerEnvConfig(): KafkaWarp
 }
 
 // The cyclotron producer's settings, apart from the ones a route's answer waits on: it barely lingers, because a
-// route's produce holds a request open, and it never turns idempotence on, because lightning topics refuse idempotent
+// route's produce holds a request open, and it defaults idempotence off, because lightning topics refuse idempotent
 // producers. The intake consumer's dead letters share the producer and its settings.
 export const WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER_CONFIG_MAP = {
     ...WARPSTREAM_CYCLOTRON_PRODUCER_CONFIG_MAP,
