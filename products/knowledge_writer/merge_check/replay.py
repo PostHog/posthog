@@ -36,6 +36,7 @@ ERROR_MESSAGE_LIMIT = 200
 GITHUB_CACHE_DIRECTORY = Path.home() / ".cache" / "posthog" / "knowledge-writer-eval" / "github"
 CACHED_STATUS_CODES = frozenset({200, 404})
 COMMIT_FILES_PER_PAGE = 100
+PATCHED_FILE_STATUSES = frozenset({"modified", "changed"})
 COMMIT_MAX_LISTED_FILES = 3000
 EVAL_ROW_ERRORS = (requests.RequestException, httpx.HTTPError, APIError, UnexpectedGitHubResponse)
 SCORED_CRITERION_BY_TRUTH_KEY = {
@@ -358,7 +359,10 @@ def commit_publication_refusal(github: GitHubReader, repository: str, commit_sha
     if not change.paths:
         return "no_changes"
     tree = parent_tree(github, repository, parent_tree_sha, change.paths)
-    changed_files = changed_files_for(change, tree)
+    try:
+        changed_files = changed_files_for(change, tree)
+    except WriterChangeRefused as refused:
+        return refused.reason
     if changed_files is None:
         return "unsafe_base_entry"
     return publication_refusal(
@@ -401,7 +405,19 @@ def writer_change_manifest(github: GitHubReader, repository: str, compared_files
         for compared_file in compared_files
         if compared_file["status"] in ("removed", "renamed")
     ]
-    return json.dumps({"written": written, "deleted": deleted}).encode()
+    patches = {
+        compared_file["filename"]: github_patch(compared_file)
+        for compared_file in compared_files
+        if compared_file["status"] in PATCHED_FILE_STATUSES
+    }
+    return json.dumps({"written": written, "deleted": deleted, "patches": patches}).encode()
+
+
+def github_patch(compared_file: dict) -> str:
+    patch = compared_file.get("patch", "" if compared_file["status"] == "changed" else None)
+    if not isinstance(patch, str):
+        raise UnexpectedGitHubResponse(f"GitHub omitted the patch of {compared_file['filename']}")
+    return patch
 
 
 def blob_base64(github: GitHubReader, repository: str, blob_sha: str) -> str:

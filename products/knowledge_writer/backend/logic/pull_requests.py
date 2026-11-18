@@ -1,6 +1,5 @@
 import re
 import uuid
-import difflib
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from datetime import datetime
@@ -28,10 +27,12 @@ from ..feature_flags import open_pull_requests_flag_state
 from ..settings import WriterSettings, docs_source_for, writer_settings
 from .docs_pages import (
     DOCS_SOURCE_EXTENSIONS,
+    NO_FINAL_NEWLINE_MARKER,
     are_only_page_entries_changed,
     are_only_page_redirects_changed,
     docs_page_key,
     is_nav_line,
+    patch_hunks,
     route_segments,
 )
 from .grounding import MAX_GROUNDED_LINES, GroundingResult, ground_draft
@@ -378,7 +379,11 @@ def publish_change(run: TaskRunDTO, team_id: int, writer: WriterSettings) -> Pub
         refuse_draft(draft, "no_changes")
         return None
     tree = base_tree(github, writer.docs_repository, base_sha, change.paths)
-    changed_files = changed_files_for(change, tree)
+    try:
+        changed_files = changed_files_for(change, tree)
+    except WriterChangeRefused as refused:
+        refuse_draft(draft, refused.reason)
+        return None
     if changed_files is None:
         refuse_draft(draft, "unsafe_base_entry")
         return None
@@ -517,11 +522,12 @@ def changed_files_for(change: WriterChange, tree: BaseTree) -> list[dict] | None
             return None
         base_text = tree.texts.get(path) if base_entry is not None else ""
         head_text = head_by_path.get(path) if path in change.written else ""
+        status = file_status(path, change, is_in_base=base_entry is not None)
         changed_files.append(
             {
                 "filename": path,
-                "status": file_status(path, change, is_in_base=base_entry is not None),
-                "patch": text_patch(base_text, head_text),
+                "status": status,
+                "patch": file_patch(status, base_text, head_text, change.patches.get(path)),
             }
         )
     return changed_files
@@ -548,16 +554,28 @@ def decoded_text(content: bytes) -> str | None:
         return None
 
 
-def text_patch(base_text: str | None, head_text: str | None) -> str | None:
+def file_patch(status: str, base_text: str | None, head_text: str | None, shipped_patch: str | None) -> str | None:
     if base_text is None or head_text is None:
         return None
-    hunks = difflib.unified_diff(git_lines(base_text), git_lines(head_text), lineterm="")
-    return "\n".join(list(hunks)[2:])
+    if status == "added":
+        return whole_file_patch(head_text, marker="+")
+    if status == "removed":
+        return whole_file_patch(base_text, marker="-")
+    if shipped_patch is None or patch_hunks(shipped_patch, base_text.split("\n"), head_text.split("\n")) is None:
+        raise WriterChangeRefused("patch_mismatch")
+    return shipped_patch.removesuffix("\n")
 
 
-def git_lines(text: str) -> list[str]:
-    lines = text.split("\n")
-    return lines[:-1] if lines[-1] == "" else lines
+def whole_file_patch(text: str, *, marker: str) -> str:
+    if not text:
+        return ""
+    lines = text.removesuffix("\n").split("\n")
+    line_span = "1" if len(lines) == 1 else f"1,{len(lines)}"
+    header = f"@@ -0,0 +{line_span} @@" if marker == "+" else f"@@ -{line_span} +0,0 @@"
+    body = "\n".join(f"{marker}{line}" for line in lines)
+    if text.endswith("\n"):
+        return f"{header}\n{body}"
+    return f"{header}\n{body}\n{NO_FINAL_NEWLINE_MARKER}"
 
 
 def refuse_draft(draft: DraftAttempt, refusal: str) -> None:

@@ -24,6 +24,7 @@ def docs_folders_of(writer: WriterSettings, docs_content_root: object) -> tuple[
 class WriterChange:
     written: Mapping[str, bytes]
     deleted: frozenset[str]
+    patches: Mapping[str, str]
 
     @property
     def paths(self) -> frozenset[str]:
@@ -59,15 +60,26 @@ def parse_writer_change(raw: bytes) -> WriterChange:
         raise WriterChangeRefused("manifest_unreadable") from error
     written_entries = manifest.get("written") if isinstance(manifest, dict) else None
     deleted_entries = manifest.get("deleted") if isinstance(manifest, dict) else None
+    patch_entries = manifest.get("patches") if isinstance(manifest, dict) else None
     if not isinstance(written_entries, dict) or not isinstance(deleted_entries, list):
         raise WriterChangeRefused("manifest_unreadable")
     if not all(isinstance(path, str) for path in deleted_entries):
+        raise WriterChangeRefused("manifest_unreadable")
+    if not is_patches_shape(patch_entries, written_entries):
         raise WriterChangeRefused("manifest_unreadable")
     all_paths = [*written_entries, *deleted_entries]
     if any(is_unsafe_path(path) for path in all_paths) or has_colliding_paths(all_paths):
         raise WriterChangeRefused("unsafe_path")
     written = {path: decoded_content(content) for path, content in written_entries.items()}
-    return WriterChange(written=written, deleted=frozenset(deleted_entries))
+    return WriterChange(written=written, deleted=frozenset(deleted_entries), patches=patch_entries)
+
+
+def is_patches_shape(patch_entries: object, written_entries: dict) -> bool:
+    if not isinstance(patch_entries, dict):
+        return False
+    return all(isinstance(patch, str) for patch in patch_entries.values()) and set(patch_entries) <= set(
+        written_entries
+    )
 
 
 def decoded_content(content: object) -> bytes:

@@ -57,7 +57,7 @@ listed = subprocess.run(
 problems, written, deleted, patches = [], {}, [], {}
 for meta, path in zip(listed[0::2], listed[1::2]):
     name = path.decode("utf-8", "replace")
-    old_mode, new_mode = meta.split()[0].lstrip(b":"), meta.split()[1]
+    old_mode, new_mode, new_blob = meta.split()[0].lstrip(b":"), meta.split()[1], meta.split()[3].decode()
     is_companion = name in COMPANION_PATHS
     if len(path) > MAX_PATH_BYTES:
         problems.append(f"{name}: the path is longer than {MAX_PATH_BYTES} bytes, use a shorter name")
@@ -81,8 +81,7 @@ for meta, path in zip(listed[0::2], listed[1::2]):
     if new_mode == b"160000":
         problems.append(f"{name}: submodules cannot be part of the change, remove it")
         continue
-    with open(path, "rb") as changed:
-        content = changed.read()
+    content = subprocess.run(["git", "cat-file", "blob", new_blob], check=True, capture_output=True).stdout
     try:
         content.decode("utf-8")
     except UnicodeDecodeError:
@@ -93,7 +92,7 @@ for meta, path in zip(listed[0::2], listed[1::2]):
         continue
     diff_lines = subprocess.run(
         [
-            "git", "--literal-pathspecs", "diff", "--no-color", "--no-ext-diff", "--no-textconv", "--text",
+            "git", "--literal-pathspecs", "diff", "--cached", "--no-color", "--no-ext-diff", "--no-textconv", "--text",
             BASE_SHA, "--", name,
         ],
         check=True,

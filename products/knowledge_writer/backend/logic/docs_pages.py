@@ -17,8 +17,9 @@ NAV_LINK_PAIR_PATTERN = re.compile(
     rf"""(?<![\w$])["']?(?:{"|".join(map(re.escape, sorted(NAV_LINK_KEYS)))})["']?\s*:\s*(?:'(?P<single>[^'\\]*)'|"(?P<double>[^"\\]*)")"""
 )
 HUNK_HEADER_PATTERN = re.compile(
-    r"@@ -(?P<base_start>\d+)(?:,(?P<base_length>\d+))? \+(?P<head_start>\d+)(?:,(?P<head_length>\d+))? @@"
+    r"@@ -(?P<base_start>\d{1,9})(?:,(?P<base_length>\d{1,9}))? \+(?P<head_start>\d{1,9})(?:,(?P<head_length>\d{1,9}))? @@"
 )
+NO_FINAL_NEWLINE_MARKER = "\\ No newline at end of file"
 OPENING_BRACKETS = frozenset("{[(")
 OPENING_BRACKET_BY_CLOSING = {"}": "{", "]": "[", ")": "("}
 STRING_QUOTES = frozenset("'\"`")
@@ -125,9 +126,24 @@ def patch_hunks(
 ) -> list[tuple[str, int, int, int, int]] | None:
     hunks: list[tuple[str, int, int, int, int]] = []
     base_cursor, head_cursor = 0, 0
-    for patch_line in patch.split("\n") if patch else []:
+    base_end, head_end = content_line_count(base_lines), content_line_count(head_lines)
+    previous_marker = ""
+    is_base_marked, is_head_marked = False, False
+    for patch_line in patch.removesuffix("\n").split("\n") if patch else []:
+        if patch_line == NO_FINAL_NEWLINE_MARKER:
+            marks_base, marks_head = previous_marker in (" ", "-"), previous_marker in (" ", "+")
+            if not (marks_base or marks_head):
+                return None
+            if marks_base and (is_base_marked or base_cursor != base_end):
+                return None
+            if marks_head and (is_head_marked or head_cursor != head_end):
+                return None
+            is_base_marked, is_head_marked = is_base_marked or marks_base, is_head_marked or marks_head
+            previous_marker = NO_FINAL_NEWLINE_MARKER
+            continue
         header = HUNK_HEADER_PATTERN.match(patch_line)
         marker, content = patch_line[:1], patch_line[1:]
+        previous_marker = "@" if header is not None else marker
         if header is not None:
             base_start = hunk_start(header["base_start"], header["base_length"])
             head_start = hunk_start(header["head_start"], header["head_length"])
@@ -146,11 +162,30 @@ def patch_hunks(
             return None
         base_cursor, head_cursor = base_cursor + is_base_line, head_cursor + is_head_line
         extend_hunks(hunks, is_change=marker != " ", base_end=base_cursor, head_end=head_cursor)
-    base_end, head_end = content_line_count(base_lines), content_line_count(head_lines)
     if not is_unchanged_run(base_lines, base_cursor, base_end, head_lines, head_cursor, head_end):
+        return None
+    if not are_final_newlines_described(
+        base_lines,
+        head_lines,
+        is_tail_unchanged=base_cursor < base_end,
+        is_base_marked=is_base_marked,
+        is_head_marked=is_head_marked,
+    ):
         return None
     extend_hunks(hunks, is_change=False, base_end=base_end, head_end=head_end)
     return hunks
+
+
+def are_final_newlines_described(
+    base_lines: list[str], head_lines: list[str], *, is_tail_unchanged: bool, is_base_marked: bool, is_head_marked: bool
+) -> bool:
+    if is_tail_unchanged:
+        return lacks_final_newline(base_lines) == lacks_final_newline(head_lines)
+    return (is_base_marked, is_head_marked) == (lacks_final_newline(base_lines), lacks_final_newline(head_lines))
+
+
+def lacks_final_newline(lines: list[str]) -> bool:
+    return lines[-1] != "" if lines else False
 
 
 def hunk_start(start: str, length: str | None) -> int:

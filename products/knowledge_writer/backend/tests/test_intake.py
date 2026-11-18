@@ -3,11 +3,14 @@ import json
 import uuid
 import base64
 import hashlib
+import tempfile
 import threading
 import contextlib
+import subprocess
 import dataclasses
 from collections.abc import Mapping
 from datetime import UTC
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -127,9 +130,44 @@ def _nav(*added_lines: str, replaced: Mapping[str, str] | None = None) -> str:
     return "".join([lines[0], *(f"{line}\n" for line in added_lines), *lines[1:]])
 
 
-def _change(written: Mapping[str, str] | None = None, deleted: tuple[str, ...] = ()) -> bytes:
-    encoded = {path: base64.b64encode(text.encode()).decode() for path, text in (written or {}).items()}
-    return json.dumps({"written": encoded, "deleted": list(deleted)}).encode()
+def _git_patch(base_text: str, head_text: str) -> str:
+    with tempfile.TemporaryDirectory() as directory:
+        base_path, head_path = Path(directory, "base"), Path(directory, "head")
+        base_path.write_bytes(base_text.encode())
+        head_path.write_bytes(head_text.encode())
+        diff = subprocess.run(
+            [
+                "git",
+                "diff",
+                "--no-index",
+                "--no-color",
+                "--no-ext-diff",
+                "--no-textconv",
+                "--text",
+                base_path.name,
+                head_path.name,
+            ],
+            capture_output=True,
+            cwd=directory,
+        )
+    assert diff.returncode in (0, 1), diff.stderr
+    diff_lines = diff.stdout.splitlines(keepends=True)
+    first_hunk = next((index for index, line in enumerate(diff_lines) if line.startswith(b"@@")), len(diff_lines))
+    return b"".join(diff_lines[first_hunk:]).decode()
+
+
+def _change(
+    written: Mapping[str, str] | None = None,
+    deleted: tuple[str, ...] = (),
+    *,
+    base_files: Mapping[str, str] = BASE_FILES,
+    patches: Mapping[str, str] | None = None,
+) -> bytes:
+    written = written or {}
+    encoded = {path: base64.b64encode(text.encode()).decode() for path, text in written.items()}
+    git_patches = {path: _git_patch(base_files[path], text) for path, text in written.items() if path in base_files}
+    shipped_patches = git_patches if patches is None else patches
+    return json.dumps({"written": encoded, "deleted": list(deleted), "patches": shipped_patches}).encode()
 
 
 DOCS_CHANGE = _change({DOCS_PAGE_PATH: "Retention lasts 90 days.\n"})
@@ -572,13 +610,15 @@ def test_a_request_starts_one_read_only_writer_task_and_a_repeat_even_after_a_fa
     assert (dispatch_options.create_pr, dispatch_options.posthog_mcp_scopes) == (False, [])
 
 
-def _new_page_with(companion_path: str, companion_text: str) -> bytes:
-    return _change({NEW_PAGE_PATH: "# Retention presets\n", companion_path: companion_text})
+def _new_page_with(companion_path: str, companion_text: str, base_files: Mapping[str, str] = BASE_FILES) -> bytes:
+    return _change({NEW_PAGE_PATH: "# Retention presets\n", companion_path: companion_text}, base_files=base_files)
 
 
-def _renamed_page_with_redirects(vercel_config: dict) -> bytes:
+def _renamed_page_with_redirects(vercel_config: dict, base_files: Mapping[str, str] = BASE_FILES) -> bytes:
     return _change(
-        {NEW_PAGE_PATH: "# Retention presets\n", "vercel.json": json.dumps(vercel_config)}, deleted=(DOCS_PAGE_PATH,)
+        {NEW_PAGE_PATH: "# Retention presets\n", "vercel.json": json.dumps(vercel_config)},
+        deleted=(DOCS_PAGE_PATH,),
+        base_files=base_files,
     )
 
 
@@ -587,6 +627,7 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
     (json.dumps({"written": {DOCS_PAGE_PATH: "not base64!"}, "deleted": []}).encode(), {}, "manifest_unreadable"),
     (_change(), {}, "no_changes"),
     (b" " * (MAX_WRITER_CHANGE_BYTES + 1), {}, "change_too_large"),
+    (_change(deleted=(DOCS_PAGE_PATH,), patches={DOCS_PAGE_PATH: ""}), {}, "manifest_unreadable"),
     (_change({"contents/docs/../../.github/workflows/deploy.yml": "x"}), {}, "unsafe_path"),
     (_change({"contents/docs/.git/config": "x"}), {}, "unsafe_path"),
     (_change({"contents/docs/Retention.mdx": "x", "contents/docs/retention.mdx": "y"}), {}, "unsafe_path"),
@@ -603,7 +644,7 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
         "changed_paths_outside_docs",
     ),
     (
-        _new_page_with(NAV_PATH, _nav(NEW_PAGE_NAV_LINE)),
+        _new_page_with(NAV_PATH, _nav(NEW_PAGE_NAV_LINE), {**BASE_FILES, NEW_PAGE_PATH: "# Old presets\n"}),
         {"base_files": {**BASE_FILES, NEW_PAGE_PATH: "# Old presets\n"}},
         "changed_paths_outside_docs",
     ),
@@ -636,6 +677,7 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
         _new_page_with(
             NAV_PATH,
             MULTI_LINE_NAV_BASE.replace("[\n", f"[\n{NEW_PAGE_NAV_LINE}\n", 1).replace("'Pricing'", "'Plans'"),
+            {**BASE_FILES, NAV_PATH: MULTI_LINE_NAV_BASE},
         ),
         {"base_files": {**BASE_FILES, NAV_PATH: MULTI_LINE_NAV_BASE}},
         "changed_paths_outside_docs",
@@ -646,6 +688,7 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
             NESTED_NAV_BASE.replace("[\n", f"[\n{NEW_PAGE_NAV_LINE}\n", 1).replace(
                 "'Getting started'", "'Visit attacker.example'"
             ),
+            {**BASE_FILES, NAV_PATH: NESTED_NAV_BASE},
         ),
         {"base_files": {**BASE_FILES, NAV_PATH: NESTED_NAV_BASE}},
         "changed_paths_outside_docs",
@@ -656,7 +699,10 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
         "changed_paths_outside_docs",
     ),
     (
-        _renamed_page_with_redirects({**VERCEL_BASE, "redirects": [*reversed(EXISTING_REDIRECTS), RENAME_REDIRECT]}),
+        _renamed_page_with_redirects(
+            {**VERCEL_BASE, "redirects": [*reversed(EXISTING_REDIRECTS), RENAME_REDIRECT]},
+            {**BASE_FILES, "vercel.json": json.dumps({**VERCEL_BASE, "redirects": EXISTING_REDIRECTS})},
+        ),
         {"base_files": {**BASE_FILES, "vercel.json": json.dumps({**VERCEL_BASE, "redirects": EXISTING_REDIRECTS})}},
         "changed_paths_outside_docs",
     ),
@@ -806,17 +852,17 @@ def test_a_finished_writer_run_commits_only_a_gated_change_and_opens_one_linked_
         create_for_refused_change.assert_not_called()
         assert (refused.created_branches, bool(refused.commits)) == ([], refusal == "branch_moved")
         assert tasks_facade.read_task_state_entry(started.task_id, team.id, PULL_REQUEST_FAILURE_STATE_KEY) == refusal
-    docs_github = DocsGitHub(
-        graphql_text_limit=40,
-        base_files={**BASE_FILES, SHARING_PAGE_PATH: "Share a recording.\n"},
-        **docs_github_state,
-    )
+    published_base_files = {**BASE_FILES, SHARING_PAGE_PATH: "Share a recording.\n"}
+    docs_github = DocsGitHub(graphql_text_limit=40, base_files=published_base_files, **docs_github_state)
     with (
         patch(CREATE_PULL_REQUEST, return_value={"success": False, "status_code": 502}) as create_for_new_page,
         patch(CAPTURE_DRAFT) as failed_capture,
     ):
         _finish_run(
-            started.task_id, django_capture_on_commit_callbacks, change=_change(published_files), github=docs_github
+            started.task_id,
+            django_capture_on_commit_callbacks,
+            change=_change(published_files, base_files=published_base_files),
+            github=docs_github,
         )
     create_for_new_page.assert_called_once()
     [failed_draft] = failed_capture.return_value.__enter__.return_value.call_args_list
@@ -971,6 +1017,69 @@ def test_with_pull_requests_off_a_finished_run_is_logged_with_its_patches_and_cr
             "is_patch_truncated": False,
         }
     ]
+
+
+CRLF_PAGE = {
+    "base": "Retention lasts 30 days.\r\nKeep recordings.\r\n",
+    "head": "Retention lasts 90 days.\r\nKeep recordings.\r\n",
+}
+UNTERMINATED_PAGE = {"base": "Retention lasts 30 days.", "head": "Retention lasts 90 days."}
+TERMINATED_PAGE = {"base": "Retention lasts 30 days.\n", "head": "Retention lasts 90 days.\n"}
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "page, shipped_patch, expected_failure",
+    [
+        (CRLF_PAGE, None, OPEN_PULL_REQUESTS_OFF),
+        (UNTERMINATED_PAGE, None, OPEN_PULL_REQUESTS_OFF),
+        (UNTERMINATED_PAGE, "@@ -1 +1 @@\n-Retention lasts 30 days.\n+Retention lasts 90 days.\n", "patch_mismatch"),
+        (TERMINATED_PAGE, "@@ -1 +1 @@\n-Retention lasts 30 days.\n+Retention lasts 60 days.\n", "patch_mismatch"),
+        (TERMINATED_PAGE, "", "patch_mismatch"),
+    ],
+    ids=["crlf_page", "page_without_final_newline", "patch_hiding_missing_newline", "tampered_patch", "empty_patch"],
+)
+def test_a_modified_page_publishes_only_when_its_shipped_patch_rebuilds_it_from_base(
+    team,
+    writer_env,
+    django_capture_on_commit_callbacks,
+    monkeypatch,
+    page: Mapping[str, str],
+    shipped_patch: str | None,
+    expected_failure: str,
+) -> None:
+    monkeypatch.setattr(KNOWLEDGE_WRITER_ENABLED, lambda team_id: True)
+    monkeypatch.setattr(START_PUBLISH, _run_publish_workflow_inline)
+    monkeypatch.setenv("KNOWLEDGE_WRITER_DOCS_PATHS", "contents/docs")
+    with (
+        patch(FLAG_CHECK, side_effect=lambda flag, *args, **kwargs: flag != OPEN_PULL_REQUESTS_FLAG),
+        patch(START_WORKFLOW),
+    ):
+        started = intake.submit(_verdict(suggested_page_urls=(RETENTION_PAGE,)), team_id=team.id)
+    assert started.task_id is not None
+    base_files = {**BASE_FILES, DOCS_PAGE_PATH: page["base"]}
+    change = _change(
+        {DOCS_PAGE_PATH: page["head"]},
+        base_files=base_files,
+        patches=None if shipped_patch is None else {DOCS_PAGE_PATH: shipped_patch},
+    )
+    with (
+        patch(FLAG_CHECK, side_effect=lambda flag, *args, **kwargs: flag != OPEN_PULL_REQUESTS_FLAG),
+        patch(CAPTURE_DRAFT) as scoped_capture,
+    ):
+        _finish_run(
+            started.task_id, django_capture_on_commit_callbacks, change=change, github=DocsGitHub(base_files=base_files)
+        )
+
+    assert (
+        tasks_facade.read_task_state_entry(started.task_id, team.id, PULL_REQUEST_FAILURE_STATE_KEY) == expected_failure
+    )
+    if expected_failure != OPEN_PULL_REQUESTS_OFF:
+        return
+    drafted_patch = scoped_capture.return_value.__enter__.return_value.call_args.kwargs["properties"]["files"][0][
+        "patch"
+    ]
+    assert drafted_patch == _git_patch(page["base"], page["head"]).removesuffix("\n")
 
 
 @pytest.mark.django_db
