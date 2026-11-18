@@ -36,8 +36,8 @@ import {
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { pluralize } from 'lib/utils/strings'
-import { openDeleteGroupTypeDialog } from 'scenes/settings/environment/GroupAnalyticsConfig'
 import { groupAnalyticsConfigLogic } from 'scenes/settings/environment/groupAnalyticsConfigLogic'
+import { openDeleteGroupTypeDialog } from 'scenes/settings/environment/openDeleteGroupTypeDialog'
 import { terminalDockLogic } from 'scenes/terminal/terminalDockLogic'
 
 import { FileSystemEntry } from '~/queries/schema/schema-general'
