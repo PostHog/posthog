@@ -85,7 +85,9 @@ html.export-type-embed {
             display: flex;
             flex-direction: column;
             gap: 1rem;
+            width: 100% !important;
             height: auto !important;
+            transition: none !important;
         }
 
         .react-grid-item {
@@ -94,6 +96,9 @@ html.export-type-embed {
             left: auto !important;
             flex-shrink: 0;
             width: 100% !important;
+            max-height: calc(210mm - 2rem);
+            overflow: hidden;
+            transition: none !important;
             transform: none !important;
             break-inside: avoid;
             content-visibility: visible;

@@ -41,6 +41,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.dashboards.backend.facade import api as dashboards_api
 from products.exports.backend.facade.api import export_execution_mode, export_limit_context
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token, save_content
+from products.exports.backend.tasks.dashboard_pdf import PDF_PAGE_WIDTH, render_dashboard_pdf, validate_dashboard_pdf
 from products.exports.backend.tasks.exporter_utils import log_error_if_site_url_not_reachable
 from products.exports.backend.tasks.failure_handler import (
     BrowserlessUnavailable,
@@ -376,12 +377,16 @@ def _export_rendered_asset(
             wait_for_css_selector = ".ExportedInsight"
             screenshot_width = _insight_query_screenshot_width(exported_asset.insight.query or {})
         elif exported_asset.dashboard is not None:
+            if exported_asset.export_format == ExportedAsset.ExportFormat.PDF:
+                validate_dashboard_pdf(exported_asset.dashboard)
             cache_keys_param = _build_cache_keys_param(insight_cache_keys)
             url_to_render = _exporter_url(f"token={access_token}{cache_keys_param}")
             wait_for_css_selector = (
                 ".react-grid-item" if exported_asset.export_format == ExportedAsset.ExportFormat.PDF else ".InsightCard"
             )
-            screenshot_width = 1122 if exported_asset.export_format == ExportedAsset.ExportFormat.PDF else 1920
+            screenshot_width = (
+                PDF_PAGE_WIDTH if exported_asset.export_format == ExportedAsset.ExportFormat.PDF else 1920
+            )
         elif exported_asset.export_context and exported_asset.export_context.get("session_recording_id"):
             # Handle replay export using /exporter route (same as insights/dashboards)
             url_to_render = _exporter_url(
@@ -672,17 +677,9 @@ def _screenshot_asset_browserless(
             stages.done("content")
 
             if export_pdf:
-                # Grid DOM order can differ from its saved visual order; preserve that order when print stacks tiles.
-                page.evaluate("""() => {
-                    document.querySelectorAll('.react-grid-layout').forEach(grid => {
-                        Array.from(grid.children)
-                            .filter(element => element.classList.contains('react-grid-item'))
-                            .map(element => ({ element, rect: element.getBoundingClientRect() }))
-                            .sort((a, b) => a.rect.top - b.rect.top || a.rect.left - b.rect.left)
-                            .forEach(({ element }, index) => { element.style.order = String(index) })
-                    })
-                }""")
-                page.emulate_media(media="print")
+                render_dashboard_pdf(page, image_path)
+                stages.done("screenshot")
+                return None
 
             effective_max = _effective_max_height(max_height_pixels)
             height = _cap_height(
@@ -707,15 +704,7 @@ def _screenshot_asset_browserless(
                 page.set_viewport_size({"width": width, "height": final_height})
                 # Charts redraw their canvas after a resize, so a screenshot taken at once can catch them blank.
                 page.wait_for_timeout(500)
-            if export_pdf:
-                page.pdf(
-                    path=image_path,
-                    format="A4",
-                    landscape=True,
-                    print_background=True,
-                )
-            else:
-                page.screenshot(path=image_path)
+            page.screenshot(path=image_path)
             stages.done("screenshot")
             if not read_site_style:
                 return None
