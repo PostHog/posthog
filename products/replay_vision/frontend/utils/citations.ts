@@ -83,7 +83,6 @@ export function citedMarkdown(text: string, segments: unknown): string {
     return out
 }
 
-/** A recording position as `mm:ss`, the form citation chips and chapter times share. */
 export function msToTimestamp(ms: number): string {
     return colonDelimitedDuration(Math.max(0, Math.floor(ms / 1000)), null)
 }

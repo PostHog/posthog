@@ -38,28 +38,28 @@ function truncate(text: string | null, maxChars: number): string | null {
     return `${text.slice(0, highSurrogate ? maxChars - 1 : maxChars).trimEnd()}…`
 }
 
-function resultLines(observation: ReplayObservationApi): string[] {
-    const output = readModelOutput(observation) ?? {}
+function summaryLines(observation: ReplayObservationApi, output: Record<string, unknown>): string[] {
     const lines: string[] = []
-    if (isSummaryObservation(observation)) {
-        const title = readTitle(observation)
-        const summary = readSummary(observation)
-        if (title) {
-            lines.push(`Title: ${title}`)
-        }
-        if (summary) {
-            lines.push('', citedTextToPlainText(summary, output.summary_segments))
-        }
-        const chapters = readChapters(observation)
-        if (chapters.length > 0) {
-            lines.push('', 'Chapters:')
-            for (const chapter of chapters) {
-                lines.push(`- ${msToTimestamp(chapter.startMs)}-${msToTimestamp(chapter.endMs)} ${chapter.title}`)
-            }
-        }
-        return lines
+    const title = readTitle(observation)
+    const summary = readSummary(observation)
+    if (title) {
+        lines.push(`Title: ${title}`)
     }
+    if (summary) {
+        lines.push('', citedTextToPlainText(summary, output.summary_segments))
+    }
+    const chapters = readChapters(observation)
+    if (chapters.length > 0) {
+        lines.push('', 'Chapters:')
+        for (const chapter of chapters) {
+            lines.push(`- ${msToTimestamp(chapter.startMs)}-${msToTimestamp(chapter.endMs)} ${chapter.title}`)
+        }
+    }
+    return lines
+}
 
+function verdictLines(observation: ReplayObservationApi, output: Record<string, unknown>): string[] {
+    const lines: string[] = []
     const verdict = readVerdict(observation)
     if (verdict) {
         lines.push(`Verdict: ${VERDICT_LABEL[verdict]}`)
@@ -78,6 +78,11 @@ function resultLines(observation: ReplayObservationApi): string[] {
         lines.push('', 'Reasoning:', citedTextToPlainText(reasoning, output.reasoning_segments))
     }
     return lines
+}
+
+function resultLines(observation: ReplayObservationApi): string[] {
+    const output = readModelOutput(observation) ?? {}
+    return isSummaryObservation(observation) ? summaryLines(observation, output) : verdictLines(observation, output)
 }
 
 export function buildObservationContext(observation: ReplayObservationApi): string | null {

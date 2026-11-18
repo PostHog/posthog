@@ -344,6 +344,8 @@ export function AgentPromptButton({
             ? `Open in ${activeAgent.name}`
             : `${activeAgent.verb} ${activeAction.label}`
 
+    const groupButtonClassName = bordered ? undefined : 'border-0'
+
     const selectAction = (actionKey: string): void => {
         rememberAction(actionSetKey, actionKey)
     }
@@ -438,7 +440,7 @@ export function AgentPromptButton({
                 <QuillButton
                     variant={variant}
                     size={size}
-                    className={bordered ? undefined : 'border-0'}
+                    className={groupButtonClassName}
                     onClick={handleMainClick}
                     data-attr={dataAttr}
                     title={`Run: ${comboLabel}`}
@@ -451,7 +453,7 @@ export function AgentPromptButton({
                     <QuillButton
                         variant={variant}
                         size={ICON_SIZE[size]}
-                        className={bordered ? undefined : 'border-0'}
+                        className={groupButtonClassName}
                         aria-label={actions.length > 1 ? 'Choose prompt and agent' : 'Open prompt in an agent'}
                     >
                         <IconChevronDown className="size-4 text-current" />
