@@ -232,7 +232,10 @@ The box keeps them in memory only (`/dev/shm`, readable by your user alone), so 
 They are not in the environment. On the box, run a command that needs them with `devbox-secrets run -- <command>`, the way `op run` works locally.
 The push adds a note to the box's `~/.claude/CLAUDE.md` so agents there know to do the same.
 Anything running as you on the box can read them while they're lent, so lend keys with spending limits.
-Push refuses a box that is shared, and `devbox:share` refuses while secrets are lent.
+Push refuses a box that is shared with any user or group, and `devbox:share` refuses while secrets are lent.
+A command that `devbox-secrets run` started keeps the values after they expire or you clear them, so `devbox:share` also refuses while one runs.
+Unsharing doesn't end a former sharee's shells or processes. Restart the box after `devbox:unshare` and before you lend to it.
+Values must fit on one line. Push refuses a 1Password field with line breaks, such as a certificate.
 
 ## Auth model
 

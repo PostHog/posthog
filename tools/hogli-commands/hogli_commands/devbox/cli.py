@@ -1832,22 +1832,32 @@ def _warn_about_claude_login_before_sharing(name: str, workspace: dict[str, Any]
     click.echo("Logged out of Claude Code on the box.")
 
 
+# Looks at the store and the process table itself, so a deleted devbox-secrets script can't hide a lend.
+# A process that `devbox-secrets run` started keeps the values in its environment after the store goes.
+_LENT_SECRETS_PROBE = (
+    'test -e "/dev/shm/devbox-secrets-$(id -u)/env" && echo stored; '
+    "grep -qxz DEVBOX_SECRETS_LENT=1 /proc/[0-9]*/environ 2>/dev/null && echo running; "
+    "echo checked"
+)
+
+
 def _refuse_to_share_lent_secrets(name: str) -> None:
     """Fail while the box holds secrets from `devbox:secrets:push`, which a sharee could read."""
     _skip_startup_wait()
     try:
-        # The explicit path, like devbox:secrets:push uses: a login PATH without ~/.local/bin would hide it.
-        result = run_in_workspace(
-            name, ["bash", "-lc", '"$HOME/.local/bin/devbox-secrets" status'], timeout=_CLAUDE_AUTH_TIMEOUT
-        )
+        result = run_in_workspace(name, ["bash", "-c", _LENT_SECRETS_PROBE], timeout=_CLAUDE_AUTH_TIMEOUT)
     except subprocess.TimeoutExpired:
         _fail("Couldn't check the devbox for lent secrets, because it didn't answer. Run the command again.")
-    # 127: the box never got devbox-secrets, so nothing was lent to it.
-    if result.returncode == 127 or result.stdout.startswith("No secrets"):
-        return
-    if result.stdout.startswith("Lent:"):
+    answer = result.stdout.split()
+    if "checked" not in answer:
+        _fail("Couldn't check the devbox for lent secrets. Run the command again.")
+    if "stored" in answer:
         _fail("The devbox holds secrets lent with `hogli devbox:secrets:push`. Run `hogli devbox:secrets:clear` first.")
-    _fail("Couldn't check the devbox for lent secrets. Run the command again.")
+    if "running" in answer:
+        _fail(
+            "A command started with `devbox-secrets run` still runs on the devbox with lent secrets. "
+            "Stop it, or restart the box, then share."
+        )
 
 
 def _logout_claude_before_destroy(name: str) -> None:
@@ -1904,7 +1914,8 @@ def devbox_share(
 
     _warn_about_claude_login_before_sharing(name, ws, keep_login=keep_claude_login)
     # Lent secrets live in memory, so only a box that has stopped or is coming up fresh can't hold any.
-    if get_workspace_status(ws) not in ("stopped", "starting", "pending", "deleted", "deleting"):
+    # A pending or deleting box can still run with secrets until its queued job runs.
+    if get_workspace_status(ws) not in ("stopped", "starting", "deleted"):
         _refuse_to_share_lent_secrets(name)
     share_workspace(name, list(users), role)
     click.echo(f"Shared '{name}' with {', '.join(users)} (role: {role}).")

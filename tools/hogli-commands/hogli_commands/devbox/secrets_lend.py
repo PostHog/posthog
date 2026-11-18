@@ -17,14 +17,7 @@ from pathlib import Path
 import click
 
 from .cli import _targets_own_box, resolve_workspace_name, workspace_argument
-from .coder import (
-    _fail,
-    _ssh_host_alias,
-    coder_ssh_alias_configured,
-    ensure_runtime_ready,
-    get_shared_users,
-    get_sharing_status,
-)
+from .coder import _fail, _ssh_host_alias, coder_ssh_alias_configured, ensure_runtime_ready, get_sharing_status
 
 REFERENCES_FILE = Path.home() / ".config" / "posthog" / "devbox-secrets.env"
 BOX_SCRIPT = Path(__file__).with_name("devbox-secrets.sh")
@@ -69,6 +62,15 @@ def _resolve(references: list[SecretReference]) -> str:
         _fail("The 1Password CLI (`op`) isn't installed on this computer.")
     if result.returncode != 0:
         _fail(f"1Password couldn't resolve the references: {result.stderr.strip()}")
+    # The box reads one NAME=value per line, so a value with a line break would turn its next line into
+    # a variable name that `status` prints.
+    lines = result.stdout.splitlines()
+    for index, reference in enumerate(references):
+        if index >= len(lines) or not lines[index].startswith(f"{reference.name}="):
+            multi_line = references[max(index - 1, 0)].name
+            _fail(f"The value of {multi_line} has more than one line. Lend single-line values only.")
+    if len(lines) != len(references):
+        _fail(f"The value of {references[-1].name} has more than one line. Lend single-line values only.")
     return result.stdout
 
 
@@ -96,17 +98,19 @@ def _box(workspace: str | None) -> str:
     return name
 
 
-def _refuse_shared_box(workspace: str | None, name: str) -> None:
-    """Fail unless only the owner can open the box: anyone it is shared with gets a shell as the owner."""
-    if not _targets_own_box(workspace):
-        _fail("Lend secrets only to your own devbox.")
-    if get_sharing_status(name).returncode != 0:
+def _refuse_shared_box(name: str) -> None:
+    """Fail unless only the owner can open the box: anyone it is shared with gets a shell as the owner.
+
+    Reads one `coder sharing status` answer and fails when it can't, so a lookup error never reads as "not shared".
+    """
+    result = get_sharing_status(name)
+    if result.returncode != 0:
         _fail(f"Couldn't check who '{name}' is shared with. Run the command again.")
-    users = get_shared_users(name)
-    if users:
-        _fail(
-            f"'{name}' is shared with {', '.join(users)}, who could read lent secrets. Run `hogli devbox:unshare` first."
-        )
+    # The first line is the table header. A group share has "-" in the user column.
+    shares = [row.split() for row in result.stdout.strip().splitlines()[1:] if row.strip()]
+    if shares:
+        names = ", ".join(row[0] if row[0] != "-" else f"group {row[1]}" for row in shares)
+        _fail(f"'{name}' is shared with {names}, who could read lent secrets. Run `hogli devbox:unshare` first.")
 
 
 def _install_box_script(name: str) -> None:
@@ -138,11 +142,15 @@ def _run_box_script(name: str, *args: str, stdin: str = "") -> subprocess.Comple
     help="NAME=op://… references to lend",
 )
 def devbox_secrets_push(workspace: str | None, hours: int, references_file: Path) -> None:
+    if not _targets_own_box(workspace):
+        _fail("Lend secrets only to your own devbox.")
     name = _box(workspace)
-    _refuse_shared_box(workspace, name)
+    _refuse_shared_box(name)
     references = _read_references(references_file)
     values = _resolve(references)
     _install_box_script(name)
+    # The 1Password unlock can take a while, so check again right before the values reach the box.
+    _refuse_shared_box(name)
     expires = int(time.time()) + hours * 3600
     result = _run_box_script(name, "store", str(expires), stdin=values)
     if result.returncode != 0:
@@ -156,10 +164,9 @@ def devbox_secrets_push(workspace: str | None, hours: int, references_file: Path
 @workspace_argument
 def devbox_secrets_status(workspace: str | None) -> None:
     name = _box(workspace)
+    # A missing script must not read as "nothing lent" while the store is still in /dev/shm.
+    _install_box_script(name)
     result = _run_box_script(name, "status")
-    if result.returncode == 127:
-        click.echo(f"No secrets lent to '{name}'.")
-        return
     if result.returncode != 0:
         _fail(f"Couldn't check the secrets on '{name}': {result.stderr.strip()}")
     click.echo(result.stdout.strip())
@@ -169,10 +176,8 @@ def devbox_secrets_status(workspace: str | None) -> None:
 @workspace_argument
 def devbox_secrets_clear(workspace: str | None) -> None:
     name = _box(workspace)
+    _install_box_script(name)
     result = _run_box_script(name, "clear")
-    if result.returncode == 127:
-        click.echo(f"No secrets lent to '{name}'.")
-        return
     if result.returncode != 0:
         _fail(f"Couldn't clear the secrets on '{name}': {result.stderr.strip()}")
     click.echo(f"Cleared the lent secrets on '{name}'.")
