@@ -27,7 +27,6 @@ const ANY_TIME: Greeting[] = [
     plain('Big if true.'),
     plain('I ain’t reading all that.'),
     plain('I’m not arguing, I’m just explaining why I’m right.'),
-    plain('Hi, welcome to Chili’s.'),
     plain('I basically run on iced data and panic.'),
     plain('Sir, this is a homepage.'),
     plain('Welcome back to the simulation.'),
