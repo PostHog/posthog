@@ -126,6 +126,7 @@ function ReleaseContent({ id }: ReleaseSceneProps): JSX.Element {
             <SceneTitleSection
                 name={row.name}
                 description={row.description}
+                descriptionAlwaysVisible
                 resourceType={{ type: 'release', forceIcon: <IconFlag /> }}
                 canEdit={canEditReleases}
                 renameDebounceMs={800}

@@ -258,6 +258,7 @@ from products.signals.backend.report_read_state import (
     ReportReadStateResponseSerializer,
     report_read_states,
 )
+from products.signals.backend.report_repository import update_report_repository
 from products.signals.backend.report_search import (
     search_enabled as report_search_enabled,
     search_reports,
@@ -340,6 +341,7 @@ from products.signals.backend.serializers import (
     SignalReportMetricRefreshResponseSerializer,
     SignalReportPriorityUpdateSerializer,
     SignalReportRefundSerializer,
+    SignalReportRepositoryUpdateSerializer,
     SignalReportSearchQuerySerializer,
     SignalReportSearchResponseSerializer,
     SignalReportSectionCountsSerializer,
@@ -3546,6 +3548,41 @@ class SignalReportViewSet(
             attribution=self._request_attribution(),
         )
         report.__dict__.pop("prefetched_priority_artefacts", None)
+        return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
+
+    @validated_request(
+        request_serializer=SignalReportRepositoryUpdateSerializer,
+        responses={
+            200: OpenApiResponse(response=SignalReportSerializer, description="Report with the new repository."),
+            400: OpenApiResponse(
+                description="The repository is not in 'owner/repo' format, or the project's GitHub integration cannot reach it."
+            ),
+            404: OpenApiResponse(description="Report not found for this project."),
+        },
+        summary="Change a report's repository",
+        description=(
+            "Set the repository the report's work targets. Appends an attributed repo_selection artefact, so the "
+            "report's work log keeps the previous selection and records who changed it. Later implementation runs "
+            "use the new repository. A run that already started keeps its repository. Setting the current "
+            "repository again changes nothing."
+        ),
+        operation_id="signals_reports_repository_update",
+    )
+    @action(detail=True, methods=["put"], required_scopes=["inbox:write", "task:write"])
+    def repository(self, request: ValidatedRequest, *args: object, **kwargs: object) -> Response:
+        report = cast(SignalReport, self.get_object())
+        repository = request.validated_data["repository"]
+        if repository not in self._connected_repositories():
+            raise serializers.ValidationError(
+                {
+                    "repository": (
+                        f"This project's GitHub integration can't reach {repository}. "
+                        "Pick a repository the integration has access to."
+                    )
+                }
+            )
+        update_report_repository(report=report, repository=repository, attribution=self._request_attribution())
+        report.__dict__.pop("prefetched_repo_selection_artefacts", None)
         return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
 
     @validated_request(
