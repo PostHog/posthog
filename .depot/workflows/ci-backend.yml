@@ -296,6 +296,7 @@ jobs:
                       sdk_manifests
                       product_yamls
                       openapi_types
+                      reuse_only_inputs
                   reuse-blocking-labels: |
                       run-ci-backend
                       test-new-events-schema
@@ -432,6 +433,12 @@ jobs:
                         # files from `backend_files`.
                         - '!**/*.md'
                         - '!**/*.mdx'
+                      reuse_only_inputs:
+                        - manage.py
+                        - .nvmrc
+                        - turbo.json
+                        - bin/download-mmdb
+                        - bin/hogli
                       product_skills_read_at_runtime:
                         - 'products/signals/skills/**'
                         - 'products/review_hog/skills/**'

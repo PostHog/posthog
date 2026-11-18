@@ -236,6 +236,10 @@ jobs:
                         - 'products/*/backend/**'
                         - tsconfig.json
                         - 'tsconfig.*.json'
+                      reuseOnlyInputs:
+                        - manage.py
+                        - .nvmrc
+                        - 'products/*/manifest.tsx'
 
             # Visual Review auto-commits a snapshot baseline after human review and CI
             # approval. Re-running the full E2E stack for that bot push is pure waste;
