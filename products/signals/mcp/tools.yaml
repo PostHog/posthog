@@ -1698,6 +1698,20 @@ tools:
             the derived `failure_reason` flow from the linked `tasks.TaskRun`; emitted findings live as `Signal` rows
             queryable by `source_id = run:<run_id>:finding:<finding_id>` (one per id in `emitted_finding_ids`). Strictly
             team-scoped — a UUID belonging to another team returns 404.
+    scout-scratchpad-discard:
+        operation: signals_scout_scratchpad_discard
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete a scout memory
+        description: >
+            Delete one scout scratchpad entry by its exact key, on behalf of the user. Use it to clean up memories that
+            are stale, wrong, or no longer match a skill, after finding the key with `scout-scratchpad-search`. Returns
+            `deleted=false` if no entry has that key. Requires editor access to skills, because the scratchpad steers
+            the scout agents. Confirm with the user before deleting entries they have not asked you to remove.
+        feature_flag: scout-scratchpad-discard-mcp
     scout-scratchpad-forget:
         operation: signals_scout_scratchpad_forget
         enabled: true
