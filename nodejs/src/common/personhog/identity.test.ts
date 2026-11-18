@@ -191,7 +191,7 @@ describe('PersonhogIdentityOperations', () => {
         expect(Object.keys(byPerson)).toHaveLength(251)
     })
 
-    it('decodes each batch get-or-create entry: created, found, refused, oversized', async () => {
+    it('decodes each batch get-or-create entry: created, found, refused, oversized, uncoded, empty', async () => {
         const person = {
             id: 7n,
             uuid: 'uuid-7',
@@ -207,11 +207,13 @@ describe('PersonhogIdentityOperations', () => {
                 { teamId: 1n, distinctId: 'found', person, created: false },
                 { teamId: 1n, distinctId: 'refused', created: false, error: 'Aborted: concurrent identity operation' },
                 { teamId: 1n, distinctId: 'oversized', created: false, error: 'InvalidArgument: over the size limit' },
+                { teamId: 1n, distinctId: 'uncoded', created: false, error: 'connection reset' },
+                { teamId: 1n, distinctId: 'empty', created: false },
             ],
         }))
         const ops = makeOps({ getOrCreatePersonsByDistinctIds: handler })
 
-        const entries = ['created', 'found', 'refused', 'oversized'].map((distinctId) => ({
+        const entries = ['created', 'found', 'refused', 'oversized', 'uncoded', 'empty'].map((distinctId) => ({
             teamId: 1,
             distinctId,
             eventName: '$pageview',
@@ -228,5 +230,7 @@ describe('PersonhogIdentityOperations', () => {
         expect(results[2].error).toBeInstanceOf(ConnectError)
         expect((results[2].error as ConnectError).code).toBe(Code.Aborted)
         expect(results[3].error).toBeInstanceOf(PersonPropertiesSizeViolationError)
+        expect(results[4].error).toMatchObject({ code: Code.Unknown, rawMessage: 'connection reset' })
+        expect(results[5].error?.message).toContain('returned no person for team 1 distinct_id empty')
     })
 })

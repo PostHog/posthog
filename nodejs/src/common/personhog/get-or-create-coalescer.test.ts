@@ -138,14 +138,23 @@ describe('GetOrCreateCoalescer', () => {
         }
     })
 
-    it('treats a response that does not line up with the request as a batch failure', async () => {
-        const { coalescer } = coalescing((entries) =>
-            entries.map((e) => ({ teamId: 1, distinctId: `not-${e.distinctId}`, outcome: found(e.distinctId) }))
-        )
+    it.each<[string, (entries: GetOrCreatePersonEntry[]) => GetOrCreatePersonBatchResult[]]>([
+        [
+            'answers a key that was not asked',
+            (entries) => echo(entries).map((result) => ({ ...result, distinctId: `not-${result.distinctId}` })),
+        ],
+        ['answers in a different order', (entries) => echo(entries).reverse()],
+        ['is one result short', (entries) => echo(entries).slice(1)],
+    ])('treats a response that %s as a batch failure for every entry', async (_case, answer) => {
+        const { coalescer } = coalescing(answer)
 
-        const failure = coalescer.submit(entry('a')).catch((error) => error)
+        const failures = [coalescer.submit(entry('a')), coalescer.submit(entry('b'))].map((submitted) =>
+            submitted.catch((error) => error)
+        )
         await jest.advanceTimersByTimeAsync(5)
 
-        await expect(failure).resolves.toBeInstanceOf(BatchCallFailedError)
+        for (const failure of failures) {
+            await expect(failure).resolves.toBeInstanceOf(BatchCallFailedError)
+        }
     })
 })
