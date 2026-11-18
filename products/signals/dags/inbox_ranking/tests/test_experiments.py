@@ -1,6 +1,7 @@
 import json
 import datetime
 import dataclasses
+from typing import Literal
 
 import pytest
 
@@ -909,7 +910,11 @@ _MOMENT = datetime.datetime.combine(_BACKFILL_DAY + datetime.timedelta(days=1), 
 # Report id: (the scored-facts row's chart_count and already_addressed and when it was scored, the
 # snapshot's own chart_count and already_addressed, the batch row's chart_count and provenance). A
 # scored or batch value of "absent" means that source has no row for the report.
-_PRECEDENCE_CASES = {
+_Absent = Literal["absent"]
+_PRECEDENCE_CASES: dict[
+    str,
+    tuple[tuple[int | None, bool | None, str] | _Absent, tuple[int | None, bool | None], tuple[int, str] | _Absent],
+] = {
     "scored_zero": ((0, False, "12:00"), (2, True), (2, "historical")),
     "scored_null": ((None, None, "12:00"), (2, True), (2, "historical")),
     "scored_after_moment": ((2, True, "next_day"), (0, False), (2, "historical")),
