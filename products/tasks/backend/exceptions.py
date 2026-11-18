@@ -322,12 +322,6 @@ class GatewayTokenUnavailableError(ProcessTaskFatalError, NonReportableError):
         ProcessTaskError.__init__(self, message, context, None, capture=False, non_retryable=True)
 
 
-class PersonalAPIKeyError(ProcessTaskTransientError):
-    """Failed to create or inject personal API key."""
-
-    pass
-
-
 class OAuthTokenError(ProcessTaskTransientError):
     """Failed to create OAuth access token."""
 
