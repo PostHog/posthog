@@ -234,6 +234,29 @@ def test_start_agent_server_launch_failure_is_captured(_name: str, capabilities:
     assert build_command.call_args.kwargs["posthog_exec_permission_regex"] == expected_regex
 
 
+def test_start_agent_server_launches_with_the_run_policy():
+    config = SandboxConfig(name="test-sandbox")
+    sandbox = DockerSandbox(container_id="c" * 64, config=config, host_port=8000)
+    commands: list[str] = []
+
+    def execute(command: str, **kwargs) -> ExecutionResult:
+        commands.append(command)
+        if ENV_DISABLE_BUNDLED_SKILLS in command or AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX in command:
+            return _preflight_result(AGENT_SERVER_LAUNCH_CAPABILITIES)
+        return _ok_result()
+
+    with (
+        patch.object(sandbox, "is_running", return_value=True),
+        patch.object(sandbox, "write_file", return_value=_ok_result()),
+        patch.object(sandbox, "execute", side_effect=execute),
+    ):
+        sandbox.start_agent_server(
+            repository=None, task_id="t1", run_id="r1", wait_for_health=False, run_policy='{"finish_tool":true}'
+        )
+
+    assert any("""POSTHOG_TASK_RUN_POLICY='{"finish_tool":true}'""" in command for command in commands)
+
+
 @parameterized.expand([("empty", b""), ("with_content", b"GITHUB_TOKEN=ghs_x\x00")])
 def test_write_file_creates_the_temp_file_before_moving_it(_name: str, payload: bytes):
     # Blanking a credential file writes an empty payload. Chunking over an empty string produces

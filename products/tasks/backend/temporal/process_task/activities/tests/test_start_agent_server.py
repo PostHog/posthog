@@ -1,3 +1,4 @@
+import json
 import threading
 from typing import Literal
 
@@ -353,6 +354,20 @@ def test_invoke_start_agent_server_forwards_sandbox_runtime(
     assert sandbox.start_agent_server.call_args.kwargs["sandbox_runtime"] == expected_runtime
 
 
+def test_invoke_start_agent_server_forwards_the_run_policy(mocker) -> None:
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.start_agent_server.return_value = None
+
+    _invoke_start_agent_server(
+        sandbox,
+        _context(),
+        mocker.Mock(agentsh_domains=None, run_policy='{"finish_tool":true}'),
+        repo_ready_file=None,
+    )
+
+    assert sandbox.start_agent_server.call_args.kwargs["run_policy"] == '{"finish_tool":true}'
+
+
 @pytest.mark.parametrize(
     ("error", "expected_statuses"),
     [
@@ -521,6 +536,7 @@ async def test_await_agent_server_ready_relaunches_on_activity_retries(mocker, a
             task_run_session_token=None,
             codex_run_token=None,
             event_ingest_url=None,
+            run_policy="{}",
         ),
     )
     mocker.patch(
@@ -666,6 +682,7 @@ async def test_await_agent_server_ready_records_failed_relaunch(
             task_run_session_token=None,
             codex_run_token=None,
             event_ingest_url=None,
+            run_policy="{}",
         ),
     )
     mocker.patch("products.tasks.backend.exceptions.capture_exception")
@@ -837,6 +854,32 @@ def test_prepare_launch_releases_boot_milestone_claims(mocker) -> None:
     release.assert_called_once_with("run-id", True)
 
 
+def test_prepare_launch_resolves_the_run_policy_from_the_task_and_its_run(mocker) -> None:
+    prefix = "products.tasks.backend.temporal.process_task.activities.start_agent_server"
+    _mock_prepare_launch_dependencies(mocker)
+    mocker.patch(f"{prefix}.Task.objects.select_related").return_value.get.return_value = mocker.Mock(
+        internal=False,
+        stored_profile=None,
+        runtime="claude",
+        origin_product="workflow",
+        mcp_builtin_agent_key=None,
+        mcp_credential_owner_id=None,
+        mcp_gateway_server_allowlist=None,
+    )
+    mocker.patch(f"{prefix}.TaskRun.objects.filter").return_value.first.return_value = mocker.Mock(
+        state={"end_run_when_done": True}
+    )
+
+    params = _prepare_launch(_context(), "read_only", "sandbox-id")
+
+    policy = json.loads(params.run_policy)
+    assert (policy["finish_tool"], policy["finish_report_required"], policy["billing_product"]) == (
+        True,
+        True,
+        "workflows",
+    )
+
+
 @pytest.mark.parametrize(
     "pr_base,lookup_error,lookup_hangs,expected",
     [
@@ -945,6 +988,7 @@ def test_subscription_compatibility_is_checked_before_launch(mocker, access, exi
         task_run_session_token=None,
         codex_run_token=None,
         event_ingest_url=None,
+        run_policy="{}",
     )
     context = _context(claude_model_access=access)
     if access == "own-subscription" and exit_code != 0:
