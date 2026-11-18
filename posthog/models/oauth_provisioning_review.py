@@ -68,6 +68,10 @@ class CIMDProvisioningReview(UUIDModel):
     run_log = models.JSONField(default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     decided_at = models.DateTimeField(null=True, blank=True)
+    # The staff Slack thread for this review: the message posted when it first settled, which every
+    # later decision replies under. Empty until the first post.
+    slack_channel_id = models.CharField(max_length=32, blank=True, default="", db_default="")
+    slack_message_ts = models.CharField(max_length=32, blank=True, default="", db_default="")
 
     class Meta:
         indexes = [models.Index(fields=["status", "created_at"], name="cimd_prov_review_status_idx")]
