@@ -586,7 +586,7 @@ Today (5): `casts`, `etch_packets`, `organizations`, `weld_datas`, `welds`
 Diffed against: <https://www.useanvil.com/docs/api/graphql/reference/>
 
 - [x] `Submissions (GraphQL weldData(eid) { submissions })` — provides form answers and completion times missing from workflow submission summaries (high)
-- [ ] `Organization users (GraphQL organization(organizationEid) { organizationUsers { user } })` — provides staff identities, roles, and membership dates for activity attribution (medium)
+- [x] `Organization users (GraphQL organization(organizationEid) { organizationUsers { user } })` — provides staff identities, roles, and membership dates for activity attribution (medium)
 - [x] `Etch log events (GraphQL etchPacket(eid) { etchLogEvents }; weldData(eid) { etchLogEvents })` — tracks signing, viewing, downloading, and voiding events for document completion analysis (medium)
 - [x] `WeldData log events (GraphQL weldData(eid) { weldDataLogEvents })` — tracks form activity and workflow progress beyond the latest status (medium)
 - [x] `Workflow signers (GraphQL weldData(eid) { documentGroup { signers } })` — measures signer completion and delays for workflows that require signatures (medium)
