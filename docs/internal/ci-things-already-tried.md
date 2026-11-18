@@ -545,8 +545,6 @@ Ownership lint omits new-path metadata when it checks tracked-file coverage, so 
 
 Storybook's `select-stories` job checks out only `.nvmrc` from the PR head. It keeps the bounded blobless history for changed-path detection, downloads the module graph, and runs the selector from a separate trusted base checkout, which also carries `common/storybook/storybook-timings.json`. Source files do not need to exist in the PR worktree for this job. The manifest is there because it sizes the shard count, and a file count cannot size that: the stories a frontend diff affects carry about twice the render time per story that the average story does. It is read from the base checkout so the nightly refresh applies to branches behind master and a fork cannot steer the shard count.
 
-Chromium visual regression shards download the built Storybook and check out only the files needed to install dependencies, discover stories, render snapshots and report ownership. In a [two-attempt crossover](https://github.com/PostHog/posthog/pull/137611), all 40 shards checked out faster with a sparse tree. The median saving was 34 seconds per shard. When changing these paths, compare per-shard JUnit cases and outcomes as well as Visual Review snapshot totals against a full checkout.
-
 _Also asked as:_ sparse-checkout, partial clone, do not check out the whole repo, speed up the checkout step
 
 ### Drop `filter: blob:none` from a deep checkout
