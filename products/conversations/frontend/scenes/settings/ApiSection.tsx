@@ -1,8 +1,18 @@
 import { LemonBanner, LemonCard, Link } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
+import { QuillApiSection } from '../../components/QuillApiSection/QuillApiSection'
+
 export function ApiSection(): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return <QuillApiSection />
+    }
+
     return (
         <SceneSection
             title="Direct API"
