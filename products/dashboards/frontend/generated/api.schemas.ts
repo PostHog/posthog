@@ -3733,6 +3733,7 @@ export interface FunnelsFilterApi {
     showAnnotations?: boolean | null
     /** Whether to show a legend describing the series. The legend only renders when the funnel has multiple series. Only applies to historical-trends funnels. */
     showLegend?: boolean | null
+    showSummaryOnDashboards?: boolean | null
     /** Display linear regression trend lines on the chart (only for historical trends viz) */
     showTrendLines?: boolean | null
     showValuesOnSeries?: boolean | null
