@@ -91,6 +91,7 @@ export interface applicationObservabilityLogicValues {
     environment: string | null
     environments: string[]
     hasLoadError: boolean
+    paused: boolean
     resolvedEnvironment: string
     selectedMapService: ServiceHealthApi | null
     selectedMapServiceName: string | null
@@ -189,6 +190,9 @@ export interface applicationObservabilityLogicActions {
         servicesHealth: ServicesHealthResponseApi
         payload?: void
     }
+    refresh: () => {
+        value: true
+    }
     requestReload: (includeServices?: boolean) => {
         includeServices: boolean
     }
@@ -197,6 +201,9 @@ export interface applicationObservabilityLogicActions {
     }
     setEnvironment: (environment: string | null) => {
         environment: string | null
+    }
+    setPaused: (paused: boolean) => {
+        paused: boolean
     }
     setSelectedMapService: (service: string | null) => {
         service: string | null
@@ -251,6 +258,8 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
         setEndpointsService: (service: string | null) => ({ service }),
         showServiceEndpoints: (service: string) => ({ service }),
         setSelectedMapService: (service: string | null) => ({ service }),
+        setPaused: (paused: boolean) => ({ paused }),
+        refresh: true,
         // Internal: coalesces the picker actions and the initial URL sync into a single reload.
         // `includeServices` is false for changes that only affect the active tab's own data.
         requestReload: (includeServices: boolean = true) => ({ includeServices }),
@@ -259,6 +268,7 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
     reducers({
         environment: [null as string | null, { setEnvironment: (_, { environment }) => environment }],
         timeRange: ['-1h' as TimeRange, { setTimeRange: (_, { timeRange }) => timeRange }],
+        paused: [false, { setPaused: (_, { paused }) => paused }],
         tab: [
             'services' as ApplicationObservabilityTab,
             { setTab: (_, { tab }) => tab, showServiceEndpoints: () => 'endpoints' },
@@ -447,6 +457,7 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
                 ...(values.timeRange !== '-1h' ? { range: values.timeRange } : {}),
                 ...(values.tab !== 'services' ? { tab: values.tab } : {}),
                 ...(values.endpointsService ? { service: values.endpointsService } : {}),
+                ...(values.paused ? { paused: 'true' } : {}),
             },
         ]
         return {
@@ -455,6 +466,7 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
             setTab: toUrl,
             setEndpointsService: toUrl,
             showServiceEndpoints: toUrl,
+            setPaused: toUrl,
         }
     }),
 
@@ -467,6 +479,11 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
             const range = isTimeRange(searchParams.range) ? searchParams.range : '-1h'
             const tab = isTab(searchParams.tab) ? searchParams.tab : 'services'
             const service = typeof searchParams.service === 'string' ? searchParams.service : null
+            // The router parses `?paused=true` into a boolean.
+            const paused = searchParams.paused === true || searchParams.paused === 'true'
+            if (paused !== values.paused) {
+                actions.setPaused(paused)
+            }
             if (service !== values.endpointsService) {
                 actions.setEndpointsService(service)
             }
@@ -486,6 +503,13 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
         setEnvironment: () => actions.requestReload(),
         setTimeRange: () => actions.requestReload(),
         setTab: () => actions.requestReload(false),
+        refresh: () => actions.requestReload(),
+        // Resuming catches up on what changed while paused instead of waiting for the next poll.
+        setPaused: ({ paused }) => {
+            if (!paused) {
+                actions.requestReload()
+            }
+        },
         setEndpointsService: () => actions.requestReload(false),
         showServiceEndpoints: () => actions.requestReload(false),
         loadServiceMapSuccess: () => actions.layoutServiceMap(),
@@ -521,10 +545,14 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
         },
     })),
 
-    afterMount(({ actions, cache }) => {
+    afterMount(({ actions, values, cache }) => {
         actions.requestReload()
         cache.disposables.add(() => {
-            const handle = setInterval(() => actions.requestReload(), POLL_INTERVAL_MS)
+            const handle = setInterval(() => {
+                if (!values.paused) {
+                    actions.requestReload()
+                }
+            }, POLL_INTERVAL_MS)
             return () => clearInterval(handle)
         }, 'poll')
     }),

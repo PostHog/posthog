@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSelect, LemonTabs } from '@posthog/lemon-ui'
+import { IconPauseFilled, IconPlayFilled, IconRefresh } from '@posthog/icons'
+import { LemonButton, LemonSelect, LemonTabs } from '@posthog/lemon-ui'
 
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -24,8 +25,8 @@ export const scene: SceneExport = {
 }
 
 export function ApplicationObservabilityScene(): JSX.Element {
-    const { environments, resolvedEnvironment, timeRange, tab } = useValues(applicationObservabilityLogic)
-    const { setEnvironment, setTimeRange, setTab } = useActions(applicationObservabilityLogic)
+    const { environments, resolvedEnvironment, timeRange, tab, paused } = useValues(applicationObservabilityLogic)
+    const { setEnvironment, setTimeRange, setTab, setPaused, refresh } = useActions(applicationObservabilityLogic)
 
     return (
         <SceneContent>
@@ -58,7 +59,26 @@ export function ApplicationObservabilityScene(): JSX.Element {
                     }))}
                     data-attr="apm-time-range"
                 />
-                <span className="text-muted text-xs">Refreshes every 5 minutes</span>
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    icon={<IconRefresh />}
+                    onClick={refresh}
+                    tooltip="Refresh now"
+                    data-attr="apm-refresh"
+                />
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    icon={paused ? <IconPlayFilled /> : <IconPauseFilled />}
+                    onClick={() => setPaused(!paused)}
+                    data-attr="apm-live-toggle"
+                >
+                    {paused ? 'Resume' : 'Pause'}
+                </LemonButton>
+                <span className="text-muted text-xs">
+                    {paused ? 'Auto-refresh paused' : 'Refreshes every 5 minutes'}
+                </span>
             </div>
             <LemonTabs<ApplicationObservabilityTab>
                 activeKey={tab}

@@ -191,6 +191,42 @@ describe('applicationObservabilityLogic', () => {
         expect(url.searchParams.get('dateFrom')).toBe('-24h')
     })
 
+    it('skips the poll while paused, catches up on resume, and keeps paused in the URL', async () => {
+        logic.unmount()
+        const setIntervalSpy = jest.spyOn(window, 'setInterval')
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+        const poll = setIntervalSpy.mock.calls.find((call: unknown[]) => call[1] === 5 * 60 * 1000)?.[0] as () => void
+        setIntervalSpy.mockRestore()
+        const before = requests.length
+
+        logic.actions.setPaused(true)
+        expect(router.values.searchParams).toMatchObject({ paused: true })
+        jest.useFakeTimers()
+        try {
+            poll()
+            // Runs the debounced reload, which would start loading synchronously if the poll went through.
+            jest.runOnlyPendingTimers()
+            expect(logic.values.servicesHealthLoading).toBe(false)
+        } finally {
+            jest.useRealTimers()
+        }
+        expect(requests.length).toBe(before)
+
+        logic.actions.refresh()
+        await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+        expect(requests.length).toBe(before + 1)
+
+        logic.actions.setPaused(false)
+        await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+        expect(requests.length).toBe(before + 2)
+        expect(router.values.searchParams.paused).toBeUndefined()
+
+        router.actions.push(APPLICATION_OBSERVABILITY_PATH, { paused: 'true' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.paused).toBe(true)
+    })
+
     describe('tabs', () => {
         it('opens on the services tab and does not load other tabs until they are open', async () => {
             await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
