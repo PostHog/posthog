@@ -1,5 +1,3 @@
-import { useEffect, useState } from 'react'
-
 import { LemonInput } from '@posthog/lemon-ui'
 
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
@@ -9,31 +7,15 @@ import {
     MINIMUM_DETECTABLE_EFFECT_MIN,
 } from 'scenes/experiments/RunningTimeCalculator/calculations'
 
+import { MINIMUM_DETECTABLE_EFFECT_RANGE_ERROR, useMinimumDetectableEffectDraft } from './runningTimeConfigModel'
+
 export interface MinimumDetectableEffectFieldProps {
     value: number
     onChange: (value: number) => void
 }
 
-const isInRange = (value: number | undefined): value is number =>
-    value !== undefined && value >= MINIMUM_DETECTABLE_EFFECT_MIN && value <= MINIMUM_DETECTABLE_EFFECT_MAX
-
 export function MinimumDetectableEffectField({ value, onChange }: MinimumDetectableEffectFieldProps): JSX.Element {
-    // The input keeps what the user types, so that an empty field or a partial number stays editable. Only a value in
-    // range reaches the estimate.
-    const [draft, setDraft] = useState<number | undefined>(value)
-    useEffect(() => setDraft(value), [value])
-
-    const isDraftEmpty = draft === undefined || Number.isNaN(draft)
-
-    const commitDraft = (): void => {
-        if (draft === undefined || Number.isNaN(draft)) {
-            setDraft(value)
-        } else if (!isInRange(draft)) {
-            const clamped = Math.min(MINIMUM_DETECTABLE_EFFECT_MAX, Math.max(MINIMUM_DETECTABLE_EFFECT_MIN, draft))
-            setDraft(clamped)
-            onChange(clamped)
-        }
-    }
+    const { draft, setDraftValue, commitDraft, outOfRange } = useMinimumDetectableEffectDraft(value, onChange)
 
     return (
         <div>
@@ -52,15 +34,10 @@ export function MinimumDetectableEffectField({ value, onChange }: MinimumDetecta
                     <LemonInput
                         type="number"
                         value={draft}
-                        onChange={(next) => {
-                            setDraft(next)
-                            if (isInRange(next)) {
-                                onChange(next)
-                            }
-                        }}
+                        onChange={setDraftValue}
                         onBlur={commitDraft}
                         onPressEnter={commitDraft}
-                        status={isDraftEmpty || isInRange(draft) ? 'default' : 'danger'}
+                        status={outOfRange ? 'danger' : 'default'}
                         min={MINIMUM_DETECTABLE_EFFECT_MIN}
                         max={MINIMUM_DETECTABLE_EFFECT_MAX}
                         step={1}
@@ -70,11 +47,7 @@ export function MinimumDetectableEffectField({ value, onChange }: MinimumDetecta
                     <span className="text-muted">%</span>
                 </div>
             </div>
-            {!isDraftEmpty && !isInRange(draft) && (
-                <div className="text-xs text-danger mt-1">
-                    {`Enter a value from ${MINIMUM_DETECTABLE_EFFECT_MIN} to ${MINIMUM_DETECTABLE_EFFECT_MAX}.`}
-                </div>
-            )}
+            {outOfRange && <div className="text-xs text-danger mt-1">{MINIMUM_DETECTABLE_EFFECT_RANGE_ERROR}</div>}
         </div>
     )
 }

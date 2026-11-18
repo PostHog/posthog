@@ -14,11 +14,13 @@ import { runningTimeLogic } from 'scenes/experiments/RunningTimeCalculator/runni
 
 import { Experiment } from '~/types'
 
+import { OUT_OF_REACH_TOOLTIP, detectableEffectFootnote } from './runningTimeConfigModel'
+
 export interface DetectableEffectTableProps {
     experiment: Experiment
 }
 
-function formatDate(date: dayjs.Dayjs): string {
+export function formatCheckpointDate(date: dayjs.Dayjs): string {
     return date.format(date.isSame(dayjs(), 'year') ? 'MMM D' : 'MMM D, YYYY')
 }
 
@@ -41,6 +43,12 @@ export function DetectableEffectTable({ experiment: experimentProp }: Detectable
     }
 
     const dateAt = (days: number): dayjs.Dayjs => dayjs(startDate).add(days * 24, 'hour')
+    const footnote = detectableEffectFootnote({
+        estimateMetric,
+        dailyExposureRate,
+        isOutOfReach: outlook.isOutOfReach,
+        canIncludeMoreUsers,
+    })
 
     return (
         <div className="space-y-2" data-attr="experiment-running-time-outlook">
@@ -66,11 +74,15 @@ export function DetectableEffectTable({ experiment: experimentProp }: Detectable
                                     </Tooltip>
                                 )}
                                 {checkpoint.isTarget && outlook.isOutOfReach && (
-                                    <Tooltip title="More than 4 weeks from today. Most experiments end within 4 weeks.">
+                                    <Tooltip title={OUT_OF_REACH_TOOLTIP}>
                                         <IconWarning className="text-warning shrink-0" />
                                     </Tooltip>
                                 )}
-                                <span>{checkpoint.kind === 'now' ? 'Today' : formatDate(dateAt(checkpoint.days))}</span>
+                                <span>
+                                    {checkpoint.kind === 'now'
+                                        ? 'Today'
+                                        : formatCheckpointDate(dateAt(checkpoint.days))}
+                                </span>
                                 <span className="text-muted font-normal">{`· ${describeCheckpointDay(checkpoint, {
                                     startDate,
                                     currentSampleSize: currentExposures,
@@ -121,16 +133,8 @@ export function DetectableEffectTable({ experiment: experimentProp }: Detectable
             />
             <div className="text-xs text-secondary">
                 <span>Based on </span>
-                <span className="font-semibold">{estimateMetric?.name ?? 'the primary metric'}</span>
-                <span>
-                    {`${estimateMetric ? `, the ${estimateMetric.isFirstOfSeveral ? 'first ' : ''}primary metric` : ''}.${
-                        estimateMetric?.hasOtherMetrics ? ' Other metrics can need more time.' : ''
-                    } Projections assume about ${Math.round(dailyExposureRate).toLocaleString()} exposures a day, the average since launch.${
-                        outlook.isOutOfReach && canIncludeMoreUsers
-                            ? ' To finish sooner, include more users in the experiment.'
-                            : ''
-                    }`}
-                </span>
+                <span className="font-semibold">{footnote.metricName}</span>
+                <span>{footnote.rest}</span>
             </div>
         </div>
     )
