@@ -3341,6 +3341,8 @@ class TaskRun(models.Model):
             asyncio.run(handle.signal(ProcessTaskWorkflow.client_activity))
         except Exception as e:
             logger.warning("task_run.client_activity_signal_failed", task_run_id=str(self.id), error=str(e))
+            return
+        self.record_client_heartbeat()
 
     @property
     def log_url(self) -> str:
