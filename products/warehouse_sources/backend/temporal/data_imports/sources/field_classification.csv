@@ -305,6 +305,7 @@ CoinMarketCap,api_key,,,,,coin-market-cap
 Collibra,,,,,,collibra
 Commercetools,region project_key client_id client_secret,,,,,commercetools
 CommissionJunction,,,,,,commission-junction
+CommonRoom,api_token,,,,,common-room
 Commslayer,,,,,,commslayer
 Companycam,api_key,,,,,companycam
 Concord,api_key environment organization_id,,,,,concord
