@@ -83,3 +83,20 @@ export function groupThousands(value: number, decimals: number = 0): string {
 export function plural(count: number, singular: string, pluralForm: string = `${singular}s`): string {
     return `${groupThousands(count)} ${count === 1 ? singular : pluralForm}`
 }
+
+const MAGNITUDES = ['', 'K', 'M', 'B', 'T', 'P', 'E', 'Z', 'Y']
+
+/**
+ * Three significant figures and a magnitude suffix, so 1,234 shows as "1.23K" and 1,234,567 as "1.23M", the same as
+ * the web's `humanFriendlyLargeNumber`. Insight values pass a no-break space as the separator, as the web's
+ * `compactNumber` does.
+ */
+export function compactNumber(value: number, separator: string = ''): string {
+    let rounded = Number(value.toPrecision(3))
+    let magnitude = 0
+    while (Math.abs(rounded) >= 1000 && magnitude < MAGNITUDES.length - 1) {
+        magnitude++
+        rounded /= 1000
+    }
+    return magnitude ? `${rounded}${separator}${MAGNITUDES[magnitude]}` : String(rounded)
+}

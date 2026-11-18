@@ -773,7 +773,11 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         # drop a custom base image or a non-default template. Resume snapshots were taken from
         # this task's own sandbox.
         snapshot_integration_id = _repository_snapshot_integration_id(ctx, has_repo=has_repo)
-        if snapshot_integration_id is not None and sandbox_template == SandboxTemplate.DEFAULT_BASE:
+        if (
+            snapshot_integration_id is not None
+            and sandbox_template == SandboxTemplate.DEFAULT_BASE
+            and not ctx.agent_egress_observation_config
+        ):
             with StepTimer(
                 "snapshot_lookup",
                 origin_product=ctx.origin_product,
@@ -991,6 +995,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
             snapshot_source=prepared.snapshot_source,
             metadata=_build_sandbox_tags(ctx, prepared, use_vm_sandbox),
             vm_runtime=use_vm_sandbox,
+            agent_egress_observation=bool(ctx.agent_egress_observation_config),
             use_hotplug_golden=ctx.use_hogland_hotplug_golden,
             **resource_overrides,
         )
