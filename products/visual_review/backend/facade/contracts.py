@@ -712,6 +712,14 @@ AUTO_QUARANTINE_DAILY_LIMIT = 10
 # against 15 percent after 300.
 AUTO_LIFT_CLEAN_RUNS = 500
 
+# The release check runs at most once an hour, on a default-branch run. Two days give it many chances
+# before the expiry, also on a quiet weekend.
+AUTO_EXTEND_BEFORE_EXPIRY_HOURS = 48
+
+# Short enough that a story fixed a while ago lapses, and long enough that a flake which fails a few runs
+# in a hundred still shows.
+AUTO_EXTEND_RECENT_RUNS = 100
+
 # Bounds GitHub requests, so a storm of failures cannot stall run completion.
 AUTO_QUARANTINE_MAX_STORIES_PER_RUN = 25
 
