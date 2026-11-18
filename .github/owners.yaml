@@ -11,6 +11,8 @@ rules:
       owners: team-devex
     - match: '/scripts/storybook-sequencer.test.js'
       owners: team-devex
+    - match: ['/scripts/backend-full-run-state.js', '/scripts/backend-full-run-state.test.js']
+      owners: team-devex
     - match: '/auto-assign-labels.json'
       owners: team-feature-flags
     - match: ['/dependabot.yml', '/pull_request_template.md', '/workflows/']
