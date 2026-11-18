@@ -15,7 +15,7 @@ from posthog.models.integration.codex import (
 from posthog.models.user import User
 from posthog.oauth_provenance import is_sandbox_oauth_request
 
-from products.tasks.backend.facade.access import get_posthog_ai_access_decision
+from products.tasks.backend.facade.access import get_desktop_access_decision, get_posthog_ai_access_decision
 
 
 class UserCodexAuthTokensSerializer(serializers.Serializer):
@@ -85,7 +85,10 @@ def ensure_not_sandbox_request(request: Request) -> None:
 
 def ensure_codex_connect_enabled(user: User) -> None:
     organization = user.current_organization
-    if organization is None or not get_posthog_ai_access_decision(user, organization).allowed:
+    if organization is None or not (
+        get_posthog_ai_access_decision(user, organization).allowed
+        or get_desktop_access_decision(user, organization).allowed
+    ):
         raise exceptions.NotFound()
 
 

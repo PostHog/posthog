@@ -52,7 +52,7 @@ from posthog.models.user_integration import (
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.tasks.backend.facade.access import PostHogAIAccessDecision
+from products.tasks.backend.facade.access import DesktopAccessDecision, PostHogAIAccessDecision
 
 
 def _authorization(gh_id: int = 99, gh_login: str = "octocat") -> GitHubUserAuthorization:
@@ -2007,6 +2007,12 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
         )
         self.access_decision = flag.start()
         self.addCleanup(flag.stop)
+        desktop_access = patch(
+            "posthog.api.user_integration_codex.get_desktop_access_decision",
+            return_value=DesktopAccessDecision.SIGNUPS_PAUSED,
+        )
+        self.desktop_access_decision = desktop_access.start()
+        self.addCleanup(desktop_access.stop)
         cache.clear()
 
     def _sandbox_client(self) -> APIClient:
@@ -2119,10 +2125,15 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
             UserIntegration.objects.get(user=self.user, kind="codex").sensitive_config["refresh_token"] == "rt_rotated"
         )
 
-    @parameterized.expand([(decision,) for decision in PostHogAIAccessDecision])
-    def test_connect_follows_posthog_ai_access(self, decision: PostHogAIAccessDecision) -> None:
+    @parameterized.expand(
+        [(decision, desktop) for decision in PostHogAIAccessDecision for desktop in DesktopAccessDecision]
+    )
+    def test_connect_follows_product_access(
+        self, decision: PostHogAIAccessDecision, desktop: DesktopAccessDecision
+    ) -> None:
         self.access_decision.return_value = decision
-        allowed = decision.allowed
+        self.desktop_access_decision.return_value = desktop
+        allowed = decision.allowed or desktop.allowed
 
         response = self._connect()
 
