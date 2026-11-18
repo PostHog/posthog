@@ -236,13 +236,13 @@ export interface applicationObservabilityLogicMeta {
             serviceMapLayoutError: boolean,
             hasLoadError: boolean
         ) => ServiceMapWarning
-        usageRows: (serviceUsage: ServiceUsageResponseApi | null) => ServiceUsageApi[]
         refreshing: (
             servicesHealthLoading: boolean,
             endpointsHealthLoading: boolean,
             serviceMapLoading: boolean,
             serviceUsageLoading: boolean
         ) => boolean
+        usageRows: (serviceUsage: ServiceUsageResponseApi | null) => ServiceUsageApi[]
         attentionCount: (services: ServiceHealthApi[]) => number
     }
 }
