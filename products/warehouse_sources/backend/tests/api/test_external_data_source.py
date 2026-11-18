@@ -3956,6 +3956,9 @@ class TestExternalDataSource(APIBaseTest):
                 "supports_webhooks",
                 "webhook_not_registered",
                 "supports_column_selection",
+                "supports_adding_tables",
+                "table_root",
+                "supports_table_discovery",
                 "file_name",
                 "api_version",
                 "api_version_deprecation",
@@ -16901,7 +16904,7 @@ class TestAddTableByPath(APIBaseTest):
                 name="payroll",
                 team=self.team,
                 format=DataWarehouseTable.TableFormat.Parquet,
-                url_pattern=holder_bucket,
+                url_pattern=holder_bucket or "",
                 credential=DataWarehouseCredential.objects.create(
                     team=self.team, access_key="AKIAEXAMPLE", access_secret="c2VjcmV0"
                 ),
