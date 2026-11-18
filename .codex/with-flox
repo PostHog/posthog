@@ -271,6 +271,14 @@ if [[ "$prepare" -eq 0 ]]; then
             runtime_env+=("$name=${!name}")
         fi
     done
+    # Git signs commits and authenticates pushes through the caller's SSH agent, so
+    # `git commit` and `git push` fail through this wrapper without these.
+    for name in SSH_AUTH_SOCK GIT_SSH_COMMAND; do
+        if [[ -n "${!name:-}" ]]; then
+            runtime_env+=("$name=${!name}")
+            protected_environment_names+=("$name")
+        fi
+    done
     if [[ -n "${TERM:-}" ]]; then
         runtime_env+=("TERM=$TERM")
         protected_environment_names+=(TERM)
