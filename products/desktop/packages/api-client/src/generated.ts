@@ -2693,6 +2693,7 @@ export namespace Schemas {
         resultCustomizations: Record<string, ResultCustomizationByValue> | null;
         showAnnotations: boolean | null;
         showLegend: boolean | null;
+        showSummaryOnDashboards: boolean | null;
         showTrendLines: boolean | null;
         showValuesOnSeries: boolean | null;
         useUdf: boolean | null;
