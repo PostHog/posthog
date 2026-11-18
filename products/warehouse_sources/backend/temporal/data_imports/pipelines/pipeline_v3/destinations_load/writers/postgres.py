@@ -109,8 +109,8 @@ UNKNOWN_DATABASE_DETAIL = (
     "The database does not exist on this server. Check the database name on the destination, then run the sync again."
 )
 PERMISSIONS_DETAIL = (
-    "The Postgres user lacks permissions. Grant it USAGE and CREATE on the schema, and INSERT, "
-    "UPDATE and DELETE on its tables, then run the sync again."
+    "The Postgres user lacks permissions. Grant it USAGE and CREATE on the schema, and SELECT, "
+    "INSERT, UPDATE and DELETE on its tables, then run the sync again."
 )
 
 # Connection failures carry no SQLSTATE: libpq reports them as text only, so these match the

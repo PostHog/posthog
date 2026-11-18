@@ -857,13 +857,14 @@ def limited_login(dsn: str) -> Iterator[tuple[str, str, str]]:
     role, schema = f"dest_writer_{suffix}", f"dest_priv_{suffix}"
     with psycopg.connect(dsn, autocommit=True) as conn:
         conn.execute(f"CREATE ROLE {role} LOGIN PASSWORD 'writer'")
-        conn.execute(f"CREATE SCHEMA {schema}")
-        conn.execute(f"GRANT USAGE ON SCHEMA {schema} TO {role}")
     try:
+        with psycopg.connect(dsn, autocommit=True) as conn:
+            conn.execute(f"CREATE SCHEMA {schema}")
+            conn.execute(f"GRANT USAGE ON SCHEMA {schema} TO {role}")
         yield role, psycopg.conninfo.make_conninfo(dsn, user=role, password="writer"), schema
     finally:
         with psycopg.connect(dsn, autocommit=True) as conn:
-            conn.execute(f"DROP SCHEMA {schema} CASCADE")
+            conn.execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
             conn.execute(f"DROP OWNED BY {role}")
             conn.execute(f"DROP ROLE {role}")
 
