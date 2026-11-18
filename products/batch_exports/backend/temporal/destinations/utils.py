@@ -16,45 +16,56 @@ from products.batch_exports.backend.temporal.errors import MissingRequiredInputs
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
 _FORMATTER = string.Formatter()
-# An object key is at most 1024 bytes, so no valid prefix needs a wider width or precision.
-_MAX_FORMAT_NUMBER = 1024
+# An object key is at most 1024 bytes, so no valid prefix renders to more than this.
+_MAX_KEY_LENGTH = 1024
+_NUMBER = re.compile(r"\d+")
 
 
-def _parse_key_prefix(prefix: str) -> list[tuple[str, str | None, str | None, str | None]] | None:
-    try:
-        return list(_FORMATTER.parse(prefix))
-    except ValueError:
-        return None
+def _fits_in_a_key(spec: str) -> bool:
+    """Whether every width and precision in a format spec is at most a key's length.
+
+    The digit count is checked first: `int()` refuses strings over 4300 digits.
+    """
+    for number in _NUMBER.findall(spec):
+        digits = number.lstrip("0")
+        if len(digits) > len(str(_MAX_KEY_LENGTH)) or int(digits or "0") > _MAX_KEY_LENGTH:
+            return False
+    return True
 
 
 def key_prefix_template_fields(prefix: str) -> frozenset[str]:
     """The variable names a key prefix uses. Escaped braces such as `{{table}}` are not fields."""
-    return frozenset(name for _, name, _, _ in _parse_key_prefix(prefix) or () if name)
+    try:
+        return frozenset(name for _, name, _, _ in _FORMATTER.parse(prefix) if name)
+    except ValueError:
+        return frozenset()
 
 
 def render_key_prefix_template(prefix: str, variables: Mapping[str, str]) -> str | None:
     """Fill a key prefix from `variables` the way `str.format` does, minus what makes it unsafe on stored input.
 
-    Returns None when the prefix names a variable with no value or is not a valid template.
-    Indexing, attribute access and nested fields are refused, and so is any width or precision
-    over 1024: `str.format` would allocate a gigabyte for `{table:1000000000}`.
+    Returns None when the prefix names a variable with no value, is not a valid template, or
+    renders longer than a key can be. Indexing, attribute access and nested fields are refused.
+    Each width is checked before it is formatted and the output is capped as it grows, so neither
+    `{table:1000000000}` nor many repeats of `{table:1024}` can allocate more than a key's length.
     """
-    parsed = _parse_key_prefix(prefix)
-    if parsed is None:
-        return None
     rendered: list[str] = []
-    for literal, name, spec, conversion in parsed:
-        rendered.append(literal)
-        if name is None:
-            continue
-        spec = spec or ""
-        if name not in variables or "{" in spec or any(int(n) > _MAX_FORMAT_NUMBER for n in re.findall(r"\d+", spec)):
-            return None
-        try:
-            value = _FORMATTER.convert_field(variables[name], conversion)
-            rendered.append(format(value, spec))
-        except ValueError:
-            return None
+    length = 0
+    try:
+        for literal, name, spec, conversion in _FORMATTER.parse(prefix):
+            pieces = [literal]
+            if name is not None:
+                spec = spec or ""
+                if name not in variables or "{" in spec or not _fits_in_a_key(spec):
+                    return None
+                pieces.append(format(_FORMATTER.convert_field(variables[name], conversion), spec))
+            for piece in pieces:
+                length += len(piece)
+                if length > _MAX_KEY_LENGTH:
+                    return None
+                rendered.append(piece)
+    except ValueError:
+        return None
     return "".join(rendered)
 
 
