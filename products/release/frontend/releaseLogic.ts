@@ -12,6 +12,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { TODAY_RECENT_KEY, TodayReleaseRecent } from '~/layout/today/todayRecents'
 import { AccessControlLevel, AccessControlResourceType, type Breadcrumb, type UserType } from '~/types'
 
 import { earlyAccessFeatureList } from 'products/early_access_features/frontend/generated/api'
@@ -108,6 +109,7 @@ interface ReleaseLogicValues {
     breadcrumbs: Breadcrumb[]
     filteredRows: ReleaseRow[]
     decisionRows: ReleaseRow[]
+    todayRecent: TodayReleaseRecent | null
 }
 
 interface ReleaseLogicActions {
@@ -187,7 +189,7 @@ interface ReleaseLogicActions {
     addLink: (id: string, candidate: LinkCandidate) => { id: string; candidate: LinkCandidate }
 }
 
-type releaseLogicType = MakeLogicType<ReleaseLogicValues, ReleaseLogicActions>
+type releaseLogicType = MakeLogicType<ReleaseLogicValues, ReleaseLogicActions, { id?: string }>
 
 export interface ReleaseUsageEvent {
     event: 'release item linked' | 'release item unlinked' | 'release broadcasts auto linked' | 'release owner changed'
@@ -692,6 +694,13 @@ export const releaseLogic = kea<releaseLogicType>([
         ],
     }),
     selectors({
+        [TODAY_RECENT_KEY]: [
+            (s) => [s.rows, (_, props: { id?: string }) => props.id],
+            (rows: ReleaseRow[], id: string | undefined): TodayReleaseRecent | null => {
+                const row = rows.find((item) => item.id === id)
+                return row ? { type: 'release', id: row.id, name: row.name, href: urls.release(row.id) } : null
+            },
+        ],
         breadcrumbs: [
             (s) => [s.rows, router.selectors.location],
             (rows: ReleaseRow[], location: { pathname: string }): Breadcrumb[] => {
