@@ -40,4 +40,22 @@ describe('accountAgentActivityLogic', () => {
         expect(onConfigChange).toHaveBeenCalledWith({ weeks: '26' })
         logic.unmount()
     })
+
+    it('aborts the running query when the range changes and when the tile unmounts', async () => {
+        const signals: AbortSignal[] = []
+        mockPerformQuery.mockImplementation((_query, options) => {
+            signals.push(options.signal)
+            return new Promise(() => {})
+        })
+        const logic = accountAgentActivityLogic({ accountId: 'account-1', instanceId: 'tile-abort' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadResult']).delay(20)
+
+        logic.actions.setWeeks(26)
+        await expectLogic(logic).delay(20)
+        expect(signals.map((signal) => signal.aborted)).toEqual([true, false])
+
+        logic.unmount()
+        expect(signals[1].aborted).toBe(true)
+    })
 })

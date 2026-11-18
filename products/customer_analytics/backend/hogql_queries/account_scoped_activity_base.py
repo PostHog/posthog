@@ -40,7 +40,10 @@ class AccountScopedActivityQueryRunner(ActivityQueryRunner[AR], Generic[AR]):
         return super().get_cache_key_variant()
 
     def query_status_labels(self) -> list[str]:
-        return [f"{ACCOUNT_ACTIVITY_MATRIX_QUERY_STATUS_LABEL_PREFIX}{self.query.accountId}"]
+        return [
+            *super().query_status_labels(),
+            f"{ACCOUNT_ACTIVITY_MATRIX_QUERY_STATUS_LABEL_PREFIX}{self.query.accountId}",
+        ]
 
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()

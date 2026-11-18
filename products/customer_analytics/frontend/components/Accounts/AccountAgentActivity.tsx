@@ -233,7 +233,8 @@ export function AccountAgentActivity({
                     ]}
                 />
             </div>
-            <div className="flex flex-col gap-2 min-w-0">
+            {/* Intents are the customer's own words, so autocapture, copied text and replay skip this section. */}
+            <div className="flex flex-col gap-2 min-w-0 ph-no-capture">
                 <SectionTitle
                     title="Top intents"
                     description="What agents said they were doing, grouped by exact text."
@@ -241,7 +242,7 @@ export function AccountAgentActivity({
                 <LemonTable<AccountAgentActivityIntent>
                     size="small"
                     dataSource={result.intents}
-                    rowKey="intent"
+                    rowKey={(_, index) => index}
                     emptyState="The calls didn't include an intent."
                     expandable={{
                         expandedRowRender: (intent) => (

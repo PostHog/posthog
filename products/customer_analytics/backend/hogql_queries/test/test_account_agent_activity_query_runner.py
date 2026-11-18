@@ -3,6 +3,7 @@ from typing import Any
 import pytest
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from unittest.mock import patch
 
 from posthog.schema import AccountActivityMatrixEmptyReason, AccountAgentActivityQuery
 
@@ -13,8 +14,10 @@ from posthog.test.persons import create_person
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.access_control.backend.models.access_control import AccessControl
 from products.customer_analytics.backend.hogql_queries.account_agent_activity_query_runner import (
+    INTENT_MAX_CHARS,
     AccountAgentActivityQueryRunner,
 )
+from products.customer_analytics.backend.logic.activity_query_access import get_activity_query_property_access_label
 from products.customer_analytics.backend.test.factories import create_account
 
 ANA = "11111111-1111-4111-8111-111111111111"
@@ -117,6 +120,26 @@ class TestAccountAgentActivityQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ("Roll out the new onboarding flag", 1, 1),
         ]
         assert [(b.agentCalls, b.uiPageviews) for b in results.buckets][-2:] == [(1, 0), (3, 1)]
+
+    def test_counts_every_tool_and_whole_characters_past_the_limits(self) -> None:
+        self._call(ANA, "2026-10-27T10:00:00Z", **{"$mcp_tool_name": "insight-get"})
+        self._call(ANA, "2026-10-27T10:01:00Z", **{"$mcp_tool_name": "insight-get"})
+        self._call(ANA, "2026-10-27T10:02:00Z", **{"$mcp_tool_name": "create-feature-flag", "$mcp_intent": "é" * 600})
+
+        with patch(
+            "products.customer_analytics.backend.hogql_queries.account_agent_activity_query_runner.TOOL_LIMIT", 1
+        ):
+            results = self._run()
+
+        assert [t.tool for t in results.tools] == ["insight-get"]
+        assert (results.totals.reads, results.totals.writes, results.truncated) == (2, 1, True)
+        assert [i.intent for i in results.intents] == ["é" * INTENT_MAX_CHARS]
+
+    def test_async_status_keeps_the_property_access_label(self) -> None:
+        query = AccountAgentActivityQuery(accountId=str(self.account.id))
+        runner = AccountAgentActivityQueryRunner(team=self.team, query=query, user=self.user)
+
+        assert get_activity_query_property_access_label(self.team, self.user) in runner.query_status_labels()
 
     def test_reports_an_account_without_an_external_id(self) -> None:
         self.account = create_account(team_id=self.team.id, name="Unlinked", external_id=None)

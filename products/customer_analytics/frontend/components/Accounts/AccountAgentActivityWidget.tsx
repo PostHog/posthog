@@ -12,17 +12,20 @@ export function AccountAgentActivityWidget(props: AccountAgentActivityLogicProps
     const { setWeeks, loadResult } = useActions(logic)
 
     return (
-        <>
+        <div className="flex flex-col gap-2">
             <AccountWidgetWeeksSelect weeks={weeks} onChange={setWeeks} />
+            {loadFailed ? (
+                <LemonBanner type="warning" action={{ children: 'Try again', onClick: () => loadResult() }}>
+                    {result
+                        ? "Couldn't refresh agent activity. These numbers are from the last range that loaded."
+                        : "Couldn't load agent activity for this account."}
+                </LemonBanner>
+            ) : null}
             {result ? (
                 <AccountAgentActivity result={result} loading={resultLoading} />
-            ) : loadFailed ? (
-                <LemonBanner type="warning" action={{ children: 'Try again', onClick: () => loadResult() }}>
-                    Couldn't load agent activity for this account.
-                </LemonBanner>
-            ) : (
+            ) : loadFailed ? null : (
                 <LemonSkeleton className="h-64 w-full" />
             )}
-        </>
+        </div>
     )
 }

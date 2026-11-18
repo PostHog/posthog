@@ -59,6 +59,7 @@ class ActivityQueryRunner(AnalyticsQueryRunner[AR], Generic[AR]):
             modifiers=self.modifiers,
             limit_context=self.limit_context,
             workload=Workload.ONLINE,
+            context=self.build_hogql_context(),
         )
 
 

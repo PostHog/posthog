@@ -29,6 +29,8 @@ from products.customer_analytics.backend.logic.agent_tool_access import classify
 from products.customer_analytics.backend.logic.posthog_product_usage import AGENT_EVENT, POSTHOG_PRODUCTS
 
 TOOL_LIMIT = 200
+# Read and write totals cover every tool, so the query fetches past the table limit. MCP has a few hundred tools.
+TOOL_FETCH_LIMIT = 5000
 CLIENT_LIMIT = 10
 INTENT_LIMIT = 20
 INTENT_MAX_CHARS = 500
@@ -77,6 +79,7 @@ class AccountAgentActivityQueryRunner(AccountScopedActivityQueryRunner[AccountAg
                 "AccountAgentActivityTools", self._tools_query(external_id, group_type_index)
             )
         ]
+        tools_truncated = len(tools) > TOOL_LIMIT
         clients = [
             AccountAgentActivityClient(name=str(name), calls=int(calls), people=int(people))
             for name, calls, people in self._run(
@@ -107,10 +110,10 @@ class AccountAgentActivityQueryRunner(AccountScopedActivityQueryRunner[AccountAg
             columns,
             buckets=buckets,
             totals=totals,
-            tools=tools,
+            tools=tools[:TOOL_LIMIT],
             clients=clients,
             intents=intents,
-            truncated=len(tools) >= TOOL_LIMIT or len(clients) >= CLIENT_LIMIT or len(intents) >= INTENT_LIMIT,
+            truncated=tools_truncated or len(clients) >= CLIENT_LIMIT or len(intents) >= INTENT_LIMIT,
         )
 
     def _response(
@@ -200,7 +203,7 @@ class AccountAgentActivityQueryRunner(AccountScopedActivityQueryRunner[AccountAg
             FROM events WHERE {{where}}
             GROUP BY product, tool
             ORDER BY calls DESC, tool ASC
-            LIMIT {TOOL_LIMIT}
+            LIMIT {TOOL_FETCH_LIMIT}
             """,
             external_id,
             group_type_index,
@@ -226,7 +229,7 @@ class AccountAgentActivityQueryRunner(AccountScopedActivityQueryRunner[AccountAg
     def _intents_query(self, external_id: str, group_type_index: int) -> ast.SelectQuery:
         return self._select(
             f"""
-            SELECT substring(trim(toString(properties.$mcp_intent)), 1, {INTENT_MAX_CHARS}) AS intent, count() AS calls,
+            SELECT substringUTF8(trim(toString(properties.$mcp_intent)), 1, {INTENT_MAX_CHARS}) AS intent, count() AS calls,
                 uniq({CONVERSATION}) AS conversations, max(timestamp) AS last_seen
             FROM events WHERE {{where}} AND notEmpty(trim(coalesce(toString(properties.$mcp_intent), '')))
             GROUP BY intent
