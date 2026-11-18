@@ -15475,6 +15475,8 @@ export const errorTrackingTagRulesCreateBodyFiltersOneValuesItemOneValuesItemTyp
 export const errorTrackingTagRulesCreateBodyFiltersOneValuesItemTwoOperatorDefault = `exact`
 export const errorTrackingTagRulesCreateBodyFiltersOneValuesItemTwoTypeDefault = `event`
 export const errorTrackingTagRulesCreateBodyOrderKeyDefault = 0
+export const errorTrackingTagRulesCreateBodyOrderKeyMin = -2147483648
+export const errorTrackingTagRulesCreateBodyOrderKeyMax = 2147483647
 
 export const ErrorTrackingTagRulesCreateBody = () => zod.object({
     label: zod
@@ -15633,6 +15635,8 @@ export const ErrorTrackingTagRulesCreateBody = () => zod.object({
         ),
     order_key: zod
         .number()
+        .min(errorTrackingTagRulesCreateBodyOrderKeyMin)
+        .max(errorTrackingTagRulesCreateBodyOrderKeyMax)
         .default(errorTrackingTagRulesCreateBodyOrderKeyDefault)
         .describe('Position in the list of tag rules. Lower values come first. Defaults to 0.'),
 })

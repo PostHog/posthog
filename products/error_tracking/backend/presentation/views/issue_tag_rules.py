@@ -24,6 +24,8 @@ FILTERS_HELP_TEXT = (
 )
 LABEL_HELP_TEXT = "Display name of the tag the rule applies to each new issue whose first event matches the filters."
 DESCRIPTION_HELP_TEXT = "What the tag means. Shown with the tag."
+# The bounds of the Postgres integer column that stores the order key.
+ORDER_KEY_MIN, ORDER_KEY_MAX = -(2**31), 2**31 - 1
 
 
 class ErrorTrackingIssueTagRuleFilterGroup(BaseModel):
@@ -105,6 +107,8 @@ class ErrorTrackingIssueTagRuleCreateRequestSerializer(serializers.Serializer):
     order_key = serializers.IntegerField(
         required=False,
         default=0,
+        min_value=ORDER_KEY_MIN,
+        max_value=ORDER_KEY_MAX,
         help_text="Position in the list of tag rules. Lower values come first. Defaults to 0.",
     )
 
@@ -130,7 +134,7 @@ class ErrorTrackingIssueTagRuleUpdateRequestSerializer(serializers.Serializer):
 
 class ErrorTrackingIssueTagRuleReorderRequestSerializer(serializers.Serializer):
     orders = serializers.DictField(
-        child=serializers.IntegerField(),
+        child=serializers.IntegerField(min_value=ORDER_KEY_MIN, max_value=ORDER_KEY_MAX),
         help_text="Mapping from tag rule UUID to its new order key.",
     )
 

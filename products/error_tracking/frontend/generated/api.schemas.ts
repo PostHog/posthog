@@ -2805,7 +2805,11 @@ export interface ErrorTrackingIssueTagRuleCreateRequestApi {
     description?: string
     /** Property-group filters on event properties, evaluated against the first event of each new issue. At least one filter is required. Person, cohort, HogQL and other filter types are rejected. */
     filters: ErrorTrackingIssueTagRuleFiltersApi
-    /** Position in the list of tag rules. Lower values come first. Defaults to 0. */
+    /**
+     * Position in the list of tag rules. Lower values come first. Defaults to 0.
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
     order_key?: number
 }
 

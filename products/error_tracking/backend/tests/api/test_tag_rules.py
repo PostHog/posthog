@@ -197,6 +197,18 @@ class TestIssueTagRuleAPI(APIBaseTest):
         assert reorder.status_code == status.HTTP_204_NO_CONTENT
         assert [rule["id"] for rule in self.client.get(self._url()).json()["results"]] == [second["id"], first["id"]]
 
+    @parameterized.expand([("above", 2**31), ("below", -(2**31) - 1)])
+    def test_create_and_reorder_reject_an_order_key_the_column_cannot_store(self, _name: str, order_key: int) -> None:
+        rule = self._create()
+
+        create = self.client.post(
+            self._url(), data={"label": "Far", "filters": ENTERPRISE_PLAN, "order_key": order_key}, format="json"
+        )
+        reorder = self.client.patch(self._url("reorder"), data={"orders": {rule["id"]: order_key}}, format="json")
+
+        assert (create.status_code, reorder.status_code) == (status.HTTP_400_BAD_REQUEST, status.HTTP_400_BAD_REQUEST)
+        assert ErrorTrackingIssueTagRule.objects.for_team(self.team.id).get().order_key == 0
+
     def test_a_member_cannot_see_or_change_a_rule_on_a_property_they_may_not_read(self) -> None:
         hidden = ErrorTrackingIssueTagRule.objects.for_team(self.team.id).create(
             team=self.team, label="Big order", filters=BIG_ORDER, bytecode=[], order_key=5

@@ -263,6 +263,8 @@
         "order_key": {
             "default": 0,
             "description": "Position in the list of tag rules. Lower values come first. Defaults to 0.",
+            "maximum": 2147483647,
+            "minimum": -2147483648,
             "type": "number"
         }
     },

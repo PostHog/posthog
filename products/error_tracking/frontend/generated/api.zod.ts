@@ -1428,6 +1428,8 @@ export const errorTrackingTagRulesCreateBodyFiltersOneValuesItemOneValuesItemTyp
 export const errorTrackingTagRulesCreateBodyFiltersOneValuesItemTwoOperatorDefault = `exact`
 export const errorTrackingTagRulesCreateBodyFiltersOneValuesItemTwoTypeDefault = `event`
 export const errorTrackingTagRulesCreateBodyOrderKeyDefault = 0
+export const errorTrackingTagRulesCreateBodyOrderKeyMin = -2147483648
+export const errorTrackingTagRulesCreateBodyOrderKeyMax = 2147483647
 
 export const ErrorTrackingTagRulesCreateBody = /* @__PURE__ */ zod.object({
     label: zod
@@ -1586,6 +1588,8 @@ export const ErrorTrackingTagRulesCreateBody = /* @__PURE__ */ zod.object({
         ),
     order_key: zod
         .number()
+        .min(errorTrackingTagRulesCreateBodyOrderKeyMin)
+        .max(errorTrackingTagRulesCreateBodyOrderKeyMax)
         .default(errorTrackingTagRulesCreateBodyOrderKeyDefault)
         .describe('Position in the list of tag rules. Lower values come first. Defaults to 0.'),
 })
@@ -1916,9 +1920,18 @@ export const ErrorTrackingTagRulesPartialUpdateBody = /* @__PURE__ */ zod.object
         ),
 })
 
+export const errorTrackingTagRulesReorderPartialUpdateBodyOrdersMinOne = -2147483648
+export const errorTrackingTagRulesReorderPartialUpdateBodyOrdersMaxOne = 2147483647
+
 export const ErrorTrackingTagRulesReorderPartialUpdateBody = /* @__PURE__ */ zod.object({
     orders: zod
-        .record(zod.string(), zod.number())
+        .record(
+            zod.string(),
+            zod
+                .number()
+                .min(errorTrackingTagRulesReorderPartialUpdateBodyOrdersMinOne)
+                .max(errorTrackingTagRulesReorderPartialUpdateBodyOrdersMaxOne)
+        )
         .optional()
         .describe('Mapping from tag rule UUID to its new order key.'),
 })
