@@ -421,7 +421,8 @@ Diffed against: <https://developer.alegra.com/reference>
 - [x] `Purchase orders (GET /api/v1/purchase-orders)` — measures committed purchases before supplier bills arrive (medium)
 - [x] `Recurring invoices (GET /api/v1/recurring-invoices)` — measures scheduled recurring billing before invoices are generated (medium)
 - [x] `Taxes (GET /api/v1/taxes)` — provides tax definitions and rates for invoice and item tax reports (medium)
-- [ ] `Journal entry balances (GET /api/v1/journals/entries-graph)` — provides accounting balances grouped by day or month for financial reports (medium)
+- ~~`Journal entry balances (GET /api/v1/journals/entries-graph)` — provides accounting balances grouped by day or month for financial reports (medium)~~ — skipped: it returns chart data, not records. Each row is an `in`/`out` total for one day or month, with no ID, and the totals mean something only when `resourceType` and `idResource` select one account or document. The reference also gives two different formats for `fromDate` and does not document the default date range. The journal lines behind these totals come from the journals list below.
+- [ ] `Journals (GET /api/v1/journals)` — journal entries with their account, debit, and credit lines, the row-level data for balance and ledger reports (medium)
 
 Note: Read the official reference index and parsed embedded OpenAPI GET operations from the linked REST reference pages. All listed gaps use the documented v1 REST API. The existing payments table is already split into incoming and outgoing payments. MCP tool operations, payroll APIs, document uploads, and settings were excluded.
 
@@ -448,7 +449,7 @@ Note: Static schema list, no dynamic index discovery. The Analytics API is now c
 
 ## Alguna — gaps
 
-Today (15): `billable_metrics`, `bundles`, `credit_notes`, `customers`, `invoices`, `payments`, `plans`, `products`, `refunds`, `revenue_schedule`, `subscription_revenue`, `subscription_versions`, `subscriptions`, `wallet_grants`, `wallets`
+Today (17): `billable_metrics`, `bundles`, `credit_notes`, `customer_connected_accounts`, `customer_entitlements`, `customers`, `invoices`, `payments`, `plans`, `products`, `refunds`, `revenue_schedule`, `subscription_revenue`, `subscription_versions`, `subscriptions`, `wallet_grants`, `wallets`
 
 Diffed against: <https://alguna.com/docs/api-reference/v2/specs/2026-04-01.json>
 
@@ -457,10 +458,10 @@ Diffed against: <https://alguna.com/docs/api-reference/v2/specs/2026-04-01.json>
 - [x] `GET /wallets and /wallets/{id}/balance` — prepaid wallet balances per customer (high). Added as `wallets`. `/wallets/{id}/balance` skipped: the wallet list row already carries `current_balance`.
 - [x] `GET /wallet-grants and /wallets/{id}/grants` — credit grant ledger - drawdown and expiry analysis (high). Added as `wallet_grants` (the global `/wallet-grants` list). `/wallets/{id}/grants` skipped: it returns the same rows filtered per wallet.
 - [x] `GET /bundles` — product bundle lookup resolving bundle IDs carried on plans and subscription items (medium). Added as `bundles`.
-- [ ] `GET /customers/{id}/entitlements and /subscriptions/{id}/entitlements` — what each customer is currently entitled to, for feature-usage joins (medium). Skipped: rows have no id and a nullable `key`, so there is no table-wide primary key.
+- [x] `GET /customers/{id}/entitlements and /subscriptions/{id}/entitlements` — what each customer is currently entitled to, for feature-usage joins (medium). Added as `customer_entitlements` (fan-out over `customers`, parent id copied to `customer_id`, full refresh so the nullable `key` is never merged on). `/subscriptions/{id}/entitlements` skipped: the customer list already flattens the entitlements of every active subscription and also returns default-profile entitlements.
 - [x] `GET /revenue-schedules (plus /customer/{id}, /subscription/{id}, /legal-entity/{id})` — revenue recognition schedule rows for rev-rec reporting (medium). Added as `revenue_schedule` (organization-wide `entries`, monthly). The per-customer, per-subscription and per-legal-entity variants are skipped: they return the same shape at a narrower scope.
 - [x] `GET /subscriptions/{id}/revenue` — MRR/ARR/ACV per subscription - the vendor's headline metric (medium). Added as `subscription_revenue` (fan-out over `subscriptions`).
-- [ ] `GET /customers/{id}/connected-accounts` — lookup mapping customers to payment-provider account IDs for joins to Stripe-style sources (medium)
+- [x] `GET /customers/{id}/connected-accounts` — lookup mapping customers to payment-provider account IDs for joins to Stripe-style sources (medium). Added as `customer_connected_accounts` (fan-out over `customers`).
 - [ ] `GET /subscriptions/{id}/credits/balance` — monetary credit balance carried on each subscription (low)
 - [ ] `GET /insights/revenue/over-time, /insights/revenue/by-customer, /insights/revenue/by-product` — prebuilt revenue breakdowns; mostly derivable from invoices but cheap to land (low)
 - [ ] `GET /insights/customers and /insights/customers/over-time` — customer count/churn metrics as published by the vendor (low)
@@ -6123,17 +6124,17 @@ Note: The wider HubSpot sweep lives in [COVERAGE_GAPS.md](COVERAGE_GAPS.md). The
 
 ## HuggingFace — **thin**
 
-Today (8): `collections`, `dataset_tags`, `datasets`, `discussions`, `likes`, `model_tags`, `models`, `spaces`
+Today (10): `collections`, `commits`, `dataset_tags`, `datasets`, `discussions`, `likes`, `model_tags`, `models`, `organization_members`, `spaces`
 
 Diffed against: <https://huggingface.co/.well-known/openapi.json>
 
 - [x] `/api/{repoType}/{namespace}/{repo}/discussions` — discussions and pull requests per repo - the main community activity signal on repos we already sync (high)
 - [x] `/api/collections` — curated collections grouping models, datasets and spaces we already sync (high)
 - [x] `/api/models-tags-by-type and /api/datasets-tags-by-type` — lookup tables resolving the tag strings carried on every model and dataset row (high)
-- [ ] `/api/trending` — Hub-wide trending repos - the headline discovery metric (medium)
-- [ ] `/api/models|datasets|spaces/{namespace}/{repo}/commits/{rev}` — commit history per repo, the change/velocity fact table for repos we sync (medium)
-- [ ] `/api/daily_papers and /api/papers` — papers linked to models and datasets, plus daily paper rankings (medium)
-- [ ] `/api/organizations/{name}/members` — org membership roster resolving repo owners (medium)
+- [ ] `/api/trending` — Hub-wide trending repos - the headline discovery metric (medium). Skipped: Hub-wide snapshot capped at 20 rows (`limit` max 20), not scoped to the connected namespace; the repo tables already carry `trendingScore`.
+- [x] `/api/models|datasets|spaces/{namespace}/{repo}/commits/{rev}` — commit history per repo, the change/velocity fact table for repos we sync (medium). Added as `commits`, the `main` history of every model, dataset and Space of the namespace, keyed on `repo_type`, `repo_name` and the commit `id`
+- [ ] `/api/daily_papers and /api/papers` — papers linked to models and datasets, plus daily paper rankings (medium). Skipped: both list the Hub-wide paper catalog, not data of the connected namespace; neither filters by repo owner, and `/api/papers` pages through every paper on the Hub.
+- [x] `/api/organizations/{name}/members` — org membership roster resolving repo owners (medium). Added as `organization_members`; empty when the namespace is a user (the Hub answers 404)
 - [ ] `/api/spaces/{namespace}/{repo}/metrics` — runtime usage metrics for spaces we already sync (medium)
 - [x] `/api/users/{username}/likes` — per-user likes, the engagement edge between users and repos (medium)
 - [ ] `/api/jobs/{namespace} (and /{jobId}/metrics)` — compute job runs and their metrics for cost/usage analysis (low)
@@ -13236,7 +13237,7 @@ Note: The source already discovers CMS collection items dynamically: source.py/s
 
 ## WeightsAndBiases — gaps
 
-Today (10): `artifact_collections`, `artifact_types`, `artifacts`, `members`, `projects`, `reports`, `run_artifacts`, `run_history`, `runs`, `sweeps`
+Today (13): `artifact_collections`, `artifact_types`, `artifacts`, `entities`, `members`, `projects`, `reports`, `run_artifacts`, `run_files`, `run_history`, `run_system_metrics`, `runs`, `sweeps`
 
 Diffed against: <https://api.wandb.ai/graphql>
 
@@ -13244,10 +13245,10 @@ Diffed against: <https://api.wandb.ai/graphql>
 - [x] `Run.outputArtifacts and Run.inputArtifacts` — run-to-artifact lineage join table connecting the two largest tables already synced (high). Added as `run_artifacts`
 - [x] `Entity.members / Project.teamMembers` — lookup resolving the userId carried on every run, sweep and report (high). Added as `members` from `Entity.members`; runs, sweeps and reports carry `user.username`, not a user id, so the join is on username
 - [x] `Project.artifactCollections and Project.artifactTypes` — lookup naming the collection and type each artifact version belongs to; the source already walks these to reach versions but never emits them (high). Added as `artifact_collections` and `artifact_types`
-- [ ] `Run.systemMetrics / Run.events` — GPU, CPU and memory utilization time series per run, the basis for compute-efficiency analysis (medium)
-- [ ] `Run.files` — per-run output file inventory with sizes, useful for storage attribution (medium)
-- [ ] `usage / usageByPeriod (Query root)` — account compute and storage consumption by period, the headline cost metric (medium)
-- [ ] `entities / Entity (Query root)` — the team/entity list itself as a lookup; projects and runs are currently synced for one entity with no entity table (medium)
+- [x] `Run.systemMetrics / Run.events` — GPU, CPU and memory utilization time series per run, the basis for compute-efficiency analysis (medium). Added as `run_system_metrics` from `Run.events(samples:)`, one row per sample keyed on `_timestamp`; `events` takes no range arguments, so a run with more than 5,000 samples is sampled down by the server. `Run.systemMetrics` is the summary already on `runs`
+- [x] `Run.files` — per-run output file inventory with sizes, useful for storage attribution (medium). Added as `run_files`; the signed `url`/`directUrl` fields are not synced
+- [ ] `usage / usageByPeriod (Query root)` — account compute and storage consumption by period, the headline cost metric (medium). Skipped: on wandb.ai the root `usage` query refuses every call with "Unfiltered Usage Query is not currently supported" and takes no entity argument; `usageByPeriod` also takes no entity argument and needs `UsagePeriod`/`ViewType` enum values that no public schema or SDK documents. Entity storage is in the `entities` table.
+- [x] `entities / Entity (Query root)` — the team/entity list itself as a lookup; projects and runs are currently synced for one entity with no entity table (medium). Added as `entities` from `entity(name:)` for the configured entity; the root `entities` connection is not used, because the source syncs one entity
 - [ ] `Project.computeHours and Project.storageBytes` — per-project compute and storage rollups for cost allocation across teams (medium)
 - [ ] `Project.runQueues and launchAgents / QueuedRun` — Launch job queue and agent execution history, a scheduling activity table (low)
 - [ ] `triggers / triggerExecutions (Automations)` — automation run history — which automation fired on which artifact or run (low)
