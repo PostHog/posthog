@@ -8,9 +8,9 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { IconGift } from 'lib/lemon-ui/icons'
 
 import { mcpWrappedLogic } from './mcpWrappedLogic'
-import { CARD_THEMES } from './wrappedTheme'
 
 // The intro card's colors, so the button reads as the way into the story.
 const GRADIENT = { '--wrapped-from': colors.violet.core, '--wrapped-to': colors.tangerine.core } as CSSProperties
@@ -21,10 +21,9 @@ function WrappedButtonContent({ quill }: { quill: boolean }): JSX.Element | null
     if (!wrapped) {
         return null
     }
-    const Hoggie = CARD_THEMES.intro.hoggie
     const content = (
         <>
-            <Hoggie className="-my-1 h-6 w-6" loading="eager" />
+            <IconGift className="text-base" />
             Your {wrapped.year} wrapped
         </>
     )
