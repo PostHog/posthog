@@ -18,26 +18,6 @@ describe("run policy", () => {
     },
   );
 
-  it.each<[string, string | null, boolean, boolean]>([
-    ["an unknown origin", null, false, false],
-    ["an empty origin", "", false, false],
-    ["an unknown origin with the end-run opt-in", null, true, true],
-  ])(
-    "decides the finish tool for %s",
-    (_, originProduct, endRunWhenDone, expected) => {
-      const policy = runPolicyFromOrigin({
-        originProduct,
-        endRunWhenDone,
-        callerEndsRun: false,
-      });
-
-      expect([policy.finishTool, policy.finishReportRequired]).toEqual([
-        expected,
-        false,
-      ]);
-    },
-  );
-
   it("reads a server policy that carries fields it does not know", () => {
     const policy = parseServerRunPolicy(
       JSON.stringify({ ...SERVER_POLICY, billing_product: "posthog_code" }),

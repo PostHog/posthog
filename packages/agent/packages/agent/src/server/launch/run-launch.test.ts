@@ -254,17 +254,40 @@ describe("run launch", () => {
       expect(launch.source?.url).toBe(expected);
     });
 
-    it("drops the thread link when the server policy has none", () => {
+    it.each<[string, Task, Record<string, unknown>, string | undefined]>([
+      [
+        "links a thread the origin would not",
+        createTask({
+          origin_product: "review_hog",
+          client_provenance: "posthog_web",
+        }),
+        { thread_link: true },
+        "https://us.posthog.com/project/2/ai?task=task-1",
+      ],
+      [
+        "drops a thread link the origin would add",
+        createTask({
+          origin_product: "posthog_ai",
+          client_provenance: "posthog_web",
+        }),
+        { thread_link: false },
+        undefined,
+      ],
+      [
+        "assumes the client the policy names",
+        createTask({ origin_product: "user_created" }),
+        { thread_link: true, default_client_provenance: "posthog_web" },
+        "https://us.posthog.com/project/2/ai?task=task-1",
+      ],
+    ])("follows the server policy when it %s", (_, task, policy, expected) => {
       const launch = readProductLaunch(
         sources({
-          task: createTask({ origin_product: "posthog_ai" }),
-          env: {
-            POSTHOG_TASK_RUN_POLICY: serverPolicy({ thread_link: false }),
-          },
+          task,
+          env: { POSTHOG_TASK_RUN_POLICY: serverPolicy(policy) },
         }),
       );
 
-      expect(launch.source).toBeUndefined();
+      expect(launch.source?.url).toBe(expected);
     });
 
     it("gives products a copy of the run state", () => {
