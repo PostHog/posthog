@@ -15,6 +15,8 @@ import { LemonBanner, LemonButton, LemonInput, LemonModal, LemonTable, LemonTabl
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
+import { Link } from 'lib/lemon-ui/Link'
+import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { ActorsQuery, DataTableNode, NodeKind } from '~/queries/schema/schema-general'
@@ -96,6 +98,28 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
             key: 'updated_at',
             render: (updated_at) => <TZLabel time={updated_at as string} />,
         },
+        // The source is only recorded for opt-outs of all marketing.
+        ...(category
+            ? []
+            : [
+                  {
+                      title: 'Source',
+                      key: 'source',
+                      render: function Render(_: unknown, optOutEntry: MessagePreferencesApi): JSX.Element {
+                          if (!optOutEntry.opt_out_workflow_id) {
+                              return <>Unsubscribed</>
+                          }
+                          if (optOutEntry.opt_out_workflow_name === null) {
+                              return <>Deleted workflow</>
+                          }
+                          return (
+                              <Link to={urls.workflow(optOutEntry.opt_out_workflow_id, 'workflow')}>
+                                  {optOutEntry.opt_out_workflow_name || 'Untitled workflow'}
+                              </Link>
+                          )
+                      },
+                  },
+              ]),
         {
             width: 0,
             render: function Render(_, optOutEntry: MessagePreferencesApi): JSX.Element {

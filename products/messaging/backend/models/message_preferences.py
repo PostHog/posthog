@@ -30,6 +30,9 @@ class MessageRecipientPreference(UUIDTModel):
     deleted = models.BooleanField(default=False)
     identifier = models.CharField(max_length=512)
     preferences = models.JSONField(default=dict)
+    # The workflow whose "Opt out of messages" step opted the recipient out of all marketing. Null when the
+    # `$all` opt-out came from any other route, or when there is no `$all` opt-out.
+    opt_out_workflow_id = models.UUIDField(null=True, blank=True)
 
     class Meta:
         unique_together = (
@@ -46,6 +49,9 @@ class MessageRecipientPreference(UUIDTModel):
         if not isinstance(status, PreferenceStatus):
             raise ValueError(f"Status must be a PreferenceStatus enum, got {type(status)}")
 
+        lifts_global_opt_out = (
+            str(category_id) == ALL_MESSAGE_PREFERENCE_CATEGORY_ID and status != PreferenceStatus.OPTED_OUT
+        )
         # Merge the one key in the database. Saving the whole column would drop a category that another request
         # set after this row was read.
         type(self).objects.filter(pk=self.pk, team_id=self.team_id).update(
@@ -55,8 +61,21 @@ class MessageRecipientPreference(UUIDTModel):
                 Value({str(category_id): status.value}, output_field=models.JSONField()),
             ),
             updated_at=timezone.now(),
+            **({"opt_out_workflow_id": None} if lifts_global_opt_out else {}),
         )
-        self.refresh_from_db(using=router.db_for_write(type(self)), fields=["preferences", "updated_at"])
+        self.refresh_from_db(
+            using=router.db_for_write(type(self)), fields=["preferences", "updated_at", "opt_out_workflow_id"]
+        )
+
+    def clear_lifted_opt_out_workflow(self) -> bool:
+        """Forget the workflow behind the `$all` opt-out once the preferences in memory no longer opt out of all
+        marketing, so a later opt-out by another route doesn't show the old workflow. True when it changed."""
+        if self.opt_out_workflow_id is None:
+            return False
+        if self.preferences.get(ALL_MESSAGE_PREFERENCE_CATEGORY_ID) == PreferenceStatus.OPTED_OUT.value:
+            return False
+        self.opt_out_workflow_id = None
+        return True
 
     def get_preference(self, category_id: str) -> PreferenceStatus:
         """Get preference for a specific category"""

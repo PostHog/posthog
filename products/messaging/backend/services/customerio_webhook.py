@@ -40,7 +40,8 @@ def global_resubscribe(team_id: int, email: str) -> None:
     recipient, _ = MessageRecipientPreference.objects.get_or_create(team_id=team_id, identifier=email)
     if ALL_MESSAGE_PREFERENCE_CATEGORY_ID in recipient.preferences:
         del recipient.preferences[ALL_MESSAGE_PREFERENCE_CATEGORY_ID]
-        recipient.save(update_fields=["preferences", "updated_at"])
+        recipient.clear_lifted_opt_out_workflow()
+        recipient.save(update_fields=["preferences", "updated_at", "opt_out_workflow_id"])
 
 
 def apply_topic_preferences(team_id: int, email: str, topics: dict[str, Any]) -> None:

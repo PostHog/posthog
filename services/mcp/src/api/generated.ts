@@ -73713,6 +73713,16 @@ export namespace Schemas {
       updated_at: string;
       /** Map of category ID to preference status (`OPTED_IN`, `OPTED_OUT` or `NO_PREFERENCE`). The reserved `$all` key covers every marketing message. */
       preferences: unknown;
+      /**
+         * ID of the workflow whose opt-out step opted the recipient out of all marketing messages. Null when the recipient opted out in another way, for example with an unsubscribe link.
+         * @nullable
+         */
+      readonly opt_out_workflow_id: string | null;
+      /**
+         * Name of the workflow in `opt_out_workflow_id`. Null when there is no workflow or it was deleted.
+         * @nullable
+         */
+      readonly opt_out_workflow_name: string | null;
     }
 
     /**

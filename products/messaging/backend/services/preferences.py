@@ -1,5 +1,6 @@
 from collections.abc import Callable, Iterator, Mapping
 from typing import Any
+from uuid import UUID
 
 from django.db import transaction
 from django.db.models import QuerySet
@@ -52,7 +53,11 @@ def _sync_after_commit(team_id: int, identifier: str) -> None:
 
 
 def add_opt_out(
-    team_id: int, identifier: str, category_key: str | None, created_by_id: int | None
+    team_id: int,
+    identifier: str,
+    category_key: str | None,
+    created_by_id: int | None,
+    workflow_id: UUID | None = None,
 ) -> tuple[MessageRecipientPreference, bool]:
     category = _live_category(team_id, category_key) if category_key else None
     category_id = str(category.id) if category else ALL_MESSAGE_PREFERENCE_CATEGORY_ID
@@ -62,7 +67,14 @@ def add_opt_out(
         identifier=identifier,
         defaults={"created_by_id": created_by_id},
     )
+    newly_opted_out_of_all = (
+        category is None and preference.preferences.get(category_id) != PreferenceStatus.OPTED_OUT.value
+    )
     preference.set_preference(category_id, PreferenceStatus.OPTED_OUT)
+    # Only the route that started the `$all` opt-out names its source, so a retry or a second route keeps it.
+    if newly_opted_out_of_all and preference.opt_out_workflow_id != workflow_id:
+        preference.opt_out_workflow_id = workflow_id
+        preference.save(update_fields=["opt_out_workflow_id"])
 
     _sync_after_commit(team_id, identifier)
     return preference, created
@@ -87,7 +99,10 @@ def remove_opt_out(
         preferences[str(category.id)] = PreferenceStatus.OPTED_IN.value
 
     preference.preferences = preferences
-    preference.save(update_fields=["preferences", "updated_at"])
+    update_fields = ["preferences", "updated_at"]
+    if preference.clear_lifted_opt_out_workflow():
+        update_fields.append("opt_out_workflow_id")
+    preference.save(update_fields=update_fields)
 
     _sync_after_commit(team_id, identifier)
     return preference, created
@@ -219,5 +234,8 @@ def transition_preferences(
         recipient = MessageRecipientPreference.objects.select_for_update().get(team_id=team_id, identifier=identifier)
         prior = dict(recipient.preferences or {})
         recipient.preferences = build(prior)
-        recipient.save(update_fields=None if touch_updated_at else ["preferences"])
+        update_fields = None if touch_updated_at else ["preferences"]
+        if recipient.clear_lifted_opt_out_workflow() and update_fields is not None:
+            update_fields.append("opt_out_workflow_id")
+        recipient.save(update_fields=update_fields)
     return prior

@@ -93,6 +93,15 @@ class TestWorkflowMessageOptOutsAPI(APIBaseTest):
         assert second.json()["result"] == "already_opted_out"
         assert self._opted_out(category_key) == ["sam@example.com"]
 
+    def test_an_all_marketing_opt_out_records_the_workflow(self) -> None:
+        add_opt_out(self.team.id, "manual@example.com", None, created_by_id=self.user.id)
+
+        self._post(category_id="$all")
+        self._post(category_id="$all", identifier="manual@example.com")
+
+        sources = {row.identifier: row.opt_out_workflow_id for row in list_opt_outs(self.team.id, None, None)}
+        assert sources == {"sam@example.com": self.hog_flow.id, "manual@example.com": None}
+
     def test_a_token_for_another_step_is_rejected(self) -> None:
         response = self._post(audience=PosthogJwtAudience.WORKFLOW_ADD_TO_STATIC_COHORT)
 

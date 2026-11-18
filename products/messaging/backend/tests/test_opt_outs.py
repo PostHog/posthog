@@ -1,16 +1,19 @@
 from collections.abc import Iterator
 from typing import Any, cast
+from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 
 from django.http import StreamingHttpResponse
 
+from products.messaging.backend.facade.preferences import add_opt_out, remove_opt_out, set_preferences
 from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.message_preferences import (
     ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
     MessageRecipientPreference,
     PreferenceStatus,
 )
+from products.workflows.backend.facade.models import HogFlow
 
 
 class TestOptOuts(APIBaseTest):
@@ -160,3 +163,53 @@ class TestOptOuts(APIBaseTest):
         response = self.client.get(f"{self.base_url}/export_opt_outs_csv/", {"category_key": "nope"})
 
         self.assertEqual(response.status_code, 404)
+
+    def _opt_out_sources(self) -> dict[str, tuple[str | None, str | None]]:
+        response = self.client.get(f"{self.base_url}/opt_outs/")
+        self.assertEqual(response.status_code, 200)
+        return {
+            row["identifier"]: (row["opt_out_workflow_id"], row["opt_out_workflow_name"])
+            for row in response.json()["results"]
+        }
+
+    def test_opt_out_list_names_the_workflow_that_opted_a_recipient_out(self):
+        workflow = HogFlow.objects.create(team=self.team, name="Account deleted", trigger={"type": "manual"})
+        add_opt_out(self.team.id, "gone@example.com", None, None, workflow_id=workflow.id)
+        add_opt_out(self.team.id, "deleted-workflow@example.com", None, None, workflow_id=uuid4())
+        add_opt_out(self.team.id, "manual@example.com", None, self.user.id)
+
+        sources = self._opt_out_sources()
+
+        self.assertEqual(sources["gone@example.com"], (str(workflow.id), "Account deleted"))
+        self.assertEqual(sources["deleted-workflow@example.com"][1], None)
+        self.assertEqual(sources["manual@example.com"], (None, None))
+
+    def test_a_workflow_does_not_take_over_an_opt_out_that_another_route_started(self):
+        add_opt_out(self.team.id, "manual@example.com", None, self.user.id)
+        add_opt_out(self.team.id, "manual@example.com", None, None, workflow_id=uuid4())
+
+        self.assertEqual(self._opt_out_sources()["manual@example.com"], (None, None))
+
+    def test_a_category_opt_out_does_not_record_a_workflow(self):
+        add_opt_out(self.team.id, "sam@example.com", "newsletter", None, workflow_id=uuid4())
+
+        row = MessageRecipientPreference.objects.get(team=self.team, identifier="sam@example.com")
+        self.assertIsNone(row.opt_out_workflow_id)
+
+    def test_lifting_the_opt_out_forgets_the_workflow(self):
+        lifts = {
+            "remove@example.com": lambda: remove_opt_out(self.team.id, "remove@example.com", None, None),
+            "category@example.com": lambda: remove_opt_out(self.team.id, "category@example.com", "newsletter", None),
+            "preferences@example.com": lambda: set_preferences(self.team.id, "preferences@example.com", True, {}),
+            "model@example.com": lambda: MessageRecipientPreference.objects.get(
+                team=self.team, identifier="model@example.com"
+            ).set_preference(ALL_MESSAGE_PREFERENCE_CATEGORY_ID, PreferenceStatus.OPTED_IN),
+        }
+        for identifier, lift in lifts.items():
+            with self.subTest(identifier):
+                add_opt_out(self.team.id, identifier, None, None, workflow_id=uuid4())
+                lift()
+                add_opt_out(self.team.id, identifier, None, self.user.id)
+
+                row = MessageRecipientPreference.objects.get(team=self.team, identifier=identifier)
+                self.assertIsNone(row.opt_out_workflow_id)

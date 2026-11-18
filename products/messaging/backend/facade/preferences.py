@@ -42,6 +42,8 @@ class RecipientPreferences:
     updated_at: datetime
     # Category id (or the reserved `$all` key) to OPTED_IN, OPTED_OUT or NO_PREFERENCE.
     preferences: dict[str, Any]
+    # The workflow whose step opted the recipient out of all marketing, or None for any other route.
+    opt_out_workflow_id: UUID | None = None
 
 
 @frozen
@@ -66,7 +68,11 @@ class BulkOptOutOutcome:
 
 def _to_contract(row: MessageRecipientPreference) -> RecipientPreferences:
     return RecipientPreferences(
-        id=row.id, identifier=row.identifier, updated_at=row.updated_at, preferences=row.preferences
+        id=row.id,
+        identifier=row.identifier,
+        updated_at=row.updated_at,
+        preferences=row.preferences,
+        opt_out_workflow_id=row.opt_out_workflow_id,
     )
 
 
@@ -83,11 +89,18 @@ def list_opt_outs(team_id: int, category_key: str | None, search: str | None) ->
 
 
 def add_opt_out(
-    team_id: int, identifier: str, category_key: str | None, created_by_id: int | None
+    team_id: int,
+    identifier: str,
+    category_key: str | None,
+    created_by_id: int | None,
+    workflow_id: UUID | None = None,
 ) -> ChangedPreferences:
-    """Opt the recipient out of the category, or of all marketing. Syncs to Customer.io after commit."""
+    """Opt the recipient out of the category, or of all marketing. Syncs to Customer.io after commit.
+
+    `workflow_id` names the workflow step that asked for the opt-out, and is kept as the source of a new `$all` opt-out.
+    """
     try:
-        row, created = preferences_service.add_opt_out(team_id, identifier, category_key, created_by_id)
+        row, created = preferences_service.add_opt_out(team_id, identifier, category_key, created_by_id, workflow_id)
     except preferences_service.CategoryNotFound as e:
         raise MessageCategoryNotFound("Category not found") from e
     return ChangedPreferences(preferences=_to_contract(row), created=created)

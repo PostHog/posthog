@@ -2,7 +2,7 @@ import re
 from typing import Any, Literal
 
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
@@ -26,6 +26,7 @@ from products.messaging.backend.facade.preferences import (
     list_opt_outs,
     remove_opt_out,
 )
+from products.workflows.backend.facade.api import get_workflow_names
 
 MAX_BULK_OPT_OUT_ENTRIES = 1000
 UNSAFE_FILENAME_CHARACTERS = re.compile(r"[^A-Za-z0-9_-]+")
@@ -45,6 +46,21 @@ class MessagePreferencesSerializer(serializers.Serializer):
         help_text="Map of category ID to preference status (`OPTED_IN`, `OPTED_OUT` or `NO_PREFERENCE`). "
         "The reserved `$all` key covers every marketing message."
     )
+    opt_out_workflow_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="ID of the workflow whose opt-out step opted the recipient out of all marketing messages. "
+        "Null when the recipient opted out in another way, for example with an unsubscribe link.",
+    )
+    opt_out_workflow_name = serializers.SerializerMethodField(
+        help_text="Name of the workflow in `opt_out_workflow_id`. Null when there is no workflow or it was deleted."
+    )
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_opt_out_workflow_name(self, obj: RecipientPreferences) -> str | None:
+        if obj.opt_out_workflow_id is None:
+            return None
+        return self.context.get("workflow_names", {}).get(str(obj.opt_out_workflow_id))
 
 
 class AddOptOutRequestSerializer(serializers.Serializer):
@@ -217,7 +233,9 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         # The paginator only needs len() and slicing, which the facade's sequence provides.
         page: list[RecipientPreferences] | None = paginator.paginate_queryset(opt_outs, request)  # type: ignore[arg-type]
         if page is not None:
-            serializer = MessagePreferencesSerializer(page, many=True)
+            workflow_ids = {str(row.opt_out_workflow_id) for row in page if row.opt_out_workflow_id is not None}
+            workflow_names = get_workflow_names(team_id=self.team_id, workflow_ids=workflow_ids) if workflow_ids else {}
+            serializer = MessagePreferencesSerializer(page, many=True, context={"workflow_names": workflow_names})
             return paginator.get_paginated_response(serializer.data)
 
         # Fallback if pagination fails for some reason

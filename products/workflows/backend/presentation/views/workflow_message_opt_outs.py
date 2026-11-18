@@ -160,7 +160,7 @@ def _opt_out(
         already_opted_out = False
     # Opt out even when already opted out, so a retry after a failed Customer.io sync queues that sync again.
     try:
-        add_opt_out(team_id, identifier, category_key, created_by_id=None)
+        add_opt_out(team_id, identifier, category_key, created_by_id=None, workflow_id=hog_flow_id)
     except MessageCategoryNotFound:
         raise unusable
     if already_opted_out:
