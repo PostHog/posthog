@@ -1,8 +1,12 @@
+import { useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
+import { LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { urls } from 'scenes/urls'
 
 import { AggregatedSpanRow, SpanHealthStatus } from '~/queries/schema/schema-general'
 
@@ -59,7 +63,7 @@ const impactCell =
     }
 
 // Listed worst first, so the Health column sorts unhealthy rows to the top.
-const HEALTH_META: Record<SpanHealthStatus, { label: string; tagType: LemonTagType }> = {
+export const HEALTH_META: Record<SpanHealthStatus, { label: string; tagType: LemonTagType }> = {
     silent: { label: 'Silent', tagType: 'danger' },
     regressed: { label: 'Regressed', tagType: 'danger' },
     degraded: { label: 'Degraded', tagType: 'warning' },
@@ -77,7 +81,8 @@ function healthRank(row: AggregatedSpanRow): number {
 function buildColumns(
     windowMs: number,
     showImpact: boolean,
-    groupedByEndpoint: boolean
+    groupedByEndpoint: boolean,
+    linkServices: boolean
 ): VirtualizedTableColumn<AggregatedSpanRow>[] {
     const impactColumns: VirtualizedTableColumn<AggregatedSpanRow>[] = showImpact
         ? [
@@ -140,7 +145,20 @@ function buildColumns(
             title: 'Service',
             width: 200,
             sorter: (a, b) => a.service_name.localeCompare(b.service_name),
-            render: (row) => <span className="font-mono">{row.service_name}</span>,
+            render: (row) =>
+                linkServices ? (
+                    <Link
+                        to={urls.applicationObservabilityService(row.service_name)}
+                        className="font-mono"
+                        // The row's own click opens the operation; this link opens the whole service.
+                        onClick={(event) => event.stopPropagation()}
+                        data-attr="tracing-operations-service-link"
+                    >
+                        {row.service_name}
+                    </Link>
+                ) : (
+                    <span className="font-mono">{row.service_name}</span>
+                ),
         },
         {
             key: 'name',
@@ -256,9 +274,12 @@ export function OperationsTable({
     groupedByEndpoint = false,
     onRowClick,
 }: OperationsTableProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    // The service page lives in application observability, so link to it only where that is on.
+    const linkServices = !!featureFlags[FEATURE_FLAGS.APPLICATION_OBSERVABILITY]
     const columns = useMemo(
-        () => buildColumns(windowMs, showImpact, groupedByEndpoint),
-        [windowMs, showImpact, groupedByEndpoint]
+        () => buildColumns(windowMs, showImpact, groupedByEndpoint, linkServices),
+        [windowMs, showImpact, groupedByEndpoint, linkServices]
     )
     return (
         <VirtualizedTable<AggregatedSpanRow>
