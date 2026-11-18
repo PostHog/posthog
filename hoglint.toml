@@ -1,0 +1,133 @@
+# hoglint for PostHog: the Django pack, the PostHog pack, the PostHog preset and the owners provider.
+# Run from the repo root: `hoglint check`. `hoglint help hook` says what the pre-commit hook checks.
+schema = 1
+extends = ["hoglint:django", "hoglint:posthog", "tools/hoglint/presets/posthog.toml"]
+
+[discovery]
+source_roots = ["."]
+first_party  = ["posthog", "ee", "common", "products", "tools", "services", "packages"]
+# Eval trees orchestrate many products by design. tools/infra-scripts is a separate deployable
+# that imports the `posthog` SDK, not this repo's `posthog` package.
+exclude      = [
+  "docs/**",
+  "products/*/evals/**",
+  "products/posthog_ai/eval_harness/**",
+  "products/signals/eval/**",
+  "tools/infra-scripts/**",
+]
+# Third-party packages hoglint reads: they ship installed apps, models and migrations, or
+# Temporal's decorators.
+external     = ["django", "rest_framework", "oauth2_provider", "social_django", "axes", "django_otp", "two_factor", "temporalio"]
+
+[django]
+settings             = ["posthog.settings", "posthog.settings.*", "ee.settings"]
+db_routing           = "products/db_routing.yaml"
+db_alias_template    = "{database}_db_writer"
+settings_proxies     = { oauth2_settings = "OAUTH2_PROVIDER_" }
+setting_name_helpers = { setting_name = "SOCIAL_AUTH_" }
+receiver_decorators  = ["django.dispatch.dispatcher.receiver", "posthog.models.signals.mutable_receiver"]
+oracles              = ["registry", "migration-loader"]
+# Functions that install a callback into another package: a call or decorator naming one is an
+# `installs` edge. Exact names; add a new hook here.
+hooks = [
+  "ee.hogai.artifacts.handlers.base.register_handler",
+  "posthog.admin.console.registry.console.register_moved_action",
+  "posthog.admin.console.registry.console.register_moved_page",
+  "posthog.admin.inline_registry.register_admin_inline",
+  "posthog.admin.register_all_admin",
+  "posthog.api.file_system.deletion.register_delete_lock",
+  "posthog.api.file_system.deletion.register_file_change_check",
+  "posthog.api.file_system.deletion.register_file_system_type",
+  "posthog.api.file_system.deletion.register_post_delete_hook",
+  "posthog.api.file_system.deletion.register_post_restore_hook",
+  "posthog.api.file_system.deletion.register_pre_delete_hook",
+  "posthog.api.file_system.deletion.register_pre_restore_hook",
+  "posthog.api.file_system.deletion.register_prepare_delete_hook",
+  "posthog.api.file_system.registrations.register_core_file_system_types",
+  "posthog.api.file_system.visibility.register_file_system_visibility_filter",
+  "posthog.checks.register_check",
+  "posthog.dags.events_backfill_to_duckling.register_files_with_duckling",
+  "posthog.dags.events_backfill_to_duckling.register_persons_files_with_duckling",
+  "posthog.egress.limiter.policies.register_policy",
+  "posthog.hogql.direct_sql.registry.register_adapter",
+  "posthog.integrations.manager.register_source_kinds",
+  "posthog.integrations.manager.register_usage_provider",
+  "posthog.integrations.source_kinds.register_source_kinds",
+  "posthog.integrations.usages.register_usage_provider",
+  "posthog.management.commands.register_temporal_search_attributes.register_search_attributes",
+  "posthog.models.file_system.unfiled_file_saver.register_mixin_model",
+  "posthog.models.integration.auth_types.register_kind_auth_types",
+  "posthog.models.resource_transfer.registered_models.register_model",
+  "posthog.models.team.extensions.register_team_extension_signal",
+  "posthog.tasks.alerts.detectors.registry.register_detector",
+  "products.alerts_platform.backend.delivery.delivery_paths.register_chooser",
+  "products.alerts_platform.backend.delivery.delivery_paths.register_emitter",
+  "products.alerts_platform.backend.delivery.describers.register_image_resolver",
+  "products.alerts_platform.backend.delivery.describers.register_slack_renderer",
+  "products.alerts_platform.backend.facade.delivery.register_delivery_path_chooser",
+  "products.alerts_platform.backend.facade.delivery.register_destination_resolver",
+  "products.alerts_platform.backend.facade.delivery.register_image_resolver",
+  "products.alerts_platform.backend.facade.delivery.register_legacy_event_emitter",
+  "products.alerts_platform.backend.facade.delivery.register_legacy_webhook_body",
+  "products.alerts_platform.backend.facade.delivery.register_source_describer",
+  "products.alerts_platform.backend.facade.delivery.register_source_recipients",
+  "products.alerts_platform.backend.facade.delivery.register_source_slack_renderer",
+  "products.alerts_platform.backend.facade.source_configs.register_source_config",
+  "products.approvals.backend.actions.registry.register_actions",
+  "products.business_knowledge.backend.learning.providers.register_learning_provider",
+  "products.cdp.backend.validation.register_supported_function",
+  "products.conversations.backend.learning_provider.register_conversations_learning_provider",
+  "products.data_modeling.backend.facade.managed_viewset_hooks.register_expected_views_provider",
+  "products.error_tracking.backend.routes.register_routes",
+  "products.exports.backend.facade.exporters.register_export_format_handler",
+  "products.managed_warehouse.dags.groups_backfill.register_groups_files_with_duckling",
+  "products.marketing_analytics.backend.demo.warehouse.register_table",
+  "products.mcp_store.backend.oauth.register_dcr_client",
+  "products.review_hog.backend.facade.finished_review_hooks.register_finished_review_hook",
+  "products.review_hog.backend.reviewer.skill_loader.register_missing_blind_spots_config",
+  "products.review_hog.backend.reviewer.skill_loader.register_missing_perspective_configs",
+  "products.review_hog.backend.reviewer.skill_loader.register_missing_resolution_config",
+  "products.review_hog.backend.reviewer.skill_loader.register_missing_validation_config",
+  "products.signals.backend.emission.registry.register_signal_source",
+  "products.signals.backend.facade.source_scouts.register_source_scout_refresher",
+  "products.signals.backend.first_report_notification.register_first_report_notification",
+  "products.signals.backend.scout_harness.config_registry.register_missing_configs",
+  "products.signals.backend.spend.register_report_task_spend",
+  "products.signals.dags.inbox_ranking.training.side_inputs.register_side_input",
+  "products.skills.backend.api.archive_guards.register_skill_archive_guard",
+  "products.skills.backend.api.archive_guards.register_skill_rename_hook",
+  "products.stamphog.backend.facade.finished_review_hooks.register_finished_review_hook",
+  "products.stamphog.backend.facade.inbox_hooks.register_inbox_acting_reviewer_resolver",
+  "products.stamphog.backend.facade.review_evidence.register_review_evidence_provider",
+  "products.tasks.backend.facade.api.register_task_run_posthog_references",
+  "products.tasks.backend.facade.profiles.register_task_profile",
+  "products.tasks.backend.facade.profiles.register_task_profiles",
+  "products.tasks.backend.facade.task_run_signals.register_task_read_exclusion",
+  "products.tasks.backend.facade.task_run_signals.register_task_run_start_guard",
+  "products.visual_review.backend.logic.story_index.register_story_index",
+  "products.warehouse_sources.backend.temporal.data_imports.destinations.registry.register_destination_writer",
+  "products.warehouse_sources.backend.temporal.data_imports.external_product_hooks.register_account_property_projection",
+  "products.warehouse_sources.backend.temporal.data_imports.external_product_hooks.register_data_quality_checks_gate",
+  "products.warehouse_sources.backend.temporal.data_imports.external_product_hooks.register_emit_signals_gate",
+  "products.warehouse_sources.backend.temporal.data_imports.external_product_hooks.register_engineering_analytics_view_sync",
+  "products.warehouse_sources.backend.temporal.data_imports.external_product_hooks.register_person_property_projection",
+  "products.warehouse_sources.backend.temporal.data_imports.external_product_hooks.register_person_property_sync_progress_recorder",
+  "products.warehouse_sources.backend.temporal.data_imports.external_product_hooks.register_person_property_sync_recorder",
+  "products.warehouse_sources.backend.temporal.data_imports.external_product_hooks.register_person_property_sync_sources",
+  "products.warehouse_sources.backend.temporal.data_imports.external_product_hooks.register_revenue_view_sync",
+  "products.warehouse_sources.backend.temporal.data_imports.external_product_hooks.register_saved_query_property_sources",
+  "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync.register_cdc_companion_table",
+  "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.builtin_writers.register_builtin_destination_writers",
+  "products.workflows.backend.services.account_audience.register_account_audience_provider",
+]
+
+# The PostHog pack takes no settings; the table turns it on.
+[posthog]
+
+[providers.owners]
+use  = "owners-yaml"
+sets = ["owners"]
+
+[ledger]
+file       = "hoglint.ledger"
+exceptions = "hoglint.exceptions.toml"

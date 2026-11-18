@@ -118,14 +118,6 @@ from policy import OwnershipSource, bundled_defaults_dir, load_policy, merge_pol
             id="busy-api-client-not-guardrail",
         ),
         pytest.param(
-            ["tach.toml"],
-            id="busy-tach-config-not-guardrail",
-        ),
-        pytest.param(
-            ["products/model_crossing_uses_baseline.txt"],
-            id="busy-crossings-baseline-not-guardrail",
-        ),
-        pytest.param(
             ["posthog/test/repo_invariants/setup_receivers_baseline.txt"],
             id="busy-receivers-baseline-not-guardrail",
         ),
@@ -315,9 +307,9 @@ def test_no_false_positive(files: list[str]) -> None:
             id="startup-budget-invariant-test",
         ),
         pytest.param(
-            ["tools/hogli-commands/hogli_commands/product/isolation.py"],
+            ["tools/hogli-commands/hogli_commands/product/checks.py"],
             "devex_guardrails",
-            id="isolation-lint",
+            id="product-lint",
         ),
     ],
 )

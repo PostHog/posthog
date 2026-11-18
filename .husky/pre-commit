@@ -57,6 +57,27 @@ if [ -f .github/scripts/check-comment-density.sh ]; then
     bash .github/scripts/check-comment-density.sh || true
 fi
 
+# hoglint blocks a new boundary problem in the staged tree (`hoglint help hook`).
+# Exit 3 means hoglint could not run, and a missing command cannot print its own
+# line: both let the commit through, because CI runs the full check. Any other
+# non-zero exit blocks. A GUI client may not have the dev env on PATH, so the
+# flox venv is the fallback. husky runs this file with `sh -e`, so each command
+# that can fail carries its own `||`.
+hoglint_bin="$(command -v hoglint 2>/dev/null || true)"
+if [ -z "$hoglint_bin" ] && [ -x .flox/cache/venv/bin/hoglint ]; then
+    hoglint_bin=.flox/cache/venv/bin/hoglint
+fi
+hoglint_status=127
+if [ -n "$hoglint_bin" ]; then
+    hoglint_status=0
+    "$hoglint_bin" check --index || hoglint_status=$?
+fi
+case "$hoglint_status" in
+    0 | 3) ;;
+    127) echo "hoglint did not check this commit, because hoglint could not run: the hook could not start the hoglint command. The commit continues. CI runs the full check. To repair hoglint, install the pinned hoglint version again with the dev dependencies." ;;
+    *) exit "$hoglint_status" ;;
+esac
+
 # Activate Flox environment if available and not already active
 # This ensures lint-staged commands work in GUI Git clients (GitHub Desktop, etc.)
 if command -v flox > /dev/null 2>&1 && [ -d ".flox/cache" ] && [ -z "$FLOX_ENV" ]; then
