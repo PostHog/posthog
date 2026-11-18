@@ -114,7 +114,7 @@ class TestImageExporter(APIBaseTest):
             team=self.team, export_format=ExportedAsset.ExportFormat.PNG, export_context=context
         )
 
-        image_exporter._export_to_png(asset)
+        image_exporter._export_rendered_asset(asset)
 
         asset.refresh_from_db()
         assert asset.export_context == {**context, **expected}
