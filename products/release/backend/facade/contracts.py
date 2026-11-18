@@ -14,6 +14,10 @@ from pydantic.dataclasses import dataclass
 MAX_LINKED = 100
 
 
+class FlagNotFoundError(Exception):
+    pass
+
+
 class ReleaseNotFoundError(Exception):
     pass
 
@@ -162,6 +166,34 @@ class CatalogReleaseDTO:
     name: str
     created_at: datetime
     owner: CatalogOwnerDTO | None
+
+
+@dataclass(frozen=True)
+class FlagLabel:
+    id: int
+    key: str
+    name: str
+
+
+@dataclass(frozen=True)
+class ReleaseRefDTO:
+    id: UUID
+    name: str
+
+
+@dataclass(frozen=True)
+class ReleaseSuggestionDTO:
+    id: UUID
+    name: str
+    matched_terms: list[str]
+
+
+@dataclass(frozen=True)
+class FlagReleasesDTO:
+    feature_flag_id: int
+    auto_release: bool
+    current: list[ReleaseRefDTO]
+    suggestions: list[ReleaseSuggestionDTO]
 
 
 @dataclass(frozen=True)
