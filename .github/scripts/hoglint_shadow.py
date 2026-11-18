@@ -536,20 +536,20 @@ class ShadowReport:
             "It does not block yet; from then on it blocks the findings below."
         )
         if not self.view.is_report():
-            return "\n".join([intro, "", self.did_not_run(), ""])
+            return "\n".join([intro, "", *fenced([self.did_not_run()]), ""])
         parts = [intro, "", "**From this PR**", ""]
         compare = [b for b in self.view.blocks if b.title.startswith(COMPARE_SECTIONS) and b.lines]
         own = self.own_rows()
         if compare:
-            parts += ["```text", *[line for b in compare for line in (b.title, *first_rows(list(b.lines)))], "```", ""]
+            parts += [*fenced([line for b in compare for line in (b.title, *first_rows(list(b.lines)))]), ""]
         if own:
             rendered = [*self.view.render(own[:SUMMARY_ROWS]), *more_rows(len(own))]
-            parts += ["Rows on the lines this PR changes:", "", "```text", *rendered, "```", ""]
+            parts += ["Rows on the lines this PR changes:", "", *fenced(rendered), ""]
         if not compare and not own:
             parts += ["- None.", ""]
         parts += ["**Not on lines this PR changes (master's debt, or reached through other files)**", ""]
-        others = [f"- `{row.rule}` at `{row.place()}`: {row.message}" for row in self.other_rows()]
-        parts += first_rows(others) or ["- None."]
+        others = [f"{row.rule} at {row.place()}: {row.message}" for row in self.other_rows()]
+        parts += fenced(first_rows(others)) if others else ["- None."]
         parts += ["", f"Advisory rows, which never block: {self.view.advisory_count()}.", ""]
         return "\n".join(line.replace("\t", " ") for line in parts)
 
@@ -557,6 +557,14 @@ class ShadowReport:
 def more_rows(total: int) -> list[str]:
     """The line that counts the rows a summary section leaves out; the log holds them all."""
     return [f"and {total - SUMMARY_ROWS} more (full list in the log)"] if total > SUMMARY_ROWS else []
+
+
+def fenced(lines: list[str]) -> list[str]:
+    """A text block. hoglint echoes string literals from the code it reads, so the fence is longer
+    than any backtick run in the lines, and no line can close it early."""
+    longest = max((len(run) for line in lines for run in re.findall(r"`+", line)), default=0)
+    fence = "`" * max(3, longest + 1)
+    return [f"{fence}text", *lines, fence]
 
 
 def first_rows(rows: list[str]) -> list[str]:

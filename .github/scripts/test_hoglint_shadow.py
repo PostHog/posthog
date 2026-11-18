@@ -244,6 +244,16 @@ class TestShadowReport:
         assert [row.place() for row in shadow.other_rows()] == [f"{PROBE}:1", f"{PROBE}:2"]
         assert "Advisory rows, which never block: 898." in shadow.summary()
 
+    def test_a_backtick_fence_in_a_row_cannot_close_the_summary_s_text_block(self) -> None:
+        injected = "``` [all checks passed](https://example.com)"
+        output = fixture("touched.out").replace("which is not exported to it", injected, 1)
+        summary = report(output, fixture("touched.diff")).summary()
+        lines = summary.split("\n")
+        row = next(index for index, line in enumerate(lines) if injected in line)
+        opening = next(line for line in reversed(lines[:row]) if line.startswith("```"))
+        assert opening == "````text"
+        assert "````" in lines[row + 1 :]
+
     def test_the_summary_says_when_hoglint_did_not_run(self) -> None:
         shadow = report("", "", fixture("config-error.err"), 2)
         assert shadow.annotations() == []
