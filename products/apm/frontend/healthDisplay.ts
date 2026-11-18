@@ -45,12 +45,10 @@ export function formatMs(ms: number | null): string {
     return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms)}ms`
 }
 
-/** Orders two nullable numbers for a table sorter, with no value ranked below every number. */
 export function compareNullable(a: number | null, b: number | null): number {
     return (a ?? -Infinity) - (b ?? -Infinity) || 0
 }
 
-/** True when the search is empty or any of the fields contains it, ignoring case. */
 export function matchesSearch(search: string, ...fields: string[]): boolean {
     const needle = search.trim().toLowerCase()
     return !needle || fields.some((field) => field.toLowerCase().includes(needle))

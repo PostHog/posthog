@@ -8,7 +8,6 @@ const BAR_COLOR: Record<HealthStatusEnumApi, string> = {
     critical: 'bg-danger',
 }
 
-/** The error rate as text over a bar filled to the same share, coloured by the row's health band. */
 export function ErrorRateBar({
     errorRate,
     status,
