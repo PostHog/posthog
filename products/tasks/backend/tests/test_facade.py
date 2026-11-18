@@ -331,6 +331,17 @@ class TestFacadeReadsAndMappers(TestCase):
         defaults.update(kwargs)
         return Task.objects.create(**defaults)
 
+    def test_heartbeat_does_not_reach_a_run_of_another_task(self) -> None:
+        other_run = TaskRun.objects.create(
+            task=self._make_task(), team=self.team, status=TaskRun.Status.QUEUED, environment=TaskRun.Environment.LOCAL
+        )
+
+        outcome = facade.record_local_task_run_heartbeat(other_run.id, self._make_task().id, self.team.id)
+
+        self.assertEqual(outcome, "not_found")
+        other_run.refresh_from_db()
+        self.assertIsNone(other_run.last_heartbeat_at)
+
     @parameterized.expand(
         [
             ("the_sandbox", True, True),
