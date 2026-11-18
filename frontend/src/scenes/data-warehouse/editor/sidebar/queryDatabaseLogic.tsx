@@ -571,9 +571,15 @@ const createSkeletonNodes = (
             id: `${idPrefix}-${index}/`,
             name: 'Loading...',
             displayName: (
-                <LemonSkeleton className={`h-3 ${SKELETON_NAME_WIDTHS[index % SKELETON_NAME_WIDTHS.length]}`} />
+                <LemonSkeleton
+                    className={`inline-block h-3 align-middle ${SKELETON_NAME_WIDTHS[index % SKELETON_NAME_WIDTHS.length]}`}
+                />
             ),
-            icon: <LemonSkeleton className="size-4" />,
+            icon: (
+                <span className="flex">
+                    <LemonSkeleton className="size-4" />
+                </span>
+            ),
             disableSelect: true,
             type: 'loading-indicator',
             record,
