@@ -6,6 +6,8 @@ from posthog.models.utils import generate_random_token, hash_key_value
 
 logger = structlog.get_logger(__name__)
 
+BATCH_SIZE = 500
+
 
 def reconcile_signing_secrets(apps, schema_editor):
     """
@@ -23,76 +25,83 @@ def reconcile_signing_secrets(apps, schema_editor):
     A token that leak revocation retired (RevokedTeamSecretToken) must not become the
     trusted signing secret either, even when the row already mirrors it: such rows get
     a fresh random secret instead, so identity verification fails closed until an admin
-    reads the new value from Conversations settings.
+    reads the new value from Conversations settings. Revocations are re-read per batch
+    and again under the repair lock, because pods on the previous release record them
+    without retiring the signing secret while this scan runs.
     """
     SigningSecret = apps.get_model("conversations", "SigningSecret")
     RevokedTeamSecretToken = apps.get_model("posthog", "RevokedTeamSecretToken")
     Team = SigningSecret._meta.get_field("team").related_model
     alias = schema_editor.connection.alias
 
-    # The revocation table is tiny; one read replaces a lookup per scanned row.
-    revoked_hashes = set(RevokedTeamSecretToken.objects.using(alias).values_list("team_id", "secure_value"))
-
-    def is_revoked(team_id, token):
-        return (team_id, hash_key_value(token)) in revoked_hashes
-
     row_ids = list(SigningSecret.objects.using(alias).filter(rotated_independently=False).values_list("pk", flat=True))
 
     checked = 0
     resynced = 0
-    # One short transaction per row (the migration is non-atomic), so the team lock
-    # taken for a resync never blocks other teams' writes for the rest of the scan.
-    for pk in row_ids:
-        checked += 1
-        with transaction.atomic(using=alias):
-            row = (
-                SigningSecret.objects.using(alias)
-                .filter(pk=pk, rotated_independently=False)
-                .select_related("team")
-                .only("id", "secret", "previous_secret", "team", "team__secret_api_token")
-                .first()
-            )
-            if row is None:
-                continue
+    for start in range(0, len(row_ids), BATCH_SIZE):
+        batch = list(
+            SigningSecret.objects.using(alias)
+            .filter(pk__in=row_ids[start : start + BATCH_SIZE], rotated_independently=False)
+            .select_related("team")
+            .only("id", "secret", "previous_secret", "team", "team__secret_api_token")
+        )
+        batch_revoked = set(
+            RevokedTeamSecretToken.objects.using(alias)
+            .filter(team_id__in=[row.team_id for row in batch])
+            .values_list("team_id", "secure_value")
+        )
+        for row in batch:
+            checked += 1
             # EncryptedTextField ciphertext is non-deterministic, so compare decrypted
             # values in Python; a filter on the column cannot match.
             current_token = row.team.secret_api_token
             if not current_token:
                 # The old verifier trusted a row with no legacy counterpart; nothing to resync.
                 continue
-            if row.secret == current_token and not row.previous_secret and not is_revoked(row.team_id, current_token):
+            if (
+                row.secret == current_token
+                and not row.previous_secret
+                and (row.team_id, hash_key_value(current_token)) not in batch_revoked
+            ):
                 continue
-            # A pod on the previous release can still rotate the legacy token under the
-            # team row lock; lock the team and re-read so this write cannot copy a token
-            # that rotation just retired.
-            current_token = (
-                Team.objects.using(alias).select_for_update(no_key=True).get(pk=row.team_id).secret_api_token
-            )
-            if not current_token:
-                continue
-            updates = {
-                "secret": current_token,
-                "previous_secret": None,
-                "previous_secret_rotated_at": None,
-            }
-            if is_revoked(row.team_id, current_token):
-                updates["secret"] = generate_random_token()
-                # The row no longer mirrors the column; a rerun must not re-mint.
-                updates["rotated_independently"] = True
-            # Conditional UPDATE instead of save(): an independent rotation that commits
-            # after the reads above sets rotated_independently=True under its row lock,
-            # and this write must not clobber the secret it minted. A mirroring row never
-            # carries grace; a drifted previous_secret may hold a revoked key, so expire
-            # it with the resync.
-            resynced += (
-                SigningSecret.objects.using(alias).filter(pk=row.pk, rotated_independently=False).update(**updates)
-            )
+            # One short transaction per repaired row (the migration is non-atomic), so a
+            # resync's team lock never blocks other teams' writes for the rest of the scan.
+            with transaction.atomic(using=alias):
+                # A pod on the previous release can still rotate the legacy token under
+                # the team row lock; lock the team and re-read so this write cannot copy
+                # a token that rotation just retired.
+                current_token = (
+                    Team.objects.using(alias).select_for_update(no_key=True).get(pk=row.team_id).secret_api_token
+                )
+                if not current_token:
+                    continue
+                updates = {
+                    "secret": current_token,
+                    "previous_secret": None,
+                    "previous_secret_rotated_at": None,
+                }
+                if (
+                    RevokedTeamSecretToken.objects.using(alias)
+                    .filter(team_id=row.team_id, secure_value=hash_key_value(current_token))
+                    .exists()
+                ):
+                    updates["secret"] = generate_random_token()
+                    # The row no longer mirrors the column; a rerun must not re-mint.
+                    updates["rotated_independently"] = True
+                # Conditional UPDATE instead of save(): an independent rotation that
+                # commits after the reads above sets rotated_independently=True under its
+                # row lock, and this write must not clobber the secret it minted. A
+                # mirroring row never carries grace; a drifted previous_secret may hold a
+                # revoked key, so expire it with the resync.
+                resynced += (
+                    SigningSecret.objects.using(alias).filter(pk=row.pk, rotated_independently=False).update(**updates)
+                )
 
     logger.info("reconciled_conversations_signing_secrets", checked=checked, resynced=resynced)
 
 
 class Migration(migrations.Migration):
-    # Each row commits in its own transaction so resync locks are released as the scan
+    # Each repair commits in its own transaction so locks are released as the scan
     # proceeds; the operation is a conditional data repair, safe to resume on failure.
     atomic = False
 
