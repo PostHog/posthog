@@ -260,6 +260,15 @@ class TestPlaywrightSpecSelection(unittest.TestCase):
                 self.assertEqual(result["mode"], "selected")
                 self.assertEqual(result["spec_files"], ["products/messaging/frontend/e2e/message-preferences.spec.ts"])
 
+    def test_real_map_adds_the_preferences_spec_for_messaging_backend_changes(self) -> None:
+        area_map = selection.load_map(selection.MAP_PATH)
+        all_specs = selection.discover_specs(selection.REPO_ROOT)
+        result = selection.select(
+            ["products/messaging/backend/presentation/views/message_preferences.py"], area_map, all_specs
+        )
+        self.assertEqual(result["mode"], "selected")
+        self.assertIn("products/messaging/frontend/e2e/message-preferences.spec.ts", result["spec_files"])
+
     def test_real_map_runs_the_full_suite_for_generated_messaging_clients(self) -> None:
         area_map = selection.load_map(selection.MAP_PATH)
         all_specs = selection.discover_specs(selection.REPO_ROOT)
