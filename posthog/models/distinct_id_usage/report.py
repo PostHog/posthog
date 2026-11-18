@@ -232,7 +232,12 @@ class DistinctIdUsage:
     @classmethod
     def _event_counts(cls, dt_from: datetime, dt_to: datetime, thresholds: UsageThresholds) -> _EventCounts:
         cache_key = cls._cache_key(dt_from, dt_to, thresholds)
-        cached = cache.get(cache_key)
+        # Staff open this report during incidents, so a cache outage costs the speedup, never the report.
+        try:
+            cached = cache.get(cache_key)
+        except Exception:
+            logger.exception("distinct_id_usage_cache_read_failed")
+            cached = None
         if cached is not None:
             return cached
 
@@ -256,7 +261,10 @@ class DistinctIdUsage:
         )
         # A failed query is not cached, so staff can retry without waiting for the cache to expire.
         if not counts.errors:
-            cache.set(cache_key, counts, timeout=REPORT_CACHE_SECONDS)
+            try:
+                cache.set(cache_key, counts, timeout=REPORT_CACHE_SECONDS)
+            except Exception:
+                logger.exception("distinct_id_usage_cache_write_failed")
         return counts
 
     @classmethod
