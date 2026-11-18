@@ -1,0 +1,44 @@
+id: cyclotron-scale
+version: 1
+clock: real
+profile: synthetic
+seed: 7
+setup:
+    teams: 1
+drive:
+    for: 45m
+    traffic:
+        - name: event_email
+        - name: event_webhook
+        - name: transactional_email
+    ramp:
+        - scale: 1
+          for: 5m
+        - scale: 2
+          for: 5m
+        - scale: 5
+          for: 5m
+        - scale: 10
+          for: 30m
+convergeWithin: 15m
+invariants:
+    - name: at_least_once
+    - name: duplicate_sends
+    - name: refused_at_intake
+    - name: resident_backlog_intact
+gates:
+    duplicate_sends: 0
+    refused_at_intake: 0
+bars:
+    - name: writer_cpu_under
+      params:
+          percent: 70
+    - name: pickup_p99_under
+      params:
+          seconds: 5
+          queues:
+              - hogflow
+              - email
+measure:
+    - name: delivery_latency_ms
+    - name: step_claims_per_second

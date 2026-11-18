@@ -175,6 +175,198 @@ class TestFanOutEndpoints:
         assert _ids(result) == ["run-2"]
 
 
+_RELATIONSHIP_TYPES = {"plan": "plans", "apply": "applies"}
+
+
+def _run_with_relationships(run_id: str, created_at: str, **relationships: str | None) -> dict:
+    item = _run_item(run_id, created_at)
+    item["relationships"] = {
+        name: {"data": {"id": rel_id, "type": _RELATIONSHIP_TYPES[name]} if rel_id else None}
+        for name, rel_id in relationships.items()
+    }
+    return item
+
+
+def _workspace_with_assessment(workspace_id: str, result_id: str | None, last_result_at: str | None = None) -> dict:
+    workspace = _workspace(workspace_id, workspace_id)
+    workspace["attributes"]["last-assessment-result-at"] = last_result_at
+    workspace["relationships"] = {
+        "current-assessment-result": {"data": {"id": result_id, "type": "assessment-results"} if result_id else None}
+    }
+    return workspace
+
+
+class TestRunIncludedEndpoints:
+    @pytest.mark.parametrize(
+        ("endpoint", "relationship", "resource_type", "resource_id"),
+        [
+            ("plans", "plan", "plans", "plan-1"),
+            ("applies", "apply", "applies", "apply-1"),
+        ],
+    )
+    def test_rows_come_from_included_resources_of_each_run(
+        self, endpoint: str, relationship: str, resource_type: str, resource_id: str
+    ) -> None:
+        page = _page(
+            [
+                _run_with_relationships("run-1", "2026-01-02T00:00:00Z", **{relationship: resource_id}),
+                # A run whose resource does not exist yet (or never will) yields no row.
+                _run_with_relationships("run-2", "2026-01-01T00:00:00Z", **{relationship: None}),
+            ]
+        )
+        page["included"] = [
+            {
+                "id": resource_id,
+                "type": resource_type,
+                "attributes": {
+                    "resource-additions": 2,
+                    "status": "finished",
+                    "log-read-url": "https://archivist.terraform.io/v1/object/signed",
+                },
+            },
+            # An included resource of another type with the same id must not match.
+            {"id": resource_id, "type": "other", "attributes": {"status": "wrong"}},
+        ]
+        result = _run_endpoint(endpoint, [_response(_page([_workspace("ws-1", "app")])), _response(page)])
+
+        assert f"include={relationship}" in result.urls[1]
+        assert result.urls[1].startswith(f"{BASE}/workspaces/ws-1/runs?")
+        # The signed log URL grants raw log access without HCP Terraform auth, so it must be dropped.
+        assert result.rows == [
+            {
+                "id": resource_id,
+                "type": resource_type,
+                "resource_additions": 2,
+                "status": "finished",
+                "run_id": "run-1",
+                "run_created_at": "2026-01-02T00:00:00Z",
+                "workspace_id": "ws-1",
+                "workspace_name": "app",
+            }
+        ]
+
+    def test_incremental_stops_on_old_runs_even_when_page_has_no_plans(self) -> None:
+        # The watermark check reads the runs, not the plan rows: a page of old runs without
+        # included plans must still end the walk instead of paging through all history.
+        next_url = f"{BASE}/workspaces/ws-1/runs?page%5Bnumber%5D=2"
+        result = _run_endpoint(
+            "plans",
+            [
+                _response(_page([_workspace("ws-1", "app")])),
+                _response(_page([_run_with_relationships("run-old", "2025-01-01T00:00:00Z", plan=None)], next_url)),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 1, 10, tzinfo=UTC),
+        )
+        assert len(result.requests) == 2
+        assert result.rows == []
+
+
+class TestAssessmentResults:
+    def test_fetches_only_workspaces_with_a_current_result(self) -> None:
+        result = _run_endpoint(
+            "assessment_results",
+            [
+                _response(
+                    _page([_workspace_with_assessment("ws-1", None), _workspace_with_assessment("ws-2", "asmtres-2")])
+                ),
+                _response(
+                    {
+                        "data": {
+                            "id": "asmtres-2",
+                            "type": "assessment-results",
+                            "attributes": {"drifted": True, "succeeded": True, "error-msg": None},
+                        }
+                    }
+                ),
+            ],
+        )
+        assert result.urls[1] == f"{BASE}/assessment-results/asmtres-2"
+        assert len(result.requests) == 2
+        assert result.rows == [
+            {
+                "id": "asmtres-2",
+                "type": "assessment-results",
+                "drifted": True,
+                "succeeded": True,
+                "error_msg": None,
+                "workspace_id": "ws-2",
+                "workspace_name": "ws-2",
+            }
+        ]
+
+    def test_response_without_id_in_data_uses_the_requested_id(self) -> None:
+        # The vendor's documented sample puts id and type next to data, not inside it.
+        result = _run_endpoint(
+            "assessment_results",
+            [
+                _response(_page([_workspace_with_assessment("ws-1", "asmtres-1")])),
+                _response({"id": "asmtres-1", "data": {"attributes": {"drifted": False}}}),
+            ],
+        )
+        assert _ids(result) == ["asmtres-1"]
+
+    @pytest.mark.parametrize(
+        ("last_result_at", "expected_requests"),
+        [
+            ("2026-01-01T00:00:00Z", 1),
+            ("2026-01-11T00:00:00Z", 2),
+            (None, 2),
+        ],
+    )
+    def test_incremental_skips_workspaces_assessed_before_the_watermark(
+        self, last_result_at: str | None, expected_requests: int
+    ) -> None:
+        result = _run_endpoint(
+            "assessment_results",
+            [
+                _response(_page([_workspace_with_assessment("ws-1", "asmtres-1", last_result_at)])),
+                _response({"data": {"id": "asmtres-1", "type": "assessment-results", "attributes": {}}}),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 1, 10, tzinfo=UTC),
+        )
+        assert len(result.requests) == expected_requests
+
+    def test_skips_result_that_404s(self) -> None:
+        result = _run_endpoint(
+            "assessment_results",
+            [
+                _response(_page([_workspace_with_assessment("ws-1", "asmtres-1")])),
+                _response({"errors": [{"status": "404"}]}, status=404),
+            ],
+        )
+        assert result.raised is None
+        assert result.rows == []
+
+
+class TestWorkspaceResources:
+    def test_paginates_resources_per_workspace(self) -> None:
+        next_url = f"{BASE}/workspaces/ws-1/resources?page%5Bnumber%5D=2&page%5Bsize%5D=100"
+        result = _run_endpoint(
+            "workspace_resources",
+            [
+                _response(_page([_workspace("ws-1", "app"), _workspace("ws-2", "infra")])),
+                _response(
+                    _page(
+                        [{"id": "wsr-1", "type": "resources", "attributes": {"provider-type": "random_pet"}}], next_url
+                    )
+                ),
+                _response(_page([{"id": "wsr-2", "type": "resources", "attributes": {}}])),
+                _response(_page([{"id": "wsr-3", "type": "resources", "attributes": {}}])),
+            ],
+        )
+        assert result.urls[1] == f"{BASE}/workspaces/ws-1/resources?page%5Bsize%5D=100"
+        assert result.urls[2] == next_url
+        assert result.urls[3] == f"{BASE}/workspaces/ws-2/resources?page%5Bsize%5D=100"
+        assert [(row["workspace_id"], row["id"]) for row in result.rows] == [
+            ("ws-1", "wsr-1"),
+            ("ws-1", "wsr-2"),
+            ("ws-2", "wsr-3"),
+        ]
+        assert result.rows[0]["provider_type"] == "random_pet"
+
+
 class TestIncrementalPaginationTermination:
     def test_lookback_keeps_paging_through_recent_rows(self) -> None:
         # Runs mutate until they reach a final status, so rows inside the 24h lookback window
@@ -263,17 +455,23 @@ class TestValidateCredentials:
 
 class TestSourceResponseShape:
     @pytest.mark.parametrize(
-        ("endpoint", "partition_key", "sort_mode"),
+        ("endpoint", "partition_key", "sort_mode", "primary_keys"),
         [
-            ("organizations", None, "asc"),
-            ("projects", None, "asc"),
-            ("teams", None, "asc"),
-            ("workspaces", None, "asc"),
-            ("runs", "created_at", "desc"),
-            ("state_versions", "created_at", "desc"),
+            ("organizations", None, "asc", ["id"]),
+            ("projects", None, "asc", ["id"]),
+            ("teams", None, "asc", ["id"]),
+            ("workspaces", None, "asc", ["id"]),
+            ("runs", "created_at", "desc", ["id"]),
+            ("state_versions", "created_at", "desc", ["id"]),
+            ("plans", "run_created_at", "desc", ["id"]),
+            ("applies", "run_created_at", "desc", ["id"]),
+            ("assessment_results", "created_at", "desc", ["id"]),
+            ("workspace_resources", None, "asc", ["workspace_id", "id"]),
         ],
     )
-    def test_partition_and_sort_config(self, endpoint: str, partition_key: str | None, sort_mode: str) -> None:
+    def test_partition_and_sort_config(
+        self, endpoint: str, partition_key: str | None, sort_mode: str, primary_keys: list[str]
+    ) -> None:
         # Newest-first endpoints must declare desc, or the pipeline checkpoints the watermark
         # to ≈now after the first batch and mid-sync shutdowns lose rows. Partitioning is on
         # the STABLE created_at, never a mutating field.
@@ -282,7 +480,7 @@ class TestSourceResponseShape:
         response = result.response
         assert response is not None
         assert response.name == endpoint
-        assert response.primary_keys == ["id"]
+        assert response.primary_keys == primary_keys
         assert response.sort_mode == sort_mode
         assert response.partition_keys == ([partition_key] if partition_key else None)
         assert response.partition_mode == ("datetime" if partition_key else None)

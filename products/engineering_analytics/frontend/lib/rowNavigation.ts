@@ -3,8 +3,6 @@ import type { MouseEvent } from 'react'
 
 import { newInternalTab } from 'lib/utils/newInternalTab'
 
-/** Row-level navigation for tables whose rows are links: click routes, cmd/ctrl and middle
- *  click open an internal tab, and inner links/buttons keep their own behavior. */
 export function rowNavigationProps(url: string): {
     onClick: (e: MouseEvent) => void
     onAuxClick: (e: MouseEvent) => void

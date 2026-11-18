@@ -1,5 +1,8 @@
+import { useSegments } from 'expo-router'
 import { NativeTabs } from 'expo-router/native-tabs'
 import { type ReactElement, useRef } from 'react'
+import { useInboxHasUnread } from '@/features/inbox/useInboxUnread'
+import { trackLiveOpened } from '@/features/live/analytics'
 import { useViewsOpenedEvent } from '@/features/views/list/useViewsOpenedEvent'
 import { track } from '@/lib/analytics'
 import { useMobileProductFlags } from '@/lib/featureFlags'
@@ -7,30 +10,37 @@ import { nativeIcons } from '@/ui/icons/nativeIcons'
 import { useNavigationOverlayStore } from '@/ui/overlayDismiss'
 import { useColors } from '@/ui/theme'
 import { useNativeRail } from '@/ui/useNativeRail'
-import { useNavPins } from './navPinStore'
+import { isNavPin, NAV_PINS, useNavPins } from './navPinStore'
 import { type TabKey, useTabHeaderStore } from './tabHeaderStore'
+import { BAR_TABS, tabForRoute, tabRouteName } from './tabRoutes'
 import { visibleNavPins } from './visibleNavPins'
 
 const LABELS: Record<TabKey, string> = {
-    inbox: 'Home',
+    live: 'Home',
+    inbox: 'Inbox',
     chats: 'Chats',
     views: 'Views',
     errors: 'Errors',
     replay: 'Sessions',
+    web_analytics: 'Web analytics',
 }
 const ICONS = {
-    inbox: nativeIcons.home,
+    live: nativeIcons.home,
+    inbox: nativeIcons.inbox,
     chats: nativeIcons.chats,
     views: nativeIcons.views,
     errors: nativeIcons.errors,
     replay: nativeIcons.replay,
-}
-const TEST_IDS = {
-    inbox: 'inbox-nav-home',
+    web_analytics: nativeIcons.webAnalytics,
+} satisfies Record<TabKey, unknown>
+const TEST_IDS: Record<TabKey, string> = {
+    live: 'inbox-nav-home',
+    inbox: 'nav-inbox',
     chats: 'inbox-nav-chat',
     views: 'inbox-nav-views',
     errors: 'nav-pin-errors',
     replay: 'nav-pin-replay',
+    web_analytics: 'nav-pin-web_analytics',
 }
 
 export function NativeTabsLayout(): ReactElement {
@@ -41,8 +51,15 @@ export function NativeTabsLayout(): ReactElement {
     const focused = useTabHeaderStore((state) => state.focused)
     const pins = useNavPins()
     const flags = useMobileProductFlags()
-    const shownPins = visibleNavPins(pins, focused, flags)
-    const tabs: TabKey[] = ['inbox', 'chats', 'views', ...new Set([...shownPins, 'errors', 'replay'] as const)]
+    const segments: readonly string[] = useSegments()
+    const [group, route] = segments
+    const inboxUnread = useInboxHasUnread()
+    // The navigator may keep the first listeners it gets, so the focus listener reads the dot through a ref.
+    const inboxUnreadRef = useRef(inboxUnread)
+    inboxUnreadRef.current = inboxUnread
+    const shownPins = visibleNavPins(pins, group === '(tabs)' ? tabForRoute(route) : focused, flags)
+    // Every pinnable tab stays registered, the shown pin first so it takes the slot after Views.
+    const tabs: TabKey[] = [...BAR_TABS, ...new Set([...shownPins, ...NAV_PINS])]
     useViewsOpenedEvent(focused === 'views')
     return (
         <NativeTabs
@@ -50,14 +67,16 @@ export function NativeTabsLayout(): ReactElement {
             disableHiddenAnimation
             tintColor={colors.ink}
             iconColor={colors.ink}
+            badgeBackgroundColor={colors.blue}
             preferredPlacement="tabBar"
             screenListeners={({ route }) => ({
                 focus: () => {
-                    const tab = route.name as TabKey
+                    const tab = tabForRoute(route.name)
                     useTabHeaderStore.getState().setFocused(tab)
                     if (lastFocused.current === tab) return
                     lastFocused.current = tab
-                    if (tab === 'inbox') track('mobile_inbox_opened')
+                    if (tab === 'live') trackLiveOpened({ from: 'tab', chrome: 'tab' })
+                    if (tab === 'inbox') track('mobile_inbox_opened', { had_unread: inboxUnreadRef.current })
                     if (tab === 'chats') track('mobile_chats_opened')
                 },
             })}
@@ -65,9 +84,9 @@ export function NativeTabsLayout(): ReactElement {
             {tabs.map((tab) => (
                 <NativeTabs.Trigger
                     key={tab}
-                    name={tab}
+                    name={tabRouteName(tab)}
                     disabled={blocked}
-                    hidden={(tab === 'errors' || tab === 'replay') && !shownPins.includes(tab)}
+                    hidden={isNavPin(tab) && !shownPins.includes(tab)}
                     testID={TEST_IDS[tab]}
                     accessibilityLabel={LABELS[tab]}
                     disableAutomaticContentInsets
@@ -75,6 +94,7 @@ export function NativeTabsLayout(): ReactElement {
                 >
                     <NativeTabs.Trigger.Icon src={ICONS[tab]} renderingMode="template" />
                     <NativeTabs.Trigger.Label hidden>{LABELS[tab]}</NativeTabs.Trigger.Label>
+                    {tab === 'inbox' && inboxUnread ? <NativeTabs.Trigger.Badge /> : null}
                 </NativeTabs.Trigger>
             ))}
         </NativeTabs>

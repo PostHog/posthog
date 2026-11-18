@@ -18,14 +18,14 @@ export const getDotNetInstallSteps = (ctx: OnboardingComponentsContext): StepDef
                                 language: 'bash',
                                 file: 'ASP.NET Core',
                                 code: dedent`
-                                    dotnet add package PostHog.AspNetCore
+                                    dotnet add package PostHog.AspNetCore --version 2.9.12
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'Console or worker',
                                 code: dedent`
-                                    dotnet add package PostHog
+                                    dotnet add package PostHog --version 2.21.2
                                 `,
                             },
                         ]}

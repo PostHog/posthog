@@ -5,7 +5,11 @@ from parameterized import parameterized
 
 from posthog.hogql.errors import QueryError
 
-from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.exceptions import (
+    ClickHouseClusterMemoryLimitExceeded,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
 
 from products.autoresearch.backend.dataset.labeling import LABELER_QUERY_MODIFIERS, PREDICTION_EVENT_NAME
 from products.autoresearch.backend.dataset.validation import (
@@ -139,17 +143,37 @@ class TestValidationWarnings(BaseTest):
                 "infrastructure_detail_stays_in_the_log",
                 RuntimeError("CH is down at 10.0.0.1"),
                 "Validation could not run",
+                "unavailable",
             ),
-            ("query_error_reaches_the_caller", QueryError("Field not found: nope"), "Field not found: nope"),
-            ("timeout_asks_to_narrow_the_definition", ClickHouseQueryTimeOut(), "Narrow the population"),
+            (
+                "query_error_reaches_the_caller",
+                QueryError("Field not found: nope"),
+                "Field not found: nope",
+                "invalid_definition",
+            ),
+            (
+                "timeout_asks_to_narrow_the_definition",
+                ClickHouseQueryTimeOut(),
+                "Narrow the population",
+                "too_expensive",
+            ),
             (
                 "memory_limit_asks_to_narrow_the_definition",
                 ClickHouseQueryMemoryLimitExceeded(),
                 "Narrow the population",
+                "too_expensive",
+            ),
+            (
+                "cluster_memory_pressure_is_worth_a_retry",
+                ClickHouseClusterMemoryLimitExceeded(),
+                "Validation could not run",
+                "unavailable",
             ),
         ]
     )
-    def test_error_in_query_returns_error_result(self, _name: str, exc: Exception, expected: str) -> None:
+    def test_error_in_query_returns_error_result(
+        self, _name: str, exc: Exception, expected: str, expected_code: str
+    ) -> None:
         with patch("products.autoresearch.backend.dataset.validation.run_hogql_rows") as mock_run:
             mock_run.side_effect = exc
             result = validate_pipeline_definition(
@@ -164,6 +188,7 @@ class TestValidationWarnings(BaseTest):
         assert result.error is not None
         assert expected in result.error
         assert "10.0.0.1" not in result.error
+        assert result.error_code == expected_code
 
     def test_horizon_at_or_past_the_lookback_is_refused_before_any_query(self) -> None:
         with patch("products.autoresearch.backend.dataset.validation.run_hogql_rows") as mock_run:

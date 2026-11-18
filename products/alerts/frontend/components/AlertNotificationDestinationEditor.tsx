@@ -17,7 +17,7 @@ import {
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 
-import { IntegrationType } from '~/types'
+import { HogFunctionType, IntegrationType } from '~/types'
 
 interface AlertNotificationDestinationIconAction {
     kind: 'icon'
@@ -34,12 +34,22 @@ interface AlertNotificationDestinationButtonAction {
     dataAttr?: string
 }
 
+/** Customize a destination's message, or go back to the standard one. */
+export interface AlertNotificationDestinationMessageAction {
+    label: string
+    tooltip: string
+    onClick: () => void
+    loading?: boolean
+    dataAttr: string
+}
+
 export interface AlertNotificationDestinationView {
     key: string
     title: ReactNode
     detail?: ReactNode
     tags?: { label: string; type?: LemonTagType; tooltip?: string }[]
     viewAction?: AlertNotificationDestinationIconAction | AlertNotificationDestinationButtonAction
+    messageAction?: AlertNotificationDestinationMessageAction
     onDelete: () => void
     deleting?: boolean
 }
@@ -70,6 +80,35 @@ export const ALERT_PAGERDUTY_REGION_OPTIONS: LemonSelectOptionLeaf<AlertPagerDut
     { value: 'us', label: 'US' },
     { value: 'eu', label: 'EU' },
 ]
+
+// Mirrors the backend check, so a mistyped key is caught before the alert is saved instead
+// of failing in the background after it.
+export const PAGERDUTY_ROUTING_KEY_PATTERN = /^[A-Za-z0-9]{32}$/
+
+export function pagerDutyRoutingKeyError(routingKey: string): string | undefined {
+    if (!routingKey.trim()) {
+        return 'Enter the PagerDuty integration key'
+    }
+    return PAGERDUTY_ROUTING_KEY_PATTERN.test(routingKey.trim())
+        ? undefined
+        : 'The integration key is 32 letters and digits'
+}
+
+export function pagerDutyPendingDetail(notification: {
+    routingKey: string
+    severity: AlertPagerDutySeverity
+    region: AlertPagerDutyRegion
+}): string {
+    const severity = ALERT_PAGERDUTY_SEVERITY_OPTIONS.find((option) => option.value === notification.severity)
+    const region = ALERT_PAGERDUTY_REGION_OPTIONS.find((option) => option.value === notification.region)
+    return `••••${notification.routingKey.slice(-4)} · ${severity?.label ?? notification.severity} · ${region?.label ?? notification.region}`
+}
+
+// The integration key is a secret input, so the API never returns it. The name's destination
+// segment carries the key's tail and is what tells two PagerDuty destinations apart.
+export function pagerDutyDestinationLabel(hogFunction: Pick<HogFunctionType, 'name'>): string | undefined {
+    return hogFunction.name?.split(' → ').pop()
+}
 
 export interface AlertNotificationPagerDutyInput {
     routingKey: string
@@ -194,6 +233,18 @@ function ExistingDestinations({
                         ) : null}
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
+                        {destination.messageAction ? (
+                            <LemonButton
+                                size="xsmall"
+                                type="secondary"
+                                onClick={destination.messageAction.onClick}
+                                loading={destination.messageAction.loading}
+                                tooltip={destination.messageAction.tooltip}
+                                data-attr={destination.messageAction.dataAttr}
+                            >
+                                {destination.messageAction.label}
+                            </LemonButton>
+                        ) : null}
                         <DestinationViewAction action={destination.viewAction} />
                         <LemonButton
                             icon={<IconTrash />}
@@ -376,7 +427,10 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
                 {url ? (
                     <div className="space-y-1">
                         <div className="flex flex-col sm:flex-row items-start gap-2">
+                            {/* The URL's path carries its secret. Autocapture records copied text, and session
+                                replay records what is typed, so the input is kept out of both. */}
                             <LemonInput
+                                className="ph-no-capture ph-replay-block"
                                 placeholder={url.input.placeholder}
                                 value={url.value}
                                 onChange={url.onChange}

@@ -19,6 +19,7 @@ type SdkQueryHandle = {
   interrupt: ReturnType<typeof vi.fn>;
   setModel: ReturnType<typeof vi.fn>;
   setPermissionMode: ReturnType<typeof vi.fn>;
+  applyFlagSettings: ReturnType<typeof vi.fn>;
   setMcpServers: ReturnType<typeof vi.fn>;
   mcpServerStatus: ReturnType<typeof vi.fn>;
   supportedCommands: ReturnType<typeof vi.fn>;
@@ -38,6 +39,7 @@ function makeQueryHandle(): SdkQueryHandle {
     interrupt: vi.fn().mockResolvedValue(undefined),
     setModel: vi.fn().mockResolvedValue(undefined),
     setPermissionMode: vi.fn().mockResolvedValue(undefined),
+    applyFlagSettings: vi.fn().mockResolvedValue(undefined),
     setMcpServers: vi.fn().mockResolvedValue(undefined),
     mcpServerStatus: vi.fn().mockResolvedValue([]),
     supportedCommands: vi.fn().mockResolvedValue([]),
@@ -245,6 +247,9 @@ describe("ClaudeAcpAgent /clear", () => {
     expect(oldQuery.interrupt).toHaveBeenCalledTimes(1);
     expect(endSpy).toHaveBeenCalledTimes(1);
     expect(createdQueries).toHaveLength(1);
+    expect(createdQueries[0].applyFlagSettings).toHaveBeenCalledWith({
+      attribution: { commit: "", pr: "" },
+    });
     expect(lastQueryCall.options?.resume).toBeUndefined();
     const newSessionId = lastQueryCall.options?.sessionId as string;
     expect(newSessionId).toBeDefined();
@@ -634,6 +639,44 @@ describe("ClaudeAcpAgent /clear", () => {
         sessionId: "s-init-crash",
         status: "clearing_failed",
         error: "SDK subprocess crashed",
+      },
+    ]);
+  });
+
+  it("fails the clear when attribution cannot be disabled on the replacement", async () => {
+    const { agent, client } = makeAgent();
+    const { session } = installFakeSession(agent, "s-attribution-fails");
+    const init = deferInit();
+
+    const promptPromise = agent.prompt({
+      sessionId: "s-attribution-fails",
+      prompt: [{ type: "text", text: "/clear" }],
+    });
+    const rejection = expect(promptPromise).rejects.toThrow(
+      /Session attribution update failed/,
+    );
+    await vi.waitFor(() => expect(createdQueries).toHaveLength(1));
+    createdQueries[0].applyFlagSettings.mockRejectedValue(
+      new Error("setting rejected"),
+    );
+    init.resolve({ result: "success", commands: [], models: [] });
+    await rejection;
+
+    expect((session as unknown as { queryClosed: boolean }).queryClosed).toBe(
+      true,
+    );
+    expect(createdQueries[0].close).toHaveBeenCalled();
+    expect(
+      findExtNotification(client, POSTHOG_NOTIFICATIONS.CONVERSATION_CLEARED),
+    ).toBeUndefined();
+    expect(
+      findAllExtNotifications(client, POSTHOG_NOTIFICATIONS.STATUS),
+    ).toEqual([
+      { sessionId: "s-attribution-fails", status: "clearing" },
+      {
+        sessionId: "s-attribution-fails",
+        status: "clearing_failed",
+        error: "Session attribution update failed",
       },
     ]);
   });

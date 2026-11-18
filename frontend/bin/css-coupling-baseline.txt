@@ -28,8 +28,6 @@ frontend/src/scenes/project-homepage/today/TodayEvidenceDetail.tsx -> .TodayEvid
 frontend/src/scenes/project-homepage/today/TodayExplore.tsx -> .TodayJumpList
 frontend/src/scenes/project-homepage/today/TodayExplore.tsx -> .TodayJumpRow
 frontend/src/scenes/project-homepage/today/TodayFigureMark.tsx -> .TodayFigureMark
-frontend/src/scenes/project-homepage/today/TodayForYou.tsx -> .TodayRow
-frontend/src/scenes/project-homepage/today/TodayForYou.tsx -> .TodayRows
 frontend/src/scenes/project-homepage/today/TodayHoverMark.tsx -> .TodayHoverMark
 frontend/src/scenes/project-homepage/today/TodayImplementMenu.tsx -> .TodayImplementMenu
 frontend/src/scenes/project-homepage/today/TodayKeyClauseMark.tsx -> .TodayKeyClauseMark
@@ -41,7 +39,6 @@ frontend/src/scenes/project-homepage/today/TodayReportPage.tsx -> .TodayReport
 frontend/src/scenes/session-recordings/player/controller/PlayerController.tsx -> .SkipToNextButton
 frontend/src/scenes/session-recordings/player/controller/PlayerControllerTime.tsx -> .PlayerControlSeekIcon
 frontend/src/scenes/session-recordings/player/controller/PlayerSeekbarTicks.tsx -> .PlayerSeekbarTicks
-frontend/src/scenes/session-recordings/playlist/SessionRecordingPreviewCompact.tsx -> .SessionRecordingPreview
 frontend/src/scenes/session-recordings/playlist/SessionRecordingPreviewFeed.tsx -> .SessionRecordingPreview
 frontend/src/scenes/surveys/SurveyDragHandle.tsx -> .SurveyQuestionDragHandle
 products/business_intelligence/frontend/BIPivotTable.tsx -> .DataVisualizationTable

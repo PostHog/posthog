@@ -29,7 +29,6 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Noun, groupsModel } from '~/models/groupsModel'
-import { tagsModel } from '~/models/tagsModel'
 import { FeatureFlagRulesV2ReturnType } from '~/types'
 
 import { RULES_V2_EDITABLE_RETURN_TYPES } from 'products/feature_flags/frontend/featureFlagConfigFormat'
@@ -228,8 +227,6 @@ export function FeatureFlagRulesV2Editor({ id }: FeatureFlagLogicProps): JSX.Ele
     } = useValues(logic)
     const { setDraft, setConfig, setReturnType, addRule, moveRule, saveRulesV2Flag, editFeatureFlag } =
         useActions(logic)
-    const { tags } = useValues(tagsModel)
-    const { loadTagsIfNeeded } = useActions(tagsModel)
     const { aggregationLabel } = useValues(groupsModel)
     const isNew = id === 'new'
     const keyInputId = useId()
@@ -375,9 +372,7 @@ export function FeatureFlagRulesV2Editor({ id }: FeatureFlagLogicProps): JSX.Ele
                                 <ObjectTags
                                     tags={draft.tags}
                                     onChange={(tags) => setDraft({ tags })}
-                                    onEdit={loadTagsIfNeeded}
                                     saving={saving}
-                                    tagsAvailable={tags.filter((tag: string) => !draft.tags.includes(tag))}
                                     data-attr="rules-v2-flag-tags"
                                 />
                             </LemonField.Pure>

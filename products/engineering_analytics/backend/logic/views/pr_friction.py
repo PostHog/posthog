@@ -1,27 +1,7 @@
-"""Curated per-PR friction view: what each recently merged pull request put its author through.
+"""One row per pull request merged in the last ``FRICTION_WINDOW``.
 
-One row per pull request merged in the last ``FRICTION_WINDOW``. The red and running time comes from
-the same replay as ``logic/pr_timeline.py``, written as set-based HogQL so one query covers every PR in
-the window. The rules are the timeline's own:
-
-- A commit's check state per workflow is its latest started attempt, ordered by (start, attempt, run id).
-- A failed latest attempt is red from its completion until the next attempt of that workflow starts, the
-  next push arrives, or the pull request merges.
-- A red stretch is labelled by what turned it green: every failed workflow passed a later attempt on the
-  same commit (a re-run), else every failed job also failed on the default branch within
-  ``MASTER_FAILURE_PROXIMITY`` (master broken), else a later push exists (fixed by a push), else not provable.
-- Precedence at any moment: merge queue, red, CI running, then review states.
-
-``tests/test_pr_friction.py`` replays seeded pull requests through both this view and
-``PullRequestTimelinesQuery`` and asserts they agree, so the two definitions cannot drift apart.
-
-The view counts friction, it does not score it. Curves and weights are applied when it is read
-(``logic/friction.py``), so a weight change needs no rematerialization. Red stretches are counted, not
-timed: an author who leaves a red pull request alone is hardly affected, so the length of a stretch
-says little about what the author went through.
-
-Materialized on the managed-view schedule. Each run replaces the table, so it only ever holds the
-pull requests inside the window.
+The query restates the replay rules of ``logic/pr_timeline.py`` as set-based HogQL.
+``tests/test_pr_friction.py`` asserts that both give the same result, so change the two together.
 """
 
 import re
@@ -50,6 +30,7 @@ from products.engineering_analytics.backend.logic.views import (
     workflow_jobs,
     workflow_runs,
 )
+from products.engineering_analytics.backend.logic.views.materialized_columns import materialized_select
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -67,27 +48,28 @@ FIELDS: dict[str, FieldOrTable] = {
     "is_bot": BooleanDatabaseField(name="is_bot"),
     "merged_at": DateTimeDatabaseField(name="merged_at"),
     "push_count": IntegerDatabaseField(name="push_count"),
-    # Red stretches by what turned them green. Adjacent pieces of one kind are one stretch.
+    # The four red counts split red stretches by what turned them green.
     "flake_red_count": IntegerDatabaseField(name="flake_red_count"),
     "master_red_count": IntegerDatabaseField(name="master_red_count"),
     "unknown_red_count": IntegerDatabaseField(name="unknown_red_count"),
     "own_red_count": IntegerDatabaseField(name="own_red_count"),
     "futile_rerun_count": IntegerDatabaseField(name="futile_rerun_count"),
     "ci_wait_seconds": FloatArrayDatabaseField(name="ci_wait_seconds"),
-    # NULL when the reviews table is not synced, nobody approved, or the ready time is not observed.
+    # Both approval columns are NULL when the reviews table is not synced, nobody approved, or the ready
+    # time is not observed.
     "first_approval_wait_seconds": FloatDatabaseField(name="first_approval_wait_seconds", nullable=True),
     "pushes_after_approval": IntegerDatabaseField(name="pushes_after_approval", nullable=True),
-    # NULL when the pull request never entered the merge queue.
+    # Both queue columns are NULL when the pull request never entered the merge queue.
     "queue_seconds": FloatDatabaseField(name="queue_seconds", nullable=True),
     # Gate attempts with any failed workflow run. The GitHub source does not say which checks the queue
-    # requires, so a failed optional check also counts: an upper bound on queue removals. The name stays
-    # because saved queries over the view select it.
+    # requires, so a failed optional check also counts, and the figure is an upper bound on queue removals.
+    # Saved queries over the view select the column by this name.
     "kickout_count": IntegerDatabaseField(name="kickout_count", nullable=True),
-    # A read filters on its own authorized source: the view unions every source, and a member can be denied some.
+    # The view unions every source and a member can be denied some, so a read must filter on its own source.
     "source_id": StringDatabaseField(name="source_id"),
 }
 
-# The same regex as ``queries/master_failures.strip_shard_suffix``, so shards of one job group together.
+# Keep in sync with ``queries/master_failures.strip_shard_suffix``.
 _STRIP_SHARD = "replaceRegexpOne({name}, '\\\\s*\\\\((\\\\d+)/(\\\\d+)\\\\)(\\\\))?$', '\\\\3')"
 _SOURCE_ID = re.compile(r"[0-9a-fA-F-]{1,64}")
 _FAR = "toDateTime64('2100-01-01 00:00:00', 6, 'UTC')"
@@ -99,7 +81,7 @@ def _days(delta: timedelta) -> int:
 
 
 def _raw_floor(days: int) -> str:
-    # Date-only string one day below the window, compared against the raw ISO strings the source lands.
+    # The floor is a date string because it is compared against the raw ISO strings the source lands.
     return f"toString(toDate(now() - INTERVAL {days + 1} DAY))"
 
 
@@ -121,7 +103,7 @@ def build_query(
     window_days = _days(FRICTION_WINDOW)
     run_days = window_days + _days(CI_LOOKBACK)
     gate_days = window_days + _days(GATE_RUN_LOOKBACK)
-    # Re-runs create their jobs before the run's newest start, so the jobs floor sits a week lower.
+    # A re-run's run row carries only its newest start, so the jobs of its earlier attempts are older.
     job_floor_days = run_days + 7
     proximity_hours = int(MASTER_FAILURE_PROXIMITY.total_seconds() // 3600)
 
@@ -150,7 +132,7 @@ def build_query(
         # Without a ready event, the created time stands in only when the event scan covers the whole life
         # of the PR. An older PR may have left draft before the scan floor, and an approval given while it
         # was a draft would then read as the first approval.
-        # A PR without a ready event has a NULL ready_at, and NULL must not pass the guard as "not false".
+        # The ifNull is needed because a PR without a ready event has a NULL ready_at.
         ready_observed_expr = (
             f"ifNull(rd.ready_at > toDateTime('2000-01-01 00:00:00') AND rd.ready_at <= p.merged_at, false) "
             f"OR p.created_at >= now() - INTERVAL {run_days} DAY"
@@ -430,13 +412,13 @@ LEFT JOIN counted AS c ON c.number = b.number
 
 
 def build_team_view(team: "Team") -> str | None:
-    """The view body for a team: one SELECT per repository with runs, jobs and pull requests synced."""
+    """Returns None when no source of the team has runs, jobs and pull requests synced."""
     sources = [source for source in resolve_job_source_tables(team) if source.pull_requests]
     if not sources:
         return None
     # Each SELECT carries its own WITH, so each sits in its own subquery to keep the CTE names apart.
     return "\nUNION ALL\n".join(
-        f"SELECT * FROM ({build_query(source_id=source.source_id, pull_requests_table=source.pull_requests, workflow_runs_table=source.runs_source, workflow_jobs_table=source.jobs_source, issue_events_table=source.issue_events, reviews_table=source.reviews)})"
+        f"SELECT {materialized_select(FIELDS, 'friction')} FROM ({build_query(source_id=source.source_id, pull_requests_table=source.pull_requests, workflow_runs_table=source.runs_source, workflow_jobs_table=source.jobs_source, issue_events_table=source.issue_events, reviews_table=source.reviews)}) AS friction"
         for source in sources
         if source.pull_requests
     )

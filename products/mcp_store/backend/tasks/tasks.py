@@ -98,6 +98,7 @@ def capture_tools_sync_outcome(installation: MCPServerInstallation, event: str, 
                 "auth_type": installation.auth_type,
                 "installation_id": str(installation.id),
                 **properties,
+                "$update_person_last_seen_at": False,
             },
             groups=groups(team=installation.team),
         )

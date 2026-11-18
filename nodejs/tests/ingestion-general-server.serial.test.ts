@@ -6,8 +6,9 @@ import {
     KAFKA_INGESTION_WARNINGS,
 } from '~/common/config/kafka-topics'
 
+import type { CdpConfig } from '../src/cdp/config'
 import { PluginServerMode } from '../src/common/config'
-import { IngestionGeneralServer } from '../src/servers/ingestion-general-server'
+import { IngestionGeneralServer, IngestionGeneralServerConfig } from '../src/servers/ingestion-general-server'
 import { ensureKafkaTopics } from './helpers/kafka'
 import { resetTestDatabase } from './helpers/sql'
 
@@ -53,6 +54,22 @@ describe('ingestion general server', () => {
         await server.start()
         expect(process.exit).not.toHaveBeenCalledWith(1)
     })
+
+    it.each<{ cdpMmdbEnabled: string }>([{ cdpMmdbEnabled: '' }, { cdpMmdbEnabled: 'false' }])(
+        'should fail startup before consuming when the MMDB is missing on hosted cloud (CDP_MMDB_ENABLED="$cdpMmdbEnabled")',
+        async ({ cdpMmdbEnabled }) => {
+            const config: Partial<IngestionGeneralServerConfig> & Pick<CdpConfig, 'CDP_MMDB_ENABLED'> = {
+                PLUGIN_SERVER_MODE: PluginServerMode.ingestion_v2,
+                CLOUD_DEPLOYMENT: 'US',
+                MMDB_FILE_LOCATION: 'non-existent-file.mmdb',
+                CDP_MMDB_ENABLED: cdpMmdbEnabled,
+            }
+            const failedServer = new IngestionGeneralServer(config)
+            await failedServer.start()
+            expect(process.exit).toHaveBeenCalledWith(1)
+            expect(failedServer.lifecycle.services).toEqual([])
+        }
+    )
 
     it('should not error on startup - ingestion_v2_combined', async () => {
         server = new IngestionGeneralServer({

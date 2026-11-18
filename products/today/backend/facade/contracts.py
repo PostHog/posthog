@@ -175,6 +175,17 @@ class HighlightMover:
 
 
 @dataclass(frozen=True)
+class HighlightExperimentResult:
+    metric_name: str
+    variant: str
+    control: str
+    variants: int
+    significant: bool
+    favorable: bool
+    exposures: int
+
+
+@dataclass(frozen=True)
 class HighlightMetric:
     key: str
     name: str
@@ -193,6 +204,7 @@ class HighlightMetric:
     last_opened: date | None = None
     movers: list[HighlightMover] = field(default_factory=list)
     previous_value: float | None = None
+    experiment: HighlightExperimentResult | None = None
 
 
 @dataclass(frozen=True)
@@ -218,8 +230,20 @@ class PulsePin:
 
 
 @dataclass(frozen=True)
+class HiddenPulseNumber:
+    key: str
+    name: str
+
+
+@dataclass(frozen=True)
 class PulsePins:
     pins: list[PulsePin]
+    hidden: list[HiddenPulseNumber] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class HiddenPulseNumbers:
+    hidden: list[HiddenPulseNumber]
 
 
 @dataclass(frozen=True)
@@ -300,6 +324,7 @@ class HighlightContext(Protocol):
     team: "Team"
     user: "User"
     today: date
+    hidden: frozenset[str]
 
     def allows(self, *required: str) -> bool: ...
 
@@ -324,3 +349,4 @@ class HighlightSource:
     # Today skips the source when the viewer's API scopes or access controls do not cover these.
     scopes: tuple[str, ...] = ()
     pulse_order: int = 0
+    number_names: Callable[["Team", "User", list[str]], dict[str, str]] | None = None

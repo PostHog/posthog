@@ -197,6 +197,20 @@ class ProcessedSchedules:
     failed: list[str]
 
 
+@frozen
+class WorkflowReplayTarget:
+    """What staff tooling needs to decide whether a workflow's failed runs can be replayed."""
+
+    id: str
+    team_id: int
+    name: str
+    status: str
+    # Templates of the workflow's function steps, so template filters can match a workflow.
+    template_ids: tuple[str, ...]
+    # The rerun worker skips runs of these workflows, because their message data was not stored.
+    sends_sensitive_email: bool
+
+
 @dataclass(frozen=True)
 class HogFlowReference:
     id: str
@@ -249,6 +263,17 @@ class RealtimeCohortStatus:
 
 
 @frozen
+class RateLimitedAudienceAllowance:
+    """How far a sending rate limit can raise an email batch audience above its tier's cap."""
+
+    # The fastest rate that qualifies. A faster rate keeps the tier's cap.
+    max_emails_per_hour: int
+    max_days: int
+    # The audience a send at max_emails_per_hour reaches in max_days.
+    limit: int
+
+
+@frozen
 class AudienceSize:
     """How many recipients a batch audience matches, and the most a batch trigger may send to."""
 
@@ -260,6 +285,8 @@ class AudienceSize:
     realtime_cohort: RealtimeCohortStatus | None = None
     # Set when a realtime cohort shares the audience with other conditions, which a save rejects.
     realtime_cohort_with_other_conditions: RealtimeAudienceCohort | None = None
+    # Set when a sending rate limit can raise this audience's limit. None when no rate can.
+    rate_limited: RateLimitedAudienceAllowance | None = None
 
 
 @frozen
@@ -317,6 +344,8 @@ class EmailSendingState:
     tier: int
     tier_pinned: bool
     tier_updated_at: datetime | None
+    provider_paused: bool = False
+    provider_reputation_impact: str = ""
 
 
 @frozen
@@ -324,11 +353,13 @@ class EmailSendingSuspensionChange:
     """The outcome of a suspend or unsuspend request.
 
     ``changed_at`` is set only when this request flipped the state. ``previously_suspended_at`` is
-    set when a suspend request found the team already suspended.
+    set when a suspend request found the team already suspended. ``notification_failed`` is set when
+    the state flipped but the email or the in-app notification to the team could not be sent.
     """
 
     changed_at: datetime | None
     previously_suspended_at: datetime | None = None
+    notification_failed: bool = False
 
 
 @frozen
@@ -341,6 +372,8 @@ class EmailSendingAllowance:
     max_batch_audience: int
     emails_sent_last_day: int
     enforced: bool
+    # The largest batch a slow enough sending rate limit allows. None when no rate raises the cap.
+    rate_limited_max_batch_audience: int | None = None
 
 
 class StaffPausedError(Exception):
@@ -520,6 +553,10 @@ class EmailDomainCheck:
 
 class EmailProviderUnavailableError(Exception):
     """The email provider could not be reached or refused the read, so the domain's state is unknown."""
+
+
+class TwilioCredentialsRejected(Exception):
+    """Twilio answered 401: the account SID or auth token is wrong."""
 
 
 class TwilioPhoneNumber(TypedDict):
@@ -719,8 +756,28 @@ class TransactionalEmailContent:
     reply_to: str = ""
 
 
+@frozen
+class SendingDomainSetup:
+    setup_url: str
+    unverified_sender_id: int | None
+
+
+@frozen
+class CodeEmailWorkflow:
+    """The labels on the hidden workflow behind an email sent from code under a `template_key`."""
+
+    id: UUID
+    description: str
+    tags: tuple[str, ...]
+    sensitive: bool
+
+
 class TransactionalEmailSenderUnavailable(Exception):
     """No verified email sender: neither the requested one nor the project's default."""
+
+
+class SandboxSenderUnavailable(Exception):
+    pass
 
 
 class TransactionalEmailSenderRequired(Exception):
@@ -796,6 +853,7 @@ class WorkflowEditState:
     team_id: int
     name: str | None
     status: str
+    disabled_from_active: bool
     version: int
     origin_product: str | None
     created_by: "User | None"
@@ -1065,6 +1123,49 @@ class TranslatedWorkflow:
 
 
 @frozen
+class ImportedEmail:
+    """An email another tool's automation sends, already converted to Liquid."""
+
+    subject: str
+    html: str
+    text: str = ""
+    from_email: str = ""
+    from_name: str = ""
+    # The team's PostHog sender with that address, when it has one.
+    sender_integration_id: int | None = None
+    reply_to: str = ""
+    # What to review about the email.
+    notes: tuple[str, ...] = ()
+    # Variables the tool fills from the contact by itself, when a step doesn't set them.
+    contact_variables: tuple[str, ...] = ()
+    # What to review about the sender, which doesn't apply when a step sets its own.
+    sender_notes: tuple[str, ...] = ()
+    # What to review about the subject, which doesn't apply when a step sets its own.
+    subject_notes: tuple[str, ...] = ()
+
+
+@frozen
+class ImportedStepEmail:
+    """What one automation step changes about the email it sends, already converted to Liquid."""
+
+    subject: str = ""
+    contact_variables: tuple[str, ...] = ()
+    from_email: str = ""
+    from_name: str = ""
+    sender_integration_id: int | None = None
+    reply_to: str = ""
+    notes: tuple[str, ...] = ()
+
+
+@frozen
+class ProviderAutomationResult:
+    # `skipped` when an earlier import of it still has its workflow.
+    status: Literal["created", "skipped", "failed"]
+    workflow_id: str | None
+    notes: tuple[str, ...]
+
+
+@frozen
 class CampaignSource:
     """A Customer.io automation as its Journeys UI API returns it, with the templates its messages use."""
 
@@ -1095,6 +1196,16 @@ class ImportSegment:
     name: str
     # Customer.io's segment type: `dynamic`, or `static`/`manual` for a list people are added to by hand.
     type: str
+    # The segment's rules, from `GET /v1/environments/{environment_id}/segments/{segment_id}`. Never its members.
+    conditions: dict[str, Any] | None = None
+
+
+@frozen
+class SegmentCohortFilters:
+    """A Customer.io segment's rules as cohort filters, or the rules no cohort filter matches exactly."""
+
+    filters: dict[str, Any] | None
+    untranslated: tuple[str, ...] = ()
 
 
 @frozen
@@ -1113,6 +1224,8 @@ class ImportOptions:
     topic_categories: dict[str, ImportCategory] = field(default_factory=dict)
     # Customer.io segment id to its name and type.
     segments: dict[str, ImportSegment] = field(default_factory=dict)
+    # In a preview, the Customer.io segments a real import would turn into cohorts.
+    pending_segment_cohorts: frozenset[str] = frozenset()
 
 
 @frozen
@@ -1212,3 +1325,12 @@ class PushTokenImportRecord:
     error: str
     created_at: datetime
     finished_at: datetime | None
+
+
+@frozen
+class SandboxSenderStatus:
+    integration_id: int | None
+    from_address: str
+    display_name: str
+    organization_blocked: bool
+    adoption_enabled: bool

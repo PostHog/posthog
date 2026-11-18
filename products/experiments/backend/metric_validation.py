@@ -23,6 +23,7 @@ from posthog.schema import (
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetric as ExperimentMetricUnion,
+    ExperimentQuantileMetric,
     ExperimentRetentionMetric,
 )
 
@@ -49,6 +50,10 @@ EVENTS_NODE_ID_HINT = (
     "To reference an event, use {'kind': 'EventsNode', 'event': '<event_name>'} (omit 'id'). "
     "To reference an action, switch to {'kind': 'ActionsNode', 'id': <integer_action_id>} (omit 'event')."
 )
+
+
+# The property types of a percentile metric source. The frontend `toPercentileSource` allows the same set.
+PERCENTILE_PROPERTY_TYPES = (None, "event_properties", "numerical_event_properties")
 
 
 def is_events_node_actions_node_confusion(err: dict) -> bool:
@@ -112,6 +117,16 @@ def _semantic_error(metric: ExperimentMetric) -> str | None:
             return "a threshold cannot be combined with outlier handling (winsorization)."
     elif isinstance(metric, ExperimentRetentionMetric):
         return retention_metric_error(metric)
+    elif isinstance(metric, ExperimentQuantileMetric):
+        # The schema already limits the source to events or actions and the quantile to [0.01, 0.99].
+        if not metric.source.math_property:
+            return "percentile metrics require a numeric property (math_property) on the source."
+        # The query reads `properties.<math_property>` from each event, so a session or person property reads nothing.
+        if (
+            metric.source.math_property == "$session_duration"
+            or metric.source.math_property_type not in PERCENTILE_PROPERTY_TYPES
+        ):
+            return "percentile metrics need a numeric event property."
     return None
 
 
@@ -136,7 +151,7 @@ def parse_and_validate_metric(metric: object, *, error_prefix: str) -> Experimen
         raise ValidationError(f"{error_prefix}ExperimentMetric requires a metric_type")
     if not isinstance(metric_type, str) or metric_type not in METRIC_BUILDERS:
         raise ValidationError(
-            f"{error_prefix}ExperimentMetric metric_type must be 'mean', 'funnel', 'ratio', or 'retention'"
+            f"{error_prefix}ExperimentMetric metric_type must be 'mean', 'funnel', 'ratio', 'retention', or 'quantile'"
         )
 
     try:
@@ -180,7 +195,7 @@ def metric_nodes(metric: dict) -> list[dict]:
     """The event, action and warehouse nodes that a stored metric definition reads."""
     nodes: list[dict] = []
     metric_type = metric.get("metric_type")
-    if metric_type == "mean":
+    if metric_type in ("mean", "quantile"):
         if source := metric.get("source"):
             nodes.append(source)
     elif metric_type == "funnel":

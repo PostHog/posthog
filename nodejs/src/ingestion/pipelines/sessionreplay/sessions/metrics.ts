@@ -193,6 +193,11 @@ export class SessionBatchMetrics {
         help: 'Number of keystore Redis cache writes that failed (the key is still returned)',
     })
 
+    private static readonly keystoreRedisReadErrors = new Counter({
+        name: 'recording_blob_ingestion_v2_keystore_redis_read_errors_total',
+        help: 'Number of keystore Redis cache reads that failed (the key is read from the delegate instead)',
+    })
+
     private static readonly retentionRedisLatency = new Histogram({
         name: 'recording_blob_ingestion_v2_retention_redis_latency_seconds',
         help: 'Time taken for retention service Redis calls (acquire + GET/SET + release)',
@@ -323,6 +328,10 @@ export class SessionBatchMetrics {
 
     public static incrementKeystoreRedisWriteErrors(count: number = 1): void {
         this.keystoreRedisWriteErrors.inc(count)
+    }
+
+    public static incrementKeystoreRedisReadErrors(count: number = 1): void {
+        this.keystoreRedisReadErrors.inc(count)
     }
 
     public static observeRetentionRedisLatency(seconds: number): void {

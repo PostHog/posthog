@@ -43,10 +43,10 @@ const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
 
 export function setupCommonRoutes(
     app: express.Application,
-    services: Pick<PluginServerService, 'id' | 'healthcheck'>[]
+    services: Pick<PluginServerService, 'id' | 'healthcheck' | 'readinessCheck'>[]
 ): express.Application {
-    app.get('/_health', buildGetHealth(services))
-    app.get('/_ready', buildGetHealth(services))
+    app.get('/_health', buildGetHealth(services, false))
+    app.get('/_ready', buildGetHealth(services, true))
     app.get('/_metrics', getMetrics)
     app.get('/metrics', getMetrics)
 
@@ -116,7 +116,8 @@ export function setupExpressApp(options: SetupExpressAppOptions = {}): express.A
 export type ModifiedRequest = Request & { rawBody?: string }
 
 const buildGetHealth =
-    (services: Pick<PluginServerService, 'id' | 'healthcheck'>[]) => async (req: Request, res: Response) => {
+    (services: Pick<PluginServerService, 'id' | 'healthcheck' | 'readinessCheck'>[], readiness: boolean) =>
+    async (req: Request, res: Response) => {
         // Check that all health checks pass. Note that a failure of these
         // _may_ result in the process being terminated by e.g. Kubernetes
         // so the stakes are high.
@@ -144,6 +145,9 @@ const buildGetHealth =
         const healthCheckPromises = services.map(async (service) => {
             try {
                 const result = await service.healthcheck()
+                if (readiness && service.readinessCheck && !result.isError()) {
+                    return { service, result: await service.readinessCheck() }
+                }
                 return { service, result }
             } catch (error) {
                 // If healthcheck throws, create an error result

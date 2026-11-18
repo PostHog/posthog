@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from uuid import UUID
 
 from temporalio import activity
 
@@ -19,6 +20,13 @@ class EnforceSelfDrivingRunQuotaInput:
 @activity.defn
 @asyncify
 def enforce_self_driving_run_quota(input: EnforceSelfDrivingRunQuotaInput) -> str:
-    # Keep the activity and its wire contract for existing workflow histories. Limits now
-    # apply at pipeline admission; an accepted pipeline can finish even after the cap is hit.
+    # Keep the activity and its wire contract for existing workflow histories. Limits apply at
+    # pipeline admission, so accepted work finishes. Refresh trial compute costs while it runs
+    # so new admissions see the allowance being consumed, including absorbed spillover.
+    from products.signals.backend.facade.trial import (
+        refresh_trial_run_spend,  # noqa: PLC0415 -- Signals imports Tasks facade
+    )
+
+    if refresh_trial_run_spend(team_id=input.team_id, run_id=UUID(input.run_id)):
+        return SELF_DRIVING_QUOTA_PROCEED
     return SELF_DRIVING_QUOTA_STOP_CHECKING

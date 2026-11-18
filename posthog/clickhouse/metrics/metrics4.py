@@ -55,6 +55,8 @@ METRICS4_MAX_SAMPLES_PER_SERIES_HOUR = 10_000
 METRICS4_VIEW_NAME = "metrics4_view"
 # The first hour that metrics4_samples serves. The view skips earlier rows, which overlap the old metrics2 data.
 METRICS4_VIEW_CUTOVER = "2026-09-14 00:00:00"
+# Prometheus's `StaleNaN`. Ingest only copies values, so the bits survive to storage.
+PROMETHEUS_STALE_NAN_BITS = 0x7FF0000000000002
 
 # Each tuple maps an input column to its metrics4 array element type.
 METRICS4_POINT_ARRAY_COLUMNS: tuple[tuple[str, str], ...] = (
@@ -585,6 +587,7 @@ def METRICS4_INPUT_TO_METRICS4_RESOURCE_ATTRIBUTES_MV() -> str:
 def METRICS4_VIEW_SQL() -> str:
     # The view gives one row for each point, in the old metrics2 row shape. ARRAY JOIN expands the arrays.
     # Partial rows of one series-hour hold different points, so no FINAL is necessary.
+    # Stale markers are not points. A PromQL engine that needs them reads metrics4_samples.
     db = _db()
     return f"""
 CREATE OR REPLACE VIEW {db}.{METRICS4_VIEW_NAME} AS
@@ -620,4 +623,5 @@ ARRAY JOIN
     span_id_arr AS point_span_id,
     trace_flags_arr AS point_trace_flags
 WHERE time_bucket >= toDateTime('{METRICS4_VIEW_CUTOVER}')
+  AND reinterpretAsUInt64(point_value) != {PROMETHEUS_STALE_NAN_BITS}
 """

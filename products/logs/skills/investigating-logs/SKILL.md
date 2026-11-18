@@ -4,9 +4,10 @@ description: >
   Investigate logs in a PostHog project: verify a service or deployment is healthy, explain an error spike,
   triage an incident, or understand what a log stream is saying. Use when the user asks to "check the logs",
   asks whether a service, deploy, release, or change is working or broke anything, asks why errors are up or
-  what changed, or wants the root cause of failures visible in logs. Routes the logs MCP tools
-  (services overview, pattern mining, before/after pattern diffing, bucketed counts, facets, raw rows) so
-  investigations start from summaries instead of raw rows or hand-written SQL over the logs table.
+  what changed, wants the logs of one trace or run, or wants a daily service health report. Routes the logs
+  MCP tools (service health, group-by, before/after pattern diffing, context around a trace or run, bucketed
+  counts, raw rows) so investigations start from summaries instead of raw rows or hand-written SQL over the
+  logs table.
 ---
 
 # Investigating logs
@@ -15,6 +16,14 @@ Investigation is a narrowing problem: **summarize before you read**.
 One `posthog:logs-patterns` call compresses millions of lines into at most 200 templates,
 and one `posthog:logs-patterns-diff` call answers "what is different about now vs. before" directly.
 Raw rows (`posthog:query-logs`) are the last step of an investigation, never the first.
+
+The entry points, in order:
+
+1. **Health**: `posthog:apm-service-health` (tracing) or `posthog:logs-services-create` — which services are worse, silent, or new.
+2. **Shape**: `posthog:logs-group-by` (counts by service, severity, pattern, or attribute) or `posthog:logs-patterns-diff` (which messages are new or worse).
+3. **Context**: `posthog:logs-context` — the timeline around one log line, trace, or run, with its correlation keys.
+
+Follow the `next` field of each response. It holds a prefilled follow-up call.
 
 ## When to use this skill
 
@@ -33,16 +42,18 @@ Raw rows (`posthog:query-logs`) are the last step of an investigation, never the
 
 ## Tools
 
-| Tool                                                                  | Job                                                                                           |
-| --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `posthog:logs-services-create`                                        | Top-25 services with log_count, error_count, error_rate, sparkline. Orientation.              |
-| `posthog:logs-patterns`                                               | Mine one window's message templates, ordered by frequency. "What is this stream saying?"      |
-| `posthog:logs-patterns-diff`                                          | Diff templates between two windows: new / rate-shifted / gone. "What changed?"                |
-| `posthog:logs-count` / `posthog:logs-count-ranges`                    | Scalar and time-bucketed counts for a filter. Localize volume before pulling rows.            |
-| `posthog:logs-sparkline-query`                                        | Volume over time broken down by severity or service (the one bucketed view with a breakdown). |
-| `posthog:logs-facet-values-create`                                    | Distribution of severity/service (or a resource attribute) under a filter.                    |
-| `posthog:logs-attributes-list` / `posthog:logs-attribute-values-list` | Discover attribute keys and values before building filters.                                   |
-| `posthog:query-logs`                                                  | Raw rows. Endpoint of every drill-down, entry point of none.                                  |
+| Tool                                                                  | Job                                                                                             |
+| --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `posthog:logs-services-create`                                        | Top-25 services with log_count, error_count, error_rate, sparkline. Orientation.                |
+| `posthog:logs-patterns`                                               | Mine one window's message templates, ordered by frequency. "What is this stream saying?"        |
+| `posthog:logs-patterns-diff`                                          | Diff templates between two windows: new / rate-shifted / gone, with first-seen. "What changed?" |
+| `posthog:logs-group-by`                                               | Counts grouped by up to 3 dimensions (service, severity, pattern, attribute).                   |
+| `posthog:logs-context`                                                | Logs around one log line, trace, or attribute value (a run), plus correlation keys and spans.   |
+| `posthog:logs-count` / `posthog:logs-count-ranges`                    | Scalar and time-bucketed counts for a filter. Localize volume before pulling rows.              |
+| `posthog:logs-sparkline-query`                                        | Volume over time broken down by severity or service (the one bucketed view with a breakdown).   |
+| `posthog:logs-facet-values-create`                                    | Distribution of severity/service (or a resource attribute) under a filter.                      |
+| `posthog:logs-attributes-list` / `posthog:logs-attribute-values-list` | Discover attribute keys and values before building filters.                                     |
+| `posthog:query-logs`                                                  | Raw rows. Endpoint of every drill-down, entry point of none.                                    |
 
 Each tool's own description documents its parameters and response shape — read it before calling.
 
@@ -86,6 +97,21 @@ under `severityLevels: ["error", "fatal"]`.
 `posthog:logs-patterns` over the last hour, scoped to the service. Scan templates by `estimated_count` and
 non-zero error share in `severity_counts`. Widen the window or add `searchTerm` only if the answer isn't there.
 
+### "Logs for this run" / "what happened in this trace"
+
+One `posthog:logs-context` call. Anchor on `traceId`, on `logUuid` + `timestamp`, or on
+`attribute` (e.g. `workflow_run_id`) + `around`. Read `correlation_keys` to pivot to the run or request
+behind the line, and add `include: ["spans"]` on a trace to see the error and slowest spans.
+Do not page through `query-logs` by hand to rebuild the same timeline.
+
+### Daily service health report in 3 calls
+
+1. `posthog:apm-service-health` with `include: ["logs"]` and `compare: "previous_day"`: one row per service with status, error rate, p95 and log error rate.
+2. `posthog:logs-patterns-diff` over the same window with `severityLevels: ["warn", "error", "fatal"]` and `limit: 25`: new error patterns, with `first_seen_ever` to tell new today from new this week.
+3. `posthog:logs-alerts-list` with `firedSince` set to the window start: alerts that fired.
+
+Report the `window` bounds the tools return. Drill into a suspect with `posthog:logs-context` only when the report needs the evidence.
+
 ### Known needle — a specific message, attribute, or person
 
 When the target is already precise (an error string, a request id, a distinct_id), skip pattern mining:
@@ -103,8 +129,8 @@ size the result with `posthog:logs-count`, then pull rows with `posthog:query-lo
   a tiny or empty baseline (logging only just started) makes everything look new.
 - `severityLevels` matches the six canonical lowercase buckets against `severity_text` exactly.
   Zero rows on a severity filter → check the stored values with `posthog:logs-attribute-values-list { key: "severity_text" }`.
-- Budget: one services call, at most one patterns-diff per window pair, 3–4 count-ranges levels,
-  and `query-logs` only for confirmed suspects with `limit` ≤ 100.
+- Budget: one health call, at most one patterns-diff per window pair, 3–4 count-ranges levels,
+  one `logs-context` per suspect, and `query-logs` only for confirmed suspects with `limit` ≤ 100.
 
 ## Output
 

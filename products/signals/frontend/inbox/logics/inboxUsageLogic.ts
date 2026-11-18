@@ -98,7 +98,7 @@ export interface inboxUsageLogicValues {
     refundsFlagEnabled: boolean
     resetDate: Dayjs | null
     showLimitFormErrors: boolean
-    spendAmountUsd: number | null
+    spendCredits: number | null
     spendProduct: BillingProductV2Type | null
     spentUsd: number | null
     status: InboxUsageStatus
@@ -219,7 +219,7 @@ export interface inboxUsageLogicMeta {
         quotaEnforcementFlagEnabled: (featureFlags: FeatureFlagsSet) => boolean
         summaryFlagEnabled: (refundsFlagEnabled: boolean, quotaEnforcementFlagEnabled: boolean) => boolean
         spendProduct: (billing: BillingType | null, billingDate: string) => BillingProductV2Type | null
-        spendAmountUsd: (spendProduct: BillingProductV2Type | null, billing: BillingType | null) => number | null
+        spendCredits: (spendProduct: BillingProductV2Type | null) => number | null
         product: (billing: BillingType | null) => BillingProductV2Type | null
         isLoading: (
             billing: BillingType | null,
@@ -414,12 +414,9 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
                     : null
             },
         ],
-        spendAmountUsd: [
-            (s) => [s.spendProduct, s.billing],
-            (spendProduct: BillingProductV2Type | null, billing: BillingType | null): number | null =>
-                spendProduct?.current_amount_usd != null
-                    ? Number(spendProduct.current_amount_usd) * (1 - (billing?.discount_percent || 0) / 100)
-                    : null,
+        spendCredits: [
+            (s) => [s.spendProduct],
+            (spendProduct: BillingProductV2Type | null): number | null => spendProduct?.current_usage ?? null,
         ],
         product: [
             (s) => [s.billing],
@@ -556,7 +553,7 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
                 refundSummary?.quota_limited === true,
         ],
         // USD spent so far this period: PRs beyond the free allowance, at the per-PR price.
-        // Null when we can't price a PR (so the widget hides the figure rather than show "$0").
+        // Null when we can't price a PR (so the widget hides the figure rather than show "0 credits").
         spentUsd: [
             (s) => [s.usedPrs, s.freePrs, s.pricePerPrUsd],
             (usedPrs: number, freePrs: number, pricePerPrUsd: number | null): number | null =>

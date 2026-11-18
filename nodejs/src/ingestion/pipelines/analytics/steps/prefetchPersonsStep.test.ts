@@ -1,9 +1,14 @@
 import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
 import { PipelineResultType, isOkResult } from '~/ingestion/framework/results'
 import { prefetchPersonsStep } from '~/ingestion/pipelines/analytics/steps/prefetchPersonsStep'
-import { PipelineEvent, Team } from '~/types'
+import { EventHeaders, PipelineEvent, Team } from '~/types'
 
-type TestInput = { event: PipelineEvent; team: Team; personsStoreForBatch: PersonsStoreForBatch }
+type TestInput = {
+    event: PipelineEvent
+    team: Team
+    headers: EventHeaders
+    personsStoreForBatch: PersonsStoreForBatch
+}
 
 function createStore(batchId: number): PersonsStoreForBatch {
     return {
@@ -12,10 +17,16 @@ function createStore(batchId: number): PersonsStoreForBatch {
     } as unknown as PersonsStoreForBatch
 }
 
-function createInput(distinctId: string, teamId: number, personsStoreForBatch: PersonsStoreForBatch): TestInput {
+function createInput(
+    distinctId: string,
+    teamId: number,
+    personsStoreForBatch: PersonsStoreForBatch,
+    personProcessingDisabled = false
+): TestInput {
     return {
         event: { distinct_id: distinctId } as unknown as PipelineEvent,
         team: { id: teamId } as unknown as Team,
+        headers: { force_disable_person_processing: personProcessingDisabled } as unknown as EventHeaders,
         personsStoreForBatch,
     }
 }
@@ -47,6 +58,16 @@ describe('prefetchPersonsStep', () => {
             { teamId: 5, distinctId: 'user-c', batchId: 1 },
         ])
         expect(storeB.prefetchPersons).toHaveBeenCalledWith([{ teamId: 4, distinctId: 'user-b', batchId: 2 }])
+    })
+
+    it('leaves out events restricted from person processing', async () => {
+        const store = createStore(1)
+        const step = prefetchPersonsStep<TestInput>(true)
+
+        const results = await step([createInput('user-a', 3, store), createInput('user-b', 3, store, true)])
+
+        expect(results.map((result) => result.type)).toEqual([PipelineResultType.OK, PipelineResultType.OK])
+        expect(store.prefetchPersons).toHaveBeenCalledWith([{ teamId: 3, distinctId: 'user-a', batchId: 1 }])
     })
 
     it('passes events through without prefetching when disabled', async () => {

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { useCallback, useMemo } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 
 import { ProjectTimezoneNotice } from 'lib/components/ScheduledRunStatus'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
@@ -155,6 +155,8 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
     // loaded alert wins over the one passed in. The editor's own flag decides for a new alert.
     const llmDetectorEnabled =
         loadedAlert?.llm_detector_available ?? initialAlert?.llm_detector_available ?? editorCanUseLlmDetector
+    // Saving checks the forecast rollout for the alert's creator, so the editor's flag only decides what the picker shows.
+    const forecastDetectorEnabled = useFeatureFlag('ALERTS_FORECAST_DETECTOR')
 
     const formLogicProps = {
         alert,
@@ -202,12 +204,28 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
     const inlineNotificationsEnabled = useFeatureFlag('ALERTS_INLINE_NOTIFICATIONS')
 
     const notificationLogic = alertNotificationLogic({ alertId })
-    const { existingHogFunctions, pendingNotifications, testDeliveryResultLoading } = useValues(notificationLogic)
-    const { sendTestDelivery } = useActions(notificationLogic)
+    const { destinations, pendingNotifications, testDeliveryResultLoading, newAlertPagerDutyAvailable } =
+        useValues(notificationLogic)
+    const { sendTestDelivery, loadNewAlertPagerDutyAvailable } = useActions(notificationLogic)
+    const pagerDutyAvailable = alertId ? Boolean(alert?.pagerduty_available) : newAlertPagerDutyAvailable
+    useEffect(() => {
+        if (!alertId && inlineNotificationsEnabled && alertForm.calculation_interval) {
+            loadNewAlertPagerDutyAvailable({
+                calculationInterval: alertForm.calculation_interval,
+                investigationAgentEnabled: Boolean(alertForm.investigation_agent_enabled),
+            })
+        }
+    }, [
+        alertId,
+        inlineNotificationsEnabled,
+        alertForm.calculation_interval,
+        alertForm.investigation_agent_enabled,
+        loadNewAlertPagerDutyAvailable,
+    ])
     const hasPendingNotifications = inlineNotificationsEnabled && pendingNotifications.length > 0
     const hasTestDeliveryTargets =
         (alert?.subscribed_users?.some((user) => Boolean(user.email)) ?? false) ||
-        existingHogFunctions.some((hogFunction) => hogFunction.enabled)
+        destinations.some((destination) => destination.enabled && destination.hears_firing)
 
     const handleClose = useCallback(() => {
         clearSimulation()
@@ -294,7 +312,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
     ])
 
     const subscribedCount = alertForm.subscribed_users?.length ?? 0
-    const destinationCount = existingHogFunctions.length + pendingNotifications.length
+    const destinationCount = destinations.length + pendingNotifications.length
     const summary = useMemo(
         () => buildAlertSummary(alertForm, subscribedCount, destinationCount),
         [alertForm, destinationCount, subscribedCount]
@@ -387,6 +405,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
             supportsAnomalyDetection={!isNonTimeSeriesDisplay && supportsAnomalyDetection(alertForm.config)}
             showAnomalyGuidance={creatingNewAlert && anomalyAlertGuidanceEnabled}
             llmDetectorEnabled={llmDetectorEnabled}
+            forecastDetectorEnabled={forecastDetectorEnabled}
             twoColumnLayout
             simulationResult={simulationResult}
             simulationResultLoading={simulationResultLoading}
@@ -424,6 +443,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
             alertId={alertId}
             insightShortId={insightShortId}
             inlineNotificationsEnabled={inlineNotificationsEnabled}
+            pagerDutyAvailable={pagerDutyAvailable}
             showSectionTitle={false}
             onSetAlertFormValue={setAlertFormValue}
         />

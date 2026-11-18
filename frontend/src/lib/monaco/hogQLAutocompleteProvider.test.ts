@@ -1,7 +1,13 @@
+import type { languages } from 'monaco-editor'
+
 import { hogQLAutocompleteProvider } from 'lib/monaco/hogQLAutocompleteProvider'
 
 import { performQuery } from '~/queries/query'
 import { HogLanguage } from '~/queries/schema/schema-general'
+
+jest.mock('monaco-editor', () => ({
+    languages: { CompletionItemKind: { Method: 0, Function: 1 } },
+}))
 
 jest.mock('~/queries/query', () => ({
     performQuery: jest.fn(),
@@ -16,7 +22,7 @@ describe('hogQLAutocompleteProvider', () => {
         text: string,
         position: { lineNumber: number; column: number },
         word: { word: string; startColumn: number; endColumn: number }
-    ): Promise<void> => {
+    ): Promise<languages.CompletionList | null | undefined> => {
         const lineStarts = [0]
         for (const line of text.split('\n')) {
             lineStarts.push(lineStarts[lineStarts.length - 1] + line.length + 1)
@@ -29,13 +35,42 @@ describe('hogQLAutocompleteProvider', () => {
             getWordUntilPosition: () => word,
         }
 
-        await hogQLAutocompleteProvider(HogLanguage.hogQL).provideCompletionItems?.(
+        return await hogQLAutocompleteProvider(HogLanguage.hogQL).provideCompletionItems?.(
             model as any,
             position as any,
             {} as any,
             {} as any
         )
     }
+
+    it('exposes the complete function name when the API provides no detail', async () => {
+        jest.mocked(performQuery).mockResolvedValueOnce({
+            suggestions: [
+                {
+                    label: 'cutToFirstSignificantSubdomainWithWWW',
+                    detail: null,
+                    kind: 'Function',
+                    insertText: 'cutToFirstSignificantSubdomainWithWWW()',
+                },
+            ],
+            incomplete_list: false,
+        })
+        const result = await completeAt(
+            'SELECT cutTo',
+            { lineNumber: 1, column: 13 },
+            {
+                word: 'cutTo',
+                startColumn: 8,
+                endColumn: 13,
+            }
+        )
+        expect(result?.suggestions[0]).toEqual(
+            expect.objectContaining({
+                detail: 'cutToFirstSignificantSubdomainWithWWW',
+                insertText: 'cutToFirstSignificantSubdomainWithWWW()',
+            })
+        )
+    })
 
     it('returns an empty completion list when the autocomplete query fails', async () => {
         jest.mocked(performQuery).mockRejectedValueOnce(new Error("trailing tokens after expression: 'is'"))

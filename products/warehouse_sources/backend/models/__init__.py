@@ -12,7 +12,6 @@ from .external_data_schema import ExternalDataSchema
 from .external_data_source import ExternalDataSource
 from .oom_event import ExternalDataSchemaOOMEvent
 from .pending_source_credential import PendingSourceCredential
-from .source_inputs_backup import ExternalDataSourceInputsBackup
 from .table import DataWarehouseTable
 from .warehouse_migration import WarehouseMigration, WarehouseMigrationItem
 
@@ -25,7 +24,6 @@ __all__ = [
     "ExternalDataSchema",
     "ExternalDataSchemaDestination",
     "ExternalDataSourceDestination",
-    "ExternalDataSourceInputsBackup",
     "ExternalDataSchemaOOMEvent",
     "ExternalDataSource",
     "PendingSourceCredential",

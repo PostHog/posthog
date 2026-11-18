@@ -2,7 +2,7 @@ import { MakeLogicType, actions, connect, kea, path, reducers, selectors } from 
 
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
-import { isFileSystemImportFlagEnabled } from 'lib/utils/fileSystemImportFlags'
+import { isFileSystemImportShown } from 'lib/utils/fileSystemImportFlags'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { FileSystemImport } from '~/queries/schema/schema-general'
@@ -53,7 +53,7 @@ export const toolsLogic = kea<toolsLogicType>([
                             !item.href ||
                             !isToolItem(item) ||
                             seen.has(item.href) ||
-                            !isFileSystemImportFlagEnabled(item, featureFlags) ||
+                            !isFileSystemImportShown(item, featureFlags) ||
                             getProductAccessDisabledReason(item)
                         ) {
                             return false

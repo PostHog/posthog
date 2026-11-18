@@ -8,16 +8,11 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { actionsLogic } from '~/toolbar/shared/actions/actionsLogic'
 import { toolbarLogic } from '~/toolbar/shared/bar/toolbarLogic'
 import { toolbarApi } from '~/toolbar/shared/toolbarApi'
-import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
+import { toolbarAppUrl, toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/shared/toolbarPosthogJS'
 import { ActionDraftType, ActionForm } from '~/toolbar/shared/types'
 import { urls } from '~/toolbar/shared/urls'
-import {
-    actionStepToActionStepFormItem,
-    elementToActionStep,
-    joinWithUiHost,
-    stepToDatabaseFormat,
-} from '~/toolbar/shared/utils'
+import { actionStepToActionStepFormItem, elementToActionStep, stepToDatabaseFormat } from '~/toolbar/shared/utils'
 import { AccessControlLevel, ActionType, ElementType } from '~/types'
 
 import type { ToolbarUserIntent } from '../../../types'
@@ -417,8 +412,7 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                     lemonToast.success('Action saved', {
                         button: {
                             label: 'Open in PostHog',
-                            action: () =>
-                                window.open(joinWithUiHost(values.uiHost, urls.action(response.id)), '_blank'),
+                            action: () => window.open(toolbarAppUrl(urls.action(response.id)), '_blank'),
                         },
                     })
                 }

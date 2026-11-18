@@ -2,10 +2,11 @@ import { getDefaultAIObservabilityConfig } from '~/ai-observability/config'
 import { getDefaultCdpConfig } from '~/cdp/config'
 import {
     getDefaultKafkaWarehouseProducerEnvConfig,
+    getDefaultKafkaWarpstreamCyclotronIntakeProducerEnvConfig,
     getDefaultKafkaWarpstreamCyclotronProducerEnvConfig,
     getDefaultKafkaWarpstreamIngestionProducerEnvConfig,
 } from '~/cdp/outputs/producers'
-import { getDefaultCommonConfig } from '~/common/config'
+import { getDefaultCommonConfig, parseNumberFromEnv } from '~/common/config'
 import { getDefaultLogsIngestionConsumerConfig, getDefaultTracesIngestionConsumerConfig } from '~/logs/config'
 import { PluginsServerConfig, ValueMatcher, stringToPluginServerMode } from '~/types'
 
@@ -14,6 +15,8 @@ import { buildBehavioralCohortsDatabaseUrl, buildPosthogDatabaseUrl } from './da
 
 // Re-export for backwards compatibility
 export { DEFAULT_HTTP_SERVER_PORT } from '~/common/config'
+
+const TRUE_ONLY_BOOLEAN_KEYS: ReadonlySet<string> = new Set(['WORKFLOWS_SANDBOX_SENDER_ENABLED'])
 
 export const defaultConfig = overrideWithEnv(getDefaultConfig())
 
@@ -26,6 +29,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         ...getDefaultTracesIngestionConsumerConfig(),
         ...getDefaultKafkaWarpstreamIngestionProducerEnvConfig(),
         ...getDefaultKafkaWarpstreamCyclotronProducerEnvConfig(),
+        ...getDefaultKafkaWarpstreamCyclotronIntakeProducerEnvConfig(),
         ...getDefaultKafkaWarehouseProducerEnvConfig(),
     }
 }
@@ -47,7 +51,9 @@ export function overrideWithEnv(
                     throw Error(`Invalid PLUGIN_SERVER_MODE ${env[key]}`)
                 }
             } else if (typeof defaults[key] === 'number') {
-                tmpConfig[key] = env[key]?.indexOf('.') ? parseFloat(env[key]!) : parseInt(env[key]!)
+                tmpConfig[key] = parseNumberFromEnv(key, env[key]!, tmpConfig[key])
+            } else if (TRUE_ONLY_BOOLEAN_KEYS.has(key)) {
+                tmpConfig[key] = env[key] === 'true'
             } else if (typeof defaults[key] === 'boolean') {
                 tmpConfig[key] = stringToBoolean(env[key])
             } else {
@@ -83,7 +89,7 @@ export function overrideConfigWithEnv<T extends Record<string, unknown>>(
         if (typeof env[key] !== 'undefined') {
             const defaultValue = config[key]
             if (typeof defaultValue === 'number') {
-                result[key] = env[key]?.indexOf('.') ? parseFloat(env[key]!) : parseInt(env[key]!)
+                result[key] = parseNumberFromEnv(key, env[key]!, defaultValue)
             } else if (typeof defaultValue === 'boolean') {
                 result[key] = stringToBoolean(env[key])
             } else {

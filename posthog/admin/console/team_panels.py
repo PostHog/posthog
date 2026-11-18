@@ -25,6 +25,7 @@ class TeamOverviewPanel(Panel):
     key = "overview"
     title = "Overview"
     owner = DEV_EXPERIENCE
+    order = 10
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, Team)
@@ -37,9 +38,18 @@ class TeamOverviewPanel(Panel):
             .first()
         )
         return [
-            Fact(label="Owner", value=owner.user.email if owner else "No owner"),
+            Fact(
+                label="Owner", value=owner.user.email, href=reverse("admin_console_user", kwargs={"pk": owner.user_id})
+            )
+            if owner
+            else Fact(label="Owner", value="No owner"),
             Fact(label="Members", value=str(obj.organization.members.count())),
-            Fact(label="Project", value=str(obj.project_id), mono=True),
+            Fact(
+                label="Project",
+                value=str(obj.project_id),
+                mono=True,
+                href=reverse("admin_console_project", kwargs={"pk": obj.project_id}),
+            ),
             Fact(label="Created", value=obj.created_at.strftime("%b %-d, %Y")),
             Fact(label="Timezone", value=obj.timezone),
             Fact(
@@ -56,6 +66,7 @@ class RemoteConfigPanel(Panel):
     key = "remote-config"
     title = "Remote config cache"
     owner = DEV_EXPERIENCE
+    order = 20
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, Team)
@@ -116,6 +127,8 @@ class ApiTokenPanel(Panel):
     key = "api-token"
     title = "Project API token"
     owner = DEV_EXPERIENCE
+    operation_keys = frozenset({"set"})
+    order = 30
     danger = True
 
     def facts(self, obj: Model) -> list[Fact]:
@@ -134,3 +147,12 @@ class ApiTokenPanel(Panel):
                 undo_hint="This cannot be undone automatically. To go back, set the old token again.",
             )
         ]
+
+
+# Old Django admin URLs of team actions that moved. Staff keep bookmarks to them, query parameters included.
+console.register_moved_action(
+    old_path="admin/posthog/team/<int:pk>/set-api-token/", record="team", target="api-token/set/"
+)
+console.register_moved_action(
+    old_path="admin/posthog/team/<int:pk>/rebuild-cache/", record="team", target="#panel-remote-config"
+)
