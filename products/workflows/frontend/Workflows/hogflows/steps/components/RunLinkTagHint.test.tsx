@@ -88,10 +88,16 @@ describe('<RunLinkTagHint />', () => {
         expect(teamRequests).toHaveLength(1)
 
         fireEvent.click(link)
+        await act(async () => {
+            window.dispatchEvent(new Event('focus'))
+        })
+        expect(teamRequests).toHaveLength(2)
+
+        fireEvent.click(link)
         unmount()
         await act(async () => {
             window.dispatchEvent(new Event('focus'))
         })
-        expect(teamRequests).toHaveLength(1)
+        expect(teamRequests).toHaveLength(2)
     })
 })
