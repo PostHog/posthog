@@ -121,29 +121,68 @@ describe('emailImpactLogic', () => {
         expect(logic.values.impact?.sent).toBe(4)
     })
 
-    it('waits for a running query, then asks once for the latest period and event', async () => {
+    const holdNextQuery = async (): Promise<(answer: [number, unknown]) => void> => {
+        let finish: (answer: [number, unknown]) => void = () => {}
+        answer = new Promise((resolve) => (finish = resolve))
+        const requested = new Promise<void>((resolve) => (onRequest = resolve))
+        logic.actions.setDays(7)
+        await requested
+        return finish
+    }
+
+    it.each([
+        ['answers', [200, WITHOUT_EVENT]],
+        ['fails', [500, { detail: 'Server error' }]],
+    ])(
+        'waits for a running query that %s, then asks once for the latest period and event',
+        async (_, runningAnswer) => {
+            initKeaTests(true, ENVIRONMENT)
+            logic = emailImpactLogic({ workflowId: 'workflow-1' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const finishRunningQuery = await holdNextQuery()
+
+            jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick', 'setImmediate'] })
+            try {
+                logic.actions.setDays(1)
+                await jest.advanceTimersByTimeAsync(500)
+                logic.actions.setEvent('plan upgraded')
+                await jest.advanceTimersByTimeAsync(500)
+                expect(requestedParams).toHaveLength(2)
+
+                answer = [200, { ...IMPACT, sent: 4 }]
+                finishRunningQuery(runningAnswer as [number, unknown])
+                await jest.advanceTimersByTimeAsync(500)
+            } finally {
+                jest.useRealTimers()
+            }
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(requestedParams).toHaveLength(3)
+            expect(requestedParams[2].get('event')).toBe('plan upgraded')
+            expect(Math.round(dayjs().diff(dayjs(requestedParams[2].get('date_from')), 'hour', true))).toBe(24)
+            expect(logic.values.impact?.sent).toBe(4)
+            expect(logic.values.impactError).toBeNull()
+        }
+    )
+
+    it('waits for the query a closed tab left running when the tab opens again', async () => {
         initKeaTests(true, ENVIRONMENT)
         logic = emailImpactLogic({ workflowId: 'workflow-1' })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
-        let finishRunningQuery: () => void = () => {}
-        answer = new Promise((resolve) => {
-            finishRunningQuery = () => resolve([200, WITHOUT_EVENT])
-        })
-        const requested = new Promise<void>((resolve) => (onRequest = resolve))
-        logic.actions.setDays(7)
-        await requested
+        const finishRunningQuery = await holdNextQuery()
 
+        logic.unmount()
+        logic = emailImpactLogic({ workflowId: 'workflow-1' })
         jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick', 'setImmediate'] })
         try {
-            logic.actions.setDays(1)
-            await jest.advanceTimersByTimeAsync(500)
-            logic.actions.setEvent('plan upgraded')
+            logic.mount()
             await jest.advanceTimersByTimeAsync(500)
             expect(requestedParams).toHaveLength(2)
 
-            answer = [200, { ...IMPACT, sent: 4 }]
-            finishRunningQuery()
+            answer = [200, { ...WITHOUT_EVENT, sent: 4 }]
+            finishRunningQuery([200, WITHOUT_EVENT])
             await jest.advanceTimersByTimeAsync(500)
         } finally {
             jest.useRealTimers()
@@ -151,8 +190,6 @@ describe('emailImpactLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(requestedParams).toHaveLength(3)
-        expect(requestedParams[2].get('event')).toBe('plan upgraded')
-        expect(Math.round(dayjs().diff(dayjs(requestedParams[2].get('date_from')), 'hour', true))).toBe(24)
         expect(logic.values.impact?.sent).toBe(4)
     })
 

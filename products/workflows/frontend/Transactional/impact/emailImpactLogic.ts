@@ -116,6 +116,10 @@ function impactErrorMessage(error: { status?: number; detail?: string | null } |
         : "This email's impact couldn't load. Try again, and if it keeps failing, contact support."
 }
 
+// Each query holds one of the organization's query slots until it finishes, even after the tab stops wanting
+// its answer or closes. A newer change, or a reopened tab, waits for the running query instead of running beside it.
+const runningQueries = new Map<string, Promise<unknown>>()
+
 export const emailImpactLogic = kea<emailImpactLogicType>([
     props({} as EmailImpactLogicProps),
     key((props) => props.workflowId),
@@ -140,7 +144,7 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
             },
         ],
     }),
-    loaders(({ props, values, cache }) => ({
+    loaders(({ props, values }) => ({
         impact: [
             null as TransactionalEmailImpactApi | null,
             {
@@ -149,10 +153,8 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
                         return null
                     }
                     await breakpoint(100)
-                    // Each query holds one of the organization's query slots until it finishes, even after
-                    // the tab stops wanting its answer, so a newer change waits instead of running beside it.
-                    while (cache.runningQuery) {
-                        await cache.runningQuery.catch(() => null)
+                    while (runningQueries.has(props.workflowId)) {
+                        await runningQueries.get(props.workflowId)?.catch(() => null)
                         breakpoint()
                     }
                     const query = transactionalEmailLogImpactRetrieve(String(values.currentTeamId), {
@@ -162,13 +164,11 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
                             .subtract(values.days * 24, 'hour')
                             .toISOString(),
                     })
-                    cache.runningQuery = query
+                    runningQueries.set(props.workflowId, query)
                     try {
                         return await query
                     } finally {
-                        if (cache.runningQuery === query) {
-                            cache.runningQuery = null
-                        }
+                        runningQueries.delete(props.workflowId)
                         breakpoint()
                     }
                 },
