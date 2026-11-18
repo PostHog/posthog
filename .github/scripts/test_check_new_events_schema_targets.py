@@ -168,6 +168,34 @@ def test_moving_an_existing_branch_to_a_new_path_passes(
     assert _main(monkeypatch) == 0
 
 
+@pytest.mark.parametrize("extra_lines", [0, 40])
+@pytest.mark.parametrize(
+    "old_path",
+    [
+        "products/growth/backend/tests/test_old_sdk_versions.py",
+        "products/growth/backend/conftest.py",
+        "products/growth/backend/tests/helpers.py",
+        "posthog/settings/data_stores.py",
+    ],
+)
+def test_branch_moved_out_of_a_non_production_file_fails(
+    old_path: str, extra_lines: int, repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _commit(repo, {old_path: BRANCHED_SOURCE})
+    _git(repo, "branch", "-f", "master")
+    _git(repo, "rm", "-q", old_path)
+    edited = BRANCHED_SOURCE + "".join(f"\n\ndef helper_{n}():\n    return {n}\n" for n in range(extra_lines))
+    _commit(
+        repo,
+        {
+            "products/growth/backend/sdk_versions.py": edited,
+            TEST: "from products.growth.backend.sdk_versions import get_sdk_versions_for_team\n",
+        },
+    )
+
+    assert _main(monkeypatch) == 1
+
+
 @pytest.mark.parametrize(
     "_name,source,expected",
     [

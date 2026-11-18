@@ -177,6 +177,12 @@ def _show(ref: str, path: str) -> str:
         return ""
 
 
+def _base_branches(merge_base: str, base_path: str) -> Counter[str]:
+    """The branches of a production file at the merge base. A branch that moves out of a test or settings file is
+    new to production code."""
+    return schema_branches(_show(merge_base, base_path)) if is_production(base_path) else Counter()
+
+
 def gained_branches(merge_base: str, committed: bool) -> list[str]:
     """Production modules that branch on the events schema more often, by name, than at the merge base."""
     changed = _changed(merge_base, committed)
@@ -185,13 +191,13 @@ def gained_branches(merge_base: str, committed: bool) -> list[str]:
     deleted: Counter[str] = Counter()
     for base_path, path in changed:
         if path is None and base_path is not None:
-            deleted += schema_branches(_show(merge_base, base_path))
+            deleted += _base_branches(merge_base, base_path)
     gained = []
     for base_path, path in changed:
         if path is None or not is_production(path):
             continue
         after = schema_branches(_show("HEAD", path) if committed else Path(path).read_text(errors="replace"))
-        before = schema_branches(_show(merge_base, base_path)) if base_path else deleted
+        before = _base_branches(merge_base, base_path) if base_path else deleted
         if after - before:
             gained.append(path)
     return sorted(gained)
