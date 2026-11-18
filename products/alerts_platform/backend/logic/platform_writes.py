@@ -21,7 +21,6 @@ from posthog.models.activity_logging.model_activity import get_current_user, get
 from posthog.models.signals import model_activity_signal
 
 from products.alerts_platform.backend.facade.contracts import (
-    MAX_EVALUATION_PERIODS,
     MAX_STORED_INTEGER,
     Grouping,
     GroupingMode,
@@ -42,6 +41,7 @@ from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, Pl
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_restriction
 from products.alerts_platform.backend.logic import (
     control_plane,
+    destination_handoff,
     platform_lifecycle,
     platform_reads,
     rule_metadata,
@@ -83,8 +83,8 @@ def _validated(
         ("evaluation_periods", edit.evaluation_periods),
         ("datapoints_to_alarm", edit.datapoints_to_alarm),
     ):
-        if not 1 <= value <= MAX_EVALUATION_PERIODS:
-            raise InvalidPlatformAlertEdit(name, f"Must be between 1 and {MAX_EVALUATION_PERIODS}.")
+        if not 1 <= value <= spec.max_evaluation_periods:
+            raise InvalidPlatformAlertEdit(name, f"Must be between 1 and {spec.max_evaluation_periods}.")
     if edit.datapoints_to_alarm > edit.evaluation_periods:
         raise InvalidPlatformAlertEdit("datapoints_to_alarm", "Cannot exceed evaluation_periods.")
     if not 0 <= edit.cooldown_minutes <= MAX_STORED_INTEGER:
@@ -221,6 +221,8 @@ def update_configuration(
             if spec is not None and legacy_configuration_id is None and not source_checked
             else None
         )
+        # Labels pick the routes, so an edit to them can move a firing between receivers.
+        before = destination_handoff.snapshot(team_id, configuration_ids=[configuration.id], routes_only=True)
         edit, pending = _apply(
             configuration,
             change,
@@ -249,6 +251,7 @@ def update_configuration(
         if write_source is not None:
             write_source(edit)
         control_plane.announce_after_commit(pending)
+        destination_handoff.hand_over_after_commit(before)
         _record_change(
             configuration,
             current,
@@ -444,6 +447,7 @@ def update_owned_copy(
         current, previous_state = edit_of(configuration), platform_lifecycle.shown_state(configuration, now=now)
         # A snooze ends the firing, as on the logs stack. A firing after it opens a new incident.
         snoozing = snooze_changed and snooze_until is not None and snooze_until > now
+        before = destination_handoff.snapshot(team_id, configuration_ids=[configuration.id], routes_only=True)
         edit, pending = _apply(configuration, change, now=now, snoozing=snoozing)
         if cadence is not None:
             platform_lifecycle.write_owned_cadence(configuration, cadence, rescheduled=rescheduled)
@@ -456,6 +460,7 @@ def update_owned_copy(
             )
             configuration.first_enabled_at = first_enabled_at
         control_plane.announce_after_commit(pending)
+        destination_handoff.hand_over_after_commit(before)
         _record_change(
             configuration,
             current,

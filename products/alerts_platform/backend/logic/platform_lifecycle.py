@@ -53,6 +53,7 @@ from products.alerts_platform.backend.facade.scheduling import (
     validate_and_normalize_schedule_start_time,
 )
 from products.alerts_platform.backend.logic import delivery_holds
+from products.alerts_platform.backend.logic.alert_routes import routed_label_names
 from products.alerts_platform.backend.logic.platform_alert_events import (
     CONFIGURATION_ROW_ALERT_ID,
     PlatformAlertEventRow,
@@ -290,10 +291,13 @@ def due_checks(
         return ()
 
     instances = _instances_by_configuration(team_id, configurations)
-    return tuple(_check(c, instances.get(str(c.id), [])) for c in configurations)
+    label_names = routed_label_names(team_id)
+    return tuple(_check(c, instances.get(str(c.id), []), label_names) for c in configurations)
 
 
-def _check(c: PlatformAlertConfiguration, alerts: Sequence[PlatformAlert]) -> PlatformAlertCheckInput:
+def _check(
+    c: PlatformAlertConfiguration, alerts: Sequence[PlatformAlert], label_names: frozenset[str]
+) -> PlatformAlertCheckInput:
     return PlatformAlertCheckInput(
         id=c.id,
         team_id=c.team_id,
@@ -315,6 +319,7 @@ def _check(c: PlatformAlertConfiguration, alerts: Sequence[PlatformAlert]) -> Pl
         recurrence_unit=c.recurrence_unit,
         anchor_time=c.anchor_time,
         created_by_id=c.created_by_id,
+        routed_label_names=label_names,
     )
 
 

@@ -76,13 +76,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.types import ExternalDataSchemaSyncType, IncrementalFieldType
 
 
-def _raise_translated(error: Exception, location: str) -> NoReturn:
-    translated = translate_storage_error(error, location)
-    if translated is error:
-        raise error
-    raise translated from error
-
-
 def _http_status(error: BaseException) -> int | None:
     """The HTTP status of the botocore error behind an s3fs error, if there is one."""
     current: BaseException | None = error
@@ -93,6 +86,19 @@ def _http_status(error: BaseException) -> int | None:
                 return status
         current = current.__cause__
     return None
+
+
+def _raise_translated(error: Exception, location: str) -> NoReturn:
+    to_translate = error
+    if type(error) is OSError and _http_status(error) in (401, 403):
+        # As in `validate_credentials` and `describe_pinned_schema`: s3fs gives a bare 401 or 403 (an
+        # error code it doesn't recognize, such as a provider's non-standard "Unauthorized") as a
+        # plain OSError instead of PermissionError.
+        to_translate = PermissionError()
+    translated = translate_storage_error(to_translate, location)
+    if translated is error:
+        raise error
+    raise translated from error
 
 
 def validate_store_location(config: StoreConfig) -> None:

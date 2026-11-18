@@ -181,22 +181,22 @@ class EditCounts:
 
 
 @frozen
-class _Actor:
+class Actor:
     # The person, or the group that a group flag aggregates by.
     expr: ast.Expr
     # The event has the actor. A group flag needs the group on the event.
     present: ast.Expr
 
 
-def _actor(group_type_index: int | None) -> _Actor:
+def actor_of(group_type_index: int | None) -> Actor:
     if group_type_index is None:
-        return _Actor(expr=ast.Field(chain=["person_id"]), present=ast.Constant(value=True))
+        return Actor(expr=ast.Field(chain=["person_id"]), present=ast.Constant(value=True))
     actor = ast.Field(chain=[f"$group_{group_type_index}"])
-    return _Actor(expr=actor, present=parse_expr("notEmpty({actor})", placeholders={"actor": actor}))
+    return Actor(expr=actor, present=parse_expr("notEmpty({actor})", placeholders={"actor": actor}))
 
 
 def read_flag(edit: WatchedEdit, in_condition: Mapping[ConditionMatch, ast.Expr]) -> FlagRead:
-    actor = _actor(edit.group_type_index)
+    actor = actor_of(edit.group_type_index)
     # A flag key can hold any character, so it goes in as an AST node, never as HogQL text.
     property_name = f"$feature/{edit.flag_key}"
     flag_value = ast.Call(name="toString", args=[ast.Field(chain=["properties", property_name])])
@@ -303,7 +303,7 @@ def _edits_by_actor(edits: Sequence[WatchedEdit]) -> dict[int | None, list[tuple
     return by_actor
 
 
-def _join_by_actor(table: ast.SelectQuery, alias: str, actor: _Actor) -> ast.JoinExpr:
+def _join_by_actor(table: ast.SelectQuery, alias: str, actor: Actor) -> ast.JoinExpr:
     return ast.JoinExpr(
         join_type="LEFT JOIN",
         table=table,
@@ -336,7 +336,7 @@ def _reason_joins(
     columns: dict[str, ast.Expr] = {}
     for group_type_index, watched in edits_by_actor.items():
         alias = "flag_reasons" if group_type_index is None else f"flag_reasons_{group_type_index}"
-        actor = _actor(group_type_index)
+        actor = actor_of(group_type_index)
         reasons_by_edit = {edit.id: _watched_reasons(edit) for _, edit in watched}
         subquery = ast.SelectQuery(
             select=[
@@ -424,7 +424,7 @@ def last_values(
     by_edit: dict[str, LastValue] = {}
     for group_type_index, watched in edits_by_actor.items():
         alias = "flag_last_values" if group_type_index is None else f"flag_last_values_{group_type_index}"
-        actor = _actor(group_type_index)
+        actor = actor_of(group_type_index)
         # Events before an edit carry the old value, so no edit reads a value from before it.
         since = max(start - LAST_VALUE_LOOKBACK, min(edit.edited_at for _, edit in watched))
         counted_actors = ast.SelectQuery(
@@ -641,6 +641,37 @@ def _states(index: int, edit: WatchedEdit, read: FlagRead, counts: Sequence[ast.
     ]
 
 
+def run_window_query(team: Team, query: ast.SelectQuery, query_type: str) -> list[Any]:
+    """The result rows of an observation window query, run with the settings that every window query shares."""
+    with tags_context(
+        product=Product.FEATURE_FLAGS,
+        feature=Feature.HEALTH_CHECK,
+        team_id=team.pk,
+        org_id=team.organization_id,
+    ):
+        response = execute_hogql_query(
+            query,
+            team=team,
+            query_type=query_type,
+            workload=Workload.OFFLINE,
+            # The join that applies person merges costs seconds on large teams and moves the counts by a tiny
+            # fraction, because a merge moves few people.
+            modifiers=HogQLQueryModifiers(
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+            ),
+            # A query that breaks on timeout returns partial counts, which would read as lower counts.
+            settings=HogQLGlobalSettings(
+                max_execution_time=QUERY_TIMEOUT_SECONDS,
+                max_threads=QUERY_MAX_THREADS,
+                timeout_overflow_mode="throw",
+                # The reason joins group the flag calls by actor. On a large team the aggregation goes to disk
+                # instead of failing the counts of every edit.
+                max_bytes_before_external_group_by=SPILL_GROUP_BY_AFTER_BYTES,
+            ),
+        )
+    return response.results or []
+
+
 @frozen
 class _BucketQuery:
     team: Team
@@ -701,35 +732,8 @@ class _BucketQuery:
             # One row per bucket. HogQL adds LIMIT 100 to a query without one.
             limit=ast.Constant(value=self.buckets),
         )
-        with tags_context(
-            product=Product.FEATURE_FLAGS,
-            feature=Feature.HEALTH_CHECK,
-            team_id=self.team.pk,
-            org_id=self.team.organization_id,
-        ):
-            response = execute_hogql_query(
-                query,
-                team=self.team,
-                query_type=self.query_type,
-                workload=Workload.OFFLINE,
-                # The join that applies person merges costs seconds on large teams and moves the counts by a tiny
-                # fraction, because a merge moves few people.
-                modifiers=HogQLQueryModifiers(
-                    personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
-                ),
-                # A query that breaks on timeout returns partial counts, which would read as lower counts.
-                settings=HogQLGlobalSettings(
-                    max_execution_time=QUERY_TIMEOUT_SECONDS,
-                    max_threads=QUERY_MAX_THREADS,
-                    timeout_overflow_mode="throw",
-                    # The reason joins group the flag calls by actor. On a large team the aggregation goes to disk
-                    # instead of failing the counts of every edit.
-                    max_bytes_before_external_group_by=SPILL_GROUP_BY_AFTER_BYTES,
-                ),
-            )
-
         rows_by_edit: dict[str, list[BucketCounts]] = {edit.id: [] for edit in self.edits}
-        for row in response.results or []:
+        for row in run_window_query(self.team, query, self.query_type):
             values = iter(row[1:])
             for edit, edit_states in zip(self.edits, states_by_edit):
                 # Each state gives the bucket's own value, then the value since the edit.

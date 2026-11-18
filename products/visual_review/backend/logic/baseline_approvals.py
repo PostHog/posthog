@@ -84,30 +84,37 @@ def _newest_run_commits(run: Run, pr_numbers: Iterable[int]) -> dict[int, str]:
     return {pr_number: commit_sha for pr_number, commit_sha in newest if pr_number is not None}
 
 
-def _candidates(run: Run, comparison: github_api.Comparison | None) -> list[BaselineApproval]:
-    """The open approvals whose commits the run's tree contains."""
+def _candidates(run: Run, comparison: github_api.Comparison | None, position: int) -> list[BaselineApproval]:
+    """The approvals whose commits the run's tree contains and that the ledger at `position` does not hold yet."""
     if comparison is None:
         return []
-    open_approvals = BaselineApproval.objects.using(WRITER_DB).filter(
-        repo_id=run.repo_id, run_type=run.run_type, state=BaselineApprovalState.OPEN
+    # An approval that landed after the run's ledger position is promoted, but the ledger the run
+    # reads does not hold its hash. Without it a run that started before the landing, such as a
+    # queue run of the next pull request or a stack child before its rebase, sees the approved
+    # change as unapproved.
+    outside_ledger = Q(state=BaselineApprovalState.OPEN) | Q(
+        state=BaselineApprovalState.PROMOTED, landed_position__gt=position
+    )
+    pending = BaselineApproval.objects.using(WRITER_DB).filter(
+        outside_ledger, repo_id=run.repo_id, run_type=run.run_type
     )
     # A list cut short cannot prove that another pull request's commit is absent, so only the
     # run's own pull request counts.
     if not comparison.complete:
         if run.pr_number is None:
             return []
-        return list(open_approvals.filter(pr_number=run.pr_number))
+        return list(pending.filter(pr_number=run.pr_number))
 
     contained = [commit.sha for commit in comparison.commits]
     in_tree = Q(commit_sha__in=contained) | Q(carried_commit_sha__in=contained)
     if run.pr_number is not None:
         in_tree |= Q(pr_number=run.pr_number)
-    rest = open_approvals.exclude(in_tree)
+    rest = pending.exclude(in_tree)
     rest_prs = set(rest.values_list("pr_number", flat=True).distinct())
     prs_with_contained_head = [
         pr_number for pr_number, commit_sha in _newest_run_commits(run, rest_prs).items() if commit_sha in contained
     ]
-    approvals = list(open_approvals.filter(in_tree))
+    approvals = list(pending.filter(in_tree))
     if prs_with_contained_head:
         approvals += list(rest.filter(pr_number__in=prs_with_contained_head))
     return approvals
@@ -156,12 +163,14 @@ def reduce_overlay(candidates: list[BaselineApproval], ledger_hashes: dict[str, 
     )
 
 
-def overlay_for_run(run: Run, comparison: github_api.Comparison | None, ledger_hashes: dict[str, str]) -> Overlay:
-    """The approvals a run compares against on top of the ledger, per identifier.
+def overlay_for_run(
+    run: Run, comparison: github_api.Comparison | None, position: int, ledger_hashes: dict[str, str]
+) -> Overlay:
+    """The approvals a run compares against on top of the ledger at `position`, per identifier.
 
     `comparison` is None for a run on the default branch, which has no candidates.
     """
-    return reduce_overlay(_candidates(run, comparison), ledger_hashes)
+    return reduce_overlay(_candidates(run, comparison, position), ledger_hashes)
 
 
 def _ledger_base_hashes(

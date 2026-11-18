@@ -76,6 +76,7 @@ export class CdpIntakeConsumer extends CdpConsumerBase {
                 deadLetters: this.deadLetters,
                 invocationResults: this.invocationResultsService.invocationResultsRowsService,
                 emailStatus: this.invocationResultsService.emailStatusService,
+                stateOpener: this.deps.encryptedFields,
             },
             { kind: this.kind, claimRetry: CLAIM_RETRY }
         )

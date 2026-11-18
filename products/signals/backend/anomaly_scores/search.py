@@ -36,6 +36,7 @@ from products.signals.backend.anomaly_scores.read import (
     InsightRollup,
     ScoredBucket,
     SeriesImportance,
+    SeriesPoint,
     SeriesSummary,
     bucket_starts,
     latest_buckets,
@@ -43,6 +44,7 @@ from products.signals.backend.anomaly_scores.read import (
     rank_series,
     rollup,
     scored_days,
+    series_points,
     series_summaries,
 )
 from products.signals.backend.anomaly_scores.scoring import bucket_end
@@ -103,6 +105,8 @@ class AnomalySearchFilters:
     offset: int = 0
     # Part of an insight name, matched ignoring case.
     search: str | None = None
+    # Adds the scored buckets of each series row, at the cost of one more query.
+    include_points: bool = False
 
 
 @frozen
@@ -113,6 +117,8 @@ class SeriesRow:
     expected_buckets: int
     # Newest first.
     flagged_points: tuple[FlaggedPoint, ...]
+    # Oldest first. None when the request leaves points out.
+    points: tuple[SeriesPoint, ...] | None = None
 
     @property
     def coverage(self) -> float | None:
@@ -296,6 +302,17 @@ def search(team: Team, user: User, filters: AnomalySearchFilters, now: datetime.
     if filters.group_by == AnomalyGroupBy.SERIES:
         matching = [summary for summary in ranked if summary.flagged_buckets or not filters.only_flagged]
         matched = len(matching)
+        page_series = matching[page]
+        points = (
+            series_points(
+                team,
+                date_from=filters.date_from,
+                date_to=filters.date_to,
+                series=[(summary.insight_id, summary.series_key) for summary in page_series],
+            )
+            if filters.include_points
+            else None
+        )
         series_rows = [
             SeriesRow(
                 summary=summary,
@@ -305,8 +322,9 @@ def search(team: Team, user: User, filters: AnomalySearchFilters, now: datetime.
                 ),
                 expected_buckets=_expected_buckets(summary, filters.date_from, filters.date_to, now),
                 flagged_points=summary.flagged_points[:FLAGGED_POINTS],
+                points=None if points is None else tuple(points[(summary.insight_id, summary.series_key)]),
             )
-            for summary in matching[page]
+            for summary in page_series
         ]
     else:
         by_insight: dict[int, list[SeriesSummary]] = {}

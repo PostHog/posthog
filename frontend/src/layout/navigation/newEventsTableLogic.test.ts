@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 
+import { getPageNewEventsTable } from 'lib/api'
 import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -9,12 +10,19 @@ import { UserType } from '~/types'
 
 import { newEventsTableLogic } from './newEventsTableLogic'
 
+jest.mock('lib/api', () => ({
+    __esModule: true,
+    ...jest.requireActual('lib/api'),
+    getPageNewEventsTable: jest.fn(),
+}))
+
 describe('newEventsTableLogic', () => {
     const originalLocation = window.location
     let reload: jest.Mock
 
     beforeEach(() => {
         document.cookie = 'ph_new_events_schema=; path=/; max-age=0'
+        jest.mocked(getPageNewEventsTable).mockReturnValue(null)
         reload = jest.fn()
         Object.defineProperty(window, 'location', { value: { reload }, configurable: true })
         initKeaTests()
@@ -36,8 +44,8 @@ describe('newEventsTableLogic', () => {
         { session: 'a staff user', user: { is_staff: true, is_impersonated: false }, acts: true },
         { session: 'an impersonated session', user: { is_staff: false, is_impersonated: true }, acts: true },
         { session: 'a regular user', user: { is_staff: false, is_impersonated: false }, acts: false },
-    ])('a page that asks for the new table, opened by $session', ({ user, acts }) => {
-        router.actions.push('/insights', { ph_new_events_schema: '1' })
+    ])('a page loaded from a link to the new table, opened by $session', ({ user, acts }) => {
+        jest.mocked(getPageNewEventsTable).mockReturnValue(true)
 
         const logic = mountAs(user)
 
@@ -47,13 +55,13 @@ describe('newEventsTableLogic', () => {
     })
 
     it.each([
-        { cookie: false, page: '1', enabled: true },
-        { cookie: true, page: '0', enabled: false },
-    ])('a page asking for table $page beats a browser cookie of $cookie', ({ cookie, page, enabled }) => {
+        { cookie: false, page: true, enabled: true },
+        { cookie: true, page: false, enabled: false },
+    ])('a page loaded for the new table $page beats a browser cookie of $cookie', ({ cookie, page, enabled }) => {
         if (cookie) {
             document.cookie = 'ph_new_events_schema=1; path=/'
         }
-        router.actions.push('/insights', { ph_new_events_schema: page })
+        jest.mocked(getPageNewEventsTable).mockReturnValue(page)
 
         const logic = mountAs({ is_staff: true })
 
@@ -62,6 +70,7 @@ describe('newEventsTableLogic', () => {
 
     it("switching back clears the cookie and the page's choice, and reloads", () => {
         document.cookie = 'ph_new_events_schema=1; path=/'
+        jest.mocked(getPageNewEventsTable).mockReturnValue(true)
         router.actions.push('/insights', { ph_new_events_schema: '1', other: 'kept' })
         const logic = mountAs({ is_staff: true })
 

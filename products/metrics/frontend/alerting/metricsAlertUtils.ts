@@ -105,13 +105,16 @@ export interface MetricsAlertFormErrors {
     cooldownMinutes?: string
 }
 
+// The most checks the platform lets a metrics alert look back over.
+export const MAX_METRICS_ALERT_CHECKS = 60
+
 function inRange(value: number | null, min: number, max: number): boolean {
     return value !== null && Number.isInteger(value) && value >= min && value <= max
 }
 
 function datapointsToAlarmError(datapoints: number | null, periods: number | null): string | undefined {
-    if (datapoints === null || !inRange(datapoints, 1, 10)) {
-        return 'Enter a number of checks from 1 to 10.'
+    if (datapoints === null || !inRange(datapoints, 1, MAX_METRICS_ALERT_CHECKS)) {
+        return `Enter a number of checks from 1 to ${MAX_METRICS_ALERT_CHECKS}.`
     }
     return periods !== null && datapoints > periods ? 'Cannot be more than the number of checks considered.' : undefined
 }
@@ -124,9 +127,9 @@ export function validateForm(form: MetricsAlertFormType): MetricsAlertFormErrors
             form.conditionKind === MetricsPlatformAlertConditionKindEnumApi.Threshold && form.threshold === null
                 ? 'Enter a threshold.'
                 : undefined,
-        evaluationPeriods: inRange(form.evaluationPeriods, 1, 10)
+        evaluationPeriods: inRange(form.evaluationPeriods, 1, MAX_METRICS_ALERT_CHECKS)
             ? undefined
-            : 'Enter a number of checks from 1 to 10.',
+            : `Enter a number of checks from 1 to ${MAX_METRICS_ALERT_CHECKS}.`,
         datapointsToAlarm: datapointsToAlarmError(form.datapointsToAlarm, form.evaluationPeriods),
         cooldownMinutes:
             form.cooldownMinutes !== null && Number.isInteger(form.cooldownMinutes) && form.cooldownMinutes >= 0

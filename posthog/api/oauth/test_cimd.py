@@ -54,6 +54,7 @@ from posthog.models.oauth import (
     create_cimd_verification_token,
 )
 from posthog.models.oauth_provisioning import PartnerTier
+from posthog.models.oauth_provisioning_review import CIMDProvisioningReview
 from posthog.scopes.exposure import OAUTH_SCOPES_HIDDEN, PRIVILEGED_SCOPES
 from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
@@ -113,7 +114,7 @@ def _mock_response(metadata: dict | None = None, status_code: int = 200, headers
 
     resp = MagicMock()
     resp.status_code = status_code
-    resp.headers = headers or {}
+    resp.headers = {"Content-Type": "application/json", **(headers or {})}
     resp.is_redirect = status_code in (301, 302, 303, 307, 308)
     resp.is_permanent_redirect = status_code in (301, 308)
     resp.close = MagicMock()
@@ -157,6 +158,10 @@ def test_is_cimd_client_id(url, expected):
         ("https://api.jsonbin.io/v3/b/abc123", True),
         ("https://gist.githubusercontent.com/someone/abc123/raw/client.json", True),
         ("https://x0.at/oXXP.json", True),
+        ("https://pad.riseup.net/p/abc123/export/txt", True),
+        ("https://a1b2c3.srv.us/client.json", True),
+        ("https://play.min.io/bucket/client.json", True),
+        ("https://riseup.net/.well-known/client.json", False),
         ("https://expo.dev/.well-known/posthog-client.json", False),
         ("https://mytrycloudflare.com/metadata.json", False),
         ("https://trycloudflare.com.example.com/metadata.json", False),
@@ -313,6 +318,29 @@ class TestFetchCimdMetadata(SimpleTestCase):
         with self.assertRaises(CIMDValidationError) as ctx:
             fetch_cimd_metadata(VALID_CIMD_URL)
         self.assertIn("does not match", str(ctx.exception))
+
+    @parameterized.expand(
+        [
+            ("provisioning_as_json", True, "application/json; charset=utf-8", True),
+            ("provisioning_as_html", True, "text/html; charset=utf-8", False),
+            ("provisioning_as_plain_text", True, "text/plain", False),
+            ("provisioning_without_a_type", True, None, False),
+            ("other_client_as_plain_text", False, "text/plain", True),
+        ]
+    )
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_a_provisioning_document_must_be_served_as_json(
+        self, _name, provisioning, content_type, accepted, mock_get, _url_mock
+    ):
+        resp = _mock_response(_make_metadata(com_posthog={"provisioning": True} if provisioning else None))
+        resp.headers = {} if content_type is None else {"Content-Type": content_type}
+        mock_get.return_value = resp
+
+        if accepted:
+            fetch_cimd_metadata(VALID_CIMD_URL)
+        else:
+            with self.assertRaisesRegex(CIMDValidationError, "Content-Type: application/json"):
+                fetch_cimd_metadata(VALID_CIMD_URL)
 
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_too_large(self, mock_get, _url_mock):
@@ -1032,6 +1060,36 @@ class TestApplyProvisioningDefaults(APIBaseTest):
         self.assertFalse(app.provisioning.can_issue_deep_links)
         # The self-serve defaults still land - only the admin's revocation survives on top.
         self.assertTrue(app.provisioning.can_create_accounts)
+
+    @parameterized.expand(
+        [
+            ("new_partner_waits_for_review", False, False, ["pending"]),
+            ("admin_activated_partner_skips_review", True, True, []),
+        ]
+    )
+    @patch("posthog.api.oauth.cimd.start_review")
+    @patch("posthog.api.oauth.cimd.review_required", return_value=True)
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_review_holds_a_new_partner_inactive(
+        self, _name, admin_activated, expected_active, expected_reviews, mock_get, _required, mock_start, _url_mock
+    ):
+        mock_get.return_value = _mock_response(_make_metadata(), headers={})
+        existing = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+        assert existing is not None
+        if admin_activated:
+            existing.update_provisioning(active=True)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            app = apply_provisioning_defaults(existing)
+
+        app.refresh_from_db()
+        self.assertTrue(app.is_provisioning_partner)
+        self.assertTrue(app.provisioning.can_create_accounts)
+        self.assertEqual(app.provisioning.active, expected_active)
+        reviews = CIMDProvisioningReview.objects.filter(application=app)
+        self.assertEqual([review.status for review in reviews], expected_reviews)
+        self.assertEqual([review.domain for review in reviews], ["example.com"] * len(expected_reviews))
+        self.assertEqual(mock_start.call_args_list, [((str(app.pk),),)] * len(expected_reviews))
 
 
 @mock_anti_ssrf_dns_lookup()

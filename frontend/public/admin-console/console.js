@@ -12,6 +12,15 @@ document.addEventListener('submit', (event) => {
     if (!(form instanceof HTMLFormElement)) {
         return
     }
+    // A disabled button posts no value, so the value of the button that submits moves to a hidden field first.
+    const submitter = event.submitter
+    if (submitter instanceof HTMLButtonElement && submitter.name) {
+        const field = document.createElement('input')
+        field.type = 'hidden'
+        field.name = submitter.name
+        field.value = submitter.value
+        form.append(field)
+    }
     for (const button of form.querySelectorAll('button[type="submit"]')) {
         if (button.dataset.pendingLabel) {
             showPending(button)
@@ -54,6 +63,23 @@ document.addEventListener('keydown', (event) => {
     if (search) {
         event.preventDefault()
         search.focus()
+    }
+})
+
+// A Decision block: a key such as ArrowRight presses the button or link that names it, unless staff are typing.
+document.addEventListener('keydown', (event) => {
+    const target = event.target
+    const typing =
+        target instanceof HTMLElement && (target.isContentEditable || target.closest('input, textarea, select'))
+    if (typing || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) {
+        return
+    }
+    const control = [...document.querySelectorAll('[data-console-key]')].find(
+        (element) => element.dataset.consoleKey === event.key
+    )
+    if (control instanceof HTMLElement && !control.hasAttribute('disabled')) {
+        event.preventDefault()
+        control.click()
     }
 })
 
