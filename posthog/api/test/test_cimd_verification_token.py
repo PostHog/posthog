@@ -36,8 +36,8 @@ class TestCIMDVerificationTokenViewSet(APIBaseTest):
         self.assertEqual(token.created_by_id, self.user.id)
         self.assertNotEqual(token.secure_value, body["value"])
 
-    @override_settings(CLOUD_DEPLOYMENT="EU")
-    def test_eu_refuses_to_create_tokens(self):
+    @override_settings(CIMD_VERIFICATION_TOKEN_ISSUER_URL="https://us.posthog.com")
+    def test_an_instance_that_does_not_issue_tokens_refuses_to_create_them(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 

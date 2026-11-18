@@ -179,6 +179,7 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
                     for g in clause.groupBy or []
                 ),
                 quantile=clause.quantile,
+                apdex_threshold_ms=clause.apdexThresholdMs,
             )
             for clause in self.query.clauses
         )

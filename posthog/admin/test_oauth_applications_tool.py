@@ -3,6 +3,7 @@ from posthog.test.base import BaseTest
 from parameterized import parameterized
 
 from posthog.api.oauth.provisioning_review import append_run_log
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.oauth import OAuthApplication
 from posthog.models.oauth_provisioning import ProvisioningConfig
 from posthog.models.oauth_provisioning_review import CIMDProvisioningReview, ProvisioningReviewStatus
@@ -47,6 +48,28 @@ class TestOAuthApplicationsTool(BaseTest):
         assert "jev-test" in content
         assert f"cimd-provisioning-review-{self.app.pk}" in content
         assert f"/admin/console/oauth-applications/{self.app.pk}/" in content
+
+    @parameterized.expand(
+        [
+            ("waiting_for_staff", ProvisioningReviewStatus.NEEDS_HUMAN, {}, ["accept", "block"], True),
+            ("accepted", ProvisioningReviewStatus.ACCEPTED, {"active": True}, ["block"], False),
+            ("blocked", ProvisioningReviewStatus.REJECTED, {"disabled": True}, ["accept"], False),
+        ]
+    )
+    def test_both_pages_lead_with_the_decisions_on_offer(self, _name, status, config, offered, waiting) -> None:
+        self.app._provisioning_config = ProvisioningConfig(**config).model_dump(mode="json")
+        self.app.save()
+        review = self._review(status)
+
+        content = self.client.get(f"{TOOL_URL}?review={review.pk}").content.decode()
+
+        for key in ("accept", "block"):
+            assert (f"/admin/console/oauth-applications/{self.app.pk}/provisioning/{key}/" in content) == (
+                key in offered
+            )
+        assert ("is waiting for a staff decision" in content) == waiting
+        app_page = self.client.get(f"/admin/console/oauth-applications/{self.app.pk}/").content.decode()
+        assert ("Read the review, then accept or block the partner below." in app_page) == waiting
 
     def _staff_app(self, name: str, **fields) -> OAuthApplication:
         return OAuthApplication.objects.create(
@@ -98,3 +121,35 @@ class TestOAuthApplicationsTool(BaseTest):
 
         shown = {name for name in ALL_APPS if name in content}
         assert shown == expected
+
+    @parameterized.expand(
+        [
+            ("linked_through_the_issuer", "https://us.posthog.com", "provisioning=on"),
+            ("not_linked", "", "provisioning=off"),
+        ]
+    )
+    def test_requiring_a_link_holds_back_only_unlinked_partners(self, _name, link_issuer, query) -> None:
+        self.app._provisioning_config = ProvisioningConfig(active=True).model_dump(mode="json")
+        self.app.organization_link_issuer = link_issuer
+        self.app.save()
+
+        with override_instance_config("CIMD_PROVISIONING_REQUIRES_ORGANIZATION", True):
+            content = self.client.get(f"{TOOL_URL}?{query}").content.decode()
+
+        assert "Waiting Partner" in content
+
+    @parameterized.expand(
+        [
+            ("waiting_for_a_link", False, "Off until it links a PostHog organization"),
+            ("blocked", True, "Blocked"),
+        ]
+    )
+    def test_an_unlinked_partner_reads_as_blocked_when_it_is(self, _name, disabled, label) -> None:
+        self.app._provisioning_config = ProvisioningConfig(active=True, disabled=disabled).model_dump(mode="json")
+        self.app.save()
+
+        with override_instance_config("CIMD_PROVISIONING_REQUIRES_ORGANIZATION", True):
+            content = self.client.get(f"/admin/console/oauth-applications/{self.app.pk}/").content.decode()
+
+        assert label in content
+        assert ("Off until it links a PostHog organization" in content) == (not disabled)

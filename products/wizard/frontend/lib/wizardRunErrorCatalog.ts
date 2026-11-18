@@ -221,6 +221,11 @@ const WIZARD_RUN_ERROR_CATALOG: Record<string, WizardRunErrorDetails> = {
         description: 'The program stopped because of an error that the Wizard did not recognize.',
         resolution: 'Run the program again. If it still fails, contact PostHog support.',
     },
+    timeout: {
+        title: 'The Wizard run timed out',
+        description: 'The run did not finish in time, so PostHog stopped it.',
+        resolution: 'Run the program again. If it still fails, contact PostHog support.',
+    },
 }
 
 export function wizardRunErrorDetails(errorCode: string | null, fallbackMessage: string | null): WizardRunErrorDetails {

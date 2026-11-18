@@ -287,9 +287,10 @@ class TestTaggersPanel(BaseTest):
         self.url = f"/admin/console/teams/{self.team.pk}/ai-observability-taggers/migrate-taggers/"
 
     @patch("products.ai_observability.backend.logic.tagger_migration.migration.reload_taggers_on_workers")
+    @patch("products.ai_observability.backend.logic.tagger_migration.migration.load_sent_tag_names")
     @patch("products.ai_observability.backend.logic.tagger_migration.migration.load_recent_tag_counts")
     def test_migrating_moves_active_taggers_to_evaluations_and_switches_off_silent_ones(
-        self, load_counts: MagicMock, reload_taggers: MagicMock
+        self, load_counts: MagicMock, load_sent_tags: MagicMock, reload_taggers: MagicMock
     ) -> None:
         load_counts.return_value = {
             str(self.active.id): 120,
@@ -300,6 +301,7 @@ class TestTaggersPanel(BaseTest):
             str(self.private.id): 9,
             str(self.bounded.id): 11,
         }
+        load_sent_tags.return_value = {str(self.untagged_hog.id): ("anything",)}
 
         preview = self.client.post(self.url, {"reason": "Taggers are deprecated"})
         assert preview.status_code == 200
@@ -309,8 +311,12 @@ class TestTaggersPanel(BaseTest):
             second_run = migrate_taggers(self.team)
 
         assert response.status_code == 302
-        evaluation = Evaluation.objects.get(team=self.team, evaluation_type="llm_judge")
-        hog_evaluation = Evaluation.objects.get(team=self.team, evaluation_type="hog")
+        evaluation = Evaluation.objects.get(team=self.team, evaluation_type="llm_judge", name="User intent")
+        broken_key_evaluation = Evaluation.objects.get(team=self.team, name="On a broken key")
+        assert (broken_key_evaluation.enabled, broken_key_evaluation.status_reason) == (False, "provider_key_invalid")
+        hog_evaluation = Evaluation.objects.get(team=self.team, evaluation_type="hog", name="Long answers")
+        free_form_evaluation = Evaluation.objects.get(team=self.team, evaluation_type="hog", name="Free-form Hog")
+        assert free_form_evaluation.output_config["options"] == [{"key": "anything", "label": "anything"}]
         assert hog_evaluation.enabled
         assert hog_evaluation.created_by is None
         assert hog_evaluation.output_config["options"] == [{"key": "long", "label": "Long"}]
@@ -333,17 +339,74 @@ class TestTaggersPanel(BaseTest):
         assert states == {
             "User intent": (False, evaluation.id),
             "Sentiment": (False, None),
-            "Free-form Hog": (True, None),
+            "Free-form Hog": (False, free_form_evaluation.id),
             "Long answers": (False, hog_evaluation.id),
             "Legacy": (True, None),
-            "On a broken key": (True, None),
+            "On a broken key": (False, broken_key_evaluation.id),
             "Private": (True, None),
             "Bounded": (True, None),
         }
         assert sorted(call.kwargs["tagger_ids"][0] for call in reload_taggers.call_args_list) == sorted(
-            [str(self.active.id), str(self.silent.id), str(self.hog.id)]
+            [
+                str(self.active.id),
+                str(self.silent.id),
+                str(self.untagged_hog.id),
+                str(self.hog.id),
+                str(self.broken_key.id),
+            ]
         )
-        assert [step.action for step in second_run] == [MigrationAction.SKIP] * 5
+        assert [step.action for step in second_run] == [MigrationAction.SKIP] * 3
+
+    @patch("products.ai_observability.backend.logic.tagger_migration.migration.reload_taggers_on_workers")
+    @patch("products.ai_observability.backend.logic.tagger_migration.migration.load_recent_tag_counts")
+    def test_ticking_the_cap_option_moves_a_tagger_that_caps_its_tags(
+        self, load_counts: MagicMock, _reload_taggers: MagicMock
+    ) -> None:
+        load_counts.return_value = {str(self.bounded.id): 11}
+
+        preview = self.client.post(self.url, {"reason": "Taggers are deprecated", "move_capped": "on"})
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(self.url, {"confirm_token": preview.context["confirm_token"]})
+
+        evaluation = Evaluation.objects.get(team=self.team)
+        assert (evaluation.name, evaluation.output_type) == ("Bounded", "categorical")
+        assert evaluation.output_config["selection_mode"] == "multiple"
+        assert evaluation.evaluation_config["prompt"].endswith("Select at most 2 categories.")
+        self.bounded.refresh_from_db()
+        assert (self.bounded.enabled, self.bounded.migrated_to_evaluation_id) == (False, evaluation.id)
+
+    @parameterized.expand([("no_active_key", None), ("active_key_for_another_provider", "anthropic")])
+    @patch("products.ai_observability.backend.logic.tagger_migration.migration.reload_taggers_on_workers")
+    @patch("products.ai_observability.backend.logic.tagger_migration.migration.load_recent_tag_counts")
+    def test_a_tagger_whose_key_was_deleted_moves_to_a_switched_off_evaluation(
+        self, _name: str, active_provider: str | None, load_counts: MagicMock, _reload_taggers: MagicMock
+    ) -> None:
+        load_counts.return_value = {str(self.active.id): 120}
+        active_key = None
+        if active_provider is not None:
+            active_key = LLMProviderKey.objects.create(
+                team=self.team,
+                provider=active_provider,
+                name="Other provider",
+                state=LLMProviderKey.State.OK,
+                encrypted_config={"api_key": "sk-other"},
+            )
+            # The tagger's own OpenAI key is gone, so the model it kept has no key to run on.
+            Tagger.objects.filter(pk=self.active.pk).update(
+                model_configuration=LLMModelConfiguration.objects.create(
+                    team=self.team, provider="openai", model="gpt-5-mini", provider_key=None
+                )
+            )
+        EvaluationConfig.objects.filter(team=self.team).update(active_provider_key=active_key)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            migrate_taggers(self.team)
+
+        evaluation = Evaluation.objects.get(team=self.team, name="User intent")
+        assert (evaluation.enabled, evaluation.status_reason) == (False, "provider_key_required")
+        assert evaluation.model_configuration is not None and evaluation.model_configuration.provider_key is None
+        self.active.refresh_from_db()
+        assert (self.active.enabled, self.active.migrated_to_evaluation_id) == (False, evaluation.id)
 
     @parameterized.expand(
         [

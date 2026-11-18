@@ -132,6 +132,9 @@ TRIGGER_MCP = "mcp"
 # and the ranking needs a summary. It is not a view trigger: a pair with a summary never gets it again, so
 # the view update interval has no repeat updates to space out.
 TRIGGER_INBOX_VISIT = "inbox_visit"
+# A pair with a summary at least `_FRESH_STALENESS` target intervals old and new input below `min_score`.
+# The summary stays current, so a skipped update keeps serving it.
+TRIGGER_OVERDUE = "overdue"
 TRIGGERS = (
     TRIGGER_ACTIVITY,
     TRIGGER_VIEWS,
@@ -139,6 +142,7 @@ TRIGGERS = (
     TRIGGER_STALE,
     TRIGGER_MCP,
     TRIGGER_INBOX_VISIT,
+    TRIGGER_OVERDUE,
 )
 VIEW_TRIGGERS = frozenset({TRIGGER_VIEWS, TRIGGER_COLD_START_VIEWS})
 # The frontend scene id of the Inbox, which is the ref of its scene view rows.
@@ -159,8 +163,12 @@ class ActivitySummaryTierStats:
     due_pairs: int = 0
     # Hours since the due time of the pair that waits longest. Null when no pair is due.
     oldest_due_hours: float | None = None
-    # The share of pairs with activity in the window whose summary is younger than twice the tier's target interval.
+    # The share of pairs with activity in the window whose summary is younger than twice the tier's target interval,
+    # or has no new input after its watermark.
     fresh_share: float | None = None
+    # Like `fresh_share`, but a summary with no new input still counts by age only.
+    recent_share: float | None = None
+    due_overdue: int = 0
 
 
 @frozen
@@ -890,10 +898,21 @@ def _states(config: ActivitySummaryConfig, now: datetime.datetime, team_ids: lis
     )
 
 
+def _new_input() -> Q:
+    """Queue states with input after the summary's watermark that the due rule counts."""
+    return Q(weighted_score__gt=0)
+
+
+def _overdue() -> Q:
+    return Q(summarized_at__isnull=False, staleness__gte=_FRESH_STALENESS) & _new_input()
+
+
 def _due(states: QuerySet, config: ActivitySummaryConfig, now: datetime.datetime) -> QuerySet:
     """The due states, each with the trigger that made it due."""
     window_start = now - datetime.timedelta(days=config.limits.window_days)
     reason = Q(weighted_score__gte=config.min_score) | Q(stale=True)
+    if config.overdue_budget_share > 0:
+        reason |= _overdue()
     inbox_visit: list[When] = []
     if config.count_views:
         states = states.annotate(
@@ -919,7 +938,8 @@ def _due(states: QuerySet, config: ActivitySummaryConfig, now: datetime.datetime
         trigger=Case(
             When(stale=True, then=Value(TRIGGER_STALE)),
             *inbox_visit,
-            # A due pair below `min_score` that is not stale is due only on its days with views.
+            When(_overdue() & Q(weighted_score__lt=config.min_score), then=Value(TRIGGER_OVERDUE)),
+            # A due pair below `min_score` that is not stale or overdue is due only on its days with views.
             When(weighted_score__lt=config.min_score, then=Value(TRIGGER_COLD_START_VIEWS)),
             When(pending_mcp_score__gte=F("weighted_score") / 2, then=Value(TRIGGER_MCP)),
             When(write_score__lt=F("weighted_score") / 2, then=Value(TRIGGER_VIEWS)),
@@ -928,14 +948,14 @@ def _due(states: QuerySet, config: ActivitySummaryConfig, now: datetime.datetime
     )
 
 
-def _cap_rebuilds(due: QuerySet, max_rebuilds: int) -> QuerySet:
-    """The due pairs with at most `max_rebuilds` stale pairs, paying pairs and the highest scores first."""
-    rebuild_ids = list(
-        due.filter(stale=True)
+def _cap_trigger(due: QuerySet, trigger: str, max_pairs: int) -> QuerySet:
+    """The due pairs with at most `max_pairs` pairs of `trigger`, paying pairs and the highest scores first."""
+    kept_ids = list(
+        due.filter(trigger=trigger)
         .order_by("-paying", F("score").desc(), "team_id", "user_id")
-        .values_list("id", flat=True)[:max_rebuilds]
+        .values_list("id", flat=True)[:max_pairs]
     )
-    return due.filter(Q(stale=False) | Q(id__in=rebuild_ids))
+    return due.filter(~Q(trigger=trigger) | Q(id__in=kept_ids))
 
 
 def _fill_pass(due: QuerySet, limit: int, max_org_share: float, *, paying_first: bool = False) -> list[dict[str, Any]]:
@@ -985,6 +1005,7 @@ def _tier_stats(
         for row in due.values("paying").annotate(
             pairs=Count("id"),
             oldest=Max(_hours_since(now, Coalesce("due_at", "created_at"))),
+            overdue=Count("id", filter=Q(trigger=TRIGGER_OVERDUE)),
         )
     }
     activity = {
@@ -993,7 +1014,10 @@ def _tier_stats(
         .values("paying")
         .annotate(
             active=Count("id"),
-            fresh=Count("id", filter=Q(summarized_at__isnull=False, staleness__lt=_FRESH_STALENESS)),
+            fresh=Count(
+                "id", filter=Q(summarized_at__isnull=False) & (Q(staleness__lt=_FRESH_STALENESS) | ~_new_input())
+            ),
+            recent=Count("id", filter=Q(summarized_at__isnull=False, staleness__lt=_FRESH_STALENESS)),
         )
     }
     stats = []
@@ -1006,6 +1030,8 @@ def _tier_stats(
                 due_pairs=due_row["pairs"] if due_row else 0,
                 oldest_due_hours=max(0.0, due_row["oldest"]) if due_row else None,
                 fresh_share=activity_row["fresh"] / activity_row["active"] if activity_row else None,
+                recent_share=activity_row["recent"] / activity_row["active"] if activity_row else None,
+                due_overdue=due_row["overdue"] if due_row else 0,
             )
         )
     return stats
@@ -1022,10 +1048,12 @@ def select_pairs(
     A pair with a stale summary needs no pending score, because its update reads the full window, and it
     ranks with the pairs with no summary. When views count, a pair with no summary that opened the Inbox
     in the window is also due. A pair with an outdated summary that is not stale needs a pending score like
-    a current one, until `outdated_rebuild_after_days` makes it stale. Each returned pair carries the
-    trigger that made it due.
+    a current one, until `outdated_rebuild_after_days` makes it stale. A pair whose summary is at least
+    `_FRESH_STALENESS` target intervals old is due with any new input, so a light user does not keep an
+    old summary. Each returned pair carries the trigger that made it due.
     Stale pairs take at most `rebuild_budget_share` of `limit`, paying pairs first, so a version change
-    does not stop the other updates. The Inbox visit pairs fill `inbox_visit_budget_share` of `limit`
+    does not stop the other updates. Overdue pairs below `min_score` take at most `overdue_budget_share`
+    of `limit` in the same way. The Inbox visit pairs fill `inbox_visit_budget_share` of `limit`
     first, paying pairs first. The part of that share they do not use goes to the other passes, and an
     Inbox visit pair that does not fit the share still ranks there. The first pass ranks the paying pairs
     and the free pairs with at least `max_overdue_factor` staleness, for `paying_budget_share` of the
@@ -1041,7 +1069,8 @@ def select_pairs(
     tiers = _tier_stats(states, due, config, now)
     due_by_trigger = _due_by_trigger(due)
     versions = _version_stats(states, due, config, now)
-    due = _cap_rebuilds(due, math.ceil(limit * config.rebuild_budget_share))
+    due = _cap_trigger(due, TRIGGER_STALE, math.ceil(limit * config.rebuild_budget_share))
+    due = _cap_trigger(due, TRIGGER_OVERDUE, math.ceil(limit * config.overdue_budget_share))
     reserved = _fill_pass(
         due.filter(trigger=TRIGGER_INBOX_VISIT),
         math.ceil(limit * config.inbox_visit_budget_share),
