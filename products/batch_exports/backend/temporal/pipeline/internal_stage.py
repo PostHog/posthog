@@ -65,6 +65,7 @@ from products.batch_exports.backend.temporal.filters import InvalidFilterError, 
 from products.batch_exports.backend.temporal.metrics import log_query_duration
 from products.batch_exports.backend.temporal.pipeline.query_ranges import (
     is_5_min_batch_export,
+    is_covered_by_events_json_recent,
     use_distributed_events_recent_table,
     wait_for_delta_past_data_interval_end,
 )
@@ -82,6 +83,7 @@ from products.batch_exports.backend.temporal.sql.events import (
     EXPORT_TO_S3_FROM_EVENTS_RECENT,
     EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS,
     native_events_export_query,
+    native_recent_events_export_query,
 )
 from products.batch_exports.backend.temporal.sql.persons import (
     EXPORT_TO_S3_FROM_PERSONS,
@@ -666,9 +668,13 @@ async def _get_query(
             lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
             parameters["lookback_days"] = lookback_days
 
-        native_source = query_template in (
-            EXPORT_TO_S3_FROM_EVENTS_BACKFILL,
-            EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS,
+        reads_recent_table = query_template in (
+            EXPORT_TO_S3_FROM_EVENTS_RECENT,
+            EXPORT_TO_S3_FROM_DISTRIBUTED_EVENTS_RECENT,
+        )
+        native_source = (
+            query_template in (EXPORT_TO_S3_FROM_EVENTS_BACKFILL, EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS)
+            or (reads_recent_table and is_covered_by_events_json_recent(full_range[0]))
         ) and await database_sync_to_async(use_new_events_schema)(team_id)
 
         # The stored fields of a custom schema read the legacy tables, so a run on the native table recompiles them.
@@ -690,7 +696,14 @@ async def _get_query(
                 filters, team_id=team_id, values=extra_query_parameters, use_new_events_schema=native_source
             )
 
-        if native_source:
+        if native_source and reads_recent_table:
+            query = native_recent_events_export_query(
+                fields,
+                filters_str,
+                is_5_min_batch_export=query_template is EXPORT_TO_S3_FROM_EVENTS_RECENT,
+                s3_function=s3_function,
+            )
+        elif native_source:
             query = native_events_export_query(fields, filters_str, s3_function=s3_function)
         else:
             query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields)

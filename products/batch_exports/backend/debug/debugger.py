@@ -45,13 +45,17 @@ from products.batch_exports.backend.temporal.destinations.s3_batch_export import
 from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import snowflake_default_fields
 from products.batch_exports.backend.temporal.filters import compose_filters_clause
 from products.batch_exports.backend.temporal.pipeline.internal_stage import get_base_s3_staging_folder
-from products.batch_exports.backend.temporal.pipeline.query_ranges import use_distributed_events_recent_table
+from products.batch_exports.backend.temporal.pipeline.query_ranges import (
+    is_covered_by_events_json_recent,
+    use_distributed_events_recent_table,
+)
 from products.batch_exports.backend.temporal.sql.events import (
     SELECT_FROM_DISTRIBUTED_EVENTS_RECENT,
     SELECT_FROM_EVENTS_VIEW,
     SELECT_FROM_EVENTS_VIEW_BACKFILL,
     SELECT_FROM_EVENTS_VIEW_RECENT,
     native_events_export_query,
+    native_recent_events_export_query,
 )
 from products.batch_exports.backend.temporal.sql.persons import SELECT_FROM_PERSONS, SELECT_FROM_PERSONS_BACKFILL
 
@@ -468,7 +472,14 @@ class BatchExportsDebugger:
 
             fields = with_inserted_at_field(default_fields_for_destination(batch_export_run.parent.destination.type))
 
-            native_source = query_template is SELECT_FROM_EVENTS_VIEW_BACKFILL and use_new_events_schema(team_id)
+            reads_recent_table = query_template in (
+                SELECT_FROM_EVENTS_VIEW_RECENT,
+                SELECT_FROM_DISTRIBUTED_EVENTS_RECENT,
+            )
+            native_source = (
+                query_template is SELECT_FROM_EVENTS_VIEW_BACKFILL
+                or (reads_recent_table and is_covered_by_events_json_recent(full_range[0]))
+            ) and use_new_events_schema(team_id)
 
             filters_str = ""
             if filters is not None and len(filters) > 0:
@@ -476,7 +487,13 @@ class BatchExportsDebugger:
                     filters, team_id=team_id, values=extra_query_parameters, use_new_events_schema=native_source
                 )
 
-            if native_source:
+            if native_source and reads_recent_table:
+                query = native_recent_events_export_query(
+                    fields,
+                    filters_str,
+                    is_5_min_batch_export=query_template is SELECT_FROM_EVENTS_VIEW_RECENT,
+                )
+            elif native_source:
                 query = native_events_export_query(fields, filters_str)
             else:
                 query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields)
