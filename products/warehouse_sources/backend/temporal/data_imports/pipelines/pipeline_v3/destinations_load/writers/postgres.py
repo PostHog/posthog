@@ -377,8 +377,7 @@ class PostgresDestinationWriter:
         with_batch_index: bool,
         primary_keys: list[str] | None = None,
     ) -> None:
-        # `CREATE SCHEMA IF NOT EXISTS` needs CREATE on the database even when the schema exists,
-        # so it runs only for a missing schema.
+        # Needs CREATE on the database even when the schema exists, so only a missing one runs it.
         if not await self._schema_exists(client):
             async with self._write_cursor(client) as cursor:
                 await cursor.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(self._schema)))
@@ -476,8 +475,7 @@ class PostgresDestinationWriter:
                                 )
                             )
 
-                        # `CREATE TABLE IF NOT EXISTS` needs CREATE on the schema even when the
-                        # table exists, so a login that can only write into its tables skips it.
+                        # Needs CREATE on the schema even when the table exists, so skip it then.
                         if not table_existed:
                             await self._ensure_table(
                                 client,
@@ -805,8 +803,6 @@ class PostgresDestinationWriter:
                     )
 
     async def _schema_exists(self, client: PostgreSQLClient) -> bool:
-        # See `_has_unique_index_on`: demarcated so this probe's implicit transaction closes
-        # before the next statement on the connection can nest a savepoint into it.
         async with client.connection.transaction():
             async with client.connection.cursor() as cursor:
                 await cursor.execute(
