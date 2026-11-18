@@ -17,6 +17,7 @@ from posthog.stable_chunks import StableChunks
 from posthog.vite_app import (
     FRONTEND_BUILD_COOKIE,
     ViteApp,
+    _resolve_vite_app,
     app_build_for_request,
     read_vite_app_manifest,
     remember_frontend_build_choice,
@@ -174,6 +175,20 @@ class TestViteApp(SimpleTestCase):
         self, _name: str, user_kind: str, query: str, expect_cookie: bool
     ) -> None:
         assert (_cookie_after(query, user_kind) is not None) == expect_cookie
+
+    def test_the_build_is_found_only_when_its_manifest_is_where_the_build_writes_it(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            manifest_path = Path(directory) / "frontend" / "dist" / "vite" / "vite-app-manifest.json"
+            manifest_path.parent.mkdir(parents=True)
+            self.addCleanup(_resolve_vite_app.cache_clear)
+
+            with override_settings(BASE_DIR=directory):
+                _resolve_vite_app.cache_clear()
+                assert _resolve_vite_app() is None
+
+                manifest_path.write_text(json.dumps(VALID_MANIFEST))
+                _resolve_vite_app.cache_clear()
+                assert _resolve_vite_app() is not None
 
     def test_a_missing_vite_build_serves_the_stable_build(self) -> None:
         request = _request("?frontend_build=vite", "staff")

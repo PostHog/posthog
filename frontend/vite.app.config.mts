@@ -12,11 +12,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 // posthog/vite_app.py reads the manifest from this directory.
 const OUT_DIR = `dist/${VITE_APP_DIR}`
 
-/**
- * The hashed worker file names from the esbuild build, for `createWorker` (src/lib/utils/createWorker.ts).
- * The esbuild build makes the workers, so it has to run first. Without its file, or for a worker whose
- * hashed file is gone, the app loads the worker by its fixed name, which a deploy overwrites in place.
- */
+// The esbuild build makes the workers, so it has to run first. Without its file, `createWorker` loads
+// each worker by its fixed name, which a deploy overwrites in place.
 function hashedWorkerFiles(): Record<string, string> | undefined {
     const metaPath = resolve(__dirname, WORKER_FILES_META)
     if (!existsSync(metaPath)) {

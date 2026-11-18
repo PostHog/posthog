@@ -42,7 +42,6 @@ export const WORKER_ENTRIES = [
     },
 ]
 
-// The hashed file name of each worker, as `{ fixedName: hashedName }`. build.mjs writes it after it
-// builds the workers, and vite.app.config.mts reads it, so both app builds load a worker by the same name.
-// Not named `*-esbuild-meta.json`: bin/build-bundle-report.mjs reads every file with that suffix as an esbuild metafile.
+// `{ fixedName: hashedName }` for each worker. build.mjs writes it and vite.app.config.mts reads it.
+// Not named `*-esbuild-meta.json`: bin/build-bundle-report.mjs reads that suffix as an esbuild metafile.
 export const WORKER_FILES_META = 'hashed-worker-files.json'
