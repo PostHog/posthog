@@ -8,8 +8,16 @@ from bisect import bisect_right
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
+from urllib.parse import urlparse
 
 DOCS_SOURCE_EXTENSIONS = (".md", ".mdx")
+MIN_QUOTE_CHARACTERS = 12
+DIFF_LINE_MARKER_PATTERN = re.compile(r"^[+\- ]", re.MULTILINE)
+CODE_FENCE = "`" * 3
+SOURCE_DIFF_ATTACHMENT_NAME = "knowledge-writer-source.diff"
+HARNESS_FOLDER = ".posthog"
+WRITER_QUOTES_PATH = ".git/writer-quotes.json"
 COMPANION_PATHS = frozenset({"vercel.json", "src/navs/index.js"})
 PAGE_CHANGING_STATUSES = frozenset({"added", "removed"})
 SITE_PATH_PATTERN = re.compile(r"/(?![/\\])[^\s\\\x00-\x1f\x7f]*")
@@ -733,6 +741,60 @@ def decoded_text(content: bytes) -> str | None:
         return None
 
 
+def normalized(text: str) -> str:
+    return " ".join(text.split()).lower()
+
+
+def quotable_source(source_text: str) -> str:
+    return normalized("\n".join([source_text, DIFF_LINE_MARKER_PATTERN.sub("", source_text)]))
+
+
+def is_quoted(quote: str, normalized_text: str) -> bool:
+    normalized_quote = normalized(quote)
+    return len(normalized_quote) >= MIN_QUOTE_CHARACTERS and normalized_quote in normalized_text
+
+
+def added_page_lines(changed_files: list[dict]) -> list[str]:
+    added_lines = (
+        line[1:].strip()
+        for changed_file in changed_files
+        if changed_file["filename"].endswith(DOCS_SOURCE_EXTENSIONS) and isinstance(changed_file.get("patch"), str)
+        for line in changed_file["patch"].split("\n")
+        if line.startswith("+")
+    )
+    return list(dict.fromkeys(line for line in added_lines if is_groundable_line(line)))
+
+
+def is_groundable_line(line: str) -> bool:
+    return not line.startswith(CODE_FENCE) and any(character.isalnum() for character in line)
+
+
+def routed_page_key(page_url: str, docs_url_path: str) -> str | None:
+    page_path = urlparse(page_url).path
+    if not page_path.startswith(docs_url_path):
+        return None
+    return "/".join(route_segments(page_path.removeprefix(docs_url_path))) or None
+
+
+def extra_pages(
+    changed_files: list[dict], docs_folders: tuple[str, ...], routed_keys: frozenset[str]
+) -> tuple[str, ...]:
+    if not routed_keys:
+        return ()
+    return tuple(
+        changed_file["filename"]
+        for changed_file in changed_files
+        if changed_file.get("status") == "modified"
+        and (page_key := docs_folder_page_key(changed_file["filename"], docs_folders)) is not None
+        and page_key not in routed_keys
+    )
+
+
+def docs_folder_page_key(path: str, docs_folders: tuple[str, ...]) -> str | None:
+    page_keys = (docs_page_key(path, docs_folder) for docs_folder in docs_folders)
+    return next((page_key for page_key in page_keys if page_key is not None), None)
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class SandboxChangeSettings:
     base_sha: str
@@ -741,6 +803,7 @@ class SandboxChangeSettings:
     max_path_bytes: int
     max_change_bytes: int
     manifest_path: str
+    routed_page_keys: frozenset[str]
 
 
 @dataclass(slots=True, kw_only=True)
@@ -757,7 +820,8 @@ class SandboxChange:
 def sandbox_change_check(settings: SandboxChangeSettings) -> int:
     if os.path.lexists(settings.manifest_path):
         os.remove(settings.manifest_path)
-    subprocess.run(["git", "add", "-A"], check=True)
+    subprocess.run(["git", "add", "-A", "--", ".", f":(exclude){HARNESS_FOLDER}"], check=True)
+    subprocess.run(["git", "rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", HARNESS_FOLDER], check=True)
     listed = git_output("diff", "--cached", "--raw", "-z", "--no-renames", settings.base_sha).split(b"\0")
     change = SandboxChange(
         problems=[], written={}, deleted=[], patches={}, changed_files=[], base_texts={}, head_texts={}
@@ -771,6 +835,10 @@ def sandbox_change_check(settings: SandboxChangeSettings) -> int:
         show_agent(f"warning: {warning}")
     if companion.refused_path is not None:
         change.problems.append(companion_problem(companion.refused_path, change.changed_files, settings))
+    for line in ungrounded_lines(change.changed_files):
+        show_agent(f"warning: no quote from the source change backs this added line: {line}")
+    for page_path in extra_pages(change.changed_files, settings.docs_folders, settings.routed_page_keys):
+        show_agent(f"warning: {page_path}: edits an existing page outside the pages likely affected")
     manifest = json.dumps({"written": change.written, "deleted": change.deleted, "patches": change.patches})
     manifest_bytes = len(manifest.encode())
     if manifest_bytes > settings.max_change_bytes:
@@ -784,6 +852,29 @@ def sandbox_change_check(settings: SandboxChangeSettings) -> int:
         manifest_file.write(manifest)
     show_agent(f"Wrote {settings.manifest_path}")
     return 0
+
+
+def ungrounded_lines(changed_files: list[dict]) -> list[str]:
+    page_lines = added_page_lines(changed_files)
+    if not page_lines:
+        return []
+    source_paths = sorted(Path(HARNESS_FOLDER).glob(f"attachments/*/*/{SOURCE_DIFF_ATTACHMENT_NAME}"))
+    if not source_paths:
+        show_agent("The source change is not attached, so the server checks each added line against it.")
+        return []
+    quotable = quotable_source(source_paths[0].read_text(errors="replace"))
+    quote_by_line = read_quotes()
+    return [line for line in page_lines if not is_quoted(quote_by_line.get(normalized(line), ""), quotable)]
+
+
+def read_quotes() -> dict[str, str]:
+    try:
+        quotes = json.loads(Path(WRITER_QUOTES_PATH).read_text())
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(quotes, dict):
+        return {}
+    return {normalized(line): quote for line, quote in quotes.items() if isinstance(quote, str)}
 
 
 def show_agent(line: str) -> None:

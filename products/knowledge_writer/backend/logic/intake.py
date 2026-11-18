@@ -20,6 +20,7 @@ from .caps import (
     daily_run_cap_reached,
     in_flight_writer_run_count,
 )
+from .grounding import read_source_diff
 from .launch import start_writer
 from .pull_requests import (
     GITHUB_READ_ERRORS,
@@ -27,8 +28,10 @@ from .pull_requests import (
     capture_writer_event,
     docs_github,
     open_writer_pull_requests,
+    source_github,
     source_repository_github,
 )
+from .records import source_change_of
 from .routing import route_request
 from .server_commit import docs_branch_head
 
@@ -102,6 +105,7 @@ def launch_outcome(verdict: AdapterVerdict, writer: WriterSettings, *, team_id: 
         alert_cap_reached("open_pull_request_lookup", team_id=team_id, dedupe_id=request.dedupe_id)
         return IntakeOutcome(status="capped")
     listed_open_count = len(open_pull_requests)
+    source_change = source_change_of(request)
     try:
         task_id = start_writer(
             request,
@@ -109,6 +113,7 @@ def launch_outcome(verdict: AdapterVerdict, writer: WriterSettings, *, team_id: 
             team=team,
             writer=writer,
             base_sha=base_sha,
+            source_diff=read_source_diff(source_github(team_id, source_change), source_change),
             before_task_create=lambda: admit_under_open_pull_request_cap(writer, listed_open_count),
         )
     except WriterCapReached:

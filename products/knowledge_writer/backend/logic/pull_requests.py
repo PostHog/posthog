@@ -34,9 +34,9 @@ from .docs_pages import (
     changed_file_status,
     companion_check,
     decoded_text,
-    docs_page_key,
+    extra_pages,
     is_editable_base_mode,
-    route_segments,
+    routed_page_key,
 )
 from .grounding import MAX_GROUNDED_LINES, GroundingResult, ground_draft
 from .launch import HEAD_BRANCH_PREFIX, replace_entry_with
@@ -670,32 +670,6 @@ def routed_page_keys(docs_repository: str, request: DocsRequest, team_id: int) -
         if page_location(github, page_url) != "source_repository"
         and (page_key := routed_page_key(page_url, docs_url_path)) is not None
     )
-
-
-def routed_page_key(page_url: str, docs_url_path: str) -> str | None:
-    page_path = urlparse(page_url).path
-    if not page_path.startswith(docs_url_path):
-        return None
-    return "/".join(route_segments(page_path.removeprefix(docs_url_path))) or None
-
-
-def extra_pages(
-    changed_files: list[dict], docs_folders: tuple[str, ...], routed_keys: frozenset[str]
-) -> tuple[str, ...]:
-    if not routed_keys:
-        return ()
-    return tuple(
-        changed_file["filename"]
-        for changed_file in changed_files
-        if changed_file.get("status") == "modified"
-        and (page_key := docs_folder_page_key(changed_file["filename"], docs_folders)) is not None
-        and page_key not in routed_keys
-    )
-
-
-def docs_folder_page_key(path: str, docs_folders: tuple[str, ...]) -> str | None:
-    page_keys = (docs_page_key(path, docs_folder) for docs_folder in docs_folders)
-    return next((page_key for page_key in page_keys if page_key is not None), None)
 
 
 def reported_step_failure(step_failed: GitHubStepFailed, team_id: int, task_run_id: UUID) -> WriterPullRequestFailed:

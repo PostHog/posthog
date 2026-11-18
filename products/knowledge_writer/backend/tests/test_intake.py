@@ -22,12 +22,14 @@ from django.utils import timezone
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import Integration
+from posthog.storage import object_storage
 
 from products.knowledge_writer.backend.adapters.repo_merge import RepoMergeAdapter
 from products.knowledge_writer.backend.facade.contracts import MergeCheckReport
 from products.knowledge_writer.backend.facade.enums import DocsChangeKind, DocsRequestSource, MergeCheckFailure
 from products.knowledge_writer.backend.feature_flags import AGENT_LAUNCH_FLAG, OPEN_PULL_REQUESTS_FLAG
 from products.knowledge_writer.backend.logic import caps, intake
+from products.knowledge_writer.backend.logic.docs_pages import SOURCE_DIFF_ATTACHMENT_NAME, WRITER_QUOTES_PATH
 from products.knowledge_writer.backend.logic.grounding import GroundingReply, LineSupport
 from products.knowledge_writer.backend.logic.launch import WRITER_IDLE_TIMEOUT_SECONDS, change_manifest_script
 from products.knowledge_writer.backend.logic.pull_requests import (
@@ -458,6 +460,9 @@ def _verdict(
     return RepoMergeAdapter().assess(report, inputs)
 
 
+SOURCE_DIFF_BACKING_RETENTION = "+DEFAULT_RETENTION = 90  # Retention lasts 90 days.\n"
+
+
 def _run_publish_workflow_inline(task_run_id, *, team_id: int) -> None:
     try:
         open_pull_request_for_run(task_run_id, team_id=team_id)
@@ -565,6 +570,7 @@ def test_a_request_starts_one_read_only_writer_task_and_a_repeat_even_after_a_fa
     with (
         patch(FLAG_CHECK, return_value=True),
         patch(START_WORKFLOW) as start_workflow,
+        patch.object(intake, "read_source_diff", return_value=SOURCE_DIFF_BACKING_RETENTION),
     ):
         started = intake.submit(verdict, team_id=team.id)
         assert started.task_id is not None
@@ -593,6 +599,11 @@ def test_a_request_starts_one_read_only_writer_task_and_a_repeat_even_after_a_fa
     assert run.state["inactivity_timeout_seconds"] == WRITER_IDLE_TIMEOUT_SECONDS
     assert run.state["config_snapshot"] == {"connectors": {"mcp_installation_ids": []}}
     assert run.state["include_live_context"] is False
+    (attachment,) = run.artifacts
+    assert run.state["pending_user_artifact_ids"] == [attachment["id"]]
+    assert WRITER_QUOTES_PATH in run.state["pending_user_message"]
+    assert attachment["name"] == SOURCE_DIFF_ATTACHMENT_NAME
+    assert object_storage.read(attachment["storage_path"]) == SOURCE_DIFF_BACKING_RETENTION
     dispatch_options = start_workflow.call_args.kwargs["options"]
     assert (dispatch_options.create_pr, dispatch_options.posthog_mcp_scopes) == (False, [])
 
@@ -1345,20 +1356,42 @@ NAV_HEAD_TEXT = """export const docsMenu = [
 
 
 @pytest.mark.parametrize(
-    "is_adding_page_with_nav_edit, expected_warnings",
+    "is_adding_page_with_nav_edit, source_diff, quote_by_line, routed_page_keys, expected_warnings",
     [
-        (False, []),
+        (False, None, None, frozenset(), []),
         (
             True,
+            None,
+            None,
+            frozenset(),
             [
                 "warning: src/navs/index.js line 3: edits a nav entry that links no page this change adds or removes: "
                 'name: "Data retention",'
             ],
         ),
+        (
+            False,
+            SOURCE_DIFF_BACKING_RETENTION,
+            {"Retention lasts 90 days.": "Retention lasts 90 days"},
+            frozenset({"session-replay/exports"}),
+            [f"warning: {DOCS_PAGE_PATH}: edits an existing page outside the pages likely affected"],
+        ),
+        (
+            False,
+            SOURCE_DIFF_BACKING_RETENTION,
+            {"Retention lasts 90 days.": "lasts forever and ever"},
+            frozenset({"session-replay/retention"}),
+            ["warning: no quote from the source change backs this added line: Retention lasts 90 days."],
+        ),
     ],
 )
 def test_the_sandbox_change_check_runs_without_posthog_on_the_path(
-    tmp_path: Path, is_adding_page_with_nav_edit: bool, expected_warnings: list[str]
+    tmp_path: Path,
+    is_adding_page_with_nav_edit: bool,
+    source_diff: str | None,
+    quote_by_line: dict[str, str] | None,
+    routed_page_keys: frozenset[str],
+    expected_warnings: list[str],
 ) -> None:
     git_env = {
         "PATH": os.environ["PATH"],
@@ -1390,9 +1423,16 @@ def test_the_sandbox_change_check_runs_without_posthog_on_the_path(
     if is_adding_page_with_nav_edit:
         (page.parent / "exports.mdx").write_text("Export your recordings.\n")
         nav.write_text(NAV_HEAD_TEXT)
+    if source_diff is not None:
+        attachment = tmp_path / ".posthog" / "attachments" / "run" / "file" / SOURCE_DIFF_ATTACHMENT_NAME
+        attachment.parent.mkdir(parents=True)
+        attachment.write_text(source_diff)
+        subprocess.run(["git", "add", "-A"], cwd=tmp_path, env=git_env, check=True)
+    if quote_by_line is not None:
+        (tmp_path / WRITER_QUOTES_PATH).write_text(json.dumps(quote_by_line))
 
     check = subprocess.run(
-        ["bash", "-c", change_manifest_script(base, ("contents/docs",), "/docs/")],
+        ["bash", "-c", change_manifest_script(base, ("contents/docs",), "/docs/", routed_page_keys)],
         cwd=tmp_path,
         env=git_env,
         capture_output=True,

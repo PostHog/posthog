@@ -1,4 +1,3 @@
-import re
 from collections.abc import Callable
 from enum import StrEnum
 from typing import Any
@@ -7,23 +6,16 @@ import structlog
 from anthropic import Anthropic
 from pydantic import BaseModel
 
+from ..backend.logic.docs_pages import is_quoted, normalized, quotable_source
 from .deadline import CheckDeadline
 from .gather import MergeEvidence, PathClass
-from .judge import (
-    MIN_QUOTE_CHARACTERS,
-    Declined,
-    JudgedChangeKind,
-    normalized,
-    parse_structured_output,
-    system_with_cached_page_list,
-)
+from .judge import Declined, JudgedChangeKind, parse_structured_output, system_with_cached_page_list
 
 logger = structlog.get_logger(__name__)
 
 FACTS_MODEL = "claude-sonnet-5-5"
 FACTS_TIMEOUT_SECONDS = 150
 MAX_FACTS_DIFF_CHARACTERS = 400_000
-DIFF_LINE_MARKER_PATTERN = re.compile(r"^[+\- ]", re.MULTILINE)
 
 FACTS_INSTRUCTIONS = """You read one merged pull request and report facts about it for a docs team.
 Every fact carries a quote: copy a short span verbatim from the title, labels, body, release line, or diff, so a reader can find it.
@@ -139,15 +131,11 @@ def facts_diff(evidence: MergeEvidence) -> str:
 
 def verify_quotes(facts: MergeFacts, evidence: MergeEvidence) -> tuple[MergeFacts, bool]:
     diff = facts_diff(evidence)
-    diff_quotable = normalized("\n".join([diff, DIFF_LINE_MARKER_PATTERN.sub("", diff)]))
+    diff_quotable = quotable_source(diff)
     quotable = normalized(
         "\n".join([evidence.title, *evidence.labels, evidence.body, evidence.release_text, diff_quotable])
     )
     listed_page_paths = set(evidence.docs_page_paths)
-
-    def is_quoted(quote: str, text: str) -> bool:
-        normalized_quote = normalized(quote)
-        return len(normalized_quote) >= MIN_QUOTE_CHARACTERS and normalized_quote in text
 
     fact_defaults: list[tuple[str, Callable[[Any], bool], BaseModel]] = [
         (

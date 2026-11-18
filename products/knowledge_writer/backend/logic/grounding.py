@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from posthog.llm.gateway_client import build_ai_gateway_anthropic_client, trace_id_from_seed
 
 from ...merge_check.sources import GitHubReader, LandedChange, read_diff_by_path
-from .docs_pages import DOCS_SOURCE_EXTENSIONS
+from .docs_pages import added_page_lines, is_quoted, quotable_source
 from .records import SourceChange
 
 logger = structlog.get_logger(__name__)
@@ -16,7 +16,6 @@ GROUNDING_MAX_RETRIES = 1
 MAX_GROUNDED_LINES = 200
 MAX_GROUNDING_SOURCE_CHARACTERS = 200_000
 UNREAD_PULL_REQUEST_NUMBER = 0
-CODE_FENCE = "```"
 
 GROUNDING_INSTRUCTIONS = """You check whether each numbered docs line is supported by a source change.
 For every line id, set quote to a short span copied verbatim from the source text that supports the line, or to null when nothing in the source supports it.
@@ -41,34 +40,29 @@ class GroundingReply(BaseModel):
     lines: list[LineSupport]
 
 
-def added_page_lines(changed_files: list[dict]) -> list[str]:
-    added_lines = (
-        line[1:].strip()
-        for changed_file in changed_files
-        if changed_file["filename"].endswith(DOCS_SOURCE_EXTENSIONS) and isinstance(changed_file.get("patch"), str)
-        for line in changed_file["patch"].split("\n")
-        if line.startswith("+")
-    )
-    return list(dict.fromkeys(line for line in added_lines if is_groundable_line(line)))
-
-
-def is_groundable_line(line: str) -> bool:
-    return not line.startswith(CODE_FENCE) and any(character.isalnum() for character in line)
-
-
 def ground_draft(github: GitHubReader | None, source: SourceChange, changed_files: list[dict]) -> GroundingResult:
     page_lines = added_page_lines(changed_files)
     if not page_lines:
         return GroundingResult(ran=True, unsupported_lines=())
-    if github is None or source.repository is None or source.commit_sha is None:
-        logger.warning("knowledge_writer_grounding_skipped", has_github=github is not None)
+    source_text = read_source_diff(github, source)
+    if source_text is None or source.commit_sha is None:
         return GROUNDING_NOT_RUN
     try:
-        source_text = source_diff_text(github, source.repository, source.commit_sha)
         return grounded_lines(page_lines, source_text, source.commit_sha)
     except Exception:
         logger.warning("knowledge_writer_grounding_failed", commit_sha=source.commit_sha, exc_info=True)
         return GROUNDING_NOT_RUN
+
+
+def read_source_diff(github: GitHubReader | None, source: SourceChange) -> str | None:
+    if github is None or source.repository is None or source.commit_sha is None:
+        logger.warning("knowledge_writer_source_diff_skipped", has_github=github is not None)
+        return None
+    try:
+        return source_diff_text(github, source.repository, source.commit_sha)
+    except Exception:
+        logger.warning("knowledge_writer_source_diff_failed", commit_sha=source.commit_sha, exc_info=True)
+        return None
 
 
 def source_diff_text(github: GitHubReader, repository: str, commit_sha: str) -> str:
@@ -78,13 +72,10 @@ def source_diff_text(github: GitHubReader, repository: str, commit_sha: str) -> 
 
 
 def grounded_lines(page_lines: list[str], source_text: str, commit_sha: str) -> GroundingResult:
-    from ...merge_check.facts import DIFF_LINE_MARKER_PATTERN  # noqa: PLC0415 - cycle via merge_check.gather
     from ...merge_check.judge import (  # noqa: PLC0415 - cycle via merge_check.gather
         JUDGE_AI_PRODUCT,
         JUDGE_MODEL,
-        MIN_QUOTE_CHARACTERS,
         Declined,
-        normalized,
         parse_structured_output,
     )
 
@@ -106,14 +97,11 @@ def grounded_lines(page_lines: list[str], source_text: str, commit_sha: str) -> 
     if isinstance(reply, Declined):
         logger.warning("knowledge_writer_grounding_declined", cause=reply.cause)
         return GROUNDING_NOT_RUN
-    quotable_source = normalized("\n".join([source_text, DIFF_LINE_MARKER_PATTERN.sub("", source_text)]))
-    normalized_quote_by_line_id = {line.line_id: normalized(line.quote or "") for line in reply.lines}
+    quotable = quotable_source(source_text)
     supported_line_ids = {
-        line_id
-        for line_id, normalized_quote in normalized_quote_by_line_id.items()
-        if line_id <= len(sent_lines)
-        and len(normalized_quote) >= MIN_QUOTE_CHARACTERS
-        and normalized_quote in quotable_source
+        line.line_id
+        for line in reply.lines
+        if line.line_id <= len(sent_lines) and is_quoted(line.quote or "", quotable)
     }
     unsupported_lines = tuple(
         line for line_id, line in enumerate(page_lines, start=1) if line_id not in supported_line_ids

@@ -10,6 +10,7 @@ from posthog.llm.gateway_client import build_ai_gateway_anthropic_client, trace_
 
 from ..backend.facade.contracts import CriterionResult
 from ..backend.facade.enums import CriterionEffect, DocsChangeKind
+from ..backend.logic.docs_pages import is_quoted, normalized
 from .deadline import CheckDeadline, CheckDeadlineExceeded
 from .gather import MergeEvidence
 
@@ -24,7 +25,6 @@ JUDGE_AI_PRODUCT = "knowledge_writer"
 MAX_DIFF_CHARACTERS = 400_000
 JUDGE_TIMEOUT_SECONDS = 150
 JUDGE_MAX_RETRIES = 1
-MIN_QUOTE_CHARACTERS = 12
 
 JUDGE_INSTRUCTIONS = """You decide whether a change merged into a product's code needs a change to that product's public docs.
 Docs need a change when the merge adds, renames, removes, or changes behavior that a customer reads about or configures.
@@ -212,12 +212,7 @@ def system_with_cached_page_list(instructions: str, docs_page_paths: list[str]) 
 
 
 def is_quoted_in(quote: str, text: str) -> bool:
-    normalized_quote = normalized(quote)
-    return len(normalized_quote) >= MIN_QUOTE_CHARACTERS and normalized_quote in normalized(text)
-
-
-def normalized(text: str) -> str:
-    return single_line(text).lower()
+    return is_quoted(quote, normalized(text))
 
 
 def single_line(text: str) -> str:
