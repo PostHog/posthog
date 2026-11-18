@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton, LemonInput, LemonModal, LemonSegmentedButton, Spinner } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Label } from 'lib/ui/Label/Label'
 import { ManualCalculatorMetricType } from 'scenes/experiments/RunningTimeCalculator/calculations'
 import { runningTimeLogic } from 'scenes/experiments/RunningTimeCalculator/runningTimeLogic'
@@ -13,37 +14,22 @@ import { isLaunched } from 'products/experiments/frontend/experimentStatus'
 import { DetectableEffectTable } from './DetectableEffectTable'
 import { MinimumDetectableEffectField } from './MinimumDetectableEffectField'
 import { MinimumDetectableEffectHelp } from './MinimumDetectableEffectHelp'
+import { QuillRunningTimeConfigModal } from './QuillRunningTimeConfigModal'
+import {
+    AUTOMATIC_MODE_DISABLED_REASON,
+    EXPOSURES_PER_DAY_HELP,
+    MANUAL_MODE_HELP,
+    METRIC_TYPE_OPTIONS,
+    NOT_ENOUGH_DATA_NOTE,
+    clampBaseline,
+    formatRunningTime,
+    getBaselineHelp,
+    getBaselineLabel,
+    metricTypeChange,
+} from './runningTimeConfigModel'
 
 export interface RunningTimeConfigModalProps {
     experiment: Experiment
-}
-
-const METRIC_TYPE_OPTIONS: { value: ManualCalculatorMetricType; label: string }[] = [
-    { value: 'funnel', label: 'Funnel' },
-    { value: 'mean_count', label: 'Count' },
-    { value: 'mean_sum_or_avg', label: 'Sum/Avg' },
-]
-
-function getBaselineLabel(metricType: ManualCalculatorMetricType): string {
-    switch (metricType) {
-        case 'funnel':
-            return 'Baseline conversion rate'
-        case 'mean_count':
-            return 'Avg events per user'
-        case 'mean_sum_or_avg':
-            return 'Avg property value per user'
-    }
-}
-
-function getBaselineHelp(metricType: ManualCalculatorMetricType): string {
-    switch (metricType) {
-        case 'funnel':
-            return 'Expected conversion rate for the control group (0-100%)'
-        case 'mean_count':
-            return 'Average number of events per user in the control group'
-        case 'mean_sum_or_avg':
-            return 'Average property value per user in the control group'
-    }
 }
 
 export function RunningTimeConfigModal({ experiment: experimentProp }: RunningTimeConfigModalProps): JSX.Element {
@@ -61,6 +47,13 @@ export function RunningTimeConfigModal({ experiment: experimentProp }: RunningTi
     const { setConfig, save, cancel, loadAutomaticTarget } = useActions(
         runningTimeLogic({ experiment: experimentProp })
     )
+
+    const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav && resultsRedesign) {
+        return <QuillRunningTimeConfigModal experiment={experimentProp} />
+    }
 
     const isPreLaunch = !isLaunched(experiment)
     const effectField = <MinimumDetectableEffectField value={config.mde} onChange={(mde) => setConfig({ mde })} />
@@ -82,18 +75,14 @@ export function RunningTimeConfigModal({ experiment: experimentProp }: RunningTi
                                 {
                                     value: 'automatic',
                                     label: 'Automatic',
-                                    disabledReason: isPreLaunch ? 'Available after launching experiment' : undefined,
+                                    disabledReason: isPreLaunch ? AUTOMATIC_MODE_DISABLED_REASON : undefined,
                                 },
                                 { value: 'manual', label: 'Manual' },
                             ]}
                             value={config.mode}
                             onChange={(value) => setConfig({ mode: value as 'automatic' | 'manual' })}
                         />
-                        {config.mode === 'manual' && (
-                            <div className="text-xs text-muted mt-1">
-                                Enter your own values to calculate sample size and running time.
-                            </div>
-                        )}
+                        {config.mode === 'manual' && <div className="text-xs text-muted mt-1">{MANUAL_MODE_HELP}</div>}
                     </div>
 
                     {config.mode === 'manual' ? (
@@ -106,18 +95,11 @@ export function RunningTimeConfigModal({ experiment: experimentProp }: RunningTi
                                     fullWidth
                                     options={METRIC_TYPE_OPTIONS}
                                     value={config.metricType}
-                                    onChange={(value) => {
-                                        const metricType = value as ManualCalculatorMetricType
-                                        // Switching to funnel reinterprets baselineValue as a conversion rate, so carry
-                                        // the same 100% clamp the baseline input applies. Otherwise a large mean value
-                                        // survives the switch as an out-of-range rate.
-                                        setConfig({
-                                            metricType,
-                                            ...(metricType === 'funnel' && config.baselineValue > 100
-                                                ? { baselineValue: 100 }
-                                                : {}),
-                                        })
-                                    }}
+                                    onChange={(value) =>
+                                        setConfig(
+                                            metricTypeChange(value as ManualCalculatorMetricType, config.baselineValue)
+                                        )
+                                    }
                                 />
                             </div>
 
@@ -127,16 +109,11 @@ export function RunningTimeConfigModal({ experiment: experimentProp }: RunningTi
                                     <LemonInput
                                         type="number"
                                         value={config.baselineValue}
-                                        onChange={(value) => {
-                                            const next = value as number
-                                            // A funnel conversion rate above 100% is impossible and makes the
-                                            // sample-size math produce a negative estimate. Clamp it for real,
-                                            // since the `max` prop below only guides the stepper.
+                                        onChange={(value) =>
                                             setConfig({
-                                                baselineValue:
-                                                    config.metricType === 'funnel' && next > 100 ? 100 : next,
+                                                baselineValue: clampBaseline(config.metricType, value as number),
                                             })
-                                        }}
+                                        }
                                         min={0}
                                         max={config.metricType === 'funnel' ? 100 : undefined}
                                         step={config.metricType === 'funnel' ? 0.1 : 1}
@@ -162,9 +139,7 @@ export function RunningTimeConfigModal({ experiment: experimentProp }: RunningTi
                                     step={100}
                                     className="w-32 mt-1"
                                 />
-                                <div className="text-xs text-muted mt-1">
-                                    Total users entering the experiment per day (across all variants).
-                                </div>
+                                <div className="text-xs text-muted mt-1">{EXPOSURES_PER_DAY_HELP}</div>
                             </div>
                         </>
                     ) : (
@@ -191,10 +166,7 @@ export function RunningTimeConfigModal({ experiment: experimentProp }: RunningTi
                                         Couldn't calculate the running time.
                                     </LemonBanner>
                                 ) : !outlook ? (
-                                    <LemonBanner type="info">
-                                        Not enough data to estimate the running time yet. It needs exposures, and some
-                                        activity on the primary metric, in each variant.
-                                    </LemonBanner>
+                                    <LemonBanner type="info">{NOT_ENOUGH_DATA_NOTE}</LemonBanner>
                                 ) : (
                                     <DetectableEffectTable experiment={experimentProp} />
                                 )}
@@ -217,11 +189,7 @@ export function RunningTimeConfigModal({ experiment: experimentProp }: RunningTi
                             </div>
                             <div>
                                 <div className="text-xs text-muted">Estimated running time</div>
-                                <div className="font-semibold">
-                                    {manualFormPreview.runningTime
-                                        ? `~${manualFormPreview.runningTime} day${manualFormPreview.runningTime !== 1 ? 's' : ''}`
-                                        : '—'}
-                                </div>
+                                <div className="font-semibold">{formatRunningTime(manualFormPreview.runningTime)}</div>
                             </div>
                         </div>
                     </div>

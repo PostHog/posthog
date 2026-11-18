@@ -1,10 +1,16 @@
 import { useActions, useValues } from 'kea'
 
+import { IconWarning } from '@posthog/icons'
 import { LemonBadge, LemonBanner, LemonTab, LemonTabs } from '@posthog/lemon-ui'
+import { Card, CardContent, Item, ItemContent, ItemDescription, ItemMedia, ItemTitle } from '@posthog/quill'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeRequestBanner'
+import {
+    QuillExperimentImplementationDetails,
+    QuillWebExperimentImplementationDetails,
+} from 'scenes/experiments/QuillExperimentImplementationDetails'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -25,10 +31,12 @@ import { SharedMetricModal } from 'products/experiments/frontend/modals/SharedMe
 import { sharedMetricModalLogic } from 'products/experiments/frontend/modals/SharedMetricModal/sharedMetricModalLogic'
 
 import { EmptyMetricsPanel } from '../ExperimentForm/MetricsPanel/EmptyMetricsPanel'
+import { QuillEmptyMetricsPanel } from '../ExperimentForm/MetricsPanel/QuillEmptyMetricsPanel'
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { experimentLogic } from '../experimentLogic'
 import { DEFAULT_EXPERIMENT_TAB, type ExperimentTab, experimentSceneLogic } from '../experimentSceneLogic'
 import { Metrics } from '../MetricsView/new/Metrics'
+import { QuillRecalculationStatus } from '../MetricsView/shared/QuillRecalculationStatus'
 import { RecalculationStatus } from '../MetricsView/shared/RecalculationStatus'
 import { isLegacyExperiment } from '../utils'
 import { ClassicExposures } from './ClassicExposures'
@@ -48,13 +56,23 @@ import { Hypothesis } from './Hypothesis'
 import { LoadingState } from './LoadingState'
 import { MultiVariantBiasWarning } from './MultiVariantBiasWarning'
 import { PageHeaderCustom } from './PageHeader'
+import { QuillExperimentFeedbackTab } from './QuillExperimentFeedbackTab'
+import { QuillExperimentReplayTab } from './QuillExperimentReplayTab'
+import { type ExperimentTabDefinition, QuillExperimentTabs } from './QuillExperimentTabs'
+import { QuillLoadingState } from './QuillLoadingState'
+import { QuillDistributionModal, QuillReleaseConditionsModal } from './QuillVariantsModals'
+import { QuillVariantsTab } from './QuillVariantsTab'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
 import { SettingsTab } from './SettingsTab'
+
+const NO_METRICS_WARNING =
+    'Your experiment is running and events are being collected, but no metric is defined. Add at least one metric to see results. Metrics can be added, removed, or changed at any time.'
 
 const MetricsTab = (): JSX.Element => {
     const { experiment, hasMetrics, isExperimentLaunched, healthFindings, browserNoMetricsWarning } =
         useValues(experimentLogic)
     const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     // With health findings, the health tab shows the "No metrics defined" and bias warnings.
     const showsHealthTab = healthFindings !== null
@@ -88,31 +106,55 @@ const MetricsTab = (): JSX.Element => {
                 </div>
             )}
 
-            {hasMetrics && <RecalculationStatus experiment={experiment} />}
+            {hasMetrics &&
+                (todayRailNav && resultsRedesign ? (
+                    <QuillRecalculationStatus experiment={experiment} className="mb-2" />
+                ) : (
+                    <RecalculationStatus experiment={experiment} />
+                ))}
 
             {/* Modern metrics view */}
             {!hasMetrics ? (
                 <div className="flex flex-col gap-4">
-                    {showNoMetricsWarning && (
-                        <LemonBanner type="warning">
-                            <div>
-                                <strong>No metrics defined</strong>
-                            </div>
-                            <div>
-                                Your experiment is running and events are being collected, but no metric is defined. Add
-                                at least one metric to see results. Metrics can be added, removed, or changed at any
-                                time.
-                            </div>
-                        </LemonBanner>
+                    {showNoMetricsWarning && todayRailNav && resultsRedesign ? (
+                        <Item variant="outline" size="sm" tone="warning" data-attr="experiment-no-metrics-warning">
+                            <ItemMedia variant="icon" aria-hidden>
+                                <IconWarning />
+                            </ItemMedia>
+                            <ItemContent className="min-w-0">
+                                <ItemTitle>No metrics defined</ItemTitle>
+                                <ItemDescription className="line-clamp-none">{NO_METRICS_WARNING}</ItemDescription>
+                            </ItemContent>
+                        </Item>
+                    ) : (
+                        showNoMetricsWarning && (
+                            <LemonBanner type="warning">
+                                <div>
+                                    <strong>No metrics defined</strong>
+                                </div>
+                                <div>{NO_METRICS_WARNING}</div>
+                            </LemonBanner>
+                        )
                     )}
-                    <EmptyMetricsPanel
-                        isLaunched={isExperimentLaunched}
-                        onAddMetric={(metricType) =>
-                            reportNoMetricActedOn(
-                                metricType === 'primary' ? 'add_primary_metric' : 'add_secondary_metric'
-                            )
-                        }
-                    />
+                    {todayRailNav && resultsRedesign ? (
+                        <QuillEmptyMetricsPanel
+                            isLaunched={isExperimentLaunched}
+                            onAddMetric={(metricType) =>
+                                reportNoMetricActedOn(
+                                    metricType === 'primary' ? 'add_primary_metric' : 'add_secondary_metric'
+                                )
+                            }
+                        />
+                    ) : (
+                        <EmptyMetricsPanel
+                            isLaunched={isExperimentLaunched}
+                            onAddMetric={(metricType) =>
+                                reportNoMetricActedOn(
+                                    metricType === 'primary' ? 'add_primary_metric' : 'add_secondary_metric'
+                                )
+                            }
+                        />
+                    )}
                 </div>
             ) : (
                 <>
@@ -126,6 +168,22 @@ const MetricsTab = (): JSX.Element => {
 
 const CodeTab = (): JSX.Element => {
     const { experiment } = useValues(experimentLogic)
+    const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav && resultsRedesign) {
+        return (
+            <Card size="sm" className="mt-2">
+                <CardContent>
+                    {experiment.type === 'web' ? (
+                        <QuillWebExperimentImplementationDetails experiment={experiment} />
+                    ) : (
+                        <QuillExperimentImplementationDetails experiment={experiment} placement="code_tab" />
+                    )}
+                </CardContent>
+            </Card>
+        )
+    }
 
     return (
         <>
@@ -139,6 +197,11 @@ const CodeTab = (): JSX.Element => {
 }
 
 const VariantsTab = (): JSX.Element => {
+    const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    if (todayRailNav && resultsRedesign) {
+        return <QuillVariantsTab />
+    }
     return (
         <div className="deprecated-space-y-8 mt-2">
             <ReleaseConditionsTable />
@@ -167,6 +230,7 @@ export function ExperimentView(): JSX.Element {
     const { closeExperimentMetricModal } = useActions(experimentMetricModalLogic)
     const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)
     const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     // Branch to legacy view for legacy experiments
     if (!experimentLoading && isLegacyExperiment(experiment)) {
@@ -174,54 +238,66 @@ export function ExperimentView(): JSX.Element {
     }
 
     const healthIssueCount = healthIssues(healthFindings).length
+    const healthBadgeStatus = healthFindings?.some(({ severity }) => severity === 'critical') ? 'danger' : 'warning'
 
     // Ordered as: results (Metrics, then the Health checks that say whether to trust them), configuration
     // (Settings, Code, Variants), feature tabs (Recordings, User feedback), audit trail (History), and the
     // staff-only Health debug.
     // Which of these actually render is resolved by experimentSceneLogic's availableTabs, so the tab set,
     // the URL, and the tracked tab stay in agreement.
-    const tabs: LemonTab<ExperimentTab>[] = (
-        [
-            { key: 'metrics', label: resultsRedesign ? 'Overview' : 'Metrics', content: <MetricsTab /> },
-            {
-                key: 'health',
-                label: (
-                    <span className="flex items-center gap-1.5">
-                        <span>Health</span>
-                        {healthIssueCount > 0 && (
-                            <LemonBadge.Number
-                                count={healthIssueCount}
-                                status={
-                                    healthFindings?.some(({ severity }) => severity === 'critical')
-                                        ? 'danger'
-                                        : 'warning'
-                                }
-                                size="small"
-                            />
-                        )}
-                    </span>
+    const allTabs: ExperimentTabDefinition[] = [
+        { key: 'metrics', label: resultsRedesign ? 'Overview' : 'Metrics', content: <MetricsTab /> },
+        { key: 'health', label: 'Health', content: <ExperimentHealthTab />, count: healthIssueCount },
+        { key: 'settings', label: 'Settings', content: resultsRedesign ? <SettingsTab /> : <ClassicSettingsTab /> },
+        { key: 'code', label: 'Code', content: <CodeTab /> },
+        { key: 'variants', label: 'Variants', content: <VariantsTab /> },
+        {
+            key: 'recordings',
+            label: 'Recordings',
+            content:
+                todayRailNav && resultsRedesign ? (
+                    <QuillExperimentReplayTab experiment={experiment} />
+                ) : (
+                    <ExperimentReplayTab experiment={experiment} />
                 ),
-                content: <ExperimentHealthTab />,
-            },
-            { key: 'settings', label: 'Settings', content: resultsRedesign ? <SettingsTab /> : <ClassicSettingsTab /> },
-            { key: 'code', label: 'Code', content: <CodeTab /> },
-            { key: 'variants', label: 'Variants', content: <VariantsTab /> },
-            { key: 'recordings', label: 'Recordings', content: <ExperimentReplayTab experiment={experiment} /> },
-            { key: 'feedback', label: 'User feedback', content: <ExperimentFeedbackTab experiment={experiment} /> },
-            {
-                key: 'history',
-                label: 'History',
-                content: <ActivityLog scope={ActivityScope.EXPERIMENT} id={experimentId} />,
-            },
-            { key: 'health-debug', label: 'Health debug', content: <ExperimentHealthDebug /> },
-        ] satisfies LemonTab<ExperimentTab>[]
-    ).filter((tab) => availableTabs.includes(tab.key))
+        },
+        {
+            key: 'feedback',
+            label: 'User feedback',
+            content:
+                todayRailNav && resultsRedesign ? (
+                    <QuillExperimentFeedbackTab experiment={experiment} />
+                ) : (
+                    <ExperimentFeedbackTab experiment={experiment} />
+                ),
+        },
+        {
+            key: 'history',
+            label: 'History',
+            content: <ActivityLog scope={ActivityScope.EXPERIMENT} id={experimentId} />,
+        },
+        { key: 'health-debug', label: 'Health debug', content: <ExperimentHealthDebug /> },
+    ]
+    const tabs = allTabs.filter((tab) => availableTabs.includes(tab.key))
+
+    // Fall back to the default tab if the active one is conditionally hidden
+    const activeKey = tabs.some((tab) => tab.key === activeTabKey) ? activeTabKey : DEFAULT_EXPERIMENT_TAB
+    const onTabChange = (key: ExperimentTab): void => {
+        setActiveTabKey(key)
+        if (key === 'health') {
+            reportHealthChecksOpened('tab')
+        }
+    }
 
     return (
         <SceneContent>
             <PageHeaderCustom />
             {experimentLoading ? (
-                <LoadingState />
+                todayRailNav && resultsRedesign ? (
+                    <QuillLoadingState />
+                ) : (
+                    <LoadingState />
+                )
             ) : (
                 <>
                     <DeletedFlagBanner />
@@ -242,28 +318,37 @@ export function ExperimentView(): JSX.Element {
                     )}
                     <ExperimentMetaBar />
                     <ExperimentHeader />
-                    <LemonTabs
-                        // Fall back to the default tab if the active one is conditionally hidden
-                        activeKey={tabs.some((tab) => tab.key === activeTabKey) ? activeTabKey : DEFAULT_EXPERIMENT_TAB}
-                        onChange={(key) => {
-                            setActiveTabKey(key)
-                            if (key === 'health') {
-                                reportHealthChecksOpened('tab')
-                            }
-                        }}
-                        // Override sceneInset's -mt-4 pull-up so the tabs keep 32px from whatever sits above them
-                        className="mt-4"
-                        sceneInset
-                        // Keep the tab bar full-width, but cap the content under each tab for readability
-                        tabs={tabs.map((tab) =>
-                            'content' in tab
-                                ? {
-                                      ...tab,
-                                      content: <div className="w-full max-w-[1400px] mx-auto">{tab.content}</div>,
-                                  }
-                                : tab
-                        )}
-                    />
+                    {todayRailNav && resultsRedesign ? (
+                        <QuillExperimentTabs
+                            tabs={tabs}
+                            activeKey={activeKey}
+                            onChange={onTabChange}
+                            badgeVariant={healthBadgeStatus === 'danger' ? 'destructive' : 'warning'}
+                        />
+                    ) : (
+                        <LemonTabs
+                            activeKey={activeKey}
+                            onChange={onTabChange}
+                            // Override sceneInset's -mt-4 pull-up so the tabs keep 32px from whatever sits above them
+                            className="mt-4"
+                            sceneInset
+                            // Keep the tab bar full-width, but cap the content under each tab for readability
+                            tabs={tabs.map(
+                                ({ key, label, content, count }): LemonTab<ExperimentTab> => ({
+                                    key,
+                                    label: count ? (
+                                        <span className="flex items-center gap-1.5">
+                                            <span>{label}</span>
+                                            <LemonBadge.Number count={count} status={healthBadgeStatus} size="small" />
+                                        </span>
+                                    ) : (
+                                        label
+                                    ),
+                                    content: <div className="w-full max-w-[1400px] mx-auto">{content}</div>,
+                                })
+                            )}
+                        />
+                    )}
 
                     {/* Modern experiment modals */}
                     <MetricSourceModal experiment={experiment} />
@@ -313,8 +398,17 @@ export function ExperimentView(): JSX.Element {
                             updateExposureCriteria()
                         }}
                     />
-                    <DistributionModal />
-                    <ReleaseConditionsModal />
+                    {todayRailNav && resultsRedesign ? (
+                        <>
+                            <QuillDistributionModal />
+                            <QuillReleaseConditionsModal />
+                        </>
+                    ) : (
+                        <>
+                            <DistributionModal />
+                            <ReleaseConditionsModal />
+                        </>
+                    )}
 
                     <EditConclusionModal />
                 </>

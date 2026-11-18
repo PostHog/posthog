@@ -33,6 +33,16 @@ export const isMetricThresholdSet = (metric: ExperimentMetric): boolean =>
 export const isMetricThresholdCueVisible = (metric: ExperimentMetric): metric is ExperimentMeanMetric =>
     isExperimentMeanMetric(metric) && !!metric.threshold && isThresholdAvailableForMath(metric.source.math)
 
+export const THRESHOLD_HELP =
+    'Reports the percentage of exposed users whose per-user value reaches or exceeds this threshold. Only available for summed or counted metrics.'
+export const THRESHOLD_DISABLED_TOOLTIP = 'Thresholds are only available for summed or counted metrics'
+
+export function thresholdHint(enabled: boolean): string {
+    return enabled
+        ? 'For example, reports the percentage of users who reach 100 total words across the experiment.'
+        : 'Thresholds are only available for summed or counted metrics.'
+}
+
 export interface ExperimentMetricThresholdProps {
     math: MathType | ExperimentWarehouseNativeMathType | undefined
     value: number | undefined
@@ -44,13 +54,10 @@ export function ExperimentMetricThreshold({ math, value, onChange }: ExperimentM
 
     return (
         <div className="mt-4">
-            <LemonLabel
-                info="Reports the percentage of exposed users whose per-user value reaches or exceeds this threshold. Only available for summed or counted metrics."
-                className="mb-1"
-            >
+            <LemonLabel info={THRESHOLD_HELP} className="mb-1">
                 Threshold
             </LemonLabel>
-            <Tooltip title={enabled ? undefined : 'Thresholds are only available for summed or counted metrics'}>
+            <Tooltip title={enabled ? undefined : THRESHOLD_DISABLED_TOOLTIP}>
                 <LemonInput
                     type="number"
                     className="max-w-32"
@@ -66,11 +73,7 @@ export function ExperimentMetricThreshold({ math, value, onChange }: ExperimentM
                     disabled={!enabled}
                 />
             </Tooltip>
-            <div className="text-muted text-xs mt-1">
-                {enabled
-                    ? 'For example, reports the percentage of users who reach 100 total words across the experiment.'
-                    : 'Thresholds are only available for summed or counted metrics.'}
-            </div>
+            <div className="text-muted text-xs mt-1">{thresholdHint(enabled)}</div>
         </div>
     )
 }

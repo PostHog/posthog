@@ -20,6 +20,7 @@ import {
     CachedNewExperimentQueryResponse,
     ExperimentMetric,
     ExperimentQuery,
+    NewExperimentQueryResponse,
     NodeKind,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
@@ -40,6 +41,42 @@ import {
     isFrequentistResult,
 } from '../shared/utils'
 import { type ExperimentResultsSurface, VariantRecordingsButton } from './VariantRecordingsButton'
+
+export const RESULT_EXPOSURES_HELP =
+    "Exposures counted by this metric's query, so the count can differ from the Exposures panel. With 'Require completed conversion or retention window' enabled, users whose window hasn't elapsed are excluded."
+export const RESULT_EVENTS_HELP = 'Events with a value for the property. The percentile is taken over these events.'
+export const RESULT_INTERVAL_HELP =
+    "The range that likely contains the true effect. When it doesn't cross 0%, the result is significant."
+
+export function resultValueLabel(metric: ExperimentMetric): string {
+    return isExperimentMeanMetric(metric)
+        ? 'Mean'
+        : isExperimentRatioMetric(metric)
+          ? 'Ratio'
+          : isExperimentQuantileMetric(metric)
+            ? formatQuantileLevel(metric.quantile)
+            : 'Conversion rate'
+}
+
+export function statisticalMeasureLabel(result: NewExperimentQueryResponse): string {
+    return result.variant_results?.[0] && isBayesianResult(result.variant_results[0]) ? 'Chance to win' : 'p-value'
+}
+
+export function resultIntervalLabel(result: NewExperimentQueryResponse): string {
+    return result.variant_results?.[0]
+        ? `${getIntervalLabel(result.variant_results[0])} (95%)`
+        : 'Confidence interval (95%)'
+}
+
+export function resultExperimentQuery(experiment: Experiment, metric: ExperimentMetric): ExperimentQuery | undefined {
+    return experiment.id
+        ? ({
+              kind: NodeKind.ExperimentQuery,
+              experiment_id: experiment.id,
+              metric,
+          } as ExperimentQuery)
+        : undefined
+}
 
 function SqlCollapsible({
     hogql,
@@ -147,8 +184,7 @@ export function ResultDetails({
         {
             key: 'total-users',
             title: 'Exposures',
-            tooltip:
-                "Exposures counted by this metric's query, so the count can differ from the Exposures panel. With 'Require completed conversion or retention window' enabled, users whose window hasn't elapsed are excluded.",
+            tooltip: RESULT_EXPOSURES_HELP,
             render: (_, item) => humanFriendlyNumber(item.number_of_samples),
         },
         ...(isExperimentQuantileMetric(metric)
@@ -156,7 +192,7 @@ export function ResultDetails({
                   {
                       key: 'events',
                       title: 'Events',
-                      tooltip: 'Events with a value for the property. The percentile is taken over these events.',
+                      tooltip: RESULT_EVENTS_HELP,
                       render: (_: unknown, item: ExperimentVariantResult & { key: string }) =>
                           humanFriendlyNumber(item.denominator_sum ?? 0),
                   },
@@ -164,21 +200,12 @@ export function ResultDetails({
             : []),
         {
             key: 'value',
-            title: isExperimentMeanMetric(metric)
-                ? 'Mean'
-                : isExperimentRatioMetric(metric)
-                  ? 'Ratio'
-                  : isExperimentQuantileMetric(metric)
-                    ? formatQuantileLevel(metric.quantile)
-                    : 'Conversion rate',
+            title: resultValueLabel(metric),
             render: (_, item) => formatMetricValue(item, metric, baseCurrency),
         },
         {
             key: 'statistical_measure',
-            title:
-                result.variant_results?.[0] && isBayesianResult(result.variant_results[0])
-                    ? 'Chance to win'
-                    : 'p-value',
+            title: statisticalMeasureLabel(result),
             render: (_, item: ExperimentVariantResult & { key: string }) => {
                 if (item.key === baselineKey) {
                     return '—'
@@ -208,11 +235,8 @@ export function ResultDetails({
         },
         {
             key: 'interval',
-            title: result.variant_results?.[0]
-                ? `${getIntervalLabel(result.variant_results[0])} (95%)`
-                : 'Confidence interval (95%)',
-            tooltip:
-                "The range that likely contains the true effect. When it doesn't cross 0%, the result is significant.",
+            title: resultIntervalLabel(result),
+            tooltip: RESULT_INTERVAL_HELP,
             render: (_, item: ExperimentVariantResult & { key: string }) => {
                 if (item.key === baselineKey) {
                     return '—'
@@ -247,14 +271,7 @@ export function ResultDetails({
         ...(result.variant_results || []),
     ]
 
-    // Construct ExperimentQuery for actors query
-    const experimentQuery: ExperimentQuery | undefined = experiment.id
-        ? ({
-              kind: NodeKind.ExperimentQuery,
-              experiment_id: experiment.id,
-              metric,
-          } as ExperimentQuery)
-        : undefined
+    const experimentQuery = resultExperimentQuery(experiment, metric)
 
     return (
         <div className={embedded ? 'divide-y divide-border' : 'space-y-4'}>

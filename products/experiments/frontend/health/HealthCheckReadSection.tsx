@@ -1,3 +1,5 @@
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import type { ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 
 import { healthCheckRowsTable, healthDetectableEffects } from './healthCheckRows'
@@ -8,6 +10,7 @@ import { HealthExposureSplitTable } from './HealthExposureSplitTable'
 import type { HealthPanelCheck } from './healthPanelChecks'
 import { HealthPanelSection } from './HealthPanelSection'
 import { HealthReadingList } from './HealthReadingList'
+import { QuillHealthCheckRowsTable, QuillHealthExposureSplitTable } from './QuillHealthTables'
 
 // These checks compare the variants, so they show the split that the exposure answer counted.
 const CHECKS_WITH_SPLIT: ReadonlySet<HealthPanelCheck['key']> = new Set(['srm', 'bias_risk_multiple_excluded'])
@@ -21,6 +24,9 @@ export function HealthCheckReadSection({
     units: string
     exposures: ExperimentExposureQueryResponse | null
 }): JSX.Element | null {
+    const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const quill = todayRailNav && resultsRedesign
     const table = healthCheckRowsTable(check, units)
     // An exposure answer cached before the server added the values keeps the layout without them.
     const hasValues = !!check.values && Object.keys(check.values).length > 0
@@ -36,9 +42,14 @@ export function HealthCheckReadSection({
 
     return (
         <HealthPanelSection title="What it read">
-            {split && <HealthExposureSplitTable rows={split} units={units} />}
+            {split &&
+                (quill ? (
+                    <QuillHealthExposureSplitTable rows={split} units={units} />
+                ) : (
+                    <HealthExposureSplitTable rows={split} units={units} />
+                ))}
             {readings.length > 0 && <HealthReadingList readings={readings} />}
-            {table && <HealthCheckRowsTable table={table} />}
+            {table && (quill ? <QuillHealthCheckRowsTable table={table} /> : <HealthCheckRowsTable table={table} />)}
             {healthDetectableEffects(check).map((effect) => (
                 <HealthDetectableEffectLine key={effect.variant} effect={effect} />
             ))}

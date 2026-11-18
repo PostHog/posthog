@@ -3,6 +3,8 @@ import { FilterMenuOpenTiming, FilterSearchSubMenu } from '@posthog/quill'
 import { useTagPages } from 'lib/components/useTagPages'
 
 export function QuillTagsFilterSubMenu({
+    label = 'Tags',
+    allLabel = 'Any tag',
     logicKey,
     selected,
     onChange,
@@ -10,6 +12,8 @@ export function QuillTagsFilterSubMenu({
     dataAttr,
     optionDataAttr,
 }: {
+    label?: string
+    allLabel?: string
     logicKey: string
     selected: string[]
     onChange: (tags: string[]) => void
@@ -20,8 +24,8 @@ export function QuillTagsFilterSubMenu({
     const tagPages = useTagPages(logicKey)
     return (
         <FilterSearchSubMenu
-            label="Tags"
-            allLabel="Any tag"
+            label={label}
+            allLabel={allLabel}
             pluralNoun="tags"
             options={tagPages.tags.map(({ tag }) => ({ value: tag, label: tag }))}
             selected={selected}

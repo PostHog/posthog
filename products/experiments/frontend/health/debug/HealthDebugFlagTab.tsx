@@ -7,6 +7,15 @@ import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { SetupFactsTable } from '../../setupInspector/SetupFactsTable'
 import { formatCount, formatYesNo } from '../../setupInspector/setupInspectorUtils'
 import { experimentHealthDebugLogic } from './experimentHealthDebugLogic'
+import {
+    FLAG_CHANGES_DESCRIPTION,
+    FLAG_CHANGES_TITLE,
+    FLAG_CONFIGURATION_DESCRIPTION,
+    FLAG_CONFIGURATION_TITLE,
+    FLAG_TRAFFIC_DESCRIPTION,
+    FLAG_TRAFFIC_TITLE,
+    NO_RELEASE_CONDITIONS,
+} from './healthDebugCopy'
 import type { HealthDebugFlagChange, HealthDebugReleaseCondition } from './healthDebugInputs'
 import { HealthDebugSection } from './HealthDebugSection'
 
@@ -28,17 +37,14 @@ export function HealthDebugFlagTab(): JSX.Element {
     return (
         <div className="flex flex-col gap-4">
             {healthInputsError && <LemonBanner type="error">{healthInputsError}</LemonBanner>}
-            <HealthDebugSection
-                title="Configuration"
-                description="The flag as the health checks read it on the server."
-            >
+            <HealthDebugSection title={FLAG_CONFIGURATION_TITLE} description={FLAG_CONFIGURATION_DESCRIPTION}>
                 <SetupFactsTable facts={flagFacts} />
                 <LemonTable<HealthDebugReleaseCondition>
                     size="small"
                     loading={healthInputsLoading}
                     dataSource={releaseConditions}
                     rowKey="number"
-                    emptyState="No release conditions."
+                    emptyState={NO_RELEASE_CONDITIONS}
                     columns={[
                         { title: 'Set', key: 'number', render: (_, condition) => condition.number },
                         {
@@ -83,10 +89,7 @@ export function HealthDebugFlagTab(): JSX.Element {
                     ]}
                 />
             </HealthDebugSection>
-            <HealthDebugSection
-                title="Changes since launch"
-                description="What the split, bucketing and release-condition checks read from the flag's history."
-            >
+            <HealthDebugSection title={FLAG_CHANGES_TITLE} description={FLAG_CHANGES_DESCRIPTION}>
                 <SetupFactsTable facts={flagHistoryFacts} />
                 {flagChanges.length > 0 && (
                     <LemonTable<HealthDebugFlagChange>
@@ -112,10 +115,7 @@ export function HealthDebugFlagTab(): JSX.Element {
                     />
                 )}
             </HealthDebugSection>
-            <HealthDebugSection
-                title="Calls by release condition"
-                description="The flag's recent calls that the forced-variant and release-condition checks grade overrides by."
-            >
+            <HealthDebugSection title={FLAG_TRAFFIC_TITLE} description={FLAG_TRAFFIC_DESCRIPTION}>
                 <SetupFactsTable facts={trafficFacts} />
             </HealthDebugSection>
         </div>

@@ -4,13 +4,16 @@ import { useEffect } from 'react'
 
 import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { getEventPropertiesForExperiment } from 'lib/utils/eventUsageLogic'
 
+import { MULTIPLE_EXPOSURES_DOCS_URL } from 'products/experiments/frontend/constants'
 import { useHealthFindingReporting } from 'products/experiments/frontend/health/useHealthFindingReporting'
 
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
 import { exposureCriteriaModalLogic } from './exposureCriteriaModalLogic'
+import { QuillMultiVariantBiasWarning } from './QuillMultiVariantBiasWarning'
 
 /**
  * Surfaces empirically observed multi-variant exclusion bias: uneven split + `EXCLUDE`
@@ -21,6 +24,9 @@ export function MultiVariantBiasWarning(): JSX.Element | null {
     const { experiment, exposures, exposureCriteria } = useValues(experimentLogic)
     const { openExposureCriteriaModal } = useActions(exposureCriteriaModalLogic)
     const { openDistributionModal } = useActions(modalsLogic)
+    const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const quill = todayRailNav && resultsRedesign
 
     const risk = exposures?.bias_risk
 
@@ -37,6 +43,29 @@ export function MultiVariantBiasWarning(): JSX.Element | null {
         return null
     }
 
+    const adjustDistribution = (): void => {
+        reportActedOn('adjust_distribution')
+        openDistributionModal()
+    }
+    const useFirstSeen = (): void => {
+        reportActedOn('use_first_seen_variant')
+        openExposureCriteriaModal({
+            ...exposureCriteria,
+            multiple_variant_handling: 'first_seen',
+        })
+    }
+
+    if (quill) {
+        return (
+            <QuillMultiVariantBiasWarning
+                multipleVariantPercentage={risk.multiple_variant_percentage}
+                onOpenDocs={() => reportOpened('docs')}
+                onAdjustDistribution={adjustDistribution}
+                onUseFirstSeen={useFirstSeen}
+            />
+        )
+    }
+
     return (
         <LemonBanner type="warning" className="mt-4">
             <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -51,38 +80,17 @@ export function MultiVariantBiasWarning(): JSX.Element | null {
                     <p className="m-0 mt-1">
                         We recommend using an <strong>even split</strong> and controlling exposure with the overall
                         rollout (uneven splits have further disadvantages). Alternatively use{' '}
-                        <Link
-                            to="https://posthog.com/docs/experiments/exposures#handling-multiple-exposures"
-                            target="_blank"
-                            onClick={() => reportOpened('docs')}
-                        >
+                        <Link to={MULTIPLE_EXPOSURES_DOCS_URL} target="_blank" onClick={() => reportOpened('docs')}>
                             <strong>First seen</strong>
                         </Link>{' '}
                         handling.
                     </p>
                 </div>
                 <div className="flex gap-2 items-center flex-shrink-0">
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        onClick={() => {
-                            reportActedOn('adjust_distribution')
-                            openDistributionModal()
-                        }}
-                    >
+                    <LemonButton size="small" type="secondary" onClick={adjustDistribution}>
                         Adjust distribution
                     </LemonButton>
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        onClick={() => {
-                            reportActedOn('use_first_seen_variant')
-                            openExposureCriteriaModal({
-                                ...exposureCriteria,
-                                multiple_variant_handling: 'first_seen',
-                            })
-                        }}
-                    >
+                    <LemonButton size="small" type="secondary" onClick={useFirstSeen}>
                         Use first seen variant
                     </LemonButton>
                 </div>

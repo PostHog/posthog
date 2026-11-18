@@ -6,6 +6,7 @@ import { experimentLogic } from 'scenes/experiments/experimentLogic'
 
 import { formatTimestamp } from '../../setupInspector/setupInspectorUtils'
 import { experimentHealthDebugLogic } from './experimentHealthDebugLogic'
+import { DRIFT_TOOLTIP } from './healthDebugCopy'
 import { HEALTH_DEBUG_DOMAIN_LABELS, type HealthDebugCheck } from './healthDebugReport'
 
 const SEVERITY_TAG_TYPES: Record<NonNullable<HealthDebugCheck['severity']>, LemonTagType> = {
@@ -62,7 +63,7 @@ export function HealthDebugCheckResults(): JSX.Element {
                                     {check.browserComputedAt && <ComputedAt timestamp={check.browserComputedAt} />}
                                     {check.difference === 'disagrees' && <LemonTag type="danger">Differs</LemonTag>}
                                     {check.difference === 'drift' && (
-                                        <Tooltip title="The page's exposure answer is cached apart from the server's and computed at another time, so the two can differ. The panel shows the page's.">
+                                        <Tooltip title={DRIFT_TOOLTIP}>
                                             <LemonTag type="muted">Drift</LemonTag>
                                         </Tooltip>
                                     )}

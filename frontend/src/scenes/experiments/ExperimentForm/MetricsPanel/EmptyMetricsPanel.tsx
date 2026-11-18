@@ -10,6 +10,20 @@ import {
 } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
 import { metricSourceModalLogic } from 'products/experiments/frontend/modals/MetricSourceModal/metricSourceModalLogic'
 
+export const DEFAULT_METRICS_HELP_TEXT =
+    "Add metrics to measure your experiment's impact. You can add them before or after launching."
+
+/** Opens the metric source picker for a context, after telling the caller which kind of metric is being added. */
+export function useAddMetric(
+    onAddMetric?: (metricType: MetricContext['type']) => void
+): (context: MetricContext) => void {
+    const { openMetricSourceModal } = useActions(metricSourceModalLogic)
+    return (context: MetricContext): void => {
+        onAddMetric?.(context.type)
+        openMetricSourceModal(context)
+    }
+}
+
 export const EmptyMetricsPanel = ({
     helpText,
     isLaunched,
@@ -21,12 +35,7 @@ export const EmptyMetricsPanel = ({
     showHelpText?: boolean
     onAddMetric?: (metricType: MetricContext['type']) => void
 } = {}): JSX.Element => {
-    const { openMetricSourceModal } = useActions(metricSourceModalLogic)
-
-    const addMetric = (context: MetricContext): void => {
-        onAddMetric?.(context.type)
-        openMetricSourceModal(context)
-    }
+    const addMetric = useAddMetric(onAddMetric)
 
     return (
         // Sized off its own width rather than the screen's, so the two buttons stack in a narrow column
@@ -57,10 +66,7 @@ export const EmptyMetricsPanel = ({
             </div>
             {!isLaunched && showHelpText && (
                 <div className="max-w-md">
-                    <p className="text-xs text-muted">
-                        {helpText ??
-                            "Add metrics to measure your experiment's impact. You can add them before or after launching."}
-                    </p>
+                    <p className="text-xs text-muted">{helpText ?? DEFAULT_METRICS_HELP_TEXT}</p>
                 </div>
             )}
         </div>

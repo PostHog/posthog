@@ -2,6 +2,8 @@ import { Experiment, ExperimentStatsMethod } from '~/types'
 
 import { ExperimentStatusInput, hasEnded, isLaunched } from 'products/experiments/frontend/experimentStatus'
 
+export const PAUSED_TOOLTIP = 'This experiment is paused. The linked flag is disabled and no data is collected.'
+
 export type ExperimentMetaBarInput = NonNullable<ExperimentStatusInput> & Pick<Experiment, 'conclusion'>
 
 export interface ExperimentMetaBarVisibility {

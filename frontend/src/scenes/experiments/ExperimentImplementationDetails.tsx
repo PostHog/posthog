@@ -45,9 +45,9 @@ interface SnippetCopy {
     snippetKind: 'code' | 'test_override'
 }
 
-type OnSnippetCopied = (copy: SnippetCopy) => void
+export type OnSnippetCopied = (copy: SnippetCopy) => void
 
-function reportImplementationSnippetCopied(
+export function reportImplementationSnippetCopied(
     experiment: Partial<Experiment> | null,
     placement: ImplementationSnippetPlacement,
     { sdk, variant, snippetKind }: SnippetCopy
@@ -63,7 +63,7 @@ function reportImplementationSnippetCopied(
 }
 
 // Agent prompt copies get their own event, so they never count as code copies.
-function reportAgentPromptCopied(
+export function reportAgentPromptCopied(
     experiment: Partial<Experiment> | null,
     placement: ImplementationSnippetPlacement
 ): void {
@@ -229,7 +229,22 @@ export function CodeLanguageSelect({
     )
 }
 
-type PromptImplementationTab = 'agent' | 'python' | 'javascript'
+export type PromptImplementationTab = 'agent' | 'python' | 'javascript'
+
+export const PROMPT_DOCS_URL = 'https://posthog.com/docs/prompt-management'
+export const AGENT_PROMPT_HELP =
+    "Copy this and paste it into your AI coding assistant (Cursor, Claude Code, ChatGPT, …) to wire up the experiment in your project's framework and style. Language-agnostic; the agent figures out the SDK."
+
+export function PromptPayloadHelp(): JSX.Element {
+    return (
+        <>
+            Each variant carries a <code>{`{prompt_name, prompt_version}`}</code> payload on the feature flag, so the
+            SDK reads the right version via <code>flags.get_flag_payload(...)</code>. The PostHog AI wrapper auto-emits{' '}
+            <code>$ai_generation</code> tagged with <code>$ai_prompt_name</code>, which is how the experiment metric
+            attributes results.
+        </>
+    )
+}
 
 function PromptExperimentImplementation({
     flagKey,
@@ -254,10 +269,7 @@ function PromptExperimentImplementation({
             </div>
             <div>
                 <p className="text-secondary text-xs">
-                    Each variant carries a <code>{`{prompt_name, prompt_version}`}</code> payload on the feature flag,
-                    so the SDK reads the right version via <code>flags.get_flag_payload(...)</code>. The PostHog AI
-                    wrapper auto-emits <code>$ai_generation</code> tagged with <code>$ai_prompt_name</code>, which is
-                    how the experiment metric attributes results.
+                    <PromptPayloadHelp />
                 </p>
                 <LemonTabs
                     activeKey={activeTab}
@@ -268,11 +280,7 @@ function PromptExperimentImplementation({
                             label: 'Agent prompt',
                             content: (
                                 <>
-                                    <p className="text-secondary text-xs mb-2">
-                                        Copy this and paste it into your AI coding assistant (Cursor, Claude Code,
-                                        ChatGPT, …) to wire up the experiment in your project's framework and style.
-                                        Language-agnostic; the agent figures out the SDK.
-                                    </p>
+                                    <p className="text-secondary text-xs mb-2">{AGENT_PROMPT_HELP}</p>
                                     <PromptExperimentAgentPromptSnippet
                                         flagKey={flagKey}
                                         onCopy={onAgentPromptCopied}
@@ -306,7 +314,7 @@ function PromptExperimentImplementation({
                         },
                     ]}
                 />
-                <Link subtle to="https://posthog.com/docs/prompt-management" target="_blank">
+                <Link subtle to={PROMPT_DOCS_URL} target="_blank">
                     See the docs for prompt management.
                 </Link>
             </div>

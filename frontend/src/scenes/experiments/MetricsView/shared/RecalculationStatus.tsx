@@ -17,7 +17,28 @@ import { Experiment } from '~/types'
  * Run progress and the configuration provenance of saved results.
  * ExperimentView renders this once the experiment has metrics.
  */
-export function RecalculationStatus({ experiment }: { experiment: Experiment }): JSX.Element | null {
+export const RECALCULATION_BACKGROUND_HELP =
+    "We're computing each metric against the latest data. This runs server-side so you can leave this page; results appear as each metric finishes."
+export const RECALCULATION_AGE_LIMIT_NOTE =
+    'This experiment started too long ago to recalculate, so the saved results stay as they are.'
+export const RECALCULATION_NOTICE_NOTE =
+    'You can recalculate the latest results with the current settings, which may change the numbers. Time series points keep their saved values.'
+
+/** What the recalculation status shows, shared by the Lemon and quill versions. */
+export function useRecalculationStatus(experiment: Experiment): {
+    inFlight: boolean
+    provenance: string | null
+    ageLimitExceeded: boolean
+    isRecalculating: boolean
+    recalculateDisabledReason?: string
+    recalculate: () => void
+    recalculation: RecalculationPayload | null
+    liveRowsProgress: { recalculationId: string; rowsRead: number; estimatedRows: number } | null
+    retryingCount: number
+    nextRetryAt: string | null
+    notifyWhenResultsReady: boolean
+    subscribe: () => void
+} {
     const logic = experimentMetricsLogic({ experiment })
     const {
         recalculationDisplayState,
@@ -39,17 +60,54 @@ export function RecalculationStatus({ experiment }: { experiment: Experiment }):
     const { notifyWhenResultsReady } = useValues(notificationLogic)
     const { subscribeToResultsNotification } = useActions(notificationLogic)
 
-    if (recalculationDisplayState !== 'cold' && recalculationDisplayState !== 'refreshing') {
-        if (!resultConfigurationNotice) {
+    return {
+        inFlight: recalculationDisplayState === 'cold' || recalculationDisplayState === 'refreshing',
+        provenance: !resultConfigurationNotice
+            ? null
+            : resultConfigurationNotice === 'previous'
+              ? 'Some results were calculated with earlier settings.'
+              : 'Some results were saved before their settings were recorded.',
+        ageLimitExceeded: recalculationAgeLimitExceeded,
+        isRecalculating,
+        recalculateDisabledReason: isManualRefreshBlocked ? 'Please wait before recalculating again' : undefined,
+        recalculate: () => {
+            posthog.capture('experiment results configuration notice recalculated', {
+                experiment_id: experiment.id,
+                notice: resultConfigurationNotice,
+            })
+            triggerRecalculation('manual')
+        },
+        recalculation: currentRecalculation,
+        liveRowsProgress,
+        retryingCount: Object.keys(metricRetries).length,
+        nextRetryAt,
+        notifyWhenResultsReady,
+        subscribe: subscribeToResultsNotification,
+    }
+}
+
+/** Metrics not yet resolved and not retrying. Retrying metrics get their own slice so slow runs read as alive. */
+export function pendingMetricCount(recalculation: RecalculationPayload | null, retryingCount: number): number {
+    const succeeded = recalculation?.completed_metrics ?? 0
+    const failed = recalculation?.failed_metrics ?? 0
+    const total = recalculation?.total_metrics ?? 0
+    return Math.max(0, total - succeeded - failed - retryingCount)
+}
+
+/**
+ * Run progress and the configuration provenance of saved results.
+ * ExperimentView renders this once the experiment has metrics.
+ */
+export function RecalculationStatus({ experiment }: { experiment: Experiment }): JSX.Element | null {
+    const status = useRecalculationStatus(experiment)
+
+    if (!status.inFlight) {
+        if (!status.provenance) {
             return null
         }
-        const provenance =
-            resultConfigurationNotice === 'previous'
-                ? 'Some results were calculated with earlier settings.'
-                : 'Some results were saved before their settings were recorded.'
-        return recalculationAgeLimitExceeded ? (
+        return status.ageLimitExceeded ? (
             <LemonBanner type="info" className="mb-2">
-                {provenance} This experiment started too long ago to recalculate, so the saved results stay as they are.
+                {status.provenance} {RECALCULATION_AGE_LIMIT_NOTE}
             </LemonBanner>
         ) : (
             <LemonBanner
@@ -57,30 +115,23 @@ export function RecalculationStatus({ experiment }: { experiment: Experiment }):
                 className="mb-2"
                 action={{
                     children: 'Recalculate',
-                    onClick: () => {
-                        posthog.capture('experiment results configuration notice recalculated', {
-                            experiment_id: experiment.id,
-                            notice: resultConfigurationNotice,
-                        })
-                        triggerRecalculation('manual')
-                    },
-                    loading: isRecalculating,
-                    disabledReason: isManualRefreshBlocked ? 'Please wait before recalculating again' : undefined,
+                    onClick: status.recalculate,
+                    loading: status.isRecalculating,
+                    disabledReason: status.recalculateDisabledReason,
                 }}
             >
-                {provenance} You can recalculate the latest results with the current settings, which may change the
-                numbers. Time series points keep their saved values.
+                {status.provenance} {RECALCULATION_NOTICE_NOTE}
             </LemonBanner>
         )
     }
     return (
         <InFlightStatus
-            recalculation={currentRecalculation}
-            liveRowsProgress={liveRowsProgress}
-            retryingCount={Object.keys(metricRetries).length}
-            nextRetryAt={nextRetryAt}
-            notifyWhenResultsReady={notifyWhenResultsReady}
-            onSubscribe={subscribeToResultsNotification}
+            recalculation={status.recalculation}
+            liveRowsProgress={status.liveRowsProgress}
+            retryingCount={status.retryingCount}
+            nextRetryAt={status.nextRetryAt}
+            notifyWhenResultsReady={status.notifyWhenResultsReady}
+            onSubscribe={status.subscribe}
         />
     )
 }
@@ -102,13 +153,8 @@ function InFlightStatus({
 }): JSX.Element {
     const succeeded = recalculation?.completed_metrics ?? 0
     const failed = recalculation?.failed_metrics ?? 0
-    const total = recalculation?.total_metrics ?? 0
     const nextRetryLabel = useRetryCountdownLabel(nextRetryAt)
-    /**
-     * Pending (not yet resolved, not currently sampled as running) keeps the segment truthful in those gaps.
-     * Retrying metrics are unresolved too, but get their own slice so slow runs read as alive, not stuck.
-     */
-    const pending = Math.max(0, total - succeeded - failed - retryingCount)
+    const pending = pendingMetricCount(recalculation, retryingCount)
     return (
         <StatusBar>
             <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
@@ -118,7 +164,7 @@ function InFlightStatus({
                     <span className="text-muted text-xs whitespace-nowrap">· next retry {nextRetryLabel}</span>
                 )}
                 <span className="text-muted text-xs whitespace-nowrap">· running in the background</span>
-                <Tooltip title="We're computing each metric against the latest data. This runs server-side so you can leave this page; results appear as each metric finishes.">
+                <Tooltip title={RECALCULATION_BACKGROUND_HELP}>
                     <IconInfo className="text-muted text-xs" />
                 </Tooltip>
                 {liveRowsProgress && liveRowsProgress.recalculationId === recalculation?.id && (
@@ -202,14 +248,22 @@ function CountsSegment({
     )
 }
 
-function ClimbingRows({ rowsRead, estimatedRows }: { rowsRead: number; estimatedRows?: number }): JSX.Element {
+export function ClimbingRows({
+    rowsRead,
+    estimatedRows,
+    className = 'text-muted text-xs whitespace-nowrap',
+}: {
+    rowsRead: number
+    estimatedRows?: number
+    className?: string
+}): JSX.Element {
     const showCeiling = estimatedRows !== undefined && estimatedRows >= rowsRead
 
     const animatedRowsRead = useAnimatedNumber(rowsRead, 350)
     const animatedEstimatedTotal = useAnimatedNumber(estimatedRows ?? 0, 350)
 
     return (
-        <span className="text-muted text-xs whitespace-nowrap">
+        <span className={className}>
             {/* The counts are bare text nodes React tracks individually, and the `showCeiling` one
                 comes and goes. Once a page-translation extension replaces them with <font> elements,
                 removing one throws removeChild NotFoundError and the rest freeze at the translated

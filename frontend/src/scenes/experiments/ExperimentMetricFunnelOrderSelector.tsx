@@ -4,7 +4,7 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { ExperimentFunnelMetric, ExperimentMetric } from '~/queries/schema/schema-general'
 import { StepOrderValue } from '~/types'
 
-const funnelOrderOptions = [
+export const funnelOrderOptions = [
     {
         label: 'Sequential',
         value: StepOrderValue.ORDERED,
@@ -15,7 +15,7 @@ const funnelOrderOptions = [
     },
 ]
 
-function StepOrderInfo(): JSX.Element {
+export function StepOrderInfo(): JSX.Element {
     return (
         <ul className="list-disc pl-4">
             <li>

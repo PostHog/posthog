@@ -1,117 +1,46 @@
-import { useActions, useValues } from 'kea'
-
 import { LemonButton, LemonInput, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 import { LemonModal } from '@posthog/lemon-ui'
 
-import { experimentLogic } from 'scenes/experiments/experimentLogic'
-import {
-    DEFAULT_SEQUENTIAL_TUNING_PARAMETER,
-    MAX_SEQUENTIAL_TUNING_PARAMETER,
-    SequentialSelection,
-    getSequentialSelection,
-    resolveSequentialTuningParameter,
-} from 'scenes/experiments/ExperimentView/sequential'
-import { modalsLogic } from 'scenes/experiments/modalsLogic'
-import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsConfigLogic'
-
-import { ExperimentStatsMethod } from '~/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { MAX_SEQUENTIAL_TUNING_PARAMETER, SequentialSelection } from 'scenes/experiments/ExperimentView/sequential'
 
 import { StatsMethodSelector } from 'products/experiments/frontend/components/StatsMethodSelector'
 import { CONFIDENCE_LEVEL_OPTIONS } from 'products/experiments/frontend/constants'
 
+import { QuillStatsMethodModal } from './QuillStatsMethodModal'
+import {
+    SEQUENTIAL_TESTING_HELP,
+    TUNING_PARAMETER_HELP,
+    confidenceHelp,
+    teamDefaultOptions,
+    useStatsMethodModal,
+} from './useStatsMethodModal'
+
 export function StatsMethodModal(): JSX.Element {
-    const { experiment, statsMethod, experimentUpdateLoading } = useValues(experimentLogic)
-    const { setExperiment, restoreUnmodifiedExperiment, updateExperimentSettings } = useActions(experimentLogic)
-    const { closeStatsEngineModal } = useActions(modalsLogic)
-    const { isStatsEngineModalOpen } = useValues(modalsLogic)
-    const { experimentsConfig } = useValues(experimentsConfigLogic)
-    const savingReason = experimentUpdateLoading ? 'Saving in progress' : undefined
-
-    const onClose = (): void => {
-        restoreUnmodifiedExperiment()
-        closeStatsEngineModal()
+    const model = useStatsMethodModal()
+    const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    if (todayRailNav && resultsRedesign) {
+        return <QuillStatsMethodModal model={model} />
     }
-
-    const isBayesian = statsMethod === ExperimentStatsMethod.Bayesian
-
-    // For Bayesian: ci_level (default 0.95)
-    // For Frequentist: confidence = 1 - alpha (default alpha 0.05 = 95% confidence)
-    const currentConfidenceLevel = isBayesian
-        ? (experiment.stats_config?.bayesian?.ci_level ?? 0.95)
-        : 1 - (experiment.stats_config?.frequentist?.alpha ?? 0.05)
-
-    const handleConfidenceLevelChange = (value: number): void => {
-        if (isBayesian) {
-            setExperiment({
-                stats_config: {
-                    ...experiment.stats_config,
-                    bayesian: {
-                        ...experiment.stats_config?.bayesian,
-                        ci_level: value,
-                    },
-                },
-            })
-        } else {
-            setExperiment({
-                stats_config: {
-                    ...experiment.stats_config,
-                    frequentist: {
-                        ...experiment.stats_config?.frequentist,
-                        alpha: 1 - value,
-                    },
-                },
-            })
-        }
-    }
-
-    const sequentialSelection = getSequentialSelection(experiment.stats_config?.frequentist)
-    const teamDefaultSequentialEnabled = experimentsConfig?.default_sequential_testing_enabled ?? false
-    const teamDefaultSequentialTuningParameter = experimentsConfig?.default_sequential_tuning_parameter ?? null
-    const sequentialTuningParameter = resolveSequentialTuningParameter(
-        experiment.stats_config?.frequentist,
-        teamDefaultSequentialTuningParameter,
-        DEFAULT_SEQUENTIAL_TUNING_PARAMETER
-    )
-
-    const updateSequentialSelection = (next: SequentialSelection): void => {
-        const existingFrequentist = experiment.stats_config?.frequentist ?? {}
-        if (next === 'default') {
-            // Drop the sequential keys entirely so the team default applies at evaluation time.
-            const {
-                sequential_testing_enabled: _enabled,
-                sequential_tuning_parameter: _param,
-                ...restFrequentist
-            } = existingFrequentist
-            setExperiment({
-                stats_config: {
-                    ...experiment.stats_config,
-                    frequentist: restFrequentist,
-                },
-            })
-            return
-        }
-        setExperiment({
-            stats_config: {
-                ...experiment.stats_config,
-                frequentist: {
-                    ...existingFrequentist,
-                    sequential_testing_enabled: next === 'enabled',
-                },
-            },
-        })
-    }
-
-    const updateSequentialTuningParameter = (sequential_tuning_parameter: number): void => {
-        setExperiment({
-            stats_config: {
-                ...experiment.stats_config,
-                frequentist: {
-                    ...experiment.stats_config?.frequentist,
-                    sequential_tuning_parameter,
-                },
-            },
-        })
-    }
+    const {
+        experiment,
+        statsMethod,
+        experimentUpdateLoading,
+        setExperiment,
+        updateExperimentSettings,
+        isStatsEngineModalOpen,
+        savingReason,
+        onClose,
+        isBayesian,
+        currentConfidenceLevel,
+        handleConfidenceLevelChange,
+        sequentialSelection,
+        teamDefaultSequentialEnabled,
+        sequentialTuningParameter,
+        updateSequentialSelection,
+        updateSequentialTuningParameter,
+    } = model
 
     return (
         <LemonModal
@@ -162,11 +91,7 @@ export function StatsMethodModal(): JSX.Element {
                     options={CONFIDENCE_LEVEL_OPTIONS}
                     className="w-24"
                 />
-                <p className="text-xs text-secondary m-0">
-                    {isBayesian
-                        ? `At ${currentConfidenceLevel * 100}%, we require a variant to have a ${currentConfidenceLevel * 100}% or higher chance of being better before calling it a winner.`
-                        : `Higher confidence means we need stronger evidence before declaring a winner. ${currentConfidenceLevel * 100}% confidence requires a p-value below ${(1 - currentConfidenceLevel).toFixed(2)}.`}
-                </p>
+                <p className="text-xs text-secondary m-0">{confidenceHelp(isBayesian, currentConfidenceLevel)}</p>
             </div>
             {!isBayesian && (
                 <div className="flex flex-col gap-2 mt-4">
@@ -175,21 +100,10 @@ export function StatsMethodModal(): JSX.Element {
                         value={sequentialSelection}
                         onChange={updateSequentialSelection}
                         disabledReason={savingReason}
-                        options={[
-                            {
-                                value: 'default',
-                                label: `Use team default (${teamDefaultSequentialEnabled ? 'Enabled' : 'Disabled'})`,
-                            },
-                            { value: 'enabled', label: 'Enabled' },
-                            { value: 'disabled', label: 'Disabled' },
-                        ]}
+                        options={teamDefaultOptions(teamDefaultSequentialEnabled)}
                         className="w-72"
                     />
-                    <p className="text-xs text-secondary m-0">
-                        Always-valid p-values that are robust to peeking. You can check the experiment as often as you
-                        want without inflating the false positive rate, at the cost of slightly wider confidence
-                        intervals.
-                    </p>
+                    <p className="text-xs text-secondary m-0">{SEQUENTIAL_TESTING_HELP}</p>
                     {sequentialSelection === 'enabled' && (
                         <div className="flex flex-col gap-1 mt-1">
                             <LemonLabel>Tuning parameter</LemonLabel>
@@ -212,11 +126,7 @@ export function StatsMethodModal(): JSX.Element {
                                 }}
                                 className="w-32"
                             />
-                            <p className="text-xs text-secondary m-0">
-                                Roughly the sample size at which the confidence sequence is tightest. Set close to the
-                                expected total sample size of the experiment. Default is{' '}
-                                {DEFAULT_SEQUENTIAL_TUNING_PARAMETER}.
-                            </p>
+                            <p className="text-xs text-secondary m-0">{TUNING_PARAMETER_HELP}</p>
                         </div>
                     )}
                 </div>

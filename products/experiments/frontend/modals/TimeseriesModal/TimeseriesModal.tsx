@@ -1,13 +1,9 @@
-import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
-
 import { IconClock, IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonModal, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { experimentTimeseriesLogic } from 'scenes/experiments/experimentTimeseriesLogic'
 import { VariantTag } from 'scenes/experiments/ExperimentView/VariantTag'
 import { ElapsedTime } from 'scenes/experiments/MetricsView/new/ElapsedTime'
 import { VariantTimeseriesChart } from 'scenes/experiments/MetricsView/new/VariantTimeseriesChart'
@@ -18,8 +14,14 @@ import { urls } from 'scenes/urls'
 import { ExperimentMetric, isExperimentRatioMetric } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 
-import { EXPERIMENT_RECALCULATION_MAX_AGE_DAYS } from 'products/experiments/frontend/constants'
-import { hasEnded, isLaunched } from 'products/experiments/frontend/experimentStatus'
+import { QuillTimeseriesModal } from './QuillTimeseriesModal'
+import {
+    TIMESERIES_PROGRESS_HELP,
+    TIMESERIES_RECALCULATE_TITLE,
+    TIMESERIES_RECALCULATE_WARNING,
+    TIMESERIES_STALE_NOTE,
+    useTimeseriesModal,
+} from './useTimeseriesModal'
 
 interface TimeseriesModalProps {
     isOpen: boolean
@@ -36,35 +38,46 @@ export function TimeseriesModal({
     variantResult,
     experiment,
 }: TimeseriesModalProps): JSX.Element {
-    const logic = experimentTimeseriesLogic({ experiment, metric: isOpen ? metric : undefined })
-    const { chartData, progressMessage, hasTimeseriesData, timeseriesLoading, isRecalculating, timeseries } =
-        useValues(logic)
-    const { recalculateTimeseries, loadTimeseries } = useActions(logic)
+    const model = useTimeseriesModal({ isOpen, metric, variantResult, experiment })
+    const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
-    const processedChartData = useMemo(() => {
-        return chartData(variantResult.key)
-    }, [chartData, variantResult.key])
+    if (todayRailNav && resultsRedesign) {
+        return (
+            <QuillTimeseriesModal
+                isOpen={isOpen}
+                onClose={onClose}
+                metric={metric}
+                variantKey={variantResult.key}
+                model={model}
+            />
+        )
+    }
 
-    const isStaleExperiment =
-        isLaunched(experiment) && !hasEnded(experiment)
-            ? dayjs(experiment.start_date).isBefore(dayjs().subtract(EXPERIMENT_RECALCULATION_MAX_AGE_DAYS, 'days'))
-            : false
+    const {
+        chartData: processedChartData,
+        progressMessage,
+        hasTimeseriesData,
+        timeseriesLoading,
+        isRecalculating,
+        recalculationCreatedAt,
+        isStaleExperiment,
+        recalculate,
+        refresh,
+    } = model
 
     const handleRecalculate = (): void => {
         LemonDialog.open({
-            title: 'Recalculate timeseries data',
+            title: TIMESERIES_RECALCULATE_TITLE,
             content: (
                 <div>
-                    <p>
-                        All existing timeseries data will be deleted and recalculated from scratch. This could take a
-                        long time for large datasets.
-                    </p>
+                    <p>{TIMESERIES_RECALCULATE_WARNING}</p>
                 </div>
             ),
             primaryButton: {
                 children: 'Recalculate',
                 type: 'primary',
-                onClick: () => recalculateTimeseries({ metric }),
+                onClick: recalculate,
             },
             secondaryButton: {
                 children: 'Cancel',
@@ -115,11 +128,7 @@ export function TimeseriesModal({
                                 <LemonBanner type="warning">
                                     <div className="flex items-center justify-between">
                                         <div className="flex-1">
-                                            <div className="text-sm">
-                                                This experiment has been running for more than{' '}
-                                                {EXPERIMENT_RECALCULATION_MAX_AGE_DAYS} days. Automatic timeseries
-                                                updates are disabled. You can still manually recalculate the data.
-                                            </div>
+                                            <div className="text-sm">{TIMESERIES_STALE_NOTE}</div>
                                         </div>
                                         <LemonButton
                                             type="secondary"
@@ -140,11 +149,10 @@ export function TimeseriesModal({
                                         <div className="flex items-center gap-2">
                                             <Spinner className="text-sm" />
                                             <span>
-                                                Recalculating •{' '}
-                                                <ElapsedTime startTime={timeseries?.recalculation_created_at} /> elapsed
-                                                •
+                                                Recalculating • <ElapsedTime startTime={recalculationCreatedAt} />{' '}
+                                                elapsed •
                                             </span>
-                                            <Link onClick={() => loadTimeseries({ metric })}>Refresh</Link>
+                                            <Link onClick={refresh}>Refresh</Link>
                                         </div>
                                     </div>
                                 </LemonBanner>
@@ -154,7 +162,7 @@ export function TimeseriesModal({
                             <div className="flex items-center gap-1">
                                 <div className="text-xs text-muted">{progressMessage || ''}</div>
                                 {progressMessage && (
-                                    <Tooltip title="The chart displays data starting from the first day with meaningful results. Earlier days without sufficient data are excluded from the visualization.">
+                                    <Tooltip title={TIMESERIES_PROGRESS_HELP}>
                                         <IconInfo className="text-muted text-base" />
                                     </Tooltip>
                                 )}

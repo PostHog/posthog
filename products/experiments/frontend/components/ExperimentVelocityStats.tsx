@@ -7,18 +7,45 @@ import { IconTrendingDown } from 'lib/lemon-ui/icons'
 
 import { experimentsLogic } from 'products/experiments/frontend/scenes/experimentsLogic'
 
-export function ExperimentVelocityStats(): JSX.Element | null {
+export const VELOCITY_HELP =
+    "Shows your team's experimentation velocity: how many experiments you're launching, running, and completing. Launched count is compared to the previous 30 days to track growth."
+
+export interface ExperimentVelocity {
+    launched: number
+    percentChange: number
+    running: number
+    completed: number
+}
+
+/** The velocity numbers, or null while they load or when too few experiments launched for them to mean much. */
+export function useExperimentVelocity(): ExperimentVelocity | null {
     const { experimentsStats, experimentsStatsLoading } = useValues(experimentsLogic)
 
-    if (experimentsStatsLoading || !experimentsStats) {
+    if (experimentsStatsLoading || !experimentsStats || experimentsStats.launched_last_30d <= 3) {
         return null
     }
 
-    const { launched_last_30d, percent_change, active_experiments, completed_last_30d } = experimentsStats
+    return {
+        launched: experimentsStats.launched_last_30d,
+        percentChange: experimentsStats.percent_change,
+        running: experimentsStats.active_experiments,
+        completed: experimentsStats.completed_last_30d,
+    }
+}
 
-    if (launched_last_30d <= 3) {
+export function ExperimentVelocityStats(): JSX.Element | null {
+    const velocity = useExperimentVelocity()
+
+    if (!velocity) {
         return null
     }
+
+    const {
+        launched: launched_last_30d,
+        percentChange: percent_change,
+        running: active_experiments,
+        completed: completed_last_30d,
+    } = velocity
 
     const isPositive = percent_change > 0
     const isNegative = percent_change < 0
@@ -29,7 +56,7 @@ export function ExperimentVelocityStats(): JSX.Element | null {
         <div className="px-4 py-2 border rounded bg-bg-light flex items-center gap-4">
             <div className="metric-cell-header font-semibold flex items-center gap-1">
                 Velocity
-                <Tooltip title="Shows your team's experimentation velocity: how many experiments you're launching, running, and completing. Launched count is compared to the previous 30 days to track growth.">
+                <Tooltip title={VELOCITY_HELP}>
                     <IconInfo className="text-muted-alt" fontSize="16" />
                 </Tooltip>
             </div>

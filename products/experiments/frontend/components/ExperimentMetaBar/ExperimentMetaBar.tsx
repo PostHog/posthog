@@ -4,6 +4,7 @@ import { IconFlag, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonTag, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
@@ -21,11 +22,10 @@ import { ExperimentConclusionCard } from './ExperimentConclusionCard'
 import { ExperimentConclusionItem } from './ExperimentConclusionItem'
 import { ExperimentDateRange } from './ExperimentDateRange'
 import { ExperimentFlagCleanupStatus } from './ExperimentFlagCleanupStatus'
-import { getExperimentMetaBarVisibility, getExperimentStatsSummary } from './experimentMetaBarUtils'
+import { PAUSED_TOOLTIP, getExperimentMetaBarVisibility, getExperimentStatsSummary } from './experimentMetaBarUtils'
 import { ExperimentRefreshButton } from './ExperimentRefreshButton'
 import { ExperimentRemainingTime } from './ExperimentRemainingTime'
-
-const PAUSED_TOOLTIP = 'This experiment is paused. The linked flag is disabled and no data is collected.'
+import { QuillExperimentMetaBar } from './QuillExperimentMetaBar'
 
 // Every item carries its own leading divider and the row starts inside a clipped gutter, so the
 // first item on each wrapped line hides its divider there instead of leaving one dangling.
@@ -39,6 +39,12 @@ function MetaItem({ children, className, ...rest }: React.HTMLAttributes<HTMLDiv
 }
 
 export function ExperimentMetaBar(): JSX.Element | null {
+    const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    return todayRailNav && resultsRedesign ? <QuillExperimentMetaBar /> : <LemonExperimentMetaBar />
+}
+
+function LemonExperimentMetaBar(): JSX.Element | null {
     const { experiment, statsMethod, isSingleVariantShipped, shippedVariantKey } = useValues(experimentLogic)
     const { openRunningTimeConfigModal } = useActions(modalsLogic)
 

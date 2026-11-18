@@ -1,15 +1,13 @@
-import { useActions, useValues } from 'kea'
-import { useState } from 'react'
-
 import { LemonInput, LemonModal } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ExperimentFlagKeyInput } from 'scenes/experiments/ExperimentFlagKeyInput'
-import { slugifyFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
 
 import { Experiment } from '~/types'
 
-import { experimentsLogic } from 'products/experiments/frontend/scenes/experimentsLogic'
+import { DUPLICATE_EXPERIMENT_TITLE, copyNamePlaceholder, useDuplicateExperimentModal } from './experimentCopyModals'
+import { QuillDuplicateExperimentModal } from './QuillExperimentCopyModals'
 
 interface DuplicateExperimentModalProps {
     isOpen: boolean
@@ -17,66 +15,24 @@ interface DuplicateExperimentModalProps {
     experiment: Experiment
 }
 
-export function DuplicateExperimentModal({ isOpen, onClose, experiment }: DuplicateExperimentModalProps): JSX.Element {
-    const {
-        featureFlagModalFeatureFlags,
-        featureFlagModalFeatureFlagsLoading,
-        featureFlagModalFilters,
-        featureFlagModalPagination,
-    } = useValues(experimentsLogic)
-    const { duplicateExperiment, setFeatureFlagModalFilters, resetFeatureFlagModalFilters } =
-        useActions(experimentsLogic)
-
-    const [experimentName, setExperimentName] = useState('')
-    const [flagKey, setFlagKey] = useState('')
-    const [flagKeyManuallyEdited, setFlagKeyManuallyEdited] = useState(false)
-    const [isExistingFlag, setIsExistingFlag] = useState(false)
-    const [showReuseFlag, setShowReuseFlag] = useState(false)
-
-    const handleNameChange = (value: string): void => {
-        setExperimentName(value)
-        if (!flagKeyManuallyEdited) {
-            setFlagKey(slugifyFeatureFlagKey(value, { fromTitleInput: true }))
-            setIsExistingFlag(false)
-        }
+export function DuplicateExperimentModal(props: DuplicateExperimentModalProps): JSX.Element {
+    const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    if (todayRailNav && resultsRedesign) {
+        return <QuillDuplicateExperimentModal {...props} />
     }
+    return <LemonDuplicateExperimentModal {...props} />
+}
 
-    const handleFlagKeyChange = (value: string): void => {
-        setFlagKeyManuallyEdited(true)
-        setIsExistingFlag(false)
-        setFlagKey(slugifyFeatureFlagKey(value))
-    }
-
-    const selectExistingFlag = (key: string): void => {
-        setFlagKeyManuallyEdited(true)
-        setIsExistingFlag(true)
-        setFlagKey(key)
-    }
-
-    const handleDuplicate = (): void => {
-        duplicateExperiment({
-            id: experiment.id as number,
-            featureFlagKey: flagKey || undefined,
-            name: experimentName.trim() || undefined,
-        })
-        handleClose()
-    }
-
-    const handleClose = (): void => {
-        resetFeatureFlagModalFilters()
-        setExperimentName('')
-        setFlagKey('')
-        setFlagKeyManuallyEdited(false)
-        setIsExistingFlag(false)
-        setShowReuseFlag(false)
-        onClose()
-    }
+function LemonDuplicateExperimentModal({ isOpen, onClose, experiment }: DuplicateExperimentModalProps): JSX.Element {
+    const { experimentName, handleNameChange, handleDuplicate, handleClose, flagKeyInputProps } =
+        useDuplicateExperimentModal(experiment, onClose)
 
     return (
         <LemonModal
             isOpen={isOpen}
             onClose={handleClose}
-            title="Duplicate experiment"
+            title={DUPLICATE_EXPERIMENT_TITLE}
             width="max-content"
             footer={
                 <div className="flex justify-end">
@@ -96,26 +52,13 @@ export function DuplicateExperimentModal({ isOpen, onClose, experiment }: Duplic
                     <LemonInput
                         value={experimentName}
                         onChange={handleNameChange}
-                        placeholder={`${experiment.name} (Copy)`}
+                        placeholder={copyNamePlaceholder(experiment)}
                         autoFocus
                         data-attr="duplicate-experiment-name"
                     />
                 </div>
 
-                <ExperimentFlagKeyInput
-                    flagKey={flagKey}
-                    onFlagKeyChange={handleFlagKeyChange}
-                    isExistingFlag={isExistingFlag}
-                    sourceExperiment={experiment}
-                    featureFlags={featureFlagModalFeatureFlags}
-                    featureFlagsLoading={featureFlagModalFeatureFlagsLoading}
-                    featureFlagFilters={featureFlagModalFilters}
-                    onFeatureFlagFiltersChange={setFeatureFlagModalFilters}
-                    featureFlagPagination={featureFlagModalPagination}
-                    onSelectExistingFlag={selectExistingFlag}
-                    showReuseFlag={showReuseFlag}
-                    onToggleReuseFlag={setShowReuseFlag}
-                />
+                <ExperimentFlagKeyInput {...flagKeyInputProps} />
             </div>
         </LemonModal>
     )

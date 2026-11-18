@@ -1,35 +1,22 @@
-import { useEffect, useRef, useState } from 'react'
-
 import { IconInfo, IconPencil } from '@posthog/icons'
 import { LemonBanner, LemonInput } from '@posthog/lemon-ui'
 
-import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { SeriesActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { SeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { performQuery } from '~/queries/query'
 import {
-    ExperimentExposureCriteria,
-    ExperimentFunnelMetricStep,
-    ExperimentMetric,
-    ExperimentMetricSource,
-    ExperimentMetricType,
-    ExperimentRetentionStart,
     NodeKind,
     isExperimentExposureNode,
     isExperimentFunnelMetric,
@@ -48,325 +35,70 @@ import {
 import { ExperimentMetricValueFormatSection } from 'products/experiments/frontend/components/ExperimentMetricValueFormatSection'
 import { ExperimentQuantileMetricFields } from 'products/experiments/frontend/components/ExperimentQuantileMetricFields'
 import { WarehouseNativeMetricFields } from 'products/experiments/frontend/warehouseNative/WarehouseNativeMetricFields'
-import {
-    EMPTY_WAREHOUSE_NATIVE_BINDING,
-    getWarehouseNativeBinding,
-    getWarehouseNativeExposure,
-    metricUsesWarehouseNativeSource,
-    toWarehouseNativeMetric,
-} from 'products/experiments/frontend/warehouseNative/warehouseNativeSources'
 
 import { ExperimentMetricConversionWindowFilter } from './ExperimentMetricConversionWindowFilter'
+import {
+    DATA_SOURCE_HELP,
+    EXPOSURE_DOCS_URL,
+    EXPOSURE_HELP,
+    type ExperimentMetricFormProps,
+    GOAL_HELP,
+    HOGQL_DOCS_URL,
+    HOGQL_HELP,
+    POSTHOG_SOURCE_BLOCKED,
+    RECENT_ACTIVITY_HEALTH_HELP,
+    RECENT_ACTIVITY_HELP,
+    RETENTION_COMPLETION_HELP,
+    RETENTION_START_HELP,
+    RETENTION_WINDOW_EXAMPLE,
+    RETENTION_WINDOW_HELP,
+    START_HANDLING_HELP,
+    WAREHOUSE_SOURCE_BLOCKED,
+    dataWarehousePopoverFields,
+    exposureSharingHelp,
+    retentionExposureStartHelp,
+    getExposureCriteriaLabel,
+    useExperimentMetricForm,
+} from './experimentMetricFormModel'
 import { ExperimentMetricFunnelOrderSelector } from './ExperimentMetricFunnelOrderSelector'
 import {
     ExperimentMetricOutlierHandling,
     ExperimentRatioMetricOutlierHandling,
 } from './ExperimentMetricOutlierHandling'
-import { ExperimentMetricThreshold, isThresholdAvailableForMath } from './ExperimentMetricThreshold'
-import { EXPOSURE_DEFAULT_EVENT, getActivationConfig, isDefaultExposureConfig } from './exposureContract'
-import { metricSourcesToSeries, seriesToMetricConfig, seriesToMetricSource, toQuantileSource } from './metricQueryUtils'
+import { ExperimentMetricThreshold } from './ExperimentMetricThreshold'
+import { EXPOSURE_DEFAULT_EVENT } from './exposureContract'
+import { metricSourcesToSeries, seriesToMetricSource } from './metricQueryUtils'
 import { commonActionFilterProps } from './Metrics/Selectors'
-import {
-    getAllowedMathTypes,
-    getDefaultExperimentMetric,
-    getEventCountQuery,
-    getExposureConfigDisplayName,
-    getMathAvailability,
-} from './utils'
+import { getExposureConfigDisplayName } from './utils'
 
-export function getExposureCriteriaLabel(
-    exposureCriteria: ExperimentExposureCriteria | undefined,
-    defaultEvent: string = EXPOSURE_DEFAULT_EVENT
-): string {
-    const exposureConfig = exposureCriteria?.exposure_config
-    if (!exposureConfig || isDefaultExposureConfig(exposureConfig)) {
-        return defaultEvent
-    }
+export { getExposureCriteriaLabel } from './experimentMetricFormModel'
 
-    return getExposureConfigDisplayName(exposureConfig)
-}
-
-const loadEventCount = async (
-    metric: ExperimentMetric,
-    filterTestAccounts: boolean,
-    setEventCount: (count: number | null) => void,
-    setIsLoading: (loading: boolean) => void
-): Promise<void> => {
-    setIsLoading(true)
-    try {
-        const query = getEventCountQuery(metric, filterTestAccounts)
-
-        if (!query) {
-            setEventCount(0)
-            return
-        }
-
-        const response = await performQuery(query)
-
-        let count = 0
-        if (response.results.length > 0) {
-            const firstResult = response.results[0]
-            if (firstResult && typeof firstResult.aggregated_value === 'number') {
-                count = firstResult.aggregated_value
-            }
-        }
-
-        setEventCount(count)
-    } catch (error) {
-        lemonToast.error(JSON.stringify(error))
-        setEventCount(0)
-    } finally {
-        setIsLoading(false)
-    }
-}
-
-const dataWarehousePopoverFields: DataWarehousePopoverField[] = [
-    {
-        key: 'timestamp_field',
-        label: 'Timestamp Field',
-        description: 'The column in your data warehouse table that contains the timestamp of each row',
-    },
-    {
-        key: 'data_warehouse_join_key',
-        label: 'Data Warehouse Join Key',
-        description:
-            'The column in your data warehouse table that identifies which user each row belongs to (e.g. user_id, email)',
-        allowHogQL: true,
-    },
-    {
-        key: 'events_join_key',
-        label: 'Events Join Key',
-        description: 'The field on PostHog events to match against the data warehouse join key (usually distinct_id)',
-        allowHogQL: true,
-        hogQLOnly: true,
-        tableName: 'events',
-    },
-]
-
-/** The sources every metric type accepts: those the series picker can produce. */
-const isPickerSource = (source: ExperimentMetricSource | undefined): source is ExperimentFunnelMetricStep =>
-    !!source &&
-    (source.kind === NodeKind.EventsNode ||
-        source.kind === NodeKind.ActionsNode ||
-        source.kind === NodeKind.ExperimentDataWarehouseNode)
-
-const getMetricSources = (metric: ExperimentMetric): ExperimentMetricSource[] => {
-    if (isExperimentMeanMetric(metric) || isExperimentQuantileMetric(metric)) {
-        return [metric.source]
-    }
-    if (isExperimentFunnelMetric(metric)) {
-        return metric.series
-    }
-    if (isExperimentRatioMetric(metric)) {
-        return metric.denominator ? [metric.numerator, metric.denominator] : [metric.numerator]
-    }
-    if (isExperimentRetentionMetric(metric)) {
-        // An exposure-anchored start has no literal event to carry over
-        const startSources = isExperimentExposureNode(metric.start_event) ? [] : [metric.start_event]
-        return metric.completion_event ? [...startSources, metric.completion_event] : startSources
-    }
-    return []
-}
-
-export function ExperimentMetricForm({
-    metric,
-    isSharedMetric = false,
-    handleSetMetric,
-    filterTestAccounts,
-    exposureCriteria,
-    openExposureCriteriaModal,
-    resolvedExposureEvent = EXPOSURE_DEFAULT_EVENT,
-}: {
-    metric: ExperimentMetric
-    isSharedMetric?: boolean
-    handleSetMetric: (newMetric: ExperimentMetric) => void
-    filterTestAccounts: boolean
-    exposureCriteria?: ExperimentExposureCriteria | undefined
-    openExposureCriteriaModal?: (exposureCriteria?: ExperimentExposureCriteria) => void
-    /**
-     * The experiment's server-resolved default exposure event. Omitted for shared metrics, which
-     * aren't tied to one experiment and so have no resolvable event.
-     */
-    resolvedExposureEvent?: string
-}): JSX.Element {
-    const mathAvailability = getMathAvailability(metric.metric_type)
-    const allowedMathTypes = getAllowedMathTypes(metric.metric_type)
-    const warehouseNativeEnabled = useFeatureFlag('BIGQUERY_DIRECT_QUERY')
-    const warehouseExposure = getWarehouseNativeExposure(exposureCriteria)
-    const usesWarehouseNative = metricUsesWarehouseNativeSource(metric)
-    // Keep an existing warehouse-native metric editable even if the team is no longer flagged in
-    const showDataSource = warehouseNativeEnabled || usesWarehouseNative || !!warehouseExposure
-    const quantileMetricsEnabled = useFeatureFlag('EXPERIMENTS_QUANTILE_METRICS')
-    // A percentile metric that exists already must keep its type in the picker when the team is not flagged in
-    const showQuantileOption = quantileMetricsEnabled || isExperimentQuantileMetric(metric)
-    const [eventCount, setEventCount] = useState<number | null>(null)
-    const [isLoading, setIsLoading] = useState(false)
-    // holds the custom start configuration while the exposure sentinel is selected, so switching back restores it
-    const previousRetentionStart = useRef<{
-        start_event: ExperimentRetentionStart
-        start_handling: 'first_seen' | 'last_seen'
-        conversion_window?: number
-        conversion_window_unit?: FunnelConversionWindowTimeUnit
-    } | null>(null)
-
-    const getEventTypeLabel = (): string => {
-        if (isExperimentMeanMetric(metric) || isExperimentQuantileMetric(metric)) {
-            return metric.source.kind === NodeKind.ActionsNode ? 'actions' : 'events'
-        } else if (isExperimentFunnelMetric(metric)) {
-            const lastStep = metric.series[metric.series.length - 1]
-            return lastStep?.kind === NodeKind.ActionsNode ? 'actions' : 'events'
-        } else if (isExperimentRatioMetric(metric)) {
-            return 'events'
-        }
-        return 'events'
-    }
-
-    const handleSetSeries = (series: SeriesNode[]): void => {
-        const metricConfig = seriesToMetricConfig(metric.metric_type, series)
-        if (metricConfig) {
-            const updatedMetric = { ...metric, ...metricConfig }
-            /**
-             * Switching to a math type that doesn't support thresholds must clear any stale
-             * threshold, otherwise the disabled threshold input traps the value and outlier
-             * handling stays disabled with no way to recover.
-             */
-            if (isExperimentMeanMetric(updatedMetric) && !isThresholdAvailableForMath(updatedMetric.source.math)) {
-                updatedMetric.threshold = undefined
-            }
-            handleSetMetric(updatedMetric)
-        }
-    }
-
-    const handleMetricTypeChange = (newMetricType: ExperimentMetricType): void => {
-        const sources = getMetricSources(metric)
-
-        const newMetric = getDefaultExperimentMetric(newMetricType)
-
-        // Apply the existing sources to the new metric type to preserve selections
-        if (sources.length > 0 && sources[0]) {
-            if (newMetricType === ExperimentMetricType.MEAN && isExperimentMeanMetric(newMetric)) {
-                newMetric.source = sources[0]
-            } else if (newMetricType === ExperimentMetricType.FUNNEL && isExperimentFunnelMetric(newMetric)) {
-                newMetric.series = sources.filter(isPickerSource)
-            } else if (newMetricType === ExperimentMetricType.RATIO && isExperimentRatioMetric(newMetric)) {
-                newMetric.numerator = sources[0]
-            } else if (newMetricType === ExperimentMetricType.RETENTION && isExperimentRetentionMetric(newMetric)) {
-                if (isPickerSource(sources[0])) {
-                    newMetric.start_event = sources[0]
-                }
-                if (isPickerSource(sources[1])) {
-                    newMetric.completion_event = sources[1]
-                }
-            } else if (newMetricType === ExperimentMetricType.QUANTILE && isExperimentQuantileMetric(newMetric)) {
-                newMetric.source = toQuantileSource(sources[0]) ?? newMetric.source
-            }
-        }
-
-        const typedMetric = {
-            ...newMetric,
-            // Keep the current uuid and name
-            uuid: metric.uuid,
-            name: metric.name,
-        }
-        // A new metric type starts with event sources, which a warehouse-native metric cannot mix in
-        handleSetMetric(
-            usesWarehouseNative
-                ? toWarehouseNativeMetric(typedMetric, warehouseExposure ?? getWarehouseNativeBinding(metric))
-                : typedMetric
-        )
-    }
-
-    const handleDataSourceChange = (dataSource: 'posthog' | 'warehouse_native'): void => {
-        // The segmented button also reports a click on the selected option, which must not reset the metric
-        if ((dataSource === 'warehouse_native') === usesWarehouseNative) {
-            return
-        }
-        if (dataSource === 'warehouse_native') {
-            handleSetMetric(toWarehouseNativeMetric(metric, warehouseExposure ?? EMPTY_WAREHOUSE_NATIVE_BINDING))
-        } else {
-            handleSetMetric({
-                ...getDefaultExperimentMetric(metric.metric_type),
-                uuid: metric.uuid,
-                name: metric.name,
-                goal: metric.goal,
-            })
-        }
-    }
-
-    const warehouseNativeTypeReason = usesWarehouseNative
-        ? 'A warehouse-native metric can be a mean or a ratio.'
-        : undefined
-
-    const radioOptions = [
-        {
-            value: ExperimentMetricType.FUNNEL,
-            label: 'Funnel',
-            'data-attr': 'experiment-metric-type-funnel',
-            disabledReason: warehouseNativeTypeReason,
-            description:
-                'Calculates the percentage of users exposed to the experiment who completed the funnel. Useful for measuring conversion rates.',
-        },
-        {
-            value: ExperimentMetricType.MEAN,
-            label: 'Mean',
-            'data-attr': 'experiment-metric-type-mean',
-            description:
-                'Calculates the value per user exposed to the experiment. Useful for measuring count of clicks, revenue or other numeric values.',
-        },
-        {
-            value: ExperimentMetricType.RATIO,
-            label: 'Ratio',
-            'data-attr': 'experiment-metric-type-ratio',
-            description:
-                'Calculates the ratio between two metrics. Useful when you want to use a different denominator than users exposed to the experiment.',
-        },
-        {
-            value: ExperimentMetricType.RETENTION,
-            label: 'Retention',
-            'data-attr': 'experiment-metric-type-retention',
-            disabledReason: warehouseNativeTypeReason,
-            description:
-                'Calculates the retention rate of users exposed to the experiment. Useful for measuring the percentage of users who return to the app after a certain period of time.',
-        },
-        ...(showQuantileOption
-            ? [
-                  {
-                      value: ExperimentMetricType.QUANTILE,
-                      label: 'Percentile',
-                      'data-attr': 'experiment-metric-type-quantile',
-                      disabledReason: warehouseNativeTypeReason,
-                      description:
-                          'Calculates a percentile of a numeric property across all events, such as p90 page load time. Useful for measuring latency and other durations.',
-                  },
-              ]
-            : []),
-    ]
-
-    // dependencies for the loadEventCount useEffect call
-    const singleSource = isExperimentMeanMetric(metric) || isExperimentQuantileMetric(metric) ? metric.source : null
-    const funnelSeries = isExperimentFunnelMetric(metric) ? metric.series : null
-    const ratioNumerator = isExperimentRatioMetric(metric) ? metric.numerator : null
-    const ratioDenominator = isExperimentRatioMetric(metric) ? metric.denominator : null
-    const retentionStartEvent = isExperimentRetentionMetric(metric) ? metric.start_event : null
-    const retentionCompletionEvent = isExperimentRetentionMetric(metric) ? metric.completion_event : null
-
-    useEffect(() => {
-        loadEventCount(metric, filterTestAccounts, setEventCount, setIsLoading)
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [
-        metric.metric_type,
-        singleSource,
-        funnelSeries,
-        ratioNumerator,
-        ratioDenominator,
-        retentionStartEvent,
-        retentionCompletionEvent,
-        filterTestAccounts,
-    ])
-
-    const hideDeleteBtn = (_: any, index: number): boolean => index === 0
-
-    const activationConfig = getActivationConfig(exposureCriteria)
+export function ExperimentMetricForm(props: ExperimentMetricFormProps): JSX.Element {
+    const {
+        metric,
+        isSharedMetric = false,
+        handleSetMetric,
+        exposureCriteria,
+        openExposureCriteriaModal,
+        resolvedExposureEvent = EXPOSURE_DEFAULT_EVENT,
+    } = props
+    const {
+        showDataSource,
+        usesWarehouseNative,
+        handleDataSourceChange,
+        warehouseExposure,
+        handleMetricTypeChange,
+        radioOptions,
+        activationConfig,
+        handleSetSeries,
+        mathAvailability,
+        allowedMathTypes,
+        hideDeleteBtn,
+        setRetentionStartSource,
+        isLoading,
+        eventCount,
+        getEventTypeLabel,
+    } = useExperimentMetricForm(props)
 
     return (
         <SceneContent>
@@ -383,9 +115,7 @@ export function ExperimentMetricForm({
                                         {
                                             value: 'posthog',
                                             label: 'PostHog data',
-                                            disabledReason: warehouseExposure
-                                                ? "This experiment's exposure is a warehouse-native query, so its metrics must be warehouse-native too."
-                                                : undefined,
+                                            disabledReason: warehouseExposure ? POSTHOG_SOURCE_BLOCKED : undefined,
                                             'data-attr': 'experiment-metric-data-source-posthog',
                                         },
                                         {
@@ -393,17 +123,14 @@ export function ExperimentMetricForm({
                                             label: 'Warehouse-native',
                                             disabledReason:
                                                 !isSharedMetric && !warehouseExposure
-                                                    ? "Set this experiment's exposure to a warehouse-native query first."
+                                                    ? WAREHOUSE_SOURCE_BLOCKED
                                                     : undefined,
                                             'data-attr': 'experiment-metric-data-source-warehouse-native',
                                         },
                                     ]}
                                 />
                             </div>
-                            <div className="text-secondary text-xs">
-                                A warehouse-native metric runs a SQL query in your own warehouse through a direct
-                                connection. Only the aggregated results leave the warehouse.
-                            </div>
+                            <div className="text-secondary text-xs">{DATA_SOURCE_HELP}</div>
                         </div>
                     </SceneSection>
                     <SceneDivider />
@@ -455,18 +182,11 @@ export function ExperimentMetricForm({
                             </>
                         )}
                         <Tooltip
-                            docLink="https://posthog.com/docs/experiments/exposures"
+                            docLink={EXPOSURE_DOCS_URL}
                             title={
                                 <div className="space-y-2">
-                                    <p>
-                                        Metrics are only counted for users who have been exposed to the experiment. This
-                                        ensures fair comparison between control and test groups.
-                                    </p>
-                                    <p>
-                                        {exposureCriteria
-                                            ? 'The exposure event is shared across all metrics in this experiment.'
-                                            : 'The exposure event will be configured at the experiment level and shared across all metrics.'}
-                                    </p>
+                                    <p>{EXPOSURE_HELP}</p>
+                                    <p>{exposureSharingHelp(!!exposureCriteria)}</p>
                                 </div>
                             }
                         >
@@ -504,9 +224,8 @@ export function ExperimentMetricForm({
                         )}
                         {metric.source.math === ExperimentMetricMathType.HogQL && (
                             <div className="text-muted text-sm mt-2">
-                                SQL expressions allow you to write custom computations and aggregations. The expression
-                                should return a numeric value and will be evaluated for each user in the experiment.{' '}
-                                <Link to="https://posthog.com/docs/hogql/expressions" target="_blank">
+                                {HOGQL_HELP}{' '}
+                                <Link to={HOGQL_DOCS_URL} target="_blank">
                                     Learn more about HogQL expressions
                                 </Link>
                             </div>
@@ -632,7 +351,7 @@ export function ExperimentMetricForm({
                         <div>
                             <LemonLabel className="mb-1">
                                 Start event
-                                <Tooltip title="The event that triggers retention tracking. Retention is measured from when users perform this event.">
+                                <Tooltip title={RETENTION_START_HELP}>
                                     <IconInfo className="ml-1 text-muted" />
                                 </Tooltip>
                             </LemonLabel>
@@ -641,51 +360,14 @@ export function ExperimentMetricForm({
                                 data-attr="experiment-retention-start-source"
                                 orientation="horizontal"
                                 value={isExperimentExposureNode(metric.start_event) ? 'exposure' : 'custom'}
-                                onChange={(value) => {
-                                    if (value === 'exposure') {
-                                        if (!isExperimentExposureNode(metric.start_event)) {
-                                            previousRetentionStart.current = {
-                                                start_event: metric.start_event,
-                                                start_handling: metric.start_handling,
-                                                conversion_window: metric.conversion_window,
-                                                conversion_window_unit: metric.conversion_window_unit,
-                                            }
-                                        }
-                                        // the backend rejects a conversion window or 'last_seen' start handling on an exposure start
-                                        handleSetMetric({
-                                            ...metric,
-                                            start_event: { kind: NodeKind.ExperimentExposureNode },
-                                            start_handling: 'first_seen',
-                                            conversion_window: undefined,
-                                            conversion_window_unit: undefined,
-                                        })
-                                    } else {
-                                        const previous = previousRetentionStart.current
-                                        handleSetMetric({
-                                            ...metric,
-                                            start_event: previous?.start_event ?? {
-                                                kind: NodeKind.EventsNode,
-                                                event: '$pageview',
-                                                name: '$pageview',
-                                                math: ExperimentMetricMathType.TotalCount,
-                                            },
-                                            start_handling: previous?.start_handling ?? 'first_seen',
-                                            conversion_window: previous?.conversion_window,
-                                            conversion_window_unit: previous?.conversion_window_unit,
-                                        })
-                                    }
-                                }}
+                                onChange={setRetentionStartSource}
                                 options={[
                                     { value: 'custom', label: 'Custom event' },
                                     { value: 'exposure', label: 'Experiment exposure' },
                                 ]}
                             />
                             {isExperimentExposureNode(metric.start_event) ? (
-                                <div className="text-muted text-xs">
-                                    {isSharedMetric
-                                        ? "Retention starts from each user's first exposure. Each experiment using this metric anchors on its own exposure event."
-                                        : "Retention starts from each user's first exposure to the experiment."}
-                                </div>
+                                <div className="text-muted text-xs">{retentionExposureStartHelp(isSharedMetric)}</div>
                             ) : (
                                 <SeriesActionFilter
                                     bordered
@@ -715,7 +397,7 @@ export function ExperimentMetricForm({
                         <div>
                             <LemonLabel className="mb-1">
                                 Completion event
-                                <Tooltip title="The event that indicates a user was 'retained'. We check if users who performed the start event also perform this event within the retention window.">
+                                <Tooltip title={RETENTION_COMPLETION_HELP}>
                                     <IconInfo className="ml-1 text-muted" />
                                 </Tooltip>
                             </LemonLabel>
@@ -749,14 +431,8 @@ export function ExperimentMetricForm({
                                 <Tooltip
                                     title={
                                         <div className="space-y-2">
-                                            <p>
-                                                The time period after the start event during which we check for the
-                                                completion event.
-                                            </p>
-                                            <p>
-                                                "From 7 to 14 days" captures completions from day 7 through day 14
-                                                (inclusive).
-                                            </p>
+                                            <p>{RETENTION_WINDOW_HELP}</p>
+                                            <p>{RETENTION_WINDOW_EXAMPLE}</p>
                                         </div>
                                     }
                                 >
@@ -815,7 +491,7 @@ export function ExperimentMetricForm({
                             <div>
                                 <LemonLabel className="mb-1">
                                     When users have multiple start events
-                                    <Tooltip title="Choose how to handle users who perform the start event multiple times during the experiment.">
+                                    <Tooltip title={START_HANDLING_HELP}>
                                         <IconInfo className="ml-1 text-muted" />
                                     </Tooltip>
                                 </LemonLabel>
@@ -854,9 +530,7 @@ export function ExperimentMetricForm({
                             { value: ExperimentMetricGoal.Decrease, label: 'Decrease' },
                         ]}
                     />
-                    <div className="text-muted text-xs mt-1">
-                        For example, conversion rates should increase, while bounce rates should decrease.
-                    </div>
+                    <div className="text-muted text-xs mt-1">{GOAL_HELP}</div>
                 </div>
             </SceneSection>
             <SceneDivider />
@@ -892,11 +566,8 @@ export function ExperimentMetricForm({
                     className="max-w-prose"
                     titleHelper={
                         <div className="flex flex-col gap-2">
-                            <div>This shows recent activity for your selected metric over the past 2 weeks.</div>
-                            <div>
-                                It's a quick health check to ensure your tracking is working properly, so that you'll
-                                receive accurate results when your experiment starts.
-                            </div>
+                            <div>{RECENT_ACTIVITY_HELP}</div>
+                            <div>{RECENT_ACTIVITY_HEALTH_HELP}</div>
                             <div>
                                 If you see zero activity, double-check that this metric is being tracked properly in
                                 your application. Head to{' '}

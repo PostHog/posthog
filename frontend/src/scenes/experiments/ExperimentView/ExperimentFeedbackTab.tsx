@@ -12,6 +12,24 @@ import { Experiment } from '~/types'
 
 import { experimentFeedbackTabLogic } from './experimentFeedbackTabLogic'
 
+export const FEEDBACK_LOAD_ERROR = "Couldn't load the surveys for this experiment."
+export const FEEDBACK_DRAFT_NOTE =
+    "This experiment hasn't launched yet. Surveys linked to it start showing to users once it launches."
+export const FEEDBACK_EMPTY_HEADER = 'Survey your experiment participants'
+export const FEEDBACK_EMPTY_DESCRIPTION =
+    'Create a survey that targets users exposed to this experiment. Responses are linked to the experiment so you can review them alongside your results.'
+
+export function FeedbackSurveysNote(): JSX.Element {
+    return (
+        <>
+            Showing only surveys associated with this experiment.{' '}
+            <Link to={urls.surveys(SurveysTabs.Active)}>
+                See all surveys <IconArrowRight />
+            </Link>
+        </>
+    )
+}
+
 export function ExperimentFeedbackTab({ experiment }: { experiment: Experiment }): JSX.Element {
     const logic = experimentFeedbackTabLogic({ experiment })
     const { experimentSurveys, experimentSurveysLoaded, experimentSurveysLoading, experimentSurveysLoadFailed } =
@@ -29,7 +47,7 @@ export function ExperimentFeedbackTab({ experiment }: { experiment: Experiment }
     if (experimentSurveysLoadFailed) {
         return (
             <LemonBanner type="error" action={{ children: 'Try again', onClick: loadExperimentSurveys }}>
-                Couldn't load the surveys for this experiment.
+                {FEEDBACK_LOAD_ERROR}
             </LemonBanner>
         )
     }
@@ -39,7 +57,7 @@ export function ExperimentFeedbackTab({ experiment }: { experiment: Experiment }
             {/* A reset experiment is a draft whose flag stays active, so its surveys keep showing */}
             {!experiment.start_date && !experiment.feature_flag?.active && (
                 <LemonBanner type="info" className="mb-6" data-attr="experiment-feedback-draft-note">
-                    This experiment hasn't launched yet. Surveys linked to it start showing to users once it launches.
+                    {FEEDBACK_DRAFT_NOTE}
                 </LemonBanner>
             )}
             <FeedbackTabContent
@@ -48,16 +66,9 @@ export function ExperimentFeedbackTab({ experiment }: { experiment: Experiment }
                     type: QuickSurveyType.EXPERIMENT,
                     experiment,
                 }}
-                emptyStateHeader="Survey your experiment participants"
-                emptyStateDescription="Create a survey that targets users exposed to this experiment. Responses are linked to the experiment so you can review them alongside your results."
-                multipleSurveysBannerMessage={
-                    <>
-                        Showing only surveys associated with this experiment.{' '}
-                        <Link to={urls.surveys(SurveysTabs.Active)}>
-                            See all surveys <IconArrowRight />
-                        </Link>
-                    </>
-                }
+                emptyStateHeader={FEEDBACK_EMPTY_HEADER}
+                emptyStateDescription={FEEDBACK_EMPTY_DESCRIPTION}
+                multipleSurveysBannerMessage={<FeedbackSurveysNote />}
             />
         </>
     )

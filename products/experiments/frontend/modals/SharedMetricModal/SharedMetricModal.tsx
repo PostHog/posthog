@@ -1,20 +1,18 @@
-import { useActions, useValues } from 'kea'
-
 import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonModal, Link } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { pluralize } from 'lib/utils/strings'
 import { formatMetricTypeName } from 'scenes/experiments/MetricsView/shared/utils'
 import { InlineTagEditor } from 'scenes/experiments/SharedMetrics/InlineTagEditor'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
-import { sharedMetricsLogic } from 'scenes/experiments/SharedMetrics/sharedMetricsLogic'
 import { urls } from 'scenes/urls'
 
 import { Experiment } from '~/types'
 
 import { MetricContext } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
 
-import { sharedMetricModalLogic } from './sharedMetricModalLogic'
+import { QuillSharedMetricModal } from './QuillSharedMetricModal'
+import { NO_COMPATIBLE_SHARED_METRICS, useSharedMetricModal } from './useSharedMetricModal'
 
 export function SharedMetricModal({
     experiment,
@@ -23,53 +21,43 @@ export function SharedMetricModal({
     experiment: Experiment
     onSave: (metrics: SharedMetric[], context: MetricContext) => void
 }): JSX.Element | null {
-    const {
-        isModalOpen,
-        context,
-        compatibleSharedMetrics,
-        displayedMetrics,
-        availableTags,
-        filterTags,
-        searchTerm,
-        sharedMetricsResponseLoading,
-        hasAnyCompatibleSharedMetrics,
-        selectedMetricIds,
-    } = useValues(sharedMetricModalLogic)
-    const {
-        closeSharedMetricModal,
-        setSearchTerm,
-        toggleSelectedMetricId,
-        setSelectedMetricIds,
-        clearSelectedMetricIds,
-        selectByTag,
-        clearFilterTags,
-    } = useActions(sharedMetricModalLogic)
-    const { savingTagsMetricId } = useValues(sharedMetricsLogic)
-    const { updateSharedMetricTags } = useActions(sharedMetricsLogic)
+    const model = useSharedMetricModal(experiment, onSave)
+    const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
-    if (!compatibleSharedMetrics) {
+    if (!model.ready) {
         return null
     }
 
-    const addSharedMetricDisabledReason = (): string | undefined => {
-        if (selectedMetricIds.length === 0) {
-            return 'Please select at least one metric'
-        }
+    if (todayRailNav && resultsRedesign) {
+        return <QuillSharedMetricModal model={model} />
     }
 
-    const closeModal = (): void => {
-        clearSelectedMetricIds()
-        closeSharedMetricModal()
-    }
-
-    const savedMetrics = experiment.saved_metrics ?? []
-    const alreadyAddedIdsList = savedMetrics.map((savedMetric) => savedMetric.saved_metric)
-    const alreadyAddedIds = new Set(alreadyAddedIdsList)
-
-    // Ids of the currently displayed metrics (after tag filtering) that can still be added.
-    const displayedSelectableIds = displayedMetrics
-        .filter((metric: SharedMetric) => !alreadyAddedIds.has(metric.id))
-        .map((metric: SharedMetric) => metric.id)
+    const {
+        isOpen: isModalOpen,
+        close: closeModal,
+        save,
+        saveLabel,
+        saveDisabledReason,
+        hasAnyCompatibleSharedMetrics,
+        alreadyAddedNote,
+        alreadyAddedIds,
+        displayedMetrics,
+        displayedSelectableIds,
+        selectedMetricIds,
+        toggleSelectedMetricId,
+        clearSelectedMetricIds,
+        selectAllDisplayed,
+        searchTerm,
+        setSearchTerm,
+        availableTags,
+        filterTags,
+        selectByTag,
+        clearFilterTags,
+        loading: sharedMetricsResponseLoading,
+        savingTagsMetricId,
+        updateSharedMetricTags,
+    } = model
 
     return (
         <LemonModal
@@ -85,19 +73,8 @@ export function SharedMetricModal({
                         </LemonButton>
                         {/* Changing the existing metric is a pain because saved metrics are stored separately */}
                         {/* Only allow deletion for now */}
-                        <LemonButton
-                            onClick={() => {
-                                const metrics = selectedMetricIds
-                                    .map((metricId) => compatibleSharedMetrics.find((m) => m.id === metricId))
-                                    .filter((metric): metric is SharedMetric => metric !== undefined)
-
-                                onSave(metrics, context)
-                                clearSelectedMetricIds()
-                            }}
-                            type="primary"
-                            disabledReason={addSharedMetricDisabledReason()}
-                        >
-                            {selectedMetricIds.length < 2 ? 'Add metric' : 'Add metrics'}
+                        <LemonButton onClick={save} type="primary" disabledReason={saveDisabledReason}>
+                            {saveLabel}
                         </LemonButton>
                     </div>
                 </div>
@@ -106,13 +83,7 @@ export function SharedMetricModal({
             <div className="deprecated-space-y-2">
                 {hasAnyCompatibleSharedMetrics ? (
                     <>
-                        {savedMetrics.length > 0 && (
-                            <LemonBanner type="info">
-                                {`${pluralize(savedMetrics.length, 'shared metric')} ${
-                                    savedMetrics.length > 1 ? 'are' : 'is'
-                                } already in the experiment.`}
-                            </LemonBanner>
-                        )}
+                        {alreadyAddedNote && <LemonBanner type="info">{alreadyAddedNote}</LemonBanner>}
                         <LemonInput
                             type="search"
                             placeholder="Search shared metrics..."
@@ -129,12 +100,7 @@ export function SharedMetricModal({
                                 disabledReason={
                                     displayedSelectableIds.length === 0 ? 'No metrics to select' : undefined
                                 }
-                                onClick={() => {
-                                    // Add every currently displayed (tag-filtered) metric to the selection.
-                                    setSelectedMetricIds(
-                                        Array.from(new Set([...selectedMetricIds, ...displayedSelectableIds]))
-                                    )
-                                }}
+                                onClick={selectAllDisplayed}
                             >
                                 All
                             </LemonButton>
@@ -163,11 +129,7 @@ export function SharedMetricModal({
                                         disabledReason={
                                             sharedMetricsResponseLoading ? 'Loading all metrics…' : undefined
                                         }
-                                        onClick={() => {
-                                            // Toggle this tag: selects (and shows) every metric carrying it, across
-                                            // all pages — or deselects them if it was already active.
-                                            selectByTag(tag, alreadyAddedIdsList)
-                                        }}
+                                        onClick={() => selectByTag(tag)}
                                     >
                                         {tag}
                                     </LemonButton>
@@ -253,10 +215,7 @@ export function SharedMetricModal({
                     </>
                 ) : (
                     <LemonBanner className="w-full" type="info">
-                        <div className="mb-2">
-                            You don't have any shared metrics that match the experiment type. Shared metrics let you
-                            create reusable metrics that you can quickly add to any experiment.
-                        </div>
+                        <div className="mb-2">{NO_COMPATIBLE_SHARED_METRICS}</div>
                         <Link to={urls.experimentsSharedMetric('new')} target="_blank">
                             New shared metric
                         </Link>

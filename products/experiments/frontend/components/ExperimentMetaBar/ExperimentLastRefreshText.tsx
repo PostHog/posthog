@@ -1,16 +1,21 @@
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 
-export function ExperimentLastRefreshText({ lastRefresh }: { lastRefresh: string | null }): JSX.Element {
+/** Results over 12 hours old read as stale, over 6 hours as ageing. */
+export function refreshStaleness(lastRefresh: string | null): 'stale' | 'ageing' | null {
     const hoursSinceRefresh = lastRefresh ? dayjs().diff(dayjs(lastRefresh), 'hours') : null
-    const colorClass =
-        hoursSinceRefresh === null
-            ? ''
-            : hoursSinceRefresh > 12
-              ? 'text-danger'
-              : hoursSinceRefresh > 6
-                ? 'text-warning'
-                : ''
+    return hoursSinceRefresh === null
+        ? null
+        : hoursSinceRefresh > 12
+          ? 'stale'
+          : hoursSinceRefresh > 6
+            ? 'ageing'
+            : null
+}
+
+export function ExperimentLastRefreshText({ lastRefresh }: { lastRefresh: string | null }): JSX.Element {
+    const staleness = refreshStaleness(lastRefresh)
+    const colorClass = staleness === 'stale' ? 'text-danger' : staleness === 'ageing' ? 'text-warning' : ''
 
     return (
         <span className={colorClass}>

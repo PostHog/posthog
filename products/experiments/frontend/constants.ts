@@ -88,3 +88,5 @@ export const NEW_EXPERIMENT: Experiment = {
     },
     user_access_level: AccessControlLevel.Editor,
 }
+
+export const MULTIPLE_EXPOSURES_DOCS_URL = 'https://posthog.com/docs/experiments/exposures#handling-multiple-exposures'

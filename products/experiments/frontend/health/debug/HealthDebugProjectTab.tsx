@@ -7,6 +7,7 @@ import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { SdkProfileSection } from '../../setupInspector/sections/SdkProfileSection'
 import { TeamDefaultsSection } from '../../setupInspector/sections/TeamDefaultsSection'
 import { experimentHealthDebugLogic } from './experimentHealthDebugLogic'
+import { PROJECT_FACTS_DESCRIPTION, PROJECT_FACTS_NOT_LOADED, SDK_PROFILE_SKIPPED } from './healthDebugCopy'
 
 export function HealthDebugProjectTab(): JSX.Element {
     const { experimentId } = useValues(experimentLogic)
@@ -16,19 +17,13 @@ export function HealthDebugProjectTab(): JSX.Element {
         return healthInputsLoading ? (
             <LemonSkeleton repeat={6} className="h-6" />
         ) : (
-            <p className="text-secondary mb-0">The project facts did not load. Reload the inputs to try again.</p>
+            <p className="text-secondary mb-0">{PROJECT_FACTS_NOT_LOADED}</p>
         )
     }
     return (
         <div className="flex flex-col gap-4">
-            <p className="text-secondary text-sm mb-0">
-                Project-wide facts, read by the same providers as the setup context. No check reads them yet. They help
-                explain a finding, for example when flags are evaluated outside the flag service.
-            </p>
-            <SdkProfileSection
-                section={healthInputs.project.sdk_profile}
-                skippedMessage="Skipped, because you may not query events or are denied a property it reads."
-            />
+            <p className="text-secondary text-sm mb-0">{PROJECT_FACTS_DESCRIPTION}</p>
+            <SdkProfileSection section={healthInputs.project.sdk_profile} skippedMessage={SDK_PROFILE_SKIPPED} />
             <TeamDefaultsSection section={healthInputs.project.team_defaults} />
         </div>
     )

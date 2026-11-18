@@ -1,5 +1,7 @@
 import { useState } from 'react'
 
+import { Badge } from '@posthog/quill'
+
 import { ExperimentMetric } from '~/queries/schema/schema-general'
 import { generateViolinPath } from '~/scenes/experiments/MetricsView/violinUtils'
 
@@ -48,19 +50,32 @@ interface ChartCellProps {
     highlightBackgroundColor?: string
 }
 
-export function ChartCell({
+interface VariantChartProps {
+    variantResult: ExperimentVariantResult
+    metric: ExperimentMetric
+    axisRange: number
+    metricUuid?: string
+    showGridLines?: boolean
+    isSecondary?: boolean
+    onTimeseriesClick?: () => void
+    /** Extra suffix to disambiguate SVG gradient IDs (e.g. breakdown value) */
+    gradientSuffix?: string
+    /** Shows the "not enough data" and error notices as quill badges. */
+    quill?: boolean
+}
+
+/** The interval bar, delta marker and grid lines of one variant, without the table cell around them. */
+export function VariantChart({
     variantResult,
     metric,
     axisRange,
     metricUuid,
     showGridLines = true,
-    isAlternatingRow = false,
-    isLastRow = false,
     isSecondary = false,
     onTimeseriesClick,
     gradientSuffix,
-    highlightBackgroundColor,
-}: ChartCellProps): JSX.Element {
+    quill = false,
+}: VariantChartProps): JSX.Element {
     const colors = useChartColors()
     const scale = useAxisScale(axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
     const [isHovered, setIsHovered] = useState(false)
@@ -92,6 +107,164 @@ export function ChartCell({
     const isClickable = !!onTimeseriesClick
 
     return (
+        <div className="relative h-full">
+            <svg
+                viewBox={`0 0 ${VIEW_BOX_WIDTH} ${CHART_CELL_VIEW_BOX_HEIGHT}`}
+                preserveAspectRatio="none"
+                className="h-full w-full"
+            >
+                {/* Grid lines for all ticks - spans full height */}
+                {showGridLines && (
+                    <GridLines
+                        tickValues={getNiceTickValues(axisRange)}
+                        scale={scale}
+                        height={viewBoxHeight}
+                        viewBoxWidth={VIEW_BOX_WIDTH}
+                        zeroLineColor={colors.ZERO_LINE}
+                        gridLineColor={colors.BOUNDARY_LINES}
+                        zeroLineWidth={1.25}
+                        gridLineWidth={0.75}
+                        opacity={GRID_LINES_OPACITY}
+                        edgeMargin={SVG_EDGE_MARGIN}
+                    />
+                )}
+
+                {/* Render content based on data availability */}
+                {hasEnoughData && (
+                    <>
+                        {/* Gradient definition for this specific bar */}
+                        <ChartGradients
+                            lower={lower}
+                            upper={upper}
+                            metric={metric}
+                            isSignificant={isSignificant(variantResult)}
+                            isBayesian={isBayesianResult(variantResult)}
+                            gradientId={gradientId}
+                        />
+
+                        {/* Render violin plot for Bayesian or rectangular bar for Frequentist */}
+                        {isBayesianResult(variantResult) ? (
+                            <>
+                                <path
+                                    d={generateViolinPath(x1, x2, y, barHeightPercent, deltaX)}
+                                    fill={`url(#${gradientId})`}
+                                    opacity={CHART_BAR_OPACITY}
+                                    style={{
+                                        cursor: isClickable ? 'pointer' : 'default',
+                                    }}
+                                    onClick={onTimeseriesClick}
+                                    onMouseEnter={isClickable ? () => setIsHovered(true) : undefined}
+                                    onMouseLeave={isClickable ? () => setIsHovered(false) : undefined}
+                                />
+                                {/* Hover overlay for clickable bars */}
+                                {isClickable && (
+                                    <path
+                                        d={generateViolinPath(x1, x2, y, barHeightPercent, deltaX)}
+                                        fill="white"
+                                        opacity={isHovered ? 0.25 : 0}
+                                        pointerEvents="none"
+                                        style={{
+                                            transition: 'opacity 0.15s ease-in-out',
+                                        }}
+                                    />
+                                )}
+                            </>
+                        ) : (
+                            <>
+                                <rect
+                                    x={x1}
+                                    y={y}
+                                    width={x2 - x1}
+                                    height={barHeightPercent}
+                                    fill={`url(#${gradientId})`}
+                                    opacity={CHART_BAR_OPACITY}
+                                    rx={3}
+                                    ry={3}
+                                    style={{
+                                        cursor: isClickable ? 'pointer' : 'default',
+                                    }}
+                                    onClick={onTimeseriesClick}
+                                    onMouseEnter={isClickable ? () => setIsHovered(true) : undefined}
+                                    onMouseLeave={isClickable ? () => setIsHovered(false) : undefined}
+                                />
+                                {/* Hover overlay for clickable bars */}
+                                {isClickable && (
+                                    <rect
+                                        x={x1}
+                                        y={y}
+                                        width={x2 - x1}
+                                        height={barHeightPercent}
+                                        fill="white"
+                                        opacity={isHovered ? 0.25 : 0}
+                                        rx={3}
+                                        ry={3}
+                                        pointerEvents="none"
+                                        style={{
+                                            transition: 'opacity 0.15s ease-in-out',
+                                        }}
+                                    />
+                                )}
+                            </>
+                        )}
+
+                        {/* Delta marker */}
+                        <line
+                            x1={deltaX}
+                            y1={y}
+                            x2={deltaX}
+                            y2={y + barHeightPercent}
+                            stroke={colors.BAR_MIDDLE_POINT}
+                            strokeWidth={2}
+                            shapeRendering="crispEdges"
+                            style={{
+                                cursor: isClickable ? 'pointer' : 'default',
+                            }}
+                            onClick={onTimeseriesClick}
+                            onMouseEnter={isClickable ? () => setIsHovered(true) : undefined}
+                            onMouseLeave={isClickable ? () => setIsHovered(false) : undefined}
+                        />
+                    </>
+                )}
+            </svg>
+
+            {/* Validation failure message as HTML overlay */}
+            {(!hasEnoughData || validationFailureType) && (
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    {quill ? (
+                        <Badge variant={validationFailureType === 'error' ? 'destructive' : 'default'}>
+                            {validationFailureType === 'error' ? 'Error' : 'Not enough data yet'}
+                        </Badge>
+                    ) : (
+                        <div
+                            className={`px-3 py-1 rounded text-xs whitespace-nowrap ${
+                                validationFailureType === 'error'
+                                    ? 'bg-danger-highlight text-danger'
+                                    : 'bg-border-light text-muted'
+                            }`}
+                        >
+                            {validationFailureType === 'error' ? 'Error' : 'Not enough data yet'}
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    )
+}
+
+export function ChartCell({
+    variantResult,
+    metric,
+    axisRange,
+    metricUuid,
+    showGridLines = true,
+    isAlternatingRow = false,
+    isLastRow = false,
+    isSecondary = false,
+    onTimeseriesClick,
+    gradientSuffix,
+    highlightBackgroundColor,
+}: ChartCellProps): JSX.Element {
+    return (
         <td
             data-table-cell="chart"
             className={`p-0 align-top text-center relative overflow-hidden ${
@@ -104,141 +277,16 @@ export function ChartCell({
                     : undefined,
             }}
         >
-            <div className="relative h-full">
-                <svg
-                    viewBox={`0 0 ${VIEW_BOX_WIDTH} ${CHART_CELL_VIEW_BOX_HEIGHT}`}
-                    preserveAspectRatio="none"
-                    className="h-full w-full"
-                >
-                    {/* Grid lines for all ticks - spans full height */}
-                    {showGridLines && (
-                        <GridLines
-                            tickValues={getNiceTickValues(axisRange)}
-                            scale={scale}
-                            height={viewBoxHeight}
-                            viewBoxWidth={VIEW_BOX_WIDTH}
-                            zeroLineColor={colors.ZERO_LINE}
-                            gridLineColor={colors.BOUNDARY_LINES}
-                            zeroLineWidth={1.25}
-                            gridLineWidth={0.75}
-                            opacity={GRID_LINES_OPACITY}
-                            edgeMargin={SVG_EDGE_MARGIN}
-                        />
-                    )}
-
-                    {/* Render content based on data availability */}
-                    {hasEnoughData && (
-                        <>
-                            {/* Gradient definition for this specific bar */}
-                            <ChartGradients
-                                lower={lower}
-                                upper={upper}
-                                metric={metric}
-                                isSignificant={isSignificant(variantResult)}
-                                isBayesian={isBayesianResult(variantResult)}
-                                gradientId={gradientId}
-                            />
-
-                            {/* Render violin plot for Bayesian or rectangular bar for Frequentist */}
-                            {isBayesianResult(variantResult) ? (
-                                <>
-                                    <path
-                                        d={generateViolinPath(x1, x2, y, barHeightPercent, deltaX)}
-                                        fill={`url(#${gradientId})`}
-                                        opacity={CHART_BAR_OPACITY}
-                                        style={{
-                                            cursor: isClickable ? 'pointer' : 'default',
-                                        }}
-                                        onClick={onTimeseriesClick}
-                                        onMouseEnter={isClickable ? () => setIsHovered(true) : undefined}
-                                        onMouseLeave={isClickable ? () => setIsHovered(false) : undefined}
-                                    />
-                                    {/* Hover overlay for clickable bars */}
-                                    {isClickable && (
-                                        <path
-                                            d={generateViolinPath(x1, x2, y, barHeightPercent, deltaX)}
-                                            fill="white"
-                                            opacity={isHovered ? 0.25 : 0}
-                                            pointerEvents="none"
-                                            style={{
-                                                transition: 'opacity 0.15s ease-in-out',
-                                            }}
-                                        />
-                                    )}
-                                </>
-                            ) : (
-                                <>
-                                    <rect
-                                        x={x1}
-                                        y={y}
-                                        width={x2 - x1}
-                                        height={barHeightPercent}
-                                        fill={`url(#${gradientId})`}
-                                        opacity={CHART_BAR_OPACITY}
-                                        rx={3}
-                                        ry={3}
-                                        style={{
-                                            cursor: isClickable ? 'pointer' : 'default',
-                                        }}
-                                        onClick={onTimeseriesClick}
-                                        onMouseEnter={isClickable ? () => setIsHovered(true) : undefined}
-                                        onMouseLeave={isClickable ? () => setIsHovered(false) : undefined}
-                                    />
-                                    {/* Hover overlay for clickable bars */}
-                                    {isClickable && (
-                                        <rect
-                                            x={x1}
-                                            y={y}
-                                            width={x2 - x1}
-                                            height={barHeightPercent}
-                                            fill="white"
-                                            opacity={isHovered ? 0.25 : 0}
-                                            rx={3}
-                                            ry={3}
-                                            pointerEvents="none"
-                                            style={{
-                                                transition: 'opacity 0.15s ease-in-out',
-                                            }}
-                                        />
-                                    )}
-                                </>
-                            )}
-
-                            {/* Delta marker */}
-                            <line
-                                x1={deltaX}
-                                y1={y}
-                                x2={deltaX}
-                                y2={y + barHeightPercent}
-                                stroke={colors.BAR_MIDDLE_POINT}
-                                strokeWidth={2}
-                                shapeRendering="crispEdges"
-                                style={{
-                                    cursor: isClickable ? 'pointer' : 'default',
-                                }}
-                                onClick={onTimeseriesClick}
-                                onMouseEnter={isClickable ? () => setIsHovered(true) : undefined}
-                                onMouseLeave={isClickable ? () => setIsHovered(false) : undefined}
-                            />
-                        </>
-                    )}
-                </svg>
-
-                {/* Validation failure message as HTML overlay */}
-                {(!hasEnoughData || validationFailureType) && (
-                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                        <div
-                            className={`px-3 py-1 rounded text-xs whitespace-nowrap ${
-                                validationFailureType === 'error'
-                                    ? 'bg-danger-highlight text-danger'
-                                    : 'bg-border-light text-muted'
-                            }`}
-                        >
-                            {validationFailureType === 'error' ? 'Error' : 'Not enough data yet'}
-                        </div>
-                    </div>
-                )}
-            </div>
+            <VariantChart
+                variantResult={variantResult}
+                metric={metric}
+                axisRange={axisRange}
+                metricUuid={metricUuid}
+                showGridLines={showGridLines}
+                isSecondary={isSecondary}
+                onTimeseriesClick={onTimeseriesClick}
+                gradientSuffix={gradientSuffix}
+            />
         </td>
     )
 }

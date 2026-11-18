@@ -1,22 +1,15 @@
-import { useActions, useValues } from 'kea'
-
 import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonModal } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ExperimentMetricForm } from 'scenes/experiments/ExperimentMetricForm'
-import { exposureCriteriaModalLogic } from 'scenes/experiments/ExperimentView/exposureCriteriaModalLogic'
 import { resolveFilterTestAccounts, resolvedExposureEvent } from 'scenes/experiments/exposureContract'
-import { getMetricIncompleteReason } from 'scenes/experiments/utils'
 
 import type { ExperimentExposureCriteria, ExperimentMetric } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 
-import {
-    alignMetricsWithExposure,
-    getWarehouseNativeExposure,
-    getWarehouseNativeMetricError,
-} from 'products/experiments/frontend/warehouseNative/warehouseNativeSources'
-
-import { type MetricContext, experimentMetricModalLogic } from './experimentMetricModalLogic'
+import { type MetricContext } from './experimentMetricModalLogic'
+import { QuillExperimentMetricModal } from './QuillExperimentMetricModal'
+import { DELETE_METRIC_TITLE, DELETE_METRIC_WARNING, useExperimentMetricModal } from './useExperimentMetricModal'
 
 export function ExperimentMetricModal({
     experiment,
@@ -29,18 +22,37 @@ export function ExperimentMetricModal({
     onSave: (metric: ExperimentMetric, context: MetricContext) => void
     onDelete: (metric: ExperimentMetric, context: MetricContext) => void
 }): JSX.Element | null {
-    const { isModalOpen, metric, context, isCreateMode, isEditMode } = useValues(experimentMetricModalLogic)
-    const { closeExperimentMetricModal, setMetric: setModalMetric } = useActions(experimentMetricModalLogic)
-    const { openExposureCriteriaModal } = useActions(exposureCriteriaModalLogic)
+    const model = useExperimentMetricModal(exposureCriteria)
+    const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const {
+        isOpen: isModalOpen,
+        metric,
+        context,
+        isCreateMode,
+        isEditMode,
+        close: closeExperimentMetricModal,
+        setMetric: setModalMetric,
+        openExposureCriteriaModal,
+        metricToSave,
+        saveDisabledReason,
+    } = model
 
-    if (!isModalOpen || !metric) {
+    if (!isModalOpen || !metric || !metricToSave) {
         return null
     }
 
-    // The exposure can change while this modal is open, and the API rejects a metric on another connection or unit
-    const warehouseExposure = getWarehouseNativeExposure(exposureCriteria)
-    const metricToSave = warehouseExposure ? alignMetricsWithExposure([metric], warehouseExposure)[0] : metric
-    const saveDisabledReason = getWarehouseNativeMetricError(metricToSave) ?? getMetricIncompleteReason(metricToSave)
+    if (todayRailNav && resultsRedesign) {
+        return (
+            <QuillExperimentMetricModal
+                model={model}
+                experiment={experiment}
+                exposureCriteria={exposureCriteria}
+                onSave={onSave}
+                onDelete={onDelete}
+            />
+        )
+    }
 
     return (
         <LemonModal
@@ -55,8 +67,8 @@ export function ExperimentMetricModal({
                             status="danger"
                             onClick={() => {
                                 LemonDialog.open({
-                                    title: 'Delete this metric?',
-                                    content: <div className="text-sm text-muted">This action cannot be undone.</div>,
+                                    title: DELETE_METRIC_TITLE,
+                                    content: <div className="text-sm text-muted">{DELETE_METRIC_WARNING}</div>,
                                     primaryButton: {
                                         children: 'Delete',
                                         type: 'primary',

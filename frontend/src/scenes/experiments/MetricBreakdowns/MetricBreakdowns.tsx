@@ -7,7 +7,7 @@ import { ExperimentFunnelMetric, ExperimentMetric } from '~/queries/schema/schem
 import { isExperimentFunnelMetric } from '~/queries/schema/schema-general'
 import { BreakdownAttributionType, StepOrderValue } from '~/types'
 
-import { MetricBreakdownAttribution } from './MetricBreakdownAttribution'
+import { BreakdownAttributionHelp, MetricBreakdownAttribution } from './MetricBreakdownAttribution'
 import { MetricBreakdownLimit } from './MetricBreakdownLimit'
 import { MetricBreakdownTag } from './MetricBreakdownTag'
 
@@ -55,30 +55,11 @@ export function MetricBreakdowns({
                     <span className="text-muted">Attribution</span>
                     <Tooltip
                         title={
-                            <>
-                                Which funnel step the breakdown value is read from for each user:
-                                <ul className="list-disc pl-4">
-                                    <li>
-                                        <strong>First touchpoint</strong>: the first property value seen in any step
-                                    </li>
-                                    <li>
-                                        <strong>Last touchpoint</strong>: the last property value seen across all steps
-                                    </li>
-                                    <li>
-                                        <strong>All steps</strong>: The property value must appear on all steps
-                                    </li>
-                                    {(metric as ExperimentFunnelMetric).funnel_order_type ===
-                                    StepOrderValue.UNORDERED ? (
-                                        <li>
-                                            <strong>Any step</strong>: value at any matching step
-                                        </li>
-                                    ) : (
-                                        <li>
-                                            <strong>Specific step</strong>: value at a step you choose
-                                        </li>
-                                    )}
-                                </ul>
-                            </>
+                            <BreakdownAttributionHelp
+                                unordered={
+                                    (metric as ExperimentFunnelMetric).funnel_order_type === StepOrderValue.UNORDERED
+                                }
+                            />
                         }
                     >
                         <IconInfo className="text-secondary text-base shrink-0" />

@@ -14,6 +14,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -31,12 +32,30 @@ import { urls } from 'scenes/urls'
 
 import type { ExperimentFunnelsQuery, ExperimentMetric, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
 
+import { QuillExperimentsSharedMetricsScene } from './QuillExperimentsSharedMetricsScene'
+import {
+    LEGACY_SHARED_METRIC_DOCS_URL,
+    LEGACY_SHARED_METRIC_DUPLICATE_REASON,
+    LEGACY_SHARED_METRIC_HELP,
+    SHARED_METRICS_EMPTY,
+    SHARED_METRICS_INTRO,
+} from './sharedMetricsCopy'
+
 export const scene: SceneExport = {
     component: ExperimentsSharedMetricsScene,
     logic: sharedMetricsLogic,
 }
 
 export function ExperimentsSharedMetricsScene(): JSX.Element {
+    const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    if (todayRailNav && resultsRedesign) {
+        return <QuillExperimentsSharedMetricsScene />
+    }
+    return <LemonExperimentsSharedMetricsScene />
+}
+
+function LemonExperimentsSharedMetricsScene(): JSX.Element {
     const { sharedMetrics, sharedMetricsLoading, searchTerm, savingTagsMetricId, count, page } =
         useValues(sharedMetricsLogic)
     const { setSearchTerm, setPage, updateSharedMetricTags, deleteSharedMetric } = useActions(sharedMetricsLogic)
@@ -74,10 +93,7 @@ export function ExperimentsSharedMetricsScene(): JSX.Element {
                             <>
                                 {stringWithWBR(sharedMetric.name, 17)}
                                 {isLegacySharedMetric(sharedMetric) && (
-                                    <Tooltip
-                                        title="This metric uses the legacy engine, so it can no longer be edited."
-                                        docLink="https://posthog.com/docs/experiments/new-experimentation-engine"
-                                    >
+                                    <Tooltip title={LEGACY_SHARED_METRIC_HELP} docLink={LEGACY_SHARED_METRIC_DOCS_URL}>
                                         <LemonTag type="warning" className="ml-1">
                                             Legacy
                                         </LemonTag>
@@ -144,7 +160,7 @@ export function ExperimentsSharedMetricsScene(): JSX.Element {
                                     icon={<IconCopy />}
                                     disabledReason={
                                         isLegacySharedMetric(sharedMetric)
-                                            ? 'Legacy shared metrics can no longer be duplicated'
+                                            ? LEGACY_SHARED_METRIC_DUPLICATE_REASON
                                             : undefined
                                     }
                                     onClick={() => {
@@ -173,11 +189,7 @@ export function ExperimentsSharedMetricsScene(): JSX.Element {
 
     return (
         <div className="deprecated-space-y-4">
-            <LemonBanner type="info">
-                Shared metrics let you create reusable metrics that you can quickly add to any experiment. They are
-                ideal for tracking key metrics like conversion rates or revenue across different experiments without
-                having to set them up each time.
-            </LemonBanner>
+            <LemonBanner type="info">{SHARED_METRICS_INTRO}</LemonBanner>
             <div className="flex justify-between items-center gap-2">
                 <div className="flex items-center gap-2">
                     <LemonInput
@@ -203,7 +215,7 @@ export function ExperimentsSharedMetricsScene(): JSX.Element {
                 columns={columns}
                 dataSource={sharedMetrics}
                 loading={sharedMetricsLoading}
-                emptyState={<div>You haven't created any shared metrics yet.</div>}
+                emptyState={<div>{SHARED_METRICS_EMPTY}</div>}
             />
             {count > PAGE_SIZE ? (
                 <div className="flex items-center justify-end gap-1">

@@ -1,27 +1,17 @@
-import { useValues } from 'kea'
-import { useState } from 'react'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
-import { LemonBanner, LemonButton, lemonToast } from '@posthog/lemon-ui'
-
-import api from 'lib/api'
 import { TagsInputSelect } from 'lib/components/TagsInputSelect'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
-import { projectLogic } from 'scenes/projectLogic'
 
-export type BulkTagAction = 'add' | 'remove' | 'set'
+import {
+    BULK_TAG_ACTION_OPTIONS,
+    BULK_TAG_REPLACE_WARNING,
+    type BulkTaggableResource,
+    type BulkUpdateTagsResult,
+    useBulkUpdateTags,
+} from './useBulkUpdateTags'
 
-export interface BulkUpdateTagsResult {
-    updated: Array<{ id: number | string; tags: string[] }>
-    skipped: Array<{ id: number | string; reason: string }>
-}
-
-export type BulkTaggableResource =
-    | 'feature_flags'
-    | 'dashboards'
-    | 'insights'
-    | 'event_definitions'
-    | 'conversations/tickets'
-    | 'experiments'
+export type { BulkTagAction, BulkTaggableResource, BulkUpdateTagsResult } from './useBulkUpdateTags'
 
 export interface BulkUpdateTagsFormProps {
     resource: BulkTaggableResource
@@ -42,39 +32,16 @@ export function BulkUpdateTagsForm({
     onClose,
     showHeader = true,
 }: BulkUpdateTagsFormProps): JSX.Element {
-    const [tagAction, setTagAction] = useState<BulkTagAction>('add')
-    const [selectedTags, setSelectedTags] = useState<string[]>([])
-    const [loading, setLoading] = useState(false)
-
-    const { currentProjectId } = useValues(projectLogic)
-
-    const submit = async (): Promise<void> => {
-        setLoading(true)
-        try {
-            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
-            const response = (await api.create(`api/projects/${currentProjectId}/${resource}/bulk_update_tags/`, {
-                ids: Array.from(selectedIds),
-                action: tagAction,
-                tags: selectedTags,
-            })) as BulkUpdateTagsResult
-            const { updated, skipped } = response
-            if (skipped.length === 0) {
-                lemonToast.success(`Updated tags on ${updated.length} item${updated.length !== 1 ? 's' : ''}`)
-            } else {
-                lemonToast.warning(
-                    `Updated tags on ${updated.length} item${updated.length !== 1 ? 's' : ''}. ${skipped.length} skipped due to permissions.`
-                )
-            }
-            onClose()
-            onSuccess?.(response)
-        } catch (error: any) {
-            // The server explains rule failures such as a project that requires tags, so show its
-            // message rather than a generic one the user cannot act on.
-            lemonToast.error(error?.detail || 'Failed to update tags')
-        } finally {
-            setLoading(false)
-        }
-    }
+    const {
+        tagAction,
+        setTagAction,
+        selectedTags,
+        setSelectedTags,
+        loading,
+        submit,
+        submitLabel,
+        submitDisabledReason,
+    } = useBulkUpdateTags({ resource, selectedIds, onSuccess, onClose })
 
     return (
         <div className="space-y-3">
@@ -86,11 +53,7 @@ export function BulkUpdateTagsForm({
             <LemonSegmentedButton
                 value={tagAction}
                 onChange={setTagAction}
-                options={[
-                    { value: 'add' as const, label: 'Add' },
-                    { value: 'remove' as const, label: 'Remove' },
-                    { value: 'set' as const, label: 'Replace all' },
-                ]}
+                options={BULK_TAG_ACTION_OPTIONS}
                 size="small"
                 fullWidth
             />
@@ -100,9 +63,7 @@ export function BulkUpdateTagsForm({
                 placeholder="Enter tags..."
                 data-attr="bulk-tag-input"
             />
-            {tagAction === 'set' && (
-                <LemonBanner type="warning">This will replace all existing tags on the selected items.</LemonBanner>
-            )}
+            {tagAction === 'set' && <LemonBanner type="warning">{BULK_TAG_REPLACE_WARNING}</LemonBanner>}
             <div className="flex gap-2 justify-end">
                 <LemonButton size="small" type="secondary" onClick={onClose}>
                     Cancel
@@ -112,11 +73,9 @@ export function BulkUpdateTagsForm({
                     type="primary"
                     onClick={() => void submit()}
                     loading={loading}
-                    disabledReason={
-                        selectedTags.length === 0 && tagAction !== 'set' ? 'Select at least one tag' : undefined
-                    }
+                    disabledReason={submitDisabledReason}
                 >
-                    {tagAction === 'add' ? 'Add tags' : tagAction === 'remove' ? 'Remove tags' : 'Replace tags'}
+                    {submitLabel}
                 </LemonButton>
             </div>
         </div>
