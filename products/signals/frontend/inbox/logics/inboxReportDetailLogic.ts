@@ -740,9 +740,6 @@ export interface inboxReportDetailLogicActions {
     setReport: (report: SignalReport | null) => {
         report: SignalReport | null
     }
-    setRepositorySaving: (saving: boolean) => {
-        saving: boolean
-    }
     setReportClaimed: (
         claimed: boolean,
         takeover?: boolean,
@@ -753,6 +750,9 @@ export interface inboxReportDetailLogicActions {
         takeover: boolean
     }
     setReportStateSaving: (saving: boolean) => {
+        saving: boolean
+    }
+    setRepositorySaving: (saving: boolean) => {
         saving: boolean
     }
     setSelectedTaskId: (taskId: string | null) => {
