@@ -131,6 +131,34 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                     "would_block": False,
                 },
             ),
+            (
+                "secret_input_runs_a_huge_range",
+                httpx.Response(503, json={"error": "busy"}),
+                None,
+                {"hog": RULE_FREE_HOG, "inputs": {"api_key": {"value": "{range(1000000)}"}}},
+                {"error": "gateway_error", "rule_hits": ["huge_range"], "would_alert": True, "would_block": False},
+            ),
+            (
+                "secret_mapping_input_amplifies_a_string",
+                httpx.Response(503, json={"error": "busy"}),
+                None,
+                {
+                    "hog": RULE_FREE_HOG,
+                    "mappings": [
+                        {
+                            "name": "Orders",
+                            "inputs_schema": [{"key": "token", "type": "string", "secret": True}],
+                            "inputs": {"token": {"value": "{replaceAll(event.event, '', 'xx')}"}},
+                        }
+                    ],
+                },
+                {
+                    "error": "gateway_error",
+                    "rule_hits": ["replace_amplification"],
+                    "would_alert": True,
+                    "would_block": False,
+                },
+            ),
         ]
     )
     def test_a_gateway_failure_is_captured_as_an_error_event_with_the_rule_verdict(

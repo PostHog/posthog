@@ -404,7 +404,8 @@ def _liquid_block_statements(tag: str) -> Iterator[str]:
     """Each statement of a `{% liquid %}` block is one line. Comment lines and the inside of comment and raw blocks
     are left out."""
     block_end: str | None = None
-    for line in tag.splitlines():
+    # LiquidJS splits statements at `\n` only, while `splitlines` also splits at `\r` and Unicode separators.
+    for line in tag.split("\n"):
         name = _liquid_tag_name(line)
         if block_end is not None:
             block_end = None if name == block_end else block_end

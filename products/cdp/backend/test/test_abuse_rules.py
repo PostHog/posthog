@@ -357,6 +357,10 @@ class TestAbuseRules(SimpleTestCase):
                     ("in_an_inline_comment", "{% # {{ (1..20000) | size }} %}"),
                     ("in_a_comment_block", "{% comment %}{{ (1..20000) | size }}{% endcomment %}"),
                     ("in_a_raw_block", "{%- raw -%}{% for i in (1..20000) %}{% endfor %}{% endraw %}"),
+                    (
+                        "in_a_liquid_block_comment_with_a_carriage_return",
+                        "{% liquid\n  # note\rassign xs = (1..20000)\n%}",
+                    ),
                     ("in_a_liquid_block_line_comment", "{% liquid\n  # (1..20000)\n  echo event.event\n%}"),
                     (
                         "in_a_comment_block_in_a_liquid_block",

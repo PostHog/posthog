@@ -2,6 +2,7 @@
 
 import json
 from collections.abc import Iterable
+from dataclasses import replace
 from enum import StrEnum
 from typing import Any
 
@@ -284,8 +285,20 @@ def _score(hog_function: HogFunction, content: HogFunctionContent) -> ScoredHogF
         code_modified_from_template=content.code_modified_from_template,
         verdict=verdict,
         failure=failure,
-        rule_hits=rules.matched_rules(content),
+        rule_hits=rules.matched_rules(_with_secret_inputs(hog_function, content)),
     )
+
+
+def _with_secret_inputs(hog_function: HogFunction, content: HogFunctionContent) -> HogFunctionContent:
+    """The content with the values of secret inputs, which run as Hog templates like any other input. Only the
+    rules read it, here in the worker, so the values never reach Jev, the content hash or the event."""
+    config = comparable_content(
+        {
+            "inputs": {**(hog_function.inputs or {}), **(hog_function.encrypted_inputs or {})},
+            "mappings": hog_function.mappings,
+        }
+    )
+    return replace(content, inputs=config["inputs"] or {}, mappings=config["mappings"] or [])
 
 
 def report(
