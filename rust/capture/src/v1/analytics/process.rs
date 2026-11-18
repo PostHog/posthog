@@ -207,7 +207,10 @@ async fn run_pipeline(
         .await;
     }
 
-    apply_ai_event_size_limit(state.ai_max_event_bytes, &mut events);
+    apply_ai_event_size_limit(
+        state.ai_max_event_bytes.for_token(&context.api_token),
+        &mut events,
+    );
 
     if let Some(ref limiter) = state.ai_byte_rate_limiter {
         apply_ai_byte_limits(limiter, &context.api_token, &mut events).await;
@@ -1227,6 +1230,9 @@ async fn apply_token_distinct_id_limits(
 #[cfg(test)]
 mod tests {
     use std::time::Duration as StdDuration;
+
+    use crate::ai_event_limits::AI_MAX_EVENT_BYTES_CEILING;
+    use crate::ai_event_size_caps::AiEventSizeCaps;
 
     use chrono::{DateTime, Duration, Utc};
     use uuid::Uuid;
@@ -4772,6 +4778,43 @@ mod tests {
             emitted[0].extra_details.get("eventUuid"),
             Some(&serde_json::json!(oversized_uuid))
         );
+    }
+
+    #[rstest::rstest]
+    #[case::listed_token_keeps_it("phc_test_token=24000000", EventResult::Ok, None)]
+    #[case::other_token_still_drops_it(
+        "phc_other=24000000",
+        EventResult::Drop,
+        Some(DETAIL_AI_EVENT_TOO_BIG)
+    )]
+    #[tokio::test]
+    async fn a_raised_token_cap_keeps_an_oversize_ai_event(
+        #[case] overrides_csv: &str,
+        #[case] expected_result: EventResult,
+        #[case] expected_details: Option<&'static str>,
+    ) {
+        let ts = TestStateBuilder::new()
+            .with_capture_mode(CaptureMode::Ai)
+            .with_ai_max_event_bytes(AiEventSizeCaps::parse(
+                700,
+                overrides_csv,
+                AI_MAX_EVENT_BYTES_CEILING,
+            ))
+            .build();
+        let mut ctx = test_utils::test_analytics_context();
+
+        let mut oversized = named_event("$ai_generation");
+        oversized.properties =
+            test_utils::raw_obj(&format!(r#"{{"$ai_input":"{}"}}"#, "x".repeat(800)));
+
+        let resp = process_batch(&ts.state, &mut ctx, valid_batch(vec![oversized]))
+            .await
+            .unwrap();
+
+        let entries = resp.entries();
+        assert_eq!(entries.len(), 1, "{entries:?}");
+        assert_eq!(entries[0].1.result, expected_result, "{entries:?}");
+        assert_eq!(entries[0].1.details, expected_details, "{entries:?}");
     }
 
     /// Option drops are per event, share one `invalid_options` warning, and lenient forms pass.

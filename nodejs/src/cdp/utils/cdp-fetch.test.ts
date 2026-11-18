@@ -58,7 +58,7 @@ describe('recordRequestOrigins', () => {
     })
 })
 
-describe('connection-level retry log', () => {
+describe('url scrubbing', () => {
     const url = 'https://discord.example.com:8443/api/webhooks/123/secret-token?wait=true'
 
     afterEach(() => {
@@ -88,5 +88,21 @@ describe('connection-level retry log', () => {
         expect(logged).not.toContain('/api/webhooks')
         expect(logged).not.toContain('secret-token')
         expect(logged).not.toContain('wait=true')
+    })
+
+    it('returns a DOMException timeout as the fetch error, with the URL scrubbed', async () => {
+        mockFetch.mockRejectedValueOnce(new DOMException(`Timed out sending to ${url}`, 'TimeoutError'))
+
+        const { fetchError } = await cdpTrackedFetch({
+            url,
+            fetchParams: { method: 'POST' },
+            templateId: 'template-discord',
+        })
+
+        expect({ name: fetchError?.name, message: fetchError?.message }).toEqual({
+            name: 'TimeoutError',
+            message: 'Timed out sending to https://discord.example.com:8443',
+        })
+        expect(fetchError?.stack).not.toContain('secret-token')
     })
 })

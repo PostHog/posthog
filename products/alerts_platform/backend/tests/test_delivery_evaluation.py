@@ -1,3 +1,5 @@
+import json
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -5,8 +7,10 @@ from typing import Any, cast
 from uuid import UUID
 
 import pytest
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, NonAtomicBaseTest
 from unittest.mock import patch
+
+from django.db import connection, transaction
 
 from parameterized import parameterized
 
@@ -61,11 +65,14 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
 )
 from products.alerts_platform.backend.facade.enums import HoldRelease, PlatformAlertOwner
+from products.alerts_platform.backend.logic.alert_destinations import enabled_alert_destinations
 from products.alerts_platform.backend.logic.platform_alert_events import AnnouncementRead, AnnouncementStatus
 from products.alerts_platform.backend.logic.platform_lifecycle import record_outcomes
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration, PlatformAlertDeliveryHold
 from products.alerts_platform.backend.models.platform_alert_events_sql import SHARDED_PLATFORM_ALERT_EVENTS_TABLE
+from products.alerts_platform.backend.tests.delivery_messages import pinned_post
 from products.alerts_platform.backend.tests.recorded_metrics import recorded_metrics
+from products.cdp.backend.facade.models import HogFunction
 
 _MODULE = "products.alerts_platform.backend.delivery.evaluation"
 _EVENTS = "products.alerts_platform.backend.logic.platform_alert_events"
@@ -759,6 +766,62 @@ class TestDeliverEvaluation(APIBaseTest):
         assert post.call_args.kwargs["headers"] == {"X-PostHog-Webhook-Version": header}
         assert post.call_args.args[1]["version"] == body_version
 
+    @parameterized.expand(
+        [
+            ("row_keeps_the_legacy_body", True, False, "1", "legacy"),
+            ("row_keeps_it_when_flags_are_unreadable", True, RuntimeError("flags unreachable"), "1", "legacy"),
+            ("row_follows_its_team", False, False, "2", "4"),
+        ]
+    )
+    def test_a_webhook_row_that_keeps_the_legacy_body_ignores_its_teams_body_flags(
+        self, _name: str, keeps: bool, listed: bool | Exception, header: str, body_version: str
+    ) -> None:
+        configuration = PlatformAlertConfiguration.objects.for_team(self.team.id).create(
+            id=CONFIGURATION_ID,
+            team=self.team,
+            name="API errors",
+            source_kind=SourceKind.LOGS,
+            check_interval_minutes=5,
+            destinations_owner=PlatformAlertOwner.PLATFORM,
+        )
+        create_alert_destinations(
+            team_id=self.team.id,
+            configuration_id=configuration.id,
+            destinations=(
+                NewAlertDestination(
+                    data=WEBHOOK, event_kinds=(AlertEventKind.FIRING,), keeps_legacy_webhook_body=keeps
+                ),
+            ),
+        )
+
+        def flag(key: str, *_args: Any, **_kwargs: Any) -> bool | None:
+            if key == ALERTMANAGER_WEBHOOK_BODY_FLAG:
+                return True
+            if isinstance(listed, Exception):
+                raise listed
+            return listed
+
+        def legacy_body(**kwargs: Any) -> dict[str, Any]:
+            return {"version": "legacy", "alert_id": kwargs["alert_id"]}
+
+        with (
+            patch(
+                "products.alerts_platform.backend.delivery.team_flags.posthoganalytics.feature_enabled",
+                side_effect=flag,
+            ),
+            patch(f"{_EVENTS}._read_evaluation", return_value=_read(_announcement(_transition(AlertEventKind.FIRING)))),
+            patch(f"{_MODULE}.list_alert_destination_groups", return_value=[]),
+            patch(f"{_MODULE}.DatabaseThreadStore"),
+            patch.dict(delivery_paths._emitters, clear=True),
+            patch.dict(f"{_LEGACY_MODULE}._bodies", {SourceKind.LOGS: legacy_body}),
+            pinned_post() as adapter,
+        ):
+            deliver_evaluation(_request(self.team.id))
+
+        (sent,) = adapter.sent
+        assert sent.headers["X-PostHog-Webhook-Version"] == header
+        assert json.loads(sent.body or b"")["version"] == body_version
+
     def test_a_flag_refresh_between_the_two_reads_keeps_a_newly_listed_team_on_the_legacy_body(self) -> None:
         before = {LEGACY_WEBHOOK_BODY_FLAG: False, ALERTMANAGER_WEBHOOK_BODY_FLAG: False}
         after = {LEGACY_WEBHOOK_BODY_FLAG: True, ALERTMANAGER_WEBHOOK_BODY_FLAG: True}
@@ -1117,6 +1180,71 @@ class TestDeliveryPath(APIBaseTest):
             )
 
         assert self.emitted == []
+
+
+class TestDestinationMoveDuringDelivery(NonAtomicBaseTest):
+    def test_a_group_that_becomes_a_row_while_delivery_reads_is_sent_once(self) -> None:
+        RecordingTransport.sends = []
+        configuration = PlatformAlertConfiguration.objects.for_team(self.team.id).create(
+            team=self.team, name="API errors", source_kind=SourceKind.LOGS, check_interval_minutes=1
+        )
+        hog_function = HogFunction.objects.create(
+            team=self.team,
+            type="internal_destination",
+            template_id="template-slack",
+            name="Slack",
+            enabled=True,
+            filters={
+                "events": [{"id": FIRING_EVENT}],
+                "properties": [{"key": "alert_id", "value": "legacy-1"}],
+            },
+        )
+        # Written past `save()`, which keeps only the inputs a schema names, and this function has no schema.
+        HogFunction.objects.filter(id=hog_function.id).update(
+            inputs={"slack_workspace": {"value": 1}, "channel": {"value": "C-1"}}
+        )
+
+        def convert() -> None:
+            try:
+                with transaction.atomic():
+                    create_alert_destinations(
+                        team_id=self.team.id,
+                        configuration_id=configuration.id,
+                        destinations=(
+                            NewAlertDestination(
+                                data=SLACK,
+                                event_kinds=(AlertEventKind.FIRING,),
+                                legacy_hog_function_ids=(hog_function.id,),
+                            ),
+                        ),
+                    )
+                    HogFunction.objects.filter(id=hog_function.id).update(deleted=True)
+            finally:
+                connection.close()
+
+        def rows_then_convert(**kwargs: Any) -> Any:
+            rows = enabled_alert_destinations(**kwargs)
+            with ThreadPoolExecutor(max_workers=1) as converter:
+                converter.submit(convert).result()
+            return rows
+
+        with ExitStack() as stack:
+            stack.enter_context(
+                patch(
+                    f"{_EVENTS}._read_evaluation",
+                    return_value=_read(_announcement(_transition(AlertEventKind.FIRING))),
+                )
+            )
+            stack.enter_context(patch(f"{_MODULE}.enabled_alert_destinations", side_effect=rows_then_convert))
+            stack.enter_context(patch(f"{_MODULE}.DatabaseThreadStore"))
+            stack.enter_context(patch.dict(f"{_MODULE}._TRANSPORTS", {DestinationType.SLACK: RecordingTransport}))
+            stack.enter_context(patch.object(delivery_paths, "_chooser", lambda **_kwargs: DeliveryPath.NATIVE))
+            stack.enter_context(
+                patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
+            )
+            deliver_evaluation(_request(self.team.id, configuration_id=str(configuration.id)))
+
+        assert [channel for channel, _ in RecordingTransport.sends] == ["C-1"]
 
 
 class TestMissingAnnouncement(ClickhouseTestMixin, APIBaseTest):

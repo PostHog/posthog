@@ -481,6 +481,21 @@ class TestExcludeRecurringSessions:
 
         assert [row[0] for row in kept] == ["human-1", "human-1"]
 
+    @parameterized.expand(
+        [
+            ("uuid", "Scout run 01a1c368-41f8-7279-a942-9fe728cef1b9", "Scout run <id>"),
+            ("long_hex", "replay abcdef0123456789abcd done", "replay <id> done"),
+            ("long_digits", "ticket 1234567 triage", "ticket <id> triage"),
+            ("short_numbers_kept", "top 10 events in 2025", "top 10 events in 2025"),
+        ]
+    )
+    def test_run_ids_are_masked_before_matching(self, _name: str, intent: str, recurring_text: str) -> None:
+        rows = [("run-1", "execute_sql", intent, False), ("human-1", "execute_sql", "why did signups drop", False)]
+
+        kept = exclude_recurring_sessions(rows, {recurring_text})
+
+        assert [row[0] for row in kept] == ["human-1"]
+
 
 class TestBuildCallCorpus:
     def test_attributes_tool_counts_to_the_calls_own_intent(self) -> None:
@@ -1184,10 +1199,14 @@ class TestCorpusQueries(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, B
         self._seed_tool_call("human-1", "execute_sql", intent="nightly scout", timestamp=base + timedelta(minutes=1))
         self._seed_tool_call("human-2", "execute_sql", intent="twice only", timestamp=base)
         self._seed_tool_call("human-3", "execute_sql", intent="twice only", timestamp=base)
+        # Per-run texts that differ only by a run ID count as one recurring text.
+        for i in range(4):
+            self._seed_tool_call(f"run-{i}", "execute_sql", intent=f"Scout run {uuid.uuid4()}", timestamp=base)
         flush_persons_and_events()
 
         assert fetch_recurring_intents(self.team) == [
-            RecurringIntent(intent_text="nightly scout", session_count=3, call_count=6, error_count=1)
+            RecurringIntent(intent_text="Scout run <id>", session_count=4, call_count=4, error_count=0),
+            RecurringIntent(intent_text="nightly scout", session_count=3, call_count=6, error_count=1),
         ]
 
     def test_sampling_skips_sessions_that_open_with_a_recurring_text(self) -> None:
@@ -1196,10 +1215,12 @@ class TestCorpusQueries(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, B
         self._seed_tool_call("scout-1", "execute_sql", intent=" nightly scout", timestamp=base + timedelta(minutes=1))
         self._seed_tool_call("human-1", "execute_sql", intent="why did signups drop", timestamp=base)
         self._seed_tool_call("human-1", "execute_sql", intent="nightly scout", timestamp=base + timedelta(minutes=1))
+        self._seed_tool_call("run-1", "execute_sql", intent=f"Scout run {uuid.uuid4()}", timestamp=base)
         flush_persons_and_events()
 
-        assert sample_corpus_sessions(self.team, recurring_texts={"nightly scout"}) == ["human-1"]
-        assert intent_clustering.fetch_tools_by_session(self.team, recurring_texts={"nightly scout"}) == {
+        recurring = {"nightly scout", "Scout run <id>"}
+        assert sample_corpus_sessions(self.team, recurring_texts=recurring) == ["human-1"]
+        assert intent_clustering.fetch_tools_by_session(self.team, recurring_texts=recurring) == {
             "execute_sql": {"human-1"}
         }
 
@@ -1209,10 +1230,17 @@ class TestCorpusQueries(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, B
             "session-a", "exec", intent="find slow queries", timestamp=base, exec_tool_name="execute_sql"
         )
         self._seed_tool_call("session-a", "query_trends", timestamp=base + timedelta(minutes=1), is_error=True)
+        # Past the per-session bound: only a session's first calls enter the corpus.
+        self._seed_tool_call("session-a", "dashboard_get", timestamp=base + timedelta(minutes=2))
         self._seed_tool_call("session-b", "feature_flag_get", intent="check flags")
         flush_persons_and_events()
 
-        rows = fetch_session_calls(self.team, ["session-a", "session-b"])
+        # One session per chunk, so both chunks have to come back.
+        with (
+            patch.object(intent_clustering, "CORPUS_SESSION_CHUNK_SIZE", 1),
+            patch.object(intent_clustering, "MAX_CALLS_PER_SESSION", 2),
+        ):
+            rows = fetch_session_calls(self.team, ["session-a", "session-b"])
 
         by_session: dict[str, list] = {}
         for row in rows:
@@ -1222,6 +1250,20 @@ class TestCorpusQueries(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, B
             ("query_trends", "", True),
         ]
         assert [(r[1], r[2], r[3]) for r in by_session["session-b"]] == [("feature_flag_get", "check flags", False)]
+
+    def test_session_calls_stop_fetching_chunks_past_the_text_budget(self) -> None:
+        self._seed_tool_call("session-a", "query_trends", intent="find slow queries")
+        self._seed_tool_call("session-b", "feature_flag_get", intent="check flags")
+        flush_persons_and_events()
+
+        # The first chunk alone exhausts the budget, so the second is never queried.
+        with (
+            patch.object(intent_clustering, "CORPUS_SESSION_CHUNK_SIZE", 1),
+            patch.object(intent_clustering, "MAX_CORPUS_TEXT_CHARS", 1),
+        ):
+            rows = fetch_session_calls(self.team, ["session-a", "session-b"])
+
+        assert [(r[0], r[1]) for r in rows] == [("session-a", "query_trends")]
 
     def test_oversized_sender_strings_are_clipped_at_the_sql_boundary(self) -> None:
         # A sender with the capture token controls these strings; without the SQL
@@ -1244,12 +1286,19 @@ class TestCorpusQueries(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, B
     def test_advertised_tools_union_across_tools_list_events(self) -> None:
         self._seed_tools_list("session-a", ["exec", "render-ui"])
         self._seed_tools_list("session-a", ["exec", "query_trends"])
+        self._seed_tools_list("session-b", ["render-ui"])
         self._seed_tools_list("session-other", ["exec"])
         flush_persons_and_events()
 
-        advertised = fetch_advertised_tools(self.team, ["session-a", "session-no-list"])
+        with patch.object(intent_clustering, "CORPUS_SESSION_CHUNK_SIZE", 1):
+            advertised = fetch_advertised_tools(self.team, ["session-no-list", "session-a", "session-b"])
+            narrowed = fetch_advertised_tools(
+                self.team, ["session-no-list", "session-a", "session-b"], keep_tools={"exec", "query_trends"}
+            )
 
-        assert advertised == {"session-a": {"exec", "render-ui", "query_trends"}}
+        assert advertised == {"session-a": {"exec", "render-ui", "query_trends"}, "session-b": {"render-ui"}}
+        # A session that advertised none of the kept tools still counts as advertised.
+        assert narrowed == {"session-a": {"exec", "query_trends"}, "session-b": set()}
 
     def test_advertised_catalog_is_bounded_per_list_and_per_session(self) -> None:
         # Both the array and the number of tools-list events are sender-controlled, and the

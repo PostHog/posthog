@@ -69,31 +69,38 @@ describe('broadcastAudienceCohortsLogic', () => {
         }
     })
 
-    it('shows an excluded cohort as a condition rather than a recipient card, and still blocks launch while it matches', async () => {
-        jest.useFakeTimers()
-        try {
-            jest.mocked(cohortsRetrieve).mockResolvedValue(cohort(true))
-            const excluded: AnyPropertyFilter = {
-                type: PropertyFilterType.Cohort,
-                key: 'id',
-                value: 42,
-                operator: PropertyOperator.NotIn,
+    const excluded: AnyPropertyFilter = {
+        type: PropertyFilterType.Cohort,
+        key: 'id',
+        value: 42,
+        operator: PropertyOperator.NotIn,
+    }
+
+    it.each([
+        ['not_in', excluded],
+        ['negation', { ...excluded, operator: PropertyOperator.In, negation: true } as AnyPropertyFilter],
+    ])(
+        'shows a cohort excluded by %s as a "not in" condition rather than a recipient card, and still blocks launch while it matches',
+        async (_, condition) => {
+            jest.useFakeTimers()
+            try {
+                jest.mocked(cohortsRetrieve).mockResolvedValue(cohort(true))
+
+                const wizard = broadcastWizardLogic({ id: 'new' })
+                wizard.mount()
+                wizard.actions.setAudienceProperties([condition])
+                const logic = broadcastAudienceCohortsLogic({ id: 'new' })
+                logic.mount()
+
+                await jest.advanceTimersByTimeAsync(1000)
+                expect(logic.values.includedCohortIds).toEqual([])
+                expect(logic.values.nonCohortAudience).toEqual([excluded])
+                expect(wizard.values.audienceCohortLaunchErrors).toEqual([
+                    { cohortId: 42, message: expect.stringContaining('still matching people') },
+                ])
+            } finally {
+                jest.useRealTimers()
             }
-
-            const wizard = broadcastWizardLogic({ id: 'new' })
-            wizard.mount()
-            wizard.actions.setAudienceProperties([excluded])
-            const logic = broadcastAudienceCohortsLogic({ id: 'new' })
-            logic.mount()
-
-            await jest.advanceTimersByTimeAsync(1000)
-            expect(logic.values.includedCohortIds).toEqual([])
-            expect(logic.values.nonCohortAudience).toEqual([excluded])
-            expect(wizard.values.audienceCohortLaunchErrors).toEqual([
-                { cohortId: 42, message: expect.stringContaining('still matching people') },
-            ])
-        } finally {
-            jest.useRealTimers()
         }
-    })
+    )
 })

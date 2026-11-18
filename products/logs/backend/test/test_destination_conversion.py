@@ -1,3 +1,4 @@
+from datetime import timedelta
 from io import StringIO
 from typing import Any
 from uuid import UUID
@@ -17,6 +18,7 @@ from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import delete_source_destination_rows, list_alert_destinations
 from products.alerts_platform.backend.facade.contracts import AlertEventKind
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
+from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.templates.fixtures import template_slack
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
@@ -24,6 +26,7 @@ from products.logs.backend.models import LogsAlertConfiguration
 from products.logs.backend.platform_cutover import NATIVE_CREATE_FLAG
 
 SLACK = {"type": "slack", "slack_workspace_id": 42, "slack_channel_id": "C123", "slack_channel_name": "alerts"}
+WEBHOOK = {"type": "webhook", "webhook_url": "https://example.com/hook"}
 
 
 class TestConvertLogsAlertDestinations(APIBaseTest):
@@ -121,7 +124,45 @@ class TestConvertLogsAlertDestinations(APIBaseTest):
         assert "no HogFunction destinations" in again
         assert [r.id for r in self._rows(alert_id)] == [row.id]
 
-    def test_customized_groups_firing_alerts_and_alerts_the_logs_stack_owns_keep_their_hog_functions(self) -> None:
+    def test_a_webhook_on_an_alert_held_on_hog_functions_keeps_the_legacy_body_it_was_sent(self) -> None:
+        HogFunctionTemplate.objects.get_or_create(
+            template_id="template-webhook",
+            defaults={
+                "sha": "1.0.0",
+                "name": "Webhook",
+                "code": "return event",
+                "code_language": "hog",
+                "inputs_schema": [{"key": "url", "type": "string"}, {"key": "body", "type": "json"}],
+                "type": "destination",
+                "status": "stable",
+            },
+        )
+        held_alert, slack_ids = self._alert_with_slack(name="Held by its Slack")
+        native_alert, _ = self._alert_with_slack(name="Native")
+        for alert_id in (held_alert, native_alert):
+            created = self.client.post(f"{self.base_url}{alert_id}/destinations/", WEBHOOK, format="json")
+            assert created.status_code == status.HTTP_201_CREATED, created.json()
+        edited = self.client.patch(
+            f"/api/projects/{self.team.pk}/hog_functions/{slack_ids[0]}/",
+            {"hog": "fetch('https://relay.example.com')"},
+            format="json",
+        )
+        assert edited.status_code == status.HTTP_200_OK, edited.json()
+
+        self._run("--apply")
+
+        assert {row.data["type"]: row.keeps_legacy_webhook_body for row in self._rows(held_alert)} == {
+            "slack": False,
+            "webhook": True,
+        }
+        assert {row.data["type"]: row.keeps_legacy_webhook_body for row in self._rows(native_alert)} == {
+            "slack": False,
+            "webhook": False,
+        }
+
+    def test_customized_groups_firing_or_recently_emitting_alerts_and_logs_owned_alerts_keep_their_hog_functions(
+        self,
+    ) -> None:
         customized_alert, customized_ids = self._alert_with_slack()
         edited = self.client.patch(
             f"/api/projects/{self.team.pk}/hog_functions/{customized_ids[0]}/",
@@ -131,16 +172,28 @@ class TestConvertLogsAlertDestinations(APIBaseTest):
         assert edited.status_code == status.HTTP_200_OK, edited.json()
         logs_owned_alert, logs_owned_ids = self._alert_with_slack(platform_owned=False, name="Kept on logs")
         firing_alert, firing_ids = self._alert_with_slack(name="Firing")
+        emitting_alert, emitting_ids = self._alert_with_slack(name="Emitted lately")
+        quiet_alert, quiet_ids = self._alert_with_slack(name="Emitted long ago")
         with team_scope(self.team.id):
             platform_testing.start_firing(
                 platform_testing.copy_of(UUID(firing_alert)).id, team_id=self.team.id, at=timezone.now()
             )
+            for alert_id, emitted_at in (
+                (emitting_alert, timezone.now() - timedelta(minutes=1)),
+                (quiet_alert, timezone.now() - timedelta(hours=1)),
+            ):
+                platform_testing.record_legacy_emission(
+                    platform_testing.copy_of(UUID(alert_id)).id, team_id=self.team.id, at=emitted_at
+                )
 
         out = self._run("--apply")
 
         assert "outcome=customized" in out
         assert f"alert={firing_alert}" in out and "outcome=firing" in out
         assert self._live(firing_ids) == 4
+        assert f"alert={emitting_alert}" in out and "outcome=recently_emitted" in out
+        assert self._live(emitting_ids) == 4
+        assert self._live(quiet_ids) == 0
         assert self._live(customized_ids) == 4
         assert self._live(logs_owned_ids) == 4
         assert len(self._rows(customized_alert)) == 1

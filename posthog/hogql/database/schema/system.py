@@ -1806,9 +1806,6 @@ replay_scanners: PostgresTable = PostgresTable(
         "sampling_rate": FloatDatabaseField(
             name="sampling_rate", description="Random share of matching sessions scanned, 0 to 1."
         ),
-        "sampling_mode": StringDatabaseField(
-            name="sampling_mode", description="Quality pre-filter: focused, balanced or comprehensive."
-        ),
         "model": StringDatabaseField(name="model", description="LLM model that scans each session; sets the price."),
         "_enabled": BooleanDatabaseField(name="enabled", hidden=True),
         "enabled": ExpressionField(

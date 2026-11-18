@@ -211,8 +211,10 @@ def logs_destination_event_kinds(destination_type: DestinationType) -> list[Even
 
 
 def build_logs_destination_configs(
-    *, alert_id: str, alert_name: str, data: AlertDestinationData
+    *, alert_id: str, alert_name: str, data: AlertDestinationData, hears: Collection[AlertEventKind] | None = None
 ) -> list[AlertDestinationConfig]:
+    """One HogFunction per event kind the destination sends. With `hears`, only the kinds whose row event
+    kind is among them, so a reset keeps the event kinds the destination already had."""
     return [
         build_alert_destination_config(
             spec=EVENT_KIND_CONFIG[kind],
@@ -222,4 +224,5 @@ def build_logs_destination_configs(
             slack_context_elements=LOGS_ALERT_SLACK_CONTEXT_ELEMENTS,
         )
         for kind in logs_destination_event_kinds(DestinationType(data["type"]))
+        if hears is None or set(row_event_kinds([kind])) & set(hears)
     ]

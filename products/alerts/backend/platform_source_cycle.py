@@ -73,11 +73,11 @@ from products.alerts.backend.platform_chart_detail import CHART_PENDING_KEY, Ren
 from products.alerts.backend.platform_firing_signal import with_firing_signal
 from products.alerts.backend.platform_insight_alert import (
     RECURRENCE,
+    charted_alert,
     evaluation_alert,
     insight_of,
     insight_row_settings,
     interval_of,
-    investigated_alert,
 )
 from products.alerts.backend.platform_investigation import with_investigation
 from products.alerts_platform.backend.facade.api import (
@@ -1105,18 +1105,18 @@ def render_firing_chart(team_id: int, alert_id: str, *, held_until: float) -> Re
         raise ChartRenderPoolFull()
     try:
         # The id a firing names its chart by, which is the platform alert's own for an alert with no insight row.
-        alert = investigated_alert(team_id, UUID(alert_id))
-        if alert is None:
+        charted = charted_alert(team_id, UUID(alert_id))
+        if charted is None:
             return None
+        alert, configuration_id = charted
         started = time.monotonic()
         try:
             chart = render_alert_insight_chart_or_raise(
                 alert,
-                # Destinations the platform keeps are keyed by its own id, which only a built alert carries.
-                platform_slack_destination=alert._state.adding
+                platform_slack_destination=configuration_id is not None
                 and destination_hears_kind(
                     team_id=team_id,
-                    configuration_id=alert.id,
+                    configuration_id=configuration_id,
                     destination_type=DestinationType.SLACK,
                     event_kind=AlertEventKind.FIRING,
                 ),

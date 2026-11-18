@@ -25,6 +25,7 @@ import { FrequencyCapCheck, RecipientPreferencesService } from '../../messaging/
 import { CdpUsageReporterService } from '../../usage/cdp-usage-reporter.service'
 import { trackHogFlowBillableInvocation } from '../billing-utils'
 import { HogFlowFunctionsService } from '../hogflow-functions.service'
+import { loadMissingPersonProperties, personPropertiesInTemplates } from '../hogflow-person-property-usage'
 import { isSensitiveMessage } from '../hogflow-sensitivity'
 import { actionIdForLogging, aiTaskLogToken, findContinueAction } from '../hogflow-utils'
 import { observeMissingVariableReferences } from '../hogflow-variable-usage'
@@ -206,6 +207,12 @@ export class HogFunctionHandler implements ActionHandler {
             !invocation.state.currentAction?.renderTimeoutAttempts
         ) {
             observeMissingVariableReferences(invocation, action, result)
+        }
+        // A hold wake and a render retry render the inputs again, so they need the property too.
+        if (!invocation.state.currentAction?.hogFunctionState) {
+            await loadMissingPersonProperties(invocation, result, () =>
+                personPropertiesInTemplates(action.config as { inputs?: unknown; mappings?: unknown })
+            )
         }
 
         const wokeFromHold =

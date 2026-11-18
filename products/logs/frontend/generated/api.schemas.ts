@@ -1089,6 +1089,28 @@ export interface LogsAlertCreateDestinationApi {
     pagerduty_region?: PagerDutyRegionEnumApi
 }
 
+export interface LogsAlertCreatedDestinationResponseApi {
+    hog_function_ids: string[]
+    /**
+     * The new destination's ID on the alerts platform, the `id` that listing the alert's destinations shows. Delete the destination by passing it in `destination_ids`. Null when the alert is not on the alerts platform, in which case `hog_function_ids` identifies the destination.
+     * @nullable
+     */
+    id: string | null
+}
+
+export interface LogsAlertCustomizeDestinationApi {
+    /**
+     * The destination's `destinations[].id`. Use it for a destination with no HogFunctions.
+     * @nullable
+     */
+    destination_id?: string | null
+    /**
+     * The destination's `destinations[].hog_function_ids`, for a destination that has HogFunctions.
+     * @maxItems 100
+     */
+    hog_function_ids?: string[]
+}
+
 export interface LogsAlertDestinationResponseApi {
     hog_function_ids: string[]
 }
@@ -1101,6 +1123,20 @@ export interface LogsAlertDeleteDestinationApi {
      * @maxItems 100
      */
     destination_ids?: string[]
+}
+
+export interface LogsAlertResetDestinationApi {
+    /**
+     * Every HogFunction of the customized destination, from `destinations[].hog_function_ids`.
+     * @minItems 1
+     * @maxItems 100
+     */
+    hog_function_ids: string[]
+}
+
+export interface LogsAlertResetDestinationResponseApi {
+    /** The destination's new ID on the alerts platform, which now sends it. */
+    id: string
 }
 
 /**

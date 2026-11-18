@@ -27,11 +27,11 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceDestination,
     StoredAlertDestination,
 )
-from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
-from products.alerts_platform.backend.models import AlertDestination, PlatformAlertConfiguration
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
+from products.alerts_platform.backend.models import AlertDestination, PlatformAlert, PlatformAlertConfiguration
 
 # The destination types that open and close incidents rather than post messages.
-INCIDENT_DESTINATION_TYPES: Final = frozenset({DestinationType.PAGERDUTY})
+INCIDENT_DESTINATION_TYPES: Final = frozenset({DestinationType.PAGERDUTY, DestinationType.INCIDENT_IO})
 
 _REQUIRED_FIELDS: Final[dict[DestinationType, tuple[str, ...]]] = {
     DestinationType.SLACK: ("slack_workspace_id", "slack_channel_id"),
@@ -39,6 +39,7 @@ _REQUIRED_FIELDS: Final[dict[DestinationType, tuple[str, ...]]] = {
     DestinationType.TEAMS: ("webhook_url",),
     DestinationType.DISCORD: ("webhook_url",),
     DestinationType.PAGERDUTY: ("pagerduty_routing_key",),
+    DestinationType.INCIDENT_IO: ("incident_io_alert_source_config_id", "incident_io_secret"),
     DestinationType.EMAIL: ("email_addresses",),
     DestinationType.IN_APP: ("in_app_user_ids",),
 }
@@ -62,6 +63,8 @@ _FIELD_CHECKS: Final[dict[str, Callable[[object], bool]]] = {
     "slack_channel_id": _is_text,
     "webhook_url": _is_text,
     "pagerduty_routing_key": _is_text,
+    "incident_io_alert_source_config_id": _is_text,
+    "incident_io_secret": _is_text,
     "email_addresses": _is_list_of(_is_text),
     "email_user_ids": _is_list_of(_is_id),
     "in_app_user_ids": _is_list_of(_is_id),
@@ -100,6 +103,7 @@ def create_alert_destinations(
                 event_kinds=[kind.value for kind in destination.event_kinds],
                 enabled=destination.enabled,
                 legacy_hog_function_ids=list(destination.legacy_hog_function_ids),
+                keeps_legacy_webhook_body=destination.keeps_legacy_webhook_body,
             )
             for destination in destinations
         ]
@@ -303,12 +307,18 @@ def _refuse_duplicates(
     configuration_id: UUID,
     destinations: Sequence[NewAlertDestination],
     hog_function_groups: Sequence[AlertDestinationGroup],
+    except_id: UUID | None = None,
 ) -> None:
-    """A second destination with the same address would send every message twice."""
-    seen = [
-        _receiver(stored.data) for stored in list_alert_destinations(team_id=team_id, configuration_id=configuration_id)
-    ]
+    """A second destination with the same address would send every message twice. `except_id` is the
+    row being rewritten, which does not count as a second one. A row that copies one of the groups is
+    checked through that group's live settings, since an edit to the HogFunctions leaves the row's stale."""
     groups = [group for group in hog_function_groups if group.hog_function_ids]
+    grouped = {hog_function_id for group in groups for hog_function_id in group.hog_function_ids}
+    seen = [
+        _receiver(stored.data)
+        for stored in list_alert_destinations(team_id=team_id, configuration_id=configuration_id)
+        if stored.id != except_id and grouped.isdisjoint(stored.legacy_hog_function_ids)
+    ]
     for destination in destinations:
         receiver = _receiver(destination.data)
         copied = set(destination.legacy_hog_function_ids)
@@ -328,6 +338,7 @@ def record_source_destination(
     hog_function_ids: Collection[UUID],
     hog_function_groups: Sequence[AlertDestinationGroup],
     enabled: bool = True,
+    keeps_legacy_webhook_body: bool = False,
 ) -> StoredAlertDestination | None:
     """Adds the row for a destination its source has just written as `hog_function_ids`, so the
     destination outlives them. None when the platform has no alert under `public_id`, or when it keeps
@@ -350,6 +361,7 @@ def record_source_destination(
                 event_kinds=tuple(event_kinds),
                 enabled=enabled,
                 legacy_hog_function_ids=tuple(hog_function_ids),
+                keeps_legacy_webhook_body=keeps_legacy_webhook_body,
             ),
         ),
         hog_function_groups=hog_function_groups,
@@ -457,6 +469,99 @@ def delete_source_destination_rows(
             hog_function_id for row_id, _, copies in found if row_id in named for hog_function_id in copies
         ),
     )
+
+
+def lock_source_configuration(*, team_id: int, public_id: UUID) -> None:
+    """Locks the alert's platform copy, in the caller's transaction. A move between a row and HogFunctions
+    takes this lock before the HogFunctions', in the same order as a delete of the alert, so the two
+    cannot deadlock."""
+    list(_configurations_by_public_id(team_id, public_id).select_for_update().values_list("id", flat=True))
+
+
+def has_firing_instance(*, team_id: int, public_id: UUID) -> bool:
+    """Whether any instance of the alert is inside a firing, whatever its last check said. An errored or
+    broken check leaves the firing, and the incident it opened, in place."""
+    return (
+        PlatformAlert.objects.for_team(team_id)
+        .filter(configuration__in=_configurations_by_public_id(team_id, public_id), state=PlatformAlertState.FIRING)
+        .exists()
+    )
+
+
+def lock_source_destination_row(
+    *, team_id: int, public_id: UUID, destination_id: UUID
+) -> StoredAlertDestination | None:
+    """One of the alert's rows, locked until the caller's transaction ends, so a delete waits for the
+    HogFunctions the caller links to it. None for an id that is not the alert's."""
+    row = (
+        AlertDestination.objects.for_team(team_id)
+        .select_for_update()
+        .filter(id=destination_id, configuration__in=_configurations_by_public_id(team_id, public_id))
+        .first()
+    )
+    return _stored(row) if row is not None else None
+
+
+def restore_source_destination(
+    *,
+    team_id: int,
+    public_id: UUID,
+    data: AlertDestinationData,
+    event_kinds: Collection[AlertEventKind],
+    enabled: bool,
+    retired_hog_function_ids: Collection[UUID],
+    hog_function_groups: Sequence[AlertDestinationGroup],
+) -> StoredAlertDestination:
+    """Makes the row that copied a destination's HogFunctions, which the caller has just retired, send the
+    standard message instead, in the caller's transaction. A destination with no such row gets a new one.
+
+    The row keeps its id, which Terraform and the pages hold, and from now on copies none of the
+    HogFunctions: a HogFunction saved as deleted later deletes every row that copies it. Any other row
+    that copied them goes, because one row stands for the destination. Refused unless the platform
+    evaluates the alert, since only the platform sends rows."""
+    configuration_id = (
+        _configurations_by_public_id(team_id, public_id)
+        .filter(owner=PlatformAlertOwner.PLATFORM)
+        .values_list("id", flat=True)
+        .first()
+    )
+    if configuration_id is None:
+        raise AlertDestinationValidationError(
+            "PostHog alerts doesn't check this alert yet, so it can't send the standard message.", field="type"
+        )
+    retired = set(retired_hog_function_ids)
+    others = [group for group in hog_function_groups if retired.isdisjoint(group.hog_function_ids)]
+    restored = NewAlertDestination(data=_own_fields(data), event_kinds=tuple(event_kinds), enabled=enabled)
+    kept = (
+        AlertDestination.objects.for_team(team_id)
+        .filter(configuration_id=configuration_id, legacy_hog_function_ids__overlap=list(retired))
+        .select_for_update()
+        .order_by("created_at", "id")
+        .first()
+    )
+    if kept is None:
+        delete_rows_copying(team_id=team_id, hog_function_ids=retired)
+        (created,) = create_alert_destinations(
+            team_id=team_id, configuration_id=configuration_id, destinations=(restored,), hog_function_groups=others
+        )
+        return created
+    AlertDestination.objects.for_team(team_id).filter(legacy_hog_function_ids__overlap=list(retired)).exclude(
+        id=kept.id
+    ).delete()
+    _validate(restored)
+    _refuse_duplicates(team_id, configuration_id, (restored,), others, except_id=kept.id)
+    kept.type = restored.data["type"]
+    kept.config = dict(restored.data)
+    kept.event_kinds = [kind.value for kind in restored.event_kinds]
+    # nosemgrep: platform-alert-state-direct-mutation (a destination row's own switch, not an alert's lifecycle)
+    kept.enabled = restored.enabled
+    kept.legacy_hog_function_ids = []
+    kept.keeps_legacy_webhook_body = False
+    # nosemgrep: platform-alert-state-direct-mutation (a destination row's own switch, not an alert's lifecycle)
+    kept.consecutive_failures = 0
+    kept.disabled_reason = None
+    kept.save()
+    return _stored(kept)
 
 
 def delete_rows_copying(*, team_id: int, hog_function_ids: Collection[UUID]) -> int:
@@ -570,10 +675,16 @@ def redact_destination_data(data: AlertDestinationData) -> AlertDestinationData:
     redacted = cast(AlertDestinationData, {key: value for key, value in data.items() if key != "webhook_headers"})
     if (webhook_url := data.get("webhook_url")) is not None:
         redacted["webhook_url"] = _redact_url(webhook_url)
+    # Keep the tail a person needs to tell two credentials apart.
     if (routing_key := data.get("pagerduty_routing_key")) is not None:
-        # Keep the tail a person needs to tell two integration keys apart.
-        redacted["pagerduty_routing_key"] = f"••••{routing_key[-4:]}"
+        redacted["pagerduty_routing_key"] = _tail(routing_key)
+    if (secret := data.get("incident_io_secret")) is not None:
+        redacted["incident_io_secret"] = _tail(secret)
     return redacted
+
+
+def _tail(credential: str) -> str:
+    return f"••••{credential[-4:]}"
 
 
 def _redact_url(value: str) -> str:
@@ -600,4 +711,5 @@ def _stored(row: AlertDestination) -> StoredAlertDestination:
         enabled=row.enabled,
         consecutive_failures=row.consecutive_failures,
         legacy_hog_function_ids=tuple(row.legacy_hog_function_ids),
+        keeps_legacy_webhook_body=row.keeps_legacy_webhook_body,
     )

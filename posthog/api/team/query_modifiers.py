@@ -29,11 +29,6 @@ def validate_modifiers(value: dict | None) -> dict | None:
     if not isinstance(value, dict):
         raise exceptions.ValidationError("Must provide a dictionary or None.")
 
-    # The native JSON events table is switched per project by an instance setting, never by a stored modifier.
-    # Dropping the key keeps a client from storing one, including a settings page that echoes the whole
-    # modifiers dict back.
-    value = {key: item for key, item in value.items() if key != "useNewEventsSchema"}
-
     if "bounceRateDurationSeconds" in value:
         bounce_rate = value["bounceRateDurationSeconds"]
         if bounce_rate is not None:

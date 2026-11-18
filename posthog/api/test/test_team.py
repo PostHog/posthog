@@ -1671,22 +1671,19 @@ def team_api_test_factory():
                 {"id": "test", "channel_type": "Direct", "combiner": "AND", "items": []}
             ]
 
-        def test_the_events_schema_modifier_is_not_client_writable(self) -> None:
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}",
-                {"modifiers": {"useNewEventsSchema": True}},
-            )
-            assert response.status_code == status.HTTP_200_OK, response.json()
-            assert "useNewEventsSchema" not in response.json()["modifiers"]
+        def test_a_project_stores_its_early_events_table_choice_and_sees_a_move_by_posthog(self) -> None:
+            with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", False):
+                response = self.client.patch(
+                    f"/api/environments/{self.team.id}",
+                    {"modifiers": {"useNewEventsSchema": True}},
+                )
+                assert response.status_code == status.HTTP_200_OK, response.json()
+                assert response.json()["modifiers"]["useNewEventsSchema"] is True
+                assert response.json()["default_modifiers"]["useNewEventsSchema"] is False
 
-            self.team.modifiers = {"useNewEventsSchema": True}
-            self.team.save()
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}",
-                {"modifiers": {"useNewEventsSchema": False, "bounceRateDurationSeconds": 30}},
-            )
-            assert response.status_code == status.HTTP_200_OK, response.json()
-            assert response.json()["modifiers"] == {"useNewEventsSchema": True, "bounceRateDurationSeconds": 30}
+                with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", str(self.team.id)):
+                    response = self.client.get(f"/api/environments/{self.team.id}")
+                assert response.json()["default_modifiers"]["useNewEventsSchema"] is True
 
         @parameterized.expand(
             [
