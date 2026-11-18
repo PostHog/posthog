@@ -43,7 +43,7 @@ EXPECTED_MAJORS = {
     "posthog-js-lite": 4,
     "posthog-react-native": 4,
     "posthog-rs": 1,
-    "posthog-go": 1,
+    "posthog-go": 2,
 }
 NPM_SDKS = ("posthog-node", "posthog-js", "@posthog/react", "posthog-js-lite", "posthog-react-native")
 NPM_SECTIONS = ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies")
