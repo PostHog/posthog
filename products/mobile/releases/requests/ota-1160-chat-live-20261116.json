@@ -1,0 +1,8 @@
+{
+    "schemaVersion": 1,
+    "id": "ota-1160-chat-live-20261116",
+    "kind": "ota",
+    "runtimeVersion": "1.16.0",
+    "previousRelease": "ota-1160-live-custom-properties",
+    "notes": "Show dates and times on chat messages, collapse intermediate activity, render supported charts in replies, and answer clarification forms in chat. Keep Live values visible during refresh and include the merged Inbox report action fixes. Verify chat replies, form submission, chart interactions, Inbox actions, and Live refresh on iOS and Android."
+}

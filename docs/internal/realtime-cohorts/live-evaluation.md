@@ -248,7 +248,7 @@ Every change applies lazily, person by person, on their next relevant event, fli
   A new evaluator version does the same for every team at once.
   A new cohort that reuses a person condition the team already has does not change the fingerprint, so the reused condition makes no transition.
   Its current matchers enter a single-leaf cohort only through the backfill, and a composed cohort through the backfill or the next flip of one of its other leaves.
-- **A cohort that is deleted, stops being realtime, or becomes excluded** stops producing output.
+- **A cohort that is deleted, stops being realtime, is turned off, or becomes excluded** stops producing output.
   No `left` is emitted, and Stage 2 garbage collection later deletes its rows silently.
 
 That is why every definition change owes a backfill run, which includes a reconcile.

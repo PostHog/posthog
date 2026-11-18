@@ -35,7 +35,6 @@ export const KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_DLQ = `${prefix}session_recor
 // write session recording and replay events to ClickHouse
 export const KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS = `${prefix}clickhouse_session_recording_events${suffix}`
 export const KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS = `${prefix}clickhouse_session_replay_events${suffix}`
-export const KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES = `${prefix}clickhouse_session_replay_features${suffix}`
 
 // anonymized block metadata mirrored to the ML account (consumed by the Parquet sink, not ClickHouse)
 export const KAFKA_SESSION_REPLAY_ML_BLOCK_METADATA = `${prefix}session_replay_ml_block_metadata${suffix}`
@@ -97,6 +96,10 @@ export const KAFKA_CDP_INTERNAL_EVENTS = `${prefix}cdp_internal_events${suffix}`
 // records. It carries full event payloads, so retention is bounded the way the source topic is.
 export const KAFKA_CDP_EVENTS_DLQ = `${prefix}cdp_events_dlq${suffix}`
 export const KAFKA_CDP_SES_WEBHOOKS = `${prefix}cdp_ses_webhooks${suffix}`
+export const KAFKA_CDP_INTAKE_TRANSACTIONAL_EMAIL = `${prefix}cdp_intake_transactional_email${suffix}`
+export const KAFKA_CDP_INTAKE_WORKFLOW_WEBHOOK = `${prefix}cdp_intake_workflow_webhook${suffix}`
+// One dead-letter topic for both intake topics. A record holds the original message bytes and a fixed reason code.
+export const KAFKA_CDP_INTAKE_DLQ = `${prefix}cdp_intake_dlq${suffix}`
 export const KAFKA_CDP_CLICKHOUSE_BEHAVIORAL_COHORTS_MATCHES = `${prefix}clickhouse_behavioral_cohorts_matches${suffix}`
 export const KAFKA_COHORT_MEMBERSHIP_CHANGED = `${prefix}cohort_membership_changed${suffix}`
 // One completion marker per processor partition, certifying that a reconcile run replayed a

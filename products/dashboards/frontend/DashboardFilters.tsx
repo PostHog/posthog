@@ -4,6 +4,7 @@ import { useValues } from 'kea'
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
+import { QuillSurfaceContext } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { urls } from 'scenes/urls'
@@ -25,6 +26,7 @@ interface DashboardFilterBarProps {
 export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Element {
     const { placement, dashboard, hasVariables, effectiveEditBarFilters } = useValues(dashboardLogic)
     const controlsEnabled = useFeatureFlag('METRICS_DASHBOARD_CONTROLS')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     return (
         <div className="@container/dashboard-filters flex min-w-0 flex-1 flex-col gap-2">
             <div className="flex flex-wrap gap-x-2 gap-y-2 justify-between items-start">
@@ -38,7 +40,11 @@ export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Ele
                             DashboardPlacement.DataOps,
                             DashboardPlacement.Builtin,
                         ].includes(placement) &&
-                            dashboard && <DashboardEditBar />}
+                            dashboard && (
+                                <QuillSurfaceContext.Provider value={todayRailNav}>
+                                    <DashboardEditBar />
+                                </QuillSurfaceContext.Provider>
+                            )}
                         {placement === DashboardPlacement.Builtin &&
                             controlsEnabled &&
                             !!effectiveEditBarFilters.metricVariables?.length && (
@@ -46,7 +52,7 @@ export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Ele
                             )}
                         {placement === DashboardPlacement.Dashboard && (
                             <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2 empty:hidden">
-                                <DashboardUnsavedChangesIndicator />
+                                {!todayRailNav && <DashboardUnsavedChangesIndicator />}
                                 {dashboard && !isSharedView() && <BIDashboardFilterBar dashboardId={dashboard.id} />}
                             </div>
                         )}
@@ -55,8 +61,10 @@ export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Ele
                 {![DashboardPlacement.Export, DashboardPlacement.Builtin].includes(placement) && (
                     <div
                         className={clsx(
-                            'flex flex-col @4xl/dashboard-filters:flex-row items-end @4xl/dashboard-filters:items-center gap-4 dashoard-items-actions',
-                            'min-w-0 @max-4xl/dashboard-filters:basis-full @max-4xl/dashboard-filters:w-full @max-4xl/dashboard-filters:ml-0 shrink-0 @4xl/dashboard-filters:ml-auto',
+                            'flex flex-col items-end gap-4 dashoard-items-actions min-w-0 shrink-0',
+                            todayRailNav
+                                ? '@3xl/dashboard-filters:flex-row @3xl/dashboard-filters:items-center @max-3xl/dashboard-filters:basis-full @max-3xl/dashboard-filters:w-full @max-3xl/dashboard-filters:ml-0 @3xl/dashboard-filters:ml-auto'
+                                : '@4xl/dashboard-filters:flex-row @4xl/dashboard-filters:items-center @max-4xl/dashboard-filters:basis-full @max-4xl/dashboard-filters:w-full @max-4xl/dashboard-filters:ml-0 @4xl/dashboard-filters:ml-auto',
                             {
                                 'mt-7': hasVariables,
                             }

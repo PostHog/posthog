@@ -33,6 +33,7 @@ from products.experiments.backend.health.pinned_share import (
     PinnedConditions,
     PinnedShareGrade,
     PinnedTraffic,
+    assigns_nobody_by_split,
     grade_pinned_share,
     pinned_conditions,
     pinned_share_severity,
@@ -51,7 +52,7 @@ ALL_CONDITIONS_PINNED = "all_conditions_pinned"
 # Some conditions pin a variant. The users they match count in that variant's results without random
 # assignment, so they bias the comparison unless the analysis excludes them, for example as test users.
 SOME_CONDITIONS_PINNED = "some_conditions_pinned"
-# Every condition that includes users pins the variant that one property names, so the code that sets the
+# Every condition that includes users pins a variant by the value of one property, so the code that sets the
 # property assigns the variants. The comparison is valid if that code assigns at random, which PostHog can't see.
 ASSIGNED_BY_PROPERTY = "assigned_by_property"
 # Every condition that includes users pins a variant and matches only some users, so only those users enter the
@@ -66,13 +67,6 @@ class _Pins:
     # The pinned conditions whose variant the analysis includes, in evaluation order.
     analyzed: tuple[ReachableCondition, ...]
     graded: PinnedConditions
-
-
-def assigns_nobody_by_split(flag: FlagState) -> bool:
-    """Whether every release condition that includes users sets a variant override, so the split assigns nobody."""
-    return bool(flag.reachable_conditions) and all(
-        condition.pinned_variant is not None for condition in flag.reachable_conditions
-    )
 
 
 def overrides_to_grade(ctx: HealthContext) -> PinnedConditions | None:
@@ -381,9 +375,9 @@ def _closed_detail(
 
 def _assigned_by_property_detail(variant_property: str, set_after_launch: str) -> str:
     return (
-        f'Each release condition that includes users matches the users whose property "{variant_property}" holds a '
-        f'variant key, and serves them that variant. So the code that sets "{variant_property}" assigns the '
-        f"variants, not PostHog.{set_after_launch} If it assigns at random, each variant gets similar users. If it "
+        "Each release condition that includes users serves one variant to the users with one value of the property "
+        f'"{variant_property}". So the code that sets "{variant_property}" assigns the variants, not '
+        f"PostHog.{set_after_launch} If it assigns at random, each variant gets similar users. If it "
         "assigns by who the users are, for example by plan or country, a difference in the results can come from "
         "those users and not from the variant."
     )

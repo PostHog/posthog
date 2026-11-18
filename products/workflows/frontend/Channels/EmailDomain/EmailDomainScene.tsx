@@ -1,8 +1,6 @@
 import { useValues } from 'kea'
+import { router } from 'kea-router'
 
-import { NotFound } from 'lib/components/NotFound'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -11,21 +9,22 @@ import { BindEmailDomainLogics } from './BindEmailDomainLogics'
 import { emailDomainLogic } from './emailDomainLogic'
 import { EmailDomainLogicProps } from './emailDomainLogicProps'
 import { EmailDomainSetup } from './EmailDomainSetup'
+import { originFromSearchParams } from './emailDomainSetupOrigin'
 
 export const scene: SceneExport<EmailDomainLogicProps> = {
     component: EmailDomainScene,
     logic: emailDomainLogic,
-    paramsToProps: ({ params: { id } }): EmailDomainLogicProps => ({ id: id || 'new' }),
+    paramsToProps: ({ params: { id }, searchParams }): EmailDomainLogicProps => ({
+        id: id || 'new',
+        origin: originFromSearchParams(searchParams),
+    }),
     productKey: ProductKey.WORKFLOWS,
 }
 
-export function EmailDomainScene({ id }: EmailDomainLogicProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    if (!featureFlags[FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_WIZARD]) {
-        return <NotFound object="page" />
-    }
+export function EmailDomainScene({ id }: Pick<EmailDomainLogicProps, 'id'>): JSX.Element {
+    const { searchParams } = useValues(router)
     return (
-        <BindEmailDomainLogics id={id || 'new'}>
+        <BindEmailDomainLogics id={id || 'new'} origin={originFromSearchParams(searchParams)}>
             <EmailDomainSetup />
         </BindEmailDomainLogics>
     )

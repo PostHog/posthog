@@ -84,6 +84,7 @@ from products.slack_app.backend.services.slack_app_home import (
     StatsState,
     TaskItem,
     TasksState,
+    _unlink_user_account,
     handle_ai_preferences_block_action,
     handle_app_home_opened,
     handle_app_home_view_submission,
@@ -92,6 +93,7 @@ from products.slack_app.backend.services.slack_app_home import (
     render_home_view,
 )
 from products.slack_app.backend.services.slack_settings import AIPreferences
+from products.slack_app.backend.services.workspace_integrations import require_workspace_integration
 from products.tasks.backend.facade.ai_run_defaults import get_user_ai_run_preferences, update_user_ai_run_preferences
 from products.tasks.backend.models import Task, TaskRun
 
@@ -808,6 +810,21 @@ class TestDailyFocusControls:
             patch("products.slack_app.backend.logic.daily_focus.capture_slack_event"),
         ):
             handle_ai_preferences_block_action(payload, action)
+
+
+class TestUnlinkAccount:
+    def test_unlink_revokes_and_deletes_every_link_of_the_slack_identity(self, slack_integration, link_user):
+        # One Slack identity, two PostHog accounts in the organization, both linked to it.
+        for email in ("first@example.com", "second@example.com"):
+            user = User.objects.create_and_join(slack_integration.team.organization, email, None)
+            link_user(user, slack_user_id="U001", slack_team_id=SLACK_WORKSPACE_ID)
+        integration = require_workspace_integration(slack_integration.id, SLACK_WORKSPACE_ID)
+
+        with patch("posthog.models.user_integration.SlackWebClient") as slack_client:
+            _unlink_user_account(integration, "U001")
+
+        assert slack_client.return_value.auth_revoke.call_count == 2
+        assert not UserIntegration.objects.filter(kind=UserIntegration.IntegrationKind.SLACK).exists()
 
 
 class TestChannelWelcomePicker:

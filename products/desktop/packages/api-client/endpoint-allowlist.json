@@ -91,6 +91,7 @@
     "Ticket",
     "User",
     "UserBasic",
+    "WarmTaskResponse",
     "_DateRange",
     "_LogPropertyFilter"
   ]

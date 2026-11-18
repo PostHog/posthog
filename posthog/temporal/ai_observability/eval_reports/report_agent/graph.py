@@ -131,7 +131,7 @@ def _fallback_content(
             f"No evaluation runs recorded for **{evaluation_name}** in this period. "
             f"Check that the evaluation is enabled and that {ingestion_hint}."
         )
-    elif metrics.output_type in ("numeric", "categorical") and metrics.pass_rate is None:
+    elif metrics.output_type in ("boolean", "numeric", "categorical") and metrics.pass_rate is None:
         summary = (
             f"No applicable results were produced across {metrics.total_runs} runs. All results were not applicable."
         )

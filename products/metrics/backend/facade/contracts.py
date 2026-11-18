@@ -138,12 +138,14 @@ class MetricQueryClause:
     metric_type: MetricType | None = None
     # Applied to each series before `aggregation` combines them.
     range_function: MetricRangeFunction | None = None
+    # Apdex threshold T for the derived apdex metric; None uses its default.
+    apdex_threshold_ms: float | None = None
 
     def __post_init__(self) -> None:
         if self.aggregation.is_raw and self.group_by:
             raise ValueError("group_by needs an aggregation; without one every series stays separate")
         if self.range_function is not None and self.aggregation.is_counter_function:
-            raise ValueError("range_function cannot combine with the legacy rate or increase aggregation")
+            raise ValueError(f"range_function cannot combine with the {self.aggregation} aggregation")
         if self.aggregation.needs_quantile:
             if self.quantile is None:
                 raise ValueError(f"{self.aggregation} requires a quantile")
@@ -151,6 +153,8 @@ class MetricQueryClause:
                 raise ValueError("quantile must be in (0, 1)")
         if not self.name:
             raise ValueError("clause name must be non-empty")
+        if self.apdex_threshold_ms is not None and not self.apdex_threshold_ms > 0:
+            raise ValueError("apdex threshold must be a positive number of milliseconds")
 
 
 @dataclass(frozen=True, slots=True)

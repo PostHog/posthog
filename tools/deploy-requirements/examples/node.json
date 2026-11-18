@@ -1,0 +1,25 @@
+{
+    "schema_version": 1,
+    "source_commit": "0123456789abcdef0123456789abcdef01234567",
+    "digest": "435e30224dd0",
+    "requirements": [
+        {
+            "kind": "django",
+            "database": "default",
+            "app": "posthog",
+            "migration": "0912_example"
+        },
+        {
+            "kind": "django",
+            "database": "default",
+            "app": "ee",
+            "migration": "0045_squashed",
+            "replaces": ["0043_example", "0044_example"]
+        },
+        {
+            "kind": "sqlx",
+            "database": "persons",
+            "versions": [20250923000001, 20251113000001]
+        }
+    ]
+}

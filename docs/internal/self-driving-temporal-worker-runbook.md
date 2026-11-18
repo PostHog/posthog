@@ -98,6 +98,17 @@ Do these checks in each region.
 
 ## Common operations
 
+**Safety-filter billing and trial refusals.**
+
+The buffer drops a signal when safety-filter admission raises `QuotaLimitExceeded` or `TrialRefused`.
+The activity requests spend finalization for signals with a signal ID and team ID, then returns a terminal refusal.
+It records the drop in `signals_dropped_total` with `stage="safety_filter"` and logs `signals_safety_filter.admission_refused` with the refusal reason.
+These refusals do not emit the unsafe-content block event.
+Temporary safety-provider failures still retry.
+
+After deployment, check that admission refusals produce drops without repeated safety-filter exceptions, and that healthy signals still reach grouping.
+Existing buffered signals adopt this behavior on their next safety-filter activity attempt.
+
 **Grouping batches for an organization without AI consent.**
 `team-signal-grouping-v2` checks organization AI data processing consent at the start of each run.
 If consent is disabled or unset, the workflow requests spend finalization for queued signals and drops all pending batch keys.

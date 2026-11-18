@@ -15,14 +15,13 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models import User
-from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.workflows.backend.facade.contracts import ImportOptions, WorkflowImportRecord
 from products.workflows.backend.facade.enums import (
     WorkflowImportNoteLevel,
+    WorkflowImportRequestSource,
     WorkflowImportSegmentCohortStatus,
-    WorkflowImportSource,
     WorkflowImportStatus,
 )
 from products.workflows.backend.facade.workflow_imports import import_for_workflow
@@ -101,7 +100,7 @@ class CustomerioSegmentSerializer(serializers.Serializer):
 
 class WorkflowImportRequestSerializer(serializers.Serializer):
     source = serializers.ChoiceField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
-        choices=WorkflowImportSource.choices,
+        choices=WorkflowImportRequestSource.choices,
         help_text="The tool the automations come from.",
     )
     campaigns = CustomerioCampaignSerializer(
@@ -242,9 +241,6 @@ class WorkflowImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "hog_flow"
     serializer_class = WorkflowImportRequestSerializer
     scope_object_read_actions = ["for_workflow"]
-    # Only importing is gated: the editor reads `for_workflow` on every workflow, flag or not.
-    posthog_feature_flag = {"workflows-customerio-import": ["create"]}
-    permission_classes = [PostHogFeatureFlagPermission]
 
     @validated_request(
         WorkflowImportRequestSerializer,

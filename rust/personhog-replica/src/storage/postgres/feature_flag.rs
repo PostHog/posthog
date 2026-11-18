@@ -5,6 +5,7 @@ use sqlx::FromRow;
 
 use personhog_common::grpc::{current_client_name, current_method_name};
 use personhog_common::persons::COOKIELESS_SENTINEL_VALUE;
+use personhog_common::query_tag;
 
 use super::{ConsistencyLevel, PostgresStorage, DB_QUERY_DURATION, DB_ROWS_RETURNED};
 use crate::storage::error::StorageResult;
@@ -69,7 +70,7 @@ impl FeatureFlagStorage for PostgresStorage {
         let rows = if check_person_exists {
             sqlx::query_as!(
                 HashKeyOverrideContextRow,
-                r#"
+                r#"/* service='personhog-replica', operation='get_hash_key_override_context_check_person' */
                 SELECT DISTINCT p.person_id, p.distinct_id,
                        existing.feature_flag_key as "feature_flag_key?",
                        existing.hash_key as "hash_key?"
@@ -89,7 +90,7 @@ impl FeatureFlagStorage for PostgresStorage {
         } else {
             sqlx::query_as!(
                 HashKeyOverrideContextRow,
-                r#"
+                r#"/* service='personhog-replica', operation='get_hash_key_override_context' */
                 SELECT ppd.person_id, ppd.distinct_id,
                        fhko.feature_flag_key as "feature_flag_key?",
                        fhko.hash_key as "hash_key?"
@@ -182,19 +183,25 @@ impl FeatureFlagStorage for PostgresStorage {
         // person delete or merge holds FOR UPDATE on the person row until its transaction ends.
         // Until then, the commit waits. This statement moves the check into the INSERT, where
         // statement_timeout applies.
-        sqlx::query("SET CONSTRAINTS ALL IMMEDIATE")
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(&query_tag!(
+            "set_constraints_immediate",
+            "SET CONSTRAINTS ALL IMMEDIATE"
+        ))
+        .execute(&mut *tx)
+        .await?;
         // statement_timeout includes time spent waiting on row locks, so it bounds the whole
         // INSERT, including several held rows in turn. It stays under the caller's deadline, so
         // the INSERT can fail with its own error before the caller gives up. The limit covers
         // only the INSERT. The pool acquire above runs before it and can still use up the
         // caller's deadline. The setting is local to the transaction, so PgBouncer does not pass
         // it to the next client of the server connection.
-        sqlx::query("SELECT set_config('statement_timeout', $1, true)")
-            .bind(self.hash_key_override_statement_timeout_ms.to_string())
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(&query_tag!(
+            "statement_timeout",
+            "SELECT set_config('statement_timeout', $1, true)"
+        ))
+        .bind(self.hash_key_override_statement_timeout_ms.to_string())
+        .execute(&mut *tx)
+        .await?;
 
         // DO UPDATE locks each conflicting row even when its WHERE is false, so NOT EXISTS
         // skips the pairs that already hold a real key. The WHERE still keeps a real key that a
@@ -202,7 +209,7 @@ impl FeatureFlagStorage for PostgresStorage {
         // when two distinct ids of one person produce the same row twice, so DISTINCT removes
         // the duplicates. ORDER BY makes concurrent upserts lock rows in the same order.
         let result = sqlx::query!(
-            r#"
+            r#"/* service='personhog-replica', operation='upsert_hash_key_overrides' */
             INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
             SELECT DISTINCT $1::integer, p.person_id, f.flag_key, $2::text
             FROM posthog_persondistinctid p
@@ -257,7 +264,7 @@ impl FeatureFlagStorage for PostgresStorage {
         let team_ids_i32: Vec<i32> = team_ids.iter().map(|&id| id as i32).collect();
 
         let result = sqlx::query!(
-            r#"
+            r#"/* service='personhog-replica', operation='delete_hash_key_overrides_by_teams' */
             DELETE FROM posthog_featureflaghashkeyoverride
             WHERE id IN (
                 SELECT id FROM posthog_featureflaghashkeyoverride
