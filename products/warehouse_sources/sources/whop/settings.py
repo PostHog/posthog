@@ -202,8 +202,9 @@ WHOP_ENDPOINTS: dict[str, WhopEndpointConfig] = {
 # is what a job already scheduled against one of them fails with, instead of a KeyError.
 RETIRED_ENDPOINTS: dict[str, str] = {
     "leads": (
-        "Whop retired the leads endpoint and moved existing leads to members, so the leads table can't sync "
-        "any more. Turn off syncing for this table and sync the members table instead."
+        "Whop retired the leads endpoint and moved existing leads to members, so syncing for the leads table "
+        "has stopped. Sync the members table instead. A member that was a lead has the lead's ID in its "
+        "metadata as lead_id."
     ),
 }
 
