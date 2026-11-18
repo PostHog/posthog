@@ -55,7 +55,6 @@ export function ReportExpectedImpact({
     report: SignalReport
     reportUrl: string
 }): JSX.Element | null {
-    const hasPostHogAiAccess = useFeatureFlag('PHAI_SANDBOX_MODE')
     const monitoringEnabled = useFeatureFlag('SIGNALS_REPORT_MONITORING')
     const [modalOpen, setModalOpen] = useState(false)
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
@@ -246,23 +245,21 @@ export function ReportExpectedImpact({
                         >
                             Looks good
                         </LemonButton>
-                        {hasPostHogAiAccess && (
-                            <LemonButton
-                                data-attr="report-expected-impact-suggest-metrics"
-                                type="secondary"
-                                size="small"
-                                disabledReason={
-                                    openMeasurements.length === 0 ? 'No open metric checks to revise.' : undefined
-                                }
-                                onClick={() => setModalOpen(true)}
-                            >
-                                Suggest different metrics
-                            </LemonButton>
-                        )}
+                        <LemonButton
+                            data-attr="report-expected-impact-suggest-metrics"
+                            type="secondary"
+                            size="small"
+                            disabledReason={
+                                openMeasurements.length === 0 ? 'No open metric checks to revise.' : undefined
+                            }
+                            onClick={() => setModalOpen(true)}
+                        >
+                            Suggest different metrics
+                        </LemonButton>
                     </div>
                 )}
             </div>
-            {allOpenApproved && hasPostHogAiAccess && (
+            {allOpenApproved && (
                 <Link
                     data-attr="report-expected-impact-suggest-another-metric"
                     className="self-start text-sm"
