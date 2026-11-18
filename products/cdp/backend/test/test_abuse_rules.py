@@ -161,6 +161,11 @@ class TestAbuseRules(SimpleTestCase):
                 content(inputs={"url": {"value": "http:\\\\127.0.0.1\\x"}}),
                 (Rule.INTERNAL_HOST,),
             ),
+            (
+                "markdown_link",
+                content(inputs={"body": {"value": "[test](https://webhook.site)"}}),
+                (Rule.REQUEST_CATCHER,),
+            ),
             ("ipv6_loopback_without_port", content(inputs={"url": {"value": "http://[::1]/"}}), (Rule.INTERNAL_HOST,)),
             ("ipv6_unique_local", content(inputs={"url": {"value": "http://[fd00::1]/hook"}}), (Rule.INTERNAL_HOST,)),
             ("chained_schemes", content(hog="http:/a" * 200_000, inputs={}), ()),
