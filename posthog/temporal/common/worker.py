@@ -14,6 +14,7 @@ from temporalio.client import Plugin
 from temporalio.contrib.opentelemetry import OpenTelemetryPlugin
 from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
 from temporalio.worker import (
+    Interceptor,
     PollerBehaviorAutoscaling,
     ResourceBasedSlotConfig,
     UnsandboxedWorkflowRunner,
@@ -40,6 +41,7 @@ from posthog.temporal.common.interceptor import is_task_queue_supported
 from posthog.temporal.common.liveness_tracker import LivenessInterceptor
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
+from posthog.temporal.common.registration import combined_registration
 from posthog.temporal.common.shutdown import DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT
 from posthog.temporal.common.slo_interceptor import SloInterceptor
 from posthog.temporal.common.utils import configure_asyncify_executor, shutdown_asyncify_executor
@@ -205,6 +207,16 @@ ALL_INTERCEPTOR_CLASSES = [
     LogsAlertingMetricsInterceptor,
     ExperimentsRecalculationMetricsInterceptor,
 ]
+
+
+def interceptor_classes() -> list[type[Interceptor]]:
+    return [*ALL_INTERCEPTOR_CLASSES, *combined_registration().interceptors]
+
+
+def with_declared_histograms(core_buckets: dict[str, list[float]]) -> dict[str, list[float]]:
+    # Core's buckets win, so a product declaration cannot change the buckets of a core metric.
+    declared = {histogram.metric_name: list(histogram.buckets) for histogram in combined_registration().histograms}
+    return declared | core_buckets
 
 
 @frozen
@@ -494,6 +506,7 @@ async def create_worker(
                 itertools.repeat(TASKS_SDK_LATENCY_HISTOGRAM_BUCKETS),
             )
         )
+    histogram_bucket_overrides = with_declared_histograms(histogram_bucket_overrides)
 
     runtime = Runtime(
         telemetry=TelemetryConfig(
@@ -530,7 +543,7 @@ async def create_worker(
         plugins=plugins,
     )
     supported_interceptors = [
-        interceptor() for interceptor in ALL_INTERCEPTOR_CLASSES if is_task_queue_supported(task_queue, interceptor)
+        interceptor() for interceptor in interceptor_classes() if is_task_queue_supported(task_queue, interceptor)
     ]
 
     # `activity_executor` below only serves sync activity functions, so `@asyncify` coroutines need their own.
@@ -604,7 +617,7 @@ async def create_worker(
             graceful_shutdown_timeout=graceful_shutdown_timeout or DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT,
             interceptors=[
                 interceptor()
-                for interceptor in ALL_INTERCEPTOR_CLASSES
+                for interceptor in interceptor_classes()
                 if is_task_queue_supported(config.task_queue, interceptor)
             ],
             max_heartbeat_throttle_interval=max_heartbeat_throttle_interval(),

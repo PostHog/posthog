@@ -11,17 +11,15 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
-from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.integration import github_rate_limited_response
 from posthog.api.pagination import PageLinksSerializer, offset_page_links
-from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.user import User
-from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_scoped_team_ids
+from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.review_hog.backend.facade.api import (
     get_review_detail,
@@ -62,6 +60,10 @@ from products.review_hog.backend.facade.enums import (
     UrgencyThreshold,
 )
 from products.review_hog.backend.facade.reviews import get_pr_review_status, request_pr_review_by_url
+from products.review_hog.backend.presentation.views.repositories import (
+    EffectiveTeamMemberPermission,
+    ReviewHogProjectViewSetMixin,
+)
 
 DEFAULT_REVIEWS_LIMIT = 5
 DEFAULT_REVIEWS_TABLE_LIMIT = 25
@@ -887,20 +889,7 @@ _INVALID_PR_URL_ERROR = (
 )
 
 
-class EffectiveTeamScopedKeyPermission(BasePermission):
-    """Reviews live on the root project, and the API scope check covers only the URL project.
-
-    So a key scoped to an environment must not reach its parent project through an environment URL.
-    """
-
-    message = "This key is not scoped to the project that holds the reviews."
-
-    def has_permission(self, request: Request, view: Any) -> bool:
-        scoped_teams = get_authenticator_scoped_team_ids(request.successful_authenticator)
-        return scoped_teams is None or resolve_effective_team_id(view.team_id) in scoped_teams
-
-
-class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+class ReviewRecentReviewsViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericViewSet):
     """Recent code reviews on this project.
 
     Read-only meta for the Code review tab's "recent reviews" block: what was reviewed, how many
@@ -918,7 +907,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     # reachable with a personal API key or OAuth token, which is how MCP tools authenticate. Session
     # UI access is unchanged; this only adds token access, gated by code_review:read / code_review:write.
     scope_object = "code_review"
-    permission_classes = [PostHogFeatureFlagPermission, EffectiveTeamScopedKeyPermission]
+    permission_classes = [PostHogFeatureFlagPermission, EffectiveTeamMemberPermission]
     posthog_feature_flag = "review-hog"
     serializer_class = ReviewRecentReviewSerializer
     pagination_class = None

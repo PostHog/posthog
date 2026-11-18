@@ -182,6 +182,7 @@ export class UrlFetchConsumer {
             const fetchable: FetchCandidate[] = []
             const notReady: FetchCandidate[] = []
             const refreshDue: { candidate: FetchCandidate; history: UrlCrawlHistoryItem }[] = []
+            const storedFresh: { candidate: FetchCandidate; history: UrlCrawlHistoryItem }[] = []
             for (const candidate of candidates) {
                 const history = stored.get(candidate.originalRef)
                 if (history?.kind === 'url') {
@@ -191,6 +192,7 @@ export class UrlFetchConsumer {
                         continue
                     }
                     if (job === 'drop') {
+                        storedFresh.push({ candidate, history })
                         ImageFetchConsumerMetrics.incDeduped('store', 1)
                         this.topHogMetrics?.recordFilteredUrl(candidate, 'store_deduped')
                         for (const sourcePartition of candidate.sourcePartitions ?? []) {
@@ -214,10 +216,21 @@ export class UrlFetchConsumer {
                 }
             }
 
+            // A job whose copy could not be made readable fails the batch after the rest of its work, so the
+            // redelivery retries that job while the others come back as deduped.
+            let unindexed = 0
+            const sink = this.options.refreshingSink
+            if (sink?.indexStoredImage) {
+                const outcomes = await Promise.allSettled(
+                    storedFresh.map(({ candidate, history }) => sink.indexStoredImage!(candidate, history))
+                )
+                unindexed = outcomes.filter((outcome) => outcome.status === 'rejected').length
+            }
             const refreshed = await Promise.all(
                 refreshDue.map(async ({ candidate, history }): Promise<UrlCrawlHistoryItem> => {
-                    if (await this.options.refreshingSink!.refreshImage(candidate)) {
-                        return { ...history, storedAtMs: nowMs }
+                    const refresh = await this.options.refreshingSink!.refreshImage(candidate, history)
+                    if (refresh) {
+                        return { ...history, storedAtMs: refresh.pack?.storedAtMs ?? nowMs, pack: refresh.pack }
                     }
                     // The stored image is gone, for example because S3 expired it. Admission already dropped a job
                     // whose key is deleted, and a refused image has no stored time, so this one is fetched again now,
@@ -225,6 +238,7 @@ export class UrlFetchConsumer {
                     const missing: UrlCrawlHistoryItem = {
                         ...history,
                         storedAtMs: undefined,
+                        pack: undefined,
                         nextFetchAtMs: nowMs,
                         cache: undefined,
                     }
@@ -278,7 +292,7 @@ export class UrlFetchConsumer {
                     ImageFetchRequestMetrics.incRetryCause(attempt.outcome)
                 }
             }
-            const lost = attempts.filter((attempt) => attempt.lost).length + republishResult.failedUrls
+            const lost = attempts.filter((attempt) => attempt.lost).length + republishResult.failedUrls + unindexed
             if (lost > 0) {
                 throw new Error(`the image fetch lane could not account for ${lost} URLs`)
             }
