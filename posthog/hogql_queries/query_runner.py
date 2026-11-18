@@ -2821,6 +2821,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     return self._serve_flight_outcome(wait, cache_manager, query_run=query_run)
                 # The flight cannot be read, or its leader held the lock past the follower wait, so this run goes
                 # alone, as it does when acquire hits a storage error.
+                self._raise_if_breaker_forbids(cache_manager, query_run.user)
                 QUERY_SINGLE_FLIGHT_COUNTER.labels(action=ran_alone_action).inc()
                 flight = None
 
@@ -3010,6 +3011,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             accumulator_scope() as warnings_accumulator,
             query_stats_scope(retain_ast=query_scan_flag is not None) as query_stats,
         ):
+            if flight is not None:
+                query_stats.query_start_listeners.append(flight.mark_querying)
             survey_query_metric_labels = get_survey_query_metric_labels(self.query)
             query_start = perf_counter()
             self._phase = RunPhase(name="rate_limiters", stats=query_stats)

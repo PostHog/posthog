@@ -1,5 +1,6 @@
 import json
 import uuid
+import threading
 from datetime import UTC, datetime
 
 import pytest
@@ -102,20 +103,38 @@ class TestQuerySingleFlight(SimpleTestCase):
             leader.acquire()  # still running, and its heartbeat never stopped
             assert QuerySingleFlight(key, BUDGET_INTERACTIVE).wait(timeout_seconds=2) == FlightWait(outcome="released")
 
-    @parameterized.expand([("interactive", BUDGET_INTERACTIVE), ("extended", BUDGET_EXTENDED)])
+    @parameterized.expand(
+        [
+            ("leader_never_queries_interactive", BUDGET_INTERACTIVE, False, FlightWait(outcome="timeout")),
+            ("leader_never_queries_extended", BUDGET_EXTENDED, False, FlightWait(outcome="timeout")),
+            (
+                "leader_queries",
+                BUDGET_EXTENDED,
+                True,
+                FlightWait(outcome="done", last_refresh=datetime(2026, 1, 1, tzinfo=UTC)),
+            ),
+        ]
+    )
     @pytest.mark.timeout(10)
-    def test_a_follower_stops_waiting_for_a_leader_that_keeps_its_lock(self, _name, budget):
+    def test_a_follower_waits_past_the_short_limit_only_for_a_leader_that_queries(
+        self, _name, budget, leader_queries, expected
+    ):
         key = _cache_key()
         leader = QuerySingleFlight(key, budget)
         self.addCleanup(leader.release)
         leader.acquire()
+        if leader_queries:
+            leader.mark_querying()
+        finish = threading.Timer(0.3, leader.succeed, args=[datetime(2026, 1, 1, tzinfo=UTC)])
+        self.addCleanup(finish.cancel)
+        finish.start()
         with mock.patch.multiple(
             single_flight,
-            FLIGHT_MAX_FOLLOWER_WAIT_SECONDS=0.05,
+            FLIGHT_MAX_WAIT_BEFORE_LEADER_QUERIES_SECONDS=0.05,
             FLIGHT_POLL_INTERVAL=0.01,
             FLIGHT_MAX_POLL_INTERVAL=0.01,
         ):
-            assert QuerySingleFlight(key, budget).wait() == FlightWait(outcome="timeout")
+            assert QuerySingleFlight(key, budget).wait() == expected
 
     def test_acquire_drops_the_previous_flights_published_result(self):
         key = _cache_key()
