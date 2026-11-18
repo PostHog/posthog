@@ -661,8 +661,7 @@ jobs:
 
             # The Rust build only produces the binary that "Start Rust flags service" execs
             # further down; it reads nothing the database setup writes. Overlapping the two
-            # takes the build off the critical path: over the last 41 runs the two blocks
-            # cost 283s back to back and 155s overlapped.
+            # takes the build off the critical path.
             # Both entries are `run:` steps, which a `parallel:` block handles safely. Nothing
             # here writes $GITHUB_PATH or $GITHUB_ENV (docs/internal/ci-things-already-tried.md).
             - parallel:
