@@ -42,7 +42,7 @@ describe.skipIf(!API_TOKEN)('skill read reaches PostHog with $mcp_skill_name', (
             req.on('end', () => {
                 try {
                     const raw = Buffer.concat(chunks)
-                    // posthog-node gzips the batch before POSTing it to /batch/.
+                    // posthog-node gzips the batch before POSTing it to capture.
                     const json = req.headers['content-encoding'] === 'gzip' ? gunzipSync(raw) : raw
                     const body = JSON.parse(json.toString())
                     for (const item of body.batch ?? [body]) {
@@ -52,7 +52,7 @@ describe.skipIf(!API_TOKEN)('skill read reaches PostHog with $mcp_skill_name', (
                     // non-JSON probe; ignore
                 }
                 res.writeHead(200, { 'content-type': 'application/json' })
-                res.end('{"status":1}')
+                res.end('{"results":{}}')
             })
         })
         await new Promise<void>((resolve) => sink.listen(0, '127.0.0.1', resolve))

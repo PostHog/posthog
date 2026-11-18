@@ -198,7 +198,7 @@ describe('POST /public/m/ses_sandbox_webhook', () => {
                 const body = parseJSON((gzipped ? gunzipSync(raw) : raw).toString('utf8'))
                 receivedEvents.push(...(Array.isArray(body.batch) ? body.batch : [body]))
                 res.writeHead(200, { 'Content-Type': 'application/json' })
-                res.end('{"status":"Ok"}')
+                res.end('{"results":{}}')
             })
         })
         await new Promise<void>((resolve) => analyticsReceiver.listen(0, '127.0.0.1', resolve))
