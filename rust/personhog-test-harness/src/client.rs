@@ -70,15 +70,6 @@ impl HarnessClient {
             .context("GetPerson failed")
     }
 
-    /// The person as a changelog follower has them: a person read that carries the
-    /// routing headers.
-    pub async fn followed_person(&self, team_id: i64, person_id: i64) -> Result<Option<Person>> {
-        self.inner
-            .get_followed_person(team_id, person_id)
-            .await
-            .context("followed GetPerson failed")
-    }
-
     /// Fence a person for a delete op, returning the sealed version.
     pub async fn fence_person(
         &self,

@@ -343,7 +343,10 @@ pub async fn verify_followed(
     for person_id in state.person_ids().await {
         let started = Instant::now();
         let read = loop {
-            match client.followed_person(team_id, person_id).await {
+            match client
+                .get_person(team_id, person_id, ConsistencyLevel::Eventual)
+                .await
+            {
                 Err(_) if started.elapsed() < FOLLOWED_READ_DEADLINE => {
                     sleep(Duration::from_millis(200)).await;
                 }
