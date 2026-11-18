@@ -12,6 +12,8 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import override_settings
 
+from celery.exceptions import SoftTimeLimitExceeded
+from kombu.exceptions import OperationalError
 from parameterized import parameterized
 from trino.exceptions import TrinoQueryError
 
@@ -237,13 +239,50 @@ class TestTrinoCompileCheck(BaseTest):
             {"TRINO_FUNCTION_UNSUPPORTED": 1},
         )
 
+    @parameterized.expand(
+        [
+            ("time_limit_mid_batch", "check", SoftTimeLimitExceeded(), (0, 0, {})),
+            (
+                "hand_off_fails",
+                "enqueue",
+                OperationalError("broker unreachable"),
+                (1, 2, {"TRINO_FUNCTION_UNSUPPORTED": 1}),
+            ),
+        ]
+    )
+    @override_settings(HOGTOWER_API_URL="https://hogtower.example.com")
+    def test_batch_that_cannot_finish_ends_the_run_with_an_error(
+        self, _case: str, failing_step: str, error: Exception, totals: tuple[int, int, dict[str, int]]
+    ) -> None:
+        compile_error = error if failing_step == "check" else None
+        with patch(
+            "products.managed_warehouse.backend.trino_compile_check.compile_trino_shadow_query",
+            side_effect=compile_error,
+            wraps=compile_trino_shadow_query,
+        ):
+            events, next_batch = self._batch_events(
+                run_id="run-1",
+                explain=False,
+                enqueue_error=error if failing_step == "enqueue" else None,
+                raised=error,
+            )
+
+        assert next_batch is None
+        [completed] = [properties for event, properties in events if event == COMPLETED_EVENT]
+        assert (completed["ok"], completed["total"], completed["error_counts"], completed["error"]) == (
+            *totals,
+            type(error).__name__,
+        )
+
     def test_task_is_redelivered_when_its_worker_dies(self) -> None:
         assert run_trino_compile_check_task.acks_late is True
         assert run_trino_compile_check_task.reject_on_worker_lost is True
+        assert run_trino_compile_check_task.soft_time_limit < run_trino_compile_check_task.time_limit
 
     def _batch_events(
-        self, *, enqueue_error: BaseException | None = None, **task_kwargs: Any
+        self, *, enqueue_error: BaseException | None = None, raised: BaseException | None = None, **task_kwargs: Any
     ) -> tuple[list[tuple[str, dict]], dict | None]:
+        raised = raised or enqueue_error
         with (
             patch("products.managed_warehouse.backend.trino_compile_check_run.ph_scoped_capture") as scoped,
             patch("products.managed_warehouse.backend.trino_compile_check_run.BATCH_SIZE", 2),
@@ -251,8 +290,9 @@ class TestTrinoCompileCheck(BaseTest):
         ):
             try:
                 run_trino_compile_check_task(**{"team_id": self.team.pk, **task_kwargs})
-            except SystemExit:
-                assert enqueue_error is not None
+            except BaseException as error:
+                if error is not raised:
+                    raise
         capture = scoped.return_value.__enter__.return_value
         events = [(call.kwargs["event"], call.kwargs["properties"]) for call in capture.call_args_list]
         next_batch = apply_async.call_args.kwargs["kwargs"] if apply_async.called and enqueue_error is None else None
