@@ -504,18 +504,18 @@ class TestRoutineInsights(BaseTest):
     @parameterized.expand(
         [
             ("a person without habits", [], [], ["team_fav", "runner_up", "third"]),
-            ("a habit that is already popular", ["team_fav"], [], ["runner_up", "third"]),
-            ("habits that fill the row", ["h1", "h2", "h3", "h4"], [], []),
-            ("a dashboard habit takes one place", ["dashboard:7"], [], ["team_fav", "runner_up", "third"]),
-            ("a habit without data frees its place", ["h1", "h2", "broken"], [], ["team_fav", "runner_up"]),
-            ("key metrics keep no place beside habits", ["h1", "h2"], [5.0, 5.0], ["team_fav", "runner_up"]),
-            ("active key metrics keep places without habits", [], [5.0, 5.0], ["team_fav", "runner_up"]),
-            ("a key metric without activity keeps no place", [], [0.0], ["team_fav", "runner_up", "third"]),
-            ("key metrics still computing keep their places", [], None, ["team_fav", "runner_up"]),
+            ("a habit that is already popular", ["team_fav"], [], []),
+            ("one habit", ["h1"], [], []),
+            ("a habit without data", ["broken"], [], ["team_fav", "runner_up", "third"]),
+            ("a habit whose query fails", ["failing"], [], ["team_fav", "runner_up", "third"]),
+            ("a dashboard habit", ["dashboard:7"], [], []),
+            ("active key metrics", [], [5.0, 5.0], []),
+            ("a key metric without activity", [], [0.0], ["team_fav", "runner_up", "third"]),
+            ("key metrics still computing", [], None, []),
         ]
     )
     @time_machine.travel("2026-10-13T12:00:00Z", tick=False)
-    def test_popular_insights_fill_only_the_places_a_persons_own_habits_leave(
+    def test_popular_insights_fill_the_row_only_when_nothing_else_would_show(
         self, _name: str, habits: list[str], key_metric_weeks: list[float] | None, expected: list[str]
     ) -> None:
         viewers = [User.objects.create_and_join(self.organization, f"viewer{i}@example.com", None) for i in range(3)]
@@ -558,6 +558,8 @@ class TestRoutineInsights(BaseTest):
         def series(**kwargs: Any) -> InsightSeries | None:
             if kwargs["short_id"] == "broken":
                 return None
+            if kwargs["short_id"] == "failing":
+                raise RuntimeError("query failed")
             return insight({"opened": points}, short_id=kwargs["short_id"], name="Opened")
 
         with (

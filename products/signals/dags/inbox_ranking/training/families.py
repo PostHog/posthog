@@ -34,7 +34,7 @@ from products.signals.backend.ranking.features import (
     REPORT_EMBEDDINGS_FEATURE_SET,
     REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET,
     REPORT_EMBEDDINGS_PRIORITY_ML_FEATURES_FEATURE_SET,
-    REPORT_EMBEDDINGS_PRIORITY_SOURCES_FEATURE_SET,
+    REPORT_EMBEDDINGS_PRIORITY_SCORED_FACTS_FEATURE_SET,
     FeatureSet,
 )
 from products.signals.backend.ranking.serving_manifest import DEFAULT_MODEL_KIND, ONNX_MODEL_KIND
@@ -47,13 +47,13 @@ from products.signals.dags.inbox_ranking.multihead.inputs import PairTrainingCon
 # servable by key, and their online grades keep their own series.
 NN_MODEL_NAME = "nn_v3"
 NN_WITH_PRIO_MODEL_NAME = "nn_with_prio_v2"
-NN_WITH_PRIO_SOURCES_MODEL_NAME = "nn_with_prio_sources_v2"
 NN_WITH_PRIO_ML_FEATURES_MODEL_NAME = "nn_with_prio_ml_features_v1"
+NN_WITH_PRIO_ML_FEATURES_V2_MODEL_NAME = "nn_with_prio_ml_features_v2"
 NN_WITH_PRIO_ML_FEATURES_BACKFILL_MODEL_NAME = "nn_with_prio_ml_features_backfill_v1"
 NN_WITH_PRIO_ML_FEATURES_BACKFILL_AS_OF_MODEL_NAME = "nn_with_prio_ml_features_backfill_as_of_v1"
 ML_FEATURES_EXPERIMENT_EXPIRES = datetime.date(2026, 12, 9)
-# The `inbox_ranking_feature_backfill_job` batch the backfill experiments read. An operator writes it
-# with this `batch_id`. A refresh is a new batch, and so a new `model_name`.
+# The `inbox_ranking_feature_backfill_job` batch the backfill experiments and `nn_with_prio_ml_features_v2`
+# read. An operator writes it with this `batch_id`. A refresh is a new batch, and so a new `model_name`.
 ML_FEATURES_BACKFILL_BATCH_ID = "ml-features-v1"
 NN_WITH_PRIO_FIXED_MODEL_NAME = "nn_with_prio_fixed_v1"
 NN_WITH_PRIO_FIXED_NODISMISS_MODEL_NAME = "nn_with_prio_fixed_nodismiss_v1"
@@ -88,7 +88,7 @@ AS_OF_PROVENANCES = (Provenance.SCORING_TIME, Provenance.HISTORICAL)
 
 @frozen
 class FeatureBackfillSelection:
-    """The frozen `inbox_report_feature_backfill` batch an experiment fills its late feature groups
+    """The frozen `inbox_report_feature_backfill` batch a family fills its late feature groups
     from, and the provenances it takes a value from. A value of another provenance stays unknown."""
 
     batch_id: str
@@ -134,8 +134,9 @@ class ModelFamily:
     families did, so their recipes stay as they were.
 
     `feature_backfill` fills the set's late feature groups from a frozen backfill batch where a row's
-    own snapshot did not record them. Only a report-grain experiment whose set has late feature
-    groups can set it, so no serving family trains on reconstructed values."""
+    own snapshot did not record them. Only a report-grain family whose set has late feature groups
+    can set it. A serving family that sets it trains on reconstructed values and is read in shadow,
+    as a challenger, against the values it reads online."""
 
     name: str
     feature_set: FeatureSet
@@ -155,11 +156,9 @@ class ModelFamily:
 
     def __post_init__(self) -> None:
         self._check_project_vector_kinds()
-        if self.feature_backfill is not None and (
-            not self.experiment or self.grain == PAIR_GRAIN or not self.feature_set.late_feature_groups
-        ):
+        if self.feature_backfill is not None and (self.grain == PAIR_GRAIN or not self.feature_set.late_feature_groups):
             raise ValueError(
-                f"family {self.name} reads a feature backfill; only a report-grain experiment whose set has late "
+                f"family {self.name} reads a feature backfill; only a report-grain family whose set has late "
                 "feature groups can"
             )
         if self.seed_offset and (not self.experiment or self.grain == PAIR_GRAIN):
@@ -217,9 +216,12 @@ class ModelFamily:
 # torch, so the `signals_ml` location trains it. The main location fits no family. `nn` declares
 # the report embeddings set, because that set builds its report input in training and at serving.
 # `nn_with_prio_v2` is the same network with the report's priority levels as extra report inputs.
-# `nn_with_prio_sources_v2` is `nn_with_prio_v2` plus the source products of the report's signals. It
-# serves the recipe of the `nn_with_prio_sources_v1` experiment, so it gets online scores as a
-# challenger.
+# `nn_with_prio_ml_features_v2` serves the recipe of the `nn_with_prio_ml_features*` experiments as a
+# challenger. Its set takes the report facts the sweep recorded when it scored the report, where they
+# exist, so it trains on the values it reads online. A report without them reads its own snapshot,
+# then `ML_FEATURES_BACKFILL_BATCH_ID` for a late group the snapshot never recorded. Unlike the
+# experiments, it trains on a day the batch does not cover. It took the place of the sources
+# challenger `nn_with_prio_sources_v2` (`RETIRED_MODEL_NAMES`), whose columns its set holds.
 # `nn_with_prio_ml_features_v1` is an experiment: the sources set plus one-hot report facts (length,
 # judgments, signal count, content counts and authorship, creation time), graded against
 # `nn_with_prio_v2`, with the holdout AUC each group carries recorded by shuffling it.
@@ -250,10 +252,13 @@ MODEL_FAMILIES: tuple[ModelFamily, ...] = (
         location=ML_LOCATION,
     ),
     ModelFamily(
-        name=NN_WITH_PRIO_SOURCES_MODEL_NAME,
-        feature_set=REPORT_EMBEDDINGS_PRIORITY_SOURCES_FEATURE_SET,
+        name=NN_WITH_PRIO_ML_FEATURES_V2_MODEL_NAME,
+        feature_set=REPORT_EMBEDDINGS_PRIORITY_SCORED_FACTS_FEATURE_SET,
         learner=ONNX_MODEL_KIND,
         location=ML_LOCATION,
+        feature_backfill=FeatureBackfillSelection(
+            batch_id=ML_FEATURES_BACKFILL_BATCH_ID, provenances=(*AS_OF_PROVENANCES, *APPROXIMATE_PROVENANCES)
+        ),
     ),
     ModelFamily(
         name=NN_WITH_PRIO_ML_FEATURES_MODEL_NAME,
@@ -369,8 +374,8 @@ MODEL_FAMILIES: tuple[ModelFamily, ...] = (
 )
 NN_FAMILY = next(family for family in MODEL_FAMILIES if family.name == NN_MODEL_NAME)
 NN_WITH_PRIO_FAMILY = next(family for family in MODEL_FAMILIES if family.name == NN_WITH_PRIO_MODEL_NAME)
-NN_WITH_PRIO_SOURCES_FAMILY = next(
-    family for family in MODEL_FAMILIES if family.name == NN_WITH_PRIO_SOURCES_MODEL_NAME
+NN_WITH_PRIO_ML_FEATURES_V2_FAMILY = next(
+    family for family in MODEL_FAMILIES if family.name == NN_WITH_PRIO_ML_FEATURES_V2_MODEL_NAME
 )
 
 

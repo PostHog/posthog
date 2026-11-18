@@ -24,6 +24,7 @@ import type {
     GapActionApi,
     GapTopicActionApi,
     GapTopicActionResultApi,
+    KnowledgeAccessApi,
     KnowledgeAvailabilityApi,
     KnowledgeDocumentWindowApi,
     KnowledgeGapSuggestionApi,
@@ -68,6 +69,24 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getBusinessKnowledgeAccessRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/business_knowledge/access/`
+}
+
+/**
+ * The project and, for a project secret API key limited to a library, the library the caller reads. A project secret API key can call this with `@current` as the project ID to learn its own project.
+ * @summary Get what the caller can read
+ */
+export const businessKnowledgeAccessRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<KnowledgeAccessApi> => {
+    return apiMutator<KnowledgeAccessApi>(getBusinessKnowledgeAccessRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getBusinessKnowledgeDocumentsWindowListUrl = (
     projectId: string,
@@ -294,8 +313,8 @@ export const getBusinessKnowledgeKeysCreateUrl = (projectId: string) => {
 }
 
 /**
- * Creates a project secret API key with the business_knowledge:read scope, limited to one library. The response is the only place the key value appears. Delete or roll the key through the project secret API keys endpoint.
- * @summary Create a key that reads one business knowledge library
+ * Creates a project secret API key with the business_knowledge:read scope. The key reads one library, or all business knowledge in the project when library_id is null. The response is the only place the key value appears. Delete or roll the key through the project secret API keys endpoint.
+ * @summary Create a key that reads business knowledge
  */
 export const businessKnowledgeKeysCreate = async (
     projectId: string,
@@ -966,7 +985,7 @@ export const getBusinessKnowledgeSourcesUsageRetrieveUrl = (
 }
 
 /**
- * How much support agent runs cited the project's knowledge sources over a period.
+ * Usage of the project's knowledge over a period: chunks ingested, searches, and how often support agent runs cited the sources.
  */
 export const businessKnowledgeSourcesUsageRetrieve = async (
     projectId: string,

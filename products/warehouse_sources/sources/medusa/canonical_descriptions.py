@@ -238,6 +238,21 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             **_TIMESTAMPS,
         },
     },
+    "Campaigns": {
+        "description": "A marketing campaign that groups promotions and can cap their total spend or usage with a budget.",
+        "docs_url": "https://docs.medusajs.com/api/admin#campaigns",
+        "columns": {
+            "id": "Unique identifier of the campaign.",
+            "name": "Name of the campaign.",
+            "description": "Description of the campaign.",
+            "currency": "Currency of the campaign.",
+            "campaign_identifier": "Unique identifier of the campaign, set by the merchant.",
+            "starts_at": "Date the campaign starts.",
+            "ends_at": "Date the campaign ends.",
+            "budget": "Budget of the campaign: its type (spend or usage), currency code, limit, and the amount used so far.",
+            **_TIMESTAMPS,
+        },
+    },
     "ProductCategories": {
         "description": "A category in the product catalog, which can nest under a parent category.",
         "docs_url": "https://docs.medusajs.com/api/admin#product-categories",

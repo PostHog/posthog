@@ -9,15 +9,79 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    ApmDependenciesListParams,
+    ApmEndpointTimeSpentListParams,
     ApmEndpointsListParams,
     ApmServiceMapListParams,
     ApmServicesListParams,
     ApmUsageListParams,
+    DependenciesResponseApi,
+    EndpointTimeSpentResponseApi,
     EndpointsHealthResponseApi,
     ServiceMapResponseApi,
     ServiceUsageResponseApi,
     ServicesHealthResponseApi,
 } from './api.schemas'
+
+export const getApmDependenciesListUrl = (projectId: string, params?: ApmDependenciesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/apm/dependencies/?${stringifiedParams}`
+        : `/api/projects/${projectId}/apm/dependencies/`
+}
+
+/**
+ * Caller to callee edges over the whole window, including inferred dependencies. Same gate and window as services.
+ */
+export const apmDependenciesList = async (
+    projectId: string,
+    params?: ApmDependenciesListParams,
+    options?: RequestInit
+): Promise<DependenciesResponseApi> => {
+    return apiMutator<DependenciesResponseApi>(getApmDependenciesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getApmEndpointTimeSpentListUrl = (projectId: string, params: ApmEndpointTimeSpentListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/apm/endpoint_time_spent/?${stringifiedParams}`
+        : `/api/projects/${projectId}/apm/endpoint_time_spent/`
+}
+
+/**
+ * Where one endpoint's request time goes, by service and inferred dependency. Same gate and window as services.
+ */
+export const apmEndpointTimeSpentList = async (
+    projectId: string,
+    params: ApmEndpointTimeSpentListParams,
+    options?: RequestInit
+): Promise<EndpointTimeSpentResponseApi> => {
+    return apiMutator<EndpointTimeSpentResponseApi>(getApmEndpointTimeSpentListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getApmEndpointsListUrl = (projectId: string, params?: ApmEndpointsListParams) => {
     const normalizedParams = new URLSearchParams()

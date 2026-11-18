@@ -13,6 +13,12 @@ Run these commands from the repository root:
 
 Read [the guidance guide](src/hono/guidance/AGENTS.md) before you add a guidance rule, or before you put advice or a result-scope fact in a tool description or a tool response. It says which of the three holds a fact.
 
+## Product-specific agent text
+
+- **Text about one product lives in that product's files.** `[review]` Put a workflow in a skill under `products/<name>/skills/`. Put a note on a tool's result in `agent_note` in the product's `tools.yaml`. Every product shares `src/tools/exec.ts` and `src/templates/sections/`, so keep product text out of them.
+- A redirect for a removed tool is the exception. It goes in `DEPRECATED_TOOL_REDIRECTS` in `src/tools/exec.ts`.
+- If product text must be in the server instructions, agree the change in `#team-context-and-mcp` before you write it.
+
 ## Unsolicited elicitation: high risk
 
 > [!CAUTION]
