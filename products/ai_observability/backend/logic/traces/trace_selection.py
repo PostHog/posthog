@@ -83,6 +83,11 @@ class TraceWindow:
     def read_bounds(self) -> "TraceWindow":
         return TraceWindow(start=_shift(self.start, -CAPTURE_BUFFER), end=_shift(self.end, CAPTURE_BUFFER))
 
+    def may_read_a_suffix_of(self, first_timestamp: datetime) -> bool:
+        """Whether a trace whose earliest event inside the read bounds is at `first_timestamp` may have started before
+        those bounds, so a read starting from that timestamp may miss its first events."""
+        return first_timestamp.astimezone(UTC) - self.read_bounds().start.astimezone(UTC) < CAPTURE_BUFFER
+
 
 @frozen
 class TraceGroupScope:
