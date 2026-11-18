@@ -94,7 +94,7 @@ from posthog.helpers.trigram_search import (
 )
 from posthog.hogql_queries.apply_dashboard_filters import normalize_dashboard_filters_properties
 from posthog.hogql_queries.query_runner import team_configs_for_cache_key
-from posthog.hogql_queries.refresh_policy import ComputeSurface
+from posthog.hogql_queries.refresh_policy import ComputeSurface, refresh_param_present
 from posthog.models.activity_logging.activity_log import ActivityLog, Change
 from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
 from posthog.models.file_system.file_system import FileSystem, create_or_update_file, delete_file, join_path, split_path
@@ -1365,6 +1365,9 @@ class CachedTileInsightResultSerializer(InsightSerializer):
     def to_representation(self, instance: Insight) -> dict[str, Any]:
         # InsightSerializer.to_representation rebuilds the insight's `query` and reads fields this serializer
         # drops. The view checks insight access before any tile reaches this serializer.
+        # The per-tile endpoint's `query` field maps stale variable IDs to current ones in place before the
+        # result is computed. This serializer has no `query` field, so it maps them here to read the same entry.
+        self._query_variables_mapping(instance.query)
         return serializers.ModelSerializer.to_representation(self, instance)
 
 
@@ -4413,7 +4416,8 @@ class DashboardsViewSet(
             only_evaluate_locally=True,
         ):
             raise exceptions.NotFound()
-        if request.query_params.get("refresh") is not None:
+        # Covers the body as well as the query string: `resolve_execution_mode` honors either.
+        if refresh_param_present(request):
             raise exceptions.ValidationError({"refresh": "This endpoint only reads cached results."})
         tile_ids = parse_tile_ids(request.query_params.get("tile_ids"))
         if not tile_ids:

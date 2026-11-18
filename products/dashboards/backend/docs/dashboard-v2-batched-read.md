@@ -20,7 +20,7 @@ The cache read itself is a small part of that time.
   - `miss`: nothing usable is cached, or the tile errored. The client loads that tile through today's per-tile path.
   - `forbidden`: the caller can't view the tile's insight. No result is returned.
   - `not_found`: the ID isn't an insight tile on this dashboard.
-- Never runs a query and rejects a `refresh` parameter. It has its own compute surface, pinned to cache-only.
+- Never runs a query and rejects a `refresh` parameter, in the query string or the body. It has its own compute surface, pinned to cache-only.
 
 ## What is stored where
 
