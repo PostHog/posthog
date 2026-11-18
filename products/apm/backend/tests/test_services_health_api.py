@@ -258,6 +258,17 @@ class TestServicesHealthAPI(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual({r["service_name"]: sum(r["sparkline"]) for r in results}, {"a-many-envs": 3, "b-one-env": 1})
 
+    def test_a_window_shorter_than_one_second_per_point_keeps_every_span_in_the_sparkline(self) -> None:
+        writer = SpanWriter(team_id=self.team.id, base=dt.datetime(2026, 6, 10, 8, 0, 0), uuid_prefix="019e877a")
+        for _ in range(46):
+            writer.span("short-window", env="prod")
+        writer.insert()
+
+        (row,) = self._list(date_from="2026-06-10T08:00:00Z", date_to="2026-06-10T08:00:47Z")["results"]
+
+        self.assertEqual(row["health"]["span_count"], 46)
+        self.assertEqual(sum(row["sparkline"]), 46)
+
     def test_defaults_to_the_last_hour_when_no_range_is_given(self) -> None:
         with patch(FLAG_PATCH, return_value=True):
             response = self.client.get(f"/api/projects/{self.team.id}/apm/services/")

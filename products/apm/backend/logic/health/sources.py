@@ -31,8 +31,8 @@ from products.apm.backend.logic.health.contract import (
 
 SPARKLINE_POINTS = 24
 SERVICES_LIMIT = 500
-# One row per service and bucket, plus the partial bucket a window that doesn't divide evenly leaves.
-SPARKLINE_ROWS_LIMIT = SERVICES_LIMIT * (SPARKLINE_POINTS + 1)
+# Buckets are a share of the window, not a fixed width, so every window has exactly SPARKLINE_POINTS.
+SPARKLINE_ROWS_LIMIT = SERVICES_LIMIT * SPARKLINE_POINTS
 ENDPOINTS_LIMIT = 500
 # The map joins spans to their parents, so it reads a bounded sample of traces, not the whole window.
 MAP_TRACE_LIMIT = 2000
@@ -254,7 +254,7 @@ def _sparkline_query(
                 SELECT
                     service_name,
                     {env_expr} AS environment,
-                    toInt(floor(dateDiff('second', {date_from}, timestamp) / {bucket_seconds})) AS bucket,
+                    least(toInt(floor(dateDiff('second', {date_from}, timestamp) * {points} / {window_seconds})), {last_bucket}) AS bucket,
                     countIf(kind IN (2, 5)) AS entry_spans,
                     countIf(is_root_span) AS root_spans
                 FROM posthog.trace_spans
@@ -268,9 +268,9 @@ def _sparkline_query(
         """,
         placeholders={
             "date_from": ast.Constant(value=date_from),
-            "bucket_seconds": ast.Constant(
-                value=max(1, int((date_to - date_from).total_seconds() // SPARKLINE_POINTS))
-            ),
+            "points": ast.Constant(value=SPARKLINE_POINTS),
+            "window_seconds": ast.Constant(value=max(1.0, (date_to - date_from).total_seconds())),
+            "last_bucket": ast.Constant(value=SPARKLINE_POINTS - 1),
             "where": _window_where(date_from, date_to),
             "env_where": _environment_where(environment),
             "env_expr": environment_expr(),
