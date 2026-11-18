@@ -21,7 +21,8 @@ from products.experiments.backend.health.metric_compiles import load_metric_comp
 from products.experiments.backend.health.metric_windows import load_primary_metric_windows
 from products.experiments.backend.health.pause_history import load_pause_history
 from products.experiments.backend.health.primary_metric import load_primary_metric
-from products.experiments.backend.health.registry import EXPERIMENT_HEALTH_CHECKS, evaluate
+from products.experiments.backend.health.registry import EXPERIMENT_HEALTH_CHECKS, evaluate, not_checked_health
+from products.experiments.backend.health.skips import NOT_ON_FLAG_RULE
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.setup_context import ProjectSetupFacts, build_project_setup_facts
 from products.feature_flags.backend.facade.filters import condition_aggregation, condition_rollout_percentage
@@ -48,9 +49,9 @@ def evaluate_experiment_health(
     flag's recent calls, as far as `reader_access` and `user`'s warehouse access allow."""
     experiment = _load_experiment(team_id, experiment_id)
     if experiment.is_rule_linked:
-        # The checks and the setup read the release conditions and the variants of a v1 flag. None reads a
-        # feature flag rule yet, so such an experiment has no findings instead of failed checks.
-        return ExperimentHealth(findings=(), checks=())
+        # The checks and the setup read the release conditions and the variants of a v1 flag, and none reads a
+        # feature flag rule yet.
+        return not_checked_health(EXPERIMENT_HEALTH_CHECKS, NOT_ON_FLAG_RULE)
     health = evaluate(_health_context(experiment, reader_access, user), EXPERIMENT_HEALTH_CHECKS)
     return replace(health, setup=_health_setup(experiment))
 

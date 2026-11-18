@@ -4,7 +4,7 @@ from collections.abc import Iterable, Mapping
 from difflib import SequenceMatcher
 from itertools import groupby
 from typing import Literal
-from urllib.parse import quote
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit
 
 import tldextract
 
@@ -19,6 +19,7 @@ from posthog.schema import (
 )
 
 from posthog.dataclasses import frozen
+from posthog.taxonomy.taxonomy import CAMPAIGN_PROPERTIES
 
 from products.marketing_analytics.backend.hogql_queries.recommendation_identity import (
     ACCOUNT_AGNOSTIC_RULES,
@@ -68,6 +69,31 @@ GENERIC_WORDS = frozenset(
         "website",
     }
 )
+WORD = re.compile(r"[a-z0-9]+")
+# Words almost every ad and search contain, so sharing one says nothing about whether a search fits the ads.
+STOP_WORDS = frozenset(
+    {
+        "and",
+        "are",
+        "but",
+        "can",
+        "for",
+        "from",
+        "get",
+        "how",
+        "not",
+        "our",
+        "the",
+        "this",
+        "that",
+        "what",
+        "with",
+        "you",
+        "your",
+    }
+)
+# Below this, a search has too few clicks to call it unrelated to the ads that showed on it.
+OFF_TOPIC_MIN_CLICKS = 5
 # Share of the searches mentioning a name that must be comparisons for it to count as a competitor.
 COMPETITOR_COMPARISON_SHARE = 0.07
 COMPARISON = re.compile(r"(alternatives?|competitors?|(^| )vs\.?( |$))")
@@ -100,6 +126,8 @@ REVIEW_TERMS_SHOWN = 3
 # A non-brand campaign is up for review when its cost per conversion reaches this multiple of its CPA benchmark.
 # Without conversions, spend alone must reach that multiple: even one conversion would leave its CPA at or above it.
 REVIEW_CPA_MULTIPLE = 3
+# Below this share of Search spend, a campaign costs too little for its CPA to be worth reviewing.
+REVIEW_MIN_SPEND_SHARE = 0.05
 # A brand search is worth a pause test once it takes this share of the account's search term spend. A share, unlike
 # a CPA, also works for an account that only bids on its brand.
 BRAND_OVERLAP_MIN_SPEND_SHARE = 0.0025
@@ -110,6 +138,7 @@ MIN_KEYWORD_TRACKING_SESSIONS = 30
 # Performance Max and Display clicks have no keyword, so even a configured account leaves some sessions without it.
 MAX_KEYWORD_TRACKING_SHARE = 0.05
 KEYWORD_PARAMETER = "utm_term={keyword}"
+CAMPAIGN_PARAMETERS = frozenset(CAMPAIGN_PROPERTIES)
 BENCHMARK_LABELS = {
     BenchmarkSource.TARGET_CPA: "the campaign's target CPA",
     BenchmarkSource.CAMPAIGN: "the campaign's non-brand CPA",
@@ -146,6 +175,7 @@ class SearchTermStats:
     conversions: float
     status: str
     absolute_top_percentage: float | None = None
+    ad_group_ids: tuple[str, ...] = ()
 
 
 @frozen
@@ -181,6 +211,14 @@ class KeywordTracking:
 
 
 @frozen
+class Ad:
+    ad_group_id: str
+    campaign_id: str
+    texts: tuple[str, ...]
+    final_urls: tuple[str, ...]
+
+
+@frozen
 class RecommendationInputs:
     campaigns: tuple[CampaignStats, ...]
     search_terms: tuple[SearchTermStats, ...]
@@ -192,6 +230,7 @@ class RecommendationInputs:
     ranking_pages: tuple[RankingPage, ...] = ()
     customer_id: str | None = None
     keyword_tracking: KeywordTracking | None = None
+    ads: tuple[Ad, ...] = ()
 
 
 @frozen
@@ -203,6 +242,7 @@ class _Term:
     conversions: float
     status: str
     top_campaign_id: str
+    ad_group_ids: frozenset[str]
     organic: OrganicQueryStats | None
     absolute_top: float | None
 
@@ -252,6 +292,42 @@ def _site_brand(site_url: str) -> str | None:
     # A URL-prefix property can be app.example.com or blog.example.com, so the brand is the registrable label.
     brand = DOMAIN_PARTS(match.group(1).strip(".")).domain
     return brand if len(brand) >= MIN_BRAND_LENGTH else None
+
+
+def _is_meaningful(word: str) -> bool:
+    return len(word) >= 3 and word not in GENERIC_WORDS
+
+
+def _singular(word: str) -> str:
+    if len(word) > 4 and word.endswith("ies"):
+        return word[:-3] + "y"
+    if word.endswith(("sses", "shes", "ches", "xes")):
+        return word[:-2]
+    if len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
+        return word[:-1]
+    return word
+
+
+def _word_stems(text: str) -> frozenset[str]:
+    # Plurals fold into one stem, so "funnels" in a search still matches "funnel" in an ad.
+    return frozenset(
+        stem
+        for word in WORD.findall(text.lower())
+        if _is_meaningful(word) and word not in STOP_WORDS and _is_meaningful(stem := _singular(word))
+    )
+
+
+def _page_key(url: str) -> str:
+    # Search Console and ad final URLs spell the same page differently, such as with or without www or a final slash.
+    parts = urlsplit(url)
+    page = parts.netloc.lower().removeprefix("www.") + parts.path.rstrip("/")
+    # A query parameter can pick the page, such as product.php?id=100, but click and campaign tags never do.
+    query = sorted(
+        (name, value)
+        for name, value in parse_qsl(parts.query)
+        if not name.lower().startswith("utm_") and name.lower() not in CAMPAIGN_PARAMETERS
+    )
+    return f"{page}?{urlencode(query)}" if query else page
 
 
 def _similarity(brand: str, compact_term: str) -> float:
@@ -360,6 +436,9 @@ class _Recommender:
         self.brands = brands_from_site_urls(inputs.site_urls)
         # Query rows come back in no fixed order, and the campaign that carries a shared budget's recommendation must not change between runs.
         self.campaigns = {campaign.id: campaign for campaign in sorted(inputs.campaigns, key=lambda c: c.id)}
+        self.search_cost = sum(
+            campaign.cost for campaign in self.campaigns.values() if campaign.channel_type == "SEARCH"
+        )
         self.organic = _merge_organic(inputs.organic_queries)
         self.term_cost_by_campaign: dict[str, float] = defaultdict(float)
         for row in inputs.search_terms:
@@ -367,10 +446,20 @@ class _Recommender:
         self.terms = self._aggregate_terms()
         self.brand_terms = {term.term for term in self.terms.values() if self._is_brand(term)}
         self.top_keyword: dict[str, TermKeywordStats] = {}
+        self.keyword_stems: dict[str, set[str]] = defaultdict(set)
         for keyword_row in inputs.term_keywords:
             current = self.top_keyword.get(keyword_row.term)
             if current is None or keyword_row.cost > current.cost:
                 self.top_keyword[keyword_row.term] = keyword_row
+            self.keyword_stems[keyword_row.term] |= _word_stems(keyword_row.keyword)
+        self.keywords = {keyword_row.keyword.lower() for keyword_row in inputs.term_keywords}
+        self.copy_stems: dict[str, set[str]] = defaultdict(set)
+        self.keyword_insertion_groups: set[str] = set()
+        for ad in inputs.ads:
+            for text in ad.texts:
+                self.copy_stems[ad.ad_group_id] |= _word_stems(text)
+                if "{keyword:" in text.lower():
+                    self.keyword_insertion_groups.add(ad.ad_group_id)
         top_pages: dict[str, RankingPage] = {}
         for page_row in inputs.ranking_pages:
             current_page = top_pages.get(page_row.query)
@@ -464,8 +553,6 @@ class _Recommender:
     def _campaign_rules(self) -> list[MarketingAnalyticsRecommendation]:
         recommendations: list[MarketingAnalyticsRecommendation] = []
         brand_spend, search_campaigns = self.brand_spend, self.search_campaigns
-        search_cost = sum(campaign.cost for campaign in self.campaigns.values() if campaign.channel_type == "SEARCH")
-
         constrained_budgets: set[str] = set()
         for campaign in self.campaigns.values():
             if campaign.primary_status in INACTIVE_STATUSES:
@@ -518,11 +605,7 @@ class _Recommender:
             lost = (campaign.lost_to_budget or 0) + (campaign.lost_to_rank or 0)
             if cpa and compared.conversions >= 5 and cpa <= benchmark.cpa and lost >= 0.4:
                 recommendations.append(self._scale(campaign, cpa, benchmark, lost))
-            elif (
-                search_cost
-                and campaign.cost >= 0.05 * search_cost
-                and (cpa if cpa is not None else compared.cost) >= REVIEW_CPA_MULTIPLE * benchmark.cpa
-            ):
+            elif self._needs_review(campaign, benchmark):
                 recommendations.append(self._review(campaign, cpa, compared.cost, benchmark))
         recommendations.extend(self._search_brand_leaks(search_leaks, has_brand_campaign))
         return recommendations
@@ -873,6 +956,9 @@ class _Recommender:
             and (not term.organic or term.organic.position > 10)
             and not self._in_striking_distance(term, competitors)
         ]
+        off_topic = {
+            term.term for term in terms if self._is_off_topic(term) and not self._mentions(term.term, competitors)
+        }
         rules[MarketingAnalyticsRecommendationRule.SPEND_WITHOUT_CONVERSIONS] = [
             self._term_recommendation(
                 MarketingAnalyticsRecommendationRule.SPEND_WITHOUT_CONVERSIONS,
@@ -880,7 +966,8 @@ class _Recommender:
                 benchmark,
                 advice.action,
                 f"Spent {self._money(term.cost)} ({term.cost / benchmark.cpa:.1f}x {benchmark.label}) "
-                f"on {term.clicks:,.0f} clicks with no conversions",
+                f"on {term.clicks:,.0f} clicks with no conversions"
+                + (self._off_topic_reason(term) if term.term in off_topic else ""),
                 term.cost,
                 "save",
                 "measured",
@@ -925,8 +1012,37 @@ class _Recommender:
             MarketingAnalyticsRecommendationRule.SPEND_WITHOUT_CONVERSIONS,
             MarketingAnalyticsRecommendationRule.STRIKING_DISTANCE,
         ):
-            ordered.extend(sorted(rules.get(rule, []), key=lambda rec: -(rec.impact or 0))[:CANDIDATES_PER_RULE])
+            top = sorted(rules.get(rule, []), key=lambda rec: -(rec.impact or 0))[:CANDIDATES_PER_RULE]
+            # Searches unrelated to the ads that showed on them are the safest negatives, so they come first among the
+            # costliest ones that show, without pushing a bigger waste out of the list.
+            if rule == MarketingAnalyticsRecommendationRule.SPEND_WITHOUT_CONVERSIONS:
+                top[:PER_RULE_LIMIT] = sorted(top[:PER_RULE_LIMIT], key=lambda rec: rec.subject not in off_topic)
+            ordered.extend(top)
         return ordered
+
+    def _is_off_topic(self, term: _Term) -> bool:
+        # An ad group without synced copy could be the one that mentions the search, so it is not judged.
+        if not term.ad_group_ids or any(group not in self.copy_stems for group in term.ad_group_ids):
+            return False
+        # Keyword insertion puts the matched keyword in the ad, so without the keyword the ad text is unknown.
+        if term.ad_group_ids & self.keyword_insertion_groups and term.term not in self.keyword_stems:
+            return False
+        stems = _word_stems(term.term)
+        copy = set().union(*(self.copy_stems[group] for group in term.ad_group_ids))
+        return bool(
+            stems
+            and term.clicks >= OFF_TOPIC_MIN_CLICKS
+            and not stems & (copy | self.keyword_stems.get(term.term, set()))
+        )
+
+    def _off_topic_reason(self, term: _Term) -> str:
+        keyword = self.top_keyword.get(term.term)
+        if keyword:
+            return (
+                ". None of the main words in this search appear in the ads that showed on it "
+                f'or in the keyword "{keyword.keyword}".'
+            )
+        return ". None of the main words in this search appear in the ads that showed on it."
 
     def _no_conversion_advice(self, term: _Term, competitors: set[str]) -> _Advice:
         keyword = self.top_keyword.get(term.term)
@@ -1059,19 +1175,34 @@ class _Recommender:
             for campaign in self.campaigns.values()
         )
         channel = "SEARCH" if has_search else "PERFORMANCE_MAX"
+        landing_campaigns = self._landing_campaigns()
         impressions = sorted(query.impressions for query in self.organic.values())
         threshold = impressions[int(len(impressions) * 0.95)] if impressions else 0
         recommendations = []
         for query in self.organic.values():
-            if query.query in self.terms or query.position <= 10 or query.impressions < threshold:
+            if (
+                query.query in self.terms
+                or query.query in self.keywords
+                or query.position <= 10
+                or query.impressions < threshold
+            ):
                 continue
             if self._is_brand_query(query.query, query, 0) or self._mentions(query.query, competitors):
                 continue
-            words = [word for word in query.query.split() if len(word) >= 3 and word not in GENERIC_WORDS]
+            page = self.ranking_page.get(query.query)
+            landing_campaign = landing_campaigns.get(_page_key(page)) if page else None
+            words = [word for word in query.query.split() if _is_meaningful(word)]
             matched = [word for word in words if word in vocabulary]
-            if not words or len(matched) < len(words):
+            # A page the ads link to also ranks for loosely related queries, so one word has to convert already.
+            if not matched or (landing_campaign is None and len(matched) < len(words)):
                 continue
-            campaign = self._campaign_for_words(matched, vocabulary, channel)
+            campaign = landing_campaign or self._campaign_for_words(matched, vocabulary, channel)
+            if landing_campaign:
+                evidence = f"It ranks on {page}, which this campaign's ads link to"
+                ad_group = f"the ad group whose ads link to {page}"
+            else:
+                evidence = "Its words all appear in paid searches that convert at or below their CPA benchmark"
+                ad_group = "an ad group of the campaign"
             if has_search:
                 steps: tuple[Step, ...] = (
                     self._open_campaign(
@@ -1080,7 +1211,7 @@ class _Recommender:
                         "or create one.",
                     ),
                     Step(
-                        text="Open Keywords and add this one to an ad group of the campaign. The quotes make it "
+                        text=f"Open Keywords and add this one to {ad_group}. The quotes make it "
                         "phrase match, so it also matches longer searches that contain it.",
                         copyValue=f'"{query.query}"',
                         url=ADS_KEYWORDS_URL,
@@ -1103,7 +1234,7 @@ class _Recommender:
                     query.query,
                     "Add as a keyword in Google Ads" if has_search else "Add as a search theme in Performance Max",
                     f"{query.impressions:,.0f} organic impressions at position {query.position:.1f}, not bought. "
-                    "Its words all appear in paid searches that convert at or below their CPA benchmark",
+                    + evidence,
                     query.impressions * TOP3_CTR * average_cpc * self.per_month,
                     "invest",
                     "estimated",
@@ -1115,6 +1246,41 @@ class _Recommender:
                 )
             )
         return recommendations
+
+    def _landing_campaigns(self) -> dict[str, CampaignStats]:
+        # Only Search ad groups take keywords, and a brand campaign is the wrong home for a non-brand query.
+        campaigns: dict[str, CampaignStats] = {}
+        for ad in self.inputs.ads:
+            campaign = self.campaigns.get(ad.campaign_id)
+            if (
+                campaign is None
+                or campaign.channel_type != "SEARCH"
+                or campaign.primary_status in INACTIVE_STATUSES
+                or self._is_brand_campaign(campaign, self.brand_spend)
+                or (
+                    (benchmark := self._campaign_benchmark(campaign)) is not None
+                    and self._needs_review(campaign, benchmark)
+                )
+            ):
+                continue
+            for url in ad.final_urls:
+                key = _page_key(url)
+                # Ads that link to the homepage would make almost every query that ranks there look relevant.
+                if "/" not in key:
+                    continue
+                current = campaigns.get(key)
+                if current is None or campaign.cost > current.cost:
+                    campaigns[key] = campaign
+        return campaigns
+
+    def _needs_review(self, campaign: CampaignStats, benchmark: _Benchmark) -> bool:
+        cpa = self._compared_cpa(campaign, benchmark)
+        spend_per_conversion = cpa if cpa is not None else self._compared_spend(campaign, benchmark).cost
+        return (
+            self.search_cost > 0
+            and campaign.cost >= REVIEW_MIN_SPEND_SHARE * self.search_cost
+            and spend_per_conversion >= REVIEW_CPA_MULTIPLE * benchmark.cpa
+        )
 
     def _campaign_for_words(
         self, words: list[str], vocabulary: dict[str, dict[str, float]], channel: str
@@ -1139,6 +1305,7 @@ class _Recommender:
         totals: dict[str, list[float]] = defaultdict(lambda: [0.0, 0.0, 0.0, 0.0])
         statuses: dict[str, str] = {}
         cost_by_campaign: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+        ad_groups: dict[str, set[str]] = defaultdict(set)
         top_impressions: dict[str, list[float]] = defaultdict(lambda: [0.0, 0.0])
         for row in self.inputs.search_terms:
             total = totals[row.term]
@@ -1148,6 +1315,7 @@ class _Recommender:
             total[3] += row.impressions
             statuses.setdefault(row.term, row.status)
             cost_by_campaign[row.term][row.campaign_id] += row.cost
+            ad_groups[row.term].update(row.ad_group_ids)
             if row.absolute_top_percentage is not None and row.impressions:
                 top_impressions[row.term][0] += row.absolute_top_percentage * row.impressions
                 top_impressions[row.term][1] += row.impressions
@@ -1160,6 +1328,7 @@ class _Recommender:
                 conversions=conversions,
                 status=statuses[term],
                 top_campaign_id=max(cost_by_campaign[term], key=lambda campaign: cost_by_campaign[term][campaign]),
+                ad_group_ids=frozenset(ad_groups[term]),
                 organic=self.organic.get(term),
                 absolute_top=top[0] / top[1] if (top := top_impressions.get(term)) and top[1] else None,
             )
@@ -1248,7 +1417,7 @@ class _Recommender:
             ):
                 continue
             for word in term.term.split():
-                if len(word) >= 3 and word not in GENERIC_WORDS:
+                if _is_meaningful(word):
                     vocabulary[word][term.top_campaign_id] += term.conversions
         return vocabulary
 

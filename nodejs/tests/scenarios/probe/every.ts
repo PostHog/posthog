@@ -1,6 +1,6 @@
 import { setTimeout as sleep } from 'timers/promises'
 
-export type Sampling<T> = { stop(): Promise<T[]> }
+export type Sampling<T> = { taken(): readonly T[]; stop(): Promise<T[]> }
 
 export function sampleEvery<T>(intervalMs: number, take: () => Promise<T>): Sampling<T> {
     const taken: T[] = []
@@ -14,6 +14,7 @@ export function sampleEvery<T>(intervalMs: number, take: () => Promise<T>): Samp
     })()
     let stopping: Promise<T[]> | undefined
     return {
+        taken: () => [...taken],
         stop: () =>
             (stopping ??= (async () => {
                 stopped.abort()

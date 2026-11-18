@@ -1,11 +1,18 @@
-import { act, cleanupAsync, renderHook } from '@testing-library/react-native'
+import { act, cleanupAsync, renderHook, waitFor } from '@testing-library/react-native'
 import type { Context, ReactElement, ReactNode } from 'react'
-
+import { ApiError } from '@/api/client'
 import { type LiveProjectApi, MOBILE_EVENT, WEB_EVENT } from '@/api/live'
+import { queryClient } from '@/api/queryClient'
+import { persistReadCache } from '@/api/readCache'
+import { ReadCacheStore } from '@/api/readCacheStore'
 import type { ProjectScope } from '@/api/reports'
+import { useAuthStore } from '@/auth/authStore'
+import * as tokens from '@/auth/tokens'
 import { LIVE_DEMO_READ_MS, LiveDemo } from '@/demo/live'
+import { useItemErrors } from '@/features/views/viewsCache'
 import { track } from '@/lib/analytics'
 import { RECONNECT_NOTICE_DELAY_MS } from '@/lib/useDelayedReconnecting'
+import { EMPTY_LIVE_SNAPSHOT } from '@/model/live'
 
 import { useLiveFeed, useLiveUsersOnline, useLiveWorld } from './hooks'
 import { useLivePreference } from './livePreference'
@@ -309,6 +316,8 @@ describe('useLiveFeed', () => {
     })
 
     beforeEach(() => {
+        queryClient.clear()
+        useItemErrors.getState().reset()
         mockFocused = true
         liveFocused = true
         mockAppActive = true
@@ -327,6 +336,174 @@ describe('useLiveFeed', () => {
         jest.useRealTimers()
         jest.restoreAllMocks()
         jest.clearAllMocks()
+    })
+
+    test('reopening keeps the last values while refreshing and after a failed refresh', async () => {
+        const first = await renderFeed()
+        await advance(5000)
+        const previous = first.result.current.snapshot
+        first.unmount()
+        const respond = jest.spyOn(LiveDemo.prototype, 'respond').mockImplementation(() => {
+            throw new Error('Offline')
+        })
+        const reopened = await renderFeed()
+        expect(reopened.result.current.reading).toBe(true)
+        expect(reopened.result.current.snapshot.activity).toEqual(previous.activity)
+        expect(reopened.result.current.snapshot.world).toEqual(previous.world)
+        await advance(5000)
+        expect(reopened.result.current.loadFailed).toBe(false)
+        expect(reopened.result.current.snapshot.activity).toEqual(previous.activity)
+        respond.mockRestore()
+        act(() => reopened.result.current.retry())
+        await advance(5000)
+        expect(reopened.result.current.reading).toBe(false)
+        expect(reopened.result.current.snapshot.activity).not.toEqual(previous.activity)
+    })
+
+    test('a read keeps a map restored while its queries were already in flight', async () => {
+        liveProject({ ingested_event: true }, 'web')
+        const initial = await renderFeed()
+        const previous = initial.result.current.snapshot
+        initial.unmount()
+        queryClient.clear()
+        let release: (() => void) | undefined
+        const pending = new Promise<void>((resolve) => {
+            release = resolve
+        })
+        mockFetchQuery.mockImplementation(async (query) => {
+            await pending
+            if ((query.tags as { name: string }).name === 'live_geo') throw new Error('Offline')
+            return fakeLiveAnswer(query)
+        })
+        const reopened = await renderFeed()
+        act(() =>
+            queryClient.setQueryData(['views', mockScope?.host, mockScope?.projectId, 'live', 'web'], {
+                snapshot: previous,
+                dataReadAt: Date.now() - 60_000,
+            })
+        )
+        await advance(0)
+        expect(reopened.result.current.snapshot.world).toEqual(previous.world)
+        act(() => release?.())
+        await advance(0)
+        expect(reopened.result.current.snapshot.world).toEqual(previous.world)
+        reopened.unmount()
+        const again = await renderFeed()
+        expect(again.result.current.snapshot.world).toEqual(previous.world)
+    })
+
+    test.each([
+        [401, 'query'],
+        [403, 'query'],
+        [404, 'query'],
+        [403, 'project'],
+        [404, 'project'],
+    ] as const)('denial %s from %s removes every saved audience and active values', async (status, endpoint) => {
+        liveProject({ ingested_event: true }, 'web')
+        if (!mockScope) throw new Error('The test requires a project.')
+        const scope = { ...mockScope, account: 'invented-cache-account' }
+        const values = new Map<string, string>()
+        const store = new ReadCacheStore({
+            getItem: async (key) => values.get(key) ?? null,
+            setItem: async (key, value) => {
+                values.set(key, value)
+            },
+            removeItem: async (key) => {
+                values.delete(key)
+            },
+        })
+        const denied = (key: readonly unknown[]): boolean =>
+            useItemErrors.getState().errors[JSON.stringify(key)] === 'no_access'
+        const persisted = persistReadCache(queryClient, store, scope, () => true, denied)
+        const unsubscribe = useItemErrors.subscribe(() => persisted.purgeDeniedViews())
+        await persisted.ready
+        const first = endpoint === 'query' ? await renderFeed() : null
+        const previous = first?.result.current.snapshot ?? { ...EMPTY_LIVE_SNAPSHOT, usersOnline: 17 }
+        for (const preference of ['all', 'web', 'mobile'] as const) {
+            queryClient.setQueryData(['views', scope.host, scope.projectId, 'live', preference], {
+                snapshot: { ...previous, preference },
+                dataReadAt: Date.now(),
+            })
+        }
+        await persisted.flush()
+        expect(await store.load(scope)).toHaveLength(3)
+        const error = new ApiError(status, { detail: 'No access' })
+        if (endpoint === 'project') mockFetchProject.mockRejectedValue(error)
+        const hook = first ?? (await renderFeed())
+        if (endpoint === 'query') {
+            mockFetchQuery.mockImplementation(async (query) => {
+                if ((query.tags as { name: string }).name === 'live_geo') throw error
+                return fakeLiveAnswer(query)
+            })
+            act(() => hook.result.current.retry())
+        }
+        await advance(0)
+        expect(hook.result.current.snapshot.activity).toBeNull()
+        expect(hook.result.current.snapshot.world).toBeNull()
+        expect(hook.result.current.usersOnline).toBeNull()
+        expect(hook.result.current.loadFailed).toBe(true)
+        expect(hook.result.current.reading).toBe(false)
+        await persisted.flush()
+        expect(await store.load(scope)).toEqual([])
+        for (const preference of ['all', 'web', 'mobile']) {
+            expect(queryClient.getQueryData(['views', scope.host, scope.projectId, 'live', preference])).toBeUndefined()
+        }
+        mockFetchProject.mockResolvedValue({ ingested_event: true })
+        mockFetchQuery.mockImplementation(async (query) => fakeLiveAnswer(query))
+        act(() => hook.result.current.retry())
+        await advance(0)
+        expect(hook.result.current.snapshot.activity).not.toBeNull()
+        expect(hook.result.current.loadFailed).toBe(false)
+        unsubscribe()
+        persisted.stop()
+    })
+
+    test('a denial settling after sign-out cannot purge the next session cache', async () => {
+        let generation = 100
+        jest.spyOn(tokens, 'sessionGeneration').mockImplementation(() => generation)
+        liveProject({ ingested_event: true }, 'web')
+        const first = await renderFeed()
+        let reject: ((error: Error) => void) | undefined
+        const pending = new Promise((_resolve, fail) => {
+            reject = fail
+        })
+        mockFetchQuery.mockImplementation(() => pending)
+        act(() => first.result.current.retry())
+        await advance(0)
+        first.unmount()
+        generation++
+        const key = ['views', mockScope?.host, mockScope?.projectId, 'live', 'web']
+        const next = {
+            snapshot: { ...EMPTY_LIVE_SNAPSHOT, preference: 'web', usersOnline: 42 },
+            dataReadAt: Date.now(),
+        }
+        act(() => queryClient.setQueryData(key, next))
+        act(() => reject?.(new ApiError(403, { detail: 'No access' })))
+        await advance(0)
+        expect(queryClient.getQueryData(key)).toEqual(next)
+        expect(useItemErrors.getState().errors[JSON.stringify(key)]).toBeUndefined()
+    })
+
+    test('restored data appears while the project request is still pending and stays scoped to its audience', async () => {
+        mockMode = 'live'
+        mockScope = { host: 'https://example.com', projectId: 55 }
+        mockFetchProject.mockImplementation(() => new Promise(() => undefined))
+        const saved = { ...EMPTY_LIVE_SNAPSHOT, preference: 'all' as const, usersOnline: 17 }
+        const hook = await renderFeed()
+        expect(hook.result.current.snapshot.usersOnline).toBeNull()
+        act(() =>
+            queryClient.setQueryData(['views', mockScope?.host, 55, 'live', 'all'], {
+                snapshot: saved,
+                dataReadAt: Date.now() - 60000,
+            })
+        )
+        await advance(0)
+        await waitFor(() => expect(hook.result.current.usersOnline).toBe(17))
+        expect(hook.result.current.reading).toBe(true)
+        const preference = renderHook(() => useLivePreference())
+        act(() => preference.result.current.setPreference('mobile'))
+        await advance(0)
+        expect(hook.result.current.usersOnline).toBeNull()
     })
 
     test('demo mode fills every card, counts users online with HogQL, and reads nothing while paused', async () => {
@@ -381,6 +558,44 @@ describe('useLiveFeed', () => {
             expect(countries.result.current.status).toBe(status)
             countries.unmount()
             live.unmount()
+        }
+    )
+
+    test.each(['web', 'mobile'] as const)(
+        'country retry keeps its %s audience after access denial',
+        async (audience) => {
+            liveProject({ ingested_event: true }, 'web')
+            if (!mockScope) throw new Error('The test requires a project.')
+            jest.spyOn(useAuthStore, 'getState').mockReturnValue({ ...useAuthStore.getState(), ...mockScope })
+            const selected = renderHook(() => useLivePreference())
+            act(() => selected.result.current.setPreference(audience))
+            act(() =>
+                useLiveWorldShare.setState({
+                    world: null,
+                    paused: false,
+                    users: audience === 'mobile',
+                    webOnly: audience === 'web',
+                    mobileOnly: audience === 'mobile',
+                })
+            )
+            const countries = renderHook(() => useLiveWorld())
+            await advance(0)
+            expect(countries.result.current.world?.total).toBe(3)
+            mockFetchQuery.mockRejectedValue(new ApiError(403, { detail: 'No access' }))
+            act(() => countries.result.current.retry())
+            await advance(0)
+            expect(countries.result.current.loadFailed).toBe(true)
+            expect(countries.result.current.world).toBeNull()
+            mockFetchQuery.mockImplementation(async (query) => fakeLiveAnswer(query))
+            mockFetchQuery.mockClear()
+            act(() => countries.result.current.retry())
+            await advance(0)
+            expect(countries.result.current.loadFailed).toBe(false)
+            expect(countries.result.current.world?.total).toBe(3)
+            expect(mockFetchQuery.mock.calls.map(([query]) => query.query)).toEqual([
+                expect.stringContaining(audience === 'web' ? WEB_EVENT : MOBILE_EVENT),
+            ])
+            expect(useLiveWorldShare.getState().users).toBe(audience === 'mobile')
         }
     )
 

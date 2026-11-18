@@ -32,6 +32,7 @@ import {
 
 import { checksApi, type DataQualitySubjectType } from 'products/data_quality/frontend/checksApi'
 import type { DataQualitySubjectApi } from 'products/data_quality/frontend/generated/api.schemas'
+import { suiteRunResultsLogic } from 'products/data_quality/frontend/suiteRunResultsLogic'
 
 import { catalogRestructureEnabled } from '../catalogRestructure'
 import { MATERIALIZING_TYPES } from '../freshness'
@@ -382,6 +383,7 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
     key((props) => props.id),
     path((key) => ['scenes', 'models', 'nodeDetailSceneLogic', key]),
     connect(() => ({
+        logic: [suiteRunResultsLogic],
         values: [teamLogic, ['currentProjectId'], featureFlagLogic, ['featureFlags']],
         actions: [
             dataWarehouseViewsLogic,
@@ -931,6 +933,12 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
             deleteDataWarehouseSavedQuerySuccess: ({ payload }) => {
                 if (payload && payload === values.node?.saved_query_id) {
                     router.actions.push(values.modelListUrl)
+                }
+            },
+            [suiteRunResultsLogic.actionTypes.revealSubjectResults]: ({ subject }) => {
+                const ownSubject = values.dataQualitySubject
+                if (ownSubject?.subjectType === subject.subjectType && ownSubject?.subjectId === subject.subjectId) {
+                    actions.setCurrentTab('data-quality')
                 }
             },
         }

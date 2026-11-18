@@ -202,6 +202,7 @@ class TestRealtimeCohortTeamAccessCommand(BaseTest):
         Cohort.objects.filter(id=env_listed_cohort.id).update(condition_type=None)
         held_cohort = Cohort.objects.create(
             team=held,
+            realtime_enabled_at=datetime(2026, 1, 1, tzinfo=UTC),
             filters={
                 "properties": {
                     "type": "AND",

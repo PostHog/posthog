@@ -35,6 +35,7 @@ import type { MessageAsset } from '../Workflows/messageAssetsApi'
 import { BroadcastAudienceCohorts } from './audience/BroadcastAudienceCohorts'
 import { broadcastAudienceCohortsLogic } from './audience/broadcastAudienceCohortsLogic'
 import { BroadcastEmailPreview } from './BroadcastEmailPreview'
+import { BroadcastHistory } from './BroadcastHistory'
 import { manageDisabledReason, sendErrorActions, summaryActions } from './broadcastLifecycle'
 import { BroadcastPerformance, BroadcastRunAudience } from './BroadcastPerformance'
 import { broadcastPerformanceLogic } from './broadcastPerformanceLogic'
@@ -711,6 +712,12 @@ export function BroadcastSummary(): JSX.Element {
                                     channel={channel}
                                 />
                             ),
+                        },
+                        {
+                            key: 'history',
+                            'data-attr': 'broadcast-summary-tab-history',
+                            label: 'History',
+                            content: <BroadcastHistory id={broadcastId ?? ''} />,
                         },
                     ]}
                 />

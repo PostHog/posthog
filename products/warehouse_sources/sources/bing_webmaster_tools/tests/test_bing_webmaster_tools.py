@@ -166,6 +166,99 @@ class TestSiteSelection:
         with pytest.raises(ValueError, match=r"'https://example.com/' and 'http://example.com/'"):
             select_site_urls(sites, ["example.com"])
 
+    @pytest.mark.parametrize(
+        "sites, filter_url, expected_hint",
+        [
+            # Listed on the account but ownership is not verified yet.
+            (
+                [{"Url": "https://example.com/", "IsVerified": False}],
+                "https://example.com",
+                "Bing hasn't verified 'https://example.com/' on your account yet.",
+            ),
+            (
+                [{"Url": "https://www.example.com/", "IsVerified": False}],
+                "example.com",
+                "Bing hasn't verified 'https://www.example.com/' on your account yet.",
+            ),
+            # Verified under the other www form.
+            (
+                [{"Url": "https://example.com/", "IsVerified": True}],
+                "https://www.example.com/",
+                "For 'https://www.example.com/', your account has 'https://example.com/'.",
+            ),
+            (
+                [{"Url": "https://www.example.com/", "IsVerified": True}],
+                "example.com",
+                "For 'example.com', your account has 'https://www.example.com/'.",
+            ),
+            # Verified under the other scheme, or a mistyped one.
+            (
+                [{"Url": "http://example.com/", "IsVerified": True}],
+                "https://example.com/",
+                "For 'https://example.com/', your account has 'http://example.com/'.",
+            ),
+            (
+                [{"Url": "https://example.com/", "IsVerified": True}],
+                "htttps://example.com",
+                "For 'htttps://example.com', your account has 'https://example.com/'.",
+            ),
+            # Verified only as a path prefix on the same host.
+            (
+                [{"Url": "https://www.example.com/blog/", "IsVerified": True}],
+                "https://www.example.com/",
+                "For 'https://www.example.com/', your account has 'https://www.example.com/blog/'.",
+            ),
+            # A verified near-miss wins over an unverified one on the same host.
+            (
+                [
+                    {"Url": "https://www.example.com/", "IsVerified": False},
+                    {"Url": "https://example.com/", "IsVerified": True},
+                ],
+                "http://www.example.com",
+                "For 'http://www.example.com', your account has 'https://example.com/'.",
+            ),
+        ],
+    )
+    def test_missing_site_points_at_what_the_account_lists(self, sites, filter_url, expected_hint):
+        with pytest.raises(ValueError) as exc_info:
+            select_site_urls(sites, [filter_url])
+
+        message = str(exc_info.value)
+        assert message.startswith("These site URLs are not verified sites on the connected account")
+        assert expected_hint in message
+        assert message.endswith("clear the field to sync every verified site.")
+
+    @pytest.mark.parametrize("filter_url", ["https://other.example.net", "other.example.net", "https://"])
+    def test_missing_site_with_no_near_miss_has_no_hint(self, filter_url):
+        sites = [{"Url": "https://example.com/", "IsVerified": True}]
+        with pytest.raises(ValueError) as exc_info:
+            select_site_urls(sites, [filter_url])
+
+        message = str(exc_info.value)
+        assert "your account" not in message
+        assert f"account: {filter_url}. Enter each site exactly" in message
+
+    def test_near_miss_hint_names_at_most_three_sites(self):
+        sites = [{"Url": f"https://example.com/{path}/", "IsVerified": True} for path in "abcde"]
+        with pytest.raises(ValueError) as exc_info:
+            select_site_urls(sites, ["https://www.example.com"])
+
+        message = str(exc_info.value)
+        assert "'https://example.com/c/'" in message
+        assert "'https://example.com/d/'" not in message
+
+    def test_each_missing_site_gets_its_own_hint(self):
+        sites = [
+            {"Url": "https://example.com/", "IsVerified": True},
+            {"Url": "https://example.org/", "IsVerified": False},
+        ]
+        with pytest.raises(ValueError) as exc_info:
+            select_site_urls(sites, ["https://www.example.com", "https://example.org"])
+
+        message = str(exc_info.value)
+        assert "For 'https://www.example.com', your account has 'https://example.com/'." in message
+        assert "Bing hasn't verified 'https://example.org/' on your account yet." in message
+
 
 class TestRequest:
     def test_api_fault_message_is_surfaced(self):

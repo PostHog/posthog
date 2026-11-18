@@ -117,6 +117,15 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
     }),
     recommendation({
         rule: 'spend_without_conversions',
+        subject: 'spreadsheet templates',
+        campaign: 'Search - Generic',
+        action: 'Add it as a negative, or change the keyword "dashboard software" from broad to exact match',
+        reason: 'Spent $380 (2.5x the campaign\'s non-brand CPA) on 95 clicks with no conversions. None of the main words in this search appear in the ads that showed on it or in the keyword "dashboard software".',
+        impact: 380,
+        cpa: cpa(null, 150, 'campaign'),
+    }),
+    recommendation({
+        rule: 'spend_without_conversions',
         subject: 'free analytics template',
         campaign: 'Search - Generic',
         action: 'Add it as a negative, or change the keyword "analytics template" from broad to exact match',
@@ -143,15 +152,6 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
                 linkText: 'Keywords',
             },
         ],
-    }),
-    recommendation({
-        rule: 'spend_without_conversions',
-        subject: 'dashboard software jobs',
-        campaign: 'Search - Generic',
-        action: 'Add it as a negative, or change the keyword "dashboard software" from phrase to exact match',
-        reason: "Spent $380 (2.5x the campaign's non-brand CPA) on 95 clicks with no conversions",
-        impact: 380,
-        cpa: cpa(null, 150, 'campaign'),
     }),
     recommendation({
         rule: 'brand_overlap',
@@ -204,8 +204,9 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
     recommendation({
         rule: 'keyword_gap',
         subject: 'funnel analysis tool',
-        action: 'Add it as a keyword in a Search campaign',
-        reason: 'Ranks #24.0 organically with 3,800 impressions a month. Its words already convert in your ads.',
+        campaign: 'Search - Product',
+        action: 'Add as a keyword in Google Ads',
+        reason: "3,800 organic impressions at position 24.0, not bought. It ranks on https://example.com/funnels, which this campaign's ads link to",
         impact: 420,
         impactDirection: 'invest',
         impactType: 'estimated',
@@ -367,7 +368,7 @@ const SOURCES_WITH_GAPS = [
         'GoogleAds',
         'example',
         ['campaign', 'campaign_stats', 'customer', 'search_term_stats'],
-        ['search_term_keyword_stats', 'campaign_impression_share_stats']
+        ['search_term_keyword_stats', 'ad', 'campaign_impression_share_stats']
     ),
     SOURCES[1],
 ]

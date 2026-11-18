@@ -1,5 +1,5 @@
 import { Fragment, type ReactElement, useEffect, useRef, useState } from 'react'
-import { Text, View } from 'react-native'
+import { ActivityIndicator, Text, View } from 'react-native'
 import { useReducedMotion } from 'react-native-reanimated'
 
 import { groupThousands } from '@/model/adapters/text'
@@ -16,6 +16,7 @@ interface Stat {
     label: string
     about: string
     value: number | null
+    loading?: boolean
 }
 
 interface LiveStatsProps {
@@ -43,22 +44,17 @@ export function LiveStats({
         {
             key: 'users-online',
             label: 'Users online',
-            about:
-                audience === 'web'
-                    ? 'People active on your website right now.'
-                    : 'People active across this project right now.',
+            about: 'Users active right now.',
             value: usersOnline,
         },
         {
             key: 'unique-visitors',
             label: audience === 'web' ? 'Unique visitors' : 'Active users',
             about:
-                audience === 'web'
-                    ? 'Distinct visitors in the last 30 minutes.'
-                    : 'Distinct user IDs across this project in the last 30 minutes. The same ID is counted once across web and mobile.',
+                audience === 'web' ? 'Unique visitors in the last 30 minutes.' : 'Unique users in the last 30 minutes.',
             value: uniqueVisitors,
         },
-        { key: 'pageviews', label: 'Pageviews', about: 'Total pages viewed in the last 30 minutes.', value: pageviews },
+        { key: 'pageviews', label: 'Pageviews', about: 'Pages viewed in the last 30 minutes.', value: pageviews },
     ]
     return (
         <View style={styles.card} testID="live-stats">
@@ -68,7 +64,7 @@ export function LiveStats({
                     <Pressable44
                         style={styles.stat}
                         onPress={() => onAbout(stat.about)}
-                        accessibilityLabel={`${stat.label}: ${stat.value === null ? 'not loaded' : groupThousands(stat.value)}. ${stat.about}`}
+                        accessibilityLabel={`${stat.label}: ${stat.value === null ? (stat.loading !== false ? 'Loading' : 'unavailable') : groupThousands(stat.value)}. ${stat.about}`}
                         pressedBackground={colors.pressed}
                         testID={`live-stat-${stat.key}-label`}
                     >
@@ -78,7 +74,17 @@ export function LiveStats({
                             </Text>
                             <InfoIcon size={12} color={colors.tertiary} />
                         </View>
-                        <AnimatedCount value={stat.value} label={stat.label} testID={`live-stat-${stat.key}`} />
+                        {stat.value === null && stat.loading !== false ? (
+                            <View style={styles.loading}>
+                                <ActivityIndicator
+                                    color={colors.tertiary}
+                                    accessibilityLabel={`Loading ${stat.label}`}
+                                    testID={`live-stat-${stat.key}-loading`}
+                                />
+                            </View>
+                        ) : (
+                            <AnimatedCount value={stat.value} label={stat.label} testID={`live-stat-${stat.key}`} />
+                        )}
                     </Pressable44>
                 </Fragment>
             ))}
@@ -147,6 +153,7 @@ function AnimatedCount({
 }
 
 const useStyles = createStyles(({ colors }) => ({
+    loading: { height: 38, alignItems: 'flex-start', justifyContent: 'center' },
     card: {
         flexDirection: 'row',
         paddingVertical: 12,

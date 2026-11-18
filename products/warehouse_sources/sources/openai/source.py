@@ -119,7 +119,7 @@ class OpenAISource(ResumableSource[OpenAISourceConfig, OpenAIResumeConfig]):
 
 Create an Admin API key (prefixed `sk-admin...`) in your [OpenAI organization settings](https://platform.openai.com/settings/organization/admin-keys). Only organization owners can create one; a regular project API key cannot read organization usage or costs.
 
-To also sync models, batches, stored chat completions, and evals, add a [project API key](https://platform.openai.com/api-keys). OpenAI doesn't accept Admin API keys for these tables, and they only include data from the key's project. A restricted key needs read access to each of them.""",
+To also sync models, batches, stored chat completions and their messages, evals, fine-tuning jobs, and vector stores, add a [project API key](https://platform.openai.com/api-keys). OpenAI doesn't accept Admin API keys for these tables, and they only include data from the key's project. A restricted key needs read access to each of them.""",
             iconPath="/static/services/openai.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/openai",
             keywords=["llm", "gpt", "chatgpt", "ai usage", "cost"],

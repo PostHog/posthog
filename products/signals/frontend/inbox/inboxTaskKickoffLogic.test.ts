@@ -28,6 +28,7 @@ import {
     FIX_CI_REQUEST,
     MERGE_PR_REQUEST,
     REPORT_AI_PANEL_ID,
+    RESOLVE_CONFLICTS_REQUEST,
     buildCreatePrReportPrompt,
     buildDiscussReportPrompt,
     inboxTaskKickoffLogic,
@@ -129,34 +130,11 @@ describe('inboxTaskKickoffLogic', () => {
                 },
             })
             initKeaTests()
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true })
             logic = inboxTaskKickoffLogic()
             logic.mount()
         })
 
         afterEach(() => logic.unmount())
-
-        it.each([false, undefined])('does not launch report AI when access is %s', async (access) => {
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: true,
-                ...(access === undefined ? {} : { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: access }),
-            })
-            await expectLogic(logic, () => {
-                logic.actions.openReportCheckMetricSuggestion(report, { id: 'check-1' } as SignalReportCheckApi)
-                logic.actions.openReportDiscussion(report, 'https://example.com/report')
-                logic.actions.warmReportDiscussion(report)
-                logic.actions.discussReport(report, 'https://example.com/report', 'Explain the fix')
-                logic.actions.implementReport(report, undefined, 'detail_pane')
-                logic.actions.createPrFromReport(report)
-            }).toFinishAllListeners()
-            expect(createdTasks).toEqual([])
-            expect(startedRuns).toEqual([])
-            expect(warmRequests).toEqual([])
-            expect(logic.values.reportChatContext).toBeNull()
-            expect(logic.values.isCreatingPr).toBe(false)
-            expect(logic.values.isDiscussing).toBe(false)
-        })
 
         it.each([
             { enabled: true, legacyEnabled: true },
@@ -170,7 +148,6 @@ describe('inboxTaskKickoffLogic', () => {
                     ...(legacyEnabled ? ['signals-report-checks-replace'] : []),
                 ],
                 {
-                    [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true,
                     'signals-report-checks-replace': legacyEnabled,
                     ...(enabled === undefined ? {} : { [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: enabled }),
                 }
@@ -883,8 +860,6 @@ describe('inboxTaskKickoffLogic', () => {
             localStorage.clear()
             initKeaTests()
             featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true })
-            featureFlagLogic.mount()
             logic = inboxTaskKickoffLogic()
             logic.mount()
         })
@@ -938,10 +913,19 @@ describe('inboxTaskKickoffLogic', () => {
         })
 
         it.each([
-            ['an open PR that needs review', 'open', true],
-            ['a draft PR', 'draft', true],
-            ['a PR that merged meanwhile', 'merged', false],
-        ] as const)('frames a fix CI request on a report with %s', (_name, state, fixes) => {
+            ['fix CI', 'an open PR that needs review', 'open', FIX_CI_REQUEST, 'fix_ci', true],
+            ['fix CI', 'a draft PR', 'draft', FIX_CI_REQUEST, 'fix_ci', true],
+            ['fix CI', 'a PR that merged meanwhile', 'merged', FIX_CI_REQUEST, 'fix_ci', false],
+            ['resolve conflicts', 'an open PR', 'open', RESOLVE_CONFLICTS_REQUEST, 'resolve_conflicts', true],
+            [
+                'resolve conflicts',
+                'a PR that merged meanwhile',
+                'merged',
+                RESOLVE_CONFLICTS_REQUEST,
+                'resolve_conflicts',
+                false,
+            ],
+        ] as const)('frames a %s request on a report with %s', (_kind, _name, state, request, intent, fixes) => {
             const prompt = buildDiscussReportPrompt(
                 makeReport({
                     status: SignalReportStatus.IN_PROGRESS,
@@ -960,10 +944,10 @@ describe('inboxTaskKickoffLogic', () => {
                     ],
                 }),
                 url,
-                FIX_CI_REQUEST,
-                'fix_ci'
+                request,
+                intent
             )
-            expect(prompt).toContain(FIX_CI_REQUEST)
+            expect(prompt).toContain(request)
             expect(prompt.includes('Do not merge the pull request, do not add it to a merge queue')).toBe(fixes)
             expect(prompt.includes('Answer this question')).toBe(!fixes)
             expect(prompt).not.toContain('inbox-reports-set-state')
@@ -1116,8 +1100,8 @@ describe('inboxTaskKickoffLogic', () => {
             expect(prompt).toContain('inbox-reports-set-state')
             expect(prompt).toContain('fixed_outside_posthog')
             expect(prompt).toContain('suppressed')
-            // Suppressing leaves the claim standing, so the run has to drop it itself.
-            expect(prompt).toContain('then release your claim')
+            // Suppressing releases the claim, so the run must not try to release it again.
+            expect(prompt).toContain('Suppressing the report also releases its claim')
             // The claim is taken once, at task creation, so a rerun starts unclaimed.
             expect(prompt).toContain('claim it again first')
             // Resolving through the state API closes the report's open PR, so the run must not report

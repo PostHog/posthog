@@ -2,9 +2,11 @@ import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
+import { router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -48,9 +50,13 @@ describe('MessageTemplate', () => {
         } as AppContext
         initKeaTests()
         featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API], {
-            [FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API]: true,
-        })
+        featureFlagLogic.actions.setFeatureFlags(
+            [FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API, FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_LINKS],
+            {
+                [FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API]: true,
+                [FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_LINKS]: true,
+            }
+        )
 
         render(
             <Provider>
@@ -126,4 +132,84 @@ describe('MessageTemplate', () => {
             expect(screen.getByLabelText('Protect sensitive data').hasAttribute('disabled')).toBe(writeDisabled)
         }
     )
+
+    it.each([
+        ['the transactional library', urls.transactionalTemplate(TEMPLATE_ID)],
+        ['the workflows library', urls.workflowsLibraryTemplate(TEMPLATE_ID)],
+    ])("opens the sends behind a clicked email metric on the template's own Sends tab, from %s", async (_, url) => {
+        const sendRequests: Record<string, string>[] = []
+        useMocks({
+            get: {
+                '/api/environments/:team_id/messaging_templates/:id/': PASSWORD_RESET_WITH_DRAFT,
+                '/api/projects/:team_id/transactional_email_log/': ({ request }) => {
+                    sendRequests.push(Object.fromEntries(new URL(request.url).searchParams))
+                    return [200, { results: [], has_more: false }]
+                },
+                '/api/environments/:team_id/hog_flows/:id/': {
+                    id: 'flow-1',
+                    actions: [{ id: 'email-step', name: 'Password reset email', type: 'function_email', config: {} }],
+                },
+            },
+            post: {
+                '/api/environments/:team_id/query/:query_kind/': async ({ request }) => {
+                    const { query } = ((await request.json()) as { query: { query: string } }).query
+                    const isEmailTotals =
+                        query.includes('instance_id, metric_name') && query.includes('email_bounced_hard')
+                    return [
+                        200,
+                        {
+                            results: isEmailTotals
+                                ? [
+                                      [10, 'email-step', 'email_sent'],
+                                      [2, 'email-step', 'email_bounced_hard'],
+                                  ]
+                                : [],
+                        },
+                    ]
+                },
+            },
+        })
+        await renderAs(AccessControlLevel.Editor, PASSWORD_RESET_WITH_DRAFT.name)
+
+        router.actions.push(url)
+        const page = router.values.location.pathname
+        fireEvent.click(screen.getByText('Metrics'))
+        fireEvent.click(await screen.findByText(/^2 hard bounced/))
+
+        await screen.findByText('No sends match these filters')
+        expect(router.values.location.pathname).toEqual(page)
+        expect(sendRequests.at(-1)).toMatchObject({ workflow_id: 'flow-1', status: 'bounced', reason: 'hard' })
+    })
+
+    it('opens the run logs from a template link saved before the Sends list, until the reader picks Sends', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/messaging_templates/:id/': PASSWORD_RESET_WITH_DRAFT,
+                '/api/environments/:team_id/hog_flows/:id/': { id: 'flow-1', actions: [] },
+                '/api/projects/:team_id/transactional_email_log/': {
+                    results: [
+                        {
+                            message_id: 'msg-1',
+                            recipient: 'ada@example.com',
+                            status: 'failed',
+                            created_at: '2026-03-14T10:00:00Z',
+                        },
+                    ],
+                    has_more: false,
+                },
+            },
+            post: { '/api/environments/:team_id/query/': { results: [] } },
+        })
+        await renderAs(AccessControlLevel.Editor, PASSWORD_RESET_WITH_DRAFT.name)
+
+        router.actions.push(urls.transactionalTemplate(TEMPLATE_ID), { tab: 'sends', inv_search: 'Transient bounce' })
+
+        expect(await screen.findByText('Re-run…')).toBeInTheDocument()
+        expect(screen.queryByText('ada@example.com')).not.toBeInTheDocument()
+
+        fireEvent.click(screen.getByText('Sends'))
+
+        expect(await screen.findByText('ada@example.com')).toBeInTheDocument()
+        expect(router.values.searchParams).toEqual({ tab: 'sends' })
+    })
 })
