@@ -9,7 +9,8 @@ const DETAIL_CLASSES: &[(&str, &str)] = &[
     ("survey_responses_over_quota", "quota"),
     ("over_quota", "quota"),
     ("not_persisted", "retry"),
-    ("ai_byte_rate_limited", "retry"),
+    ("ai_byte_rate_limited", "rate_limit"),
+    ("rejected", "server"),
     ("event_restriction_drop", "restriction"),
     ("non_historical_import_drop", "restriction"),
     ("missing_event_name", "validation"),
@@ -23,6 +24,9 @@ const DETAIL_CLASSES: &[(&str, &str)] = &[
     ("duplicate_event_uuid", "validation"),
     ("ai_event_too_big", "validation"),
     ("misrouted_event", "validation"),
+    ("event_too_big", "validation"),
+    ("serialization_failed", "validation"),
+    ("gateway_props_unparseable", "validation"),
     ("person_processing_disabled", "warning"),
 ];
 
@@ -206,6 +210,31 @@ mod tests {
                 EventStatus::Drop,
                 Some("distinct_id_too_large"),
                 ("drop", "validation", "distinct_id_too_large"),
+            ),
+            (
+                EventStatus::Drop,
+                Some("ai_byte_rate_limited"),
+                ("drop", "rate_limit", "ai_byte_rate_limited"),
+            ),
+            (
+                EventStatus::Drop,
+                Some("rejected"),
+                ("drop", "server", "rejected"),
+            ),
+            (
+                EventStatus::Drop,
+                Some("event_too_big"),
+                ("drop", "validation", "event_too_big"),
+            ),
+            (
+                EventStatus::Drop,
+                Some("serialization_failed"),
+                ("drop", "validation", "serialization_failed"),
+            ),
+            (
+                EventStatus::Drop,
+                Some("gateway_props_unparseable"),
+                ("drop", "validation", "gateway_props_unparseable"),
             ),
             (
                 EventStatus::Drop,
