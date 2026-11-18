@@ -2888,12 +2888,16 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 only_while_platform_owned=not hog_function_ids,
             )
 
-        # Native delivery has no insight legacy webhook body, so a team that keeps it, or whose flag
-        # cannot be read, gets the body from a HogFunction.
-        sends_from_a_row = alert.platform_owned and not (
-            data["type"] == DestinationType.WEBHOOK
-            and keeps_legacy_webhook_body(alert.team) is not False
-            and not has_legacy_webhook_body(SourceKind.INSIGHT)
+        # A native PagerDuty incident differs from the stock HogFunction's (its key, source and details), and
+        # native delivery has no insight legacy webhook body, so these keep HogFunctions until they match.
+        sends_from_a_row = (
+            alert.platform_owned
+            and data["type"] != DestinationType.PAGERDUTY
+            and not (
+                data["type"] == DestinationType.WEBHOOK
+                and keeps_legacy_webhook_body(alert.team) is not False
+                and not has_legacy_webhook_body(SourceKind.INSIGHT)
+            )
         )
         hog_function_ids: tuple[uuid.UUID, ...] = ()
         try:

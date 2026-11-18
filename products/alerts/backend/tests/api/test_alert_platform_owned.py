@@ -96,7 +96,7 @@ from products.alerts_platform.backend.facade.enums import HoldRelease, HoldRelea
 from products.alerts_platform.backend.facade.scheduling import REAL_TIME_CADENCE_MINUTES
 from products.cdp.backend.facade.models import HogFunction
 from products.cdp.backend.templates.discord.template_discord import template as template_discord
-from products.cdp.backend.templates.fixtures import template_webhook
+from products.cdp.backend.templates.fixtures import template_pagerduty, template_webhook
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.notebooks.backend.facade.api import create_notebook
 from products.product_analytics.backend.facade.models import Insight
@@ -872,33 +872,42 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("platform_sends_the_alertmanager_body", PlatformAlertOwner.PLATFORM, False, False),
-            ("team_keeps_the_legacy_webhook_body", PlatformAlertOwner.PLATFORM, True, True),
-            ("webhook_body_flag_unreadable", PlatformAlertOwner.PLATFORM, None, True),
-            ("handed_back_after_the_alert_was_read", PlatformAlertOwner.SOURCE, False, True),
+            ("platform_sends_the_alertmanager_body", PlatformAlertOwner.PLATFORM, False, "webhook", False),
+            ("team_keeps_the_legacy_webhook_body", PlatformAlertOwner.PLATFORM, True, "webhook", True),
+            ("webhook_body_flag_unreadable", PlatformAlertOwner.PLATFORM, None, "webhook", True),
+            ("handed_back_after_the_alert_was_read", PlatformAlertOwner.SOURCE, False, "webhook", True),
+            ("pagerduty_keeps_the_stock_incident", PlatformAlertOwner.PLATFORM, False, "pagerduty", True),
         ]
     )
-    def test_a_new_webhook_gets_hog_functions_only_where_a_row_would_not_send_its_body(
-        self, _name: str, copy_owner: PlatformAlertOwner, keeps_legacy_body: bool | None, has_hog_functions: bool
+    def test_a_new_destination_gets_hog_functions_only_where_a_row_would_not_send_what_they_send(
+        self,
+        _name: str,
+        copy_owner: PlatformAlertOwner,
+        keeps_legacy_body: bool | None,
+        route: str,
+        has_hog_functions: bool,
     ) -> None:
         sync_template_to_db(template_webhook)
+        sync_template_to_db(template_pagerduty)
         with team_scope(self.team.id):
             platform_testing.set_owner(self.copy_id, copy_owner)
         destinations_url = f"{self.url}/{self.alert.id}/destinations/"
+        payload = (
+            {"type": "webhook", "webhook_url": "https://hooks.example.com/secret"}
+            if route == "webhook"
+            else {"pagerduty_routing_key": "a" * 32}
+        )
 
         with patch(
             "products.alerts.backend.presentation.views.alert.keeps_legacy_webhook_body",
             return_value=keeps_legacy_body,
         ):
-            created = self.client.post(
-                f"{destinations_url}webhook/",
-                {"type": "webhook", "webhook_url": "https://hooks.example.com/secret"},
-                format="json",
-            )
+            created = self.client.post(f"{destinations_url}{route}/", payload, format="json")
 
         assert created.status_code == status.HTTP_201_CREATED, created.json()
         (listed,) = self.client.get(destinations_url).json()
-        assert (listed["id"], listed["hog_function_ids"]) == (created.json()["id"], created.json()["hog_function_ids"])
+        assert listed["id"] == created.json()["id"]
+        assert sorted(listed["hog_function_ids"]) == sorted(created.json()["hog_function_ids"])
         assert bool(listed["hog_function_ids"]) is has_hog_functions
 
     def test_an_alert_stops_taking_row_only_destinations_at_the_cap(self) -> None:
