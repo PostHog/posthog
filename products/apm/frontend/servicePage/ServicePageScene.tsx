@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -11,13 +11,18 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import type { EndpointHealthApi } from '../generated/api.schemas'
+import { healthColumns } from '../healthColumns'
 import { formatMs, formatPercent, formatRate } from '../healthDisplay'
 import { HealthStatusTag } from '../HealthStatusTag'
 import { Sparkline } from '../Sparkline'
+import { ServiceLatencyChart } from './ServiceLatencyChart'
 import { readScopeParam } from './servicePage'
-import { servicePageLogic, ServicePageLogicProps } from './servicePageLogic'
+import { ERROR_SAMPLE_LIMIT, servicePageLogic, ServicePageLogicProps } from './servicePageLogic'
+import { ServiceRequestsChart } from './ServiceRequestsChart'
 import { ServiceScopeSelectors } from './ServiceScopeSelectors'
 import { ServiceSection } from './ServiceSection'
+import { ServiceTopErrors } from './ServiceTopErrors'
 
 export const scene: SceneExport<ServicePageLogicProps> = {
     component: ServicePageScene,
@@ -26,7 +31,11 @@ export const scene: SceneExport<ServicePageLogicProps> = {
 }
 
 // Pinned: the ids are URL fragments people share.
-const SECTIONS = [{ id: 'summary', title: 'Summary' }] as const
+const SECTIONS = [
+    { id: 'summary', title: 'Summary' },
+    { id: 'endpoints', title: 'Endpoints' },
+    { id: 'errors', title: 'Errors' },
+] as const
 
 function StatBlock({ label, value }: { label: string; value: string }): JSX.Element {
     return (
@@ -61,8 +70,28 @@ function ServiceTableOfContents(): JSX.Element {
 
 export function ServicePageScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { serviceName, service, servicesHealthLoading, servicesHealthFailed } = useValues(servicePageLogic)
-    const { fetchServicesHealth } = useActions(servicePageLogic)
+    const {
+        serviceName,
+        dateRange,
+        scope,
+        service,
+        servicesHealthLoading,
+        servicesHealthFailed,
+        endpoints,
+        endpointsHealthLoading,
+        endpointsHealthFailed,
+        requestsSeries,
+        requestsSeriesLoading,
+        latencyHeatmapData,
+        latencyPercentiles,
+        rawLatencyHeatmapLoading,
+        topErrors,
+        errorSpans,
+        errorSpansLoading,
+        errorSpansFailed,
+        statusCodeErrors,
+    } = useValues(servicePageLogic)
+    const { fetchServicesHealth, fetchEndpointsHealth, fetchErrorSpans } = useActions(servicePageLogic)
 
     if (!featureFlags[FEATURE_FLAGS.APPLICATION_OBSERVABILITY]) {
         return <NotFound object="page" />
@@ -78,6 +107,23 @@ export function ServicePageScene(): JSX.Element {
             </SceneContent>
         )
     }
+
+    const endpointColumns: LemonTableColumns<EndpointHealthApi> = [
+        {
+            title: 'Endpoint',
+            key: 'endpoint',
+            render: (_, row) => (
+                <Link
+                    to={urls.tracingOperation(row.service_name, row.endpoint, dateRange)}
+                    className="font-semibold"
+                    data-attr="apm-service-endpoint-operation"
+                >
+                    {row.endpoint}
+                </Link>
+            ),
+        },
+        ...healthColumns<EndpointHealthApi>(),
+    ]
 
     return (
         <SceneContent>
@@ -137,6 +183,59 @@ export function ServicePageScene(): JSX.Element {
                                 )}
                             </div>
                         )}
+                        {(scope.version || scope.operation) && (
+                            <span className="text-xs text-muted">
+                                These totals cover the whole service in the selected environment. The charts below
+                                follow the version and operation you picked.
+                            </span>
+                        )}
+                        <div className="grid grid-cols-1 @min-[64rem]/main-content:grid-cols-2 gap-4">
+                            <div className="flex flex-col gap-1">
+                                <span className="text-sm font-semibold">Requests and errors</span>
+                                <ServiceRequestsChart data={requestsSeries} loading={requestsSeriesLoading} />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <span className="text-sm font-semibold">Latency</span>
+                                <ServiceLatencyChart
+                                    timeBuckets={latencyHeatmapData.timeBuckets}
+                                    percentiles={latencyPercentiles}
+                                    loading={rawLatencyHeatmapLoading}
+                                />
+                                <span className="text-xs text-muted">
+                                    Each point is the top of the latency bucket the percentile falls in.
+                                </span>
+                            </div>
+                        </div>
+                    </ServiceSection>
+                    <ServiceSection id="endpoints" title="Endpoints">
+                        {endpointsHealthFailed && !endpointsHealthLoading ? (
+                            <LemonBanner
+                                type="error"
+                                action={{ children: 'Retry', onClick: () => fetchEndpointsHealth() }}
+                            >
+                                Couldn't load endpoints.
+                            </LemonBanner>
+                        ) : (
+                            <LemonTable
+                                columns={endpointColumns}
+                                dataSource={endpoints}
+                                rowKey="endpoint"
+                                loading={endpointsHealthLoading}
+                                emptyState="No endpoints in this environment and range."
+                                data-attr="apm-service-endpoints-table"
+                            />
+                        )}
+                    </ServiceSection>
+                    <ServiceSection id="errors" title="Errors">
+                        <ServiceTopErrors
+                            topErrors={topErrors}
+                            topErrorsLoading={errorSpansLoading}
+                            sampleSize={errorSpans.length}
+                            sampleLimit={ERROR_SAMPLE_LIMIT}
+                            statusCodeErrors={statusCodeErrors}
+                            failed={errorSpansFailed}
+                            onRetry={() => fetchErrorSpans()}
+                        />
                     </ServiceSection>
                 </div>
             </div>
