@@ -173,7 +173,7 @@ export function createInvocationSanitizer(
         true
     )
 
-    if (config.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE && !config.CDP_SEALED_STATE_KEYS) {
+    if (config.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE && !config.CDP_SEALED_STATE_KEYS?.split(',').some(Boolean)) {
         throw new Error('CDP_SEAL_TRANSACTIONAL_EMAIL_STATE is on but CDP_SEALED_STATE_KEYS is not set')
     }
     const sealer = new EncryptedFields(config.CDP_SEALED_STATE_KEYS ?? '')
