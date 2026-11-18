@@ -101,13 +101,6 @@ export interface catalogSetupLogicActions {
         allMetrics: DataCatalogMetricApi[]
         payload?: any
     } // metricsLogic
-    openSidePanel: (
-        tab: SidePanelTab,
-        options?: string | undefined
-    ) => {
-        options: string | undefined
-        tab: SidePanelTab
-    } // sidePanelStateLogic
     updateOrganizationFailure: (
         error: string,
         errorObject?: any
@@ -115,6 +108,13 @@ export interface catalogSetupLogicActions {
         error: string
         errorObject?: any
     } // organizationLogic
+    openSidePanel: (
+        tab: SidePanelTab,
+        options?: string | undefined
+    ) => {
+        options: string | undefined
+        tab: SidePanelTab
+    } // sidePanelStateLogic
     updateHasSeenProductIntroFor: (
         productKey: string,
         value?: boolean | undefined
