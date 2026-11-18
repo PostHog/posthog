@@ -11178,6 +11178,10 @@ snapshots:
         hash: v1.k794b7964.1aed4f182db96074e86ac3ccc68ce6f2aa5542d731bd01ae6888f4c044d50c06.7c-6yEky1tN7l87W_v2JLRUcecJxd5VBu8FM-fnrxMU
     scenes-app-customer-analytics-track-rules--preview--light:
         hash: v1.k794b7964.283aaee2fee72892b918c583c603b95d15444ee8007ff272e3261f1e397c72e8.YDGJHALZf_iyRSZ_yUc5EM4kEgLddY1yet3W8QlD0UI
+    scenes-app-dashboards-cached-tiles--date-change-shows-cached-tiles-from-one-request--dark:
+        hash: v1.k794b7964.155293626ce470f956f70d86616fe3aa333559336e7e4fc988d85f6deaf8a82e.DwXiPRZ6t54ONft1X-fqPf_vPEd0KCSaq0NZrSOet8Q
+    scenes-app-dashboards-cached-tiles--date-change-shows-cached-tiles-from-one-request--light:
+        hash: v1.k794b7964.0d2543e943aa4d36a2617489bcfdc2448eb690b0dbcb8b9acb8b20e5c129ebb3.NJIn-D-LTuk3X6fxPQo6Tn6IQw8CIeC9nCvJR5NbRys
     scenes-app-dashboards-visible-tiles--offscreen-tiles-wait-to-load--dark:
         hash: v1.k794b7964.6841ed7873801c4d2a2a0144bbb9ab779d3147ef65643dc37f7f65f8a028979e.0ULKITHCuAtNKBT6L48irJvn59fjdXA4XLKIqupbSxA
     scenes-app-dashboards-visible-tiles--offscreen-tiles-wait-to-load--light:
