@@ -28,8 +28,45 @@ EVENT_PROPERTIES_ENDPOINT = "event_properties"
 USER_PROPERTIES_ENDPOINT = "user_properties"
 EVENT_CATEGORIES_ENDPOINT = "event_categories"
 GROUP_PROPERTIES_ENDPOINT = "group_properties"
+RETENTION_ENDPOINT = "retention"
+COMPOSITION_ENDPOINT = "composition"
+REVENUE_LTV_ENDPOINT = "revenue_ltv"
 
 TAXONOMY_EVENT_PATH = "/api/2/taxonomy/event"
+
+# Dashboard REST charts are computed over a date range we pick, and their values keep changing
+# until a cohort matures (retention days, LTV r1d..r90d), so these tables are a full refresh of a
+# trailing window. Queries that run at the same time may cost 1,000 in total, and retention costs
+# 8 per day, so the window must stay under 125 days.
+DASHBOARD_LOOKBACK_DAYS = 90
+
+# The default retention chart: new users, returning with any event.
+RETENTION_START_EVENT = "_new"
+RETENTION_RETURN_EVENT = "_all"
+
+# The built-in properties the composition endpoint documents for `p`. Custom `gp:` properties are
+# per project and have no list call, so they are not queried.
+COMPOSITION_PROPERTIES = (
+    "version",
+    "country",
+    "city",
+    "region",
+    "DMA",
+    "language",
+    "platform",
+    "os",
+    "device",
+    "start_version",
+    "paying",
+)
+
+# The `m` values of the revenue LTV endpoint.
+REVENUE_LTV_METRICS: dict[int, str] = {
+    0: "arpu",
+    1: "arppu",
+    2: "total_revenue",
+    3: "paying_users",
+}
 
 
 @frozen
@@ -129,6 +166,25 @@ AMPLITUDE_ENDPOINTS: dict[str, AmplitudeEndpointConfig] = {
         name=GROUP_PROPERTIES_ENDPOINT,
         path="/api/2/taxonomy/group-property",
         primary_keys=["group_property"],
+        data_selector="data",
+    ),
+    # Dashboard REST charts, all full refresh over DASHBOARD_LOOKBACK_DAYS.
+    RETENTION_ENDPOINT: AmplitudeEndpointConfig(
+        name=RETENTION_ENDPOINT,
+        path="/api/2/retention",
+        primary_keys=["date", "day"],
+        data_selector="data",
+    ),
+    COMPOSITION_ENDPOINT: AmplitudeEndpointConfig(
+        name=COMPOSITION_ENDPOINT,
+        path="/api/2/composition",
+        primary_keys=["property", "value"],
+        data_selector="data",
+    ),
+    REVENUE_LTV_ENDPOINT: AmplitudeEndpointConfig(
+        name=REVENUE_LTV_ENDPOINT,
+        path="/api/2/revenue/ltv",
+        primary_keys=["date", "metric"],
         data_selector="data",
     ),
 }

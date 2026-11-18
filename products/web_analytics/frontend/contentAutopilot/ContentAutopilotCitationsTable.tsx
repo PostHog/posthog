@@ -30,7 +30,7 @@ export const ContentAutopilotCitationsTable = ({
             rowExpandable: (citation) => citation.answer_text !== null,
             expandedRowRender: (citation) => (
                 <div className="p-2">
-                    <ContentAutopilotAnswerText text={citation.answer_text ?? ''} mentions={null} />
+                    <ContentAutopilotAnswerText text={citation.answer_text ?? ''} mentions={null} sentences={[]} />
                 </div>
             ),
         }}

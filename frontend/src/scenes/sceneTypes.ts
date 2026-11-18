@@ -189,9 +189,6 @@ export enum Scene {
     PipelineOverview = 'PipelineOverview',
     Sources = 'Sources',
     StartupProgram = 'StartupProgram',
-    Stamphog = 'Stamphog',
-    StamphogRuns = 'StamphogRuns',
-    StamphogDigests = 'StamphogDigests',
     Survey = 'Survey',
     SurveyWizard = 'SurveyWizard',
     SurveyFormBuilder = 'SurveyFormBuilder',
@@ -235,6 +232,7 @@ export enum Scene {
     WorkflowsEmailDomain = 'WorkflowsEmailDomain',
     Wizard = 'Wizard',
     EarlyAccessFeature = 'EarlyAccessFeature',
+    ReleaseAll = 'ReleaseAll',
     ReleaseCalendar = 'ReleaseCalendar',
     Releases = 'Releases',
     Release = 'Release',
@@ -446,11 +444,6 @@ export const sceneToAccessControlResourceType: Partial<
     [Scene.ErrorTracking]: AccessControlResourceType.ErrorTracking,
     [Scene.ErrorTrackingFingerprint]: AccessControlResourceType.ErrorTracking,
     [Scene.ErrorTrackingIssue]: AccessControlResourceType.ErrorTracking,
-
-    // Stamphog
-    [Scene.Stamphog]: AccessControlResourceType.Stamphog,
-    [Scene.StamphogRuns]: AccessControlResourceType.Stamphog,
-    [Scene.StamphogDigests]: AccessControlResourceType.Stamphog,
 
     // Surveys
     [Scene.Survey]: AccessControlResourceType.Survey,

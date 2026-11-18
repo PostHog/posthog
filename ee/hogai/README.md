@@ -138,7 +138,7 @@ def get_required_resource_access(self):
 
 2. Update `TOOLS_WITHOUT_ACCESS_CONTROL` in `ee/hogai/test/test_tool.py` to remove your tool from the exempt list.
 
-Supported resources: see `APIScopeObject` in `posthog/scopes.py` (e.g., `feature_flag`, `dashboard`, `insight`, `experiment`, `survey`)
+Supported resources: see `APIScopeObject` in `posthog/scopes/catalog.py` (e.g., `feature_flag`, `dashboard`, `insight`, `experiment`, `survey`)
 Access levels: `none`, `viewer`, `editor`, `manager`
 
 #### Object-level access control

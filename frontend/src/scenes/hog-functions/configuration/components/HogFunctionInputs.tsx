@@ -15,6 +15,7 @@ import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { redactSecretHogFunctionInputs, truncateHogFunctionContext } from '../../hog-function-utils'
 import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
+import { HogFunctionInputsToolOutput, hogFunctionInputsSuggestion } from '../hogFunctionInputsSuggestion'
 
 export function HogFunctionInputs(): JSX.Element {
     const {
@@ -27,19 +28,29 @@ export function HogFunctionInputs(): JSX.Element {
         hasGroupsAddon,
         oldInputs,
         newInputs,
+        newInputValues,
         canEditSource,
     } = useValues(hogFunctionConfigurationLogic)
 
     const {
         setConfigurationValue,
+        changeInput,
+        changeInputsSchema,
+        acceptInputsDiff,
         setOldInputs,
         setNewInputs,
+        setNewInputValues,
         clearInputsDiff,
         reportAIHogFunctionInputsPrompted,
-        reportAIHogFunctionInputsAccepted,
         reportAIHogFunctionInputsRejected,
         reportAIHogFunctionInputsPromptOpen,
     } = useActions(hogFunctionConfigurationLogic)
+
+    // Secret values never leave the scene: a freshly typed secret is cleartext in form state.
+    const inputsWithoutSecrets = redactSecretHogFunctionInputs(
+        configuration.inputs ?? {},
+        configuration.inputs_schema ?? []
+    )
 
     useAttachedContext([
         {
@@ -47,11 +58,7 @@ export function HogFunctionInputs(): JSX.Element {
             value: truncateHogFunctionContext(
                 JSON.stringify({
                     inputs_schema: configuration.inputs_schema ?? [],
-                    // Secret values never leave the scene: a freshly typed secret is cleartext in form state.
-                    inputs: redactSecretHogFunctionInputs(
-                        configuration.inputs ?? {},
-                        configuration.inputs_schema ?? []
-                    ),
+                    inputs: inputsWithoutSecrets,
                     hog_code: configuration.hog ?? '',
                 })
             ),
@@ -77,18 +84,10 @@ export function HogFunctionInputs(): JSX.Element {
                     warnings={inputFormWarnings}
                     configuration={{
                         inputs_schema: newInputs ?? configuration.inputs_schema ?? [],
-                        inputs: configuration.inputs ?? {},
+                        inputs: { ...configuration.inputs, ...newInputValues },
                     }}
-                    onInputSchemaChange={(schema) => {
-                        // If user manually edits while diff is showing, clear the diff
-                        if (oldInputs && newInputs) {
-                            clearInputsDiff()
-                        }
-                        setConfigurationValue('inputs_schema', schema)
-                    }}
-                    onInputChange={(key, input) => {
-                        setConfigurationValue(`inputs.${key}`, input)
-                    }}
+                    onInputSchemaChange={changeInputsSchema}
+                    onInputChange={changeInput}
                     showSource={showSource}
                     sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                 />
@@ -113,13 +112,7 @@ export function HogFunctionInputs(): JSX.Element {
                             <LemonButton
                                 type="tertiary"
                                 icon={<IconCheck color="var(--success)" />}
-                                onClick={() => {
-                                    if (newInputs) {
-                                        setConfigurationValue('inputs_schema', newInputs)
-                                    }
-                                    reportAIHogFunctionInputsAccepted()
-                                    clearInputsDiff()
-                                }}
+                                onClick={acceptInputsDiff}
                                 tooltipPlacement="top"
                                 size="small"
                             >
@@ -158,17 +151,24 @@ export function HogFunctionInputs(): JSX.Element {
             identifier="create_hog_function_inputs"
             context={{
                 current_inputs_schema: configuration.inputs_schema ?? [],
+                current_inputs: inputsWithoutSecrets,
                 hog_code: configuration.hog ?? '',
             }}
             contextDescription={{
                 text: 'Current inputs schema',
                 icon: iconForType('data_warehouse'),
             }}
-            callback={(toolOutput: CyclotronJobInputSchemaType[]) => {
+            callback={(toolOutput: HogFunctionInputsToolOutput | CyclotronJobInputSchemaType[]) => {
+                const { inputsSchema, inputValues } = hogFunctionInputsSuggestion(
+                    toolOutput,
+                    configuration.inputs ?? {},
+                    configuration.inputs_schema ?? []
+                )
                 // Store the old inputs before changing
                 setOldInputs(configuration.inputs_schema ?? [])
                 // Store the new inputs from Max Tool
-                setNewInputs(toolOutput)
+                setNewInputs(inputsSchema)
+                setNewInputValues(inputValues)
                 // Report that AI was prompted
                 reportAIHogFunctionInputsPrompted()
                 // Don't immediately update the form - let user accept/reject

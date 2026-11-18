@@ -17,9 +17,13 @@ from products.warehouse_sources.sources.sdk import (
     retry_with_deadline,
 )
 from products.warehouse_sources.sources.tailscale.settings import (
+    DEVICE_FAN_OUT_ENDPOINTS,
+    DEVICE_POSTURE_ATTRIBUTES_ENDPOINT,
+    DEVICES_ENDPOINT,
     SERVICE_DEVICES_ENDPOINT,
     SERVICES_ENDPOINT,
     TAILSCALE_ENDPOINTS,
+    USER_INVITES_ENDPOINT,
     TailscaleEndpointConfig,
 )
 
@@ -174,12 +178,16 @@ def _fetch(auth: TailscaleAuth, url: str, params: dict[str, Any] | None = None) 
     return response
 
 
-def _extract_rows(payload: Any, data_key: str) -> list[dict[str, Any]]:
+def _extract_rows(payload: Any, data_key: str | None) -> list[dict[str, Any]]:
     if isinstance(payload, dict):
-        rows = payload.get(data_key)
+        rows = payload.get(data_key) if data_key else None
         return rows if isinstance(rows, list) else []
-    # Defensive: undocumented bare-list responses.
     return payload if isinstance(payload, list) else []
+
+
+def _strip_invite_url(row: dict[str, Any]) -> dict[str, Any]:
+    # Anyone who holds an invite link can accept it, so it is not copied into the warehouse.
+    return {key: value for key, value in row.items() if key != "inviteUrl"}
 
 
 def _list_rows(
@@ -190,6 +198,8 @@ def _list_rows(
     response.raise_for_status()
 
     rows = _extract_rows(response.json(), config.data_key)
+    if config.name == USER_INVITES_ENDPOINT:
+        rows = [_strip_invite_url(row) for row in rows if isinstance(row, dict)]
     logger.debug(f"Tailscale: fetched {len(rows)} rows from {config.name}")
     if rows:
         yield rows
@@ -252,6 +262,49 @@ def _service_device_rows(
         ]
         if hosts:
             yield hosts
+        else:
+            resumable_source_manager.safe_point()
+
+
+def _device_fan_out_rows(
+    auth: TailscaleAuth,
+    config: TailscaleEndpointConfig,
+    tailnet: str | None,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[TailscaleResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Fan out over the tailnet's devices and read one per-device endpoint for each."""
+    # The default field set already carries id, nodeId and isExternal.
+    devices_response = _fetch(auth, _endpoint_url(TAILSCALE_ENDPOINTS[DEVICES_ENDPOINT], tailnet))
+    devices_response.raise_for_status()
+    devices = _extract_rows(devices_response.json(), TAILSCALE_ENDPOINTS[DEVICES_ENDPOINT].data_key)
+    logger.debug(f"Tailscale: listed {len(devices)} devices for {config.name}")
+
+    for device in devices:
+        if not isinstance(device, dict) or device.get("isExternal"):
+            # A shared-in device belongs to another tailnet, which owns its attributes and invites.
+            continue
+        device_id = device.get("id")
+        node_id = device.get("nodeId")
+        path_id = node_id or device_id
+        if not path_id:
+            continue
+        response = _fetch(auth, _endpoint_url(config, tailnet, deviceId=str(path_id)))
+        if response.status_code == 404:
+            # The device was deleted between the list and per-device calls.
+            logger.debug(f"Tailscale: device {path_id} disappeared mid-sync, skipping")
+            resumable_source_manager.safe_point()
+            continue
+        response.raise_for_status()
+        payload = response.json()
+
+        if config.name == DEVICE_POSTURE_ATTRIBUTES_ENDPOINT:
+            rows = [{**(payload if isinstance(payload, dict) else {}), "deviceId": device_id, "nodeId": node_id}]
+        else:
+            rows = [_strip_invite_url(row) for row in _extract_rows(payload, config.data_key) if isinstance(row, dict)]
+
+        if rows:
+            yield rows
         else:
             resumable_source_manager.safe_point()
 
@@ -356,6 +409,8 @@ def get_rows(
         yield from _key_rows(auth, config, tailnet, logger)
     elif endpoint == SERVICE_DEVICES_ENDPOINT:
         yield from _service_device_rows(auth, config, tailnet, logger, resumable_source_manager)
+    elif endpoint in DEVICE_FAN_OUT_ENDPOINTS:
+        yield from _device_fan_out_rows(auth, config, tailnet, logger, resumable_source_manager)
     else:
         yield from _list_rows(auth, config, tailnet, logger)
 
@@ -403,12 +458,14 @@ def _probe_url_and_params(schema_name: str | None, tailnet: str | None) -> tuple
 
     The keys list is the default probe: it is small on every tailnet (devices can be
     huge and the API has no `limit` param). Log probes use a short window to satisfy
-    the required start/end params without pulling real volume. The service devices
-    probe lists services, since a hosts call needs a service name.
+    the required start/end params without pulling real volume. Fan-out probes list
+    the parent (services or devices), since a child call needs a parent id.
     """
     config = TAILSCALE_ENDPOINTS.get(schema_name or "") or TAILSCALE_ENDPOINTS["keys"]
     if config.name == SERVICE_DEVICES_ENDPOINT:
         config = TAILSCALE_ENDPOINTS[SERVICES_ENDPOINT]
+    elif config.name in DEVICE_FAN_OUT_ENDPOINTS:
+        config = TAILSCALE_ENDPOINTS[DEVICES_ENDPOINT]
     url = _endpoint_url(config, tailnet)
     if config.time_field:
         now = datetime.now(UTC)

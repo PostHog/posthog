@@ -6,6 +6,8 @@ from google.auth.exceptions import RefreshError
 
 from products.warehouse_sources.sources.google_analytics._config import GoogleAnalyticsSourceConfig
 from products.warehouse_sources.sources.google_analytics.google_analytics import (
+    QUOTA_EXHAUSTED_ERROR_PREFIX,
+    SERVER_ERROR_PREFIX,
     GoogleAnalyticsResumeConfig,
     get_property_metadata,
     google_analytics_session,
@@ -50,6 +52,15 @@ _LOAD_CONNECTION_ERROR = (
 )
 _PROPERTY_METADATA_ERROR = (
     "PostHog couldn't reach Google Analytics to read your property. Wait a few minutes, then try again."
+)
+
+_QUOTA_EXHAUSTED_MESSAGE = (
+    "Your Google Analytics property ran out of API quota before this sync finished. Lower 'Days of history "
+    "to sync initially', or use fewer dimensions in your custom reports."
+)
+_SERVER_ERROR_MESSAGE = (
+    "Google Analytics was temporarily unavailable, so this sync couldn't finish. This is on Google's side, "
+    "and the next sync runs on schedule."
 )
 
 # Google answers the metadata probe with 403 both when the account can't read the property (or the
@@ -246,6 +257,14 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
             # (see `_is_retryable_server_error`); if it's still 409 once that budget is spent, the
             # conflict is still clearing on Google's end, so let Temporal retry the activity too.
             "409 Client Error",
+        }
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        # Both raise sites name the property id, the HTTP status and a `(retryable)` tag, which is
+        # what the job stored once Temporal's retries ran out too.
+        return {
+            QUOTA_EXHAUSTED_ERROR_PREFIX: _QUOTA_EXHAUSTED_MESSAGE,
+            SERVER_ERROR_PREFIX: _SERVER_ERROR_MESSAGE,
         }
 
     def get_schemas(

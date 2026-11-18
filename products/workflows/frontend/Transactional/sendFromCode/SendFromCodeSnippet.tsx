@@ -1,17 +1,14 @@
-import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { LemonSegmentedButton, Link } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { apiHostOrigin } from 'lib/utils/apiHost'
-import { getBackendHost } from 'lib/utils/oauthClient'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SendFromCodeSurface } from './firstCodeSendLogic'
 import { SendFromCodeSdk, sendFromCodeSnippet } from './sendFromCodeSnippets'
+import { useSendFromCodeTarget } from './useSendFromCodeTarget'
 
 const SDK_OPTIONS: { value: SendFromCodeSdk; label: string; 'data-attr': string }[] = [
     { value: 'node', label: 'Node.js', 'data-attr': 'send-from-code-snippet-node' },
@@ -32,16 +29,11 @@ export function SendFromCodeSnippet({
     from: string | null
     surface: SendFromCodeSurface
 }): JSX.Element {
-    const { currentTeam, currentTeamIdStrict } = useValues(teamLogic)
+    const target = useSendFromCodeTarget()
     const [sdk, setSdk] = useState<SendFromCodeSdk>('node')
-    // In OAuth mode this app runs against a remote region, which is where the user's server has to send.
-    const appOrigin = getBackendHost() ?? window.location.origin
-    const host = apiHostOrigin(appOrigin)
     const snippet = sendFromCodeSnippet(sdk, {
-        projectToken: currentTeam?.api_token ?? '<ph_project_api_key>',
-        host,
-        appHost: host === appOrigin ? host : null,
-        sendUrl: `${appOrigin}/api/projects/${currentTeamIdStrict}/messaging/send/email/`,
+        ...target,
+        projectToken: target.projectToken ?? '<ph_project_api_key>',
         from,
     })
 
@@ -78,8 +70,10 @@ export function SendFromCodeSnippet({
             <p className="m-0 text-xs text-secondary">
                 Use a <Link to={urls.settings('environment-secret-api-keys')}>project secret API key</Link> with the{' '}
                 <code>transactional_email:write</code> scope, and keep it on your server. The template key names the
-                email: each key shows up in Transactional emails with its own metrics. The idempotency key makes a retry
-                safe: use a new key for each email, and the same key when you retry it within 24 hours.
+                email: each key shows up in Transactional emails with its own metrics. The idempotency key stops one
+                email from going out twice. Use a new key for each email. Once PostHog accepts a send, it retries
+                delivery itself. When the call gets no answer, or an error that says to retry, send it again within 24
+                hours with the same key.
             </p>
         </div>
     )

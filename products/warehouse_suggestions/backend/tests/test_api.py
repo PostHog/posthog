@@ -44,6 +44,7 @@ from .test_suggestions import ingest_one, make_draft
 REVIEW_FIELDS = ("reviewed_by_id", "reviewed_at", "dismissal_reason", "dismissal_note", "dismissed_at_score")
 FLAG = "products.warehouse_suggestions.backend.presentation.views.is_warehouse_suggestions_enabled"
 NOTIFY = "products.warehouse_suggestions.backend.logic.assignment.create_notification"
+REPORT = "products.warehouse_suggestions.backend.logic.analytics.report_user_or_team_action"
 
 
 def ingest_surfaced(team_id: int, draft: SuggestionDraft) -> WarehouseSuggestion:
@@ -169,16 +170,25 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
         )
         assert (rows[str(low.id)]["subject_source_id"], rows[str(low.id)]["subject_schema_id"]) == (None, None)
 
-        dismissed = self.client.post(
-            f"{self.url}/{low.id}/dismiss/",
-            {"reason": WarehouseSuggestionDismissalReason.OTHER, "note": "We sunset this view"},
-        )
+        with patch(REPORT) as report:
+            dismissed = self.client.post(
+                f"{self.url}/{low.id}/dismiss/?bulk=true",
+                {"reason": WarehouseSuggestionDismissalReason.ALREADY_HANDLED, "note": "We sunset this view"},
+            )
         assert dismissed.status_code == status.HTTP_200_OK, dismissed.json()
+        [(event, properties)] = [call.args for call in report.call_args_list]
+        assert (event, properties["reason"], properties["has_note"], properties["bulk"]) == (
+            "warehouse suggestion dismissed",
+            WarehouseSuggestionDismissalReason.ALREADY_HANDLED,
+            True,
+            True,
+        )
+        assert "We sunset this view" not in json.dumps(properties, default=str)
         low.refresh_from_db()
         assert low.status == WarehouseSuggestionStatus.DISMISSED
         assert low.reviewed_by_id == self.user.id
         assert low.reviewed_at is not None
-        assert low.dismissal_reason == WarehouseSuggestionDismissalReason.OTHER
+        assert low.dismissal_reason == WarehouseSuggestionDismissalReason.ALREADY_HANDLED
         assert low.dismissal_note == "We sunset this view"
         assert low.dismissed_at_score == 2.0
 

@@ -14,6 +14,7 @@ from unittest.mock import ANY, patch
 from django.contrib.sessions.backends.base import UpdateError
 from django.core import mail
 from django.core.cache import cache
+from django.db import IntegrityError
 from django.test import override_settings
 from django.urls.base import reverse
 from django.utils import timezone
@@ -21,6 +22,7 @@ from django.utils import timezone
 import requests
 from parameterized import parameterized
 from rest_framework import status
+from social_core.exceptions import AuthFailed
 
 from posthog.api.signup import _save_session_with_recovery, lookup_invite_for_saml, process_social_invite_signup
 from posthog.cloud_utils import TEST_clear_instance_license_cache
@@ -30,6 +32,7 @@ from posthog.helpers.oauth_pending_connection import (
     PendingOAuthConnection,
     PendingOAuthFlow,
 )
+from posthog.inbox_providers import InboxProvider
 from posthog.models import Organization, Team, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.instance_setting import override_instance_config
@@ -94,6 +97,7 @@ class TestSignupAPI(APIBaseTest):
                 "is_email_verified": False,
                 "hedgehog_config": None,
                 "role_at_organization": "product",
+                "inbox_provider": None,
             },
         )
 
@@ -163,6 +167,7 @@ class TestSignupAPI(APIBaseTest):
 
     @patch("posthog.api.signup.is_email_available", return_value=True)
     @patch("posthog.api.signup.email_verification_code_verifier.send_code")
+    @patch.dict("posthog.inbox_providers._INBOX_PROVIDERS_BY_DOMAIN", {"posthog.com": InboxProvider.GMAIL})
     def test_api_sign_up_requires_verification(self, mock_email_verifier, mock_is_email_available):
         # Ensure the internal system metrics org doesn't prevent org-creation
         Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
@@ -195,6 +200,7 @@ class TestSignupAPI(APIBaseTest):
                 "is_email_verified": False,
                 "hedgehog_config": None,
                 "role_at_organization": "product",
+                "inbox_provider": "gmail",
             },
         )
 
@@ -246,6 +252,7 @@ class TestSignupAPI(APIBaseTest):
                 "is_email_verified": False,
                 "hedgehog_config": None,
                 "role_at_organization": "product",
+                "inbox_provider": None,
             },
         )
         mock_is_email_available.assert_called()
@@ -587,6 +594,7 @@ class TestSignupAPI(APIBaseTest):
                 "is_email_verified": False,
                 "hedgehog_config": None,
                 "role_at_organization": "product",
+                "inbox_provider": None,
             },
         )
 
@@ -849,6 +857,7 @@ class TestSignupAPI(APIBaseTest):
                 "is_email_verified": False,
                 "hedgehog_config": None,
                 "role_at_organization": "product",
+                "inbox_provider": None,
             },
         )
 
@@ -3425,6 +3434,19 @@ class TestInviteSignupAPI(APIBaseTest):
             mock.MagicMock(), nonexistent_id, "test@example.com", "Test User", backend=mock.MagicMock()
         )
         self.assertIsNone(result)
+
+    def test_process_social_invite_signup_raises_auth_failed_when_account_creation_fails(self):
+        # SocialAuthExceptionMiddleware redirects only AuthException and DRF errors to the login page, anything else is a 500
+        invite = OrganizationInvite.objects.create(target_email="collision@example.com", organization=self.organization)
+        strategy = mock.MagicMock()
+        strategy.create_user.side_effect = IntegrityError("duplicate key value violates unique constraint")
+
+        with self.assertRaises(AuthFailed) as ctx:
+            process_social_invite_signup(
+                strategy, str(invite.id), "collision@example.com", "Collision", backend=mock.MagicMock()
+            )
+
+        self.assertIn("Account unable to be created", str(ctx.exception))
 
     @pytest.mark.skip_on_multitenancy
     def test_password_invite_signup_with_passkey_in_session(self):

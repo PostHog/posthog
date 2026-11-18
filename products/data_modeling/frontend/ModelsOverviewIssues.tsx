@@ -17,6 +17,8 @@ import { ATTENTION_DESCRIPTION } from './overviewIssueCopy'
 const WIDE_ONLY = 'hidden @min-[40rem]/main-content:inline'
 const WIDE_ONLY_BLOCK = 'hidden @min-[40rem]/main-content:block'
 const NARROW_ONLY = '@min-[40rem]/main-content:hidden'
+const WIDE_NO_WRAP = '@min-[40rem]/main-content:whitespace-nowrap'
+const TWO_LINES_TALL = 'h-8 justify-center'
 const SKELETON_ROWS = 3
 const PAGE_SIZE = 10
 const SECTION_ID = 'models-overview-attention-section'
@@ -29,13 +31,17 @@ interface RowCellContext {
 
 function NameLink({ row }: { row: AttentionRow }): JSX.Element {
     if (!row.href) {
-        return <Text size="xs">{row.name}</Text>
+        return (
+            <Text size="xs" className={WIDE_NO_WRAP}>
+                {row.name}
+            </Text>
+        )
     }
     return (
         <Button
             variant="link"
             size="inline"
-            className="self-start font-medium text-foreground"
+            className={`self-start font-medium text-foreground ${WIDE_NO_WRAP}`}
             render={<LinkPrimitive to={row.href} />}
         >
             {row.name}
@@ -43,9 +49,9 @@ function NameLink({ row }: { row: AttentionRow }): JSX.Element {
     )
 }
 
-function DetailText({ row }: { row: AttentionRow }): JSX.Element {
+function DetailText({ row, className = '' }: { row: AttentionRow; className?: string }): JSX.Element {
     return (
-        <div className="flex min-w-0 flex-col">
+        <div className={`flex min-w-0 flex-col ${className}`}>
             {row.detail && (
                 <Text size="xs" variant="muted" className="line-clamp-1" title={row.detail}>
                     {row.detail}
@@ -121,7 +127,7 @@ const COLUMNS: DataTableProps<AttentionRow, unknown>['columns'] = [
         enableSorting: false,
         cell: ({ row }: RowCellContext) => (
             <span className={`${WIDE_ONLY_BLOCK} min-w-48 max-w-96`}>
-                <DetailText row={row.original} />
+                <DetailText row={row.original} className={TWO_LINES_TALL} />
             </span>
         ),
     },

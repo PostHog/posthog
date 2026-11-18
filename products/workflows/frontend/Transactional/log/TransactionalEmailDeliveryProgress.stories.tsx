@@ -28,6 +28,7 @@ function email(
         workflow_id: '01977a3c-9a00-7000-8000-000000000002',
         template_id: '01977a3c-9a00-7000-8000-000000000003',
         template_name: 'Welcome email',
+        code_email_id: null,
         sending_domain: 'example.com',
         opened: timeline.some((event) => event.kind === 'opened'),
         clicked: timeline.some((event) => event.kind === 'clicked'),
