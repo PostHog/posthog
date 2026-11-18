@@ -119,10 +119,13 @@ class TestAuditLogs:
 def _usage_summary(day: str) -> dict[str, Any]:
     return {
         "dedicated_usage": {
-            "subtotal": "12.50",
+            "subtotal": "13.50",
+            "credits_used": "5.00",
+            "total": "8.50",
+            "minutes": 30,
             "breakdown": [
                 {
-                    "billable_resource": {"id": "dep1", "kind": "MODEL_DEPLOYMENT", "model_name": "whisper"},
+                    "billable_resource": {"id": "dep1", "model_name": "whisper", "team_id": "t1", "team_name": "Core"},
                     "daily": [{"date": day, "subtotal": "12.50", "minutes": 30, "inference_requests": 7}],
                 },
                 # A breakdown item with no daily entries yields nothing.
@@ -133,14 +136,41 @@ def _usage_summary(day: str) -> dict[str, Any]:
         },
         "training_usage": None,
         "model_apis_usage": {
+            "subtotal": "0.30",
+            "credits_used": "0",
+            "total": "0.30",
+            # Multi-team organizations split one model's usage by team.
             "breakdown": [
                 {
                     "model_name": "llama-example",
-                    "model_family": "llama",
-                    "daily": [{"date": day, "subtotal": "0.10", "input_tokens": 100}, {"subtotal": "9"}],
-                }
-            ]
+                    "team_id": "t1",
+                    "team_name": "Core",
+                    "daily": [{"date": day, "subtotal": "0.10"}, {"subtotal": "9"}],
+                },
+                {
+                    "model_name": "llama-example",
+                    "team_id": "t2",
+                    "team_name": "Labs",
+                    "daily": [{"date": day, "subtotal": "0.20"}],
+                },
+                # Single-team organizations send no team.
+                {"model_name": "mistral-example", "daily": [{"date": day, "subtotal": "0.05"}]},
+            ],
         },
+    }
+
+
+def _model_api_row(day: str, resource_id: str, model: str, subtotal: str, team: tuple[str, str] | None):
+    return {
+        "date": day,
+        "subtotal": subtotal,
+        "usage_type": "model_apis",
+        "resource_id": resource_id,
+        "billable_resource": None,
+        "model_name": model,
+        "model_family": None,
+        "team_id": team[0] if team else None,
+        "team_name": team[1] if team else None,
     }
 
 
@@ -153,19 +183,36 @@ def _usage_rows_for(day: str) -> list[dict[str, Any]]:
             "inference_requests": 7,
             "usage_type": "dedicated",
             "resource_id": "dep1",
-            "billable_resource": {"id": "dep1", "kind": "MODEL_DEPLOYMENT", "model_name": "whisper"},
+            "billable_resource": {"id": "dep1", "model_name": "whisper", "team_id": "t1", "team_name": "Core"},
             "model_name": "whisper",
             "model_family": None,
+            "team_id": "t1",
+            "team_name": "Core",
+        },
+        _model_api_row(day, "t1:llama-example", "llama-example", "0.10", ("t1", "Core")),
+        _model_api_row(day, "t2:llama-example", "llama-example", "0.20", ("t2", "Labs")),
+        _model_api_row(day, "mistral-example", "mistral-example", "0.05", None),
+    ]
+
+
+def _usage_total_rows_for(window_start: str, window_end: str) -> list[dict[str, Any]]:
+    return [
+        {
+            "subtotal": "13.50",
+            "credits_used": "5.00",
+            "total": "8.50",
+            "minutes": 30,
+            "usage_type": "dedicated",
+            "window_start": window_start,
+            "window_end": window_end,
         },
         {
-            "date": day,
-            "subtotal": "0.10",
-            "input_tokens": 100,
+            "subtotal": "0.30",
+            "credits_used": "0",
+            "total": "0.30",
             "usage_type": "model_apis",
-            "resource_id": "llama-example",
-            "billable_resource": None,
-            "model_name": "llama-example",
-            "model_family": "llama",
+            "window_start": window_start,
+            "window_end": window_end,
         },
     ]
 
@@ -176,9 +223,24 @@ class TestBillingUsage:
         with time_machine.travel("2026-03-05T15:00:00Z", tick=False):
             yield
 
-    def test_walks_windows_to_end_of_today_and_explodes_rows(self) -> None:
+    @pytest.mark.parametrize(
+        "endpoint,expected_rows",
+        [
+            pytest.param(
+                "billing_usage", _usage_rows_for("2026-01-02") + _usage_rows_for("2026-02-10"), id="daily_rows"
+            ),
+            pytest.param(
+                "billing_usage_totals",
+                _usage_total_rows_for("2026-01-01", "2026-01-31") + _usage_total_rows_for("2026-01-31", "2026-03-02"),
+                id="window_totals",
+            ),
+        ],
+    )
+    def test_walks_windows_to_end_of_today_and_explodes_rows(
+        self, endpoint: str, expected_rows: list[dict[str, Any]]
+    ) -> None:
         result = _driver().run(
-            "billing_usage",
+            endpoint,
             [
                 _page(_usage_summary("2026-01-02")),
                 _page(_usage_summary("2026-02-10")),
@@ -199,7 +261,7 @@ class TestBillingUsage:
             "2026-03-02T00:00:00Z",
             "2026-03-06T00:00:00Z",
         ]
-        assert result.rows == _usage_rows_for("2026-01-02") + _usage_rows_for("2026-02-10")
+        assert result.rows == expected_rows
         assert result.saved_states == [
             BasetenResumeConfig(window_start="2026-01-31"),
             BasetenResumeConfig(window_start="2026-03-02"),
@@ -335,7 +397,7 @@ class TestSourceResponseShape:
         if config.fan_out_parent:
             parent_config = BASETEN_ENDPOINTS[config.fan_out_parent]
             script = [_page({parent_config.data_key: []})]
-        elif config.mode == "usage_windows":
+        elif config.mode in ("usage_daily", "usage_totals"):
             script = [_page({})]
         else:
             script = [_page({config.data_key: []})]

@@ -1500,11 +1500,11 @@ Note: The live OpenAPI schema (2.4.1) lists row history, comments, membership, a
 
 ## Baseten — gaps
 
-Today (15): `audit_logs`, `billing_usage`, `chain_deployments`, `chains`, `deployments`, `instance_type_prices`, `instance_types`, `model_apis`, `model_environments`, `models`, `secrets`, `teams`, `training_jobs`, `training_projects`, `users`
+Today (16): `audit_logs`, `billing_usage`, `billing_usage_totals`, `chain_deployments`, `chains`, `deployments`, `instance_type_prices`, `instance_types`, `model_apis`, `model_environments`, `models`, `secrets`, `teams`, `training_jobs`, `training_projects`, `users`
 
 Diffed against: <https://docs.baseten.co/reference/management-api-spec.json>
 
-- [x] `GET /v1/billing/usage_summary` — dedicated serving, training and Model API spend by date range - the headline cost metric for a GPU-inference vendor (high). Added as `billing_usage` (full refresh, one row per usage type, billable resource or Model API model, and day, read in 30-day windows from 2026-01-01, the earliest date the API serves).
+- [x] `GET /v1/billing/usage_summary` — dedicated serving, training and Model API spend by date range - the headline cost metric for a GPU-inference vendor (high). Added as `billing_usage` (full refresh, one row per usage type, billable resource or Model API model and team, and day, read in 30-day windows from 2026-01-01, the earliest date the API serves) and `billing_usage_totals` (one row per usage type and window, with the credits and net totals that the daily rows do not carry).
 - [ ] `GET /v1/models/{model_id}/deployments/{deployment_id}/metrics` — inference throughput, latency and replica metrics; deployments are synced but none of their performance data is (high). Skipped: a metrics query, not a record list. It answers one deployment per call for a window of 7 days or less, the values are positional arrays against per-metric label sets, and Baseten documents no history depth; Baseten's metrics export is the supported path for this data.
 - [x] `GET /v1/audit_logs (plus /v1/models/{id}/audit_logs, /v1/chains/{id}/audit_logs)` — who deployed, promoted or deleted what and when - the deployment transition history (high). Added as `audit_logs` from the workspace endpoint, which already covers models and chains (cursor pages, incremental on `created` through `start_epoch_millis`). Needs a personal API key in a multi-team workspace.
 - [x] `GET /v1/teams` — lookup resolving the team that owns models, secrets and training projects in a multi-team workspace (high). Added as `teams` (full refresh).

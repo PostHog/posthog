@@ -101,7 +101,8 @@ class BasetenUsageWindowPaginator(BasePaginator):
 
     def __init__(self, today: datetime.date) -> None:
         super().__init__()
-        self._end_limit = today + datetime.timedelta(days=1)
+        # A clock before the earliest queryable date still sends one valid, empty range.
+        self._end_limit = max(today, BILLING_USAGE_EARLIEST_DATE) + datetime.timedelta(days=1)
         self._window_start = BILLING_USAGE_EARLIEST_DATE
 
     def _window_end(self) -> datetime.date:
@@ -118,6 +119,11 @@ class BasetenUsageWindowPaginator(BasePaginator):
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         next_start = self._window_end()
+        # The summary does not echo its range, so stamp it on the item before the window advances.
+        for item in data or []:
+            if isinstance(item, dict):
+                item["window_start"] = self._window_start.isoformat()
+                item["window_end"] = next_start.isoformat()
         if next_start >= self._end_limit:
             self._has_next_page = False
         else:
@@ -150,8 +156,8 @@ _USAGE_SECTIONS = (
 
 
 def _usage_rows(summary: dict[str, Any]) -> list[dict[str, Any]]:
-    """Explode a usage summary into one row per usage type, billable resource (or Model API model)
-    and day. Section totals are not kept: they are sums of these daily rows."""
+    """Explode a usage summary into one row per usage type, billable resource (or Model API model and
+    team) and day. Daily subtotals are before credits; billing_usage_totals keeps the credits."""
     rows: list[dict[str, Any]] = []
     for usage_type, key in _USAGE_SECTIONS:
         section = summary.get(key)
@@ -161,7 +167,15 @@ def _usage_rows(summary: dict[str, Any]) -> list[dict[str, Any]]:
             if not isinstance(item, dict):
                 continue
             resource = item.get("billable_resource") if isinstance(item.get("billable_resource"), dict) else None
-            resource_id = resource.get("id") if resource is not None else item.get("model_name")
+            team_id = item.get("team_id") or (resource or {}).get("team_id")
+            team_name = item.get("team_name") or (resource or {}).get("team_name")
+            if resource is not None:
+                resource_id = resource.get("id")
+            else:
+                # Multi-team organizations split Model API usage by team, so the model name alone
+                # repeats across teams on the same day.
+                model_name = item.get("model_name")
+                resource_id = f"{team_id}:{model_name}" if model_name and team_id else model_name
             if not resource_id:
                 continue
             for day in item.get("daily") or []:
@@ -175,8 +189,29 @@ def _usage_rows(summary: dict[str, Any]) -> list[dict[str, Any]]:
                         "billable_resource": resource,
                         "model_name": item.get("model_name") or (resource or {}).get("model_name"),
                         "model_family": item.get("model_family"),
+                        "team_id": team_id,
+                        "team_name": team_name,
                     }
                 )
+    return rows
+
+
+def _usage_total_rows(summary: dict[str, Any]) -> list[dict[str, Any]]:
+    """One row per usage type and window, with the credits and net total that only exist there."""
+    rows: list[dict[str, Any]] = []
+    for usage_type, key in _USAGE_SECTIONS:
+        section = summary.get(key)
+        if not isinstance(section, dict) or not summary.get("window_start"):
+            continue
+        totals = {name: value for name, value in section.items() if name != "breakdown"}
+        rows.append(
+            {
+                **totals,
+                "usage_type": usage_type,
+                "window_start": summary["window_start"],
+                "window_end": summary.get("window_end"),
+            }
+        )
     return rows
 
 
@@ -301,7 +336,7 @@ def _build_usage_resource(
     job_id: str,
     resumable_source_manager: ResumableSourceManager[BasetenResumeConfig],
 ) -> Resource:
-    """Billing usage: one request per date window, each summary exploded into daily rows."""
+    """Billing usage: one request per date window, each summary exploded into daily or total rows."""
     endpoint: Endpoint = {
         "path": config.path,
         "paginator": BasetenUsageWindowPaginator(datetime.datetime.now(datetime.UTC).date()),
@@ -317,7 +352,11 @@ def _build_usage_resource(
         if state and state.get("window_start"):
             resumable_source_manager.save_state(BasetenResumeConfig(window_start=state["window_start"]))
 
-    resource_config: EndpointResource = {"name": config.name, "endpoint": endpoint, "data_map": _usage_rows}
+    resource_config: EndpointResource = {
+        "name": config.name,
+        "endpoint": endpoint,
+        "data_map": _usage_total_rows if config.mode == "usage_totals" else _usage_rows,
+    }
     rest_config: RESTAPIConfig = {"client": _client_config(api_key), "resources": [resource_config]}
     return rest_api_resource(
         rest_config,
@@ -432,7 +471,7 @@ def baseten_source(
 
     if config.fan_out_parent:
         resource = _build_fan_out_resource(api_key, config, team_id, job_id, resumable_source_manager)
-    elif config.mode == "usage_windows":
+    elif config.mode in ("usage_daily", "usage_totals"):
         resource = _build_usage_resource(api_key, config, team_id, job_id, resumable_source_manager)
     else:
         start_epoch_millis = (

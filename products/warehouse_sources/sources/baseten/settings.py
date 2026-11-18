@@ -17,7 +17,7 @@ BILLING_USAGE_EARLIEST_DATE = datetime.date(2026, 1, 1)
 BILLING_USAGE_WINDOW_DAYS = 30
 
 
-@dataclass
+@dataclass(frozen=True)
 class BasetenEndpointConfig:
     name: str
     # Path template. For fan-out children it carries a `{<fan_out_path_param>}` placeholder that is
@@ -32,9 +32,10 @@ class BasetenEndpointConfig:
     partition_key: Optional[str] = None
     # True for endpoints that page via cursor+limit, returning a `pagination` object.
     paginated: bool = False
-    # "usage_windows" walks the billing usage summary in date windows and explodes each summary
-    # into one row per usage type, resource and day.
-    mode: Literal["list", "usage_windows"] = "list"
+    # The usage modes walk the billing usage summary in date windows. "usage_daily" explodes each
+    # summary into one row per usage type, resource and day. "usage_totals" keeps one row per usage
+    # type and window, because credits apply only at that level.
+    mode: Literal["list", "usage_daily", "usage_totals"] = "list"
     # Extra static query params sent on every request.
     params: dict[str, str] = field(default_factory=dict)
     # Field the server can filter on, in epoch milliseconds, for incremental syncs.
@@ -160,11 +161,19 @@ BASETEN_ENDPOINTS: dict[str, BasetenEndpointConfig] = {
         name="billing_usage",
         path="/v1/billing/usage_summary",
         data_key="",
-        # Dedicated and training rows key on the billable resource id, Model API rows on the model
-        # name, so the usage type keeps the two id spaces apart.
+        # Dedicated and training rows key on the billable resource id, Model API rows on the team and
+        # model name, so the usage type keeps the two id spaces apart.
         primary_keys=["usage_type", "resource_id", "date"],
         partition_key="date",
-        mode="usage_windows",
+        mode="usage_daily",
+    ),
+    "billing_usage_totals": BasetenEndpointConfig(
+        name="billing_usage_totals",
+        path="/v1/billing/usage_summary",
+        data_key="",
+        primary_keys=["usage_type", "window_start"],
+        partition_key="window_start",
+        mode="usage_totals",
     ),
 }
 
