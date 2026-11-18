@@ -43,7 +43,7 @@ export function TagRuleMatchBanner(): JSX.Element | null {
             <Link to={`${window.location.origin}${url}`} target="_blank" targetBlankIcon={false}>
                 {`${matchResult.issueCount.toLocaleString()} new ${matchResult.issueCount === 1 ? 'issue' : 'issues'}`}
             </Link>
-            <span>{` in the last ${daysLabel(dateRange)} started with a matching exception and would have got this label`}</span>
+            <span>{` in the last ${daysLabel(dateRange)} started with a matching exception and would have got this tag`}</span>
         </LemonBanner>
     )
 }

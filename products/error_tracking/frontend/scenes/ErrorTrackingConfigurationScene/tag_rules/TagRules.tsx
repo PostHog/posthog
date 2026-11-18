@@ -17,9 +17,9 @@ export function TagRules(): JSX.Element {
             pageKeyPrefix="tag-rule"
             description={
                 <p>
-                    Label new issues based on their exception properties. Each rule adds its label to every new issue
-                    whose first exception matches its filters, so one issue can get several labels. Rules apply to new
-                    issues only. Deleting a rule removes its label from every issue.
+                    Tag new issues based on their exception properties. Each rule adds its tag to every new issue whose
+                    first exception matches its filters, so one issue can get several tags. Rules apply to new issues
+                    only. Deleting a rule removes its tag from every issue.
                 </p>
             }
             renderCardHeaderExtra={(rule: ErrorTrackingTagRule) => (

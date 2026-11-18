@@ -9,7 +9,7 @@ function appliedBy(source: ErrorTrackingIssueTag['source']): string | null {
         case 'manual':
             return 'Applied manually'
         case 'rule':
-            return 'Applied by a label rule'
+            return 'Applied by a tag rule'
         default:
             return null
     }

@@ -12,13 +12,13 @@ import { tagRuleModalLogic } from './tagRuleModalLogic'
 export function TagRuleModal(): JSX.Element {
     const { rule, hasFilters, hasLabel } = useValues(tagRuleModalLogic)
     const { updateLabel, updateDescription } = useActions(tagRuleModalLogic)
-    const saveDisabledReason = !hasFilters ? 'Add at least one filter' : !hasLabel ? 'Add a label' : undefined
+    const saveDisabledReason = !hasFilters ? 'Add at least one filter' : !hasLabel ? 'Add a tag' : undefined
 
     return (
         <RuleModal
             logic={tagRuleModalLogic}
-            ruleLabel="label"
-            description="New issues get this label when their first exception matches the filters. The rule applies to new issues only. Deleting it removes the label from every issue."
+            ruleLabel="tag"
+            description="New issues get this tag when their first exception matches the filters. The rule applies to new issues only. Deleting it removes the tag from every issue."
             pageKey="tag-rule-modal"
             taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
             saveDisabledReason={saveDisabledReason}
@@ -26,7 +26,7 @@ export function TagRuleModal(): JSX.Element {
                 <>
                     <div>
                         <LemonLabel htmlFor="tag-rule-label" className="mb-2">
-                            Label
+                            Tag
                         </LemonLabel>
                         <LemonInput
                             id="tag-rule-label"
@@ -43,7 +43,7 @@ export function TagRuleModal(): JSX.Element {
                         <LemonTextArea
                             id="tag-rule-description"
                             value={rule.description}
-                            placeholder="What the label means. People see it when they hover the label on an issue."
+                            placeholder="What the tag means. People see it when they hover the tag on an issue."
                             onChange={updateDescription}
                         />
                     </div>
