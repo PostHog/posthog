@@ -1,9 +1,10 @@
+import argparse
 import subprocess
 from pathlib import Path
 
 import pytest
 
-from hoglint_shadow import ChangedLines, HookFilter, OldToolEdits, ShadowReport, StagedChange, git_diff
+from hoglint_shadow import ChangedLines, HookFilter, OldToolEdits, ShadowReport, StagedChange, git_diff, report_findings
 from parameterized import parameterized
 
 # Real hoglint 0.2.2 output and the real git diff of the same state, from a scratch worktree whose
@@ -253,6 +254,20 @@ class TestShadowReport:
         opening = next(line for line in reversed(lines[:row]) if line.startswith("```"))
         assert opening == "````text"
         assert "````" in lines[row + 1 :]
+
+    def test_the_log_echo_runs_no_workflow_command_from_hoglint_s_text(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+        output = tmp_path / "hoglint.txt"
+        output.write_text("    at products/x/probe\r::error file=a.py,line=1::forged.py:1\n")
+        args = argparse.Namespace(output=output, stderr=None, status=1, until="Tuesday, Nov 24")
+        report_findings(args, ChangedLines())
+        lines = capsys.readouterr().out.split("\n")
+        stop = next(line for line in lines if line.startswith("::stop-commands::"))
+        resume = f"::{stop.removeprefix('::stop-commands::')}::"
+        forged = next(index for index, line in enumerate(lines) if "forged" in line)
+        assert lines.index(stop) < forged < lines.index(resume)
 
     def test_the_summary_says_when_hoglint_did_not_run(self) -> None:
         shadow = report("", "", fixture("config-error.err"), 2)

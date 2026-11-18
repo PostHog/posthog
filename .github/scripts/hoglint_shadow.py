@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import os
 import re
+import secrets
 import argparse
 import subprocess
 from dataclasses import dataclass, field
@@ -633,10 +634,15 @@ def report_findings(args: argparse.Namespace, changed: ChangedLines) -> None:
     output, stderr = read(args.output), read(args.stderr)
     report = ShadowReport(output, stderr, args.status, args.until, changed)
     print("::group::hoglint output")
+    # hoglint prints the PR's paths as they are, and a path may hold a line break followed by a
+    # workflow command, so the runner reads no command until the echo ends.
+    resume = secrets.token_hex(16)
+    print(f"::stop-commands::{resume}")
     try:
         print(output.rstrip())
         print(stderr.rstrip())
     finally:
+        print(f"::{resume}::")
         print("::endgroup::")
     summary_file = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary_file:
