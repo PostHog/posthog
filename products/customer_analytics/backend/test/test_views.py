@@ -2614,6 +2614,18 @@ class TestCustomPropertyValueViewSet(APIBaseTest):
         unknown = self.client.get(f"{self.endpoint}history/", {"definition": str(uuid4())})
         self.assertEqual(status.HTTP_400_BAD_REQUEST, unknown.status_code)
 
+    def test_history_since_starts_with_the_value_held_on_that_date(self) -> None:
+        for day, plan in [("2024-01-01", "starter"), ("2024-01-10", "enterprise"), ("2024-02-01", "growth")]:
+            with time_machine.travel(day, tick=False):
+                self._set(self.text_def.id, plan)
+
+        response = self.client.get(
+            f"{self.endpoint}history/", {"definition": str(self.text_def.id), "since": "2024-01-15"}
+        )
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        self.assertEqual(["enterprise", "growth"], [e["value"] for e in response.json()])
+
     @parameterized.expand([("write", "x"), ("clear", None)])
     def test_account_from_another_team_returns_404(self, _name: str, value: str | None) -> None:
         other_team = Team.objects.create(organization=self.organization)

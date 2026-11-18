@@ -365,7 +365,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-custom-property-values-history": {
-        "description": "List every value a Customer Analytics account has held for one custom property, oldest first. Use it to see how a property such as MRR or plan changed over time. Each entry has the `value`, `set_at`, `replaced_at` (when the next value replaced it), `is_current`, and `set_by_id`. Repeated sets of the same value count as one entry. A cleared value has no recorded clear time. Pass the property's `definition` ID, found with `custom-property-definitions-list`.",
+        "description": "List every value a Customer Analytics account has held for one custom property, oldest first. Use it to see how a property such as MRR or plan changed over time. Each entry has the `value`, `set_at`, `replaced_at` (when the next value replaced it), `is_current`, and `set_by_id`. Repeated sets of the same value count as one entry. A cleared value has no recorded clear time. Pass the property's `definition` ID, found with `custom-property-definitions-list`. Pass `since` (YYYY-MM-DD) to limit a long history to a time window. The first entry is then the value in place on that date.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "List account custom property value history",

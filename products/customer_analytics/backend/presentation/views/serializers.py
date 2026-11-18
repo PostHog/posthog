@@ -2253,6 +2253,11 @@ class CustomPropertyValueSerializer(serializers.Serializer):
 
 class CustomPropertyValueHistoryQuerySerializer(serializers.Serializer):
     definition = serializers.UUIDField(help_text="ID of the custom property definition to read the history of.")
+    since = serializers.DateField(
+        required=False,
+        help_text="Only return values held on or after this date (YYYY-MM-DD, UTC). The first entry is the value "
+        "in place on that date. Omit for the full history.",
+    )
 
 
 class CustomPropertyValueHistoryEntrySerializer(serializers.Serializer):

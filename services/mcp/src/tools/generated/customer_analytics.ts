@@ -333,6 +333,7 @@ const accountsCustomPropertyValuesHistory = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/custom_property_values/history/`,
             query: {
                 definition: params.definition,
+                since: params.since,
             },
         })
         return await withPostHogUrl(context, result, '/customer_analytics')

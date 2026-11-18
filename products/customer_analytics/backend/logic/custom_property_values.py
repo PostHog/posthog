@@ -400,9 +400,10 @@ class CustomPropertyValueHistoryRow:
 
 
 def list_custom_property_value_history(
-    *, team_id: int, account_id: str | UUID, definition_id: str | UUID
+    *, team_id: int, account_id: str | UUID, definition_id: str | UUID, since: datetime | None = None
 ) -> list[CustomPropertyValueHistoryRow]:
-    """Every value the account has held for the definition, oldest first.
+    """Every value the account has held for the definition, oldest first. With `since`, only the
+    values held from then on, starting with the one in place at `since`.
 
     Setting the same value again stores a new row, so a run of equal values collapses into its
     first row. A clear stores no time, so a cleared value reads as held until the next value is
@@ -412,11 +413,13 @@ def list_custom_property_value_history(
         definition = CustomPropertyDefinition.objects.for_team(team_id).get(id=definition_id)
     except (CustomPropertyDefinition.DoesNotExist, ValidationError, ValueError) as exc:
         raise CustomPropertyDefinitionNotFound(definition_id) from exc
-    rows = list(
-        CustomPropertyValue.objects.for_team(team_id)
-        .filter(account_id=account_id, definition=definition)
-        .order_by("created_at", "id")
-    )
+    values = CustomPropertyValue.objects.for_team(team_id).filter(account_id=account_id, definition=definition)
+    if since is None:
+        rows = list(values.order_by("created_at", "id"))
+    else:
+        held_at_since = values.filter(created_at__lt=since).order_by("-created_at", "-id").first()
+        rows = [held_at_since] if held_at_since else []
+        rows += values.filter(created_at__gte=since).order_by("created_at", "id")
     entries: list[CustomPropertyValue] = []
     for row in rows:
         row.definition = definition

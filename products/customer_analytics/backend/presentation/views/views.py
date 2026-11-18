@@ -2787,7 +2787,10 @@ class CustomPropertyValueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         try:
             entries = api.list_custom_property_value_history(
-                self.team_id, account_id, request.validated_query_data["definition"]
+                self.team_id,
+                account_id,
+                request.validated_query_data["definition"],
+                since=request.validated_query_data.get("since"),
             )
         except api.CustomPropertyDefinitionNotFound:
             raise ValidationError({"definition": "Custom property definition not found."})

@@ -315,6 +315,12 @@ export const AccountsCustomPropertyValuesHistoryRetrieveParams = () => zod.objec
 
 export const AccountsCustomPropertyValuesHistoryRetrieveQueryParams = () => zod.object({
     definition: zod.string().describe('ID of the custom property definition to read the history of.'),
+    since: zod.iso
+        .date()
+        .optional()
+        .describe(
+            'Only return values held on or after this date (YYYY-MM-DD, UTC). The first entry is the value in place on that date. Omit for the full history.'
+        ),
 })
 
 export const AccountsNotebooksListParams = () => zod.object({
