@@ -7,6 +7,7 @@ import { claudeCodeConfigSchema } from "../schemas";
 import type { AgentServerConfig, ClaudeCodeConfig } from "../types";
 import {
   parseServerRunPolicy,
+  RESTRICTIVE_RUN_POLICY,
   type RunPolicy,
   runPolicyFromOrigin,
 } from "./run-policy";
@@ -116,9 +117,11 @@ function readRunPolicy({ task, taskRun, env }: RunLaunchSources): {
   source: RunPolicySource;
 } {
   const serverPolicy = env.POSTHOG_TASK_RUN_POLICY;
-  const policy = serverPolicy ? parseServerRunPolicy(serverPolicy) : undefined;
-  if (policy) {
-    return { policy, source: "server" };
+  if (serverPolicy) {
+    const policy = parseServerRunPolicy(serverPolicy);
+    return policy
+      ? { policy, source: "server" }
+      : { policy: RESTRICTIVE_RUN_POLICY, source: "invalid_server" };
   }
   return {
     policy: runPolicyFromOrigin({
@@ -126,7 +129,7 @@ function readRunPolicy({ task, taskRun, env }: RunLaunchSources): {
       endRunWhenDone: taskRun?.state?.end_run_when_done === true,
       callerEndsRun: taskRun?.state?.caller_ends_run === true,
     }),
-    source: serverPolicy ? "invalid_server" : "origin",
+    source: "origin",
   };
 }
 

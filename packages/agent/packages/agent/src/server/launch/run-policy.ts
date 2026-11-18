@@ -46,6 +46,16 @@ export function parseServerRunPolicy(raw: string): RunPolicy | undefined {
   };
 }
 
+export const RESTRICTIVE_RUN_POLICY: RunPolicy = {
+  finishTool: false,
+  finishReportRequired: false,
+  reportActivityTool: false,
+  branchPushOnly: false,
+  expectsSystemPrompt: false,
+  threadLink: false,
+  defaultClientProvenance: undefined,
+};
+
 const CALLER_ENDS_RUN_ORIGINS = new Set(["review_hog", "scout_suggestions"]);
 
 // Automated origins get no thread link, so sibling tasks keep one shared prompt cache.

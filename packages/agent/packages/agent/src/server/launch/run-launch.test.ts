@@ -79,9 +79,9 @@ describe("run launch", () => {
       ["the server", serverPolicy({ finish_tool: false }), false, "server"],
       ["the origin without a server policy", undefined, true, "origin"],
       [
-        "the origin after a malformed server policy",
+        "no source when the server policy is malformed",
         "{",
-        true,
+        false,
         "invalid_server",
       ],
     ])("takes the run policy from %s", (_, policy, finishTool, source) => {
