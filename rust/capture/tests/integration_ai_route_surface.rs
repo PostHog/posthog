@@ -96,6 +96,11 @@ async fn assert_answer(mode: CaptureMode, path: &str, expected: Answer) {
 #[case::ai_batch_trailing_slash("/i/v0/ai/batch/", Answer::Served(StatusCode::OK))]
 #[case::ai_multipart("/i/v0/ai", Answer::Served(StatusCode::UNAUTHORIZED))]
 #[case::ai_otel("/i/v0/ai/otel", Answer::Served(StatusCode::UNAUTHORIZED))]
+#[case::ai_otel_traces_signal_path(
+    "/i/v0/ai/otel/v1/traces",
+    Answer::Served(StatusCode::UNAUTHORIZED)
+)]
+#[case::ai_otel_logs_signal_path("/i/v0/ai/otel/v1/logs", Answer::Absent)]
 #[case::analytics_batch("/batch", Answer::Absent)]
 #[case::analytics_event("/e", Answer::Absent)]
 #[case::analytics_capture("/capture", Answer::Absent)]
@@ -119,6 +124,7 @@ async fn ai_mode_registers_only_the_ai_paths(#[case] path: &str, #[case] expecte
 #[case::ai_batch("/i/v0/ai/batch", Answer::Absent)]
 #[case::ai_multipart("/i/v0/ai", Answer::Absent)]
 #[case::ai_otel("/i/v0/ai/otel", Answer::Absent)]
+#[case::ai_otel_traces_signal_path("/i/v0/ai/otel/v1/traces", Answer::Absent)]
 #[tokio::test]
 async fn events_mode_registers_only_the_analytics_paths(
     #[case] path: &str,
@@ -140,6 +146,7 @@ async fn events_mode_registers_only_the_analytics_paths(
 #[case::ai_multipart_trailing_slash("/i/v0/ai/", Answer::Absent)]
 #[case::ai_otel("/i/v0/ai/otel", Answer::Absent)]
 #[case::ai_otel_trailing_slash("/i/v0/ai/otel/", Answer::Absent)]
+#[case::ai_otel_traces_signal_path("/i/v0/ai/otel/v1/traces", Answer::Absent)]
 #[tokio::test]
 async fn import_mode_registers_only_the_analytics_paths(
     #[case] path: &str,
