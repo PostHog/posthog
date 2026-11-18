@@ -102,7 +102,7 @@ Drop today, and only today, before scoring — the latest complete day is yester
 Distinguish an outage from batch lag with **project-scoped** evidence, because the overview's `usage_summary` is an organization total and a sibling project still emitting keeps it advancing while this project is dark:
 
 - Zeros on one meter while this project's other meters report on the same date is **not** lag. Lag empties the whole day, not one series.
-- When every meter on this project reads zero, re-run the usage call for that date with `breakdowns: ["type", "team"]` and no `team_ids`. Another project carrying data for the same date means ingestion is current, so this project's zeros are real. Only treat the day as lagging when no project has data for it.
+- When every meter on this project reads zero, re-run the usage call for that one date (`start_date` and `end_date` both set to it) with `breakdowns: ["type", "team"]`, `top_projects: 1`, and no `team_ids`. The cap folds every other project into one "All other projects" series, so the probe stays small on an organization with many projects, where an unbounded project breakdown is refused as too large. Another project carrying data for the same date means ingestion is current, so this project's zeros are real. Only treat the day as lagging when no project has data for it.
 - A caller who cannot see a sibling project has no way to tell the two apart. Score the zero day and say in the report that a delayed batch has not been ruled out, rather than dismissing it.
 
 Use the org `usage_summary` only to corroborate, never to decide.
@@ -138,9 +138,9 @@ Same-weekday matters: most PostHog meters have a hard weekday/weekend shape, and
 - **Concentration tolerance.** The move is concentrated when every _other_ meter **family** with a non-zero baseline stayed within **±20%** of its own median, **and** no other family started from zero on the same day. Two or more families outside that, or several meters switching on together, is **co-moving**: one event, never one report per meter, and it goes to the people check below before you call it traffic.
   **Only families that clear the volume floor count as comparison.** A family sitting under the floor on both sides turns a 1 → 0 wobble into a 100% move and rejects a concentrated, material candidate on noise the floor already told you to ignore. The same floor governs the started-from-zero clause: an onset breaks concentration only when it clears the floor itself.
 - **Materiality floor.** The move's projected impact on this period's invoice must clear **the greater of $20 and 2% of the last complete period's invoice** — so a small org still hears about small dollars and a large one is not paged over rounding.
-  The last period's invoice comes from summing `billing-spend-get` over the previous `billing_period` window, or from a cached `pattern:billing:period-actual`. When neither is available yet, use the $20 floor alone and say so in the memory entry.
+  The last period's invoice comes from summing `billing-spend-get` over the previous pricing period, re-derived each run and never written to memory. When it is not available, use the $20 floor alone and say so in the run summary.
 
-**Group alias meters into families before testing concentration.** Several usage types are views or subsets of the same underlying usage, so counting them independently lets one real move put two series outside the tolerance and misread a localized billing change as a broad traffic story. Collapse each family to its primary meter and score the family once:
+**Group alias meters into families before testing concentration.** Several usage types are views or subsets of the same underlying usage, so counting them independently lets one real move put two series outside the tolerance and misread a localized billing change as a broad traffic story. Score every meter on its own, because add-on members carry their own prices: identified events or paid log retention can jump while total events or ingested MB hold. Use the family only to count how many things moved, so one move never counts twice:
 
 | Family             | Members                                                                                                                                                                                                                         |
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -151,9 +151,9 @@ Same-weekday matters: most PostHog meters have a hard weekday/weekend shape, and
 | Session recordings | `recording_count_in_period`, `mobile_billable_recording_count_in_period`, `mobile_recording_count_in_period`                                                                                                                    |
 
 The Desktop credits meter is the sum of its parts — token credits plus sandbox compute credits — so any token or compute move necessarily moves the aggregate too, and scoring them apart guarantees two families out of tolerance on a single localized jump.
-The logs family works the same way: `logs_and_traces_mb_in_period` is the billed meter and the sum of logs and traces, so score the family on it and use the logs and traces members only to say which of the two moved.
+The logs family works the same way: `logs_and_traces_mb_in_period` is the billed meter and the sum of logs and traces, so price the move on it and use the logs and traces members only to say which of the two moved.
 
-Report on the specific member that moved; use the family only for the concentration test.
+Report on the specific member that moved. A family counts once for the concentration test, however many of its members moved.
 
 Apply the gates cheapest-first; most candidates die on the second:
 
@@ -168,7 +168,7 @@ Apply the gates cheapest-first; most candidates die on the second:
 
    Compare `persons` on the stepped days against the same-weekday median before the step. **People up roughly in proportion to usage** is traffic growth or onboarding: write memory and stop. **People within ±20% while usage stepped** means each person now generates several times the usage they did, which no amount of growth does: treat the group as one candidate, price each paid meter in it, and sum the impact for the materiality gate. When the project sends no events at all (a logs-only or warehouse-only project), the check cannot run: carry the group forward only if the step is at least 3× and has held for 2 or more complete days.
 
-2. **Material?** Price the move as it projects to the end of the period: `price(projected period usage with the step persisting) − price(projected period usage without it)` across the tier schedule, then apply the discount and the spending cap — never as `delta × marginal rate`, and never as a single day's delta when the report says "if this holds". A $10/day step with 20 days left is a ~$200 finding, not a $10 one. A delta that crosses a tier boundary, sits behind a full discount, or is already cut off by a limit adds far less to the invoice than the raw multiplication suggests, and can be $0. The tiers and limit live under the meter's **product** key rather than its usage type, so map it through the vocabulary table in [`references/usage-types.md`](references/usage-types.md) first — the same table governs reading a `billing-spend-get` `type` breakdown, which is also keyed by product.
+2. **Material?** Price the move as it projects to the end of the period: `price(projected period usage with the step persisting) − price(projected period usage without it)` across the tier schedule, with the spending cap applied to each side before subtracting and the discount after — never as `delta × marginal rate`, and never as a single day's delta when the report says "if this holds". A $10/day step with 20 days left is a ~$200 finding, not a $10 one. A delta that crosses a tier boundary, sits behind a full discount, or is already cut off by a limit adds far less to the invoice than the raw multiplication suggests, and can be $0. The tiers and limit live under the meter's **product** key rather than its usage type, so map it through the vocabulary table in [`references/usage-types.md`](references/usage-types.md) first — the same table governs reading a `billing-spend-get` `type` breakdown, which is also keyed by product.
    When you cannot price it — the overview was truncated, the product has no `tiers`, or the usage type is not in the vocabulary table — fall back in order: the meter's own `billing-spend-get` series within the current period; then `free_allocation` / `usage_limit` as the threshold; then volume-only mode for that meter, with the report saying the dollar impact is unknown rather than estimating one.
 3. **Explained?** Search memory for the meter. A recorded migration, launch, or backfill closes it.
 
@@ -194,8 +194,7 @@ Report-worthy shapes:
 Every field this lane reads is optional in practice — plans, add-ons, and the billing service's response shape vary across organizations and change over time.
 Read each field defensively: a missing projection, `tiers`, or `custom_limits_usd` entry means "skip that check", never "zero". Record what was missing as `pattern:billing:overview-shape` so the next run does not rediscover it, and keep running the checks whose inputs are present.
 
-Store last period's actual as `pattern:billing:period-actual`, **with the `billing_period` boundaries it came from**.
-On each run, compare those stored boundaries against the overview's current `billing_period`: if the period has advanced, the entry is now two periods old, so re-derive it before comparing or you will invent a trajectory finding out of stale history.
+Derive last period's actual fresh each run from `billing-spend-get` over the previous pricing period (`interval: "month"` keeps it to one small call). Do not cache it: the scratchpad is readable by project members who may hold no billing access.
 
 **Skip this lane entirely** when `billing-overview-get` denied — a usage-only caller has no tier, limit, or forecast data, and guessing at dollars from volume alone is exactly the error this scout exists to avoid. That caller runs the step lane in volume-only mode instead.
 
@@ -204,15 +203,15 @@ On each run, compare those stored boundaries against the overview's current `bil
 Domain label is `billing`. Worked entries:
 
 - `pattern:billing:cursor` — _"Scored through 2026-08-19 (last complete day; 08-20 is today and reads zero). Series runs to yesterday on this org."_
-- `pattern:billing:baseline:recording_count_in_period` — _"Recordings run ~40k/weekday, ~9k/weekend; ~62% of this project's bill. Weekend ratio is stable, do not flag it."_
-- `pattern:billing:tiers:recording_count_in_period` — _"Subscribed; first tier is free to 15k/mo, marginal rate above that is $0.005/recording. Re-derive if the plan changes."_
-- `pattern:billing:period-actual` — _"Period 2026-07-01 to 2026-07-31 billed $4,210 after discount and limits. Re-derive when `billing_period.current_period_start` moves past 2026-08-01."_
+- `pattern:billing:baseline:recording_count_in_period` — _"Recordings run ~40k/weekday, ~9k/weekend. Weekend ratio is stable, do not flag it."_
 - `noise:billing:rows_synced_in_period` — _"The Sept Postgres backfill ran 09-03 to 09-06 and lands as synced rows. Bounded and expected — do not re-flag a sync spike in that window."_
 - `dedupe:billing:logs_mb_in_period` — _"Episode opened 2026-08-14: reported the 9× logs step (report 0193…). If still elevated next run, edit that report; if it fell back under baseline, write `addressed:` with the closing date and retire this key so a later step scores fresh."_
 - `report:billing:logs_mb_in_period` — the `report_id`, so the next run edits rather than duplicates.
 - `reviewer:billing:owner` — the bare lowercase GitHub login that owns the bill, once one is confirmed.
 
-By run five the scratchpad knows this project's meter mix, each meter's tier position, the lag, and the band — so a real step lands with its dollar impact already attached.
+By run five the scratchpad knows this project's meter mix, the lag, and the band, so a real step is recognized on sight and only its pricing is left to do.
+
+**Memory holds volumes, dates, and verdicts, never billing detail.** The scratchpad is team-scoped and readable without billing access, so keep out of it what the billing pages guard: invoice and projected totals, tier prices and thresholds, plan and discount detail, spending limits. Re-read those from the tools each run. The one dollar figure memory may carry is the delta a report already published.
 
 **The first runs on a project are calibration.** Prefer memory over reports until the scratchpad holds a baseline and a tier entry for the meters that carry the bill; file early only for the unambiguous shapes (a machine-like step on a priced meter, a meter falling to zero).
 When the tools return a shape this skill does not describe — a new `breakdown_type`, a usage type outside the vocabulary table, a projection field with a different name — handle it as best you can, record it in memory, and send `agent-feedback` with `feedback_type: "scout"` describing the shape in general terms. That feedback is how this skill gets corrected.
@@ -224,7 +223,7 @@ The billing judgment on top:
 
 - **Author** when a meter clears all three gates, or the trajectory lane finds a surprising invoice.
   Lead with the money: what the bill does if this holds to the end of the period.
-  Evidence carries the usage type, current vs baseline volume, the dollar delta priced at the marginal tier, and the meter's share of the bill.
+  Evidence carries the usage type, current vs baseline volume, and the dollar delta this move is worth.
   Name the handoff explicitly — the owning product scout and the drilldown surface — because your report should end where that investigation begins.
   A co-moving group is **one report**: lead with the summed impact, list each meter with its own before and after volume, state that the number of people held, and hand off to the scout that owns the largest meter.
   These are decisions about someone's spend, not code fixes: `actionability=requires_human_input`, and leave `priority` / `repository` unset.

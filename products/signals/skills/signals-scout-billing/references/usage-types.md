@@ -9,7 +9,7 @@ Every tiered product meters cumulatively **within** a period and resets at the b
 
 1. **Never compare spend across a period boundary day-for-day.** Identical usage bills higher early in a period, because the cheaper high-volume tiers have not been reached yet. Compare usage instead, or compare spend only at matched positions within a period. `billing-spend-get` returns `pricing_reset_dates`, the dates tiers actually reset. Trust those over `billing_period` when the two disagree, because the renewal date and the pricing reset can differ.
 2. **A spend move with flat usage is a tier crossing** until proven otherwise.
-3. **Anything you cached from the overview goes stale at the rollover.** Store the period boundaries alongside any cached period figure and re-derive when `current_period_start` advances.
+3. **Read billing detail fresh each run.** Tier schedules, limits, and period totals change at the rollover and when the plan changes, and they never go into memory, which project members without billing access can read.
 4. **Periods are not the same length.** Comparing a 31-day period's projected total against a 28-day period's actual shows a ~11% rise at an unchanged daily rate. Normalize both sides to a daily run rate — total ÷ days in that period — before treating a period-over-period difference as a trajectory finding.
 
 The overview reflects the current period only. For history, use `billing-usage-get` / `billing-spend-get` with explicit dates.
@@ -96,12 +96,10 @@ where `price(units)` walks the tier schedule and charges each tier's `unit_amoun
 **A falling meter has a negative `daily_step`, and the arithmetic has to survive it.** Clamp the without-step counterfactual at zero units — a negative unit count is not a quantity `price()` can charge — and test the **absolute** impact against the materiality floor, keeping the sign in the report. Otherwise a meter going dark produces a negative impact, fails a positive floor, and the capture-outage shape this scout promises to surface is silently suppressed.
 This prices the move the way the report frames it — what the invoice does if the step persists — and the tier walk means a delta that crosses a boundary is charged at each tier's own rate. Then adjust in this order:
 
-1. **Discount.** Apply `discount_percent`. At 100% the impact is $0 no matter how large the usage move — real, and a legitimate reason not to report.
-2. **Spending cap.** If the product's `usage_limit` (its spending limit expressed in units — see below) already binds, the incremental usage is not billed at all. Cap the impact at the remaining headroom under that limit, which can be $0.
+1. **Spending cap.** A spending limit caps what the period bills, so apply it to **each** scenario before subtracting: `impact = min(price(with_step), cap) − min(price(without_step), cap)`. When both scenarios land above the cap the impact is $0, however much room is left under it today. Capping the difference at today's remaining headroom instead overstates it: with $100 accrued, a $1,000 cap, and scenarios of $1,500 and $1,100, the headroom reading gives $400 where both invoices are $1,000.
+2. **Discount.** Apply `discount_percent`. At 100% the impact is $0 no matter how large the usage move — real, and a legitimate reason not to report.
 
 Report the adjusted figure. Keep **limit-risk reporting separate**: a meter whose impact is capped to $0 is not a materiality finding, but the fact that it is now pinned against a spending limit belongs in the trajectory lane.
-
-Cache the tier schedule as `pattern:billing:tiers:<usage_type>` and re-derive when the plan changes.
 
 **`usage_limit` is not the free tier either**, and it is not proof of a customer-set spending limit.
 When the customer has set one, it is that `custom_limits_usd` amount converted into units at the tier schedule (a $50 events limit reads as `usage_limit: 2000000`), and `percentage_usage` is `current_usage / usage_limit`.
