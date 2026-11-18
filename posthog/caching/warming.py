@@ -126,10 +126,17 @@ def _stale_combos(team_id: int, *, read_at_this_time_only: bool, read_recently_o
         combos = stale_among(team_id=team_id, identifiers=recently_read)
     else:
         combos = get_stale_insights(team_id=team_id, limit=TIME_OF_DAY_CANDIDATES_LIMIT)
-    if read_at_this_time_only:
-        days_read = days_read_at_this_time(team_id=team_id, identifiers=combos, now=now)
-        combos = [combo for combo in combos if days_read[combo] >= READ_DAYS_REQUIRED]
-    return combos[:STALE_INSIGHTS_LIMIT]
+    if not read_at_this_time_only:
+        return combos[:STALE_INSIGHTS_LIMIT]
+    # Batched so one Redis round trip never checks more than TIME_OF_DAY_CANDIDATES_LIMIT identifiers.
+    kept: list[str] = []
+    for start in range(0, len(combos), TIME_OF_DAY_CANDIDATES_LIMIT):
+        batch = combos[start : start + TIME_OF_DAY_CANDIDATES_LIMIT]
+        days_read = days_read_at_this_time(team_id=team_id, identifiers=batch, now=now)
+        kept.extend(combo for combo in batch if days_read[combo] >= READ_DAYS_REQUIRED)
+        if len(kept) >= STALE_INSIGHTS_LIMIT:
+            break
+    return kept[:STALE_INSIGHTS_LIMIT]
 
 
 def insights_to_keep_fresh(
