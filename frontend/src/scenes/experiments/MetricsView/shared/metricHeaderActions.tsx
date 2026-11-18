@@ -72,3 +72,36 @@ export function BreakdownTaxonomicFilter({
         />
     )
 }
+
+export const DUPLICATE_SHARED_METRIC_TITLE = 'Duplicate this shared metric?'
+
+export function DuplicateSharedMetricCopy(): JSX.Element {
+    return (
+        <>
+            <p className="m-0">
+                <b>As a single-use metric</b> adds an editable copy to this experiment only. Other experiments using the
+                shared metric are unaffected.
+            </p>
+            <p className="m-0">
+                <b>As a shared metric</b> takes you to the form to customize and save a new shared metric, ready to be
+                added to any experiment.
+            </p>
+        </>
+    )
+}
+
+export function deleteMetricCopy(isSharedMetric: boolean): { title: string; label: string; description: string } {
+    return isSharedMetric
+        ? {
+              title: 'Remove this metric from the experiment?',
+              label: 'Remove from experiment',
+              description:
+                  'This will remove the shared metric from this experiment. The shared metric itself will not be deleted.',
+          }
+        : {
+              title: 'Delete this metric?',
+              label: 'Delete metric',
+              description:
+                  'This will permanently remove this metric from the experiment. This action cannot be undone.',
+          }
+}

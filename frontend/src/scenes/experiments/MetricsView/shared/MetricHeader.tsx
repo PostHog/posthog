@@ -32,6 +32,9 @@ import { sharedMetricDetailsModalLogic } from 'products/experiments/frontend/mod
 
 import {
     BreakdownTaxonomicFilter,
+    DUPLICATE_SHARED_METRIC_TITLE,
+    DuplicateSharedMetricCopy,
+    deleteMetricCopy,
     type MetricHeaderActionsProps,
     type MetricMenuAction,
     type MetricMenuSection,
@@ -40,6 +43,7 @@ import { MetricRetryDetails } from './MetricRetryState'
 import { MetricTitle } from './MetricTitle'
 import { MetricTypeTag } from './MetricTypeTag'
 import { QuillMetricHeaderActions } from './QuillMetricHeaderActions'
+import { QuillMetricHeaderDialogs } from './QuillMetricHeaderDialogs'
 import { QuillMetricHeaderLayout } from './QuillMetricHeaderLayout'
 
 const MAX_BREAKDOWNS = 3
@@ -181,6 +185,8 @@ export const MetricHeader = ({
 
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
+    const quillView = todayRailNav && resultsRedesign
+    const [quillDialog, setQuillDialog] = useState<'duplicate' | 'delete' | null>(null)
 
     const isSharedMetric = !!metric.isSharedMetric && !!metric.sharedMetricId
 
@@ -199,18 +205,15 @@ export const MetricHeader = ({
          * after a confirmation.
          */
         if (isSharedMetric) {
+            if (quillView) {
+                setQuillDialog('duplicate')
+                return
+            }
             LemonDialog.open({
-                title: 'Duplicate this shared metric?',
+                title: DUPLICATE_SHARED_METRIC_TITLE,
                 content: (
                     <div className="text-sm text-secondary max-w-lg deprecated-space-y-2">
-                        <p>
-                            <b>As a single-use metric</b> adds an editable copy to this experiment only. Other
-                            experiments using the shared metric are unaffected.
-                        </p>
-                        <p>
-                            <b>As a shared metric</b> takes you to the form to customize and save a new shared metric,
-                            ready to be added to any experiment.
-                        </p>
+                        <DuplicateSharedMetricCopy />
                     </div>
                 ),
                 primaryButton: {
@@ -242,13 +245,14 @@ export const MetricHeader = ({
             return
         }
 
-        const deleteLabel = isSharedMetric ? 'Remove from experiment' : 'Delete metric'
-        const description = isSharedMetric
-            ? 'This will remove the shared metric from this experiment. The shared metric itself will not be deleted.'
-            : 'This will permanently remove this metric from the experiment. This action cannot be undone.'
+        if (quillView) {
+            setQuillDialog('delete')
+            return
+        }
+        const { title: deleteTitle, label: deleteLabel, description } = deleteMetricCopy(isSharedMetric)
 
         LemonDialog.open({
-            title: isSharedMetric ? 'Remove this metric from the experiment?' : 'Delete this metric?',
+            title: deleteTitle,
             content: <div className="text-sm text-secondary max-w-lg">{description}</div>,
             primaryButton: {
                 children: deleteLabel,
@@ -342,16 +346,28 @@ export const MetricHeader = ({
         onEdit: openEditModal,
     }
 
-    if (todayRailNav && resultsRedesign) {
+    if (quillView) {
         return (
-            <QuillMetricHeaderLayout
-                dragHandle={dragHandle}
-                metric={metric}
-                experiment={experiment}
-                showRecalculatingTag={showRecalculatingTag}
-                metricRetry={metricRetry}
-                actions={readOnly ? null : <QuillMetricHeaderActions {...actionsProps} />}
-            />
+            <>
+                <QuillMetricHeaderLayout
+                    dragHandle={dragHandle}
+                    metric={metric}
+                    experiment={experiment}
+                    showRecalculatingTag={showRecalculatingTag}
+                    metricRetry={metricRetry}
+                    actions={readOnly ? null : <QuillMetricHeaderActions {...actionsProps} />}
+                />
+                <QuillMetricHeaderDialogs
+                    dialog={quillDialog}
+                    onClose={() => setQuillDialog(null)}
+                    isSharedMetric={isSharedMetric}
+                    duplicateAsSharedUrl={
+                        metric.sharedMetricId ? urls.experimentsSharedMetric(metric.sharedMetricId, 'duplicate') : null
+                    }
+                    onDuplicateAsSingleUse={() => onDuplicateAsSingleUseMetricClick(metric)}
+                    onDelete={() => onDeleteMetricClick?.(metric)}
+                />
+            </>
         )
     }
 
