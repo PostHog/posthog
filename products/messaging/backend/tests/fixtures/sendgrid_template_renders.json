@@ -15,7 +15,7 @@
       "url": "https://example.com/a?b=1"
     },
     "liquid": "<a href=\"{{ variables.url | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}\">Go</a>",
-    "expected": "<a href=\"https://example.com/a?b=1\">Go</a>"
+    "expected": "<a href=\"https://example.com/a?b&#x3D;1\">Go</a>"
   },
   {
     "name": "value in an unquoted attribute",
