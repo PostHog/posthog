@@ -13,6 +13,7 @@ import type { ErrorTrackingIssueTagRuleFiltersApi } from '../../../generated/api
 import { rulesLogic } from '../rules/rulesLogic'
 import { destroyTagRule } from '../rules/tagRuleRequests'
 import { ErrorTrackingRule, ErrorTrackingRuleType, ErrorTrackingTagRule, ErrorTrackingTagRuleNew } from '../rules/types'
+import { firstExceptionOfNewIssue } from './tagRuleMatch'
 
 type EditableTagRule = ErrorTrackingTagRule | ErrorTrackingTagRuleNew
 
@@ -25,13 +26,6 @@ function emptyRule(): ErrorTrackingTagRuleNew {
         disabled_data: null,
         order_key: 0,
     }
-}
-
-// A rule reads only the first exception of a new issue, so the preview counts the first exception of each issue first
-// seen in the window. dateRange is one of '-7d', '-30d' and '-90d'.
-function firstExceptionOfNewIssue(dateRange: string): string {
-    const days = Number(dateRange.slice(1, -1))
-    return `uuid IN (SELECT argMin(uuid, timestamp) FROM events WHERE event = '$exception' AND timestamp >= now() - INTERVAL ${days} DAY AND issue_first_seen >= now() - INTERVAL ${days} DAY GROUP BY issue_id)`
 }
 
 // An open issue list loads its label definitions only once. Reloading them after a rule change makes the list drop a

@@ -179,4 +179,39 @@ describe('tagRuleModalLogic', () => {
             expect(options.values.issueTag).toBeNull()
         }
     )
+
+    // A bulk delete that rejects as a whole keeps the deleted rules in the list, so a retry hits their 404s, and the
+    // issue list keeps a filter on a label that is gone.
+    it('removes the deleted rules and keeps the failed one when part of a bulk delete fails', async () => {
+        const deletedRule = { ...persistedRule, disabled_data: null }
+        const failingRule = { ...deletedRule, id: 'failing-rule-id', key: 'rule_4567', label: 'Safari' }
+        rules = [deletedRule, failingRule]
+        useMocks({
+            delete: {
+                '/api/projects/:team_id/error_tracking/tag_rules/:id/': ({ params }) => {
+                    if (params.id === failingRule.id) {
+                        return [500]
+                    }
+                    rules = rules.filter((rule) => rule.id !== params.id)
+                    return [204]
+                },
+            },
+        })
+        const options = issueQueryOptionsLogic({ logicKey: 'test' })
+        options.mount()
+        await expectLogic(issueTagDefinitionsLogic, () => {
+            issueTagDefinitionsLogic.mount()
+        }).toFinishAllListeners()
+        options.actions.setIssueTag({ key: deletedRule.key, applied: true })
+        tagRuleModalLogic.mount()
+        const list = rulesLogic({ ruleType: ErrorTrackingRuleType.Tag })
+        await expectLogic(list, () => list.actions.loadRules()).toFinishAllListeners()
+
+        list.actions.startSelectingRules()
+        list.actions.setSelectedRuleIds([deletedRule.id, failingRule.id])
+        await expectLogic(list, () => list.actions.deleteSelectedRules()).toFinishAllListeners()
+
+        expect(list.values.rules.map((rule) => rule.id)).toEqual([failingRule.id])
+        expect(options.values.issueTag).toBeNull()
+    })
 })

@@ -1,6 +1,8 @@
 import { MakeLogicType, actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 
 import { FilterLogicalOperator } from '~/types'
@@ -300,14 +302,22 @@ export const rulesLogic = kea<rulesLogicType>([
                 },
                 deleteSelectedRules: async () => {
                     if (props.ruleType === ErrorTrackingRuleType.Tag) {
-                        await Promise.all(values.selectedRuleIds.map((id) => destroyTagRule(id)))
-                    } else {
-                        await Promise.all(
-                            values.selectedRuleIds.map((id) =>
-                                id === 'new' ? Promise.resolve() : api.errorTracking.deleteRule(props.ruleType, id)
-                            )
+                        // A failed delete must not hide the deletes that succeeded, or a retry hits their 404s.
+                        const results = await Promise.allSettled(values.selectedRuleIds.map((id) => destroyTagRule(id)))
+                        const deletedIds = values.selectedRuleIds.filter(
+                            (_, index) => results[index].status === 'fulfilled'
                         )
+                        const failedCount = results.length - deletedIds.length
+                        if (failedCount > 0) {
+                            lemonToast.error(`Couldn't delete ${failedCount} of ${results.length} rules. Try again.`)
+                        }
+                        return values.rules.filter((rule) => !deletedIds.includes(rule.id))
                     }
+                    await Promise.all(
+                        values.selectedRuleIds.map((id) =>
+                            id === 'new' ? Promise.resolve() : api.errorTracking.deleteRule(props.ruleType, id)
+                        )
+                    )
                     return values.rules.filter((rule) => !values.selectedRuleIds.includes(rule.id))
                 },
                 finishReorderingRules: async () => {

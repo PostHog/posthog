@@ -6,6 +6,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
 import { RuleModal } from '../rules/RuleModal'
+import { TagRuleMatchBanner } from './TagRuleMatchBanner'
 import { tagRuleModalLogic } from './tagRuleModalLogic'
 
 export function TagRuleModal(): JSX.Element {
@@ -21,11 +22,6 @@ export function TagRuleModal(): JSX.Element {
             pageKey="tag-rule-modal"
             taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
             saveDisabledReason={saveDisabledReason}
-            suffix={(issuesLink, dateRangeLabel) => (
-                <>
-                    started {issuesLink} that would have got this label in the last {dateRangeLabel}
-                </>
-            )}
             extraFields={
                 <>
                     <div>
@@ -51,6 +47,7 @@ export function TagRuleModal(): JSX.Element {
                             onChange={updateDescription}
                         />
                     </div>
+                    <TagRuleMatchBanner />
                 </>
             }
         />
