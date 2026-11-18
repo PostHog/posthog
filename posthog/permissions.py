@@ -965,7 +965,10 @@ def organization_refuses_personal_api_key(request: Request, organization: Organi
     membership = get_cached_organization_membership(organization.id, cast(User, request.user))
     if membership is None:
         return False
-    return not organization.members_can_use_personal_api_keys and membership.level < OrganizationMembership.Level.ADMIN
+    return (
+        not organization.members_can_use_personal_api_keys
+        and membership.effective_level < OrganizationMembership.Level.ADMIN
+    )
 
 
 def check_team_within_credential_scope(request: Request, team_id: int) -> None:
