@@ -315,7 +315,7 @@ def test_no_false_positive(files: list[str]) -> None:
         ),
         pytest.param(
             ["posthog/ingress/verify/hmac.py"],
-            "devex_guardrails",
+            "request_boundaries",
             id="ingress-shared-verify",
         ),
         pytest.param(
@@ -330,7 +330,8 @@ def test_no_false_positive(files: list[str]) -> None:
         ),
         pytest.param(["docker-compose.hobby.yml"], "infra_cicd", id="hobby-compose-stays-infra"),
         pytest.param(["docker-compose.base.yml"], "infra_cicd", id="base-compose-extended-by-hobby"),
-        pytest.param(["docker-compose.dev.yml"], "dev_stack", id="dev-compose-owner-only"),
+        pytest.param(["docker-compose.dev.yml"], "infra_cicd", id="dev-compose-feeds-image-builds"),
+        pytest.param(["docker-compose.dev-full.yml"], "dev_stack", id="local-compose-owner-only"),
         pytest.param(["posthog/temporal/owners.yaml"], "ownership_files", id="nested-owners-yaml"),
         pytest.param(["products/authorization/backend/roles.py"], "auth", id="authorization-code-stays-auth"),
         pytest.param([".agents/skills/django-migrations/migrations/0001.py"], "migrations", id="skill-migration-code"),

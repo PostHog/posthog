@@ -10,9 +10,10 @@ deny:
             paths:
                 - 'k8s'
                 - 'dockerfile'
-                # The dev-only compose files go to dev_stack instead. Every other compose file stays
-                # here, a new one included, because hobby deploys extend docker-compose.base.yml.
-                - 'docker-compose(?!\.(dev|dev-full|profiles|playwright|sandbox)\.yml$)'
+                # The local-only compose files go to dev_stack instead. Every other compose file stays
+                # here, a new one included: hobby deploys extend docker-compose.base.yml, and image
+                # builds pull and start docker-compose.dev.yml and docker-compose.profiles.yml.
+                - 'docker-compose(?!\.(dev-full|playwright|sandbox)\.yml$)'
                 - '\.(github|depot)/workflows/(ci-security|codeql|auto-assign-reviewers)'
                 - '\.github/pr-deploy'
                 - 'iam'
@@ -31,11 +32,11 @@ deny:
         exempt_author_teams:
             - 'team-devex'
     dev_stack:
-        description: 'The compose files that start the local dev stack and the CI test services.'
-        rationale: 'Owner-only: stamphog approves team-devex changes here and refuses everyone else. owners.yaml gives every docker-compose file to team-devex, and these ones never reach a production or hobby deploy, so a hard deny sent every dev stack tweak to a second devex engineer. The compose files that a deploy reads stay in infra_cicd for every author.'
+        description: 'The compose files that only local runs start.'
+        rationale: 'Owner-only: stamphog approves team-devex changes here and refuses everyone else. owners.yaml gives every docker-compose file to team-devex, and no deploy or image build reads these ones. The compose files that a deploy or an image build reads stay in infra_cicd for every author.'
         match:
             paths:
-                - 'docker-compose\.(dev|dev-full|profiles|playwright|sandbox)\.yml$'
+                - 'docker-compose\.(dev-full|playwright|sandbox)\.yml$'
         exempt_author_teams:
             - 'team-devex'
     stamphog_policy:
@@ -52,13 +53,21 @@ deny:
                 - 'tools/owners/'
     ownership_files:
         description: 'The owners.yaml and product.yaml files that name owning teams and route reviews.'
-        rationale: 'Owner-only: stamphog approves team-devex changes here and refuses everyone else. One line changes who reviews later PRs, and the files are .yaml, so without this category they ride the allow-list to a T0 auto-approve. They are not in stamphog_policy, because that category exempts nobody and the root owners.yaml routes every owners.yaml to team-devex. The exemption reads GitHub team membership, which these files do not set. The resolver code in packages/owners-yaml/ stays in stamphog_policy.'
+        rationale: 'Owner-only: stamphog approves team-devex changes here and refuses everyone else. One line changes who reviews later PRs, and the files are .yaml, so without this category they ride the allow-list to a T0 auto-approve. They are not in stamphog_policy, because that category exempts nobody and the root owners.yaml routes every owners.yaml to team-devex. The exemption reads GitHub team membership, which these files do not set, and the engine gives no owning-team assurance to a PR that edits them. The resolver code in packages/owners-yaml/ stays in stamphog_policy.'
         match:
             paths:
                 - '(?:^|/)owners\.yaml$'
                 - '(?:^|/)product\.yaml$'
         exempt_author_teams:
             - 'team-devex'
+    request_boundaries:
+        description: 'The shared inbound webhook verification and outbound request transport.'
+        rationale: 'This code verifies webhook signatures and sends every outbound request, so a mistake weakens a security boundary for every product. It matches no auth or crypto_secrets pattern, so without this category it gets an LLM review only. No team is exempt, because devex_guardrails exempts team-devex and this code is runtime code, not a guard.'
+        match:
+            paths:
+                - '^posthog/egress/(limiter|observability|transport)/'
+                - '^posthog/ingress/(dispatch|observability|verify)/'
+                - '^posthog/ingress/views\.py$'
     devex_guardrails:
         description: 'The guards that keep the house patterns for API codegen, egress, ingress, product isolation, migrations, URLs and startup imports.'
         rationale: 'Owner-only: stamphog approves team-devex changes here and refuses everyone else. These files define what CI blocks, so a small edit from another team can turn a guard off. Most are .yaml, .md, .txt or test files, and without this category they ride the allow-list or the test-only rule to a T0 auto-approve. Busy files stay out on purpose, because most edits to them are routine: tach.toml, pyproject.toml, lib/api.ts, model_crossing_uses_baseline.txt and the setup receivers baseline. owners.yaml routes those to team-devex instead.'
@@ -69,9 +78,6 @@ deny:
                 - '^\.semgrep/rules/security/prefer-codegen-api\.'
                 - '^frontend/src/lib/api-ratchet-baseline\.txt$'
                 - '^posthog/(egress|ingress)/agents\.md$'
-                - '^posthog/egress/(limiter|observability|transport)/'
-                - '^posthog/ingress/(dispatch|observability|verify)/'
-                - '^posthog/ingress/views\.py$'
                 - '^posthog/management/migration_analysis/'
                 - '^posthog/migration_helpers/'
                 - '^posthog/product_urls\.py$'

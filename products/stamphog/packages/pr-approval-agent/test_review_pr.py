@@ -126,6 +126,26 @@ def test_summarize_assurance_counts_only_completed_reviews_of_the_head(
     assert pipeline._summarize_assurance()["head_review_evidence"] == counted
 
 
+@pytest.mark.parametrize(
+    "changed_paths, on_owning_team",
+    [
+        pytest.param(["products/flags/backend/api.py"], True, id="code-only"),
+        pytest.param(["products/flags/backend/api.py", "products/flags/product.yaml"], False, id="edits-product-yaml"),
+        pytest.param(["products/flags/backend/api.py", "products/flags/owners.yaml"], False, id="edits-owners-yaml"),
+    ],
+)
+def test_ownership_edit_in_the_pr_is_no_owning_team_assurance(changed_paths: list[str], on_owning_team: bool) -> None:
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pipeline.pr = _fake_pr(head_sha="abc123")
+    pipeline.pr.files = [{"filename": path} for path in changed_paths]
+    pipeline.author_team_slugs = {"team-devex"}
+    pipeline.classification = {"ownership": {"team_count": 1, "teams": ["@PostHog/team-devex"]}}
+
+    pipeline._summarize_ownership()
+
+    assert pipeline.classification["author_on_owning_team"] is on_owning_team
+
+
 def test_to_dict_includes_reviewed_base_and_head_shas() -> None:
     # The verdict is posted against the base_sha and head_sha from the JSON output. This locks
     # the GitHub review to the diff the LLM actually saw, and skips the approval when the base

@@ -50,6 +50,7 @@ from gates import (
     detect_deny_categories,
     detect_ownership,
     detect_title_scrutiny_flags,
+    edits_ownership_files,
     has_ci_workflow_changes,
     has_dependency_changes,
     is_allow_listed_only,
@@ -803,9 +804,15 @@ class Pipeline:
             parts.append(f"author {author} is not on any owning team")
         if ownership.get("cross_team"):
             parts.append("cross-team change")
+        # Ownership resolves from the PR head, so a PR that edits an ownership file can name the
+        # author's team as the owner of its own files. That ownership must not vouch for the PR.
+        on_owning_team = len(author_teams) > 0
+        if on_owning_team and edits_ownership_files(self.pr.deny_paths):
+            on_owning_team = False
+            parts.append("the PR edits ownership files, so the author's team membership is no assurance")
 
         self.classification["ownership_summary"] = "; ".join(parts)
-        self.classification["author_on_owning_team"] = len(author_teams) > 0
+        self.classification["author_on_owning_team"] = on_owning_team
         return self.classification["ownership_summary"]
 
     def _check_size(self) -> tuple[bool, str]:
