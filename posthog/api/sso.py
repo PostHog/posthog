@@ -26,7 +26,9 @@ from social_core.backends.saml import (
     SAMLAuth,
     SAMLIdentityProvider,
 )
-from social_core.exceptions import AuthFailed, AuthMissingParameter
+from social_core.exceptions import AuthFailed, AuthMissingParameter, AuthStateForbidden
+from social_core.storage import PartialMixin, UserProtocol
+from social_core.strategy import HttpResponseProtocol
 from social_django.models import UserSocialAuth
 from social_django.strategy import DjangoStrategy
 from social_django.utils import load_backend, load_strategy
@@ -122,6 +124,11 @@ class MultitenantSAMLAuth(SAMLAuth):
     Implements our own version of SAML auth that supports multitenancy. Instead of relying on instance-based config via env vars,
     each organization can have multiple verified domains each with its own SAML configuration.
     """
+
+    def continue_pipeline(self, partial: PartialMixin) -> UserProtocol | HttpResponseProtocol | None:
+        if partial.token != self.strategy.session_get("partial_pipeline_token"):
+            raise AuthStateForbidden(self)
+        return super().continue_pipeline(partial)
 
     def auth_complete(self, *args, **kwargs):
         # attempt to recover from missing relay state in idp-initiated SAML

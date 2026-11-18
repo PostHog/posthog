@@ -11,7 +11,15 @@ import structlog
 from prometheus_client import Counter, Histogram
 from requests import HTTPError, RequestException, Response, Timeout
 from social_core.backends.open_id_connect import OpenIdConnectAuth
-from social_core.exceptions import AuthConnectionError, AuthFailed, AuthMissingParameter, AuthTokenError
+from social_core.exceptions import (
+    AuthConnectionError,
+    AuthFailed,
+    AuthMissingParameter,
+    AuthStateForbidden,
+    AuthTokenError,
+)
+from social_core.storage import PartialMixin, UserProtocol
+from social_core.strategy import HttpResponseProtocol
 from urllib3.util import Timeout as Urllib3Timeout
 
 from posthog.constants import AvailableFeature
@@ -49,6 +57,11 @@ class OIDCClientCredentials:
 class MultitenantOIDCAuth(OpenIdConnectAuth):
     DEFAULT_USE_PKCE = True
     JWT_DECODE_OPTIONS = {"require": ["iss", "sub", "aud", "exp", "iat", "nonce"]}
+
+    def continue_pipeline(self, partial: PartialMixin) -> UserProtocol | HttpResponseProtocol | None:
+        if partial.token != self.strategy.session_get("partial_pipeline_token"):
+            raise AuthStateForbidden(self)
+        return super().continue_pipeline(partial)
 
     @cached_property
     def identity_provider_config(self) -> IdentityProviderConfig:

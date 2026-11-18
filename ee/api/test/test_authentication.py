@@ -651,6 +651,40 @@ class TestOIDCAuthentication(APILicensedTest):
         self.assertFalse(User.objects.filter(email="signup@example.com").exists())
         self.assertNotIn("_auth_user_id", self.client.session)
 
+    @parameterized.expand([("existing_account", True), ("organization_signup", False)])
+    @pytest.mark.disable_mock_code_based_verifier
+    @time_machine.travel("2026-01-10T12:00:00Z", tick=False)
+    def test_oidc_cannot_resume_another_browsers_partial(self, _name: str, existing: bool) -> None:
+        email = "member@example.com" if existing else "new@example.com"
+        if existing:
+            self.user.email = email
+            self.user.save()
+        self.client.logout()
+        with (
+            override_settings(DEBUG=True),
+            enable_code_sending() as sent,
+            time_machine.travel("2026-01-10T12:00:00Z", tick=False) as clock,
+        ):
+            self._complete_oidc_login(email)
+            original_token = self.client.session["partial_pipeline_token"]
+            original_client = self.client
+            try:
+                self.client = APIClient()
+                self._complete_oidc_login(email, sub="other-user")
+                foreign_token = self.client.session["partial_pipeline_token"]
+            finally:
+                self.client = original_client
+            clock.shift(datetime.timedelta(seconds=61))
+            sent_count = sent.call_count
+            response = self.client.get("/complete/oidc/", {"partial_token": foreign_token})
+            self.assertEqual(sent.call_count, sent_count)
+        self.assertIn("oauth_state_invalid", response["Location"])
+        self.assertEqual(self.client.session["partial_pipeline_token"], original_token)
+        self.assertNotIn("_auth_user_id", self.client.session)
+        self.assertFalse(
+            UserSocialAuth.objects.filter(provider="oidc", uid=f"{self.config.oidc_issuer_url}:other-user").exists()
+        )
+
     @parameterized.expand([("query", True), ("body", False)])
     @pytest.mark.disable_mock_code_based_verifier
     def test_code_verification_resumes_its_bound_partial_despite_request_parameters(
@@ -2124,6 +2158,25 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         self.assertNotIn("_auth_user_id", self.client.session)
         self.assertFalse(UserSocialAuth.objects.filter(user=user).exists())
         self.assertFalse(IdentityProviderEmailVerification.objects.filter(user=user).exists())
+
+    @pytest.mark.disable_mock_code_based_verifier
+    @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)
+    def test_saml_cannot_resume_another_browsers_partial_after_a_valid_callback(self) -> None:
+        User.objects.create_user(email="engineering@posthog.com", first_name="Member", password=None)
+        with open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), encoding="utf_8") as fixture:
+            saml_response = fixture.read()
+        with enable_code_sending():
+            for client in [self.client, other_client := APIClient()]:
+                begin = client.get("/login/saml/?email=engineering@posthog.com")
+                relay_state = parse_qs(urlparse(begin["Location"]).query)["RelayState"][0]
+                client.post(
+                    "/complete/saml/", {"SAMLResponse": saml_response, "RelayState": relay_state}, format="multipart"
+                )
+            foreign_token = other_client.session["partial_pipeline_token"]
+            response = self.client.get("/complete/saml/", {"partial_token": foreign_token})
+        self.assertIn("oauth_state_invalid", response["Location"])
+        self.assertNotIn("_auth_user_id", self.client.session)
+        self.assertFalse(UserSocialAuth.objects.filter(provider="saml").exists())
 
     @parameterized.expand([("short_entity_id", False), ("maximum_entity_id", True)])
     @pytest.mark.disable_mock_code_based_verifier
