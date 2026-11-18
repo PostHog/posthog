@@ -22,6 +22,7 @@ from .. import feature_flags
 from ..logic import (
     imports,
     releases as logic,
+    suggestions,
 )
 from ..models import Release
 from . import contracts
@@ -29,6 +30,7 @@ from . import contracts
 if TYPE_CHECKING:
     from _typeshed import SupportsRichComparison
 
+FlagNotFoundError = contracts.FlagNotFoundError
 ReleaseNotFoundError = contracts.ReleaseNotFoundError
 UnknownLinkedObjectsError = contracts.UnknownLinkedObjectsError
 InvalidMergeError = contracts.InvalidMergeError
@@ -44,6 +46,8 @@ FlagVisibilityLookup = Callable[[list[int]], contracts.FlagVisibility]
 BroadcastVisibilityLookup = Callable[[list[UUID]], contracts.BroadcastVisibility]
 SurveyVisibilityLookup = Callable[[list[UUID]], contracts.SurveyVisibility]
 InsightVisibilityLookup = Callable[[list[int]], contracts.InsightVisibility]
+FlagLabelLookup = Callable[[list[int]], dict[int, contracts.FlagLabel]]
+FlagSearchLookup = Callable[[list[str]], list[int]]
 
 
 @dataclass(frozen=True)
@@ -84,11 +88,15 @@ def _hidden(lookups: LinkLookups, releases: list[Release]) -> _Hidden:
     )
 
 
+def _shows_restricted_name(release: Release, hidden_flags: frozenset[int]) -> bool:
+    return release.auto_named and not hidden_flags.isdisjoint(release.feature_flag_ids)
+
+
 def _to_dto(obj: Release, hidden: _Hidden) -> contracts.ReleaseDTO:
     has_hidden_flags = any(flag_id in hidden.flags for flag_id in obj.feature_flag_ids)
     return contracts.ReleaseDTO(
         id=obj.id,
-        name=RESTRICTED_NAME if obj.auto_named and has_hidden_flags else obj.name,
+        name=RESTRICTED_NAME if _shows_restricted_name(obj, hidden.flags) else obj.name,
         description=obj.description,
         owner=contracts.ReleaseOwnerDTO(id=obj.owner.id, first_name=obj.owner.first_name) if obj.owner else None,
         feature_flag_ids=[flag_id for flag_id in obj.feature_flag_ids if flag_id not in hidden.flags],
@@ -140,6 +148,10 @@ _LINKED_FIELDS: tuple[tuple[str, str], ...] = (
 )
 
 
+def get(team_id: int, release_id: UUID, lookups: LinkLookups) -> contracts.ReleaseDTO:
+    return _visible_dto(logic.get_release(team_id, release_id), lookups)
+
+
 def list_page(team_id: int, page: PageRequest, lookups: LinkLookups) -> Page[contracts.ReleaseDTO]:
     releases = select_page(logic.list_releases(team_id), page)
     hidden = _hidden(lookups, list(releases.results))
@@ -170,13 +182,17 @@ def list_catalog_page(
     cursor: str,
     owner_ids: list[int] | None = None,
     oldest_first: bool = False,
+    feature_flag_id: int | None = None,
 ) -> tuple[list[contracts.CatalogReleaseDTO], str | None]:
+    if feature_flag_id is not None and feature_flag_id not in flags([feature_flag_id]).visible:
+        return [], None
     releases = logic.list_catalog_releases(
         team_id,
         search,
         _parse_cursor(cursor) if cursor else None,
         owner_ids=owner_ids,
         oldest_first=oldest_first,
+        feature_flag_id=feature_flag_id,
     )
     results: list[contracts.CatalogReleaseDTO] = []
     position = 0
@@ -186,7 +202,7 @@ def list_catalog_page(
         position += len(batch)
         hidden = flags(sorted({flag_id for obj in batch if obj.auto_named for flag_id in obj.feature_flag_ids})).hidden
         for obj in batch:
-            restricted = obj.auto_named and bool(hidden & set(obj.feature_flag_ids))
+            restricted = _shows_restricted_name(obj, hidden)
             if restricted and search:
                 continue
             if len(results) == limit:
@@ -210,6 +226,54 @@ def list_catalog_page(
             )
         if len(batch) < size:
             return results, None
+
+
+SUGGESTION_LIMIT = 5
+SUGGESTION_CANDIDATES = 300
+SUGGESTION_FLAG_MATCHES = 500
+
+
+def releases_for_flag(
+    team_id: int,
+    flag_id: int,
+    flags: FlagVisibilityLookup,
+    labels: FlagLabelLookup,
+    search_flags: FlagSearchLookup,
+    gets_own_release: Callable[[int], bool],
+) -> contracts.FlagReleasesDTO:
+    label = labels([flag_id]).get(flag_id)
+    if label is None or flag_id not in flags([flag_id]).visible:
+        raise contracts.FlagNotFoundError(flag_id)
+    words = suggestions.search_terms(label.key, label.name)
+    current = suggestions.releases_with_flag(team_id, flag_id)
+    candidates: list[Release] = []
+    if words:
+        matching = search_flags(sorted(words))
+        matching_visible = sorted(set(matching) & flags(matching).visible) if matching else []
+        candidates = suggestions.candidate_releases(team_id, flag_id, words, matching_visible, SUGGESTION_CANDIDATES)
+    linked = sorted({linked_id for release in [*current, *candidates] for linked_id in release.feature_flag_ids})
+    hidden = flags(linked).hidden if linked else frozenset()
+    linked_terms = {
+        linked_id: suggestions.terms(label.key, label.name)
+        for linked_id, label in labels([linked_id for linked_id in linked if linked_id not in hidden]).items()
+    }
+    ranked = suggestions.rank(
+        [release for release in candidates if not _shows_restricted_name(release, hidden)], words, linked_terms
+    )
+    return contracts.FlagReleasesDTO(
+        feature_flag_id=flag_id,
+        auto_release=not current and imports.project_imported(team_id) and gets_own_release(flag_id),
+        current=[
+            contracts.ReleaseRefDTO(
+                id=release.id, name=RESTRICTED_NAME if _shows_restricted_name(release, hidden) else release.name
+            )
+            for release in current
+        ],
+        suggestions=[
+            contracts.ReleaseSuggestionDTO(id=release.id, name=release.name, matched_terms=matched)
+            for release, matched in ranked[:SUGGESTION_LIMIT]
+        ],
+    )
 
 
 def create(input: contracts.CreateReleaseInput, lookups: LinkLookups) -> contracts.ReleaseDTO:

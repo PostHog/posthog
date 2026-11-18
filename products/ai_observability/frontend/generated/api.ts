@@ -30,6 +30,7 @@ import type {
     BatchCheckRequestApi,
     BatchCheckResponseApi,
     ClusteringConfigApi,
+    ClusteringConfigSetEnabledApi,
     ClusteringConfigSetEventFiltersApi,
     ClusteringJobApi,
     ClusteringRunRequestApi,
@@ -2282,6 +2283,26 @@ export const llmAnalyticsClusteringConfigList = async (
     return apiMutator<ClusteringConfigApi>(getLlmAnalyticsClusteringConfigListUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getLlmAnalyticsClusteringConfigSetEnabledCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/llm_analytics/clustering_config/set_enabled/`
+}
+
+/**
+ * Team-level clustering configuration (event filters for automated pipelines).
+ */
+export const llmAnalyticsClusteringConfigSetEnabledCreate = async (
+    projectId: string,
+    clusteringConfigSetEnabledApi: ClusteringConfigSetEnabledApi,
+    options?: RequestInit
+): Promise<ClusteringConfigApi> => {
+    return apiMutator<ClusteringConfigApi>(getLlmAnalyticsClusteringConfigSetEnabledCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(clusteringConfigSetEnabledApi),
     })
 }
 

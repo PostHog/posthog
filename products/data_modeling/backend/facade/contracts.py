@@ -91,10 +91,29 @@ class NodeLineageCounts:
 
 
 @frozen
+class NodeLineage:
+    node_ids: frozenset[str]
+    counts: dict[str, NodeLineageCounts]
+
+
+@frozen
 class UpstreamTableRef:
     name: str
     warehouse_table_id: str | None = None
     is_posthog_table: bool = False
+
+
+@frozen
+class DescribedColumn:
+    name: str
+    ch_type: str
+
+
+@frozen
+class DescribeProbe:
+    sql: str
+    globalized_positions: frozenset[int]
+    printed_names: dict[int, str]
 
 
 @dataclass(frozen=True)
