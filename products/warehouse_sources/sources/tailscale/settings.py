@@ -4,19 +4,24 @@ from typing import Optional
 
 from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
+DEVICES_ENDPOINT = "devices"
 AUDIT_LOGS_ENDPOINT = "configuration_audit_logs"
 NETWORK_LOGS_ENDPOINT = "network_flow_logs"
 SERVICES_ENDPOINT = "services"
 SERVICE_DEVICES_ENDPOINT = "service_devices"
+USER_INVITES_ENDPOINT = "user_invites"
+DEVICE_INVITES_ENDPOINT = "device_invites"
+DEVICE_POSTURE_ATTRIBUTES_ENDPOINT = "device_posture_attributes"
 
 
 @dataclass(frozen=False)
 class TailscaleEndpointConfig:
     name: str
-    # Path relative to https://api.tailscale.com/api/v2, with a `{tailnet}` placeholder.
+    # Path relative to https://api.tailscale.com/api/v2, with `{tailnet}` or parent-id placeholders.
     path: str
-    # Key wrapping the row list in the JSON response (e.g. {"devices": [...]}).
-    data_key: str
+    # Key wrapping the row list in the JSON response (e.g. {"devices": [...]}), or None
+    # when the response is a bare list.
+    data_key: Optional[str]
     primary_keys: Optional[list[str]] = field(default_factory=lambda: ["id"])
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Stable, immutable field to partition by. Only set where rows are immutable or the
@@ -81,6 +86,25 @@ TAILSCALE_ENDPOINTS: dict[str, TailscaleEndpointConfig] = {
         # Host rows are only unique within their service; the service name is added to each row.
         primary_keys=["serviceName", "stableNodeID"],
     ),
+    USER_INVITES_ENDPOINT: TailscaleEndpointConfig(
+        name=USER_INVITES_ENDPOINT,
+        path="/tailnet/{tailnet}/user-invites",
+        # The API only lists open invites; accepted ones drop out of the response.
+        data_key=None,
+    ),
+    DEVICE_INVITES_ENDPOINT: TailscaleEndpointConfig(
+        name=DEVICE_INVITES_ENDPOINT,
+        path="/device/{deviceId}/device-invites",
+        # Device invite ids are tailnet-wide (GET /device-invites/{deviceInviteId} needs no device).
+        data_key=None,
+    ),
+    DEVICE_POSTURE_ATTRIBUTES_ENDPOINT: TailscaleEndpointConfig(
+        name=DEVICE_POSTURE_ATTRIBUTES_ENDPOINT,
+        path="/device/{deviceId}/attributes",
+        # One object per device; the device ids are added to each row.
+        data_key=None,
+        primary_keys=["deviceId"],
+    ),
     AUDIT_LOGS_ENDPOINT: TailscaleEndpointConfig(
         name=AUDIT_LOGS_ENDPOINT,
         path="/tailnet/{tailnet}/logging/configuration",
@@ -114,6 +138,8 @@ TAILSCALE_ENDPOINTS: dict[str, TailscaleEndpointConfig] = {
 }
 
 ENDPOINTS = tuple(TAILSCALE_ENDPOINTS.keys())
+
+DEVICE_FAN_OUT_ENDPOINTS = frozenset({DEVICE_INVITES_ENDPOINT, DEVICE_POSTURE_ATTRIBUTES_ENDPOINT})
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in TAILSCALE_ENDPOINTS.items()
