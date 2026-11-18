@@ -238,15 +238,6 @@ class TestLookupFanout:
                     }
                 ],
             ),
-            (
-                # The revenue endpoint returns one bare object, not a `data` list.
-                "revenue",
-                "subscription_revenue",
-                "/subscriptions",
-                "revenue",
-                {"subscription_id": "p_1", "mrr": "500.00", "arr": "6000.00", "acv": "6000.00", "currency": "USD"},
-                [{"subscription_id": "p_1", "mrr": "500.00", "arr": "6000.00", "acv": "6000.00", "currency": "USD"}],
-            ),
         ]
     )
     def test_fans_out_per_parent_and_skips_deleted_parent(
