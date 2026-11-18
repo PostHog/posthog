@@ -18,7 +18,11 @@ from typing import TYPE_CHECKING, Any
 
 from posthog.clickhouse.workload import Workload
 
-from products.product_analytics.backend.facade.contracts import TrendsQueryRunResult
+from products.product_analytics.backend.facade.contracts import (
+    ClosedSeriesValues,
+    SeriesValuesUnavailable,
+    TrendsQueryRunResult,
+)
 
 _B = "products.product_analytics.backend.hogql_queries."
 
@@ -46,7 +50,7 @@ _LAZY = {
     "step_source_for_event": "paths_v2.path_item",
 }
 
-__all__ = sorted((*_LAZY, "run_cached_trends_query"))
+__all__ = sorted((*_LAZY, "closed_trends_series_values", "run_cached_trends_query"))
 
 
 if TYPE_CHECKING:
@@ -120,6 +124,14 @@ def run_cached_trends_query(
         results=results,
         last_refresh=last_refresh if isinstance(last_refresh, datetime) else None,
     )
+
+
+def closed_trends_series_values(
+    runner: TrendsQueryRunner, *, run_inserts: bool, wait_timeout_seconds: float | None = None
+) -> ClosedSeriesValues | SeriesValuesUnavailable:
+    from products.product_analytics.backend.hogql_queries.trends.series_values_precompute import closed_series_values
+
+    return closed_series_values(runner, run_inserts=run_inserts, wait_timeout_seconds=wait_timeout_seconds)
 
 
 def __getattr__(name: str):
