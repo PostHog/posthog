@@ -10,7 +10,7 @@ const upstream = require(
 // keeps Hermes from running a DOM library and keeps them out of startup until a WebView requires one.
 const RAW_MODULES = [
     path.join('mermaid', 'dist', 'mermaid.min.js'),
-    path.join('src', 'features', 'replay', 'web', 'phonePlayer.generated.js'),
+    path.join('src', 'features', 'replay', 'web', 'phonePlayer.generated.replay'),
 ]
 
 module.exports = {

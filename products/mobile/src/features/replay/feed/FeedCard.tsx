@@ -79,6 +79,7 @@ export interface FeedCardHandle {
     beginSwitch: (next: FeedUnit, preset?: { ordinal: number }) => SwitchPlan
     /** Pauses while the Sessions page covers the card, and plays again after, unless it was paused before. */
     suspend: (on: boolean) => void
+    playSelection: (restart: boolean) => void
     hold: (on: boolean) => void
     togglePause: () => void
 }
@@ -214,6 +215,7 @@ function FeedCardBody({
         (unit === 'moment' ? moment.startSeconds : sessionStartSeconds(moments, summary, MOMENT_WINDOW))
 
     // Each card listens to its own two jobs only, so one render's progress does not re-render every card.
+    const renderScope = useRenderQueue((state) => state.scope)
     const fullJob = useRenderQueue((state) => state.jobs[`${sessionId}:full`])
     const limitMessage = useRenderQueue((state) => state.limitMessage)
     const fullKnown = useMemo(
@@ -244,28 +246,31 @@ function FeedCardBody({
         if (near && !recording.ongoing && !webPlayer) {
             startRender({
                 spec: specRef.current,
+                scope: renderScope,
                 known: item.exports,
                 allowCreate: false,
                 trigger: 'reuse',
                 viewport: viewportRef.current,
             })
         }
-    }, [near, key, recording.ongoing, item.exports, webPlayer])
+    }, [near, key, recording.ongoing, item.exports, webPlayer, renderScope])
 
     const canRender = !recording.ongoing && limitMessage === null && (spec.kind === 'full' || timeline !== null)
     const requestRender = useCallback(
-        (trigger: 'dwell' | 'tap'): void => {
+        (trigger: 'dwell' | 'tap', reloadSource = false): void => {
             if (!webPlayer) {
                 startRender({
                     spec: specRef.current,
+                    scope: renderScope,
                     known: null,
-                    allowCreate: true,
+                    allowCreate: !reloadSource,
+                    reloadSource,
                     trigger,
                     viewport: viewportRef.current,
                 })
             }
         },
-        [webPlayer]
+        [webPlayer, renderScope]
     )
     useEffect(() => {
         if (webPlayer || !active || job !== null || !canRender) {
@@ -277,15 +282,17 @@ function FeedCardBody({
 
     const ready = job?.state.status === 'ready' ? job.state : null
     const sourceKey = webPlayer ? `web:${cardKey}` : ready ? `${key}#${ready.exportId}` : null
-    // biome-ignore lint/correctness/useExhaustiveDependencies: the key names the source; the object is new each render.
+    const videoSource = ready?.source
     useEffect(() => {
         if (!webPlayer) {
-            onSource(index, ready && sourceKey ? { key: sourceKey, source: ready.source } : null)
+            onSource(index, videoSource && sourceKey ? { key: sourceKey, source: videoSource } : null)
         }
-    }, [index, sourceKey, onSource, webPlayer])
+    }, [index, sourceKey, videoSource, onSource, webPlayer])
     useEffect(() => () => onSource(index, null), [index, onSource])
 
-    const loaded = pool !== null && pool.key === sourceKey && pool.loaded
+    const matchingVideo = pool?.kind === 'video' && pool.key === sourceKey && pool.source === videoSource
+    const videoLoadFailed = matchingVideo && pool.failed
+    const loaded = pool !== null && pool.key === sourceKey && pool.loaded && (pool.kind === 'web' || matchingVideo)
     const player: FeedPlayer | null = loaded ? pool.player : null
     const video = loaded && pool.kind === 'video' ? pool.player : null
     const web = loaded && pool.kind === 'web' ? pool.player : null
@@ -333,7 +340,7 @@ function FeedCardBody({
     const holding = holdNow !== null
     const [firstFrame, setFirstFrame] = useState(false)
     const pendingSeek = useRef<number | null>(null)
-    const scrubbing = useRef<{ wasPlaying: boolean } | null>(null)
+    const scrubbing = useRef<{ wasPlaying: boolean; startSeconds: number } | null>(null)
     const domainRef = useRef(domain)
     domainRef.current = domain
     const unitRef = useRef(unit)
@@ -402,11 +409,11 @@ function FeedCardBody({
         if (!web) {
             return undefined
         }
-        setWebError(null)
-        const frame = web.onFirstFrame(() => setFirstFrame(true))
-        const status = web.addListener('statusChange', () =>
+        const updateError = (): void =>
             setWebError(web.status === 'error' ? (web.errorMessage ?? "Couldn't play this recording.") : null)
-        )
+        updateError()
+        const frame = web.onFirstFrame(() => setFirstFrame(true))
+        const status = web.addListener('statusChange', updateError)
         return () => {
             frame.remove()
             status.remove()
@@ -830,6 +837,16 @@ function FeedCardBody({
         },
         [seekSession, play]
     )
+    const playSelection = useCallback(
+        (restart: boolean): void => {
+            resumeAfter.current = false
+            pausedRef.current = false
+            setPaused(false)
+            setCountdownCancelled(false)
+            seekInWindow(restart || endedRef.current ? domainRef.current.start : position.value)
+        },
+        [seekInWindow, position]
+    )
     useEffect(() => {
         if (!active) {
             return undefined
@@ -839,11 +856,12 @@ function FeedCardBody({
             currentSeconds: () => position.value,
             beginSwitch: (next, preset) => beginSwitchRef.current(next, preset),
             suspend: (on) => suspendRef.current(on),
+            playSelection,
             hold: (on) => (on ? handlers.current?.holdStart() : handlers.current?.holdEnd(false)),
             togglePause: () => handlers.current?.togglePause(),
         })
         return () => registerHandle(cardKey, null)
-    }, [active, cardKey, registerHandle, seekInWindow, position])
+    }, [active, cardKey, registerHandle, seekInWindow, position, playSelection])
 
     // biome-ignore lint/correctness/useExhaustiveDependencies: one event per arrival on screen.
     useEffect(() => {
@@ -862,6 +880,8 @@ function FeedCardBody({
     let ladder: LadderState | null = null
     if (webPlayer) {
         ladder = null
+    } else if (videoLoadFailed) {
+        ladder = { kind: 'failed', message: "Couldn't load this video." }
     } else if (recording.ongoing) {
         ladder = { kind: 'recording', shownSeconds: durationSeconds }
     } else if (!loaded || !firstFrame) {
@@ -911,9 +931,9 @@ function FeedCardBody({
     }, [ticks, marksShown])
 
     const onScrubStart = useCallback((): void => {
-        scrubbing.current = { wasPlaying: player?.playing ?? false }
+        scrubbing.current = { wasPlaying: player?.playing ?? false, startSeconds: position.value }
         player?.pause()
-    }, [player])
+    }, [player, position])
     const lastScrubSeek = useRef(0)
     const onScrub = useCallback(
         (seconds: number): void => {
@@ -940,6 +960,13 @@ function FeedCardBody({
         [seekSession, play, sessionId]
     )
 
+    const cancelScrub = (): void => {
+        const previous = scrubbing.current
+        setScrubbingUI(false)
+        if (previous) {
+            onScrubEnd(previous.startSeconds, null)
+        }
+    }
     const replay = useCallback((): void => {
         setEnded(false)
         endedRef.current = false
@@ -1076,7 +1103,7 @@ function FeedCardBody({
                     <RenderLadder
                         state={ladder}
                         onPlay={() => requestRender('tap')}
-                        onRetry={() => requestRender('tap')}
+                        onRetry={() => requestRender('tap', videoLoadFailed)}
                         onOpenWeb={() => onOpenWeb(item, startSeconds)}
                         onCheckAgain={onRecheck}
                         nextReady={
@@ -1181,6 +1208,7 @@ function FeedCardBody({
                         onScrubStart()
                     }}
                     onScrub={onScrub}
+                    onScrubCancel={cancelScrub}
                     onScrubEnd={(seconds, tick) => {
                         setScrubbingUI(false)
                         onScrubEnd(seconds, tick)

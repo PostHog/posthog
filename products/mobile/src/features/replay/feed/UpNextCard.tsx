@@ -47,21 +47,16 @@ export function UpNextCard({ next, countdown, onPlay, onCancel, onReplay }: UpNe
             return undefined
         }
         progress.value = 0
-        progress.value = withTiming(
-            1,
-            { duration: reduceMotion ? 0 : UP_NEXT_COUNTDOWN_MS, easing: Easing.linear },
-            (finished) => {
-                if (finished) {
-                    scheduleOnRN(onPlay)
-                }
-            }
-        )
-        // Reduce motion skips the animation, so a timer keeps the 3 s wait.
-        const timer = reduceMotion ? setTimeout(onPlay, UP_NEXT_COUNTDOWN_MS) : undefined
-        return () => {
-            cancelAnimation(progress)
-            clearTimeout(timer)
+        if (reduceMotion) {
+            const timer = setTimeout(onPlay, UP_NEXT_COUNTDOWN_MS)
+            return () => clearTimeout(timer)
         }
+        progress.value = withTiming(1, { duration: UP_NEXT_COUNTDOWN_MS, easing: Easing.linear }, (finished) => {
+            if (finished) {
+                scheduleOnRN(onPlay)
+            }
+        })
+        return () => cancelAnimation(progress)
     }, [next, countdown, onPlay, progress, reduceMotion])
 
     const ringProps = useAnimatedProps(() => ({ strokeDashoffset: CIRCUMFERENCE * (1 - progress.value) }))

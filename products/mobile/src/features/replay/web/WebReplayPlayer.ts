@@ -44,8 +44,10 @@ export class WebReplayPlayer implements FeedPlayer {
     private pageLoaded = false
     private initSent = false
     private blocks: SnapshotBlock[] | null = null
+    private listingError: string | null = null
     private queue: PhoneHostCommand[] = []
     private controller = new AbortController()
+    private rangeController = new AbortController()
     private preparedKey: string | null = null
     private preparedAt = Date.now()
     private framed = false
@@ -114,7 +116,7 @@ export class WebReplayPlayer implements FeedPlayer {
         this.time = startSeconds
         this.playing = play
         this.mark('prepare', { startSeconds })
-        this.setStatus('loading')
+        this.setStatus(this.listingError ? 'error' : 'loading')
         this.send({
             type: 'prepare',
             targetTs: this.startMs + startSeconds * 1000,
@@ -168,16 +170,19 @@ export class WebReplayPlayer implements FeedPlayer {
 
     destroy(): void {
         this.controller.abort()
+        this.rangeController.abort()
         this.listeners.clear()
         this.firstFrameListeners.clear()
         this.page = null
     }
 
-    /** The WebView's content process died; the page reloads, so the player starts over from the prepared point. */
     restart(): void {
+        this.rangeController.abort()
+        this.rangeController = new AbortController()
         this.pageLoaded = false
         this.initSent = false
-        this.prepareAgain()
+        this.queue = []
+        this.prepareAgain(this.time)
     }
 
     /**
@@ -186,18 +191,19 @@ export class WebReplayPlayer implements FeedPlayer {
      */
     retry(): void {
         this.errorMessage = null
-        if (this.blocks === null) {
+        if (this.listingError) {
+            this.listingError = null
             void this.loadBlocks()
         }
         this.prepareAgain()
     }
 
-    private prepareAgain(): void {
+    private prepareAgain(resumeAt?: number): void {
         const key = this.preparedKey
         this.preparedKey = null
         if (key) {
             const [start, end] = key.split(':')
-            this.prepare(Number(start), end === 'null' ? null : Number(end), this.playing)
+            this.prepare(resumeAt ?? Number(start), end === 'null' ? null : Number(end), this.playing)
         }
     }
 
@@ -313,7 +319,7 @@ export class WebReplayPlayer implements FeedPlayer {
     }
 
     private flush(): void {
-        if (!this.page || !this.pageLoaded || !this.blocks) {
+        if (!this.page || !this.pageLoaded || !this.blocks?.length) {
             return
         }
         if (!this.initSent) {
@@ -338,29 +344,35 @@ export class WebReplayPlayer implements FeedPlayer {
     private async loadBlocks(): Promise<void> {
         this.mark('listRequested')
         try {
-            this.blocks = await fetchSnapshotBlocks(this.sessionId, this.controller.signal)
-            this.mark('listReceived', { blocks: this.blocks.length })
-            if (this.blocks.length === 0) {
-                this.errorMessage = 'This recording has no playback data yet.'
-                this.setStatus('error')
+            const blocks = await fetchSnapshotBlocks(this.sessionId, this.controller.signal)
+            this.mark('listReceived', { blocks: blocks.length })
+            if (blocks.length === 0) {
+                this.setListingError('This recording has no playback data yet.')
                 return
             }
+            this.blocks = blocks
             this.flush()
         } catch (error) {
             if (!this.controller.signal.aborted) {
-                this.errorMessage = actionErrorMessage(error)
-                this.setStatus('error')
+                this.setListingError(actionErrorMessage(error))
             }
         }
     }
 
+    private setListingError(message: string): void {
+        this.listingError = message
+        this.errorMessage = message
+        this.setStatus('error')
+    }
+
     private async loadRange(requestId: number, from: number, to: number): Promise<void> {
+        const { signal } = this.rangeController
         this.mark('rangeRequested', { from, to })
         try {
-            const text = await fetchSnapshotRange(this.sessionId, from, to, this.controller.signal)
+            const text = await fetchSnapshotRange(this.sessionId, from, to, signal)
             this.mark('rangeReceived', { chars: text.length })
             const page = this.page
-            if (!page || this.controller.signal.aborted) {
+            if (!page || signal.aborted) {
                 return
             }
             for (let offset = 0; offset < text.length || offset === 0; offset += CHUNK_CHARACTERS) {
@@ -376,7 +388,7 @@ export class WebReplayPlayer implements FeedPlayer {
             }
             this.mark('handedOff')
         } catch (error) {
-            if (!this.controller.signal.aborted) {
+            if (!signal.aborted) {
                 this.page?.inject(
                     commandScript({ type: 'blocksFailed', requestId, message: actionErrorMessage(error) })
                 )

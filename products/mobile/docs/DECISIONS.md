@@ -443,8 +443,9 @@ See [DATA.md](DATA.md) for the endpoint map and every adapter rule.
   sources listing and `blob_v2` block ranges with its own token (`session_recording:read`) and hands the page their text;
   the page loads only the blocks from the last full snapshot before the moment. The page script is built from
   `common/replay-headless` and `common/replay-shared` by `node common/replay-headless/build-phone.mjs` into
-  `src/features/replay/web/phonePlayer.generated.js` (gitignored, read as a string through `metro.transformer.js`), so run it
-  before bundling. Bundling with `EXPO_PUBLIC_REPLAY_FEED_PLAYER=video` selects the MP4 export player instead.
+  the checked-in `src/features/replay/web/phonePlayer.generated.replay` asset. Metro reads it as a string, so mobile-only
+  checkouts can build without the root workspace. Regenerate it when the player changes and use `build:phone --check`
+  to verify the asset matches its source. Bundling with `EXPO_PUBLIC_REPLAY_FEED_PLAYER=video` selects the MP4 export player instead.
 - **The Chat button matches the report's.** A round ink button with the compose glyph, bottom right, the one agent
   verb on the screen. It opens the chat with `RECORDING_OBJECT_TYPE` and the person label plus the date.
 - **No "Play from" in the frame sheet.** A play button would be a second way to the replay, next to the one in the

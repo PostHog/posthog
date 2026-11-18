@@ -143,8 +143,9 @@ interface CachedMoments {
 }
 
 export function ReplayFeedScreen(): ReactElement {
+    const scope = useRenderQueue((state) => state.scope)
     return (
-        <OverlayHost>
+        <OverlayHost key={scope}>
             <FeedContent />
         </OverlayHost>
     )
@@ -201,23 +202,22 @@ function FeedContent(): ReactElement {
     const timelineQueries = useQueries({
         queries: windowItems.map((item) => feedTimelineQuery(scope, item, ready)),
     })
+    const retainedSessions = useMemo(() => new Set(items?.map((item) => item.recording.sessionId)), [items])
     const knownTimelines = useRef<ReadonlyMap<string, FeedTimeline>>(new Map())
     const timelinesVersion = timelineQueries.map((query) => query.dataUpdatedAt).join(',')
     // A recording keeps the events it loaded after it leaves the window, so its card count never shrinks back.
     // biome-ignore lint/correctness/useExhaustiveDependencies: the queries change when their version does.
     const timelines = useMemo((): ReadonlyMap<string, FeedTimeline> => {
-        let next = knownTimelines.current
+        const next = new Map([...knownTimelines.current].filter(([id]) => retainedSessions.has(id)))
         timelineQueries.forEach((query, position) => {
             const sessionId = windowItems[position]?.recording.sessionId
-            if (sessionId && query.data && next.get(sessionId) !== query.data) {
-                const copy = new Map(next)
-                copy.set(sessionId, query.data)
-                next = copy
+            if (sessionId && query.data) {
+                next.set(sessionId, query.data)
             }
         })
         knownTimelines.current = next
         return next
-    }, [timelinesVersion, windowItems])
+    }, [timelinesVersion, windowItems, retainedSessions])
 
     const momentCache = useRef(new Map<string, CachedMoments>())
     // Written in the same step as the unit, never apart from it. The unit lives in a store that renders at once, so
@@ -225,6 +225,11 @@ function FeedContent(): ReactElement {
     // remount with a new page.
     const keyOverrides = useRef<ReadonlyMap<string, KeyOverride>>(new Map())
     const rows = useMemo((): FeedRow[] | undefined => {
+        for (const id of momentCache.current.keys()) {
+            if (!retainedSessions.has(id)) {
+                momentCache.current.delete(id)
+            }
+        }
         if (!items) {
             return undefined
         }
@@ -261,7 +266,7 @@ function FeedContent(): ReactElement {
             }
         }
         return grouped
-    }, [items, unit, timelines, source])
+    }, [items, unit, timelines, source, retainedSessions])
     const cards = useMemo(() => rows?.flatMap((row) => row.cards), [rows])
     const cardsRef = useRef(cards)
     cardsRef.current = cards
@@ -279,7 +284,8 @@ function FeedContent(): ReactElement {
     const [sources, setSources] = useState<ReadonlyMap<number, PoolSource>>(() => new Map())
     const onSource = useCallback((index: number, next: PoolSource | null): void => {
         setSources((previous) => {
-            if (previous.get(index)?.key === next?.key) {
+            const current = previous.get(index)
+            if (current?.key === next?.key && current?.source === next?.source) {
                 return previous
             }
             const map = new Map(previous)
@@ -824,10 +830,18 @@ function FeedContent(): ReactElement {
     } else if (rows.length === 0) {
         body = (
             <FeedState
-                title={emptyTitle(source)}
-                message={emptyMessage(source, feed.stillRecording)}
-                actionLabel={source === 'newest' ? 'Refresh' : 'Show newest'}
-                onAction={source === 'newest' ? () => void feed.refresh() : () => changeSource('newest')}
+                title={feed.pageError ? "Couldn't load more recordings" : emptyTitle(source)}
+                message={
+                    feed.pageError ? 'Check your connection and try again.' : emptyMessage(source, feed.stillRecording)
+                }
+                actionLabel={feed.pageError ? 'Try again' : source === 'newest' ? 'Refresh' : 'Show newest'}
+                onAction={
+                    feed.pageError
+                        ? feed.retryMore
+                        : source === 'newest'
+                          ? () => void feed.refresh()
+                          : () => changeSource('newest')
+                }
             />
         )
     } else {
@@ -868,6 +882,14 @@ function FeedContent(): ReactElement {
             <Stack.Screen options={{ fullScreenGestureEnabled: false }} />
             <StatusBar style={sessionsOpen ? 'dark' : 'light'} />
             {body}
+            {feed.pageError && rows && rows.length > 0 && currentIndex >= (cards?.length ?? 0) - LOAD_AHEAD ? (
+                <View style={[styles.pageError, { top: insets.top + 56 }]}>
+                    <Text style={styles.chipText}>Couldn't load more recordings.</Text>
+                    <Pressable44 onPress={feed.retryMore} style={styles.pageRetry} testID="feed-retry-more">
+                        <Text style={styles.chipText}>Try again</Text>
+                    </Pressable44>
+                </View>
+            ) : null}
             <Animated.View
                 style={[styles.chrome, { top: insets.top + 4 }, chromeStyle]}
                 pointerEvents={holding ? 'none' : 'box-none'}
@@ -909,11 +931,18 @@ function FeedContent(): ReactElement {
                     closeSessions(false)
                     if (next !== source) {
                         changeSource(next)
-                    } else if (sessionId === null) {
-                        // Play all on the source the feed already plays starts it again from its first recording.
-                        setCurrentKey(cards?.[0]?.key ?? null)
+                        setStartWith(sessionId)
+                        return
                     }
-                    setStartWith(sessionId)
+                    const target =
+                        sessionId === null
+                            ? cards?.[0]
+                            : cards?.find((card) => card.first && card.item.recording.sessionId === sessionId)
+                    if (target && target.key === currentCard?.key) {
+                        handles.current.get(target.key)?.playSelection(sessionId === null)
+                    } else if (target) {
+                        setCurrentKey(target.key)
+                    }
                 }}
                 onClose={() => closeSessions(true)}
             />
@@ -1014,6 +1043,16 @@ const glassPill = {
 }
 
 const useStyles = createStyles(() => ({
+    pageError: {
+        position: 'absolute',
+        alignSelf: 'center',
+        backgroundColor: feedColors.glassStrong,
+        paddingStart: 12,
+        borderRadius: 16,
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    pageRetry: { paddingHorizontal: 12 },
     screen: {
         flex: 1,
         backgroundColor: feedColors.stage,

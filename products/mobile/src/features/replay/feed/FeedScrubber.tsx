@@ -41,6 +41,7 @@ interface FeedScrubberProps {
     onScrub: (seconds: number) => void
     onScrubEnd: (seconds: number, tick: ScrubberTick | null) => void
     onScrubStart?: () => void
+    onScrubCancel: () => void
     /** The card on screen: its range and markers get timing marks in a measuring build. */
     measured?: boolean
 }
@@ -63,6 +64,7 @@ export function FeedScrubber({
     onScrub,
     onScrubEnd,
     onScrubStart,
+    onScrubCancel,
     measured = false,
 }: FeedScrubberProps): ReactElement {
     const styles = useStyles()
@@ -101,6 +103,10 @@ export function FeedScrubber({
         },
         [onScrubEnd, ticks]
     )
+    const cancel = useCallback((): void => {
+        setLabel(null)
+        onScrubCancel()
+    }, [onScrubCancel])
     const begin = useCallback((): void => onScrubStart?.(), [onScrubStart])
 
     function secondsAt(x: number): number {
@@ -151,13 +157,13 @@ export function FeedScrubber({
             scheduleOnRN(onScrub, seconds)
             scheduleOnRN(showLabel, seconds, snapped.value)
         })
-        .onFinalize((event) => {
+        .onFinalize((event, success) => {
             'worklet'
             touched.value = withTiming(0, { duration: 200 })
             scrubbing.value = false
             // A vertical swipe that started on the bar pages the feed instead.
-            if (Math.abs(event.translationY) > 24) {
-                scheduleOnRN(setLabel, null)
+            if (!success || Math.abs(event.translationY) > 24) {
+                scheduleOnRN(cancel)
                 return
             }
             scheduleOnRN(finish, secondsAt(event.x), snapped.value)

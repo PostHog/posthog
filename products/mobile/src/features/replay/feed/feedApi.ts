@@ -1,7 +1,7 @@
 import { apiJson, projectPath } from '@/api/client'
 import { runQuery } from '@/api/query'
 import type { RecordingsListApi } from '@/api/recordings'
-import { fetchWatchFeed, type ObservationListApi } from '@/api/replayVision'
+import { fetchWatchFeed } from '@/api/replayVision'
 
 import type { FeedSource } from './feedModel'
 
@@ -112,13 +112,6 @@ async function fetchHighlightRecordings(after: string | undefined, signal?: Abor
         has_next: Boolean(next),
         next_cursor: next,
     }
-}
-
-export async function fetchFeedObservations(sessionIds: readonly string[], signal?: AbortSignal) {
-    return apiJson<ObservationListApi>(projectPath('vision/observations/'), {
-        query: { session_id: sessionIds.join(',') },
-        signal,
-    })
 }
 
 export const FEED_EVENT_COLUMNS = [

@@ -191,14 +191,14 @@ function SessionsList({ source, playingSession, bottomInset, onPlay }: SessionsL
         [items, signals, source, now]
     )
 
-    if (items === undefined && feed.error) {
+    if ((items === undefined && feed.error) || (rows.length === 0 && feed.pageError)) {
         return (
             <View style={styles.state} testID="feed-sources-error">
                 <Text style={styles.stateText}>
                     Couldn't load these recordings. Check your connection and try again.
                 </Text>
                 <Pressable44
-                    onPress={feed.retry}
+                    onPress={feed.pageError ? feed.retryMore : feed.retry}
                     accessibilityLabel="Try again"
                     style={styles.retry}
                     pressedBackground={colors.pressed}
@@ -261,7 +261,21 @@ function SessionsList({ source, playingSession, bottomInset, onPlay }: SessionsL
                 </Pressable44>
             }
             ListFooterComponent={
-                feed.hasMore ? <ActivityIndicator style={styles.more} color={colors.secondary} /> : undefined
+                feed.loadingMore ? (
+                    <ActivityIndicator style={styles.more} color={colors.secondary} />
+                ) : feed.pageError ? (
+                    <View style={styles.state}>
+                        <Text style={styles.stateText}>Couldn't load more recordings.</Text>
+                        <Pressable44
+                            onPress={feed.retryMore}
+                            style={styles.retry}
+                            pressedBackground={colors.pressed}
+                            testID="feed-sources-retry-more"
+                        >
+                            <Text style={styles.retryText}>Try again</Text>
+                        </Pressable44>
+                    </View>
+                ) : undefined
             }
             onEndReached={feed.loadMore}
             onEndReachedThreshold={1.5}

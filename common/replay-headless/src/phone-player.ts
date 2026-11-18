@@ -32,6 +32,7 @@ const LOOKBACK_MS = 5 * 60 * 1000 + 15_000
 const AHEAD_MS = 30_000
 const BUFFER_AHEAD_MS = 20_000
 const BUFFER_BLOCKS = 12
+const HISTORY_BLOCKS = 24
 const BACKFILL_BLOCKS = 30
 /** The snapshots endpoint accepts `end_blob_key - start_blob_key <= 100` for a session or OAuth caller. */
 const MAX_RANGE_BLOCKS = 101
@@ -41,6 +42,7 @@ const MIN_SKIP_MS = 1000
 interface Target {
     ts: number
     endTs: number | null
+    windowId?: number
 }
 
 interface ActiveReplayer {
@@ -85,6 +87,11 @@ class PhonePlayer {
     private skipInactivity = true
     private active: ActiveReplayer | null = null
     private segments: RecordingSegment[] = []
+    private segmentSnapshots: RecordingSnapshot[] = []
+    private windowEnds = new Map<number, number>()
+    private checkpoint: { index: number; timestamp: number } | null = null
+    private appending = false
+    private buffering = false
     private lastTimeReport = 0
     private endReported = false
     private firstFrameReported = false
@@ -137,7 +144,7 @@ class PhonePlayer {
                 if (ts === undefined) {
                     return
                 }
-                this.target = { ts: this.target?.ts ?? ts, endTs: command.endTs }
+                this.target = { ...this.target, ts: this.target?.ts ?? ts, endTs: command.endTs }
                 if (command.endTs === null || command.endTs > ts) {
                     this.endReported = false
                 }
@@ -145,11 +152,7 @@ class PhonePlayer {
                 return
             }
             case 'seek':
-                if (this.target) {
-                    this.target = { ...this.target, ts: command.ts }
-                } else {
-                    this.target = { ts: command.ts, endTs: null }
-                }
+                this.target = { ts: command.ts, endTs: this.target?.endTs ?? null }
                 this.endReported = false
                 this.moveTo(command.ts)
                 return
@@ -212,7 +215,13 @@ class PhonePlayer {
     }
 
     private moveTo(ts: number): void {
-        if (this.covers(ts) && this.active && !this.building) {
+        const windowId = this.windowAt(ts)
+        if (
+            this.covers(ts) &&
+            this.active &&
+            !this.building &&
+            (windowId === null || this.active.windowId === windowId)
+        ) {
             const offset = ts - this.active.firstTs
             if (this.wantPlaying) {
                 this.active.replayer.play(offset)
@@ -220,6 +229,7 @@ class PhonePlayer {
                 this.active.replayer.pause(offset)
             }
             this.awaitingTarget = false
+            this.buffering = false
             this.reportTime(true)
             post({ type: 'status', status: 'readyToPlay' })
             this.reportFirstFrame()
@@ -295,19 +305,18 @@ class PhonePlayer {
             this.requested.delete(index)
         }
         mark('parsed', { requestId, events: snapshots.length, lines: lines.length })
-        void this.afterLoad(request.from)
+        void this.afterLoad()
     }
 
-    private async afterLoad(from: number): Promise<void> {
-        const active = this.active
-        if (active && !this.building && from === active.throughIndex + 1) {
-            await this.append()
-            if (this.awaitingTarget && this.target) {
-                this.moveTo(this.target.ts)
-            }
+    private async afterLoad(): Promise<void> {
+        if (this.building || this.appending || this.failed) {
             return
         }
-        this.ensure()
+        if (!this.active || this.awaitingTarget) {
+            this.ensure()
+            return
+        }
+        await this.append()
     }
 
     private contiguousThrough(index: number): number {
@@ -335,11 +344,11 @@ class PhonePlayer {
 
     private ensure(): void {
         const target = this.target
-        if (!target || this.sources.length === 0 || this.building || this.failed) {
+        if (!target || this.sources.length === 0 || this.building || this.appending || this.failed) {
             return
         }
         const targetIndex = this.indexAt(target.ts)
-        const endIndex = this.indexAt(target.endTs ?? target.ts + AHEAD_MS)
+        const endIndex = Math.max(targetIndex, this.indexAt(Math.min(target.endTs ?? Infinity, target.ts + AHEAD_MS)))
         if (!this.loaded.has(targetIndex)) {
             const lookIndex = this.sources.findIndex((source) => source.endTs >= target.ts - LOOKBACK_MS)
             this.request(Math.max(0, Math.min(lookIndex, targetIndex)), endIndex)
@@ -352,7 +361,7 @@ class PhonePlayer {
         while (low > 0 && this.loaded.has(low - 1)) {
             low -= 1
         }
-        const windowId = this.ownerWindow(target.ts, low, endIndex)
+        const windowId = target.windowId ?? this.windowAt(target.ts) ?? this.ownerWindow(target.ts, low, endIndex)
         if (windowId === null) {
             this.fail(new Error('no_snapshots'))
             return
@@ -417,9 +426,13 @@ class PhonePlayer {
             return
         }
         this.building = true
+        let replaced = false
         try {
             const throughIndex = this.contiguousThrough(fromIndex)
             const snapshots = await this.processed(fromIndex, throughIndex)
+            if (this.target?.ts !== target.ts || this.target.windowId !== target.windowId) {
+                return
+            }
             mark('processed', { fromIndex, throughIndex, events: snapshots.length })
             const windowEvents = mapSnapshotsToWindowId(snapshots)[windowId] ?? []
             let fullIndex = -1
@@ -451,15 +464,19 @@ class PhonePlayer {
                 throughIndex,
                 (windowEvents[fullIndex] as eventWithTime).timestamp
             )
-            this.segments = mergeInactiveSegments(
-                createSegments(snapshots, snapshots[0]?.timestamp ?? null, snapshots.at(-1)?.timestamp ?? null, null, {
-                    [windowId]: events,
-                })
-            )
+            this.segmentSnapshots = snapshots
+            this.updateSegments()
+            this.trimHistory(fromIndex, throughIndex)
+            this.checkpoint = null
+            this.findCheckpoint()
+            replaced = true
         } catch (error) {
             this.fail(error)
         } finally {
             this.building = false
+            if (replaced || this.awaitingTarget) {
+                void this.afterLoad()
+            }
         }
     }
 
@@ -499,11 +516,12 @@ class PhonePlayer {
             fullSnapshotTs,
             fromIndex,
             throughIndex,
-            lastTs: (events.at(-1) as eventWithTime).timestamp,
+            lastTs: (events[events.length - 1] as eventWithTime).timestamp,
             rebuiltForMissingHead: false,
         }
         this.active = active
         this.awaitingTarget = false
+        this.buffering = false
         let rebuilt = false
         replayer.on('fullsnapshot-rebuilded', () => {
             if (!rebuilt) {
@@ -543,6 +561,67 @@ class PhonePlayer {
         )
     }
 
+    private updateSegments(): void {
+        const snapshots = this.segmentSnapshots
+        const windows = mapSnapshotsToWindowId(snapshots)
+        this.windowEnds = new Map(
+            Object.entries(windows).map(([id, events]) => [
+                Number(id),
+                events[events.length - 1]?.timestamp ?? -Infinity,
+            ])
+        )
+        this.segments = mergeInactiveSegments(
+            createSegments(
+                snapshots,
+                snapshots[0]?.timestamp ?? null,
+                snapshots[snapshots.length - 1]?.timestamp ?? null,
+                null,
+                windows
+            )
+        )
+    }
+
+    private windowAt(ts: number): number | null {
+        return (
+            this.segments.find(
+                (segment) => segment.isActive && segment.startTimestamp <= ts && ts <= segment.endTimestamp
+            )?.windowId ?? null
+        )
+    }
+
+    private trimHistory(from: number, through: number): void {
+        for (const index of this.loaded.keys()) {
+            if (index < from || index > through + BUFFER_BLOCKS) {
+                this.loaded.delete(index)
+                const source: SessionRecordingSnapshotSource = {
+                    source: SnapshotSourceType.blob_v2,
+                    blob_key: String(index),
+                }
+                delete this.cache.snapshots[keyForSource(source)]
+            }
+        }
+    }
+
+    private findCheckpoint(fromIndex = 0): void {
+        const active = this.active
+        if (!active || this.checkpoint) {
+            return
+        }
+        for (
+            let index = Math.max(fromIndex, active.fromIndex + HISTORY_BLOCKS);
+            index <= active.throughIndex;
+            index++
+        ) {
+            const full = this.loaded
+                .get(index)
+                ?.find((event) => event.windowId === active.windowId && event.type === EventType.FullSnapshot)
+            if (full) {
+                this.checkpoint = { index, timestamp: full.timestamp }
+                return
+            }
+        }
+    }
+
     private async append(): Promise<void> {
         const active = this.active
         if (!active) {
@@ -550,35 +629,86 @@ class PhonePlayer {
         }
         const through = this.contiguousThrough(active.throughIndex)
         if (through === active.throughIndex) {
+            this.trimHistory(active.fromIndex, active.throughIndex)
             return
         }
-        const snapshots = await this.processed(active.fromIndex, through)
-        const added = (mapSnapshotsToWindowId(snapshots)[active.windowId] ?? []).filter(
-            (event) => event.timestamp > active.lastTs
-        )
-        for (const event of added) {
-            active.replayer.addEvent(event)
-        }
-        active.throughIndex = through
-        active.lastTs = added.at(-1)?.timestamp ?? active.lastTs
-        this.segments = mergeInactiveSegments(
-            createSegments(snapshots, snapshots[0]?.timestamp ?? null, snapshots.at(-1)?.timestamp ?? null, null, {
-                [active.windowId]: mapSnapshotsToWindowId(snapshots)[active.windowId] ?? [],
-            })
-        )
-        mark('appended', { events: added.length, throughIndex: through })
-        if (this.wantPlaying && !this.endReported) {
-            active.replayer.play(active.replayer.getCurrentTime())
+
+        this.appending = true
+        try {
+            const firstNewBlock = active.throughIndex + 1
+            const snapshots = await this.processed(firstNewBlock, through)
+            for (const snapshot of snapshots) {
+                this.segmentSnapshots.push(snapshot)
+                if (snapshot.windowId === active.windowId && snapshot.timestamp >= active.lastTs) {
+                    active.replayer.addEvent(snapshot)
+                }
+            }
+            active.throughIndex = through
+            const previousEnd = active.lastTs
+            this.updateSegments()
+            active.lastTs = Math.max(previousEnd, this.windowEnds.get(active.windowId) ?? previousEnd)
+            this.findCheckpoint(firstNewBlock)
+            if (this.awaitingTarget) {
+                return
+            }
+            mark('appended', { events: snapshots.length, throughIndex: through })
+            if (this.buffering && active.lastTs > previousEnd) {
+                this.buffering = false
+                post({ type: 'status', status: 'readyToPlay' })
+                if (this.wantPlaying && !this.endReported) {
+                    active.replayer.play(Math.max(0, previousEnd - active.firstTs))
+                }
+            } else if (this.buffering) {
+                this.continueAfterWindow(active)
+            }
+        } catch (error) {
+            this.fail(error)
+        } finally {
+            this.appending = false
+            if (this.awaitingTarget || this.contiguousThrough(through) > through) {
+                void this.afterLoad()
+            }
         }
     }
 
+    private switchWindow(windowId: number, timestamp: number): void {
+        this.active?.replayer.pause()
+        this.target = { ts: timestamp, endTs: this.target?.endTs ?? null, windowId }
+        this.awaitingTarget = true
+        this.ensure()
+    }
+
     private onFinish(active: ActiveReplayer): void {
-        if (active !== this.active) {
-            return
+        if (active === this.active && this.wantPlaying && !this.building && !this.endReported) {
+            this.continueAfterWindow(active)
         }
-        if (active.throughIndex < this.sources.length - 1) {
-            post({ type: 'status', status: 'loading' })
-            this.request(active.throughIndex + 1, active.throughIndex + BUFFER_BLOCKS)
+    }
+
+    private continueAfterWindow(active: ActiveReplayer): void {
+        const end = this.target?.endTs
+        for (const segment of this.segments) {
+            const windowId = segment.windowId
+            const resumeAt = Math.max(active.lastTs, segment.startTimestamp)
+            if (
+                segment.kind === 'window' &&
+                windowId != null &&
+                windowId !== active.windowId &&
+                segment.endTimestamp > active.lastTs &&
+                (this.windowEnds.get(windowId) ?? -Infinity) > resumeAt &&
+                (end == null || resumeAt < end)
+            ) {
+                this.switchWindow(windowId, resumeAt)
+                return
+            }
+        }
+
+        const last = end == null ? this.sources.length - 1 : this.indexAt(end)
+        if (active.throughIndex < last) {
+            if (!this.buffering) {
+                this.buffering = true
+                post({ type: 'status', status: 'loading' })
+            }
+            this.request(active.throughIndex + 1, Math.min(last, active.throughIndex + BUFFER_BLOCKS))
             return
         }
         this.reportEnd()
@@ -589,6 +719,10 @@ class PhonePlayer {
             return
         }
         this.endReported = true
+        if (this.buffering) {
+            this.buffering = false
+            post({ type: 'status', status: 'readyToPlay' })
+        }
         this.wantPlaying = false
         this.active?.replayer.pause()
         this.reportTime(true)
@@ -619,13 +753,30 @@ class PhonePlayer {
         requestAnimationFrame(() => this.tick())
         const active = this.active
         const ts = this.currentTs()
-        if (!active || ts === null || this.building || !this.wantPlaying || this.endReported) {
+        if (!active || ts === null || this.building || this.awaitingTarget || !this.wantPlaying || this.endReported) {
             return
         }
         const target = this.target
         if (target?.endTs != null && ts >= target.endTs) {
             this.reportEnd()
             return
+        }
+        if (this.buffering) {
+            return
+        }
+        if (!this.appending) {
+            const windowId = this.windowAt(ts)
+            if (windowId !== null && windowId !== active.windowId) {
+                this.switchWindow(windowId, ts)
+                return
+            }
+            // rrweb retains its events. Rebase on a newer full snapshot before dropping the older blocks.
+            if (this.checkpoint && this.checkpoint.timestamp <= ts) {
+                this.target = { ts, endTs: target?.endTs ?? null, windowId: active.windowId }
+                active.replayer.pause()
+                void this.build(this.checkpoint.index, active.windowId)
+                return
+            }
         }
         if (this.skipInactivity) {
             const gap = this.segments.find(

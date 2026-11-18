@@ -7,7 +7,7 @@ let bundle: string | null = null
 
 // Metro exports the built player as a string (metro.transformer.js). `node common/replay-headless/build-phone.mjs` writes it.
 function playerBundle(): string {
-    bundle ??= inlineScriptSource(require('./phonePlayer.generated.js') as string)
+    bundle ??= inlineScriptSource(require('./phonePlayer.generated.replay') as string)
     return bundle
 }
 

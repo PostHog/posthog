@@ -1,5 +1,5 @@
 import { type ReactElement, type ReactNode, useEffect, useMemo, useRef } from 'react'
-import { Image, type LayoutChangeEvent, ScrollView, type ScrollViewInstance, Switch, Text, View } from 'react-native'
+import { FlatList, Image, Switch, Text, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 
 import { BottomSheet } from '@/ui/BottomSheet'
@@ -120,33 +120,14 @@ function SwitchRow({
     )
 }
 
-function Section({
-    label,
-    children,
-    onLayout,
-}: {
-    label: string
-    children: ReactNode
-    onLayout?: (event: LayoutChangeEvent) => void
-}): ReactElement {
+function Section({ label, children }: { label: string; children: ReactNode }): ReactElement {
     const styles = useStyles()
     return (
-        <View style={styles.section} onLayout={onLayout}>
+        <View style={styles.section}>
             <Text style={styles.sectionLabel}>{label}</Text>
             {children}
         </View>
     )
-}
-
-interface InfoLayout {
-    viewport: number | null
-    section: number | null
-    group: number | null
-    rows: Map<number, { y: number; height: number }>
-}
-
-function emptyInfoLayout(): InfoLayout {
-    return { viewport: null, section: null, group: null, rows: new Map() }
 }
 
 interface InfoSheetProps {
@@ -186,27 +167,21 @@ export function FeedInfoSheet({
     const summary = item?.summary ?? null
     const events = (timeline?.events ?? []).filter((event) => INFO_EVENT_KINDS.has(event.kind))
     const currentIndex = events.reduce((found, event, index) => (event.seconds <= nowSeconds + 0.5 ? index : found), -1)
-    const scrollRef = useRef<ScrollViewInstance>(null)
-    const layout = useRef<InfoLayout>(emptyInfoLayout())
-    const scrolled = useRef(false)
-    // Scroll only when the current event is below the fold, so the person and summary stay in view when they fit.
+    const listRef = useRef<FlatList<FeedEvent>>(null)
+    const layout = useRef({ header: 0, viewport: 0, firstRow: 0, scrolled: false })
     const scrollToCurrent = (): void => {
-        const { viewport, section, group, rows } = layout.current
-        const row = rows.get(currentIndex)
-        if (scrolled.current || currentIndex < 0 || viewport === null || section === null || group === null || !row) {
+        const { viewport, header, firstRow, scrolled } = layout.current
+        if (currentIndex < 0 || scrolled || !viewport || !header || !firstRow) {
             return
         }
-        scrolled.current = true
-        const top = section + group + row.y
-        if (top + row.height + 16 > viewport) {
-            scrollRef.current?.scrollTo({ y: Math.max(0, top - (viewport - row.height) / 2), animated: false })
+        layout.current.scrolled = true
+        if (header + (currentIndex + 1) * firstRow > viewport) {
+            listRef.current?.scrollToIndex({ index: currentIndex, animated: false, viewPosition: 0.5 })
         }
     }
-    // The sheet unmounts its content when it closes, so the next open measures again and scrolls to its own time.
     useEffect(() => {
         if (!visible) {
-            scrolled.current = false
-            layout.current = emptyInfoLayout()
+            layout.current = { header: 0, viewport: 0, firstRow: 0, scrolled: false }
         }
     }, [visible])
     const seek = (seconds: number): void => {
@@ -222,109 +197,121 @@ export function FeedInfoSheet({
             testID="feed-info-sheet"
         >
             <GestureDetector gesture={scroll}>
-                <ScrollView
-                    ref={scrollRef}
+                <FlatList
+                    ref={listRef}
+                    data={events}
+                    keyExtractor={(event) => event.key}
+                    initialNumToRender={12}
+                    windowSize={5}
                     onLayout={(event) => {
                         layout.current.viewport = event.nativeEvent.layout.height
                         scrollToCurrent()
                     }}
+                    onScrollToIndexFailed={({ index, averageItemLength }) => {
+                        const { header, viewport } = layout.current
+                        listRef.current?.scrollToOffset({
+                            offset: Math.max(0, header + averageItemLength * (index + 0.5) - viewport / 2),
+                            animated: false,
+                        })
+                    }}
                     style={{ maxHeight: height * 0.64 }}
                     contentContainerStyle={styles.infoContent}
-                >
-                    <Text style={styles.sheetTitle}>Recording</Text>
-                    <Text style={styles.infoPerson} numberOfLines={1}>
-                        {item ? item.recording.personLabel : ''}
-                    </Text>
-                    <Section label="Summary">
-                        {summary?.title ? <Text style={styles.summaryTitle}>{summary.title}</Text> : null}
-                        <Text style={summary?.text ? styles.summaryText : styles.hint}>
-                            {summary?.text ?? 'No summary yet. The events below come from the recording.'}
-                        </Text>
-                    </Section>
-                    {summary && summary.chapters.length > 0 ? (
-                        <Section label="Chapters">
-                            <View style={styles.group}>
-                                {summary.chapters.map((chapter, position) => (
-                                    <Pressable44
-                                        key={chapter.index}
-                                        onPress={() => seek(chapter.startMs / 1000)}
-                                        accessibilityLabel={`${chapter.title}, at ${formatOffset(chapter.startMs)}`}
-                                        pressedBackground={colors.pressed}
-                                        hitSlop={0}
-                                        style={[styles.chapterRow, position > 0 && styles.rowDivider]}
-                                        testID={`feed-info-chapter-${position}`}
-                                    >
-                                        <ChapterFrame observationId={summary.observationId} chapter={chapter.index} />
-                                        <View style={styles.chapterText}>
-                                            <Text style={styles.time}>{formatOffset(chapter.startMs)}</Text>
-                                            <Text style={styles.chapterTitle} numberOfLines={2}>
-                                                {chapter.title}
-                                            </Text>
-                                        </View>
-                                        {chapter.isKeyMoment ? (
-                                            <View style={[styles.keyMark, { backgroundColor: tickColors.key }]} />
-                                        ) : null}
-                                    </Pressable44>
-                                ))}
-                            </View>
-                        </Section>
-                    ) : null}
-                    <Section
-                        label={`Events · ${events.length}`}
-                        onLayout={(event) => {
-                            layout.current.section = event.nativeEvent.layout.y
-                            scrollToCurrent()
-                        }}
-                    >
+                    ListHeaderComponent={
                         <View
-                            style={styles.group}
                             onLayout={(event) => {
-                                layout.current.group = event.nativeEvent.layout.y
+                                layout.current.header = event.nativeEvent.layout.height
                                 scrollToCurrent()
                             }}
                         >
-                            {events.length === 0 ? (
-                                <Text style={[styles.hint, styles.emptyEvents]}>Loading events…</Text>
-                            ) : (
-                                events.map((event, position) => (
-                                    <Pressable44
-                                        key={event.key}
-                                        onPress={() => seek(Math.max(0, event.seconds - 1))}
-                                        accessibilityLabel={`${event.label}, at ${formatOffset(event.seconds * 1000)}`}
-                                        pressedBackground={colors.pressed}
-                                        hitSlop={0}
-                                        style={[
-                                            styles.eventRow,
-                                            position > 0 && styles.rowDivider,
-                                            position === currentIndex && styles.eventRowCurrent,
-                                        ]}
-                                        accessibilityState={{ selected: position === currentIndex }}
-                                        onLayout={(layoutEvent) => {
-                                            const { y, height: rowHeight } = layoutEvent.nativeEvent.layout
-                                            layout.current.rows.set(position, { y, height: rowHeight })
-                                            scrollToCurrent()
-                                        }}
-                                        testID={`feed-info-event-${position}`}
-                                    >
-                                        <Text style={styles.time}>{formatOffset(event.seconds * 1000)}</Text>
-                                        <EventGlyph kind={event.kind} />
-                                        <Text
-                                            style={[
-                                                styles.eventLabel,
-                                                (event.kind === 'rageclick' || event.kind === 'exception') && {
-                                                    color: colors.orange,
-                                                },
-                                            ]}
-                                            numberOfLines={2}
-                                        >
-                                            {event.label}
-                                        </Text>
-                                    </Pressable44>
-                                ))
-                            )}
+                            <Text style={styles.sheetTitle}>Recording</Text>
+                            <Text style={styles.infoPerson} numberOfLines={1}>
+                                {item ? item.recording.personLabel : ''}
+                            </Text>
+                            <Section label="Summary">
+                                {summary?.title ? <Text style={styles.summaryTitle}>{summary.title}</Text> : null}
+                                <Text style={summary?.text ? styles.summaryText : styles.hint}>
+                                    {summary?.text ?? 'No summary yet. The events below come from the recording.'}
+                                </Text>
+                            </Section>
+                            {summary && summary.chapters.length > 0 ? (
+                                <Section label="Chapters">
+                                    <View style={styles.group}>
+                                        {summary.chapters.map((chapter, position) => (
+                                            <Pressable44
+                                                key={chapter.index}
+                                                onPress={() => seek(chapter.startMs / 1000)}
+                                                accessibilityLabel={`${chapter.title}, at ${formatOffset(chapter.startMs)}`}
+                                                pressedBackground={colors.pressed}
+                                                hitSlop={0}
+                                                style={[styles.chapterRow, position > 0 && styles.rowDivider]}
+                                                testID={`feed-info-chapter-${position}`}
+                                            >
+                                                <ChapterFrame
+                                                    observationId={summary.observationId}
+                                                    chapter={chapter.index}
+                                                />
+                                                <View style={styles.chapterText}>
+                                                    <Text style={styles.time}>{formatOffset(chapter.startMs)}</Text>
+                                                    <Text style={styles.chapterTitle} numberOfLines={2}>
+                                                        {chapter.title}
+                                                    </Text>
+                                                </View>
+                                                {chapter.isKeyMoment ? (
+                                                    <View
+                                                        style={[styles.keyMark, { backgroundColor: tickColors.key }]}
+                                                    />
+                                                ) : null}
+                                            </Pressable44>
+                                        ))}
+                                    </View>
+                                </Section>
+                            ) : null}
+                            <Text style={[styles.sectionLabel, styles.eventsLabel]}>{`Events · ${events.length}`}</Text>
                         </View>
-                    </Section>
-                </ScrollView>
+                    }
+                    ListEmptyComponent={
+                        <Text style={[styles.hint, styles.group, styles.emptyEvents]}>Loading events…</Text>
+                    }
+                    renderItem={({ item: event, index }) => (
+                        <Pressable44
+                            onPress={() => seek(Math.max(0, event.seconds - 1))}
+                            accessibilityLabel={`${event.label}, at ${formatOffset(event.seconds * 1000)}`}
+                            pressedBackground={colors.pressed}
+                            hitSlop={0}
+                            style={[
+                                styles.eventRow,
+                                styles.eventGroupRow,
+                                index === 0 ? styles.eventGroupStart : styles.rowDivider,
+                                index === events.length - 1 && styles.eventGroupEnd,
+                                index === currentIndex && styles.eventRowCurrent,
+                            ]}
+                            accessibilityState={{ selected: index === currentIndex }}
+                            onLayout={
+                                index === 0
+                                    ? (event) => {
+                                          layout.current.firstRow = event.nativeEvent.layout.height
+                                          scrollToCurrent()
+                                      }
+                                    : undefined
+                            }
+                            testID={`feed-info-event-${index}`}
+                        >
+                            <Text style={styles.time}>{formatOffset(event.seconds * 1000)}</Text>
+                            <EventGlyph kind={event.kind} />
+                            <Text
+                                style={[
+                                    styles.eventLabel,
+                                    (event.kind === 'rageclick' || event.kind === 'exception') && {
+                                        color: colors.orange,
+                                    },
+                                ]}
+                                numberOfLines={2}
+                            >
+                                {event.label}
+                            </Text>
+                        </Pressable44>
+                    )}
+                />
             </GestureDetector>
             <View style={styles.infoFooter}>
                 <Pressable44
@@ -592,6 +579,23 @@ const useStyles = createStyles(({ colors }) => ({
         fontSize: 12,
         color: colors.secondary,
         minWidth: 38,
+    },
+    eventsLabel: { marginTop: 18, marginBottom: 8 },
+    eventGroupRow: {
+        borderLeftWidth: 1,
+        borderRightWidth: 1,
+        borderColor: colors.hairline,
+        backgroundColor: colors.surface,
+    },
+    eventGroupStart: {
+        borderTopWidth: 1,
+        borderTopLeftRadius: radii.card,
+        borderTopRightRadius: radii.card,
+    },
+    eventGroupEnd: {
+        borderBottomWidth: 1,
+        borderBottomLeftRadius: radii.card,
+        borderBottomRightRadius: radii.card,
     },
     eventRow: {
         flexDirection: 'row',

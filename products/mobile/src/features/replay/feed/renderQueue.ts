@@ -9,7 +9,8 @@ import {
     resolveReplayVideoSource,
     toReplayVideoError,
 } from '@/api/replayVideo'
-import { sessionGeneration } from '@/auth/tokens'
+import { useAuthStore } from '@/auth/authStore'
+import { getSessionTokens, onSessionTokensChanged, sessionGeneration } from '@/auth/tokens'
 
 import { type ReplayVideoState, renderStartedAt, waitForRender } from '../video/useReplayVideo'
 import { pickExportFor, type RenderSpec, renderKey } from './feedAdapters'
@@ -27,29 +28,51 @@ export interface RenderJob {
 
 interface RenderQueueState {
     jobs: Readonly<Record<string, RenderJob>>
-    /** The server's monthly-cap message. Once set, nothing renders again until the app restarts. */
     limitMessage: string | null
+    scope: string | null
 }
 
-/**
- * Renders live here, outside any card, so swiping away never cancels one: the poll keeps going and the video is ready
- * when the person comes back. Only a sign-out or an account switch ends a run.
- */
-export const useRenderQueue = create<RenderQueueState>(() => ({ jobs: {}, limitMessage: null }))
+function currentRenderScope(): string | null {
+    const { host, projectId } = useAuthStore.getState()
+    return host && projectId !== null && getSessionTokens()
+        ? JSON.stringify([sessionGeneration(), host, projectId])
+        : null
+}
+
+// Keep renders alive across card swipes, within the same signed-in project.
+export const useRenderQueue = create<RenderQueueState>(() => ({
+    jobs: {},
+    limitMessage: null,
+    scope: currentRenderScope(),
+}))
 
 const running = new Map<string, AbortController>()
 
-function setJob(key: string, update: Partial<RenderJob> | null): void {
+function syncRenderScope(): void {
+    const scope = currentRenderScope()
+    if (scope !== useRenderQueue.getState().scope) {
+        for (const controller of running.values()) {
+            controller.abort()
+        }
+        running.clear()
+        useRenderQueue.setState({ scope, jobs: {}, limitMessage: null })
+    }
+}
+
+useAuthStore.subscribe(syncRenderScope)
+onSessionTokensChanged((change) => {
+    if (change === 'session') {
+        syncRenderScope()
+    }
+})
+
+function setJob(key: string, update: Omit<RenderJob, 'key'> | null): void {
     useRenderQueue.setState((store) => {
         const jobs = { ...store.jobs }
         if (update === null) {
             delete jobs[key]
         } else {
-            const current = jobs[key]
-            if (!current && !update.spec) {
-                return store
-            }
-            jobs[key] = { ...(current as RenderJob), ...update, key }
+            jobs[key] = { ...update, key }
         }
         return { jobs }
     })
@@ -57,28 +80,35 @@ function setJob(key: string, update: Partial<RenderJob> | null): void {
 
 export interface StartRender {
     spec: RenderSpec
+    scope: string | null
     known: readonly ReplayVideoExport[] | null
+    reloadSource?: boolean
     allowCreate: boolean
     trigger: RenderTrigger
     viewport: Pick<ReplayVideoRender, 'width' | 'height'>
 }
 
-/** Does nothing while the same video is checking, rendering or ready, so a second tap never renders twice. */
-export function startRender({ spec, known, allowCreate, trigger, viewport }: StartRender): void {
-    const key = renderKey(spec)
-    const existing = useRenderQueue.getState().jobs[key]
-    if (running.has(key) || (existing && existing.state.status !== 'error' && existing.state.status !== 'idle')) {
+export function startRender({ spec, scope, known, allowCreate, trigger, viewport, reloadSource }: StartRender): void {
+    const store = useRenderQueue.getState()
+    if (scope === null || scope !== store.scope || scope !== currentRenderScope()) {
         return
     }
-    const generation = sessionGeneration()
+    const key = renderKey(spec)
+    const existing = store.jobs[key]
+    const needsReload = reloadSource && existing?.state.status === 'ready'
+    if (
+        running.has(key) ||
+        (!needsReload && existing && existing.state.status !== 'error' && existing.state.status !== 'idle')
+    ) {
+        return
+    }
     const controller = new AbortController()
     running.set(key, controller)
     const requestedAt = Date.now()
     let created = false
+    const isCurrent = (): boolean => running.get(key) === controller && scope === currentRenderScope()
     const report = (state: ReplayVideoState): boolean => {
-        if (sessionGeneration() !== generation) {
-            controller.abort()
-            setJob(key, null)
+        if (!isCurrent()) {
             return false
         }
         setJob(key, { spec, state, created })
@@ -86,17 +116,23 @@ export function startRender({ spec, known, allowCreate, trigger, viewport }: Sta
     }
     void (async () => {
         try {
-            let exports = known
-            if (allowCreate || exports === null) {
-                if (allowCreate) {
-                    report({ status: 'checking' })
-                }
-                exports = await listReplayVideoExports(spec.sessionId, controller.signal)
+            if (allowCreate || needsReload) {
+                report({ status: 'checking' })
+            }
+            const exports =
+                allowCreate || needsReload || known === null
+                    ? await listReplayVideoExports(spec.sessionId, controller.signal)
+                    : known
+            if (!isCurrent()) {
+                return
             }
             let asset = pickExportFor(exports, spec)
             const reused = asset !== null
             if (!asset) {
                 if (!allowCreate) {
+                    if (needsReload) {
+                        throw new ReplayVideoError('render_failed')
+                    }
                     setJob(key, null)
                     return
                 }
@@ -131,6 +167,9 @@ export function startRender({ spec, known, allowCreate, trigger, viewport }: Sta
                 }
                 asset = await waitForRender(asset.id, controller.signal)
             }
+            if (!isCurrent()) {
+                return
+            }
             const source = await resolveReplayVideoSource(asset.id, controller.signal)
             const waitedMs = Date.now() - requestedAt
             if (
@@ -147,7 +186,7 @@ export function startRender({ spec, known, allowCreate, trigger, viewport }: Sta
                 trackFeedRenderReady(spec, { waitedMs, reused })
             }
         } catch (error) {
-            if (controller.signal.aborted) {
+            if (!isCurrent()) {
                 return
             }
             const failure = toReplayVideoError(error)

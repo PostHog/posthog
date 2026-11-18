@@ -1,12 +1,12 @@
 import { build } from 'esbuild'
-import { mkdirSync, writeFileSync } from 'fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { dirname, resolve } from 'path'
 import { fileURLToPath } from 'url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 // The mobile app inlines this file into its replay WebView as a string (products/mobile/metro.transformer.js).
-// It is generated and gitignored: run this script before a mobile build that uses the WebView replay player.
-const output = resolve(__dirname, '../../products/mobile/src/features/replay/web/phonePlayer.generated.js')
+// The mobile workspace ships the generated asset so its standalone checkout can build it into the app.
+const output = resolve(__dirname, '../../products/mobile/src/features/replay/web/phonePlayer.generated.replay')
 
 const result = await build({
     entryPoints: [resolve(__dirname, 'src/phone-player.ts')],
@@ -26,5 +26,12 @@ const result = await build({
     },
 })
 
-mkdirSync(dirname(output), { recursive: true })
-writeFileSync(output, result.outputFiles[0].text)
+const bundle = result.outputFiles[0].text
+if (process.argv.includes('--check')) {
+    if (readFileSync(output, 'utf8') !== bundle) {
+        throw new Error('Run pnpm --filter @posthog/replay-headless build:phone to update the mobile replay bundle.')
+    }
+} else {
+    mkdirSync(dirname(output), { recursive: true })
+    writeFileSync(output, bundle)
+}

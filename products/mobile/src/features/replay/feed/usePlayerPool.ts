@@ -13,8 +13,9 @@ export interface PoolSource {
 interface Slot {
     index: number | null
     key: string | null
-    /** False from `replaceAsync` until it settles, so a card never seeks the video the player held before. */
+    source: ReplayVideoSource | null
     loaded: boolean
+    failed: boolean
 }
 
 function setUp(player: VideoPlayer): void {
@@ -37,18 +38,36 @@ export function usePlayerPool(
     const second = useVideoPlayer(null, setUp)
     const third = useVideoPlayer(null, setUp)
     const players = useMemo(() => [first, second, third], [first, second, third])
-    const slots = useRef<Slot[]>(players.map(() => ({ index: null, key: null, loaded: false })))
+    const slots = useRef<Slot[]>(
+        players.map(() => ({ index: null, key: null, source: null, loaded: false, failed: false }))
+    )
     const [assigned, setAssigned] = useState<ReadonlyMap<number, PoolPlayer>>(() => new Map())
     const [loads, setLoads] = useState(0)
+
+    useEffect(() => {
+        const subscriptions = players.map((player, index) =>
+            player.addListener('statusChange', ({ status }) => {
+                const slot = slots.current[index]
+                if (status === 'error' && slot?.loaded) {
+                    slot.loaded = false
+                    slot.failed = true
+                    setLoads((count) => count + 1)
+                }
+            })
+        )
+        return () => {
+            for (const subscription of subscriptions) {
+                subscription.remove()
+            }
+        }
+    }, [players])
 
     // biome-ignore lint/correctness/useExhaustiveDependencies: `loads` republishes the map when a source finishes loading.
     useEffect(() => {
         // The card on screen first, then the next one, which auto-advance and the usual swipe go to.
         const wanted = [current, current + 1, current - 1].filter((index) => sources.has(index))
         const next = slots.current.map((slot) =>
-            slot.index !== null && wanted.includes(slot.index)
-                ? { ...slot }
-                : { index: null, key: slot.key, loaded: slot.loaded }
+            slot.index !== null && wanted.includes(slot.index) ? { ...slot } : { ...slot, index: null }
         )
         for (const index of wanted) {
             if (next.some((slot) => slot.index === index)) {
@@ -66,33 +85,39 @@ export function usePlayerPool(
                 player.pause()
                 return
             }
-            if (want.key !== slot.key) {
-                const key = want.key
+            if (want.key !== slot.key || want.source !== slot.source) {
+                const { key, source } = want
                 slot.key = key
+                slot.source = source
                 slot.loaded = false
+                slot.failed = false
                 player.pause()
-                player
-                    .replaceAsync(toVideoSource(want.source))
-                    .catch(() => undefined)
-                    .finally(() => {
-                        const latest = slots.current[position]
-                        if (latest?.key === key) {
-                            latest.loaded = true
-                            setLoads((count) => count + 1)
-                        }
-                    })
+                const settle = (loaded: boolean): void => {
+                    const latest = slots.current[position]
+                    if (latest?.key === key && latest.source === source) {
+                        latest.loaded = loaded
+                        latest.failed = !loaded
+                        setLoads((count) => count + 1)
+                    }
+                }
+                void player.replaceAsync(toVideoSource(source)).then(
+                    () => settle(player.status !== 'error'),
+                    () => settle(false)
+                )
             }
         })
         slots.current = next
         setAssigned((previous) => {
             const map = new Map<number, PoolPlayer>()
             next.forEach((slot, position) => {
-                if (slot.index !== null && slot.key !== null) {
+                if (slot.index !== null && slot.key !== null && slot.source !== null) {
                     map.set(slot.index, {
                         kind: 'video',
                         player: players[position] as VideoPlayer,
                         key: slot.key,
+                        source: slot.source,
                         loaded: slot.loaded,
+                        failed: slot.failed,
                     })
                 }
             })
@@ -100,7 +125,15 @@ export function usePlayerPool(
                 previous.size === map.size &&
                 [...map].every(([index, entry]) => {
                     const old = previous.get(index)
-                    return old?.player === entry.player && old.key === entry.key && old.loaded === entry.loaded
+                    return (
+                        old?.kind === 'video' &&
+                        entry.kind === 'video' &&
+                        old.player === entry.player &&
+                        old.key === entry.key &&
+                        old.source === entry.source &&
+                        old.loaded === entry.loaded &&
+                        old.failed === entry.failed
+                    )
                 })
             return same ? previous : map
         })

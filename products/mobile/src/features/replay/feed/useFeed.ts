@@ -10,21 +10,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { RecordingApi, RecordingsListApi } from '@/api/recordings'
 import { listRecentReplayVideoExports, type ReplayVideoExport } from '@/api/replayVideo'
+import { fetchSessionObservations } from '@/api/replayVision'
 import { type ProjectScope, retryUnlessMissing, scopeKey } from '@/api/reports'
+import { sessionGeneration } from '@/auth/tokens'
 import { reportScopeError } from '@/features/views/useViewsAccess'
 import { toError } from '@/lib/errors'
 
 import { useReplayContext } from '../hooks'
 import { recordingView, summaryState } from '../sessionAdapters'
 import { feedTimeline, hasReadyVideo } from './feedAdapters'
-import {
-    FEED_PAGE_SIZE,
-    fetchFeedEvents,
-    fetchFeedObservations,
-    fetchFeedRecordings,
-    fetchFeedSignals,
-    type SignalWindow,
-} from './feedApi'
+import { FEED_PAGE_SIZE, fetchFeedEvents, fetchFeedRecordings, fetchFeedSignals, type SignalWindow } from './feedApi'
 import type { FeedItem, FeedSource, FeedTimeline } from './feedModel'
 import { FEED_PLAYER_KIND } from './feedPlayerKind'
 import { parseSignals, type SessionSignals } from './sessionRows'
@@ -45,7 +40,9 @@ export interface Feed {
     refresh: () => Promise<void>
     refreshing: boolean
     loadMore: () => void
-    hasMore: boolean
+    retryMore: () => void
+    loadingMore: boolean
+    pageError: boolean
     stillRecording: number
 }
 
@@ -64,7 +61,8 @@ const EMPTY_PAGE_LIMIT = 5
 export function useFeed(source: FeedSource): Feed {
     const { scope, ready } = useReplayContext()
     const queryClient = useQueryClient()
-    const base = useMemo(() => ['replayFeed', ...scopeKey(scope)] as const, [scope])
+    const generation = sessionGeneration()
+    const base = useMemo(() => ['replayFeed', generation, ...scopeKey(scope)] as const, [generation, scope])
     const recordingsKey = useMemo(() => [...base, 'recordings', source] as const, [base, source])
     const recordings = useInfiniteQuery({
         queryKey: recordingsKey,
@@ -84,12 +82,12 @@ export function useFeed(source: FeedSource): Feed {
         staleTime: 30_000,
     })
     const pages = recordings.data?.pages ?? []
-    const pageIds = pages.map((page) => (page.results ?? []).map((row) => row.id))
+    const sessionIds = [...new Set(pages.flatMap((page) => (page.results ?? []).map((row) => row.id)))]
     const observations = useQueries({
-        queries: pageIds.map((ids) => ({
-            queryKey: [...base, 'observations', ids.join(',')],
-            queryFn: ({ signal }: { signal: AbortSignal }) => fetchFeedObservations(ids, signal),
-            enabled: ready && ids.length > 0,
+        queries: sessionIds.map((id) => ({
+            queryKey: [...base, 'observations', id],
+            queryFn: ({ signal }: { signal: AbortSignal }) => fetchSessionObservations(id, signal),
+            enabled: ready,
             retry: false,
             staleTime: 5 * 60_000,
         })),
@@ -172,18 +170,28 @@ export function useFeed(source: FeedSource): Feed {
         }
     }, [queryClient, recordingsKey, refetchRecordings, refetchExports])
 
-    const { hasNextPage, isFetching, fetchNextPage } = recordings
-    const loadMore = useCallback((): void => {
+    const { hasNextPage, isFetching, isFetchingNextPage, isFetchNextPageError, fetchNextPage } = recordings
+    const retryMore = useCallback((): void => {
         if (hasNextPage && !isFetching) {
             void fetchNextPage({ cancelRefetch: false })
         }
     }, [hasNextPage, isFetching, fetchNextPage])
-    const searching = items !== undefined && items.length === 0 && hasNextPage && pages.length < EMPTY_PAGE_LIMIT
-    useEffect(() => {
-        if (searching && !isFetching) {
-            void fetchNextPage({ cancelRefetch: false })
+    const loadMore = useCallback((): void => {
+        if (!isFetchNextPageError) {
+            retryMore()
         }
-    }, [searching, isFetching, fetchNextPage])
+    }, [isFetchNextPageError, retryMore])
+    const searching =
+        items !== undefined &&
+        items.length === 0 &&
+        hasNextPage &&
+        !isFetchNextPageError &&
+        pages.length < EMPTY_PAGE_LIMIT
+    useEffect(() => {
+        if (searching) {
+            loadMore()
+        }
+    }, [searching, loadMore])
 
     return {
         items: searching ? undefined : items,
@@ -192,7 +200,9 @@ export function useFeed(source: FeedSource): Feed {
         refresh,
         refreshing,
         loadMore,
-        hasMore: hasNextPage,
+        retryMore,
+        loadingMore: isFetchingNextPage,
+        pageError: isFetchNextPageError,
         stillRecording,
     }
 }
