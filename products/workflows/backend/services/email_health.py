@@ -33,7 +33,7 @@ def fetch_email_totals_by_source(team_id: int, window_days: int) -> dict[str, di
     # ClickHouse totals are search-independent. Session-authenticated requests bypass the
     # default (personal-API-key-only) ClickHouse throttles, so without this a member could
     # re-run the 30-day aggregation on every request.
-    totals_cache_key = f"workflows_email_reputation_totals_{team_id}"
+    totals_cache_key = f"workflows_email_reputation_totals_{team_id}_{window_days}"
     totals_by_source = cache.get(totals_cache_key)
     if totals_by_source is None:
         after = timezone.now() - timedelta(days=window_days)

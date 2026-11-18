@@ -1,19 +1,29 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonInput,
+    LemonSegmentedButton,
+    LemonTable,
+    LemonTag,
+    LemonTagType,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
-import type {
-    AwsTenantReputationApi,
-    AwsTenantReputationHealthEnumApi,
-    EmailSendingAllowanceApi,
-    EmailSendingRatesApi,
-    IspSendingHealthApi,
-    WorkflowEmailSendingRatesApi,
+import {
+    type AwsTenantReputationApi,
+    type AwsTenantReputationHealthEnumApi,
+    type EmailSendingAllowanceApi,
+    type EmailSendingRatesApi,
+    HogFlowsReputationRetrieveDays,
+    type IspSendingHealthApi,
+    type WorkflowEmailSendingRatesApi,
 } from 'products/workflows/frontend/generated/api.schemas'
 
 import { EmailMetricsIncidentBanner } from '../../EmailMetricsIncidentBanner'
@@ -104,10 +114,44 @@ const FINDING_TYPE_LABELS: Record<string, string> = {
     IP_LISTING: 'Blocklist listing',
 }
 
-// Must match the endpoint's window (HogFlowViewSet.REPUTATION_WINDOW_DAYS) and cap
-// (HogFlowViewSet.WORKFLOW_REPUTATION_LIMIT).
-const WINDOW_TOOLTIP = 'Calculated over your workflow email from the last 30 days.'
+// Must match the endpoint's cap (HogFlowViewSet.WORKFLOW_REPUTATION_LIMIT).
 const WORKFLOW_LIMIT = 50
+
+function windowTooltip(windowDays: number): string {
+    return `Calculated over your workflow email from the last ${windowDays} days.`
+}
+
+function RateWindowToggle(): JSX.Element {
+    const { windowDays, sendingAllowance } = useValues(workflowsReputationLogic)
+    const { setWindowDays } = useActions(workflowsReputationLogic)
+    return (
+        <div className="flex flex-wrap items-center gap-3" data-attr="workflows-reputation-window">
+            <LemonSegmentedButton
+                size="small"
+                value={windowDays}
+                onChange={setWindowDays}
+                options={[
+                    {
+                        value: HogFlowsReputationRetrieveDays.Number30,
+                        label: 'Last 30 days',
+                        'data-attr': 'workflows-reputation-window-30',
+                    },
+                    {
+                        value: HogFlowsReputationRetrieveDays.Number7,
+                        label: 'Last 7 days',
+                        'data-attr': 'workflows-reputation-window-7',
+                    },
+                ]}
+            />
+            {sendingAllowance?.enforced && windowDays === HogFlowsReputationRetrieveDays.Number7 && (
+                <span className="text-secondary text-xs" data-attr="workflows-reputation-window-tier-note">
+                    Your sending tier is checked every day against the last 7 days. Once enough email is sent to
+                    measure, high rates here can lower your tier even when the 30-day rates look fine.
+                </span>
+            )}
+        </div>
+    )
+}
 
 function MetricLabel({
     label,
@@ -185,6 +229,7 @@ function IspBreakdown({
     /** The card's own total, to reconcile against. Null when the project sent no workflow email. */
     emailsSent: number | null
 }): JSX.Element | null {
+    const { windowDays } = useValues(workflowsReputationLogic)
     // The API returns [] unless the flag and access checks pass on its side, so gating on isps alone
     // keeps one decision. A second client flag check can bucket differently and hide returned rows.
     if (isps.length === 0) {
@@ -199,7 +244,7 @@ function IspBreakdown({
                         ? `Counts every email sent from ${sharedDomains.join(', ')}, including email from other projects using ${sharedDomains.length > 1 ? 'those domains' : 'that domain'}.`
                         : undefined
                 }
-                tooltip={`The project-wide rates above pool every provider together, so a struggling provider can be hidden by the others. This table splits the rates out per provider. A provider that accepts your mail and then files it as spam still reads as healthy here. ${WINDOW_TOOLTIP}`}
+                tooltip={`The project-wide rates above pool every provider together, so a struggling provider can be hidden by the others. This table splits the rates out per provider. A provider that accepts your mail and then files it as spam still reads as healthy here. ${windowTooltip(windowDays)}`}
             />
             <LemonTable
                 dataSource={[...isps]}
@@ -352,6 +397,7 @@ function TeamRatesCard({
     sharedDomains: readonly string[]
     withheldDomains: readonly string[]
 }): JSX.Element {
+    const { windowDays } = useValues(workflowsReputationLogic)
     return (
         <div className="border rounded p-4 bg-surface-primary">
             <div className="flex items-center gap-2">
@@ -370,19 +416,22 @@ function TeamRatesCard({
                         <div>
                             <MetricLabel
                                 label="Bounce rate"
-                                tooltip={`Hard (permanent) bounces divided by emails sent. Transient bounces like a full mailbox are not counted. An address that hard-bounces is added to your suppression list and isn't emailed again. ${WINDOW_TOOLTIP}`}
+                                tooltip={`Hard (permanent) bounces divided by emails sent. Transient bounces like a full mailbox are not counted. An address that hard-bounces is added to your suppression list and isn't emailed again. ${windowTooltip(windowDays)}`}
                             />
                             <div className="text-lg font-semibold">{formatRate(reputation.bounce_rate)}</div>
                         </div>
                         <div>
                             <MetricLabel
                                 label="Spam complaint rate"
-                                tooltip={`Spam complaints divided by emails sent. ${WINDOW_TOOLTIP}`}
+                                tooltip={`Spam complaints divided by emails sent. ${windowTooltip(windowDays)}`}
                             />
                             <div className="text-lg font-semibold">{formatRate(reputation.complaint_rate)}</div>
                         </div>
                         <div>
-                            <MetricLabel label="Emails sent (last 30 days)" tooltip={WINDOW_TOOLTIP} />
+                            <MetricLabel
+                                label={`Emails sent (last ${windowDays} days)`}
+                                tooltip={windowTooltip(windowDays)}
+                            />
                             <div className="text-lg font-semibold">{humanFriendlyNumber(reputation.emails_sent)}</div>
                         </div>
                     </div>
@@ -390,8 +439,8 @@ function TeamRatesCard({
                 </>
             ) : isps.length > 0 ? (
                 <div className="text-secondary mt-3">
-                    No workflow email in the last 30 days. The breakdown below covers all email sent from your verified
-                    domains.
+                    No workflow email in the last {windowDays} days. The breakdown below covers all email sent from your
+                    verified domains.
                 </div>
             ) : (
                 <div className="text-secondary mt-3">
@@ -482,6 +531,7 @@ export function WorkflowsReputation(): JSX.Element {
         workflowSnapshots,
         reputationResponseLoading,
         search,
+        windowDays,
     } = useValues(workflowsReputationLogic)
     const { setSearch } = useActions(workflowsReputationLogic)
 
@@ -498,9 +548,10 @@ export function WorkflowsReputation(): JSX.Element {
                 Sending health is shown for transparency: high bounce or spam complaint rates hurt email deliverability.
                 We judge and enforce reputation per project.
             </LemonBanner>
-            {/* Rates cover a rolling 30 days that ends now. */}
-            <EmailMetricsIncidentBanner dateFrom={dayjs().subtract(30, 'day')} />
+            {/* Rates cover a rolling window that ends now. */}
+            <EmailMetricsIncidentBanner dateFrom={dayjs().subtract(windowDays, 'day')} />
             {sendingAllowance?.enforced && <SendingAllowanceCard allowance={sendingAllowance} />}
+            <RateWindowToggle />
             {teamReputation || awsReputation || ispSendingHealth.length > 0 || ispWithheldDomains.length > 0 ? (
                 <TeamRatesCard
                     reputation={teamReputation}
@@ -539,7 +590,7 @@ export function WorkflowsReputation(): JSX.Element {
                 emptyState={
                     search.trim()
                         ? 'No sending workflows match your search.'
-                        : 'No workflows have sent email in the last 30 days.'
+                        : `No workflows have sent email in the last ${windowDays} days.`
                 }
                 columns={[
                     {

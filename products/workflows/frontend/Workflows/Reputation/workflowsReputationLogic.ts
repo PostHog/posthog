@@ -14,13 +14,14 @@ import { projectLogic } from 'scenes/projectLogic'
 import type { BillingType } from '~/types'
 
 import { hogFlowsReputationRetrieve } from 'products/workflows/frontend/generated/api'
-import type {
-    AwsTenantReputationApi,
-    EmailSendingAllowanceApi,
-    EmailSendingRatesApi,
-    IspSendingHealthApi,
-    TeamEmailReputationResponseApi,
-    WorkflowEmailSendingRatesApi,
+import {
+    type AwsTenantReputationApi,
+    type EmailSendingAllowanceApi,
+    type EmailSendingRatesApi,
+    HogFlowsReputationRetrieveDays,
+    type IspSendingHealthApi,
+    type TeamEmailReputationResponseApi,
+    type WorkflowEmailSendingRatesApi,
 } from 'products/workflows/frontend/generated/api.schemas'
 
 // The first line of every tier increase ticket. Support searches tickets on this exact text, so keep it stable.
@@ -38,7 +39,8 @@ const SENDING_TIER_INCREASE_PROMPT = [
 function sendingTierIncreaseContext(
     projectId: number | null,
     allowance: EmailSendingAllowanceApi,
-    rates: EmailSendingRatesApi | null
+    rates: EmailSendingRatesApi | null,
+    windowDays: HogFlowsReputationRetrieveDays
 ): string {
     return [
         SENDING_TIER_INCREASE_TICKET_MARKER,
@@ -47,8 +49,8 @@ function sendingTierIncreaseContext(
         `Emails today: ${humanFriendlyNumber(allowance.emails_sent_last_day)} of ${humanFriendlyNumber(allowance.emails_per_day)}`,
         ...(rates
             ? [
-                  `Bounce rate (last 30 days): ${percentage(rates.bounce_rate, 2, true)}`,
-                  `Spam complaint rate (last 30 days): ${percentage(rates.complaint_rate, 2, true)}`,
+                  `Bounce rate (last ${windowDays} days): ${percentage(rates.bounce_rate, 2, true)}`,
+                  `Spam complaint rate (last ${windowDays} days): ${percentage(rates.complaint_rate, 2, true)}`,
               ]
             : []),
     ].join('\n')
@@ -70,6 +72,7 @@ export interface workflowsReputationLogicValues {
     search: string
     sendingAllowance: EmailSendingAllowanceApi | null
     teamReputation: EmailSendingRatesApi | null
+    windowDays: HogFlowsReputationRetrieveDays
     workflowSnapshots: readonly WorkflowEmailSendingRatesApi[]
 }
 
@@ -108,6 +111,9 @@ export interface workflowsReputationLogicActions {
     }
     setSearch: (search: string) => {
         search: string
+    }
+    setWindowDays: (windowDays: HogFlowsReputationRetrieveDays) => {
+        windowDays: HogFlowsReputationRetrieveDays
     }
 }
 
@@ -158,6 +164,7 @@ export const workflowsReputationLogic = kea<workflowsReputationLogicType>([
         // action; without this, TS types the first loader arg as required and callers fail typecheck.
         loadReputation: true,
         setSearch: (search: string) => ({ search }),
+        setWindowDays: (windowDays: HogFlowsReputationRetrieveDays) => ({ windowDays }),
         requestSendingTierIncrease: (allowance: EmailSendingAllowanceApi) => ({ allowance }),
     }),
     reducers({
@@ -165,6 +172,12 @@ export const workflowsReputationLogic = kea<workflowsReputationLogicType>([
             '',
             {
                 setSearch: (_, { search }) => search,
+            },
+        ],
+        windowDays: [
+            HogFlowsReputationRetrieveDays.Number30 as HogFlowsReputationRetrieveDays,
+            {
+                setWindowDays: (_, { windowDays }) => windowDays,
             },
         ],
     }),
@@ -177,10 +190,10 @@ export const workflowsReputationLogic = kea<workflowsReputationLogicType>([
                         return null
                     }
                     const search = values.search.trim()
-                    const response = await hogFlowsReputationRetrieve(
-                        String(values.currentProjectId),
-                        search ? { search } : undefined
-                    )
+                    const response = await hogFlowsReputationRetrieve(String(values.currentProjectId), {
+                        days: values.windowDays,
+                        ...(search ? { search } : {}),
+                    })
                     breakpoint() // a newer load superseded this one; discard the stale response
                     return response
                 },
@@ -192,6 +205,10 @@ export const workflowsReputationLogic = kea<workflowsReputationLogicType>([
         // keystroke needs a reload — debounced via the loader's own breakpoint on rapid typing.
         setSearch: async (_, breakpoint) => {
             await breakpoint(250)
+            actions.loadReputation()
+        },
+        setWindowDays: ({ windowDays }) => {
+            posthog.capture('workflows reputation window changed', { window_days: windowDays })
             actions.loadReputation()
         },
         requestSendingTierIncrease: ({ allowance }) => {
@@ -206,7 +223,12 @@ export const workflowsReputationLogic = kea<workflowsReputationLogicType>([
                 kind: 'support',
                 isEmailFormOpen: true,
                 message: SENDING_TIER_INCREASE_PROMPT,
-                ticket_context: sendingTierIncreaseContext(values.currentProjectId, allowance, values.teamReputation),
+                ticket_context: sendingTierIncreaseContext(
+                    values.currentProjectId,
+                    allowance,
+                    values.teamReputation,
+                    values.windowDays
+                ),
             })
         },
     })),

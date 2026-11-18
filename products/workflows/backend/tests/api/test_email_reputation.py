@@ -1,7 +1,9 @@
 import pytest
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.core.cache import cache
 from django.test import override_settings
 from django.utils import timezone
@@ -18,6 +20,7 @@ from posthog.models.user import User
 from products.access_control.backend.models.access_control import AccessControl
 from products.workflows.backend.models import HogFlow, HogFlowBatchJob
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+from products.workflows.backend.presentation.views.hog_flow import REPUTATION_WINDOW_DAYS_OPTIONS
 from products.workflows.backend.providers.ses import IspSendingMetrics
 
 
@@ -220,6 +223,42 @@ class TestEmailReputationAPI(APIBaseTest):
         assert data["workflows"][0]["bounce_rate"] == 1.0
         assert data["workflows"][0]["complaint_rate"] == 1.0
         assert data["reputation"]["bounce_rate"] == 1.0
+
+    def test_reputation_endpoint_reads_each_window_separately(self):
+        flow = self._create_flow("Weekly digest")
+        now = timezone.now()
+
+        def totals_for_window(*, after, **_kwargs):
+            sent_by_days = {7: 100, 30: 1000}
+            days = round((now - after).total_seconds() / 86400)
+            return {str(flow.id): {"email_sent": sent_by_days[days]}}
+
+        provider = MagicMock()
+        provider.get_tenant_reputation.return_value = None
+        provider.get_identity_isp_metrics.return_value = []
+        with (
+            time_machine.travel(now, tick=False),
+            patch(
+                "products.workflows.backend.services.email_health.fetch_app_metric_totals_by_source",
+                side_effect=totals_for_window,
+            ),
+            patch("products.workflows.backend.services.email_health.SESProvider", return_value=provider),
+        ):
+            month = self.client.get(f"/api/projects/{self.team.id}/hog_flows/reputation")
+            week = self.client.get(f"/api/projects/{self.team.id}/hog_flows/reputation?days=7")
+            refused = self.client.get(f"/api/projects/{self.team.id}/hog_flows/reputation?days=14")
+
+        assert month.json()["reputation"]["emails_sent"] == 1000
+        assert week.json()["reputation"]["emails_sent"] == 100
+        assert refused.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_reputation_windows_match_the_tier_check_windows(self):
+        # The UI tells customers the 7-day view is what the tier check demotes on, so the options
+        # must follow the settings the sweep reads.
+        assert REPUTATION_WINDOW_DAYS_OPTIONS == (
+            settings.WORKFLOWS_EMAIL_TIER_RATE_WINDOW_DAYS,
+            settings.WORKFLOWS_EMAIL_TIER_DEMOTION_WINDOW_DAYS,
+        )
 
     def test_reputation_endpoint_serializes_unnamed_workflows_with_empty_name(self):
         unnamed = HogFlow.objects.create(

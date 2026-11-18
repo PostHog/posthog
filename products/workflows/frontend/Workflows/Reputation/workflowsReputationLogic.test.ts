@@ -9,7 +9,10 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import type { BillingType } from '~/types'
 
-import type { EmailSendingAllowanceApi } from 'products/workflows/frontend/generated/api.schemas'
+import {
+    type EmailSendingAllowanceApi,
+    HogFlowsReputationRetrieveDays,
+} from 'products/workflows/frontend/generated/api.schemas'
 
 import { workflowsReputationLogic } from './workflowsReputationLogic'
 
@@ -53,5 +56,34 @@ describe('workflowsReputationLogic', () => {
         const context = supportLogic.values.sendSupportRequest.ticket_context ?? ''
         expect(context.split('\n')[0]).toBe('Email sending tier increase request')
         expect(context).toContain('Current tier: 2 of 4')
+    })
+
+    it('reloads the rates for the chosen window and reports that window in a tier request', async () => {
+        const requestedDays: (string | null)[] = []
+        useMocks({
+            get: {
+                '/api/projects/:team_id/hog_flows/reputation/': ({ request }) => {
+                    requestedDays.push(new URL(request.url).searchParams.get('days'))
+                    return [
+                        200,
+                        {
+                            workflows: [],
+                            isps: [],
+                            reputation: { bounce_rate: 0.03, complaint_rate: 0, emails_sent: 10 },
+                        },
+                    ]
+                },
+            },
+        })
+        const logic = workflowsReputationLogic()
+        logic.mount()
+
+        await expectLogic(logic, () =>
+            logic.actions.setWindowDays(HogFlowsReputationRetrieveDays.Number7)
+        ).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.requestSendingTierIncrease(allowance)).toFinishAllListeners()
+
+        expect(requestedDays).toContain('7')
+        expect(supportLogic.values.sendSupportRequest.ticket_context).toContain('Bounce rate (last 7 days): 3.00%')
     })
 })

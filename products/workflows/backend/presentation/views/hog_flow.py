@@ -2997,6 +2997,30 @@ def _hog_flow_run_idempotency_cache_key(team_id: int, hog_flow_id: str, idempote
     return f"hog_flow_run_idempotency:{team_id}:{hog_flow_id}:{idempotency_key}"
 
 
+# Windows for the reputation rates. 30 days matches how the industry quotes bounce/complaint
+# thresholds (e.g. "0.1% complaints per 30 days"). 7 days matches the window the daily sending
+# tier check demotes on (WORKFLOWS_EMAIL_TIER_DEMOTION_WINDOW_DAYS), so a spike that lowers the
+# tier is visible even when the 30-day rates look clean.
+REPUTATION_WINDOW_DAYS_OPTIONS = (30, 7)
+
+
+class TeamEmailReputationQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "Case-insensitive workflow name filter. Applied before the worst-50 cap, so it finds workflows the "
+            "unfiltered response cuts off."
+        ),
+    )
+    days = serializers.ChoiceField(
+        choices=REPUTATION_WINDOW_DAYS_OPTIONS,
+        default=REPUTATION_WINDOW_DAYS_OPTIONS[0],
+        help_text="How many days the rates and the provider breakdown cover. 7 is the window the daily sending tier "
+        "check uses to lower a tier.",
+    )
+
+
 def _email_sending_rates(sent: int, bounced: int, complained: int) -> dict[str, float | int]:
     # Sends are counted at send time but bounces/complaints at webhook time, so feedback arriving
     # just inside the window for sends just outside it can push the ratio past 1 (worst case: a
@@ -3063,12 +3087,12 @@ def _isp_domains(team: Team, user_access_control: UserAccessControl, user_permis
 
 
 class EmailSendingRatesSerializer(serializers.Serializer):
-    """Bounce/complaint rates over the last 30 days of workflow email, computed on the fly from app metrics."""
+    """Bounce/complaint rates over the requested window of workflow email, computed on the fly from app metrics."""
 
     bounce_rate = serializers.FloatField(
         read_only=True,
         help_text=(
-            "Hard (permanent) bounces / emails sent over the last 30 days (0-1), matching how AWS "
+            "Hard (permanent) bounces / emails sent over the requested window (0-1), matching how AWS "
             "counts its bounce rate — transient bounces (greylisting, mailbox full) are excluded. "
             "Bounces are counted when the feedback arrives, so the ratio is approximate at the "
             "window boundary and capped at 1."
@@ -3077,12 +3101,12 @@ class EmailSendingRatesSerializer(serializers.Serializer):
     complaint_rate = serializers.FloatField(
         read_only=True,
         help_text=(
-            "Spam complaints / emails sent over the last 30 days (0-1). Complaints are counted "
+            "Spam complaints / emails sent over the requested window (0-1). Complaints are counted "
             "when the feedback arrives, so the ratio is approximate at the window boundary and "
             "capped at 1."
         ),
     )
-    emails_sent = serializers.IntegerField(read_only=True, help_text="Emails sent in the last 30 days.")
+    emails_sent = serializers.IntegerField(read_only=True, help_text="Emails sent in the requested window.")
 
 
 class WorkflowEmailSendingRatesSerializer(EmailSendingRatesSerializer):
@@ -3269,7 +3293,7 @@ class TeamEmailReputationResponseSerializer(serializers.Serializer):
         allow_null=True,
         read_only=True,
         help_text=(
-            "Project-wide rates across all workflow email in the last 30 days (including sends from "
+            "Project-wide rates across all workflow email in the requested window (including sends from "
             "since-deleted workflows); null when nothing was sent."
         ),
     )
@@ -7741,29 +7765,16 @@ class HogFlowViewSet(
     # Cap the per-workflow breakdown to bound the response; worst-first sorting means the cut
     # tail is the healthiest workflows, and search reaches past the cap.
     WORKFLOW_REPUTATION_LIMIT = 50
-    # Window for the on-the-fly rates. 30 days matches how the industry quotes bounce/complaint
-    # thresholds (e.g. "0.1% complaints per 30 days").
-    REPUTATION_WINDOW_DAYS = 30
 
-    @extend_schema(
-        parameters=[
-            OpenApiParameter(
-                "search",
-                str,
-                OpenApiParameter.QUERY,
-                description=(
-                    "Case-insensitive workflow name filter. Applied before the worst-50 cap, so it "
-                    "finds workflows the unfiltered response cuts off."
-                ),
-            )
-        ],
-        responses={200: TeamEmailReputationResponseSerializer},
+    @validated_request(
+        query_serializer=TeamEmailReputationQuerySerializer,
+        responses={200: OpenApiResponse(response=TeamEmailReputationResponseSerializer)},
     )
     @action(detail=False, methods=["GET"], pagination_class=None, filter_backends=[], url_path="reputation")
-    def team_reputation(self, request: Request, **kwargs) -> Response:
+    def team_reputation(self, request: ValidatedRequest, **kwargs) -> Response:
         """
-        Bounce/complaint rates for this project's workflow email over the last 30 days, computed on
-        the fly from app metrics (a project-wide aggregate plus per-workflow rows, worst first,
+        Bounce/complaint rates for this project's workflow email over the requested window (`days`),
+        computed on the fly from app metrics (a project-wide aggregate plus per-workflow rows, worst first,
         capped), together with the authoritative AWS SES tenant verdict — sending status and open
         reputation findings. Our rates are the per-workflow diagnosis; AWS judges and enforces.
         """
@@ -7774,7 +7785,9 @@ class HogFlowViewSet(
         # Members holding just object-level grants still get their (filtered) per-workflow rows.
         can_read_all_workflows = self.user_access_control.check_access_level_for_resource("hog_flow", "viewer")
 
-        totals_by_source = fetch_email_totals_by_source(self.team_id, self.REPUTATION_WINDOW_DAYS)
+        window_days = int(request.validated_query_data["days"])
+
+        totals_by_source = fetch_email_totals_by_source(self.team_id, window_days)
 
         # email_blocked is how SES complaint events are recorded (see the plugin server's SES
         # webhook handler), hence "complained".
@@ -7807,7 +7820,7 @@ class HogFlowViewSet(
         names_by_flow_id = folded_totals.names_by_flow_id
         # Server-side by necessity: the response is capped to the worst 50 workflows, so filtering
         # client-side could never find a healthy workflow beyond the cap.
-        search = (request.query_params.get("search") or "").strip().lower()
+        search = request.validated_query_data.get("search", "").strip().lower()
         workflow_rows: list[dict[str, Any]] = [
             {
                 "hog_flow_id": flow_id,
@@ -7864,7 +7877,7 @@ class HogFlowViewSet(
                     "workflows": workflow_rows,
                     # Same project-wide gate as `reputation`: the breakdown pools every workflow's
                     # email for a sending domain, so object-level grants alone don't earn it.
-                    "isps": fetch_isp_metrics(self.team_id, self.REPUTATION_WINDOW_DAYS, list(isp_domains.readable)),
+                    "isps": fetch_isp_metrics(self.team_id, window_days, list(isp_domains.readable)),
                     "isp_shared_domains": list(isp_domains.shared),
                     "isp_withheld_domains": list(isp_domains.withheld),
                     "email_sending_suspended": suspended_at is not None,
