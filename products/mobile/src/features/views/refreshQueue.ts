@@ -28,6 +28,7 @@ export interface JobResult {
 }
 
 export interface JobRequest {
+    trackFreshness?: boolean
     /** The freshness key: one cache entry, such as an insight with its dashboard and override. */
     key: string
     family: BudgetFamily
@@ -44,6 +45,7 @@ export interface JobRequest {
 }
 
 interface Job {
+    trackFreshness: boolean
     key: string
     family: BudgetFamily
     mode: RefreshMode
@@ -109,7 +111,7 @@ export class RefreshQueue {
             this.notify()
             return existing.promise
         }
-        const sentAt = this.lastSent.get(request.key)
+        const sentAt = request.trackFreshness === false ? undefined : this.lastSent.get(request.key)
         if (!request.userRetry && sentAt !== undefined && this.now() - sentAt < this.itemFloorMs) {
             return Promise.resolve({ status: 'skipped', computed: false, forced: false, family: request.family })
         }
@@ -118,6 +120,7 @@ export class RefreshQueue {
             resolve = done
         })
         const job: Job = {
+            trackFreshness: request.trackFreshness !== false,
             key: request.key,
             family: request.family,
             mode: request.mode,
@@ -286,7 +289,7 @@ export class RefreshQueue {
         job.state = 'running'
         job.controller = new AbortController()
         const controller = job.controller
-        this.lastSent.set(job.key, this.now())
+        if (job.trackFreshness) this.lastSent.set(job.key, this.now())
         let outcome: { status: JobStatus; computed: boolean } | 'retry'
         let timedOut = false
         let deadlineTimer: ReturnType<typeof setTimeout> | null = null

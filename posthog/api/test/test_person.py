@@ -70,7 +70,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["id"], person.pk)
 
-    @also_test_with_materialized_columns(event_properties=["email"], person_properties=["email"])
+    @also_test_with_materialized_columns(event_properties=["email"], person_properties=["email", "name"])
     @snapshot_clickhouse_queries
     def test_search(self) -> None:
         _create_person(

@@ -67,9 +67,7 @@ class TestCancelTaskWorkflowsOnTeamDelete(TestCase):
 
         cancel_workflows.assert_not_called()
 
-    def test_both_the_orchestrator_and_its_sandbox_workflow_are_cancelled(self):
-        # execute_sandbox is started as an independent top-level execution, so cancelling the
-        # orchestrator alone would leave the workflow holding the Modal sandbox running.
+    def test_the_run_workflow_is_cancelled(self):
         run = self._run(TaskRun.Status.IN_PROGRESS)
         client, cancel = _cancellable_client()
 
@@ -79,16 +77,15 @@ class TestCancelTaskWorkflowsOnTeamDelete(TestCase):
 
         self.assertEqual(
             [call.args[0] for call in client.get_workflow_handle.call_args_list],
-            [run.workflow_id, f"{run.workflow_id}-sandbox"],
+            [run.workflow_id],
         )
         # Cancel rather than terminate: only the workflow's own cancellation path reaps the
         # sandbox, and the rows that would let anything else reap it are already gone.
-        self.assertEqual(cancel.await_count, 2)
+        self.assertEqual(cancel.await_count, 1)
         # Every call is bounded, so an unreachable frontend cannot burn the caller's budget.
         self.assertTrue(all(call.kwargs.get("rpc_timeout") for call in cancel.await_args_list))
 
     def test_a_missing_workflow_is_not_reported_as_a_failure(self):
-        # NOT_FOUND is the normal outcome for a run that never started a sandbox workflow.
         self._run(TaskRun.Status.IN_PROGRESS)
         client, cancel = _cancellable_client()
         cancel.side_effect = RPCError("no such workflow", RPCStatusCode.NOT_FOUND, b"")
@@ -98,7 +95,7 @@ class TestCancelTaskWorkflowsOnTeamDelete(TestCase):
                 with self.captureOnCommitCallbacks(execute=True):
                     self.team.delete()
 
-        self.assertEqual(cancel.await_count, 2)
+        self.assertEqual(cancel.await_count, 1)
 
     def test_temporal_failures_never_block_the_delete(self):
         run = self._run(TaskRun.Status.IN_PROGRESS)
@@ -112,7 +109,7 @@ class TestCancelTaskWorkflowsOnTeamDelete(TestCase):
 
         self.assertEqual(
             [call.args[0] for call in client.get_workflow_handle.call_args_list],
-            [run.workflow_id, f"{run.workflow_id}-sandbox"],
+            [run.workflow_id],
         )
         self.assertFalse(Team.objects.filter(pk=team_id).exists())
         self.assertFalse(TaskRun.objects.filter(id=run.id).exists())

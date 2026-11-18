@@ -1470,6 +1470,26 @@ describe('infiniteListLogic', () => {
                     results: partial([partial({ name: 'first' }), partial({ name: 'second' })]),
                 })
         })
+
+        it('prefers the caller options over the default options of a group', async () => {
+            // The internal event properties group defaults to activity log keys; a destination trigger
+            // for another internal event passes its own keys.
+            const internalLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'testInternalList',
+                listGroupType: TaxonomicFilterGroupType.InternalEventProperties,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.InternalEventProperties],
+                showNumericalPropsOnly: false,
+                optionsFromProp: {
+                    [TaxonomicFilterGroupType.InternalEventProperties]: [{ name: 'priority' }, { name: 'repo_slug' }],
+                },
+            })
+            internalLogic.mount()
+
+            await expectLogic(internalLogic).toMatchValues({
+                results: [partial({ name: 'priority' }), partial({ name: 'repo_slug' })],
+            })
+            internalLogic.unmount()
+        })
     })
 
     it('filters local data warehouse person properties to numeric ones when requested', async () => {

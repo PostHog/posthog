@@ -15,6 +15,7 @@ from posthog.models import Organization
 from products.managed_warehouse.backend.common import (
     default_bucket_region,
     duckgres_data_imports_table_name,
+    duckgres_data_modeling_table_name,
     get_trino_password_for_org,
     initialize_ducklake,
     is_version_mismatch,
@@ -118,6 +119,29 @@ class TestDuckgresDataImportsTableName:
             return_value=naming_version,
         ):
             assert duckgres_data_imports_table_name(schema) == expected
+
+
+class TestDuckgresDataModelingTableName:
+    @parameterized.expand(
+        [
+            ("plain", "vitally_org", "vitally_org"),
+            ("digit_start_gets_prefix", "_2024_revenue", "model_2024_revenue"),
+            ("exactly_max_length", "m" * 63, "m" * 63),
+        ]
+    )
+    def test_names_that_fit_are_not_hashed(self, _name: str, normalized_name: str, expected: str) -> None:
+        assert duckgres_data_modeling_table_name(normalized_name) == expected
+
+    def test_long_names_sharing_a_start_stay_distinct_and_stable(self) -> None:
+        shared_start = "customer_subscription_revenue_by_region_plan_tier_and_cohort_week_"
+        assert len(shared_start) >= 63
+        daily = duckgres_data_modeling_table_name(f"{shared_start}daily_rollup")
+        hourly = duckgres_data_modeling_table_name(f"{shared_start}hourly_rollup")
+
+        assert len(daily) <= 63
+        assert len(hourly) <= 63
+        assert daily != hourly
+        assert daily == duckgres_data_modeling_table_name(f"{shared_start}daily_rollup")
 
 
 TEST_CONFIG = {

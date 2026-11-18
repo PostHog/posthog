@@ -101,7 +101,6 @@ describe('ReportExpectedImpact', () => {
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIGNALS_REPORT_MONITORING], {
             [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: true,
-            [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true,
         })
         inboxTaskKickoffLogic.mount()
         logic = inboxReportDetailLogic({ reportId: report.id, report })
@@ -167,6 +166,17 @@ describe('ReportExpectedImpact', () => {
                     },
                 },
             ])
+            const detailsToggle = screen.getByText('Measurement details').closest('button')!
+            const queryToggle = screen.getByText('Measurement query').closest('button')!
+            expect(detailsToggle).toHaveAttribute('aria-expanded', 'false')
+            expect(queryToggle).toHaveAttribute('aria-expanded', 'false')
+            expect(screen.queryByText('Target reference period: 7 days.')).not.toBeInTheDocument()
+            expect(screen.getByText('Chart')).toBeInTheDocument()
+            expect(screen.queryByText(/Goal for the full query window/)).not.toBeInTheDocument()
+
+            const user = userEvent.setup()
+            await user.click(detailsToggle)
+            expect(detailsToggle).toHaveAttribute('aria-expanded', 'true')
             expect(screen.getByText('Measurement window: since Monitoring starts.')).toBeInTheDocument()
             expect(screen.getByText('Target reference period: 7 days.')).toBeInTheDocument()
             expect(screen.getByText('Check observation window after implementation: 14 days.')).toBeInTheDocument()
@@ -178,12 +188,12 @@ describe('ReportExpectedImpact', () => {
                         : 'The target stays fixed as the measurement period grows.'
                 )
             ).toBeInTheDocument()
-            expect(screen.getByText('View measurement details').closest('details')).not.toHaveAttribute('open')
-            expect(screen.getByText('Target reference period: 7 days.')).not.toBeVisible()
-            expect(screen.getByText('Chart')).toBeInTheDocument()
-            expect(screen.queryByText(/Goal for the full query window/)).not.toBeInTheDocument()
-            await userEvent.setup().click(screen.getByText('View measurement details'))
-            expect(screen.getByText('Target reference period: 7 days.')).toBeVisible()
+
+            await user.click(queryToggle)
+            expect(detailsToggle).toHaveAttribute('aria-expanded', 'true')
+            expect(queryToggle).toHaveAttribute('aria-expanded', 'true')
+            expect(document.querySelector('.CodeSnippet')).toHaveTextContent('"event": "checkout_failed"')
+            expect(document.querySelector('[data-attr="copy-code-button"]')).toBeInTheDocument()
         }
     )
 
@@ -203,16 +213,6 @@ describe('ReportExpectedImpact', () => {
         await userEvent.setup().click(screen.getByText('Suggest different metrics'))
         expect(screen.getByText('Describe what success would look like')).toBeInTheDocument()
         expect(screen.getByText('Ask AI to update checks').closest('button')).toHaveAttribute('aria-disabled', 'true')
-    })
-
-    it('hides AI metric suggestions without hiding measurement approval when AI is unavailable', () => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: true })
-        renderMeasurements([check])
-        render(<ReportChecksSection report={report} />)
-        expect(screen.queryByText('Suggest different metrics')).not.toBeInTheDocument()
-        expect(screen.queryByText('Suggest a better metric')).not.toBeInTheDocument()
-        expect(screen.getByText('Looks good')).toBeInTheDocument()
-        expect(screen.getByText('Cancel this check')).toBeInTheDocument()
     })
 
     it.each([false, undefined])('hides Expected impact and sidebar suggestions when Monitoring is %s', (enabled) => {
@@ -317,7 +317,7 @@ describe('ReportExpectedImpact', () => {
 
         expect(screen.getByText('The query is not available to you.')).toBeInTheDocument()
         expect(screen.queryByText('Chart')).not.toBeInTheDocument()
-        expect(screen.queryByText('View measurement query')).not.toBeInTheDocument()
+        expect(screen.queryByText('Measurement query')).not.toBeInTheDocument()
         expect(screen.queryByText(/Baseline:/)).not.toBeInTheDocument()
         expect(screen.getByText('Looks good').closest('button')).toHaveAttribute('aria-disabled', 'true')
     })

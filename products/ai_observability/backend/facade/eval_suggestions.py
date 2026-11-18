@@ -15,6 +15,7 @@ from ..logic.eval_suggestions import (
     accept as eval_suggestion_accept,
     suggestions as eval_suggestions,
 )
+from ..logic.eval_suggestions.runs import OBSERVATION_KEYS
 from ..models.eval_suggestions import (
     EvalSuggestion as EvalSuggestionModel,
     EvalSuggestionRun as EvalSuggestionRunModel,
@@ -79,7 +80,7 @@ def dismiss_eval_suggestion(
 ) -> contracts.EvalSuggestion:
     _find_eval_suggestion(team, access, suggestion_id)
     dismissed = eval_suggestion_accept.dismiss(
-        str(suggestion_id), reason=reason, visible=eval_suggestions.visible_suggestions(team.pk, access)
+        str(suggestion_id), reason=reason, visible=eval_suggestions.visible_suggestions(team, access)
     )
     return _to_eval_suggestion(dismissed)
 
@@ -104,7 +105,7 @@ def apply_eval_suggestion_fix(
 
 
 def _find_eval_suggestion(team: Team, access: UserAccessControl | None, suggestion_id: UUID) -> EvalSuggestionModel:
-    suggestion = eval_suggestions.find_suggestion(team.pk, access, suggestion_id)
+    suggestion = eval_suggestions.find_suggestion(team, access, suggestion_id)
     if suggestion is None:
         raise contracts.EvalSuggestionNotFoundError
     return suggestion
@@ -128,7 +129,9 @@ def _to_eval_suggestion(suggestion: EvalSuggestionModel) -> contracts.EvalSugges
         headline=suggestion.headline,
         outcome=suggestion.outcome,
         reason=suggestion.reason,
-        draft=suggestion.draft,
+        observation=str(suggestion.draft.get("observation", "")),
+        observation_scope=str(suggestion.draft.get("observation_scope", "")),
+        draft={key: value for key, value in suggestion.draft.items() if key not in OBSERVATION_KEYS},
         filters=suggestion.filters,
         rollout_percentage=suggestion.rollout_percentage,
         measured_failure_rate=suggestion.measured_failure_rate,

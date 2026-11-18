@@ -43,7 +43,7 @@ from posthog.permissions import (
     get_authenticator_scoped_organization_ids,
     get_authenticator_scoped_team_ids,
 )
-from posthog.scopes import APIScopeObjectOrNotSupported
+from posthog.scopes.catalog import APIScopeObjectOrNotSupported
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_instance_realm
 
