@@ -14715,6 +14715,22 @@
             "readOnlyHint": true
         }
     },
+    "scout-scratchpad-discard": {
+        "description": "Delete one scout scratchpad entry by its exact key, on behalf of the user. Use it to clean up memories that are stale, wrong, or no longer match a skill, after finding the key with `scout-scratchpad-search`. Returns `deleted=false` if no entry has that key. Requires editor access to skills, because the scratchpad steers the scout agents. Confirm with the user before deleting entries they have not asked you to remove.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Delete a scout memory",
+        "title": "Delete a scout memory",
+        "required_scopes": ["signal_scout:write", "llm_skill:write"],
+        "api_operations": ["POST /api/projects/{project_id}/signals/scout/scratchpad/discard/"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "scout-scratchpad-discard-mcp"
+    },
     "scout-scratchpad-forget": {
         "description": "Delete a scratchpad entry by key. Returns `deleted=false` if no row matched — the call is idempotent.",
         "category": "Signals",

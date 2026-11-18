@@ -42,6 +42,8 @@ from products.metrics.backend.derived import (
     derived_metrics_enabled,
     get_derived_metric,
     is_derived_metric_name as _is_derived_metric_name,
+    list_derived_attribute_keys,
+    list_derived_attribute_values,
     list_derived_metric_names,
     team_has_derived_sources,
 )
@@ -771,7 +773,16 @@ def list_metric_attribute_keys(
     The window defaults to the last 24 hours. Returns `{"name": str,
     "value_count": int}` dicts. Raises `ValueError` for an out-of-range limit
     or an inverted window.
+
+    For a derived metric, the keys are the span or log dimensions it can be
+    filtered and grouped by, and only those with values in the window.
     """
+    if _is_derived_metric_name(metric_name):
+        if not derived_metrics_enabled(team):
+            return []
+        return list_derived_attribute_keys(
+            team, metric_name=metric_name, search=search, date_from=date_from, date_to=date_to, limit=limit
+        )
     runner = MetricAttributeKeysQueryRunner(
         team=team,
         metric_name=metric_name,
@@ -802,6 +813,12 @@ def list_metric_attribute_values(
     `{"id": str, "name": str, "count": int}` dicts. Raises `ValueError` for an
     empty key, an out-of-range limit, or an inverted window.
     """
+    if _is_derived_metric_name(metric_name):
+        if not derived_metrics_enabled(team):
+            return []
+        return list_derived_attribute_values(
+            team, metric_name=metric_name, key=key, search=search, date_from=date_from, date_to=date_to, limit=limit
+        )
     runner = MetricAttributeValuesQueryRunner(
         team=team,
         key=key,
