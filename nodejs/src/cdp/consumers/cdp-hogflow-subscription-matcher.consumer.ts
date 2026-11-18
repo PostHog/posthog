@@ -73,6 +73,8 @@ const startAtLatest = START_AT_LATEST
 // watcher row, and every pod runs it, so a short interval costs the database more than the lookups do.
 // A flow change admits its team for an hour on its own, which covers that case well inside this.
 const WATCHER_TEAMS_REFRESH_INTERVAL_MS = 5 * 60 * 1000
+// A failed refresh leaves the gate on a stale or empty set, so it is retried this soon instead.
+const WATCHER_TEAMS_REFRESH_RETRY_MS = 30_000
 // Covers how long a worker can keep running a flow version after it was replaced.
 const PINNED_GOAL_CACHE_LAG_MS = 60 * 60 * 1000
 
@@ -277,6 +279,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     // A worker still running the old version can write a watcher for some time after the change.
     private teamsWithChangedFlows: Map<number, { refreshNumber: number; at: number }> = new Map()
     private watcherRefreshNumber = 0
+    private watcherRefreshedAt = 0
 
     constructor(config: TConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps)
@@ -931,6 +934,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 this.teamsWithChangedFlows.delete(teamId)
             }
         }
+        this.watcherRefreshedAt = Date.now()
         gaugeHogflowMatcherTeamsWithWatchers.set(this.liveWatcherFlowsByTeam.size)
     }
 
@@ -1335,17 +1339,20 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         // Awaited so the first batches are gated against a populated set rather than an empty one,
         // which would drop messages for teams whose only goal flow is paused. A failure here must not
         // stop the matcher starting: an empty set degrades the gate to its previous flow-only
-        // behavior for one refresh interval, which is milder than refusing to consume at all.
+        // behavior until a retry succeeds, which is milder than refusing to consume at all.
         await this.refreshTeamsWithLiveWatchers().catch((err) => {
             logger.error('⚠️', 'Initial conversion-watcher team refresh failed; gating on flows alone', { err })
             captureException(err)
         })
         this.watcherTeamsRefreshTimer = setInterval(() => {
+            if (Date.now() - this.watcherRefreshedAt < WATCHER_TEAMS_REFRESH_INTERVAL_MS) {
+                return
+            }
             void this.refreshTeamsWithLiveWatchers().catch((err) => {
                 logger.error('⚠️', 'Failed to refresh teams with live conversion watchers', { err })
                 captureException(err)
             })
-        }, WATCHER_TEAMS_REFRESH_INTERVAL_MS)
+        }, WATCHER_TEAMS_REFRESH_RETRY_MS)
         // Not work the process should stay alive for: periodic maintenance that the next start picks
         // up. Unref'd, a consumer that was started but never stopped cannot hold the event loop open —
         // which is what a leaked one does to a long single-process test run.
