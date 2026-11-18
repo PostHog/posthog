@@ -2,6 +2,7 @@ import { MakeLogicType, actions, connect, kea, listeners, path, reducers, select
 import posthog from 'posthog-js'
 
 import { apiHostOrigin } from 'lib/utils/apiHost'
+import { getBackendHost } from 'lib/utils/oauthClient'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { TeamType } from '~/types'
@@ -49,7 +50,7 @@ export const tracingOtlpSetupLogic = kea<tracingOtlpSetupLogicType>([
             (platform, environment, currentTeam): string =>
                 buildTracingSnippet(platform, {
                     token: currentTeam?.api_token || TOKEN_PLACEHOLDER,
-                    host: apiHostOrigin(),
+                    host: apiHostOrigin(getBackendHost()?.replace(/\/+$/, '') || window.location.origin),
                     environment,
                 }),
         ],
