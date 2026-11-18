@@ -7633,10 +7633,10 @@ Diffed against: <https://documentation.mailgun.com/docs/mailgun/api-reference/se
 - [x] `POST /v1/analytics/logs` — the v1 log query API, richer and longer-retained than the v3 events feed already synced (high) — synced as incremental `logs`; it reads the same plan-bounded event store as `events`, so retention is not longer, but it is account-wide with no per-domain fan-out
 - [x] `GET /v3/{domain}/whitelists (allowlist)` — allowlist entries completing the suppression picture alongside bounces/complaints/unsubscribes (medium) — synced as `allowlist`
 - [x] `GET /v5/accounts/subaccounts` — lookup resolving subaccount ids for multi-tenant sending (medium) — synced as `subaccounts`
-- [ ] `GET /v1/bounce-classification/domains/{domain}/events and /stats` — classified bounce reasons, far more analyzable than raw bounce rows (medium)
-- [ ] `GET /v3/{domain}/templates/{name}/versions and /v4/templates/{name}/versions` — template version lookup resolving the version referenced on sends (medium)
-- [ ] `POST /v1/analytics/usage-metrics` — account usage/consumption metrics for cost attribution (medium)
-- [ ] `GET /v3/ip_pools and /v3/ips` — sending IP and pool lookup for deliverability-by-IP analysis (low)
+- [x] `GET /v1/bounce-classification/domains/{domain}/events and /stats` — classified bounce reasons, far more analyzable than raw bounce rows (medium) — the v1 routes are no longer in Mailgun's API reference; synced as incremental daily `bounce_classification_metrics` from `POST /v2/bounce-classification/metrics`, by sending domain, recipient provider and category
+- [x] `GET /v3/{domain}/templates/{name}/versions and /v4/templates/{name}/versions` — template version lookup resolving the version referenced on sends (medium) — domain template versions synced as `template_versions`; the account-level /v4 versions are not built, because the source does not sync account-level templates
+- [x] `POST /v1/analytics/usage-metrics` — account usage/consumption metrics for cost attribution (medium) — the real route is `POST /v1/analytics/usage/metrics`; synced as incremental daily `usage_metrics`
+- [x] `GET /v3/ip_pools and /v3/ips` — sending IP and pool lookup for deliverability-by-IP analysis (low) — synced as `ip_pools` and `ips`
 
 Note: The URLs supplied in the payload (documentation.mailgun.com/docs/mailgun/api-reference/openapi-final/tag/...) now 404 — the reference moved to /docs/mailgun/api-reference/send/mailgun/<tag>/<operation>. I enumerated the full operation list from https://documentation.mailgun.com/sitemap.xml (414 mailgun api-reference entries) and spot-checked individual operation pages return 200.
 
