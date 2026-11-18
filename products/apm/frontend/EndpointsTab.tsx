@@ -5,6 +5,7 @@ import { LemonBanner, LemonSelect, LemonTable, LemonTableColumns, Link } from '@
 import { urls } from 'scenes/urls'
 
 import { applicationObservabilityLogic } from './applicationObservabilityLogic'
+import { EndpointTimeSpent } from './EndpointTimeSpent'
 import type { EndpointHealthApi } from './generated/api.schemas'
 import { healthColumns } from './healthColumns'
 import { TelemetryLinks } from './TelemetryLinks'
@@ -76,6 +77,16 @@ export function EndpointsTab(): JSX.Element {
                 dataSource={endpoints}
                 rowKey={(row) => `${row.service_name}\n${row.endpoint}`}
                 loading={endpointsHealthLoading}
+                expandable={{
+                    noIndent: true,
+                    expandedRowRender: (row) => (
+                        <EndpointTimeSpent
+                            service={row.service_name}
+                            endpoint={row.endpoint}
+                            environment={row.environment}
+                        />
+                    ),
+                }}
                 emptyState="No endpoints in this environment and time range. Endpoints come from the requests, messages, and jobs your services handle."
                 data-attr="apm-endpoints-table"
             />
