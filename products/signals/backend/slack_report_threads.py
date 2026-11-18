@@ -26,9 +26,9 @@ from posthog.models import Team, User
 from posthog.models.integration import SlackIntegration
 from posthog.models.user_integration import UserIntegration
 
-from products.signals.backend.artefact_schemas import TASK_RUN_TYPE_IMPLEMENTATION
+from products.signals.backend.artefact_schemas import SIGNALS_PRODUCT, TASK_RUN_TYPE_IMPLEMENTATION
 from products.signals.backend.assignment_flags import assignment_side_effects_allowed
-from products.signals.backend.models import SignalReportSlackThread, SignalReportTask
+from products.signals.backend.models import SignalReport, SignalReportSlackThread, SignalReportTask
 from products.signals.backend.report_access import may_read_reports
 from products.signals.backend.slack_notification_targets import is_slack_member_target
 
@@ -112,6 +112,19 @@ def _report_thread_integrations(team: Team, integration_ids: set[int]) -> dict[i
     return integrations
 
 
+def _implementation_report_ids(*, team_id: int, task_id: str) -> list[str]:
+    candidates = [
+        str(report_id)
+        for report_id in SignalReport.objects.filter(team_id=team_id)
+        .filter(SignalReport.reports_for_task_ids_filter([task_id], team_id=team_id))
+        .values_list("id", flat=True)
+    ]
+    associations = SignalReport.associated_task_runs_for_reports(
+        report_ids=candidates, team_id=team_id, product=SIGNALS_PRODUCT, type=TASK_RUN_TYPE_IMPLEMENTATION
+    )
+    return [report_id for report_id, runs in associations.items() if any(run.task_id == task_id for run in runs)]
+
+
 def _deliver_implementation_pr_to_thread(
     *, team: Team, thread: SignalReportSlackThread, integration: IntegrationRecord, pr_url: str
 ) -> bool:
@@ -137,19 +150,13 @@ def _deliver_implementation_pr_to_thread(
 
 
 def dispatch_implementation_pr_notifications(*, team_id: int, task_id: str, pr_url: str) -> int:
-    repository = _pr_repository(pr_url)
-    if repository is None:
+    if not eligible_implementation_pr_urls(team_id=team_id, task_id=task_id, pr_urls=[pr_url]):
         return 0
-    report_ids = (
-        SignalReportTask.objects.filter(
-            team_id=team_id, task_id=task_id, task__team_id=team_id, relationship=TASK_RUN_TYPE_IMPLEMENTATION
-        )
-        .filter(Q(task__repository__iexact=repository) | Q(task__repositories__contains=[repository]))
-        .values("report_id")
-    )
+    report_ids = _implementation_report_ids(team_id=team_id, task_id=task_id)
     threads = list(
         SignalReportSlackThread.objects.for_team(team_id)
         .filter(report_id__in=report_ids, report__team_id=team_id, integration_id__isnull=False)
+        .exclude(report__status=SignalReport.Status.DELETED)
         .exclude(notified_pr_urls__contains=[pr_url])
     )
     if not threads:

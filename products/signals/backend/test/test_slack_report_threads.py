@@ -15,7 +15,13 @@ from posthog.models.user_integration import UserIntegration
 from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.facade.api import notify_implementation_pr_opened, notify_implementation_prs_opened
 from products.signals.backend.implementation_pr_notification_tasks import deliver_implementation_pr_notifications
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportSlackThread
+from products.signals.backend.models import (
+    ArtefactAttribution,
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportSlackThread,
+)
+from products.signals.backend.report_merge import merge_reports
 from products.signals.backend.slack_report_threads import record_report_slack_thread, report_id_for_slack_thread
 from products.signals.backend.task_run_artefacts import record_implementation_task
 from products.slack_app.backend.models import SlackThreadTaskMapping
@@ -142,7 +148,7 @@ def test_re_recording_the_same_thread_keeps_the_first_report(team, second_worksp
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("source", ["run_output", "set_output", "github_webhook"])
-@pytest.mark.parametrize("thread_timing", ["before_pr", "after_pr"])
+@pytest.mark.parametrize("thread_timing", ["before_pr", "after_pr", "merged_before_pr", "merged_after_pr", "deleted"])
 def test_implementation_pr_reaches_report_threads_once(
     team, django_capture_on_commit_callbacks, source: str, thread_timing: str
 ) -> None:
@@ -164,12 +170,13 @@ def test_implementation_pr_reaches_report_threads_once(
     )
     record_implementation_task(team_id=team.id, report_id=str(report.id), task_id=str(task.id), run_id=str(run.id))
     targets = {("CTEAM", "1700000000.000100"), ("COTHER", "1700000000.000200")}
+    thread_report = _report(team) if thread_timing.startswith("merged") else report
 
     def record_threads() -> None:
         for channel, thread_ts in targets:
             record_report_slack_thread(
                 team_id=team.id,
-                report_id=str(report.id),
+                report_id=str(thread_report.id),
                 integration_id=integration.id,
                 slack_workspace_id="T123",
                 channel=channel,
@@ -177,8 +184,15 @@ def test_implementation_pr_reaches_report_threads_once(
                 kind=SignalReportSlackThread.Kind.INBOX_NOTIFICATION,
             )
 
-    if thread_timing == "before_pr":
+    if thread_timing not in {"after_pr", "merged_after_pr"}:
         record_threads()
+    if thread_report != report:
+        merge_reports(
+            team=team,
+            survivor=thread_report,
+            source_ids=[str(report.id)],
+            attribution=ArtefactAttribution.from_task(str(task.id)),
+        )
     Integration.objects.create(team=team, kind="github", integration_id="12345", config={})
     pr_url = "https://github.com/example/repo/pull/42"
     other_pr_url = "https://github.com/example/repo/pull/43"
@@ -221,9 +235,11 @@ def test_implementation_pr_reaches_report_threads_once(
         with django_capture_on_commit_callbacks(execute=True):
             notify_implementation_pr_opened(team.id, str(task.id), pr_url)
         client.chat_postMessage.assert_not_called()
+        if thread_timing == "deleted":
+            SignalReport.objects.filter(team_id=team.id, id=report.id).update(status=SignalReport.Status.DELETED)
         for job in queued.call_args_list:
             deliver_implementation_pr_notifications.apply(kwargs=job.kwargs, throw=True)
-        if thread_timing == "after_pr":
+        if thread_timing in {"after_pr", "merged_after_pr"}:
             assert not client.chat_postMessage.call_args_list
             previous_jobs = len(queued.call_args_list)
             with django_capture_on_commit_callbacks(execute=True):
@@ -231,12 +247,13 @@ def test_implementation_pr_reaches_report_threads_once(
             for job in queued.call_args_list[previous_jobs:]:
                 deliver_implementation_pr_notifications.apply(kwargs=job.kwargs, throw=True)
 
-        assert client.chat_postMessage.call_count == 4
+        assert client.chat_postMessage.call_count == (0 if thread_timing == "deleted" else 4)
         assert {
             (call.kwargs["channel"], call.kwargs["thread_ts"]) for call in client.chat_postMessage.call_args_list
-        } == targets
+        } == (set() if thread_timing == "deleted" else targets)
         assert all(
-            sum(url in call.kwargs["text"] for call in client.chat_postMessage.call_args_list) == 2
+            sum(url in call.kwargs["text"] for call in client.chat_postMessage.call_args_list)
+            == (0 if thread_timing == "deleted" else 2)
             for url in [pr_url, other_pr_url]
         )
         run.refresh_from_db()
