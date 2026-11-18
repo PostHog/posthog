@@ -332,6 +332,7 @@ rules:
                               |RelationshipProposal
                               |UsageSnapshot
                               |MCPAnalyticsSubmission
+                              |MCPAnalyticsWrapped
                               |MCPAuditEvent
                               |MCPCustomHarness
                               |MCPGatewayServer
@@ -877,6 +878,7 @@ rules:
                         |MetricsDashboardSuggestion
                         |RelationshipProposal
                         |UsageSnapshot
+                        |MCPAnalyticsWrapped
                         |MCPAuditEvent
                         |MCPCustomHarness
                         |MCPGatewayServer
