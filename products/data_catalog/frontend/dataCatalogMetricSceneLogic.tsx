@@ -378,7 +378,9 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
                     if (isInvalidMetricName(props.name)) {
                         throw new Error('Invalid metric name')
                     }
-                    const metric = await dataCatalogMetricsRetrieve(projectId(), props.name)
+                    const metric = await dataCatalogMetricsRetrieve(projectId(), props.name, {
+                        include_compiled_query: false,
+                    })
                     // Latest-wins: a tool completion can fire loadMetric while one is already in
                     // flight, so drop a superseded response instead of writing stale data back.
                     breakpoint()

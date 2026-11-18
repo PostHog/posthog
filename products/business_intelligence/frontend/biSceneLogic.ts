@@ -406,7 +406,9 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                     if (validateMetricName(name)) {
                         throw new Error('Invalid metric name')
                     }
-                    const metric = await dataCatalogMetricsRetrieve(String(values.currentTeamId), name)
+                    const metric = await dataCatalogMetricsRetrieve(String(values.currentTeamId), name, {
+                        include_compiled_query: false,
+                    })
                     breakpoint()
                     if (!catalogMetricWorksheet(metric)) {
                         throw new Error(

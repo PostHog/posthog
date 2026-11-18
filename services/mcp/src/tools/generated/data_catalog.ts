@@ -735,10 +735,7 @@ const dataCatalogRelationshipRejectExecute = (): ToolBase<
 
 const MetricDescribeSchema = () => {
     const DataCatalogMetricsRetrieveParams = orvalSchemas.DataCatalogMetricsRetrieveParams()
-    const DataCatalogMetricsRetrieveQueryParams = orvalSchemas.DataCatalogMetricsRetrieveQueryParams()
-    return DataCatalogMetricsRetrieveParams.omit({ project_id: true }).extend(
-        DataCatalogMetricsRetrieveQueryParams.shape
-    )
+    return DataCatalogMetricsRetrieveParams.omit({ project_id: true })
 }
 
 const metricDescribe = (): ToolBase<
@@ -752,9 +749,6 @@ const metricDescribe = (): ToolBase<
         const result = await context.api.request<Schemas.DataCatalogMetricDetail>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metrics/${encodeURIComponent(String(params.name))}/`,
-            query: {
-                include_compiled_query: params.include_compiled_query,
-            },
         })
         return withInformationalResponse(
             result,

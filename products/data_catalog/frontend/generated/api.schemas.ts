@@ -469,7 +469,7 @@ export interface DataCatalogMetricDetailApi {
     /** @nullable */
     readonly updated_at: string | null
     /**
-     * The HogQL the definition compiles to, with the dates of its window fixed as of now. Null unless include_compiled_query is true, and null for HogQLQuery and markdown metrics, for all-time windows, and for a definition that no longer compiles. Adapt the definition with a typed query runner when you can, and start from this SQL only for a change the runner cannot express.
+     * The HogQL the definition compiles to, with the dates of its window fixed as of now. Null when include_compiled_query is false, for HogQLQuery and markdown metrics, for all-time windows, and for a definition that no longer compiles. Adapt the definition with a typed query runner when you can, and start from this SQL only for a change the runner cannot express.
      * @nullable
      */
     readonly compiled_query: string | null
@@ -1279,7 +1279,7 @@ export type DataCatalogMetricsListParams = {
 
 export type DataCatalogMetricsRetrieveParams = {
     /**
-     * Set to true to also get the HogQL that a TrendsQuery, FunnelsQuery, or series node metric compiles to. Ask for it only when you must adapt the metric in SQL, because the typed query runners cannot express the change.
+     * Whether to compile a TrendsQuery, FunnelsQuery, or series node metric to HogQL. Compiling builds the team's HogQL database, so a caller that only shows the metric sets it to false.
      */
     include_compiled_query?: boolean
 }

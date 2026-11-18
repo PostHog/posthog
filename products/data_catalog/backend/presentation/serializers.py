@@ -267,10 +267,9 @@ class MetricRetrieveQuerySerializer(serializers.Serializer):
 
     include_compiled_query = serializers.BooleanField(
         required=False,
-        default=False,
-        help_text="Set to true to also get the HogQL that a TrendsQuery, FunnelsQuery, or series node metric "
-        "compiles to. Ask for it only when you must adapt the metric in SQL, because the typed query runners "
-        "cannot express the change.",
+        default=True,
+        help_text="Whether to compile a TrendsQuery, FunnelsQuery, or series node metric to HogQL. Compiling "
+        "builds the team's HogQL database, so a caller that only shows the metric sets it to false.",
     )
 
 
@@ -280,9 +279,9 @@ class MetricDetailSerializer(MetricSerializer):
 
     compiled_query = serializers.SerializerMethodField(
         help_text="The HogQL the definition compiles to, with the dates of its window fixed as of now. Null "
-        "unless include_compiled_query is true, and null for HogQLQuery and markdown metrics, for all-time "
-        "windows, and for a definition that no longer compiles. Adapt the definition with a typed query "
-        "runner when you can, and start from this SQL only for a change the runner cannot express.",
+        "when include_compiled_query is false, for HogQLQuery and markdown metrics, for all-time windows, and "
+        "for a definition that no longer compiles. Adapt the definition with a typed query runner when you "
+        "can, and start from this SQL only for a change the runner cannot express.",
     )
     compiled_query_note = serializers.SerializerMethodField(
         help_text="What the engine does after the compiled SQL runs, such as applying a formula or summing "

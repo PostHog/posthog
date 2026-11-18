@@ -3261,7 +3261,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     if (validateMetricName(metricName)) {
                         throw new Error('Invalid metric name')
                     }
-                    const metric = await dataCatalogMetricsRetrieve(String(ApiConfig.getCurrentTeamId()), metricName)
+                    const metric = await dataCatalogMetricsRetrieve(String(ApiConfig.getCurrentTeamId()), metricName, {
+                        include_compiled_query: false,
+                    })
                     breakpoint()
                     const metricSourceQuery = metricEditorSourceQuery(metric.definition)
                     if (!metricSourceQuery) {

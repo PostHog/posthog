@@ -188,14 +188,14 @@ export const DataCatalogMetricsRetrieveParams = () => zod.object({
         ),
 })
 
-export const dataCatalogMetricsRetrieveQueryIncludeCompiledQueryDefault = false
+export const dataCatalogMetricsRetrieveQueryIncludeCompiledQueryDefault = true
 
 export const DataCatalogMetricsRetrieveQueryParams = () => zod.object({
     include_compiled_query: zod
         .boolean()
         .default(dataCatalogMetricsRetrieveQueryIncludeCompiledQueryDefault)
         .describe(
-            'Set to true to also get the HogQL that a TrendsQuery, FunnelsQuery, or series node metric compiles to. Ask for it only when you must adapt the metric in SQL, because the typed query runners cannot express the change.'
+            "Whether to compile a TrendsQuery, FunnelsQuery, or series node metric to HogQL. Compiling builds the team's HogQL database, so a caller that only shows the metric sets it to false."
         ),
 })
 

@@ -343,14 +343,14 @@ _FUNNEL = {
 class TestMetricCompiledQuery(APIBaseTest):
     @parameterized.expand(
         [
-            ("not_requested", _TRENDS_WITH_FORMULA, "", None, []),
-            ("trends_formula", _TRENDS_WITH_FORMULA, "true", "refund", ["UNION ALL", "formula", "fixes the dates"]),
-            ("funnel", _FUNNEL, "true", "signed_up", ["furthest step", "fixes the dates"]),
-            ("hogql", _HOGQL, "true", None, []),
-            ("all_time", {**_TRENDS_WITH_FORMULA, "dateRange": {"date_from": "all"}}, "true", None, []),
+            ("opted_out", _TRENDS_WITH_FORMULA, "false", None, []),
+            ("trends_formula", _TRENDS_WITH_FORMULA, "", "refund", ["UNION ALL", "formula", "fixes the dates"]),
+            ("funnel", _FUNNEL, "", "signed_up", ["furthest step", "fixes the dates"]),
+            ("hogql", _HOGQL, "", None, []),
+            ("all_time", {**_TRENDS_WITH_FORMULA, "dateRange": {"date_from": "all"}}, "", None, []),
         ]
     )
-    def test_retrieve_returns_compiled_query_only_when_asked_and_compilable(
+    def test_retrieve_returns_compiled_query_unless_opted_out_or_uncompilable(
         self, _name: str, definition: dict, flag: str, sql_term: str | None, note_terms: list[str]
     ) -> None:
         upsert_metric(team=self.team, user=self.user, name="adaptable", description="d", definition=definition)

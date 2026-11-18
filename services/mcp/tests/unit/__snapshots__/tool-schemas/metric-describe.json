@@ -1,11 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-        "include_compiled_query": {
-            "default": false,
-            "description": "Set to true to also get the HogQL that a TrendsQuery, FunnelsQuery, or series node metric compiles to. Ask for it only when you must adapt the metric in SQL, because the typed query runners cannot express the change.",
-            "type": "boolean"
-        },
         "name": {
             "type": "string"
         }
