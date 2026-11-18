@@ -62,6 +62,8 @@ class ScoreParameters:
             raise ValueError(f"The score needs a positive exposure share step, got {self.min_share_step}")
 
 
+MIN_GROUP_SIZE = 5
+
 # Placeholders until the phase 0 backtest tunes them.
 WEB_PARAMETERS = ScoreParameters(
     alpha=0.05,
@@ -141,7 +143,7 @@ def score_window(
     level_1_confirms = False
     split = _level_1_split(edit, exposure_since_edit, errors_since_edit, condition_match)
     if split is not None:
-        level_1 = sequential_proportion_test(split.exposed, split.unexposed, alpha=parameters.alpha)
+        level_1 = _level_1(split, parameters.alpha)
         level_1_confirms = (
             level_1 is not None
             and level_1.is_significant
@@ -250,6 +252,15 @@ def _level_1_split(
     return _split_people(counts.with_flag, counts.exposed, error_counts)
 
 
+def _level_1(split: _Split, alpha: float) -> ProportionTestResult | None:
+    groups = (split.exposed, split.unexposed)
+    if min(group.trials for group in groups) < MIN_GROUP_SIZE:
+        return None
+    # A group at 0% or 100% has no variance, so five people would look significant and no errors would give no result.
+    exposed, unexposed = (Proportion(trials=group.trials + 2, successes=group.successes + 1) for group in groups)
+    return sequential_proportion_test(exposed, unexposed, alpha=alpha)
+
+
 def _level_2(
     edit: WatchedEdit, exposure: ExposureCounts | None, errors: ErrorCounts | None, parameters: ScoreParameters
 ) -> float | None:
@@ -262,8 +273,7 @@ def _level_2(
     unexposed_rate = split.unexposed.successes / split.unexposed.trials
     if not exposed_rate:
         return 0.0
-    # The share of the errors of the exposed people that the flag explains: 0 when they are no worse than the rest,
-    # 1 when only they have errors.
+    # The share of the exposed errors that the flag explains: 0 when the exposed are no worse, 1 when only they err.
     return max(0.0, 1 - unexposed_rate / exposed_rate)
 
 

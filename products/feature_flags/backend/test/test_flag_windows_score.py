@@ -252,6 +252,19 @@ class TestScoreWindow(SimpleTestCase):
 
         assert (None if result.level_1 is None else result.level_1.is_significant) is significant
 
+    @parameterized.expand(
+        [
+            ("five_exposed_and_nobody_with_errors", 5, False),
+            ("four_exposed", 4, None),
+        ]
+    )
+    def test_level_1_runs_on_groups_of_at_least_five_people_even_without_errors(
+        self, _name: str, exposed: int, significant: bool | None
+    ) -> None:
+        result = _score(_exposure([0.5], exposed=exposed), _errors(0, 0), [BASELINE_RATE])
+
+        assert (None if result.level_1 is None else result.level_1.is_significant) is significant
+
     def test_the_minimum_volume_applies_to_the_people_that_level_1_compares(self) -> None:
         exposure = _exposure([0.5], in_condition={ConditionMatch.REASON: ConditionExposure(with_flag=520, exposed=20)})
         errors = _errors(
