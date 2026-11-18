@@ -31,6 +31,7 @@ from products.aeo.backend.facade.contracts import (
 )
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck
 from products.aeo.backend.rankings import word_pattern
+from products.aeo.backend.stored_results import bump_data_version_on_commit
 
 # Community, review and media sites that engines cite for every topic. They are sources, not companies we compete with.
 PUBLISHER_DOMAINS = frozenset(
@@ -120,6 +121,7 @@ def recompute_own_citations(team_id: int) -> int:
         if current == domains:
             break
         domains = current
+    bump_data_version_on_commit(team_id)
     return changed
 
 
@@ -269,6 +271,7 @@ def sync_brands_from_run(team_id: int, run_id: str) -> BrandSyncResult:
         )
     # A concurrent sync may insert the same domain first; its row wins.
     AEOBrand.objects.for_team(team_id, canonical=True).bulk_create(new_brands, ignore_conflicts=True)
+    bump_data_version_on_commit(team_id)
     return BrandSyncResult(domains=len(domains), created=len(new_brands))
 
 

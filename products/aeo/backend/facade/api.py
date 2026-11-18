@@ -61,6 +61,7 @@ from products.aeo.backend.brand import (
 )
 from products.aeo.backend.engines import MAX_PROMPT_LENGTH, is_target_host, top_domains
 from products.aeo.backend.facade.contracts import (
+    DEFAULT_STATS_DAYS,
     PROMPT_TOPIC_MAX_LENGTH,
     Brand,
     BrandCreate,
@@ -125,6 +126,7 @@ from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOPrompt, A
 from products.aeo.backend.runner import run_citation_checks
 from products.aeo.backend.scope import SCOPE_SQL, CheckScope, scope_filter, scope_sql_params, scope_without_segment
 from products.aeo.backend.seeding import PromptCandidate, normalize_prompt, prompt_hash, upsert_prompts
+from products.aeo.backend.stored_results import stored_result
 from products.aeo.backend.tasks.tasks import (
     recompute_aeo_own_citations_task,
     set_up_aeo_task,
@@ -665,12 +667,29 @@ def get_prompt_set_overview(
     branded: BrandedSegment = BrandedSegment.ALL,
     engine: str | None = None,
     topic: str | None = None,
+    refresh: bool = False,
 ) -> PromptSetOverview:
     """Web-search checks across the whole prompt set over the last `days` days in the team's timezone, the same
     counts for the `days` days before, the current window split per engine and per topic, and how often each
     engine names the brand without search against with it. `branded` keeps the checks, and the active prompts,
     on one side of the branded split. `engine` and `topic` keep the checks of one engine or one topic, and
     `topic` also keeps the active prompts that have it now."""
+    tz = ZoneInfo(timezone_name)
+    return stored_result(
+        team_id,
+        "overview",
+        # The window ends today in the team's timezone, so a new day is a new result.
+        (timezone_name, timezone.now().astimezone(tz).date(), days, branded.value, engine, topic),
+        lambda: _compute_prompt_set_overview(
+            team_id, timezone_name=timezone_name, days=days, branded=branded, engine=engine, topic=topic
+        ),
+        refresh=refresh,
+    )
+
+
+def _compute_prompt_set_overview(
+    team_id: int, *, timezone_name: str, days: int, branded: BrandedSegment, engine: str | None, topic: str | None
+) -> PromptSetOverview:
     scope = CheckScope(segment=branded, engine=engine, topic=topic)
     target_domains = catalog.own_domains(team_id)
     tz = ZoneInfo(timezone_name)
@@ -754,18 +773,32 @@ def get_prompt_set_rankings(
     branded: BrandedSegment = BrandedSegment.ALL,
     engine: str | None = None,
     topic: str | None = None,
+    refresh: bool = False,
 ) -> PromptSetRankings:
     """How often answers named the project against the brands behind the domains the engines cite
     most, over the last `days` days in the team's timezone, with the domains and pages cited most.
     `branded`, `engine` and `topic` keep the checks on one side of the branded split, of one engine, or of
     one topic."""
-    return rankings.get_rankings(
+    return stored_result(
         team_id,
-        target_domains=catalog.own_domains(team_id),
-        timezone_name=timezone_name,
-        days=days,
-        scope=CheckScope(segment=branded, engine=engine, topic=topic),
+        "rankings",
+        (timezone_name, timezone.now().astimezone(ZoneInfo(timezone_name)).date(), days, branded.value, engine, topic),
+        lambda: rankings.get_rankings(
+            team_id,
+            target_domains=catalog.own_domains(team_id),
+            timezone_name=timezone_name,
+            days=days,
+            scope=CheckScope(segment=branded, engine=engine, topic=topic),
+        ),
+        refresh=refresh,
     )
+
+
+def refresh_stored_results(team_id: int, *, timezone_name: str) -> None:
+    """Compute the views the page opens on and store them, so a person who opens it never waits for
+    the queries. Run it after every write that changes them, and on a timer."""
+    get_prompt_set_overview(team_id, timezone_name=timezone_name, days=DEFAULT_STATS_DAYS, refresh=True)
+    get_prompt_set_rankings(team_id, timezone_name=timezone_name, days=DEFAULT_STATS_DAYS, refresh=True)
 
 
 def create_visibility_dashboard(team: Team, user: User) -> VisibilityDashboard:

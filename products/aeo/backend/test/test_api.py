@@ -26,7 +26,12 @@ from posthog.rate_limit import AEOKeywordReportBurstRateThrottle
 from products.aeo.backend import brand, catalog
 from products.aeo.backend.engine_settings import engine_schedule
 from products.aeo.backend.engines import top_domains
-from products.aeo.backend.facade.api import RECOMPUTE_DEBOUNCE_SECONDS, create_keywords, get_prompt_set_overview
+from products.aeo.backend.facade.api import (
+    RECOMPUTE_DEBOUNCE_SECONDS,
+    create_keywords,
+    get_prompt_set_overview,
+    refresh_stored_results,
+)
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOKeyword, AEOPrompt, AEOPromptVersion
 from products.aeo.backend.test.factories import create_citation_check, create_own_brand, store_what_the_runner_stores
 
@@ -478,6 +483,38 @@ class TestAEOPromptAPI(APIBaseTest):
             self.client.get(f"{self.url}?limit=4")
 
         assert len(four_prompts.captured_queries) == len(one_prompt.captured_queries)
+
+    @parameterized.expand([("overview", "overview/"), ("rankings", "rankings/")])
+    def test_a_repeated_set_level_read_runs_no_check_queries_until_the_data_changes(
+        self, _name: str, path: str
+    ) -> None:
+        create_own_brand(self.team, "example.com")
+        prompt_id = self._import_one_prompt()
+        self._record_check(prompt_id, "exa-answer", minutes_ago=30, cited_urls=["https://rival.io/a"])
+        first = self.client.get(f"{self.url}{path}").json()
+
+        with CaptureQueriesContext(connection) as repeated:
+            again = self.client.get(f"{self.url}{path}").json()
+        with self.captureOnCommitCallbacks(execute=True):
+            self._record_check(prompt_id, "exa-answer", minutes_ago=10, cited_urls=["https://rival.io/b"])
+        after_write = self.client.get(f"{self.url}{path}").json()
+
+        assert again == first
+        assert [q["sql"] for q in repeated.captured_queries if "posthog_aeo_citation_check" in q["sql"]] == []
+        answers = "answers" if path == "rankings/" else None
+        assert (after_write[answers] if answers else after_write["current"]["checks"]) == 2
+
+    def test_refresh_stores_the_views_the_page_opens_on(self) -> None:
+        create_own_brand(self.team, "example.com")
+        self._record_check(self._import_one_prompt(), "exa-answer", minutes_ago=30)
+
+        refresh_stored_results(self.team.id, timezone_name=self.team.timezone)
+
+        with CaptureQueriesContext(connection) as queries:
+            overview = self.client.get(f"{self.url}overview/").json()
+            self.client.get(f"{self.url}rankings/")
+        assert overview["current"]["checks"] == 1
+        assert [q["sql"] for q in queries.captured_queries if "posthog_aeo_citation_check" in q["sql"]] == []
 
     @parameterized.expand(
         [

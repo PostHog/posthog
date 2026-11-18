@@ -121,6 +121,33 @@ def score_aeo_sentiment_backlog_task() -> None:
             logger.exception("aeo_sentiment_backlog_start_failed", team_id=team.id)
 
 
+@shared_task(ignore_result=True)
+@skip_team_scope_audit  # Team is the tenant, not tenant data; the per-team gate scopes what follows
+def refresh_aeo_stored_results_task() -> None:
+    """Beat entrypoint: fan out one refresh per enabled team. It keeps the default views stored, and
+    bounds how long a write that forgot to bump the version can leave an old result in use."""
+    for raw_team_id in settings.AEO_CITATION_TEAM_IDS:
+        try:
+            team = Team.objects.get(id=int(raw_team_id))
+        except (Team.DoesNotExist, ValueError):
+            continue
+        if citation_tracking_enabled(team):
+            refresh_aeo_stored_results_for_team_task.delay(team.id)
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
+@skip_team_scope_audit  # Team is the tenant; the reads go through AEOCitationCheck.objects.for_team
+def refresh_aeo_stored_results_for_team_task(team_id: int) -> None:
+    # The facade imports this module for its tasks, so the import cannot sit at the top.
+    from products.aeo.backend.facade.api import refresh_stored_results  # noqa: PLC0415 -- breaks an import cycle
+
+    try:
+        team = Team.objects.get(id=team_id)
+    except Team.DoesNotExist:
+        return
+    refresh_stored_results(team.id, timezone_name=team.timezone)
+
+
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.LONG_RUNNING.value,
@@ -300,6 +327,10 @@ def recompute_aeo_own_citations_task(self: Task, team_id: int) -> None:
         # Checks recorded before the fact rows existed get them here, once, with no command to run.
         if has_checks_without_facts(team_id):
             logger.info("aeo_check_facts_backfilled", team_id=team_id, checks=backfill_facts(team_id))
+        try:
+            refresh_aeo_stored_results_for_team_task.delay(team_id)
+        except Exception:
+            logger.exception("aeo_stored_results_refresh_enqueue_failed", team_id=team_id)
     finally:
         try:
             lock.release()

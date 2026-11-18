@@ -15,6 +15,7 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.aeo.backend.models import CHECK_FACT_TEXT_MAX_LENGTH, AEOCheckCitation, AEOCheckSearch, AEOCitationCheck
 from products.aeo.backend.rankings import registrable_domain
+from products.aeo.backend.stored_results import bump_data_version_on_commit
 
 BACKFILL_BATCH_SIZE = 500
 
@@ -125,4 +126,5 @@ def backfill_facts(team_id: int) -> int:
         last = page[-1]
         write_facts(page)
         read += len(page)
+    bump_data_version_on_commit(team_id)
     return read
