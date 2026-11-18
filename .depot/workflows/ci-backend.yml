@@ -1445,6 +1445,14 @@ jobs:
                       trunk-junit \
                       "$PRODUCT_FILTERS"
 
+            - name: Download the run's Trunk ownership map
+              continue-on-error: true
+              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: trunk-ownership-map
+                  path: ${{ runner.temp }}/trunk-codeowners
+
             - name: Quarantine gate
               id: quarantine_gate
               continue-on-error: true
@@ -3964,6 +3972,14 @@ jobs:
                   if-no-files-found: ignore
                   retention-days: 1
 
+            - name: Download the run's Trunk ownership map
+              continue-on-error: true
+              if: ${{ !cancelled() && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: trunk-ownership-map
+                  path: ${{ runner.temp }}/trunk-codeowners
+
             # The helper sets TRUNK_CODEOWNERS_PATH so Trunk attributes uploaded tests to their owners.
             - name: Build the Trunk ownership map
               if: ${{ !cancelled() && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
@@ -4012,6 +4028,31 @@ jobs:
               if: ${{ !cancelled() && ((steps.run-core-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate_core.outcome != 'success')) || (steps.run-temporal-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate_temporal.outcome != 'success'))) }}
               shell: bash
               run: exit 1
+
+    # Test shards download this map instead of each spending seconds generating it, and generate
+    # their own when the download misses. No job needs it, so it cannot delay or fail the run.
+    trunk-ownership-map:
+        name: Build the Trunk ownership map
+        needs: [changes]
+        if: needs.changes.outputs.backend == 'true' && github.event_name != 'push' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true'
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 10
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - name: Install uv
+              uses: ./.depot/actions/setup-uv
+              with:
+                  enable-cache: 'false'
+            - name: Build the map
+              shell: bash
+              run: .github/scripts/trunk-codeowners.sh "$RUNNER_TEMP/trunk-codeowners"
+            - name: Upload the map
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: trunk-ownership-map
+                  path: ${{ runner.temp }}/trunk-codeowners/CODEOWNERS
+                  if-no-files-found: ignore
+                  retention-days: 1
 
     # Read ClickHouse versions for the compat test matrix.
     get_clickhouse_versions:
