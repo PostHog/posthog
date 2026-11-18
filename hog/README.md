@@ -4,7 +4,7 @@
 It replaces `posthog-cli` (in `cli/`), which keeps working until `hog` covers everything it does.
 
 `hog` is written in TypeScript and compiles to a single binary with [Bun](https://bun.sh).
-It is in alpha: the first release is 0.1.0-alpha.1.
+The first release is 0.1.0.
 
 ## Install
 
@@ -17,7 +17,7 @@ npx hog setup                                                 # run once without
 ```
 
 - The install script picks the build for your OS, processor and C library (glibc or musl), checks it against `SHA256SUMS`, and puts `hog` in `~/.local/bin`. It tells you when that folder isn't on your `PATH`.
-- `--version <version>` (or `HOG_VERSION`) installs another version, and `--dir <folder>` (or `HOG_INSTALL_DIR`) installs somewhere else: `curl -fsSL https://releases.posthog.com/hog/install.sh | sh -s -- --version 0.1.0-alpha.3`.
+- `--version <version>` (or `HOG_VERSION`) installs another version, and `--dir <folder>` (or `HOG_INSTALL_DIR`) installs somewhere else: `curl -fsSL https://releases.posthog.com/hog/install.sh | sh -s -- --version 0.1.0`.
 - Builds exist for macOS (Apple silicon and Intel), Linux (x64 and arm64, glibc and musl) and Windows (x64 and arm64).
 - The npm package `hog` is a small launcher. npm, pnpm and bun install only the `@posthog/hog-<platform>` package with the binary for your machine.
 
@@ -446,7 +446,7 @@ To release a change, add a changeset to your pull request from `hog/`:
 sampo add --package npm/hog --bump patch --message "Describe the change for the changelog"
 ```
 
-Use `minor` or `major` instead of `patch` when it fits. While the version is a prerelease, such as `0.1.0-alpha.3`, every bump raises the prerelease number. Commit the file sampo writes under `hog/.sampo/changesets/`.
+Use `minor` or `major` instead of `patch` when it fits. Commit the file sampo writes under `hog/.sampo/changesets/`.
 
 After the pull request merges to master, the workflow:
 
@@ -468,9 +468,9 @@ A release takes two merges, the changeset and then the release pull request, and
 - Every release is the latest, prereleases included. A rerun of an older version never moves `hog/latest/manifest.json`, npm's `latest` tag or the formula back, and a manifest the workflow can't read stops the release instead.
 - Changesets that merge while a release pull request waits start the next release when it merges.
 - To retire a broken release, set `minimumVersion` in `release/minimum-version.json`. The next release carries it in its manifest.
-- Don't run `sampo publish` or push `hog/v*` tags by hand. The one exception comes before the first release: the approval check starts at the tag of the version in `hog/package.json`, so a maintainer tags the commit where the first release's check starts as `hog/v0.1.0-alpha.0`. The check runs as that tag has it, so the tag must be on a commit with `hog/release/check-approvers.sh`.
+- Don't run `sampo publish` or push `hog/v*` tags by hand. The one exception comes before the first release: the approval check starts at the tag of the version in `hog/package.json`, so a maintainer tags the commit where the first release's check starts as `hog/v0.0.0`. The check runs as that tag has it, so the tag must be on a commit with `hog/release/check-approvers.sh`.
 
 ```bash
-bun release/compile.ts --version 0.1.0-alpha.9 --target darwin-arm64   # a release build for this machine
-bun test release/                                                      # the install script and launcher tests
+bun release/compile.ts --version 0.1.0 --target darwin-arm64   # a release build for this machine
+bun test release/                                              # the install script and launcher tests
 ```
