@@ -511,9 +511,10 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
             organization=self.organization, defaults={"flag_evaluations_mode": mode}
         )
         person = create_person(team=self.team, distinct_ids=["person-1"])
+        # The events copy names no matched condition, so only a scan of flag_evaluations counts the call.
         call = {
             "$feature_flag": "new-checkout",
-            "$feature_flag_reason": "Matched condition set 1",
+            "$feature_flag_reason": "No condition sets matched",
             "$feature/new-checkout": True,
         }
         _create_event(

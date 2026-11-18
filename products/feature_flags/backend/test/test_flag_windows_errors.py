@@ -343,13 +343,15 @@ class TestErrorsByBucket(ClickhouseTestMixin, BaseTest):
         people = {distinct_id: create_person(team=self.team, distinct_ids=[distinct_id]) for distinct_id, _, _ in calls}
         people["person-3"] = create_person(team=self.team, distinct_ids=["person-3"])
         if not calls_only_in_flag_evaluations:
+            # The events copy carries a different response, so only a scan of flag_evaluations gives `expected`.
+            events_response = not response
             for distinct_id, flag_key, properties in calls:
                 _create_event(
                     team=self.team,
                     event="$feature_flag_called",
                     distinct_id=distinct_id,
                     timestamp=EDITED_AT + timedelta(minutes=1),
-                    properties={**properties, "$feature_flag": flag_key, "$feature_flag_response": response},
+                    properties={**properties, "$feature_flag": flag_key, "$feature_flag_response": events_response},
                 )
         for distinct_id, properties in (("person-1", {}), ("person-3", {"$group_0": "org-a"})):
             _create_event(
