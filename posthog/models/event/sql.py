@@ -510,7 +510,7 @@ def _cast_temporary_properties(field: str) -> str:
     )
 
 
-def _events_json_rows_sql(kafka_table: str, where_clause: str = "") -> str:
+def _events_json_rows_sql(kafka_table: str) -> str:
     return """SELECT
 *,
 accurateCast(byteSize(*) + byteSize(toUInt32(0)), 'UInt32') AS total_event_size
@@ -566,11 +566,10 @@ arrayMap(
 ) AS consumer_breadcrumbs,
 {cleaner}(properties, person_properties) AS {cleaned}
 FROM {database}.{kafka_table}
-{where_clause}) AS source
+) AS source
 )
 """.format(
         kafka_table=kafka_table,
-        where_clause=where_clause,
         database=settings.CLICKHOUSE_DATABASE,
         cleaner=EVENTS_JSON_CLEANER,
         cleaned=EVENTS_JSON_CLEANED_ALIAS,
@@ -844,8 +843,9 @@ def EVENTS_JSON_RECENT_MV_SQL(
     mv_name: str = EVENTS_JSON_RECENT_MV, kafka_table: str = KAFKA_EVENTS_JSON_RECENT_TABLE
 ) -> str:
     # The rows are the ones events_json_table_mv writes, printed as the documents batch exports send, so a realtime
-    # export reads them as stored. events_json drops $feature_flag_called in production, so this table drops it too.
-    rows = _events_json_rows_sql(kafka_table, where_clause="WHERE event != '$feature_flag_called'\n")
+    # export reads them as stored. events_json drops $feature_flag_called in production. This table keeps those
+    # events, so do not copy that filter here.
+    rows = _events_json_rows_sql(kafka_table)
     return f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name}
 TO {settings.CLICKHOUSE_DATABASE}.{WRITABLE_EVENTS_JSON_RECENT_TABLE}
