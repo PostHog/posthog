@@ -57,3 +57,13 @@ class TestPlanSample(SimpleTestCase):
         assert sample is not None
         start, end = sample.slices[0]
         self.assertAlmostEqual((end - start).total_seconds(), 20, places=3)
+
+    def test_empty_slices_grow_to_the_populated_bucket(self) -> None:
+        # Twice the limit arrives at seconds 50-59 of the first minute. The planned slices read 0-20s
+        # and later empty minutes, so they hold nothing until they cover the whole populated minute.
+        to = FROM + timedelta(hours=1)
+        density = _SpanDensity.from_buckets([(FROM, EXACT_SPAN_LIMIT * 2)], MINUTE, FROM, to)
+        sample = _plan_sample(density, FROM, to)
+        assert sample is not None
+        self.assertLess(sample.slices[0][1], FROM + timedelta(seconds=50))
+        self.assertEqual(density.widen_to_buckets(sample, FROM).slices, [(FROM, FROM + MINUTE)])
