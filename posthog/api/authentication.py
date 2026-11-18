@@ -47,7 +47,7 @@ from rest_framework.views import APIView
 from social_core.actions import do_complete
 from social_core.backends.base import BaseAuth
 from social_core.backends.github import GithubOAuth2
-from social_core.exceptions import AuthConnectionError, AuthFailed, AuthMissingParameter
+from social_core.exceptions import AuthConnectionError, AuthFailed, AuthMissingParameter, AuthStateForbidden
 from social_django.models import UserSocialAuth
 from social_django.strategy import DjangoStrategy
 from social_django.utils import load_backend, load_strategy
@@ -75,6 +75,7 @@ from posthog.helpers.sso import (
     GITHUB_EMAIL_LOOKUP_ERROR,
     IDP_SSO_BACKENDS,
     UNVERIFIED_SOCIAL_EMAIL_ERROR,
+    idp_authentication_is_fresh,
     is_sso_reauth_begin,
     sso_failure_redirect_url,
 )
@@ -156,6 +157,7 @@ class PendingIdPEmailVerification(TypedDict):
     uid: str
     email: str
     target_email: str
+    authenticated_at: int
     user_id: int
     issued_at: int
     partial_token: str
@@ -1236,12 +1238,6 @@ class TwoFactorPasskeyViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         return Response(json.loads(options_to_json(options)))
 
 
-def _idp_verification_target(user: User, provider: str, uid: str, asserted_email: str) -> str:
-    if UserSocialAuth.objects.filter(user=user, provider=provider, uid=uid).exists():
-        return user.email.strip().lower()
-    return asserted_email
-
-
 def _complete_idp_login(request: Request, user: User, pending: PendingIdPEmailVerification) -> None:
     if _sso_access_refused(request, user):
         raise exceptions.PermissionDenied(ACCOUNT_BLOCKED_DETAIL, code=SECURITY_REFUSAL_CODE)
@@ -1254,8 +1250,9 @@ def _complete_idp_login(request: Request, user: User, pending: PendingIdPEmailVe
         or str(partial.kwargs.get("uid")) != pending["uid"]
         or (partial.kwargs.get("details", {}).get("email") or "").strip().lower() != pending["email"]
         or request.session.get("partial_pipeline_token") != pending["partial_token"]
-        or _idp_verification_target(user, pending["provider"], pending["uid"], pending["email"])
-        != pending["target_email"]
+        or partial.kwargs.get("idp_authenticated_at") != pending["authenticated_at"]
+        or not idp_authentication_is_fresh(partial.kwargs.get("idp_authenticated_at"))
+        or user.email.strip().lower() != pending["target_email"]
     ):
         raise serializers.ValidationError({"detail": "Please log in again."}, code="no_pending_verification")
     backend = load_backend(strategy, pending["provider"], reverse("social:complete", args=[pending["provider"]]))
@@ -1271,13 +1268,21 @@ def _complete_idp_login(request: Request, user: User, pending: PendingIdPEmailVe
         provider=pending["provider"],
         issuer=pending["issuer"],
         subject=pending["subject"],
-        defaults={"user": user, "email": pending["email"]},
+        defaults={"user": user, "email": pending["email"], "target_email": pending["target_email"]},
     )
-    if pending["target_email"] == user.email.strip().lower():
-        _clear_unverified_local_credentials(user)
+    _clear_unverified_local_credentials(user)
     do_complete(backend, _do_login, request=request._request, partial_token=pending["partial_token"])
     if request.session.get("_auth_user_id") != str(user.pk):
         raise serializers.ValidationError({"detail": "Please log in again."}, code="no_pending_verification")
+
+
+def _require_fresh_idp_challenge(request: Request) -> None:
+    pending = request.session.get(CODE_BASED_VERIFICATION_SSO_SESSION_KEY)
+    if pending and not idp_authentication_is_fresh(pending.get("authenticated_at")):
+        code_based_verifier.clear_pending(request)
+        raise serializers.ValidationError(
+            {"detail": "Your sign-in expired. Please log in again."}, code="authentication_expired"
+        )
 
 
 class CodeBasedVerificationSerializer(serializers.Serializer):
@@ -1319,6 +1324,7 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
                 {"detail": "No pending verification. Please log in again."},
                 code="no_pending_verification",
             )
+        _require_fresh_idp_challenge(request)
 
         # Reserve this attempt atomically before doing anything else, so concurrent guesses can't all
         # observe the same count and exceed the cap. `attempts` includes the current attempt.
@@ -1394,6 +1400,7 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
             raise serializers.ValidationError(
                 {"detail": "No pending verification found."}, code="no_pending_verification"
             )
+        _require_fresh_idp_challenge(request)
 
         try:
             user = User.objects.get(pk=code_based_verifier.get_pending_code_based_verification_user_id(request))
@@ -1780,7 +1787,7 @@ def social_require_idp_email_verification(
     response: dict[str, Any] | None = None,
     **kwargs: Any,
 ) -> HttpResponse | None:
-    """Hold a login until mailbox approval, using the account address for an already-linked identity.
+    """Hold a login until the resolved account's mailbox approves its identity.
 
     Runs before `associate_user`, so an unproven identity is never linked to the account, and a
     response from a pipeline step makes `do_complete` return it instead of starting a session.
@@ -1796,19 +1803,26 @@ def social_require_idp_email_verification(
     if user is None or not uid or identity is None or not email:
         return redirect(sso_failure_redirect_url(strategy.request, "improperly_configured_sso"))
 
+    target_email = user.email.strip().lower()
     if IdentityProviderEmailVerification.objects.filter(
-        user=user, provider=identity.provider, issuer=identity.issuer, subject=identity.subject, email=email
+        user=user,
+        provider=identity.provider,
+        issuer=identity.issuer,
+        subject=identity.subject,
+        email=email,
+        target_email=target_email,
     ).exists():
-        if email == user.email.strip().lower():
-            _clear_unverified_local_credentials(user)
+        _clear_unverified_local_credentials(user)
         return None
 
     request = strategy.request
-    if backend.name == "saml" and not strategy.session_get("saml_browser_verified"):
+    authenticated_at = kwargs.get("idp_authenticated_at")
+    if not idp_authentication_is_fresh(authenticated_at):
+        raise AuthStateForbidden(backend)
+    if backend.name == "saml" and kwargs.get("saml_browser_verified") is not True:
         return redirect(sso_failure_redirect_url(request, "oauth_state_invalid"))
 
     pending = request.session.get(CODE_BASED_VERIFICATION_SSO_SESSION_KEY)
-    target_email = _idp_verification_target(user, identity.provider, str(uid), email)
     issued_at = code_based_verifier.get_pending_code_based_verification_issued_at(request)
     reuse_code = (
         pending is not None
@@ -1840,6 +1854,7 @@ def social_require_idp_email_verification(
         uid=str(uid),
         email=email,
         target_email=target_email,
+        authenticated_at=cast(int, authenticated_at),
         user_id=user.pk,
         issued_at=cast(int, code_based_verifier.get_pending_code_based_verification_issued_at(request)),
         partial_token=kwargs["current_partial"].token,

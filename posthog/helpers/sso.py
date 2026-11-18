@@ -1,15 +1,35 @@
+import time
+from typing import TYPE_CHECKING
 from urllib.parse import urlencode
 
 from django.http import HttpRequest
 from django.utils.http import url_has_allowed_host_and_scheme
+
+from social_core.exceptions import AuthStateForbidden
+
+if TYPE_CHECKING:
+    from social_core.backends.base import BaseAuth
+    from social_core.storage import PartialMixin
 
 UNVERIFIED_SOCIAL_EMAIL_ERROR = (
     "Your sign-in provider hasn't verified this email address. Verify it with the provider, then sign in again."
 )
 GITHUB_EMAIL_LOOKUP_ERROR = "Couldn't check your email address with GitHub. Wait a minute, then sign in again."
 
-# Backends whose sign-in proves the asserted address by emailing a code to it.
 IDP_SSO_BACKENDS = ("saml", "oidc")
+IDP_AUTHENTICATION_TTL_SECONDS = 30 * 60
+
+
+def idp_authentication_is_fresh(authenticated_at: object) -> bool:
+    return isinstance(authenticated_at, int) and 0 <= time.time() - authenticated_at < IDP_AUTHENTICATION_TTL_SECONDS
+
+
+def validate_idp_partial(backend: "BaseAuth", partial: "PartialMixin") -> None:
+    if partial.token != backend.strategy.session_get("partial_pipeline_token"):
+        raise AuthStateForbidden(backend)
+    if not idp_authentication_is_fresh(partial.data.get("kwargs", {}).get("idp_authenticated_at")):
+        backend.strategy.clean_partial_pipeline(partial.token)
+        raise AuthStateForbidden(backend)
 
 
 def get_safe_next_url(next_url: str | None, request: HttpRequest) -> str | None:

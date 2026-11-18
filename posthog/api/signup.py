@@ -47,7 +47,7 @@ from posthog.helpers.oauth_pending_connection import (
     apply_pending_connection_onboarding_skip,
     read_pending_oauth_connection,
 )
-from posthog.helpers.sso import IDP_SSO_BACKENDS
+from posthog.helpers.sso import IDP_SSO_BACKENDS, idp_authentication_is_fresh
 from posthog.helpers.verified_domain_enforcement import resolve_login_organization
 from posthog.inbox_providers import InboxProvider, InboxProviderLookup
 from posthog.models import (
@@ -962,6 +962,10 @@ class SocialSignupSerializer(serializers.Serializer):
             or not email
             or partial.backend != request.session["backend"]
             or email != request.session.get("email")
+            or (
+                partial.backend in IDP_SSO_BACKENDS
+                and not idp_authentication_is_fresh(partial.data.get("kwargs", {}).get("idp_authenticated_at"))
+            )
             or (partial.backend in IDP_SSO_BACKENDS and not is_email_available(with_absolute_urls=True))
         ):
             raise serializers.ValidationError("Please log in again to verify your email.")
@@ -1295,6 +1299,12 @@ def social_create_user(
             validate_email(email or "")
         except ValidationError:
             raise AuthFailed(backend, "The identity provider did not assert a valid email address.")
+        if isinstance(started_at := getattr(backend, "authentication_started_at", None), int):
+            kwargs["idp_authenticated_at"] = started_at
+            kwargs["current_partial"].data["kwargs"]["idp_authenticated_at"] = started_at
+            if backend.name == "saml":
+                kwargs["saml_browser_verified"] = getattr(backend, "browser_verified", False) is True
+                kwargs["current_partial"].data["kwargs"]["saml_browser_verified"] = kwargs["saml_browser_verified"]
     full_name = (
         details.get("fullname")
         or f"{details.get('first_name') or ''} {details.get('last_name') or ''}".strip()

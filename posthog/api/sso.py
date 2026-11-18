@@ -1,4 +1,5 @@
 import json
+import time
 import base64
 from hashlib import sha256
 from typing import Any, cast
@@ -26,7 +27,7 @@ from social_core.backends.saml import (
     SAMLAuth,
     SAMLIdentityProvider,
 )
-from social_core.exceptions import AuthFailed, AuthMissingParameter, AuthStateForbidden
+from social_core.exceptions import AuthFailed, AuthMissingParameter
 from social_core.storage import PartialMixin, UserProtocol
 from social_core.strategy import HttpResponseProtocol
 from social_django.models import UserSocialAuth
@@ -36,7 +37,7 @@ from social_django.utils import load_backend, load_strategy
 from posthog.api.scim.utils import mask_email
 from posthog.constants import AvailableFeature
 from posthog.helpers.email_utils import EmailLookupHandler
-from posthog.helpers.sso import UNVERIFIED_SOCIAL_EMAIL_ERROR
+from posthog.helpers.sso import UNVERIFIED_SOCIAL_EMAIL_ERROR, validate_idp_partial
 from posthog.models.identity_provider_config import IdentityProviderConfig, has_verified_organization_domain_q
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -125,12 +126,15 @@ class MultitenantSAMLAuth(SAMLAuth):
     each organization can have multiple verified domains each with its own SAML configuration.
     """
 
+    authentication_started_at: int | None = None
+    browser_verified = False
+
     def continue_pipeline(self, partial: PartialMixin) -> UserProtocol | HttpResponseProtocol | None:
-        if partial.token != self.strategy.session_get("partial_pipeline_token"):
-            raise AuthStateForbidden(self)
+        validate_idp_partial(self, partial)
         return super().continue_pipeline(partial)
 
     def auth_complete(self, *args, **kwargs):
+        self.authentication_started_at = int(time.time())
         # attempt to recover from missing relay state in idp-initiated SAML
         self._recover_idp_initiated_relay_state()
         data = self.strategy.request_data()
@@ -138,9 +142,8 @@ class MultitenantSAMLAuth(SAMLAuth):
         # The Lax session cookie is absent on cross-site ACS posts; a separate cookie binds
         # first-time mailbox proof to the browser that initiated sign-in.
         nonce = cast(DjangoStrategy, self.strategy).request.COOKIES.get(SAML_BROWSER_COOKIE, "")
-        self.strategy.session_set(
-            "saml_browser_verified",
-            bool(nonce) and constant_time_compare(sha256(nonce.encode()).hexdigest(), relay_state.get("browser", "")),
+        self.browser_verified = bool(nonce) and constant_time_compare(
+            sha256(nonce.encode()).hexdigest(), relay_state.get("browser", "")
         )
 
         try:
@@ -209,7 +212,9 @@ class MultitenantSAMLAuth(SAMLAuth):
         # A miss still routes the pre-cache JSON payload, an IdP-supplied value, or an expired key
         # through the base parser, which sends the last two to the IdP-initiated recovery.
         stored = _load_saml_relay_state(relay_state_str)
-        return stored if stored is not None else super().parse_relay_state(relay_state_str)
+        state = stored if stored is not None else super().parse_relay_state(relay_state_str)
+        state.pop(DjangoStrategy.SESSION_SAVE_KEY, None)
+        return state
 
     def _relay_state_points_to_config(self, relay_state_str: str | None) -> bool:
         if not relay_state_str:

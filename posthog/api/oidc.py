@@ -11,21 +11,18 @@ import structlog
 from prometheus_client import Counter, Histogram
 from requests import HTTPError, RequestException, Response, Timeout
 from social_core.backends.open_id_connect import OpenIdConnectAuth
-from social_core.exceptions import (
-    AuthConnectionError,
-    AuthFailed,
-    AuthMissingParameter,
-    AuthStateForbidden,
-    AuthTokenError,
-)
+from social_core.exceptions import AuthConnectionError, AuthFailed, AuthMissingParameter, AuthTokenError
 from social_core.storage import PartialMixin, UserProtocol
 from social_core.strategy import HttpResponseProtocol
 from urllib3.util import Timeout as Urllib3Timeout
 
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
+from posthog.helpers.email_utils import email_domain
+from posthog.helpers.sso import validate_idp_partial
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.security.pinned_requests import SSRFBlockedError, pinned_session
+from posthog.security.url_validation import canonicalize_host
 
 BasicAuthCredentials = tuple[str, str]
 
@@ -57,11 +54,25 @@ class OIDCClientCredentials:
 class MultitenantOIDCAuth(OpenIdConnectAuth):
     DEFAULT_USE_PKCE = True
     JWT_DECODE_OPTIONS = {"require": ["iss", "sub", "aud", "exp", "iat", "nonce"]}
+    authentication_started_at: int | None = None
+
+    def auth_complete(self, *args: Any, **kwargs: Any) -> UserProtocol | HttpResponseProtocol | None:
+        self.authentication_started_at = int(time.time())
+        return super().auth_complete(*args, **kwargs)
 
     def continue_pipeline(self, partial: PartialMixin) -> UserProtocol | HttpResponseProtocol | None:
-        if partial.token != self.strategy.session_get("partial_pipeline_token"):
-            raise AuthStateForbidden(self)
+        validate_idp_partial(self, partial)
         return super().continue_pipeline(partial)
+
+    @staticmethod
+    def _email_matches_config(email: str, config: IdentityProviderConfig) -> bool:
+        domain = email_domain(email)
+        return domain is not None and canonicalize_host(domain) in {
+            canonicalize_host(allowed)
+            for allowed in config.organization_domains.filter(verified_at__isnull=False).values_list(
+                "domain", flat=True
+            )
+        }
 
     @cached_property
     def identity_provider_config(self) -> IdentityProviderConfig:
@@ -81,6 +92,8 @@ class MultitenantOIDCAuth(OpenIdConnectAuth):
             raise AuthFailed(self, "OIDC configuration is not available.")
         if not config.has_oidc or not config.organization.is_feature_available(AvailableFeature.OIDC):
             raise AuthFailed(self, "OIDC is not available for this organization.")
+        if not self._email_matches_config(email, config):
+            raise AuthFailed(self, "The OIDC email domain does not belong to this identity provider configuration.")
         return config
 
     def auth_url(self) -> str:
@@ -92,7 +105,9 @@ class MultitenantOIDCAuth(OpenIdConnectAuth):
             for config in IdentityProviderConfig.objects.get_queryset()
             .oidc_for_email(email)
             .select_related("organization")
-            if config.has_oidc and config.organization.is_feature_available(AvailableFeature.OIDC)
+            if config.has_oidc
+            and config.organization.is_feature_available(AvailableFeature.OIDC)
+            and self._email_matches_config(email, config)
         ]
         if len(configs) != 1:
             raise AuthFailed(self, "OIDC requires one configured identity provider for this email domain.")
@@ -250,12 +265,7 @@ class MultitenantOIDCAuth(OpenIdConnectAuth):
         email = userinfo.get("email")
         if not isinstance(email, str):
             raise AuthFailed(self, "OIDC requires an email address from the identity provider.")
-        if not (
-            IdentityProviderConfig.objects.get_queryset()
-            .oidc_for_email(email)
-            .filter(id=self.identity_provider_config.id)
-            .exists()
-        ):
+        if not self._email_matches_config(email, self.identity_provider_config):
             raise AuthFailed(self, "The OIDC email domain does not belong to this identity provider configuration.")
         return userinfo
 

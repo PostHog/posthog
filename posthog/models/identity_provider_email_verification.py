@@ -4,7 +4,7 @@ from posthog.models.utils import UUIDModel
 
 
 class IdentityProviderEmailVerification(UUIDModel):
-    """Mailbox approval for an identity provider's issuer, subject, and asserted address.
+    """Account-mailbox approval for an identity provider's issuer, subject, and asserted address.
 
     A linked identity can survive a provider replacement or account email change, so its new
     proof must come from the account mailbox. SAML includes the signing certificate fingerprint
@@ -36,6 +36,10 @@ class IdentityProviderEmailVerification(UUIDModel):
     email = models.EmailField(
         max_length=254,
         help_text="The asserted address approved by the mailbox owner. A different address needs a new code.",
+    )
+    target_email = models.EmailField(
+        max_length=254,
+        help_text="The account mailbox that approved this identity. A different mailbox needs a new code.",
     )
     verified_at = models.DateTimeField(
         auto_now_add=True,

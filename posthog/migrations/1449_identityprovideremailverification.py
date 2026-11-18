@@ -52,6 +52,13 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 (
+                    "target_email",
+                    models.EmailField(
+                        help_text="The account mailbox that approved this identity. A different mailbox needs a new code.",
+                        max_length=254,
+                    ),
+                ),
+                (
                     "verified_at",
                     models.DateTimeField(
                         auto_now_add=True,
