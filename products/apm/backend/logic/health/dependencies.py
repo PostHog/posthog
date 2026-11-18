@@ -29,6 +29,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.errors import CHQueryErrorTooManyBytes
 from posthog.models import Team
 
 from products.apm.backend.logic.health.contract import DependencyEdge, DependencyKind
@@ -143,7 +144,17 @@ class _SpanDensity:
         share = min(seconds - self.starts[i], self.ends[i] - self.starts[i]) / (self.ends[i] - self.starts[i])
         return self.before[i] + self.counts[i] * share
 
-    def widen_to_buckets(self, sample: _Sample, date_from: datetime) -> _Sample:
+    def reads(self, sample: _Sample, date_from: datetime, date_to: datetime) -> float:
+        # The child scans read each slice widened by the margin, so the margin counts against the limit.
+        window_seconds = (date_to - date_from).total_seconds()
+        margin = CHILD_MARGIN.total_seconds()
+        return sum(
+            self.spans_before(min(window_seconds, (end - date_from).total_seconds() + margin))
+            - self.spans_before(max(0.0, (start - date_from).total_seconds() - margin))
+            for start, end in sample.slices
+        )
+
+    def widen_to_buckets(self, sample: _Sample, date_from: datetime, date_to: datetime) -> _Sample:
         # A count per bucket can't show where in a bucket the spans sit, so a slice can land in a quiet
         # part of a busy bucket and read nothing. Each slice grows to the populated buckets it touches,
         # or moves to the nearest one when it touches none, so the sample is never empty.
@@ -160,12 +171,17 @@ class _SpanDensity:
                 merged[-1][1] = max(merged[-1][1], last)
             else:
                 merged.append([first, last])
-        return _Sample(
+        widened = _Sample(
             slices=[
                 (date_from + timedelta(seconds=self.starts[first]), date_from + timedelta(seconds=self.ends[last]))
                 for first, last in merged
             ]
         )
+        # Whole buckets can hold more than the join may read, so the window is refused, as it would
+        # be at the byte cap, rather than read past the limit.
+        if self.reads(widened, date_from, date_to) > EXACT_SPAN_LIMIT:
+            raise CHQueryErrorTooManyBytes("The populated buckets hold more spans than the sample may read.")
+        return widened
 
 
 def _plan_sample(density: _SpanDensity, date_from: datetime, date_to: datetime) -> _Sample | None:
@@ -178,14 +194,13 @@ def _plan_sample(density: _SpanDensity, date_from: datetime, date_to: datetime) 
         max(1, round(window_seconds * EXACT_SPAN_LIMIT / total / SAMPLE_SLICE_SECONDS)),
     )
     stride = window_seconds / count
-    margin = CHILD_MARGIN.total_seconds()
 
-    def reads(width: float) -> float:
-        # The child scans read each slice widened by the margin, so the margin counts against the limit.
-        return sum(
-            density.spans_before(min(window_seconds, i * stride + width + margin))
-            - density.spans_before(max(0.0, i * stride - margin))
-            for i in range(count)
+    def slices(width: float) -> _Sample:
+        return _Sample(
+            slices=[
+                (date_from + timedelta(seconds=i * stride), date_from + timedelta(seconds=i * stride + width))
+                for i in range(count)
+            ]
         )
 
     # The widest slices that read at most the limit. A burst denser than the limit in a single second
@@ -193,16 +208,11 @@ def _plan_sample(density: _SpanDensity, date_from: datetime, date_to: datetime) 
     low, high = MIN_SAMPLE_SLICE_SECONDS, stride
     for _ in range(30):
         middle = (low + high) / 2
-        if reads(middle) <= EXACT_SPAN_LIMIT:
+        if density.reads(slices(middle), date_from, date_to) <= EXACT_SPAN_LIMIT:
             low = middle
         else:
             high = middle
-    width = timedelta(seconds=low)
-    slices = [
-        (date_from + timedelta(seconds=i * stride), date_from + timedelta(seconds=i * stride) + width)
-        for i in range(count)
-    ]
-    return _Sample(slices=slices)
+    return slices(low)
 
 
 def _sample_where(
@@ -454,7 +464,7 @@ def get_dependencies(
     if sample:
         sampled = _count_sample(team, date_from, date_to, environment, service, sample)
         if sampled == 0:
-            sample = density.widen_to_buckets(sample, date_from)
+            sample = density.widen_to_buckets(sample, date_from, date_to)
             sampled = _count_sample(team, date_from, date_to, environment, service, sample)
         rate = min(1.0, max(1, sampled) / density.total)
     rows = _run(team, "ApmDependenciesQuery", _dependencies_query(date_from, date_to, environment, service, sample))
