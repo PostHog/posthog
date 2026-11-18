@@ -3,7 +3,7 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import fields as dataclass_fields
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from email.utils import parseaddr
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
@@ -35,6 +35,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
+from rest_framework.utils import html
 
 from posthog.api.fields import OmittableBooleanField
 from posthog.api.file_system.file_system import validate_file_system_path, validate_file_system_placement
@@ -552,10 +553,21 @@ class SendTransactionalEmailSerializer(TransactionalEmailMessageSerializer):
         return super().to_internal_value(data)
 
 
+SCHEDULED_AT_OFFSET_MINUTES = re.compile(r"[+-]\d{2}:?(\d{2})$")
+SCHEDULED_AT_FRACTION = re.compile(r"\.(\d+)")
+
+
 class ScheduledAtField(serializers.DateTimeField):
     default_error_messages = {
-        "no_offset": "Add a UTC offset to the time, such as `Z` or `+01:00`, so PostHog knows when to send it."
+        "no_offset": "Add a UTC offset to the time, such as `Z` or `+01:00`, so PostHog knows when to send it.",
+        "invalid_offset": "Use a UTC offset whose minutes run from 00 to 59, such as `+01:30`.",
     }
+
+    def get_value(self, dictionary: Mapping[str, Any]) -> Any:
+        # A form body has no null, and DRF reads a blank there as one, which would send the email now.
+        if html.is_html_input(dictionary) and dictionary.get(self.field_name) == "":
+            return ""
+        return super().get_value(dictionary)
 
     def enforce_timezone(self, value: datetime) -> datetime:
         if timezone.is_naive(value):
@@ -563,10 +575,18 @@ class ScheduledAtField(serializers.DateTimeField):
         return super().enforce_timezone(value)
 
     def to_internal_value(self, value: Any) -> datetime:
+        if isinstance(value, str) and (offset := SCHEDULED_AT_OFFSET_MINUTES.search(value)):
+            if int(offset.group(1)) > 59:
+                self.fail("invalid_offset")
         scheduled_at = super().to_internal_value(value)
+        fraction = SCHEDULED_AT_FRACTION.search(value) if isinstance(value, str) else None
+        past_a_microsecond = bool(fraction and fraction.group(1)[6:].strip("0"))
         below_a_millisecond = scheduled_at.microsecond % 1000
-        if below_a_millisecond:
-            scheduled_at += timedelta(microseconds=1000 - below_a_millisecond)
+        if below_a_millisecond or past_a_microsecond:
+            try:
+                scheduled_at += timedelta(microseconds=1000 - below_a_millisecond)
+            except OverflowError:
+                return datetime.max.replace(tzinfo=UTC)
         return scheduled_at
 
 

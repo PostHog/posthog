@@ -229,7 +229,7 @@ PIPELINE_REFUSALS: dict[str, tuple[type[TransactionalEmailError], str]] = {
 
 SANDBOX_SENDER_KIND = "email_sandbox"
 SANDBOX_SENDER_WARNING = (
-    "This email went out from PostHog's sandbox sender, because this project has no verified sending domain. The "
+    "This email goes out from PostHog's sandbox sender, because this project has no verified sending domain. The "
     "sandbox sender only sends to members of your organization. Verify a sending domain to send to anyone from your "
     "own address."
 )
@@ -608,7 +608,7 @@ def send_transactional_email(
             hog_flow_id = _transactional_workflow_id(team.id, model)
         else:
             hog_flow_id = _transactional_workflow_id(team.id, template)
-    payload = _send_payload(to, distinct_id, message_data, idempotency_key, scheduled_at)
+    payload = _send_payload(to, distinct_id, message_data, idempotency_key, scheduled_at=scheduled_at)
     return _queue(team.id, hog_flow_id, payload, run_transactional_workflow, timeout=timeout)
 
 
@@ -625,7 +625,7 @@ def send_code_email(
     with transactional_email_stage("workflow_lookup"):
         accepted_send, sandbox_warning = _accepted_send(team, email)
         hog_flow_id = _code_email_workflow_id(team.id, email.key, email.sensitive)
-    payload = {**_send_payload(to, distinct_id, {}, idempotency_key, scheduled_at), "send": accepted_send}
+    payload = {**_send_payload(to, distinct_id, {}, idempotency_key, scheduled_at=scheduled_at), "send": accepted_send}
     return _queue(team.id, hog_flow_id, payload, send_accepted_transactional_email, sandbox_warning=sandbox_warning)
 
 
@@ -646,7 +646,8 @@ def _send_payload(
     distinct_id: str | None,
     message_data: dict[str, Any],
     idempotency_key: str | None,
-    scheduled_at: datetime | None,
+    *,
+    scheduled_at: datetime | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "to": to,

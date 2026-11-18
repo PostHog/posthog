@@ -156,9 +156,9 @@ class TestTransactionalEmail(APIBaseTest):
     def _send_with_scheduled_at(
         self, client: APIClient, route: str, scheduled_at: str | None, without: tuple[str, ...] = ()
     ) -> Any:
-        if route == "code":
+        if route in ("code", "code_form"):
             body = {k: v for k, v in self._code_send(scheduled_at=scheduled_at).items() if k not in without}
-            return client.post(self.send_email_url, body, format="json")
+            return client.post(self.send_email_url, body, format="json" if route == "code" else "multipart")
         body = {k: v for k, v in self.body.items() if k not in without}
         return self._send(client, route, {**body, "scheduled_at": scheduled_at})
 
@@ -1180,6 +1180,7 @@ class TestTransactionalEmail(APIBaseTest):
                 ("template_id", "send_email"),
                 ("nested_template_id", "send_email_nested"),
                 ("template_key", "code"),
+                ("template_key_form", "code_form"),
             )
             for case, scheduled_at in (("a_time", "2026-11-20T09:00:00Z"), ("an_empty_string", ""))
         ]
@@ -1243,6 +1244,13 @@ class TestTransactionalEmail(APIBaseTest):
                     "<1h",
                 ),
                 (
+                    "in_tenths_of_a_microsecond",
+                    "2026-11-20T08:10:00.0010001Z",
+                    "2026-11-20T08:10:00.002Z",
+                    {"status": "scheduled", "scheduled_at": "2026-11-20T08:10:00.002Z"},
+                    "<1h",
+                ),
+                (
                     "seven_days_ahead",
                     "2026-11-27T08:00:00Z",
                     "2026-11-27T08:00:00.000Z",
@@ -1303,6 +1311,8 @@ class TestTransactionalEmail(APIBaseTest):
             for case, scheduled_at, code in (
                 ("without_an_offset", "2026-11-20T09:00:00", "no_offset"),
                 ("a_millisecond_over_seven_days", "2026-11-27T08:00:00.001Z", "scheduled_too_far"),
+                ("an_offset_past_59_minutes", "2026-11-20T09:00:00+01:99", "invalid_offset"),
+                ("the_last_microsecond_there_is", "9999-12-31T23:59:59.999999Z", "scheduled_too_far"),
             )
         ]
     )
