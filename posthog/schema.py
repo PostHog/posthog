@@ -7192,6 +7192,22 @@ class MCPToolQualityRowItem(BaseModel):
         ...,
         description="Distinct sessions that called the tool in the previous period.",
     )
+    recovered_pct: float | None = Field(
+        ...,
+        description=(
+            "Share of the tool's errored calls in the window where one of the next"
+            " three calls in the conversation is the same tool and succeeded. Null when"
+            " the tool has no errors in the window."
+        ),
+    )
+    retried_pct: float | None = Field(
+        ...,
+        description=(
+            "Share of the tool's errored calls in the window followed by another call"
+            " to the same tool within the next three calls of the same conversation."
+            " Null when the tool has no errors in the window."
+        ),
+    )
     sessions: int
     tool: str
     total_calls: int

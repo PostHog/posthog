@@ -38907,6 +38907,14 @@
                     "$ref": "#/definitions/integer",
                     "description": "Distinct sessions that called the tool in the previous period."
                 },
+                "recovered_pct": {
+                    "description": "Share of the tool's errored calls in the window where one of the next three calls in the conversation is the same tool and succeeded. Null when the tool has no errors in the window.",
+                    "type": ["number", "null"]
+                },
+                "retried_pct": {
+                    "description": "Share of the tool's errored calls in the window followed by another call to the same tool within the next three calls of the same conversation. Null when the tool has no errors in the window.",
+                    "type": ["number", "null"]
+                },
                 "sessions": {
                     "$ref": "#/definitions/integer"
                 },
@@ -38940,7 +38948,9 @@
                 "trend_score",
                 "previous_errors",
                 "previous_p95_duration_ms",
-                "previous_sessions"
+                "previous_sessions",
+                "retried_pct",
+                "recovered_pct"
             ],
             "type": "object"
         },
@@ -39106,7 +39116,9 @@
                 "users",
                 "sessions",
                 "last_seen",
-                "trend_score"
+                "trend_score",
+                "retried_pct",
+                "recovered_pct"
             ],
             "type": "string"
         },

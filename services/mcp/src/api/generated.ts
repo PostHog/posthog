@@ -63428,6 +63428,10 @@ export namespace Schemas {
       previous_p95_duration_ms: number | null;
       /** Distinct sessions that called the tool in the previous period. */
       previous_sessions: number;
+      /** Share of the tool's errored calls in the window where one of the next three calls in the conversation is the same tool and succeeded. Null when the tool has no errors in the window. */
+      recovered_pct: number | null;
+      /** Share of the tool's errored calls in the window followed by another call to the same tool within the next three calls of the same conversation. Null when the tool has no errors in the window. */
+      retried_pct: number | null;
       sessions: number;
       tool: string;
       total_calls: number;
@@ -63479,6 +63483,8 @@ export namespace Schemas {
       Sessions: 'sessions',
       LastSeen: 'last_seen',
       TrendScore: 'trend_score',
+      RetriedPct: 'retried_pct',
+      RecoveredPct: 'recovered_pct',
     } as const;
 
     export type MCPToolQualitySortDirection = typeof MCPToolQualitySortDirection[keyof typeof MCPToolQualitySortDirection];
