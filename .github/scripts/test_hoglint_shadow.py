@@ -14,6 +14,7 @@ from parameterized import parameterized
 # - compare: `compare --base HEAD^1 --all` of the commit that added shadow_probe.py.
 # - config-error: stderr of `check --all` on a config with an unknown section.
 # - placement: two new files where `temporal-placement` forbids them, one of them empty.
+# - owned: one such new file in a directory with owners, so hoglint prints `at (no line)  [team]`.
 FIXTURES = Path(__file__).parent / "fixtures" / "hoglint-shadow"
 
 PROBE = "products/visual_review/backend/logic/shadow_probe.py"
@@ -138,21 +139,42 @@ class TestHookFilter:
             LEDGER_DIFF_HEADER
             + "@@ -9 +9 @@\n-public-surface\tsome.target\tsome.source\timport\t3\n+public-surface\tsome.target\tsome.source\timport\t2\n"
         )
-        assert hook("hoglint: no new problems.\n", diff, [LEDGER, PLAIN], status=0)[0] == 0
+        assert hook("hoglint: no new problems.\n", diff, [PRESET, LEDGER, PLAIN], status=0)[0] == 0
+
+    def test_a_rename_with_its_re_recorded_ledger_passes(self) -> None:
+        # Without a policy file staged, hoglint judges ledger growth, and it knows a move: this
+        # rename plus `hoglint check --write-ledger` exits 0. The moved line's key names the new
+        # module, so a key-by-key reading of the diff would call it new debt.
+        old = "public-surface\tposthog.temporal.ai_observability.ACTIVITIES\tposthog.temporal.tests.ai.test_module_integrity"
+        diff = (
+            "diff --git a/posthog/temporal/tests/ai/test_module_integrity.py b/posthog/temporal/tests/ai/test_module_integrity_moved.py\n"
+            "similarity index 100%\nrename from posthog/temporal/tests/ai/test_module_integrity.py\n"
+            "rename to posthog/temporal/tests/ai/test_module_integrity_moved.py\n"
+            f"{LEDGER_DIFF_HEADER}@@ -3468 +3468 @@\n-{old}\timport\t1\n+{old}_moved\timport\t1\n"
+        )
+        staged = ["posthog/temporal/tests/ai/test_module_integrity_moved.py", LEDGER]
+        assert hook("hoglint: no new problems.\n", diff, staged, status=0)[0] == 0
 
     @parameterized.expand(
         [
-            ("spaced_header_with_other_files", EXCEPTION_SPACED, [EXCEPTIONS, PLAIN], 1),
-            ("inline_table_with_other_files", EXCEPTION_INLINE, [EXCEPTIONS, PLAIN], 1),
-            ("comment_only_with_other_files", EXCEPTIONS_TEXT + "# A note.\n", [EXCEPTIONS, PLAIN], 0),
-            ("spaced_header_alone", EXCEPTION_SPACED, [EXCEPTIONS], 0),
+            ("spaced_header_with_other_files", EXCEPTIONS_TEXT, EXCEPTION_SPACED, [EXCEPTIONS, PLAIN], 1),
+            ("inline_table_with_other_files", EXCEPTIONS_TEXT, EXCEPTION_INLINE, [EXCEPTIONS, PLAIN], 1),
+            ("comment_only_with_other_files", EXCEPTIONS_TEXT, EXCEPTIONS_TEXT + "# A note.\n", [EXCEPTIONS, PLAIN], 0),
+            ("removal_with_other_files", EXCEPTION_SPACED, EXCEPTIONS_TEXT, [EXCEPTIONS, PLAIN], 0),
+            ("spaced_header_alone", EXCEPTIONS_TEXT, EXCEPTION_SPACED, [EXCEPTIONS], 0),
         ]
     )
-    def test_a_changed_exception_blocks_only_with_other_files(
-        self, _name: str, after: str, staged: list[str], expected: int
+    def test_a_new_exception_blocks_only_with_other_files(
+        self, _name: str, before: str, after: str, staged: list[str], expected: int
     ) -> None:
-        code, _text = hook("hoglint: no new problems.\n", "", staged, 0, exceptions=(EXCEPTIONS_TEXT, after))
+        code, _text = hook("hoglint: no new problems.\n", "", staged, 0, exceptions=(before, after))
         assert code == expected
+
+    def test_a_finding_at_no_line_in_an_owned_directory_blocks_when_its_file_is_new(self) -> None:
+        added = ["posthog/temporal/alerts/placement_probe.py"]
+        code, text = hook(fixture("owned.out"), fixture("owned.diff"), added, added=added)
+        assert code == 1
+        assert "  at (no line)  [team-product-analytics]" in text.splitlines()
 
     @parameterized.expand(
         [

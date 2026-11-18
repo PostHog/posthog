@@ -16,8 +16,9 @@ hoglint replaces tach, import-linter and the crossings scanner. It always exits 
 
 Hook mode (`--hook`) reads `hoglint check --index --all` and the staged diff, and prints what the
 developer reads instead of hoglint's output. It exits 1 to block the commit, and 0 otherwise.
-A row on a staged line blocks. New ledger debt or a changed exceptions file blocks when the
-commit also stages other files; the script reads both from the staged diff, not from hoglint.
+A row on a staged line blocks. New ledger debt or a new exception blocks when the commit also
+stages other files. hoglint judges ledger growth, except when a policy file is staged, because
+hoglint then skips that check; the script then reads the staged ledger diff itself.
 
     hoglint_shadow.py <stdout file> --stderr <file> --status <exit> --until "<date>" [--base HEAD^1]
     hoglint_shadow.py <stdout file> --stderr <file> --status <exit> --hook
@@ -50,6 +51,7 @@ UNKNOWN_AT_LINE = re.compile(r"^(?P<path>.+?):(?P<line>\d+): (?P<reason>.*)$")
 UNKNOWN_AT_FILE = re.compile(r"^(?P<path>[^:]*(?:/|\.py)[^:]*): (?P<reason>.*)$")
 # The title of the problem that carries the ways out for unknowns of one rule and kind.
 UNKNOWN_PROBLEM = re.compile(r"^\S+: (this place|each of these \d+ places) ")
+LEDGER_GROWTH = re.compile(r"^This change adds \d+ lines? to .+, with no policy change\.$")
 # A finding with no place line, such as a placement rule's, names its module first.
 MODULE = re.compile(r"^(?P<module>[A-Za-z_][\w.]*) ")
 # A section title ends with its row count, `advisory rows (898)`.
@@ -84,6 +86,9 @@ ACCEPTED_TITLE = re.compile(r"^\d+ findings? accepted by the ledger$")
 COMPARE_SECTIONS = ("findings new (", "ledger lines added (", "code growth (fails) (")
 
 LEDGER_FILE = "hoglint.ledger"
+# A change to one of these makes hoglint skip its own ledger growth check.
+POLICY_FILES = ("hoglint.toml", "hoglint.exceptions.toml")
+POLICY_DIRS = ("tools/hoglint/",)
 EXCEPTIONS_FILE = "hoglint.exceptions.toml"
 # The CI step summary holds at most 1 MiB, so a long section shows its first rows and a count.
 SUMMARY_ROWS = 50
@@ -213,25 +218,22 @@ class StagedChange:
     def alone(self, path: str) -> bool:
         return all(name == path for name in self.names)
 
-    def changes_exceptions(self) -> bool:
-        """Whether the staged exceptions differ from HEAD's as data, whatever the TOML spelling."""
+    def stages_policy(self) -> bool:
+        return any(name in POLICY_FILES or name.startswith(POLICY_DIRS) for name in self.names)
+
+    def adds_exceptions(self) -> bool:
+        """Whether the index holds an exception that HEAD does not, as data, whatever the TOML
+        spelling. A removed exception is a fix, like a lowered ledger count."""
         if EXCEPTIONS_FILE not in self.names:
             return False
         if tomllib is None:
             return self.exceptions_before != self.exceptions_after
         try:
-            return tomllib.loads(self.exceptions_before) != tomllib.loads(self.exceptions_after)
+            before = tomllib.loads(self.exceptions_before).get("exception", [])
+            after = tomllib.loads(self.exceptions_after).get("exception", [])
         except tomllib.TOMLDecodeError:
             return True
-
-    def policy_lines(self) -> list[str]:
-        """The lines that block new ledger debt or a changed exception staged with other files."""
-        out = []
-        if self.lines.ledger_grows() and not self.alone(LEDGER_FILE):
-            out.append(LEDGER_LINE)
-        if self.changes_exceptions() and not self.alone(EXCEPTIONS_FILE):
-            out.append(EXCEPTION_LINE)
-        return out
+        return any(entry not in before for entry in after)
 
 
 def module_files(module: str) -> list[str]:
@@ -347,7 +349,8 @@ class FullView:
             site = SITE.match(place["site"]) if place else None
             path = site["path"] if site else None
             number = int(site["line"]) if site else None
-            named = None if place else MODULE.match(headline["message"])
+            # A finding with no file, `at (no line)` or no place line at all, names its module.
+            named = None if site else MODULE.match(headline["message"])
             module = named["module"] if named else None
             rows.append(Row(headline["rule"], headline["message"], path, number, tuple(entry), module=module))
         return rows
@@ -458,9 +461,25 @@ class HookFilter:
             rows = self.view.rows()
             blocking = [row for row in rows if row.cause != EXTRACTOR_CAUSE and self.change.lines.covers(row)]
             out += self.rows_text(blocking, [row for row in rows if row not in blocking])
-        policy = self.change.policy_lines()
+        policy = self.policy_lines()
         out += policy
         return (1 if blocking or policy else 0), "\n".join(line for line in out if line)
+
+    def ledger_grows(self) -> bool:
+        """hoglint judges ledger growth, and it knows a move from new debt. With a policy file
+        staged it skips that check, so the staged ledger diff decides."""
+        if self.change.stages_policy():
+            return self.change.lines.ledger_grows()
+        return any(LEDGER_GROWTH.match(problem.title) for problem in self.view.problems_without_file())
+
+    def policy_lines(self) -> list[str]:
+        """The lines that block new ledger debt or a new exception staged with other files."""
+        out = []
+        if self.ledger_grows() and not self.change.alone(LEDGER_FILE):
+            out.append(LEDGER_LINE)
+        if self.change.adds_exceptions() and not self.change.alone(EXCEPTIONS_FILE):
+            out.append(EXCEPTION_LINE)
+        return out
 
     def rows_text(self, blocking: list[Row], rest: list[Row]) -> list[str]:
         out = self.view.render(blocking)
