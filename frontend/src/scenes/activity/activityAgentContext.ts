@@ -49,7 +49,9 @@ const FLAG_CALLS_CONTEXT_ITEM: AttachedContextItem = {
         'flag_calls_explorer_query item is the live, possibly unsaved query behind the table on their screen. Read ' +
         'it to resolve what "this", "these rows", or "the current filters" refer to. The list reads the ' +
         `${FLAG_EVALUATIONS_TABLE} table, so answer questions about it by running HogQL over that table with the ` +
-        'execute-sql tool. Prefer its flag_key and response columns to the matching properties. Keep the ' +
+        'execute-sql tool. Prefer its flag_key and response columns to the matching properties. The list ' +
+        'filters on current person properties, so match a person-property filter with person_id IN (SELECT id ' +
+        'FROM persons WHERE ...), not with the person properties stored on the row. Keep the ' +
         'filters and time range of that query unless the user asks to change them. ' +
         ELIDED_MARKER_RULE +
         ' ' +

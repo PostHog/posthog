@@ -62,13 +62,9 @@ describe('flagCallsSceneLogic', () => {
             { source: { kind: NodeKind.InsightActorsQuery, source: { kind: NodeKind.TrendsQuery, series: [] } } },
         ],
     ])('keeps a URL query with %s on flag calls', async (_name, source) => {
-        router.actions.push(
-            combineUrl(
-                urls.activity(ActivityTab.ExploreFlagCalls),
-                {},
-                { q: flagCallsQuery({ after: '-7d', ...source }) }
-            ).url
-        )
+        // A query saved before the tab had default columns, or a hand-built one, carries none.
+        const { defaultColumns: _defaultColumns, ...query } = flagCallsQuery({ after: '-7d', ...source })
+        router.actions.push(combineUrl(urls.activity(ActivityTab.ExploreFlagCalls), {}, { q: query }).url)
         await expectLogic(logic).toFinishAllListeners()
 
         const pinned = logic.values.query.source
@@ -78,6 +74,7 @@ describe('flagCallsSceneLogic', () => {
         expect(pinned).not.toHaveProperty('actionId')
         expect(pinned).not.toHaveProperty('actionSteps')
         expect(pinned).not.toHaveProperty('source')
+        expect(logic.values.query.defaultColumns).toEqual(getDefaultFlagCallsSceneQuery().defaultColumns)
     })
 
     it('shows the default list for a URL query that is not an events list', async () => {

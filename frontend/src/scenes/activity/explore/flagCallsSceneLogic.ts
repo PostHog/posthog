@@ -32,26 +32,30 @@ const SAVED_QUERY_KEY = 'flag-calls'
 
 export type FlagCallsQuery = DataTableNode & { source: EventsQuery }
 
+const FLAG_CALLS_COLUMNS = [
+    '*',
+    'properties.$feature_flag',
+    'properties.$feature_flag_response',
+    PERSON_DISPLAY_NAME_COLUMN_NAME,
+    'coalesce(properties.$current_url, properties.$screen_name) -- Url / Screen',
+    'properties.$lib',
+    'timestamp',
+]
+
 export const getDefaultFlagCallsSceneQuery = (): FlagCallsQuery => ({
     kind: NodeKind.DataTableNode,
     full: true,
     source: {
         kind: NodeKind.EventsQuery,
-        select: [
-            '*',
-            'properties.$feature_flag',
-            'properties.$feature_flag_response',
-            PERSON_DISPLAY_NAME_COLUMN_NAME,
-            'coalesce(properties.$current_url, properties.$screen_name) -- Url / Screen',
-            'properties.$lib',
-            'timestamp',
-        ],
+        select: FLAG_CALLS_COLUMNS,
         event: FEATURE_FLAG_CALLED_EVENT,
         orderBy: ['timestamp DESC'],
         after: '-24h',
     },
     propertiesViaUrl: true,
     showEventFilter: false,
+    // Reset to defaults in the column configurator restores these instead of the generic event columns.
+    defaultColumns: FLAG_CALLS_COLUMNS,
     showPersistentColumnConfigurator: true,
     // pinned: the saved column configuration is stored under this key
     contextKey: 'activity-flag-calls',
@@ -68,6 +72,7 @@ function pinToFlagCalls(query: Node): FlagCallsQuery | null {
     const pinned: FlagCallsQuery = {
         ...query,
         showEventFilter: false,
+        defaultColumns: FLAG_CALLS_COLUMNS,
         source: {
             ...query.source,
             event: FEATURE_FLAG_CALLED_EVENT,
