@@ -165,7 +165,7 @@ test.describe('Message preferences page', () => {
 
             await recipientPage.route(
                 UPDATE_URL,
-                (route) => route.fulfill({ status: 500, json: { error: 'All marketing save refused' } }),
+                (route) => route.fulfill({ status: 400, json: { error: 'All marketing save refused' } }),
                 { times: 1 }
             )
             await allMarketing.click()
@@ -250,21 +250,9 @@ test.describe('Message preferences page', () => {
         }
     })
 
-    for (const { start, setUp, startsChecked, savedText, storedProductNews } of [
-        {
-            start: 'on',
-            setUp: async (): Promise<void> => {},
-            startsChecked: true,
-            savedText: 'Subscribed',
-            storedProductNews: 'OPTED_IN',
-        },
-        {
-            start: 'off',
-            setUp: ({ productNews }: RecipientView): Promise<void> => productNews.click(),
-            startsChecked: false,
-            savedText: 'Not subscribed',
-            storedProductNews: 'OPTED_OUT',
-        },
+    for (const { start, startsChecked, savedText, storedProductNews } of [
+        { start: 'on', startsChecked: true, savedText: 'Subscribed', storedProductNews: 'OPTED_IN' },
+        { start: 'off', startsChecked: false, savedText: 'Not subscribed', storedProductNews: 'OPTED_OUT' },
     ]) {
         test(`a refused topic save keeps the saved choice when the topic starts ${start}`, async ({
             browser,
@@ -275,13 +263,15 @@ test.describe('Message preferences page', () => {
                 page,
                 playwrightSetup
             )
-            const view = await openAsRecipient(browser, path)
-            const { context, recipientPage, productNews, eventInvites, allMarketing, status } = view
+            const { context, recipientPage, productNews, eventInvites, allMarketing, status } = await openAsRecipient(
+                browser,
+                path
+            )
 
             try {
                 await eventInvites.click()
                 await expect(status(eventInvitesId)).toHaveText('Not subscribed')
-                await setUp(view)
+                await productNews.setChecked(startsChecked)
                 await expect(status(productNewsId)).toHaveText(savedText)
                 await expect
                     .poll(() => storedPreferences())
@@ -289,7 +279,7 @@ test.describe('Message preferences page', () => {
 
                 await recipientPage.route(
                     UPDATE_URL,
-                    (route) => route.fulfill({ status: 500, json: { error: 'Topic save refused' } }),
+                    (route) => route.fulfill({ status: 400, json: { error: 'Topic save refused' } }),
                     { times: 1 }
                 )
                 await productNews.click()
