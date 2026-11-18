@@ -394,7 +394,7 @@ class _LaunchParams:
     run_policy: str
 
 
-def _launch_run_policy(task: Task, run_state: dict[str, Any] | None) -> str:
+def _launch_run_policy(task: Task, run_id: str, run_state: dict[str, Any] | None) -> str:
     profile = task.stored_profile
     billing_product = resolve_sandbox_ai_product(
         task.origin_product,
@@ -404,7 +404,7 @@ def _launch_run_policy(task: Task, run_state: dict[str, Any] | None) -> str:
         profile_billing_product=profile.billing_product if profile else None,
     )
     policy = asdict(task_agent_run_policy(task, run_state))
-    return json.dumps({**policy, "billing_product": billing_product}, separators=(",", ":"))
+    return json.dumps({**policy, "billing_product": billing_product, "run_id": run_id}, separators=(",", ":"))
 
 
 def _agentsh_domains_for(ctx: TaskProcessingContext) -> list[str] | None:
@@ -615,7 +615,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         task_run_session_token=task_run_session_token,
         codex_run_token=codex_run_token,
         event_ingest_url=event_ingest_url,
-        run_policy=_launch_run_policy(task, task_run.state),
+        run_policy=_launch_run_policy(task, str(ctx.run_id), task_run.state),
     )
 
 
