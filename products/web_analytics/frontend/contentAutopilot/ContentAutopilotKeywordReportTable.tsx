@@ -179,8 +179,7 @@ export const ContentAutopilotKeywordReportTable = (): JSX.Element => {
         contentAutopilotKeywordSearchLogic
     )
     // The columns show only for a project with a Search Console source whose numbers loaded or are loading.
-    const columns =
-        searchTable && !impressionsFailed ? [COLUMNS[0], ...searchColumns(impressions), ...COLUMNS.slice(1)] : COLUMNS
+    const columns = searchTable && !impressionsFailed ? [...COLUMNS, ...searchColumns(impressions)] : COLUMNS
 
     return (
         <PagePerformanceCard className="min-w-0">
