@@ -223,7 +223,7 @@ async function auditRows(): Promise<{ operation: string; outcome: string; owner_
 
 beforeAll(async () => {
     container = await new PostgreSqlContainer('postgres:17-alpine').start()
-    await runMigrations({ databaseUrl: container.getConnectionUri(), direction: 'up' })
+    await runMigrations({ databaseUrl: container.getConnectionUri(), direction: 'up', partmanOptional: true })
     pool = new Pool({ connectionString: container.getConnectionUri(), max: 5 })
     audit = new AuditQueue(pool, { flushIntervalMs: 60_000 })
     kms = new LocalKms([randomBytes(32)])
