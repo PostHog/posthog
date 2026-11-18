@@ -31,6 +31,18 @@ class ProvisioningReviewStage(models.TextChoices):
     STAFF = "staff", "Staff"
 
 
+class PartnerProvisioningStatus(models.TextChoices):
+    """Whether an app can provision, as its owners see it. Follows the partner gates, which read
+    `active` alone."""
+
+    NOT_A_PARTNER = "not_a_partner", "Not a provisioning partner"
+    IN_REVIEW = "in_review", "In review"
+    WAITING_FOR_STAFF = "waiting_for_staff", "Waiting for PostHog staff"
+    ON = "on", "On"
+    OFF = "off", "Off"
+    BLOCKED = "blocked", "Blocked"
+
+
 class CIMDProvisioningReview(UUIDModel):
     application = models.OneToOneField(
         "posthog.OAuthApplication", on_delete=models.CASCADE, related_name="provisioning_review"
@@ -43,6 +55,10 @@ class CIMDProvisioningReview(UUIDModel):
     )
     decided_stage = models.CharField(max_length=32, choices=ProvisioningReviewStage.choices, null=True, blank=True)
     reason = models.TextField(blank=True, default="")
+    # Written by staff for the partner's organization admins, who see it in PostHog. `reason` stays
+    # internal, because it can name what the review checks.
+    # db_default, so a server still on the previous release can insert a review during a deploy.
+    partner_message = models.TextField(blank=True, default="", db_default="")
     # The client metadata document the partner registered with. The app row keeps only some of its
     # fields, and the rest (client_uri, policy links, contacts) is evidence for the review.
     metadata_document = models.JSONField(null=True, blank=True)

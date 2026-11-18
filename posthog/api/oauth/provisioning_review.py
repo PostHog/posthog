@@ -22,13 +22,18 @@ import posthoganalytics
 from celery import shared_task
 
 from posthog.cloud_utils import is_cloud
+from posthog.email import EMAIL_TASK_KWARGS, EmailMessage, get_email_team_and_org_context, is_email_available
+from posthog.helpers.email_utils import sanitize_display_name
 from posthog.llm.system_one_client import system_one_configured
 from posthog.models.oauth import OAuthApplication, revoke_application_sessions
 from posthog.models.oauth_provisioning_review import (
     CIMDProvisioningReview,
+    PartnerProvisioningStatus,
     ProvisioningReviewStage,
     ProvisioningReviewStatus,
 )
+from posthog.models.organization import OrganizationMembership
+from posthog.scoping_audit import skip_team_scope_audit
 from posthog.utils import get_instance_region
 
 logger = structlog.get_logger(__name__)
@@ -205,7 +210,7 @@ def _write_verdict(
         *review.run_log,
         _log_entry("settled", message, level="info" if status == ProvisioningReviewStatus.ACCEPTED else "warning"),
     ][-MAX_RUN_LOG_ENTRIES:]
-    review.save(update_fields=["status", "decided_stage", "reason", "decided_at", "run_log"])
+    review.save(update_fields=["status", "decided_stage", "reason", "decided_at", "run_log", "partner_message"])
     return previous
 
 
@@ -230,6 +235,78 @@ def _capture_settled(review: CIMDProvisioningReview, *, previous_status: str) ->
             "review_seconds": (review.decided_at - review.created_at).total_seconds(),
         },
     )
+    review_id, status = str(review.pk), review.status
+    transaction.on_commit(lambda: send_partner_review_email.delay(review_id, status))
+
+
+# Review outcomes the partner's organization admins hear about. A pending review stays quiet.
+REVIEW_EMAIL_TEMPLATES = {
+    ProvisioningReviewStatus.ACCEPTED: "oauth_app_provisioning_accepted",
+    ProvisioningReviewStatus.REJECTED: "oauth_app_provisioning_rejected",
+    ProvisioningReviewStatus.NEEDS_HUMAN: "oauth_app_provisioning_in_review",
+}
+REVIEW_EMAIL_SUBJECTS = {
+    ProvisioningReviewStatus.ACCEPTED: "{app_name} is approved for provisioning",
+    ProvisioningReviewStatus.REJECTED: "{app_name} wasn't approved for provisioning",
+    ProvisioningReviewStatus.NEEDS_HUMAN: "{app_name} is waiting for a manual review",
+}
+
+
+def partner_review_url() -> str:
+    """The settings page where the app's organization admins read its review."""
+    return f"{settings.SITE_URL}/settings/organization-oauth-apps"
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
+def send_partner_review_email(review_id: str, status: str) -> None:
+    """Tell the admins and owners of the organization that owns the app where its review landed.
+
+    An app with no organization has nobody to tell, which is one reason linking matters.
+    """
+    if not is_email_available(with_absolute_urls=True):
+        return
+    review = CIMDProvisioningReview.objects.select_related("application__organization").filter(pk=review_id).first()
+    # A later decision replaced this one and sends its own email.
+    if review is None or review.status != status or review.decided_at is None:
+        return
+    template_name = REVIEW_EMAIL_TEMPLATES.get(ProvisioningReviewStatus(status))
+    app = review.application
+    organization = app.organization
+    if template_name is None or organization is None:
+        return
+
+    memberships = OrganizationMembership.objects.select_related("user").filter(
+        organization=organization,
+        level__gte=OrganizationMembership.Level.ADMIN,
+        user__is_active=True,
+    )
+    recipients = [membership.user for membership in memberships if membership.user.email]
+    if not recipients:
+        return
+
+    # The app names itself in its metadata document, so the name is untrusted.
+    app_name = sanitize_display_name(
+        app.name,
+        fallback="Your OAuth application",
+        context={"task": "send_partner_review_email", "field": "app_name", "review_id": review_id},
+    )
+    message = EmailMessage(
+        campaign_key=f"oauth_app_review_{review.pk}_{status}_{review.decided_at.timestamp()}",
+        subject=REVIEW_EMAIL_SUBJECTS[ProvisioningReviewStatus(status)].format(app_name=app_name),
+        template_name=template_name,
+        use_http=True,
+        template_context={
+            "app_name": app_name,
+            "client_id": app.client_id,
+            "partner_message": review.partner_message,
+            "review_url": partner_review_url(),
+            **get_email_team_and_org_context(organization=organization),
+        },
+    )
+    for user in recipients:
+        message.add_user_recipient(user)
+    message.send()
 
 
 def settle_review(
@@ -271,9 +348,10 @@ def _block(app: OAuthApplication) -> None:
     revoke_application_sessions(app)
 
 
-def decide_partner(app: OAuthApplication, *, accept: bool, reason: str) -> None:
+def decide_partner(app: OAuthApplication, *, accept: bool, reason: str, partner_message: str = "") -> None:
     """Staff turn a provisioning partner on, or block it. Either decision can be reversed later,
-    and the app's review, when it has one, records each one in its run log."""
+    and the app's review, when it has one, records each one in its run log. ``partner_message``
+    replaces what the partner's organization admins see on the review."""
     status = ProvisioningReviewStatus.ACCEPTED if accept else ProvisioningReviewStatus.REJECTED
     previous: str | None = None
     with transaction.atomic():
@@ -283,12 +361,36 @@ def decide_partner(app: OAuthApplication, *, accept: bool, reason: str) -> None:
             .filter(application=app)
             .first()
         )
-        if review is not None and review.status != status:
-            previous = _write_verdict(review, status=status, stage=ProvisioningReviewStage.STAFF, reason=reason)
+        if review is not None:
+            review.partner_message = partner_message
+            if review.status == status:
+                review.save(update_fields=["partner_message"])
+            else:
+                previous = _write_verdict(review, status=status, stage=ProvisioningReviewStage.STAFF, reason=reason)
         if accept:
             app.update_provisioning(active=True, disabled=False)
         else:
             _block(app)
 
-    if review is not None and previous is not None:
+    if previous is not None:
+        assert review is not None
         _capture_settled(review, previous_status=previous)
+
+
+def partner_provisioning_status(
+    app: OAuthApplication, review: CIMDProvisioningReview | None
+) -> PartnerProvisioningStatus:
+    """Whether the app can provision right now. An active partner is on even when `disabled` is
+    also set, because every partner gate reads `active` alone."""
+    config = app.provisioning
+    if app.is_provisioning_partner and config.active:
+        return PartnerProvisioningStatus.ON
+    if config.disabled:
+        return PartnerProvisioningStatus.BLOCKED
+    if not app.is_provisioning_partner:
+        return PartnerProvisioningStatus.NOT_A_PARTNER
+    if review is not None and review.status == ProvisioningReviewStatus.PENDING:
+        return PartnerProvisioningStatus.IN_REVIEW
+    if review is not None and review.status == ProvisioningReviewStatus.NEEDS_HUMAN:
+        return PartnerProvisioningStatus.WAITING_FOR_STAFF
+    return PartnerProvisioningStatus.OFF
