@@ -298,7 +298,6 @@ def _may_view_recording(user_access_control: UserAccessControl, team: Team, sess
 
 
 def _cache() -> BaseCache:
-    # Polls must see the claim and asset pointer a render just wrote, so this alias reads from the Redis primary.
     return caches["survey_site_snapshot"]
 
 
