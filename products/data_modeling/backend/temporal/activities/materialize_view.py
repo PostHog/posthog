@@ -215,6 +215,36 @@ def _reject_duplicate_output_columns(columns: list[_DescribedColumn]) -> None:
         raise DuplicateOutputColumnError(duplicates)
 
 
+def _alias_select_items_as_described(
+    query_node: ast.SelectQuery | ast.SelectSetQuery,
+    prepared: ast.SelectQuery | ast.SelectSetQuery,
+    columns: list[_DescribedColumn],
+) -> None:
+    """Make the type wrapper's field references resolve to the column ClickHouse described there.
+
+    ClickHouse keeps a bare column's qualifier when another column takes its plain name, so DESCRIBE
+    can report `a.event` and `event` where HogQL names both `event`. The wrapper addresses columns
+    through HogQL, so each item HogQL names differently, or ambiguously, gets the described name as
+    an explicit alias. Only the first branch of a union names the columns. A star expands to an
+    unknown number of items, so a select list holding one is left as it is."""
+    while isinstance(query_node, ast.SelectSetQuery):
+        query_node = query_node.initial_select_query
+    while isinstance(prepared, ast.SelectSetQuery):
+        prepared = prepared.initial_select_query
+    if not len(query_node.select) == len(prepared.select) == len(columns) or any(
+        isinstance(item, ast.ColumnsExpr) or (isinstance(item, ast.Field) and item.chain[-1] == "*")
+        for item in query_node.select
+    ):
+        return
+    hogql_names = [item.alias if isinstance(item, ast.Alias) else None for item in prepared.select]
+    for index, (item, hogql_name, column) in enumerate(zip(query_node.select, hogql_names, columns)):
+        if isinstance(item, ast.Alias):
+            continue
+        if hogql_name == column.name and hogql_names.count(hogql_name) == 1:
+            continue
+        query_node.select[index] = ast.Alias(alias=column.name, expr=item)
+
+
 CLICKHOUSE_MAX_BLOCK_SIZE_ROWS = 50 * 1000
 DELTA_TABLE_RETENTION_HOURS = 24
 
@@ -791,6 +821,7 @@ async def hogql_table(
     has_type_to_convert = any(call_tuple is not None for _, _, call_tuple in query_typings)
     if has_type_to_convert:
         await logger.adebug("Query has fields that need converting")
+        _alias_select_items_as_described(query_node, prepared_hogql_query, described_columns)
         select_fields: list[ast.Expr] = []
         for column_name, ch_type, call_tuple in query_typings:
             if call_tuple is not None:

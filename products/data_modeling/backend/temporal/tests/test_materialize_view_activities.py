@@ -2776,6 +2776,52 @@ class TestHogqlTableDuplicateOutputColumns:
         # a broken saved query is the customer's to fix, so the refusal must not reach error tracking
         assert isinstance(error.value, NonReportableError)
 
+    # ClickHouse keeps the qualifier on the bare column because its plain name is taken, while HogQL
+    # names both columns `event`
+    @pytest.mark.parametrize(
+        ("query", "expected_columns"),
+        [
+            pytest.param(
+                "SELECT a.event, a.timestamp, a.event AS event FROM events AS a",
+                ["a.event", "timestamp", "event"],
+                id="type-the-wrapper-converts",
+            ),
+            pytest.param(
+                "SELECT a.event, a.distinct_id, a.event AS event FROM events AS a",
+                ["a.event", "distinct_id", "event"],
+                id="type-the-wrapper-leaves-alone",
+            ),
+        ],
+    )
+    async def test_a_qualified_column_repeated_under_its_own_name_materializes_as_described(
+        self, ateam: Team, clickhouse_client: ClickHouseClient, query: str, expected_columns: list[str]
+    ) -> None:
+        events, _, _ = await generate_test_events_in_clickhouse(
+            client=clickhouse_client,
+            team_id=ateam.pk,
+            start_time=dt.datetime(2024, 1, 1, tzinfo=dt.UTC),
+            end_time=dt.datetime(2024, 1, 2, tzinfo=dt.UTC),
+            count=2,
+            count_outside_range=0,
+            count_other_team=0,
+            table="sharded_events",
+        )
+
+        @contextlib.asynccontextmanager
+        async def get_test_client(**kwargs: object) -> AsyncIterator[ClickHouseClient]:
+            yield clickhouse_client
+
+        with unittest.mock.patch(
+            "products.data_modeling.backend.temporal.activities.materialize_view.get_clickhouse_client", get_test_client
+        ):
+            batches = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
+
+        assert [name for name, _ in batches[0][1]] == expected_columns
+        assert all(table.schema.names == expected_columns for table, _ in batches)
+        rows = [row for table, _ in batches for row in table.to_pylist()]
+        assert len(rows) == len(events)
+        assert all(row["a.event"] == row["event"] for row in rows)
+
 
 class _SlowDescribeClient(_EmptyArrowClient):
     describe_body = b"ts\tDateTime\n"
