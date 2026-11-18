@@ -4661,8 +4661,16 @@ class TestOAuthAPI(APIBaseTest):
         data = response.json()
         self.assertTrue(data["active"])
 
-    def test_introspection_with_json_body(self):
+    @parameterized.expand(
+        [
+            ("current_names", "openid", "openid"),
+            ("renamed_scope", "openid stamphog:read", "openid code_review_approval:read"),
+        ]
+    )
+    def test_introspection_with_json_body(self, _name, stored_scope, introspected_scope):
         access_token, _ = self._create_access_and_refresh_tokens()
+        access_token.scope = stored_scope
+        access_token.save(update_fields=["scope"])
 
         authorization_header = self.get_basic_auth_header(
             "test_confidential_client_id", "test_confidential_client_secret"
@@ -4678,7 +4686,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertTrue(data["active"])
-        self.assertEqual(data["scope"], "openid")
+        self.assertEqual(data["scope"], introspected_scope)
 
     def test_introspection_with_missing_token_returns_inactive(self):
         authorization_header = self.get_basic_auth_header(

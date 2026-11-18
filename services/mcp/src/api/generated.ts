@@ -14360,32 +14360,6 @@ export namespace Schemas {
       users?: number | null;
     }
 
-    /**
-     * * `sum` - sum
-     * * `avg` - avg
-     * * `count` - count
-     * * `min` - min
-     * * `max` - max
-     * * `p95` - p95
-     * * `rate` - rate
-     * * `increase` - increase
-     * * `histogram_quantile` - histogram_quantile
-     */
-    export type AggregationEnum = typeof AggregationEnum[keyof typeof AggregationEnum];
-
-
-    export const AggregationEnum = {
-      Sum: 'sum',
-      Avg: 'avg',
-      Count: 'count',
-      Min: 'min',
-      Max: 'max',
-      P95: 'p95',
-      Rate: 'rate',
-      Increase: 'increase',
-      HistogramQuantile: 'histogram_quantile',
-    } as const;
-
     export interface AhaFeedbackSignalExtra {
       workflow_status: string | null;
       score: string | null;
@@ -43884,7 +43858,7 @@ export namespace Schemas {
     }
 
     /**
-     * Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}.
+     * Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. For GitHub, add resource_type 'pull_request' to link a pull request instead of an issue.
      */
     export type ErrorTrackingExternalReferenceLinkExternalContext = { [key: string]: unknown };
 
@@ -43893,7 +43867,7 @@ export namespace Schemas {
       integration_id: number;
       /** ID of the error tracking issue to link the reference to. */
       issue: string;
-      /** Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. */
+      /** Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. For GitHub, add resource_type 'pull_request' to link a pull request instead of an issue. */
       external_context: ErrorTrackingExternalReferenceLinkExternalContext;
     }
 
@@ -44308,6 +44282,8 @@ export namespace Schemas {
       sparkline?: number[];
       /** Aggregate over matching events. Returned only when includeBreakdown is true. */
       breakdown?: ErrorTrackingIssueBreakdown;
+      /** Work linked to this issue in GitHub, GitLab, Linear, or Jira, such as provider issues and GitHub pull requests, oldest first. An empty list means nothing is linked. Absent when the lookup failed. */
+      external_issues?: ErrorTrackingExternalReferenceResult[];
       /** An AI-written summary of the issue. Present only when summary_status is 'ready'. Treat likely_cause as a hypothesis, not a fact. */
       summary?: ErrorTrackingIssueSummary;
       /** 'ready' means summary is present. 'not_generated' means no summary exists for this issue. A summary is written only when an issue is created. 'unavailable' means no summary can be shown, and summary_reason says why.
@@ -45730,7 +45706,7 @@ export namespace Schemas {
       readonly applies: boolean;
       /** Catalog template or adapted check the suggestion comes from. Empty for fix_eval. */
       readonly template_key: string;
-      /** A short, stable name for the issue, such as 'Unrecovered tool or model failures'. For fix_eval, the condition observed on the evaluation. It carries no counts; `observation` does. */
+      /** A short, stable name for the issue, such as 'Tool or model calls that never succeed'. For fix_eval, the condition observed on the evaluation. It carries no counts; `observation` does. */
       readonly headline: string;
       /** One sentence on what the evaluation flags and where it applies, starting with 'Flags'. For fix_eval and fix_prompt, what was observed and the next step. */
       readonly outcome: string;
@@ -61811,6 +61787,8 @@ export namespace Schemas {
       Rate: 'rate',
       Increase: 'increase',
       HistogramQuantile: 'histogram_quantile',
+      CountRate: 'count_rate',
+      CountIncrease: 'count_increase',
     } as const;
 
     export interface MetricsQueryGroupBy {
@@ -71779,7 +71757,7 @@ export namespace Schemas {
     } as const;
 
     export interface MCPRecurringIntent {
-      /** The intent text repeated verbatim across sessions. Empty when intent text is redacted. */
+      /** The most common wording of this automation step. Empty when intent text is redacted. */
       readonly intent_text: string;
       /** Sessions in the window that opened with this intent. */
       readonly session_count: number;
@@ -71789,6 +71767,10 @@ export namespace Schemas {
       readonly error_count: number;
       /** Error rate across those sessions' tool calls, from 0 to 100. */
       readonly error_rate_pct: number;
+      /** How many different wordings of this automation step were merged into the entry. 1 when none were. */
+      readonly variant_count: number;
+      /** Up to five merged wordings, most common first. Empty when nothing was merged or intent text is redacted. */
+      readonly sample_variants: readonly string[];
     }
 
     export interface MCPToolPivotCompetitor {
@@ -73948,6 +73930,36 @@ export namespace Schemas {
     }
 
     /**
+     * * `sum` - sum
+     * * `avg` - avg
+     * * `count` - count
+     * * `min` - min
+     * * `max` - max
+     * * `p95` - p95
+     * * `rate` - rate
+     * * `increase` - increase
+     * * `histogram_quantile` - histogram_quantile
+     * * `count_rate` - count_rate
+     * * `count_increase` - count_increase
+     */
+    export type MetricAnomalyAggregationEnum = typeof MetricAnomalyAggregationEnum[keyof typeof MetricAnomalyAggregationEnum];
+
+
+    export const MetricAnomalyAggregationEnum = {
+      Sum: 'sum',
+      Avg: 'avg',
+      Count: 'count',
+      Min: 'min',
+      Max: 'max',
+      P95: 'p95',
+      Rate: 'rate',
+      Increase: 'increase',
+      HistogramQuantile: 'histogram_quantile',
+      CountRate: 'count_rate',
+      CountIncrease: 'count_increase',
+    } as const;
+
+    /**
      * * `up` - up
      * * `down` - down
      * * `flat` - flat
@@ -74005,6 +74017,8 @@ export namespace Schemas {
      * * `rate` - rate
      * * `increase` - increase
      * * `histogram_quantile` - histogram_quantile
+     * * `count_rate` - count_rate
+     * * `count_increase` - count_increase
      */
     export type MetricQueryAggregationEnum = typeof MetricQueryAggregationEnum[keyof typeof MetricQueryAggregationEnum];
 
@@ -74020,6 +74034,8 @@ export namespace Schemas {
       Rate: 'rate',
       Increase: 'increase',
       HistogramQuantile: 'histogram_quantile',
+      CountRate: 'count_rate',
+      CountIncrease: 'count_increase',
     } as const;
 
     /**
@@ -130442,8 +130458,10 @@ export namespace Schemas {
        * * `p95` - p95
        * * `rate` - rate
        * * `increase` - increase
-       * * `histogram_quantile` - histogram_quantile */
-      aggregation?: AggregationEnum | null;
+       * * `histogram_quantile` - histogram_quantile
+       * * `count_rate` - count_rate
+       * * `count_increase` - count_increase */
+      aggregation?: MetricAnomalyAggregationEnum | null;
       /**
          * Quantile for histogram_quantile. Defaults to 0.95.
          * @minimum 0
@@ -130711,7 +130729,9 @@ export namespace Schemas {
        * * `p95` - p95
        * * `rate` - rate
        * * `increase` - increase
-       * * `histogram_quantile` - histogram_quantile */
+       * * `histogram_quantile` - histogram_quantile
+       * * `count_rate` - count_rate
+       * * `count_increase` - count_increase */
       aggregation?: MetricQueryAggregationEnum;
       /** Counter-aware transform applied to each series before the aggregation: 'rate' (per-second) or 'increase'. Combine with 'none' to get one rate line per series. Do not combine with the 'rate' or 'increase' aggregations.
        *
@@ -130841,7 +130861,7 @@ export namespace Schemas {
        * * `exponential_histogram` - exponential_histogram
        * * `summary` - summary */
       metricType?: OtelMetricTypeEnum | null;
-      /** Defaults to 'sum'. Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.
+      /** Defaults to 'sum'. Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'count_rate' (per-second) and 'count_increase' are 'rate' and 'increase' over a histogram's or summary's observation count instead of its running sum, so they chart requests per second from a latency histogram; they take no 'rangeFunction'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.
        *
        * * `none` - none
        * * `sum` - sum
@@ -130852,7 +130872,9 @@ export namespace Schemas {
        * * `p95` - p95
        * * `rate` - rate
        * * `increase` - increase
-       * * `histogram_quantile` - histogram_quantile */
+       * * `histogram_quantile` - histogram_quantile
+       * * `count_rate` - count_rate
+       * * `count_increase` - count_increase */
       aggregation?: MetricQueryAggregationEnum;
       /** Counter-aware transform applied to each series before the aggregation: 'rate' (per-second) or 'increase'. Combine with 'none' to get one rate line per series. Do not combine with the 'rate' or 'increase' aggregations.
        *
@@ -140002,7 +140024,7 @@ export namespace Schemas {
      */
     repository?: string;
     /**
-     * Text to match against existing issue titles or identifiers in the provider. GitHub matches titles as an exact phrase. Leave blank for recent issues.
+     * Text to match against existing issue titles or identifiers in the provider. GitHub matches titles as an exact phrase and returns issues only, not pull requests. Leave blank for recent issues.
      */
     search?: string;
     };
