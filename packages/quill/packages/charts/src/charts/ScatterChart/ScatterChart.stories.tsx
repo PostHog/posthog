@@ -55,6 +55,30 @@ export const Default: Story = {
     },
 }
 
+export const DimmedPoints: Story = {
+    render: function Render() {
+        const theme = useReactiveTheme()
+        return (
+            <Stage width={620} height={360}>
+                <ScatterChart
+                    series={[
+                        {
+                            key: 'orgs',
+                            label: 'Organizations',
+                            points: makeCloud(160, 1, 0.6, 260).map((point, i) => ({
+                                ...point,
+                                color: i < 30 ? '#3388cc' : '#3388cc24',
+                            })),
+                        },
+                    ]}
+                    theme={theme}
+                    config={AXES}
+                />
+            </Stage>
+        )
+    },
+}
+
 /** Several groups at once: color and marker shape both separate them, and the legend hides them. */
 export const MultipleSeries: Story = {
     render: function Render() {

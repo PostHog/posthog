@@ -636,7 +636,9 @@ class DataWarehouseSavedQuerySerializer(
                 # The columns will be inferred from the query
                 client_types = self.context["request"].data.get("types", [])
                 if len(client_types) == 0:
-                    view.set_columns(view.get_columns(user=self.context["request"].user))
+                    view.set_columns(
+                        view.get_columns(user=self.context["request"].user, database=self.context["database"])
+                    )
                 else:
                     view.set_columns(_columns_from_client_types(client_types))
 
@@ -773,7 +775,9 @@ class DataWarehouseSavedQuerySerializer(
             try:
                 client_types = self.context["request"].data.get("types", [])
                 if len(client_types) == 0:
-                    inferred_columns = probe.get_columns(user=self.context["request"].user)
+                    inferred_columns = probe.get_columns(
+                        user=self.context["request"].user, database=self.context["database"]
+                    )
                 else:
                     inferred_columns = _columns_from_client_types(client_types)
                 inferred_external_tables = probe.get_s3_tables(database=self.context["database"])

@@ -36723,6 +36723,10 @@ class TraceSpansQuery(BaseModel):
             " waterfall never sets this."
         ),
     )
+    includeEvents: bool | None = Field(
+        default=None,
+        description=("Include each span's OpenTelemetry events. The column is large, so only set this on small lists"),
+    )
     kind: Literal["TraceSpansQuery"] = "TraceSpansQuery"
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
