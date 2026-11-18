@@ -148,8 +148,9 @@ def refresh_aeo_stored_results_for_team_task(team_id: int) -> None:
         return
     # Checks recorded before the stored flag or the fact rows existed would read as empty. The
     # reconcile fills both and then starts this task again, so a deploy needs no manual backfill.
-    unfilled = AEOCitationCheck.objects.for_team(team.id).filter(prompt_branded__isnull=True)
-    if unfilled.exists() or has_checks_without_facts(team.id):
+    # The oldest check tells for the flag: the reconcile fills every check without one together.
+    oldest = AEOCitationCheck.objects.for_team(team.id).order_by("created_at", "id")
+    if list(oldest.values_list("prompt_branded", flat=True)[:1]) == [None] or has_checks_without_facts(team.id):
         recompute_aeo_own_citations_task.delay(team.id)
         return
     refresh_stored_results(team.id, timezone_name=team.timezone)
