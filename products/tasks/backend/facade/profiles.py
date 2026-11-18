@@ -82,6 +82,12 @@ class SourceKind(StrEnum):
     LOOP = "loop"
 
 
+class EndsRun(StrEnum):
+    AGENT = "agent"
+    ON_REQUEST = "on_request"
+    CALLER = "caller"
+
+
 @frozen
 class TaskSource:
     kind: SourceKind
@@ -111,6 +117,17 @@ class NetworkPolicy:
     def __post_init__(self) -> None:
         if not self.levels:
             raise TaskProfileError("A network policy needs at least one level")
+
+
+@frozen
+class AgentPolicy:
+    ends_run: EndsRun = EndsRun.AGENT
+    report_activity_tool: bool = False
+    branch_push_without_pr: bool = False
+    pr_thread_link: bool = False
+    # Browser session auth records no client, so such a task counts as created in the web app.
+    web_client_by_default: bool = False
+    expects_system_prompt: bool = False
 
 
 @frozen
@@ -228,6 +245,7 @@ class TaskProfile:
     # wake and snapshots the task.
     finish_in_flight: bool
 
+    agent_policy: AgentPolicy = AgentPolicy()
     enforced_checks: frozenset[ContractCheck] = frozenset()
 
 
