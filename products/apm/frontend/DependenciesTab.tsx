@@ -4,7 +4,7 @@ import { Background, BackgroundVariant, Controls, ReactFlow, ReactFlowProvider }
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonBanner, LemonSelect, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSelect, Spinner } from '@posthog/lemon-ui'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
@@ -21,12 +21,13 @@ export function DependenciesTab(): JSX.Element {
         dependenciesLoading,
         dependenciesLoadError,
         dependencyLayout,
+        dependencyLayoutError,
         dependencyService,
         edges,
         serviceNames,
         split,
     } = useValues(dependenciesLogic)
-    const { setDependencyService, loadDependencies } = useActions(dependenciesLogic)
+    const { setDependencyService, loadDependencies, layoutDependencies } = useActions(dependenciesLogic)
     const { isDarkModeOn } = useValues(themeLogic)
 
     const flowEdges = useMemo(
@@ -76,7 +77,14 @@ export function DependenciesTab(): JSX.Element {
             <div className="relative h-[480px] rounded border bg-surface-primary" data-attr="apm-dependencies-map">
                 {nodes.length === 0 ? (
                     <div className="flex h-full items-center justify-center p-4 text-center text-secondary">
-                        {loadingFirstTime || (edges.length > 0 && !dependencyLayout) ? (
+                        {dependencyLayoutError && edges.length > 0 ? (
+                            <div className="flex flex-col items-center gap-2">
+                                <span>Couldn't draw the dependency map.</span>
+                                <LemonButton type="secondary" size="small" onClick={() => layoutDependencies()}>
+                                    Try again
+                                </LemonButton>
+                            </div>
+                        ) : loadingFirstTime || (edges.length > 0 && !dependencyLayout) ? (
                             <Spinner />
                         ) : dependenciesLoadError ? (
                             "Couldn't load dependencies."

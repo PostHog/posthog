@@ -26,6 +26,7 @@ export interface dependenciesLogicValues {
     dependenciesLoadError: boolean
     dependenciesLoading: boolean
     dependencyLayout: DependencyGraph | null
+    dependencyLayoutError: boolean
     dependencyLayoutLoading: boolean
     dependencyService: string | null
     edges: DependencyEdgeApi[]
@@ -115,6 +116,14 @@ export const dependenciesLogic = kea<dependenciesLogicType>([
             {
                 loadDependenciesSuccess: () => false,
                 loadDependenciesFailure: () => true,
+            },
+        ],
+        dependencyLayoutError: [
+            false,
+            {
+                layoutDependencies: () => false,
+                layoutDependenciesSuccess: () => false,
+                layoutDependenciesFailure: () => true,
             },
         ],
     }),
