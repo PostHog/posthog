@@ -38,6 +38,7 @@ pub async fn evaluate_feature_flags(
     .with_membership_stamp_policy(context.membership_stamp_policy)
     .with_detailed_analysis(context.detailed_analysis)
     .with_only_use_override_person_properties(context.only_use_override_person_properties)
+    .with_known_absent_properties(context.known_absent_properties)
     .with_timezone(context.team_timezone)
     .with_persons_db_deadline(context.persons_db_deadline);
 
