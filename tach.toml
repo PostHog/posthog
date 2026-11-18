@@ -300,6 +300,9 @@ depends_on = [
     # Facade-only: the admin replay of failed runs reads workflows through
     # products.workflows.backend.facade.workflows.
     "products.workflows",
+    # Facade-only: shadow abuse scoring of saved hog functions asks the model through
+    # products.ml_inference.backend.facade.api.
+    "products.ml_inference",
 ]
 layer = "modules"
 
