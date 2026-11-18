@@ -1718,6 +1718,15 @@ class TestScannerScope(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200, resp.json())
         self.assertIsNone(resp.json()["scope"])
 
+    def test_a_new_scope_must_name_its_variants(self) -> None:
+        # The field accepts the variant-less shape so an editor can resend a mirrored scope; a
+        # scope written from scratch has no such history and would store the old wildcard.
+        scope = {"kind": "experiment", "experiment_id": self.experiment.id}
+        resp = self.client.post(self.scanners_url, data=self._payload("wildcard", scope=scope), format="json")
+
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertIn("variant", str(resp.json()).lower())
+
     def test_scope_rejects_an_experiment_the_caller_cannot_view(self) -> None:
         with patch("products.replay_vision.backend.api.scanners.is_experiment_accessible", return_value=False):
             resp = self.client.post(self.scanners_url, data=self._payload("denied", scope=self.scope), format="json")

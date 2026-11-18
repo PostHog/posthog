@@ -1151,6 +1151,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         if "scope" not in attrs or attrs["scope"] is None:
             return
         scope = attrs["scope"]
+        self._refuse_a_new_scope_that_names_no_variant(scope)
         # Keeps `resolve_exposure_linkage` off the request path when nothing changed, because it
         # can run a cold exposure precompute.
         if self.instance is not None and scope == self.instance.scope:
@@ -1183,6 +1184,20 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             raise serializers.ValidationError(
                 {"scope": "A scanner's experiment is fixed after creation. Make a new scanner instead."}
             )
+
+    def _refuse_a_new_scope_that_names_no_variant(self, scope: dict[str, Any]) -> None:
+        """Keep the variant-less shape to the rows that already carry it.
+
+        The field accepts a scope without `variants` so an editor can resend one the mirror
+        derived from a legacy store that named no variant. A scope written from scratch has no
+        such history, and storing one would mean the wildcard the scope model exists to replace,
+        silently watching variants added to the experiment later.
+        """
+        if scope.get("kind") != ExperimentScope.kind or scope.get("variants"):
+            return
+        if self.instance is not None and scope in (self.instance.scope, self._mirrored_scope()):
+            return
+        raise serializers.ValidationError({"scope": {"variants": "Name every variant the scanner watches."}})
 
     def _retire_the_legacy_store_behind_an_accepted_scope(self, attrs: dict[str, Any]) -> None:
         """Clear the older store when the scope being written would be mirrored over.
