@@ -329,7 +329,7 @@ export function ToolQualityTable(): JSX.Element {
                     </TableHeader>
                     {showSkeleton ? <ToolRowsSkeleton /> : toolRowsLoadFailed ? <ToolRowsError /> : <ToolRows />}
                 </Table>
-                <TableLoadingBar loading={toolRowsPageLoading && !showSkeleton} />
+                <TableLoadingBar loading={toolRowsPageLoading && toolRows.length > 0} />
             </div>
             {toolRowsTotalCount > 0 && (
                 <CardFooter className="flex flex-row flex-wrap items-center justify-between gap-2 border-t border-border">
