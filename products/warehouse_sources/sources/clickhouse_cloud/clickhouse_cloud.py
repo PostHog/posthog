@@ -165,6 +165,27 @@ def _with_organization_id(item: dict[str, Any], organization_id: str) -> dict[st
     return {**item, "organizationId": organization_id}
 
 
+def _iter_result_pages(
+    session: requests.Session,
+    logger: FilteringBoundLogger,
+    config: ClickhouseCloudEndpointConfig,
+    path: str,
+) -> Iterator[list[dict[str, Any]]]:
+    """Yield the `result` array of each page. Endpoints without cursor pagination return one page."""
+    cursor: str | None = None
+    seen_cursors: set[str] = set()
+    while True:
+        data = _fetch(session, _build_url(path, {"cursor": cursor} if cursor else None), logger)
+        yield data.get("result") or []
+        if not config.cursor_paginated:
+            return
+        cursor = data.get("nextCursor")
+        # A repeated cursor would loop forever on the same page.
+        if not cursor or cursor in seen_cursors:
+            return
+        seen_cursors.add(cursor)
+
+
 def _iter_entity_rows(
     session: requests.Session,
     logger: FilteringBoundLogger,
@@ -172,11 +193,10 @@ def _iter_entity_rows(
     organizations: list[dict[str, Any]],
 ) -> Iterator[list[dict[str, Any]]]:
     for org in organizations:
-        url = _build_url(config.path.format(organization_id=org["id"]))
-        result = _fetch(session, url, logger).get("result") or []
-        rows = [_with_organization_id(item, org["id"]) for item in result]
-        if rows:
-            yield rows
+        for result in _iter_result_pages(session, logger, config, config.path.format(organization_id=org["id"])):
+            rows = [_with_organization_id(item, org["id"]) for item in result]
+            if rows:
+                yield rows
 
 
 def _iter_activity_rows(
@@ -202,24 +222,28 @@ def _iter_activity_rows(
             yield rows
 
 
-def _iter_backup_rows(
+def _iter_service_fan_out_rows(
     session: requests.Session,
     logger: FilteringBoundLogger,
     config: ClickhouseCloudEndpointConfig,
     organizations: list[dict[str, Any]],
+    resumable_source_manager: ResumableSourceManager[ClickhouseCloudResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
     for org in organizations:
         services_url = _build_url(f"/v1/organizations/{org['id']}/services")
         services = _fetch(session, services_url, logger).get("result") or []
         for service in services:
-            url = _build_url(config.path.format(organization_id=org["id"], service_id=service["id"]))
-            result = _fetch(session, url, logger).get("result") or []
-            rows = [
-                {**_with_organization_id(item, org["id"]), "serviceId": item.get("serviceId") or service["id"]}
-                for item in result
-            ]
-            if rows:
-                yield rows
+            path = config.path.format(organization_id=org["id"], service_id=service["id"])
+            for result in _iter_result_pages(session, logger, config, path):
+                rows = [
+                    {**_with_organization_id(item, org["id"]), "serviceId": item.get("serviceId") or service["id"]}
+                    for item in result
+                ]
+                if rows:
+                    yield rows
+                else:
+                    # Full refresh stages no cursor, so an empty service is a safe hand-off point.
+                    resumable_source_manager.safe_point()
 
 
 def _flatten_usage_cost_record(record: dict[str, Any], organization_id: str) -> dict[str, Any]:
@@ -335,7 +359,7 @@ def get_rows(
             db_incremental_field_last_value,
         )
     elif config.fan_out_over_services:
-        yield from _iter_backup_rows(session, logger, config, organizations)
+        yield from _iter_service_fan_out_rows(session, logger, config, organizations, resumable_source_manager)
     else:
         yield from _iter_entity_rows(session, logger, config, organizations)
 

@@ -36,7 +36,7 @@ import requests
 import structlog
 import posthoganalytics
 from django_prometheus.middleware import Metrics
-from loginas.utils import is_impersonated_session, restore_original_login
+from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from prometheus_client import Counter, Histogram
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -52,7 +52,11 @@ from posthog.cloud_utils import is_cloud, is_dev_mode, is_hobby
 from posthog.constants import AUTH_BACKEND_KEYS
 from posthog.event_usage import get_event_source, get_mcp_properties, sanitize_header_value
 from posthog.geoip import get_geoip_properties
-from posthog.helpers.impersonation import get_original_user_from_session, get_original_user_id_from_session
+from posthog.helpers.impersonation import (
+    end_impersonation,
+    get_original_user_from_session,
+    get_original_user_id_from_session,
+)
 from posthog.helpers.sso import sso_failure_redirect_url
 from posthog.helpers.user_devices import set_known_device_cookie
 from posthog.ingress.verify.schemes import hmac_sha256_signature, signatures_match
@@ -1404,7 +1408,7 @@ class AutoLogoutImpersonateMiddleware:
                     status=401,
                 )
             else:
-                restore_original_login(request)
+                end_impersonation(request)
                 if request.path.startswith("/admin/"):
                     # Redirect to the intended admin page
                     return redirect(request.get_full_path())
@@ -2142,5 +2146,5 @@ def impersonated_session_logout(request: HttpRequest) -> HttpResponse:
         return redirect(safe_next or "/admin/")
 
     impersonated_user_pk = request.user.pk
-    restore_original_login(request)
+    end_impersonation(request)
     return redirect(safe_next or f"/admin/posthog/user/{impersonated_user_pk}/change/")

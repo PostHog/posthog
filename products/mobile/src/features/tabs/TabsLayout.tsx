@@ -10,6 +10,7 @@ import { NAV_RAIL_WIDTH } from '@/ui/adaptiveLayout'
 import { MobileScene } from '@/ui/MobileScene'
 import { OverlayHost, OverlayPortal } from '@/ui/OverlayPortal'
 import { SceneFrame } from '@/ui/SceneFrame'
+import { ScreenBlur } from '@/ui/ScreenBlur'
 import { useColors } from '@/ui/theme'
 import { useAppLayout } from '@/ui/useAppLayout'
 import { NativeTabsLayout } from './NativeTabsLayout'
@@ -77,25 +78,26 @@ function CustomTabsLayout(): ReactElement {
                 }}
             >
                 <SceneFrame>
-                    <Tabs
-                        tabBar={renderTabBar}
-                        backBehavior="firstRoute"
-                        screenOptions={{
-                            headerShown: false,
-                            sceneStyle: { backgroundColor: colors.background },
-                        }}
-                    >
-                        {/* Home is first, so Android back from another tab returns to it. */}
-                        <Tabs.Screen name="live" />
-                        <Tabs.Screen name="inbox" />
-                        <Tabs.Screen name="chats" />
-                        <Tabs.Screen name="views" />
-                        {/* Always registered; the bar shows a slot only for a pinned list. */}
-                        <Tabs.Screen name="errors" />
-                        <Tabs.Screen name="replay" />
-                        <Tabs.Screen name="web-analytics" />
-                    </Tabs>
-                    <TabsChrome />
+                    <ScreenBlur chrome={<TabsChrome />}>
+                        <Tabs
+                            tabBar={renderTabBar}
+                            backBehavior="firstRoute"
+                            screenOptions={{
+                                headerShown: false,
+                                sceneStyle: { backgroundColor: colors.background },
+                            }}
+                        >
+                            {/* Home is first, so Android back from another tab returns to it. */}
+                            <Tabs.Screen name="live" />
+                            <Tabs.Screen name="inbox" />
+                            <Tabs.Screen name="chats" />
+                            <Tabs.Screen name="views" />
+                            {/* Always registered; the bar shows a slot only for a pinned list. */}
+                            <Tabs.Screen name="errors" />
+                            <Tabs.Screen name="replay" />
+                            <Tabs.Screen name="web-analytics" />
+                        </Tabs>
+                    </ScreenBlur>
                 </SceneFrame>
             </View>
         </OverlayHost>

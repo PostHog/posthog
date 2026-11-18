@@ -215,8 +215,6 @@ class TaskProfile:
 
     # The exact LLM gateway product, pinned on the run's credential when it is minted. The gateway
     # ignores any product the agent sends. The usage report groups customer billing by this value.
-    # A "background_agents" profile's origin must be in BACKGROUND_AGENTS_ORIGINS, or its runs get no
-    # gateway token, and in Task.SERVER_ONLY_ORIGIN_PRODUCTS, so API callers cannot set it.
     billing_product: str
     # True bills sandbox compute to the customer. Compute cost is recorded either way.
     bills_compute: bool
