@@ -977,7 +977,7 @@ _WORKFLOW_FILE = GitObjectId(kind="Blob", oid="f" * 40)
 def _oidc_claims(**overrides: object) -> dict:
     # Issued and expired an hour ago: the review comes after the token's five minutes.
     issued = int(time.time()) - 3600
-    return {
+    claims = {
         "iss": "https://token.actions.githubusercontent.com",
         "iat": issued,
         "exp": issued + 300,
@@ -991,6 +991,8 @@ def _oidc_claims(**overrides: object) -> dict:
         "check_run_id": "900",
         **overrides,
     }
+    # An override of None leaves the claim out.
+    return {key: value for key, value in claims.items() if value is not None}
 
 
 def _marker(**overrides: object) -> str:
@@ -1063,6 +1065,13 @@ class WorkflowProofTests(SimpleTestCase):
     @parameterized.expand(
         [
             ("the_publishing_job", _signed_check_run(), None, True),
+            # GitHub documents the job_ claims for reusable workflows only.
+            (
+                "a_token_without_job_claims",
+                _signed_check_run(job_workflow_ref=None, job_workflow_sha=None, workflow_sha=_RUN_SHA),
+                None,
+                True,
+            ),
             ("a_pull_request_run", _signed_check_run(event_name="pull_request"), None, False),
             (
                 "a_branch_workflow",
@@ -1158,6 +1167,13 @@ class WorkflowProofTests(SimpleTestCase):
             ),
             ("another_job_of_the_workflow", _signed_check_run(), {900: {"name": "conclude", "run_id": 77}}, False),
             ("the_publishing_job", _signed_check_run(), None, True),
+            # GitHub documents the job_ claims for reusable workflows only.
+            (
+                "a_token_without_job_claims",
+                _signed_check_run(job_workflow_ref=None, job_workflow_sha=None, workflow_sha=_RUN_SHA),
+                None,
+                True,
+            ),
         ]
     )
     def test_the_poll_wakes_only_on_what_ends_the_engines_wait(
@@ -1170,19 +1186,21 @@ class WorkflowProofTests(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("a_server_error", StamphogGitHubError("502", status_code=502)),
-            ("a_rate_limit", GitHubRateLimitError("slow down")),
+            ("a_job_lookup_server_error", "get_workflow_job", StamphogGitHubError("502", status_code=502), False),
+            ("a_job_lookup_rate_limit", "get_workflow_job", GitHubRateLimitError("slow down"), False),
+            # The result stays pending, so the poll reviews again rather than the lift being refused.
+            ("a_code_check_rate_limit", "get_objects", GitHubRateLimitError("slow down"), True),
         ]
     )
     def test_a_lookup_that_github_refuses_proves_nothing_and_fails_no_review(
-        self, _name: str, error: Exception
+        self, _name: str, method: str, error: Exception, poll_wakes: bool
     ) -> None:
         check_run = _signed_check_run()
         client = _WorkflowClient([check_run])
-        client.get_workflow_job = MagicMock(side_effect=error)  # type: ignore[method-assign]
+        setattr(client, method, MagicMock(side_effect=error))
 
         assert _proofs(client).verified_result(_PUBLISHER) is None
-        assert _proofs(client).has_result(_PUBLISHER) is False
+        assert _proofs(client).has_result(_PUBLISHER) is poll_wakes
 
     def test_both_review_paths_add_the_verified_result_and_leave_its_pins_alone(self) -> None:
         check_run = _signed_check_run()

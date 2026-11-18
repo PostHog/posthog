@@ -189,14 +189,17 @@ class WorkflowProofs:
 
         `workflow_ref` names the workflow of the run and `job_workflow_ref` the workflow of the job.
         They differ only for a job of a reusable workflow, which any caller can run with any inputs.
+        GitHub documents `job_workflow_ref` for reusable workflows only, but sends it for every job, so
+        a token without it names the run's own workflow.
         """
         identity = self._repository_identity()
         expected_ref = f"{identity.full_name}/{publisher.workflow}@refs/heads/{identity.default_branch}"
+        workflow_ref = claims.get("workflow_ref")
         return (
             claims.get("repository_id") == str(identity.id)
             and claims.get("event_name") in publisher.events
-            and claims.get("workflow_ref") == expected_ref
-            and claims.get("job_workflow_ref") == expected_ref
+            and workflow_ref == expected_ref
+            and claims.get("job_workflow_ref", workflow_ref) == expected_ref
         )
 
     def _signed(self, candidate: Candidate, publisher: WorkflowPublisher) -> SignedResult | None:
@@ -208,7 +211,7 @@ class WorkflowProofs:
         if claims is None or not self._names_publisher(claims, publisher):
             return None
         run_id, run_attempt, job_id = (_id_claim(claims, key) for key in ("run_id", "run_attempt", "check_run_id"))
-        commit_sha = claims.get("job_workflow_sha")
+        commit_sha = claims.get("job_workflow_sha", claims.get("workflow_sha"))
         blobs = candidate.payload.get("blobs", {})
         if run_id is None or run_attempt is None or job_id is None:
             return None
@@ -251,12 +254,8 @@ class WorkflowProofs:
         paths = sorted({publisher.workflow, *signed.blobs})
         if len(paths) > MAX_PINNED_PATHS:
             return False
-        try:
-            at_run = self._client.get_objects(self._repo, signed.commit_sha, paths)
-            now = self._client.get_default_branch_objects(self._repo, paths)
-        except _UNREADABLE:
-            logger.warning("stamphog_workflow_proof_unreadable", repo=self._repo, entry=publisher.name)
-            return False
+        at_run = self._client.get_objects(self._repo, signed.commit_sha, paths)
+        now = self._client.get_default_branch_objects(self._repo, paths)
         if at_run != now or now.get(publisher.workflow) is None:
             return False
         return all(pin_holds(path, sha, now.get(path)) for path, sha in signed.blobs.items())
@@ -267,6 +266,16 @@ class WorkflowProofs:
         if signed is None:
             return None
         conclusion = signed.check_run.get("conclusion")
+        code_is_current = False
+        # The engine lifts only on a success, so only a success buys the two object reads.
+        if conclusion == "success":
+            try:
+                code_is_current = self._code_is_current(signed, publisher)
+            except _UNREADABLE:
+                # A stale result would read as completed and refuse the lift for good. With no result
+                # the entry stays pending, and the poll reviews again once GitHub answers.
+                logger.warning("stamphog_workflow_proof_unreadable", repo=self._repo, entry=publisher.name)
+                return None
         return {
             "id": signed.check_run.get("id"),
             "name": publisher.check,
@@ -274,8 +283,7 @@ class WorkflowProofs:
             "status": "completed",
             "conclusion": conclusion,
             "output": {"summary": (signed.check_run.get("output") or {}).get("summary") or ""},
-            # The engine lifts only on a success, so only a success buys the two object reads.
-            "pinned_blobs_current": conclusion == "success" and self._code_is_current(signed, publisher),
+            "pinned_blobs_current": code_is_current,
             WORKFLOW_PROOF_KEY: publisher.name,
         }
 
