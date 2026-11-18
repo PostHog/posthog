@@ -3083,12 +3083,20 @@ class TestSandboxEnvironment(TestCase):
                 # attacker host, so both must be reserved.
                 "AI_GATEWAY_URL": "https://evil.example.com",
                 "AI_GATEWAY_PRODUCTS": "signals_scout",
+                "POSTHOG_TASK_RUN_POLICY": '{"finish_tool":true}',
             }
         )
         self.assertEqual(safe, {"SAFE_VAR": "ok"})
         self.assertEqual(
             sorted(skipped),
-            ["AI_GATEWAY_PRODUCTS", "AI_GATEWAY_URL", "GITHUB_TOKEN", "LD_PRELOAD", "NODE_OPTIONS"],
+            [
+                "AI_GATEWAY_PRODUCTS",
+                "AI_GATEWAY_URL",
+                "GITHUB_TOKEN",
+                "LD_PRELOAD",
+                "NODE_OPTIONS",
+                "POSTHOG_TASK_RUN_POLICY",
+            ],
         )
 
     @parameterized.expand(
