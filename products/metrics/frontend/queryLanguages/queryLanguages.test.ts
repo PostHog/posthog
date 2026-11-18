@@ -1061,6 +1061,7 @@ describe('metrics query languages', () => {
                 value: { clauses: [clause({ metricName: 'http.server.request.duration', aggregation })] },
                 issues: [],
             })
+            expect(convertMetricsQuery(metricsQuery({ language: 'sql', sql }), 'builder').issues).toEqual([])
         })
 
         it('reads a handwritten SQL query with a group-by', () => {
