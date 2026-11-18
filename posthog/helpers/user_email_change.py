@@ -8,7 +8,7 @@ from posthog.models.user import User
 
 
 @frozen
-class LoginEmailChange:
+class UserEmailChange:
     """A change of the email that an account signs in with.
 
     The identities that signed in with the old email must not reach the account after the change,

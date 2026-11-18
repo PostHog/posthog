@@ -102,13 +102,13 @@ from posthog.helpers.email_utils import (
     validate_display_name,
 )
 from posthog.helpers.impersonation import is_impersonated
-from posthog.helpers.login_email_change import LoginEmailChange
 from posthog.helpers.session_cache import SessionCache
 from posthog.helpers.two_factor_session import (
     has_passkeys,
     normalize_verification_code,
     set_two_factor_verified_in_session,
 )
+from posthog.helpers.user_email_change import UserEmailChange
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, resolve_login_organization
 from posthog.ip_restrictions import get_ip_blocked_organization_ids
 from posthog.middleware import (
@@ -1421,7 +1421,7 @@ class UserViewSet(
             # `pending_email` holds whatever case the change was staged in.
             new_email = EmailNormalizer.normalize(user.pending_email)
             # Anyone can claim the address while the change waits for this code.
-            change = LoginEmailChange(user=user, new_email=new_email)
+            change = UserEmailChange(user=user, new_email=new_email)
             if change.is_taken():
                 refuse_pending_email_promotion()
             try:
