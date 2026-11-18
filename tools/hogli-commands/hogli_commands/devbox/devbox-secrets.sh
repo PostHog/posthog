@@ -57,21 +57,25 @@ note_for_agents() {
   mv "$CLAUDE_MD.tmp" "$CLAUDE_MD"
 }
 
-# Deletes the secrets at their expiry even if nothing runs devbox-secrets again. A later push
-# writes a new expiry, so this timer then leaves the newer secrets alone.
-schedule_cleanup() {
+# Deletes the secrets at their expiry. A later push writes a new expiry, so an older timer then
+# leaves the newer secrets alone.
+expire_at() {
   local expires="$1"
   local wait=$((expires - $(date +%s)))
-  [ "$wait" -gt 0 ] || wait=0
+  [ "$wait" -le 0 ] || sleep "$wait"
+  (
+    lock
+    if [ "$(cat "$EXPIRES_FILE" 2>/dev/null)" = "$expires" ]; then
+      rm -rf "$DIR"
+    fi
+  ) 9>"$LOCK_FILE"
+}
+
+# Runs expire_at in the background, so the secrets go even if nothing runs devbox-secrets again.
+schedule_cleanup() {
   local detach=()
   command -v setsid >/dev/null && detach=(setsid)
-  # shellcheck disable=SC2016  # the child shell expands its own arguments
-  nohup ${detach[@]+"${detach[@]}"} bash -c '
-    sleep "$1"
-    exec 9>"$4"
-    if command -v flock >/dev/null; then flock 9; fi
-    [ "$(cat "$2/expires" 2>/dev/null)" = "$3" ] && rm -rf "$2"
-  ' _ "$wait" "$DIR" "$expires" "$LOCK_FILE" >/dev/null 2>&1 &
+  nohup ${detach[@]+"${detach[@]}"} bash "$0" expire-at "$1" >/dev/null 2>&1 &
 }
 
 store() {
@@ -146,5 +150,6 @@ case "${1:-}" in
     echo "Cleared the lent secrets."
     ;;
   store) shift; store "$@" ;;
+  expire-at) shift; expire_at "$@" ;;
   *) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac

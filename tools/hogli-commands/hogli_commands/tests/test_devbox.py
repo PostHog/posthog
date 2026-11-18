@@ -6616,13 +6616,14 @@ class TestDevboxSecretsLend:
         assert expired.returncode != 0
         assert not (tmp_path / "shm").exists()
 
-    def test_box_script_deletes_secrets_at_expiry_without_another_call(self, tmp_path: Path) -> None:
-        self._box(tmp_path, "store", str(int(time.time()) + 1), stdin="OPENAI_API_KEY=sk\n")
+    def test_box_script_expiry_deletes_only_its_own_lend(self, tmp_path: Path) -> None:
+        self._box(tmp_path, "store", str(int(time.time()) + 3600), stdin="OPENAI_API_KEY=sk\n")
+        (tmp_path / "shm/expires").write_text("1000\n")
 
-        deadline = time.time() + 10
-        while (tmp_path / "shm").exists() and time.time() < deadline:
-            time.sleep(0.2)
+        self._box(tmp_path, "expire-at", "999")
+        assert (tmp_path / "shm/env").exists()
 
+        self._box(tmp_path, "expire-at", "1000")
         assert not (tmp_path / "shm").exists()
 
     @pytest.mark.parametrize(
