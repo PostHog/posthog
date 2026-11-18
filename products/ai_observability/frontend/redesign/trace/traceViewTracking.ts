@@ -44,7 +44,7 @@ const EVENTS = {
 } as const
 
 export type SummaryShownSource = 'just_generated' | 'stored'
-export type CopyFailureReason = 'too_large' | 'export_failed' | 'error'
+export type CopyFailureReason = 'too_large' | 'export_failed' | 'network' | 'error'
 
 export interface TraceFeedbackCounts {
     scores: number | null
