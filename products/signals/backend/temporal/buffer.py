@@ -4,6 +4,7 @@ import random
 import asyncio
 from dataclasses import asdict, dataclass, field
 from datetime import timedelta
+from typing import NoReturn
 
 from django.conf import settings
 
@@ -13,7 +14,7 @@ import posthoganalytics
 from asgiref.sync import sync_to_async
 from temporalio import activity, workflow
 from temporalio.common import MetricCounter, RetryPolicy
-from temporalio.exceptions import ActivityError
+from temporalio.exceptions import ActivityError, ApplicationError
 
 from posthog.dataclasses import frozen
 from posthog.storage import object_storage
@@ -23,7 +24,12 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow
-from products.signals.backend.temporal.safety_filter import SafetyFilterInput, safety_filter_activity
+from products.signals.backend.temporal.safety_filter import (
+    PROVIDER_USAGE_LIMIT_ERROR_TYPE,
+    PROVIDER_USAGE_LIMIT_RETRY_DELAY,
+    SafetyFilterInput,
+    safety_filter_activity,
+)
 from products.signals.backend.temporal.types import BufferSignalsInput, EmitSignalInputs, TeamSignalGroupingV2Input
 
 logger = structlog.get_logger(__name__)
@@ -38,6 +44,10 @@ SAFETY_FILTER_RETRY_DELAY_SECONDS = 5
 _PATCH_QUOTA_INGESTION_GATE = "signals-quota-ingestion-gate-v1"
 
 OBJECT_STORAGE_SIGNALS_PREFIX = "signals/signal_batches"
+
+
+def _is_provider_usage_limit(error: ActivityError) -> bool:
+    return isinstance(error.cause, ApplicationError) and error.cause.type == PROVIDER_USAGE_LIMIT_ERROR_TYPE
 
 
 @dataclass
@@ -157,6 +167,15 @@ class BufferSignalsWorkflow:
     def get_buffer_size(self) -> int:
         return len(self._signal_buffer)
 
+    def _continue_as_new(self, team_id: int, *, provider_usage_limited: bool = False) -> NoReturn:
+        workflow.continue_as_new(
+            BufferSignalsInput(
+                team_id=team_id,
+                pending_signals=list(self._signal_buffer),
+                provider_usage_limited=provider_usage_limited,
+            )
+        )
+
     def _get_emitted_counter(self, team_id: int, source_product: str, source_type: str) -> MetricCounter:
         key = (source_product, source_type)
         if key not in self._signals_emitted_counters:
@@ -188,6 +207,9 @@ class BufferSignalsWorkflow:
 
     async def _run_impl(self, input: BufferSignalsInput) -> None:
         self._signal_buffer.extend(input.pending_signals)
+        if input.provider_usage_limited:
+            # A fresh run keeps the cooldown inside the buffer's one-hour run timeout.
+            await workflow.sleep(PROVIDER_USAGE_LIMIT_RETRY_DELAY)
 
         while True:
             # Wait for at least one signal
@@ -219,12 +241,7 @@ class BufferSignalsWorkflow:
                     # Compact history like the empty-batch path so a sustained over-limit stream
                     # doesn't grow Temporal history unboundedly.
                     if len(self._signal_buffer) < BUFFER_MAX_SIZE:
-                        workflow.continue_as_new(
-                            BufferSignalsInput(
-                                team_id=input.team_id,
-                                pending_signals=list(self._signal_buffer),
-                            )
-                        )
+                        self._continue_as_new(input.team_id)
                     continue
 
             # Filter out malicious signals
@@ -250,20 +267,24 @@ class BufferSignalsWorkflow:
                     ],
                     return_exceptions=workflow.patched("signals-retry-failed-safety-only"),
                 )
-            except ActivityError:
+            except ActivityError as error:
                 self._signal_buffer[:0] = batch
                 logger.warning(
                     "signals_buffer.safety_filter_failed_requeued",
                     team_id=input.team_id,
                     signal_count=len(batch),
                 )
+                if _is_provider_usage_limit(error):
+                    self._continue_as_new(input.team_id, provider_usage_limited=True)
                 await workflow.sleep(timedelta(seconds=SAFETY_FILTER_RETRY_DELAY_SECONDS))
                 continue
             safe_signals: list[EmitSignalInputs] = []
             failed_signals: list[EmitSignalInputs] = []
+            provider_usage_limited = False
             for signal, result in zip(batch, safety_results):
                 if isinstance(result, ActivityError):
                     failed_signals.append(signal)
+                    provider_usage_limited = provider_usage_limited or _is_provider_usage_limit(result)
                 elif isinstance(result, BaseException):
                     raise result
                 elif result.safe:
@@ -279,20 +300,16 @@ class BufferSignalsWorkflow:
                     )
             if failed_signals:
                 self._signal_buffer[:0] = failed_signals
-                await workflow.sleep(timedelta(seconds=SAFETY_FILTER_RETRY_DELAY_SECONDS))
+                if not provider_usage_limited:
+                    await workflow.sleep(timedelta(seconds=SAFETY_FILTER_RETRY_DELAY_SECONDS))
             batch = safe_signals
 
             if not batch:
                 # Compact history even when no safe signals remain — without
                 # continue_as_new, repeated all-unsafe batches would grow
                 # Temporal history unboundedly.
-                if len(self._signal_buffer) < BUFFER_MAX_SIZE:
-                    workflow.continue_as_new(
-                        BufferSignalsInput(
-                            team_id=input.team_id,
-                            pending_signals=list(self._signal_buffer),
-                        )
-                    )
+                if provider_usage_limited or len(self._signal_buffer) < BUFFER_MAX_SIZE:
+                    self._continue_as_new(input.team_id, provider_usage_limited=provider_usage_limited)
                 continue
 
             # Flush to object storage
@@ -313,10 +330,5 @@ class BufferSignalsWorkflow:
 
             # If the buffer is already full again, loop to flush immediately
             # rather than continue_as_new (avoids losing throughput to workflow restart).
-            if len(self._signal_buffer) < BUFFER_MAX_SIZE:
-                workflow.continue_as_new(
-                    BufferSignalsInput(
-                        team_id=input.team_id,
-                        pending_signals=list(self._signal_buffer),
-                    )
-                )
+            if provider_usage_limited or len(self._signal_buffer) < BUFFER_MAX_SIZE:
+                self._continue_as_new(input.team_id, provider_usage_limited=provider_usage_limited)
