@@ -295,6 +295,8 @@ const TELEMETRY_TILE_REFRESH_CONCURRENCY = 2
 const EAGER_TILE_LOADS = 12
 // Matches MAX_CACHED_TILES_BATCH_SIZE, the most tiles the backend reads in one cached-tiles request.
 const CACHED_TILES_BATCH_SIZE = 100
+// A cached read normally answers in well under a second. Past this, the tiles it hasn't shown load one by one.
+const CACHED_TILES_READ_DEADLINE_MS = 3000
 // Matches WORKERS_PER_STREAM in the backend's query sharing stream.
 const QUERY_SHARING_STREAM_WORKERS = 4
 const LAYOUT_UNDO_LIMIT = 20
@@ -523,6 +525,14 @@ async function showCachedTileResults(
     const shown = new Set<number>()
     const tilesById = new Map(tiles.map((tile) => [tile.id, tile]))
     const startedAt = performance.now()
+    // Stops the read when the refresh is cancelled or the deadline passes.
+    const read = new AbortController()
+    const stopRead = (): void => read.abort()
+    const deadlineTimer = setTimeout(stopRead, CACHED_TILES_READ_DEADLINE_MS)
+    signal.addEventListener('abort', stopRead)
+    if (signal.aborted) {
+        stopRead()
+    }
     await Promise.all(
         chunkTileIds([...tilesById.keys()], CACHED_TILES_BATCH_SIZE).map(async (tileIds) => {
             let response: CachedTilesResponseApi
@@ -535,7 +545,7 @@ async function showCachedTileResults(
                         filters_override: JSON.stringify(filters),
                         variables_override: JSON.stringify(variables),
                     },
-                    { signal }
+                    { signal: read.signal }
                 )
             } catch {
                 return
@@ -549,7 +559,7 @@ async function showCachedTileResults(
                 if (!tile || result.status !== CachedTileStatusEnumApi.Hit || !result.insight) {
                     continue
                 }
-                // The response carries only the result fields, so the tile keeps its insight's name, query and access.
+                // The response carries the result fields and the query they were computed with, so the tile keeps its name and access.
                 const cachedInsight = { ...tile.insight, ...result.insight } as unknown as InsightModel
                 // A stale result goes through the insight endpoint, which computes it again.
                 if (!hasFreshCachedResult(cachedInsight) || getInsightQueryError(cachedInsight)) {
@@ -573,6 +583,8 @@ async function showCachedTileResults(
             }
         })
     )
+    clearTimeout(deadlineTimer)
+    signal.removeEventListener('abort', stopRead)
     return shown
 }
 
@@ -6316,6 +6328,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         .filter((tile) => shownFromCache.has(tile.id))
                         .forEach((tile) => settleTile(tile, 'cached'))
                     tilesToLoad = sortedTilesToRefresh.filter((tile) => !shownFromCache.has(tile.id))
+                    // A cancel during the read clears the refresh's abort controller, so nothing below may start.
+                    if (tileRefresh.signal.aborted) {
+                        tilesToLoad.forEach((tile) => settleTile(tile, 'aborted'))
+                        tilesToLoad = []
+                    }
                 }
 
                 const streamedTiles = new Set<number>()

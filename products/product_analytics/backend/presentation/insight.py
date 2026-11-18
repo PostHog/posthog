@@ -1330,6 +1330,21 @@ class InsightSerializer(InsightBasicSerializer):
                 described_dashboard["id"] for described_dashboard in self.context["after_dashboard_changes"]
             ]
 
+        representation["query"] = self.effective_query(instance)
+
+        representation["filters_hash"] = self.insight_result(instance).cache_key
+
+        # Hide PII fields when hideExtraDetails from SharingConfiguration is enabled
+        if self.context.get("hide_extra_details", False):
+            representation.pop("created_by", None)
+            representation.pop("last_modified_by", None)
+            representation.pop("created_at", None)
+            representation.pop("last_modified_at", None)
+
+        return representation
+
+    def effective_query(self, instance: Insight) -> Any:
+        """The insight's query with the dashboard, tile and variable overrides of this request applied."""
         dashboard: Any = self.context.get("dashboard")
         request: Request | None = self.context.get("request")
         is_shared = self.context.get("is_shared", False)
@@ -1384,24 +1399,13 @@ class InsightSerializer(InsightBasicSerializer):
                     dashboard_variables_override or {},
                     instance.team,
                 )
-            representation["query"] = query
+            return query
         else:
-            representation["query"] = instance.get_effective_query(
+            return instance.get_effective_query(
                 dashboard=dashboard,
                 dashboard_filters_override=dashboard_filters_override,
                 dashboard_variables_override=dashboard_variables_override,
             )
-
-        representation["filters_hash"] = self.insight_result(instance).cache_key
-
-        # Hide PII fields when hideExtraDetails from SharingConfiguration is enabled
-        if self.context.get("hide_extra_details", False):
-            representation.pop("created_by", None)
-            representation.pop("last_modified_by", None)
-            representation.pop("created_at", None)
-            representation.pop("last_modified_at", None)
-
-        return representation
 
     @lru_cache(maxsize=1)  # noqa: B019 - short-lived serializer
     def insight_result(self, insight: Insight) -> InsightResult:

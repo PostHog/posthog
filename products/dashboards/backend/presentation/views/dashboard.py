@@ -1359,6 +1359,7 @@ class CachedTileInsightResultSerializer(InsightSerializer):
             "resolved_compare_date_range",
             "action_names",
             "warnings",
+            "query",
         ]
         read_only_fields = fields
 
@@ -1366,10 +1367,13 @@ class CachedTileInsightResultSerializer(InsightSerializer):
         # InsightSerializer.to_representation rebuilds the insight's `query` and reads fields this serializer
         # drops. The view checks insight access before any tile reaches this serializer.
         # The per-tile endpoint's `query` field maps stale variable IDs to current ones in place before the
-        # result is computed. This serializer has no `query` field, so it maps them here to read the same entry.
+        # result is computed. Here `query` is computed after the result fields, so it maps them first to read the same entry.
         if isinstance(instance.query, dict):
             self._query_variables_mapping(instance.query)
-        return serializers.ModelSerializer.to_representation(self, instance)
+        representation = serializers.ModelSerializer.to_representation(self, instance)
+        # The query these results were computed with, so charts and drilldowns use the same filters.
+        representation["query"] = self.effective_query(instance)
+        return representation
 
 
 class CachedTileResultSerializer(serializers.Serializer):

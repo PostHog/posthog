@@ -12,7 +12,8 @@ import type { MockResolverInfo } from '~/mocks/utils'
 import __dashboard1 from 'products/dashboards/frontend/__mocks__/dashboard1.json'
 
 const DASHBOARD_ID = 22
-const TILE_COUNT = 20
+// Two rows, so every tile is on the first screen. A tile below it waits to scroll into view and keeps its loader.
+const TILE_COUNT = 8
 const COLUMNS = 4
 const TILE_WIDTH = 3
 const TILE_HEIGHT = 5

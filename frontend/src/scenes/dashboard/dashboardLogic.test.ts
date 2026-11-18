@@ -3968,6 +3968,11 @@ describe('dashboardLogic', () => {
                     loadedInsight(index, outcomeOf(index)),
                 ])
             )
+            // The query with the new filters applied, which the cached result was computed with.
+            const effectiveQuery = (id: number): InsightModel['query'] => ({
+                ...insightsByTile.get(id)!.query,
+                effectiveForTile: id,
+            })
             const cachedTilesRequests: number[][] = []
             const insightRequests: number[] = []
             useMocks({
@@ -3988,6 +3993,7 @@ describe('dashboardLogic', () => {
                                         status: 'hit',
                                         insight: {
                                             id: insightsByTile.get(id)!.id,
+                                            query: effectiveQuery(id),
                                             result: ['cached'],
                                             is_cached: true,
                                             last_refresh: now().subtract(2, 'hour').toISOString(),
@@ -4057,6 +4063,10 @@ describe('dashboardLogic', () => {
                 })
             )
             expect(shownResults).toEqual(expectedResults)
+            const cachedTiles = logic.values.insightTiles.filter((tile) => tile.insight?.result?.[0] === 'cached')
+            expect(cachedTiles.map((tile) => tile.insight?.query)).toEqual(
+                cachedTiles.map((tile) => effectiveQuery(tile.id))
+            )
             expect(Object.values(logic.values.refreshStatus).every((status) => !status.loading && !status.queued)).toBe(
                 true
             )
