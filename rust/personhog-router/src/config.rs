@@ -219,6 +219,20 @@ pub struct Config {
     #[envconfig(default = "/personhog/")]
     pub etcd_prefix: String,
 
+    /// Follower instances this router reads people from, as `name=etcd-prefix` pairs
+    /// separated by commas. Empty disables followed reads.
+    #[envconfig(default = "")]
+    pub follower_instances: String,
+
+    /// How long one follower may take before the read moves on to the next instance. Short,
+    /// because a follower that died is still the listed owner until its lease expires.
+    #[envconfig(default = "250")]
+    pub follower_attempt_timeout_ms: u64,
+
+    /// The follower instance to try first, normally the one in this router's zone.
+    #[envconfig(default = "")]
+    pub follower_preferred_instance: String,
+
     /// Router name for etcd registration (typically set from K8s downward API)
     #[envconfig(default = "router-0")]
     pub pod_name: String,

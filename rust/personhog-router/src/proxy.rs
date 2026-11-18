@@ -17,7 +17,7 @@ use tonic::body::BoxBody;
 use tonic::Code;
 use tower::{Service, ServiceExt};
 
-use crate::backend::{ChannelBackend, LeaderBackend};
+use crate::backend::{ChannelBackend, FollowerBackend, LeaderBackend};
 use crate::config::RetryConfig;
 use crate::grpc_http::{
     grpc_error_response, grpc_status_code, is_grpc_error_response, unapplied_refusal_reason,
@@ -149,12 +149,21 @@ struct RawProxyInner {
     replica: Arc<ChannelBackend>,
     identity: Option<Arc<ChannelBackend>>,
     leader: Option<Arc<LeaderBackend>>,
+    follower: Option<Arc<FollowerBackend>>,
     retry_config: RetryConfig,
     max_recv_message_size: usize,
     response_size_warn_bytes: usize,
 }
 
 impl RawProxyService {
+    /// Serve followed reads through these followers. Call before the service is cloned.
+    pub fn with_follower(mut self, follower: Arc<FollowerBackend>) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .expect("the follower backend is set before the service is shared")
+            .follower = Some(follower);
+        self
+    }
+
     pub fn new(
         replica: Arc<ChannelBackend>,
         identity: Option<Arc<ChannelBackend>>,
@@ -168,6 +177,7 @@ impl RawProxyService {
                 replica,
                 identity,
                 leader,
+                follower: None,
                 retry_config,
                 max_recv_message_size,
                 response_size_warn_bytes,
@@ -306,10 +316,17 @@ impl RawProxyInner {
                 if is_strong {
                     let (resp, call_ms) = self.raw_proxy_to_leader(req, "GetPerson").await;
                     (resp, "leader", call_ms)
+                } else if self.follows(&req) {
+                    let (resp, call_ms) = self.raw_proxy_to_follower(req, "GetPerson").await;
+                    (resp, "follower", call_ms)
                 } else {
                     let (resp, call_ms) = self.raw_proxy_to_replica(req, method.clone()).await;
                     (resp, "replica", call_ms)
                 }
+            }
+            (Target::Service, "GetPersonByUuid") if self.follows(&req) => {
+                let (resp, call_ms) = self.raw_proxy_to_follower(req, "GetPersonByUuid").await;
+                (resp, "follower", call_ms)
             }
             (Target::Service, _) => {
                 let (resp, call_ms) = self.raw_proxy_to_replica(req, method.clone()).await;
@@ -598,6 +615,40 @@ impl RawProxyInner {
     /// already accepted writes. Outside a handoff the stash is empty and
     /// requests forward directly, surfacing the channel round-trip time
     /// for the network-overhead metric.
+    /// A read of one person that names them in the routing headers comes from a follower
+    /// of their partition. Without the headers any replica answers it from Postgres.
+    fn follows(&self, req: &http::Request<BoxBody>) -> bool {
+        self.follower.is_some()
+            && req.headers().contains_key(TEAM_ID_HEADER)
+            && req.headers().contains_key(PERSON_ID_HEADER)
+    }
+
+    async fn raw_proxy_to_follower(
+        &self,
+        req: http::Request<BoxBody>,
+        method: &'static str,
+    ) -> (http::Response<BoxBody>, Option<f64>) {
+        let Some(follower) = &self.follower else {
+            return (
+                grpc_error_response(Code::Unimplemented, "no followers configured"),
+                None,
+            );
+        };
+        let key = match person_key_from_headers(req.headers()) {
+            Ok(key) => key,
+            Err(resp) => return (resp, None),
+        };
+        let (parts, body) = req.into_parts();
+        let body_bytes = match self.collect_body_timed(body, &Arc::from(method)).await {
+            Ok(b) => b,
+            Err(resp) => return (resp, None),
+        };
+        let _in_flight = ClientInFlightGuard::new("follower");
+        follower
+            .forward(method, key, &parts.headers, &body_bytes)
+            .await
+    }
+
     async fn raw_proxy_to_leader(
         &self,
         req: http::Request<BoxBody>,

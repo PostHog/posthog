@@ -175,6 +175,38 @@ pub async fn run(args: ConsistencyArgs) -> Result<()> {
 /// violations. A failed read is likewise not a recency violation — reads
 /// legitimately fail while a killed owner's partitions are in limbo, and
 /// end-of-run verification owns readability.
+/// A follower may trail the changelog by its staleness threshold, so the acked write is
+/// read back only after `within`. From then on a follower either shows it or refuses:
+/// answering without it is a stale read. A refusal is not a violation, the same as a
+/// failed strong read.
+async fn followed_read_shows(
+    client: HarnessClient,
+    state: PersonState,
+    team_id: i64,
+    person_id: i64,
+    key: String,
+    marker: String,
+    within: Duration,
+) -> Option<ConsistencyViolation> {
+    tokio::time::sleep(within).await;
+    let person = client.followed_person(team_id, person_id).await.ok()?;
+    if state.is_merge_pending_or_merged(person_id).await {
+        return None;
+    }
+    let props: serde_json::Value = person
+        .as_ref()
+        .and_then(|person| serde_json::from_slice(&person.properties).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    let expected = serde_json::Value::String(marker);
+    let actual = props.get(&key);
+    (actual != Some(&expected)).then(|| ConsistencyViolation {
+        person_id,
+        key: format!("__stale_followed_read:{key}"),
+        expected,
+        actual: actual.cloned().unwrap_or(serde_json::Value::Null),
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn run_probers(
     client: &HarnessClient,
@@ -185,6 +217,7 @@ pub async fn run_probers(
     collector: &Arc<StatsCollector>,
     state: &PersonState,
     stop: Arc<AtomicBool>,
+    followed_within: Option<Duration>,
 ) -> Result<Vec<ConsistencyViolation>> {
     let deadline = Instant::now() + duration;
 
@@ -198,6 +231,7 @@ pub async fn run_probers(
 
         handles.push(tokio::spawn(async move {
             let mut violations = Vec::new();
+            let mut followed_checks = Vec::new();
             let mut iteration: usize = 0;
 
             while Instant::now() < deadline && !stop.load(Ordering::Relaxed) {
@@ -256,6 +290,18 @@ pub async fn run_probers(
                     }
                 }
 
+                if let Some(within) = followed_within {
+                    followed_checks.push(tokio::spawn(followed_read_shows(
+                        client.clone(),
+                        state.clone(),
+                        team_id,
+                        person_id,
+                        key.clone(),
+                        marker.clone(),
+                        within,
+                    )));
+                }
+
                 let read_start = Instant::now();
                 match client
                     .get_person(team_id, person_id, ConsistencyLevel::Strong)
@@ -311,6 +357,9 @@ pub async fn run_probers(
                         tracing::warn!(person_id, error = %e, "probe read failed");
                     }
                 }
+            }
+            for check in followed_checks {
+                violations.extend(check.await.ok().flatten());
             }
             violations
         }));

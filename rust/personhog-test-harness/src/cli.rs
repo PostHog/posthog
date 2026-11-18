@@ -183,6 +183,21 @@ pub struct GateArgs {
     #[arg(long, default_value_t = 1)]
     pub routers: u32,
 
+    /// SIGKILL one follower this long into the traffic phase and start it again at once,
+    /// the way a crashed pod comes back.
+    #[arg(long, value_parser = humantime::parse_duration)]
+    pub follower_crash_after: Option<Duration>,
+
+    /// Keep a writer paused by `--writer-pause-after` paused until the followed reads are
+    /// verified, so they are checked while Postgres does not hold the acked writes.
+    #[arg(long, default_value_t = false)]
+    pub verify_followers_before_writer_resume: bool,
+
+    /// Number of changelog followers to spawn. With any, the run also verifies that
+    /// every acked write is visible through a followed read.
+    #[arg(long, default_value_t = 0)]
+    pub followers: u32,
+
     /// Number of partitions (ignored with --external-router-url).
     #[arg(long, default_value_t = 4)]
     pub partitions: u32,
