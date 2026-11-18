@@ -19,13 +19,6 @@ from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.product_analytics.backend.facade.models import Insight
 
 
-def _trends(event: str) -> dict[str, Any]:
-    return {
-        "kind": "InsightVizNode",
-        "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": event}]},
-    }
-
-
 def _hogql(sql: str) -> dict[str, Any]:
     return {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": sql}}
 
@@ -59,11 +52,11 @@ class TestDashboardFirstLoad(ClickhouseTestMixin, APIBaseTest):
             name="notebook_view",
             query={"kind": "HogQLQuery", "query": "select * from system.notebooks"},
         )
-        self._add_tile(_trends("$pageview"))
+        self._add_tile(_hogql("select count() from events where event = '$pageview'"))
         self._add_tile(_hogql("select event, count() from events group by event"))
         self._add_tile(_hogql("select count() from notebook_view"))
         self._add_tile(_hogql("select * from notebook_view"))
-        restricted = self._add_tile(_trends("signed_up"))
+        restricted = self._add_tile(_hogql("select count() from events where event = 'signed_up'"))
 
         self._get(dashboard_v2=False, refresh="blocking")
 
@@ -100,7 +93,7 @@ class TestDashboardFirstLoad(ClickhouseTestMixin, APIBaseTest):
                 self._get(dashboard_v2=True)
             return len(ctx.captured_queries)
 
-        self._add_tile(_trends("$pageview"))
+        self._add_tile(_hogql("select count() from events where event = '$pageview'"))
         self._get(dashboard_v2=True)
 
         assert _queries_with(2) == _queries_with(5)
