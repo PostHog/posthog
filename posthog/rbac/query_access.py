@@ -24,7 +24,14 @@ def assert_user_can_read_query(query: dict | None, team_id: int, user: User, dat
     cost, so callers checking several queries should build once and share it.
     """
     sql = (query or {}).get("query")
-    if not isinstance(sql, str) or not sql.strip():
+    if not isinstance(sql, str):
+        raise exceptions.ValidationError("Query is missing.")
+    assert_user_can_read_sql(sql, team_id, user, database=database)
+
+
+def assert_user_can_read_sql(sql: str, team_id: int, user: User, database: Database | None = None) -> None:
+    """The same check as `assert_user_can_read_query`, for a caller that holds the SQL text itself."""
+    if not sql.strip():
         raise exceptions.ValidationError("Query is missing.")
 
     context = HogQLContext(team_id=team_id, user=user, enable_select_queries=True, database=database)

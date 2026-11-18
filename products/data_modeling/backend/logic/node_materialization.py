@@ -17,7 +17,7 @@ from temporalio.service import RPCError
 from posthog.hogql.database.database import Database
 
 from posthog.models import User
-from posthog.rbac.query_access import assert_user_can_read_query
+from posthog.rbac.query_access import assert_user_can_read_sql
 from posthog.temporal.common.client import sync_connect
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -212,7 +212,9 @@ def _assert_user_can_run_nodes(node: Node, node_ids: set[str], user: User) -> No
     for saved_query in saved_queries:
         if not access_control.check_access_level_for_object(saved_query, "editor"):
             raise MaterializationForbiddenError(RELATED_RUN_EDIT_ACCESS_REFUSAL)
-        assert_user_can_read_query(saved_query.query, node.team_id, user, database=database)
+        # `sql` binds the incremental window start to NULL. The raw text leaves it unbound, and an
+        # unbound placeholder fails resolution, so the check would refuse every view that names it.
+        assert_user_can_read_sql(saved_query.sql, node.team_id, user, database=database)
 
 
 def _related_node_ids(
