@@ -150,6 +150,20 @@ class TestMCPIntentErasure(ClickhouseTestMixin, APIBaseTest):
         with team_scope(self.team.pk):
             assert MCPIntentErasure.objects.get(team=self.team).completed_at is None
 
+    def test_deleted_team_copies_stay_pending_until_purged(self) -> None:
+        # self.other is the newest team, so this id has no Team row.
+        gone = self.other.pk + 1000
+        self.addCleanup(self._delete_assignments, gone)
+        _insert_assignment(gone, "a" * 64, "topic", intent_text="copied text")
+        erasure = IntentErasure(project_id=gone, invalidation_id=uuid4(), source_team_ids=(gone,))
+        with self.assertRaisesMessage(IntentErasurePending, "derived intent data exists"):
+            complete_intent_erasure(erasure=erasure, cluster=self.cluster)
+        with patch.dict(sys.modules, self._providers([])):
+            complete_intent_erasure(erasure=erasure, cluster=self.cluster)
+        assert not sync_execute(
+            f"SELECT 1 FROM {MCP_INTENT_ASSIGNMENTS_DATA_TABLE} WHERE team_id = %(team_id)s", {"team_id": gone}
+        )
+
     def test_missing_writer_drain_proof_keeps_an_empty_project_frozen(self) -> None:
         with (
             patch.dict(sys.modules, {WRITERS_MODULE: None}),

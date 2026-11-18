@@ -234,10 +234,16 @@ describe('addUtmTagsToEmail', () => {
             html: '<a data-ph-no-utm href="https://example.com/">x</a>',
             expected: '<a data-ph-no-utm href="https://example.com/?ph_workflow_run=run-1">x</a>',
         },
-    ])('$case', ({ html, expected, sender }) => {
+        {
+            case: 'only removes run ids of earlier sends for a team that turned the tag off',
+            runId: null,
+            html: '<a href="https://example.com/?a=1&amp;ph_workflow_run=old">x</a><a href="https://other.com/?ph_workflow_run=old">y</a>',
+            expected: '<a href="https://example.com/?a=1">x</a><a href="https://other.com/?ph_workflow_run=old">y</a>',
+        },
+    ])('$case', ({ html, expected, sender, runId }) => {
         expect(
             addWorkflowRunTagToEmail(html, {
-                runId: 'run-1',
+                runId: runId === undefined ? 'run-1' : runId,
                 senderEmail: sender ?? 'hi@mail.example.com',
                 siteUrl: SITE_URL,
             })

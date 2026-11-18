@@ -292,6 +292,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
             "buffer_conversion_seconds": settings.BUFFER_CONVERSION_SECONDS,
             "cohort_csv_upload_max_bytes": settings.COHORT_CSV_UPLOAD_MAX_BYTES,
             "webmcp_available": webmcp_api.is_available(),
+            "cimd_verification_token_issuer_url": settings.CIMD_VERIFICATION_TOKEN_ISSUER_URL,
         }
 
     return JsonResponse(response)

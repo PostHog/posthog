@@ -1230,10 +1230,17 @@ class TestCorpusQueries(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, B
             "session-a", "exec", intent="find slow queries", timestamp=base, exec_tool_name="execute_sql"
         )
         self._seed_tool_call("session-a", "query_trends", timestamp=base + timedelta(minutes=1), is_error=True)
+        # Past the per-session bound: only a session's first calls enter the corpus.
+        self._seed_tool_call("session-a", "dashboard_get", timestamp=base + timedelta(minutes=2))
         self._seed_tool_call("session-b", "feature_flag_get", intent="check flags")
         flush_persons_and_events()
 
-        rows = fetch_session_calls(self.team, ["session-a", "session-b"])
+        # One session per chunk, so both chunks have to come back.
+        with (
+            patch.object(intent_clustering, "CORPUS_SESSION_CHUNK_SIZE", 1),
+            patch.object(intent_clustering, "MAX_CALLS_PER_SESSION", 2),
+        ):
+            rows = fetch_session_calls(self.team, ["session-a", "session-b"])
 
         by_session: dict[str, list] = {}
         for row in rows:
@@ -1243,6 +1250,20 @@ class TestCorpusQueries(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, B
             ("query_trends", "", True),
         ]
         assert [(r[1], r[2], r[3]) for r in by_session["session-b"]] == [("feature_flag_get", "check flags", False)]
+
+    def test_session_calls_stop_fetching_chunks_past_the_text_budget(self) -> None:
+        self._seed_tool_call("session-a", "query_trends", intent="find slow queries")
+        self._seed_tool_call("session-b", "feature_flag_get", intent="check flags")
+        flush_persons_and_events()
+
+        # The first chunk alone exhausts the budget, so the second is never queried.
+        with (
+            patch.object(intent_clustering, "CORPUS_SESSION_CHUNK_SIZE", 1),
+            patch.object(intent_clustering, "MAX_CORPUS_TEXT_CHARS", 1),
+        ):
+            rows = fetch_session_calls(self.team, ["session-a", "session-b"])
+
+        assert [(r[0], r[1]) for r in rows] == [("session-a", "query_trends")]
 
     def test_oversized_sender_strings_are_clipped_at_the_sql_boundary(self) -> None:
         # A sender with the capture token controls these strings; without the SQL
@@ -1265,12 +1286,19 @@ class TestCorpusQueries(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, B
     def test_advertised_tools_union_across_tools_list_events(self) -> None:
         self._seed_tools_list("session-a", ["exec", "render-ui"])
         self._seed_tools_list("session-a", ["exec", "query_trends"])
+        self._seed_tools_list("session-b", ["render-ui"])
         self._seed_tools_list("session-other", ["exec"])
         flush_persons_and_events()
 
-        advertised = fetch_advertised_tools(self.team, ["session-a", "session-no-list"])
+        with patch.object(intent_clustering, "CORPUS_SESSION_CHUNK_SIZE", 1):
+            advertised = fetch_advertised_tools(self.team, ["session-no-list", "session-a", "session-b"])
+            narrowed = fetch_advertised_tools(
+                self.team, ["session-no-list", "session-a", "session-b"], keep_tools={"exec", "query_trends"}
+            )
 
-        assert advertised == {"session-a": {"exec", "render-ui", "query_trends"}}
+        assert advertised == {"session-a": {"exec", "render-ui", "query_trends"}, "session-b": {"render-ui"}}
+        # A session that advertised none of the kept tools still counts as advertised.
+        assert narrowed == {"session-a": {"exec", "query_trends"}, "session-b": set()}
 
     def test_advertised_catalog_is_bounded_per_list_and_per_session(self) -> None:
         # Both the array and the number of tools-list events are sender-controlled, and the
