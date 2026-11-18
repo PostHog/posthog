@@ -680,6 +680,7 @@ class TestMarketingRecommendations(SimpleTestCase):
                 "https://example.com/replay?utm_source=google&gad_source=1&gclid=abc",
             ),
             ("same_path_with_a_different_page_parameter", "funnel spy", None, "https://example.com/replay?id=200"),
+            ("page_parameter_in_a_different_case", "funnel spy", None, "https://example.com/replay?id=ABC"),
             (
                 "low_spend_landing_campaign_without_conversions",
                 "funnel spy",
@@ -736,7 +737,7 @@ class TestMarketingRecommendations(SimpleTestCase):
                 ad_group_id="ag2",
                 campaign_id="c2",
                 texts=(),
-                final_urls=("https://example.com/replay", "https://example.com/"),
+                final_urls=("https://example.com/replay", "https://example.com/replay?id=abc", "https://example.com/"),
             ),
         )
         inputs = replace(_inputs(campaigns, terms, organic, keywords, pages), ads=ads)

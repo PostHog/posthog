@@ -319,13 +319,13 @@ def _word_stems(text: str) -> frozenset[str]:
 
 def _page_key(url: str) -> str:
     # Search Console and ad final URLs spell the same page differently, such as with or without www or a final slash.
-    parts = urlsplit(url.lower())
-    page = parts.netloc.removeprefix("www.") + parts.path.rstrip("/")
+    parts = urlsplit(url)
+    page = parts.netloc.lower().removeprefix("www.") + parts.path.rstrip("/")
     # A query parameter can pick the page, such as product.php?id=100, but click and campaign tags never do.
     query = sorted(
         (name, value)
         for name, value in parse_qsl(parts.query)
-        if not name.startswith("utm_") and name not in CAMPAIGN_PARAMETERS
+        if not name.lower().startswith("utm_") and name.lower() not in CAMPAIGN_PARAMETERS
     )
     return f"{page}?{urlencode(query)}" if query else page
 
