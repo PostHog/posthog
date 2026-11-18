@@ -83,6 +83,17 @@ TBD:
 - a revival therefore becomes visible at most one prune tick after the writer applies its tombstone
 - warming leaves no residue for an applied death record — neither the document (unmarked, it would answer not-found forever) nor its earlier records for the same key
 
+#### Cache-miss loads
+
+A request for a person that is not in the cache loads the person from Postgres, unless the dirty index says the row is behind the changelog.
+The fallback pool is small (`FALLBACK_PG_MAX_CONNECTIONS`) and also serves the lifecycle mark checks.
+A load that finds a free connection runs a single-row lookup immediately.
+A load that finds every connection busy waits, and the next connection to come free reads all waiting loads in one statement, up to `FALLBACK_PG_LOAD_BATCH_SIZE` persons.
+Batches therefore form only while the pool is saturated, which is when one statement per person would cap the pod's load rate at the pool size.
+A load waits for a connection no longer than the pool's acquire timeout, then fails as a pool timeout.
+Set `FALLBACK_PG_LOAD_BATCH_SIZE=1` to turn batching off.
+`personhog_leader_pg_load_batch_size` records how many persons each statement read, and `personhog_leader_pg_load_queue_wait_ms` records how long each load waited for a connection.
+
 #### Admission
 
 Every record the leader produces to the changelog must be applyable by the

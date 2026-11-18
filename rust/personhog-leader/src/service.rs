@@ -33,8 +33,9 @@ use crate::fence::{
 use crate::fencing::FencedProducerConfig;
 use crate::fencing::{FencedChangelogProducers, FencedProduceError};
 use crate::inflight::{InflightGuard, InflightTracker};
+use crate::person_loader::{PersonLoader, DEFAULT_MAX_LOAD_BATCH};
 use crate::person_update::{apply_property_updates, compute_event_property_updates};
-use crate::pg::{load_person_from_pg, LoadError, PgFallback};
+use crate::pg::{LoadError, PgFallback};
 use crate::recovery::ChangelogRecovery;
 use crate::warnings::{DepthViolationWarning, SizeViolationWarning, WarningsProducer};
 use personhog_common::properties::{
@@ -152,6 +153,9 @@ pub struct PersonHogLeaderService {
     locks: Arc<DashMap<PersonCacheKey, Arc<Mutex<()>>>>,
     /// Read-only PG fallback (pool + the table it reads) for cache miss.
     fallback: Option<PgFallback>,
+    /// Reads cache misses from the fallback table. Present exactly when
+    /// the fallback is.
+    loader: Option<PersonLoader>,
     /// Per-partition inflight counter used to drive the handoff drain phase.
     inflight: Arc<InflightTracker>,
     /// What each served partition was acquired under; shared with the handler.
@@ -283,6 +287,9 @@ impl PersonHogLeaderService {
                 .as_ref()
                 .map(|f| Arc::new(FenceHealer::new(f.clone(), Arc::clone(&fences)))),
             mark_verifier: fallback.as_ref().map(MarkVerifier::new),
+            loader: fallback
+                .as_ref()
+                .map(|f| PersonLoader::new(f.pool.clone(), &f.table, DEFAULT_MAX_LOAD_BATCH)),
             fallback,
             inflight,
             captures,
@@ -302,6 +309,17 @@ impl PersonHogLeaderService {
     /// default without threading one more argument through.
     pub fn with_fence_capacity(mut self, max_entries: usize) -> Self {
         self.fence_map_max_entries = max_entries;
+        self
+    }
+
+    /// Override how many cache-miss loads one statement may carry
+    /// (`fallback_pg_load_batch_size` in the config). Separate from `new`
+    /// for the same reason as `with_fence_capacity`.
+    pub fn with_load_batch_size(mut self, max_batch: usize) -> Self {
+        self.loader = self
+            .fallback
+            .as_ref()
+            .map(|f| PersonLoader::new(f.pool.clone(), &f.table, max_batch));
         self
     }
 
@@ -363,10 +381,10 @@ impl PersonHogLeaderService {
         &self,
         key: &PersonCacheKey,
     ) -> Result<CachedPerson, Status> {
-        let Some(fallback) = &self.fallback else {
+        let Some(loader) = &self.loader else {
             return Err(unprocessable_person_status());
         };
-        match load_person_from_pg(&fallback.pool, &fallback.table, key).await {
+        match loader.load(key).await {
             Ok(Some(person)) => Ok(person),
             Ok(None) => Err(Status::not_found("person is destroyed")),
             Err(LoadError::UnprocessableProperties { row, .. }) => Ok(*row),
@@ -488,7 +506,7 @@ impl PersonHogLeaderService {
         partition: u32,
         key: &PersonCacheKey,
     ) -> Result<CachedPerson, Status> {
-        let Some(fallback) = &self.fallback else {
+        let Some(loader) = &self.loader else {
             // Without the pool a cache miss answers NotFound, which callers
             // read as authoritative death; production always sets it.
             return Err(Status::not_found(format!(
@@ -498,7 +516,7 @@ impl PersonHogLeaderService {
         };
 
         let started = Instant::now();
-        let result = load_person_from_pg(&fallback.pool, &fallback.table, key).await;
+        let result = loader.load(key).await;
         // A stub is a row the writer has not written yet, so no cache size could have held it.
         let loaded = match &result {
             Ok(Some(person)) if person.has_no_properties() => "stub",
@@ -576,12 +594,12 @@ impl PersonHogLeaderService {
         if !person.is_deleted {
             return Ok(person);
         }
-        let Some(fallback) = &self.fallback else {
+        let Some(loader) = &self.loader else {
             counter!("personhog_leader_revivals_total", "outcome" => "no_fallback").increment(1);
             return Ok(person);
         };
         let started = Instant::now();
-        let result = load_person_from_pg(&fallback.pool, &fallback.table, key).await;
+        let result = loader.load(key).await;
         histogram!("personhog_leader_person_load_duration_ms", "source" => "revival")
             .record(started.elapsed().as_secs_f64() * 1000.0);
         match result {

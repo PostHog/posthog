@@ -1,10 +1,10 @@
+use std::sync::Arc;
 use std::time::Instant;
 
 use metrics::{counter, histogram};
 use personhog_common::properties::rewrite_out_of_range_numbers;
-use personhog_common::query_tag;
 use sqlx::pool::PoolConnection;
-use sqlx::postgres::PgPool;
+use sqlx::postgres::{PgPool, PgRow};
 use sqlx::{Postgres, Row};
 
 use crate::cache::{CachedPerson, PersonCacheKey};
@@ -61,7 +61,8 @@ pub fn validate_table_name(table: &str) -> Result<(), String> {
 
 #[derive(Debug)]
 pub enum LoadError {
-    Query(sqlx::Error),
+    /// Shared, because one failed statement answers every load it carried.
+    Query(Arc<sqlx::Error>),
     /// A retry reads the same bytes.
     UnprocessableProperties {
         reason: String,
@@ -81,7 +82,7 @@ impl std::fmt::Display for LoadError {
 
 impl From<sqlx::Error> for LoadError {
     fn from(e: sqlx::Error) -> Self {
-        Self::Query(e)
+        Self::Query(Arc::new(e))
     }
 }
 
@@ -116,62 +117,43 @@ fn parse_stored_properties(
     }
 }
 
-/// Reads a person from the configured fallback table — the table the
-/// writer maintains. Used as a fallback when the leader's cache doesn't
-/// have the person.
-pub async fn load_person_from_pg(
-    pool: &PgPool,
-    table: &str,
+/// The columns `decode_person_row` reads, for a table aliased `p`.
+///
+/// properties comes back as text and is parsed here rather than through
+/// sqlx's jsonb decode: rows written by other services can hold numerics
+/// whose PG-expanded rendering serde_json rejects, and the leniency
+/// lives in our parse step (see `parse_stored_properties`). The cost is
+/// identical — sqlx's jsonb decode parses the same text under the hood.
+pub(crate) const PERSON_ROW_COLUMNS: &str = "p.id, p.team_id, p.uuid::text AS uuid, \
+     p.properties::text AS properties, p.created_at, p.version, p.is_identified, p.last_seen_at";
+
+/// Builds the cached person from a row of the fallback table, the table
+/// the writer maintains, selected as `PERSON_ROW_COLUMNS`.
+pub(crate) fn decode_person_row(
+    row: &PgRow,
     key: &PersonCacheKey,
-) -> Result<Option<CachedPerson>, LoadError> {
-    let start = Instant::now();
-    let mut conn = acquire_timed(pool, "load_person").await?;
-
-    let team_id_i32 = i32::try_from(key.team_id)
-        .map_err(|_| sqlx::Error::Protocol(format!("team_id {} exceeds i32 range", key.team_id)))
-        .map_err(LoadError::Query)?;
-
-    // properties comes back as text and is parsed here rather than through
-    // sqlx's jsonb decode: rows written by other services can hold numerics
-    // whose PG-expanded rendering serde_json rejects, and the leniency
-    // lives in our parse step (see below). The cost is identical — sqlx's
-    // jsonb decode parses the same text under the hood.
-    // A tombstoned person must not be re-served on a cache miss; not-found
-    // is the truthful answer for a deleted person.
-    let row = sqlx::query(&query_tag!(
-        "load_person",
-        format!(
-            "SELECT id, team_id, uuid::text, properties::text AS properties, created_at, version, \
-             is_identified, last_seen_at
-             FROM {table}
-             WHERE team_id = $1 AND id = $2 AND is_deleted = false",
-        )
-    ))
-    .bind(team_id_i32)
-    .bind(key.person_id)
-    .fetch_optional(&mut *conn)
-    .await?;
-    // The row is owned; parsing its properties must not hold the pool slot.
-    drop(conn);
-
-    histogram!("personhog_leader_pg_fallback_duration_ms")
-        .record(start.elapsed().as_secs_f64() * 1000.0);
-
-    let Some(row) = row else {
-        counter!("personhog_leader_pg_fallback_total", "outcome" => "not_found").increment(1);
-        return Ok(None);
-    };
-
-    let id: i64 = row.get("id");
-    let team_id: i32 = row.get("team_id");
-    let uuid: String = row.get("uuid");
+) -> Result<CachedPerson, LoadError> {
+    let id: i64 = row.try_get("id")?;
+    let team_id: i32 = row.try_get("team_id")?;
+    // One statement returns rows for many loads. A row that reached the
+    // wrong load would serve one person's state as another's, so the row
+    // must name the person this load asked for.
+    if id != key.person_id || i64::from(team_id) != key.team_id {
+        return Err(sqlx::Error::Protocol(format!(
+            "loaded row (team_id={team_id}, person_id={id}) is not the requested person \
+             (team_id={}, person_id={})",
+            key.team_id, key.person_id
+        ))
+        .into());
+    }
+    let uuid: String = row.try_get("uuid")?;
     // Borrowed from the row buffer — no copy; parse cost matches what
     // sqlx's own jsonb decode would spend on the same bytes.
-    let properties_text: &str = row.get("properties");
-    let created_at: chrono::DateTime<chrono::Utc> = row.get("created_at");
-    let version: Option<i64> = row.get("version");
-    let is_identified: bool = row.get("is_identified");
-    let last_seen_at: Option<chrono::DateTime<chrono::Utc>> = row.get("last_seen_at");
+    let properties_text: &str = row.try_get("properties")?;
+    let created_at: chrono::DateTime<chrono::Utc> = row.try_get("created_at")?;
+    let version: Option<i64> = row.try_get("version")?;
+    let is_identified: bool = row.try_get("is_identified")?;
+    let last_seen_at: Option<chrono::DateTime<chrono::Utc>> = row.try_get("last_seen_at")?;
 
     let properties = parse_stored_properties(properties_text, team_id, id).map_err(|reason| {
         LoadError::UnprocessableProperties {
@@ -190,14 +172,12 @@ pub async fn load_person_from_pg(
         }
     })?;
 
-    counter!("personhog_leader_pg_fallback_total", "outcome" => "found").increment(1);
-
     let properties_bytes = serde_json::to_vec(&properties).map_err(|e| {
-        LoadError::Query(sqlx::Error::Protocol(format!(
+        LoadError::from(sqlx::Error::Protocol(format!(
             "person properties reserialize failed (team_id={team_id}, person_id={id}): {e}"
         )))
     })?;
-    Ok(Some(CachedPerson {
+    Ok(CachedPerson {
         id,
         uuid,
         team_id: team_id as i64,
@@ -205,11 +185,11 @@ pub async fn load_person_from_pg(
         created_at: created_at.timestamp_millis(),
         version: version.unwrap_or(0),
         is_identified,
-        // The query filters is_deleted = false; a tombstoned row is
-        // answered as not-found above, never loaded.
+        // The load query filters is_deleted = false; a tombstoned row is
+        // answered as not-found, never loaded.
         is_deleted: false,
         last_seen_at: last_seen_at.map(|t| t.timestamp_millis()),
-    }))
+    })
 }
 
 #[cfg(test)]

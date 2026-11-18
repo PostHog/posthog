@@ -181,6 +181,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         60.0, 300.0, 900.0, 3600.0, 14400.0, 43200.0, 86400.0, 259200.0, 604800.0, 2592000.0,
         7776000.0, 31536000.0,
     ];
+    // Persons per cache-miss statement. 1 is a load that found a free
+    // connection, so mass above it shows the fallback pool saturated.
+    const PG_LOAD_BATCH_SIZE_BUCKETS: &[f64] =
+        &[1.0, 2.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0];
     // The write path and warms are tuned in single-digit milliseconds;
     // the default ladder's 10 → 50 ms step blurs exactly the spans the
     // fencing and warm work steers by, and pins interpolated quantiles
@@ -248,6 +252,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             (
                 Matcher::Full("personhog_leader_kafka_produce_bytes".into()),
                 CHANGELOG_PRODUCE_SIZE_BUCKETS_BYTES,
+            ),
+            (
+                Matcher::Full("personhog_leader_pg_load_batch_size".into()),
+                PG_LOAD_BATCH_SIZE_BUCKETS,
+            ),
+            (
+                Matcher::Full("personhog_leader_pg_load_queue_wait_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
+            ),
+            (
+                Matcher::Full("personhog_leader_pg_load_batch_duration_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
             ),
             (
                 Matcher::Full("personhog_leader_pg_load_person_age_seconds".into()),
@@ -543,7 +559,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::clone(&authority),
         Arc::clone(&emitted_versions),
     )
-    .with_fence_capacity(config.fence_map_max_entries);
+    .with_fence_capacity(config.fence_map_max_entries)
+    .with_load_batch_size(config.fallback_pg_load_batch_size);
 
     let warm_pools = Arc::new(WarmClientPools::new(
         &config.kafka,
