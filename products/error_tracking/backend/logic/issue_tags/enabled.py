@@ -1,5 +1,7 @@
 from django.db.models import QuerySet
 
+from posthog.hogql.property_access_types import RestrictedProperty
+
 from posthog.dataclasses import frozen
 from posthog.models import User
 
@@ -43,6 +45,22 @@ def issue_tag_definitions_for_enabled_team(team_id: int) -> tuple[IssueTagDefini
     rules = _ordered(_active_rules(team_id))
     return _enabled_code_definitions(team_id) + tuple(
         _rule_definition(rule, taggers=(RuleTaggerConfig(rule_id=rule.id, bytecode=rule.bytecode),)) for rule in rules
+    )
+
+
+def readable_issue_tag_keys(team_id: int, restrictions: set[RestrictedProperty]) -> frozenset[str] | None:
+    """The keys whose stored tag rows a member with `restrictions` may read, or None when every key is readable.
+
+    A rule that reads a restricted property is left out, as `enabled_issue_tag_definitions` leaves it out. So is every
+    key that no code tag or active rule owns: a deleted rule keeps its ClickHouse rows, but its filters are gone, so
+    nothing can show that the member may read them. The flag check comes before the rules query.
+    """
+    if not restrictions or not issue_tags_enabled(team_id):
+        return None
+    restricted = split_restricted_property_names(restrictions)
+    rules = _active_rules(team_id).only("key", "filters")
+    return frozenset(definition.key for definition in registry.ISSUE_TAG_DEFINITIONS) | frozenset(
+        rule.key for rule in rules if not _reads_restricted_property(rule.filters, restricted)
     )
 
 
