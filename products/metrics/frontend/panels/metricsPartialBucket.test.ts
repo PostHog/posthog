@@ -87,6 +87,7 @@ describe('isExtrapolatable', () => {
     it.each([
         ['rate range function', clause('a', { rangeFunction: 'rate', aggregation: 'sum' }), true],
         ['increase aggregation', clause('a', { aggregation: 'increase' }), true],
+        ['histogram count rate', clause('a', { aggregation: 'count_rate' }), true],
         ['gauge average', clause('a', { aggregation: 'avg' }), false],
         ['sum of latest values', clause('a', { aggregation: 'sum' }), false],
         ['count of series reporting a rate', clause('a', { rangeFunction: 'rate', aggregation: 'count' }), false],

@@ -16,6 +16,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { EmailSuspensionBanner } from '../EmailSuspensionBanner'
+import { EngagementEventsBanner } from '../EngagementEventsBanner'
 import { MessagingSetup } from '../MessagingSetup'
 import { MessagingTabActions } from '../MessagingTabActions'
 import {
@@ -96,6 +97,7 @@ export function BroadcastsScene(): JSX.Element {
                 }
             />
             <EmailSuspensionBanner />
+            <EngagementEventsBanner />
             <LemonTabs<'broadcasts' | 'calendar' | 'library' | 'messaging-setup'>
                 activeKey={
                     currentTab === 'broadcasts' || currentTab === 'calendar' || currentTab === 'library'

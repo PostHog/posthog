@@ -27,6 +27,7 @@ from posthog.models.data_deletion_request import (
     RequestStatus,
     RequestType,
 )
+from posthog.tasks.data_deletion_stats import refresh_deletion_stats_task
 from posthog.test.waiting import wait_until
 
 PANELS = "posthog.admin.console.deletion_request_panels"
@@ -455,6 +456,31 @@ class TestDeletionRequestConsole(BaseTest):
         assert "Selector count: 2 person targets" in response.content.decode()
         obj.refresh_from_db()
         assert (obj.count, obj.stats_calculated_at is not None) == ((2, True) if saved else (None, False))
+
+    def test_fetch_stats_counts_in_the_background_and_shows_a_failure(self) -> None:
+        obj = self._request()
+
+        with patch("posthog.tasks.data_deletion_stats.refresh_deletion_stats_task.apply_async") as queued:
+            started = self.client.post(self._url(obj, "stats", "fetch"), follow=True)
+            again = self.client.post(self._url(obj, "stats", "fetch"))
+
+        queued.assert_called_once()
+        request_id, user_id, token = queued.call_args.kwargs["args"]
+        assert (request_id, user_id) == (str(obj.pk), self.user.pk)
+        assert "Counting since" in started.content.decode()
+        assert again.status_code == 404
+
+        refresh_deletion_stats_task(str(obj.pk), self.user.pk, "token-of-an-older-fetch")
+        assert "Counting since" in self.client.get(self._url(obj)).content.decode()
+
+        with patch(
+            "posthog.models.data_deletion_request.fetch_deletion_stats", side_effect=Exception("ClickHouse is down")
+        ):
+            refresh_deletion_stats_task(str(obj.pk), self.user.pk, token)
+
+        page = self.client.get(self._url(obj)).content.decode()
+        assert "Last fetch failed: ClickHouse is down" in page
+        assert self._url(obj, "stats", "fetch") in page
 
     def _create(self, **data):
         fields = {

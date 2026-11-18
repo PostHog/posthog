@@ -304,6 +304,9 @@ const inboxReportActionsRun = (): ToolBase<
         if (params.message !== undefined) {
             body['message'] = params.message
         }
+        if (params.repository !== undefined) {
+            body['repository'] = params.repository
+        }
         const result = await context.api.request<Schemas.SignalReportTaskActionRunResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/actions/run/`,
@@ -2836,6 +2839,32 @@ const scoutRunsRetrieve = (): ToolBase<ReturnType<typeof ScoutRunsRetrieveSchema
     },
 })
 
+const ScoutScratchpadDiscardSchema = () => {
+    const SignalsScoutScratchpadDiscardBody = orvalSchemas.SignalsScoutScratchpadDiscardBody()
+    return SignalsScoutScratchpadDiscardBody
+}
+
+const scoutScratchpadDiscard = (): ToolBase<
+    ReturnType<typeof ScoutScratchpadDiscardSchema>,
+    Schemas.ForgetResponse
+> => ({
+    name: 'scout-scratchpad-discard',
+    schema: ScoutScratchpadDiscardSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutScratchpadDiscardSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.key !== undefined) {
+            body['key'] = params.key
+        }
+        const result = await context.api.request<Schemas.ForgetResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/scratchpad/discard/`,
+            body,
+        })
+        return result
+    },
+})
+
 const ScoutScratchpadForgetSchema = () => {
     const SignalsScoutScratchpadForgetBody = orvalSchemas.SignalsScoutScratchpadForgetBody()
     return SignalsScoutScratchpadForgetBody
@@ -4092,6 +4121,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-runs-list': scoutRunsList,
     'scout-runs-recent-emissions': scoutRunsRecentEmissions,
     'scout-runs-retrieve': scoutRunsRetrieve,
+    'scout-scratchpad-discard': scoutScratchpadDiscard,
     'scout-scratchpad-forget': scoutScratchpadForget,
     'scout-scratchpad-remember': scoutScratchpadRemember,
     'scout-scratchpad-search': scoutScratchpadSearch,

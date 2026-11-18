@@ -89,7 +89,7 @@ jobs:
                   token: ${{ steps.app-token.outputs.token }}
                   sparse-checkout: |
                       .github/actions/wait-for-check
-                      .github/scripts/desktop/wait-for-backend-deploy.sh
+                      .github/scripts/deploy/wait-for-backend-deploy.sh
                   sparse-checkout-cone-mode: false
 
             - name: Check quiet period
@@ -232,7 +232,7 @@ jobs:
                     exit 0
                   fi
                   STATUS=0
-                  .github/scripts/desktop/wait-for-backend-deploy.sh || STATUS=$?
+                  .github/scripts/deploy/wait-for-backend-deploy.sh || STATUS=$?
                   case "$STATUS" in
                     0)
                       echo "proceed=true" >> "$GITHUB_OUTPUT"

@@ -1,10 +1,10 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { isProductionEnv } from '@/db/role-guard'
-import { loadConfig, loadMaintenanceConfig, loadMigrateConfig } from '@/lib/config'
+import { loadConfig, loadMigrateConfig } from '@/lib/config'
 
 const VAR = 'CREDENTIALS_SERVICE_RELOAD_SECONDS'
 
@@ -149,11 +149,16 @@ describe('loadConfig secret source', () => {
 
 describe('loadConfig database', () => {
     const DB_VARS = [
+        'CREDENTIALS_SERVICE_ENV',
         'CREDENTIALS_SERVICE_DATABASE_URL',
         'CREDENTIALS_SERVICE_DATABASE_POOL_SIZE',
         'CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL',
     ]
     const URL = 'postgres://credentials:not-a-real-password@localhost:5432/credentials'
+
+    beforeEach(() => {
+        process.env.CREDENTIALS_SERVICE_ENV = 'local'
+    })
 
     afterEach(() => {
         for (const key of DB_VARS) {
@@ -200,6 +205,50 @@ describe('loadConfig database', () => {
         process.env.CREDENTIALS_SERVICE_DATABASE_URL = URL
         process.env.CREDENTIALS_SERVICE_DATABASE_POOL_SIZE = size
         expect(() => loadConfig()).toThrow('CREDENTIALS_SERVICE_DATABASE_POOL_SIZE')
+    })
+})
+
+describe('loadConfig audit export requirement', () => {
+    const KEYS = [
+        'CREDENTIALS_SERVICE_ENV',
+        'CREDENTIALS_SERVICE_DATABASE_URL',
+        'CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED',
+        'CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST',
+        'CREDENTIALS_SERVICE_AUDIT_CAPTURE_API_KEY',
+    ]
+
+    afterEach(() => {
+        for (const key of KEYS) {
+            delete process.env[key]
+        }
+    })
+
+    it.each(['dev', 'prod-us', 'prod-eu'])('requires audit export in %s when a database is configured', (env) => {
+        process.env.CREDENTIALS_SERVICE_ENV = env
+        process.env.CREDENTIALS_SERVICE_DATABASE_URL = 'postgres://example'
+        expect(() => loadConfig()).toThrow('audit export must be on wherever the integrations database is on')
+    })
+
+    it.each(['dev', 'prod-us', 'prod-eu'])('starts in %s with a database and audit export on', (env) => {
+        Object.assign(process.env, {
+            CREDENTIALS_SERVICE_ENV: env,
+            CREDENTIALS_SERVICE_DATABASE_URL: 'postgres://example',
+            CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED: 'true',
+            CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST: 'https://capture.example.com',
+            CREDENTIALS_SERVICE_AUDIT_CAPTURE_API_KEY: 'phc_fake',
+        })
+        expect(loadConfig().auditExport).toBeDefined()
+    })
+
+    it('starts in prod-us without a database or audit export', () => {
+        process.env.CREDENTIALS_SERVICE_ENV = 'prod-us'
+        expect(loadConfig().database).toBeUndefined()
+    })
+
+    it('starts in local with a database and audit export off', () => {
+        process.env.CREDENTIALS_SERVICE_ENV = 'local'
+        process.env.CREDENTIALS_SERVICE_DATABASE_URL = 'postgres://example'
+        expect(loadConfig().auditExport).toBeUndefined()
     })
 })
 
@@ -301,59 +350,12 @@ describe('loadConfig audit capture proxy', () => {
     })
 })
 
-describe('loadMaintenanceConfig', () => {
-    const VARS = ['CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL', 'CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS']
-
-    afterEach(() => {
-        for (const key of VARS) {
-            delete process.env[key]
-        }
-    })
-
-    it('needs the migrate URL, and does not fall back to the runtime URL', () => {
-        process.env.CREDENTIALS_SERVICE_DATABASE_URL = 'postgres://runtime'
-        expect(loadMaintenanceConfig()).toBeUndefined()
-        delete process.env.CREDENTIALS_SERVICE_DATABASE_URL
-    })
-
-    it('keeps 30 days when nothing else is set', () => {
-        process.env.CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL = 'postgres://migrate'
-        expect(loadMaintenanceConfig()).toEqual({
-            url: 'postgres://migrate',
-            retentionDays: 30,
-            deleteUnexported: false,
-        })
-    })
-
-    it.each([
-        ['true', true],
-        ['false', false],
-        ['1', false],
-    ])('reads DELETE_UNEXPORTED=%s as %s', (value, expected) => {
-        process.env.CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL = 'postgres://migrate'
-        process.env.CREDENTIALS_SERVICE_AUDIT_RETENTION_DELETE_UNEXPORTED = value
-        expect(loadMaintenanceConfig()?.deleteUnexported).toBe(expected)
-        delete process.env.CREDENTIALS_SERVICE_AUDIT_RETENTION_DELETE_UNEXPORTED
-    })
-
-    it('accepts the maximum retention', () => {
-        process.env.CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL = 'postgres://migrate'
-        process.env.CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS = '60'
-        expect(loadMaintenanceConfig()?.retentionDays).toBe(60)
-    })
-
-    it.each(['61', '0', '-1', '30x'])('refuses retention %j', (days) => {
-        process.env.CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL = 'postgres://migrate'
-        process.env.CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS = days
-        expect(() => loadMaintenanceConfig()).toThrow('CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS')
-    })
-})
-
 describe('loadMigrateConfig', () => {
     const VARS = [
         'CREDENTIALS_SERVICE_DATABASE_URL',
         'CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL',
         'CREDENTIALS_SERVICE_RUNTIME_ROLE',
+        'CREDENTIALS_SERVICE_PARTMAN_OPTIONAL',
     ]
 
     afterEach(() => {
@@ -367,7 +369,7 @@ describe('loadMigrateConfig', () => {
         [
             'only the runtime URL',
             { CREDENTIALS_SERVICE_DATABASE_URL: 'postgres://runtime' },
-            { url: 'postgres://runtime', runtimeRole: '' },
+            { url: 'postgres://runtime', runtimeRole: '', partmanOptional: false },
         ],
         [
             'the migrate URL wins over the runtime URL',
@@ -376,7 +378,23 @@ describe('loadMigrateConfig', () => {
                 CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL: 'postgres://migrate',
                 CREDENTIALS_SERVICE_RUNTIME_ROLE: 'svc_runtime',
             },
-            { url: 'postgres://migrate', runtimeRole: 'svc_runtime' },
+            { url: 'postgres://migrate', runtimeRole: 'svc_runtime', partmanOptional: false },
+        ],
+        [
+            'partman is optional only when explicitly set to true',
+            {
+                CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL: 'postgres://migrate',
+                CREDENTIALS_SERVICE_PARTMAN_OPTIONAL: 'true',
+            },
+            { url: 'postgres://migrate', runtimeRole: '', partmanOptional: true },
+        ],
+        [
+            'other partman values keep it required',
+            {
+                CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL: 'postgres://migrate',
+                CREDENTIALS_SERVICE_PARTMAN_OPTIONAL: 'TRUE',
+            },
+            { url: 'postgres://migrate', runtimeRole: '', partmanOptional: false },
         ],
     ])('%s', (_label, env, expected) => {
         Object.assign(process.env, env)
