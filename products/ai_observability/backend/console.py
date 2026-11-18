@@ -510,7 +510,8 @@ def preview_tagger_migration(request: HttpRequest, obj: Model, form: forms.Form)
         blocks=(
             Notice(
                 text="Each tagger that ran in the last 30 days becomes an enabled categorical evaluation with "
-                "the same name, filters, sampling, and model, and the migration switches the tagger off. It only "
+                "the same name, filters, sampling, and model, and the migration switches the tagger off. When the "
+                "team has no working provider key, the evaluation starts switched off. It only "
                 "switches off taggers that did not run. Old tag data stays. Results arrive as evaluation events from "
                 "now on, so insights built on tags stop updating."
             ),

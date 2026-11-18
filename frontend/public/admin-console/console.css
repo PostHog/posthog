@@ -387,6 +387,9 @@
     .order-1 {
         order: 1;
     }
+    .order-2 {
+        order: 2;
+    }
     .col-span-2 {
         grid-column: span 2 / span 2;
     }
@@ -468,9 +471,6 @@
     }
     .mr-auto {
         margin-right: auto;
-    }
-    .mb-0\.5 {
-        margin-bottom: calc(0.25rem * 0.5);
     }
     .mb-1 {
         margin-bottom: calc(0.25rem * 1);
@@ -602,6 +602,9 @@
     .w-28 {
         width: calc(0.25rem * 28);
     }
+    .w-56 {
+        width: calc(0.25rem * 56);
+    }
     .w-64 {
         width: calc(0.25rem * 64);
     }
@@ -666,6 +669,9 @@
     }
     .min-w-0 {
         min-width: calc(0.25rem * 0);
+    }
+    .min-w-\[16rem\] {
+        min-width: 16rem;
     }
     .min-w-\[160px\] {
         min-width: 160px;
@@ -768,6 +774,9 @@
     .place-items-center {
         place-items: center;
     }
+    .items-baseline {
+        align-items: baseline;
+    }
     .items-center {
         align-items: center;
     }
@@ -830,6 +839,9 @@
     .gap-x-4 {
         -moz-column-gap: calc(0.25rem * 4);
         column-gap: calc(0.25rem * 4);
+    }
+    .gap-y-0\.5 {
+        row-gap: calc(0.25rem * 0.5);
     }
     .gap-y-1 {
         row-gap: calc(0.25rem * 1);
@@ -984,9 +996,6 @@
     .px-4 {
         padding-inline: calc(0.25rem * 4);
     }
-    .px-6 {
-        padding-inline: calc(0.25rem * 6);
-    }
     .py-0 {
         padding-block: calc(0.25rem * 0);
     }
@@ -1001,6 +1010,9 @@
     }
     .py-2 {
         padding-block: calc(0.25rem * 2);
+    }
+    .py-2\.5 {
+        padding-block: calc(0.25rem * 2.5);
     }
     .py-3 {
         padding-block: calc(0.25rem * 3);
@@ -1040,6 +1052,9 @@
     }
     .pl-4 {
         padding-left: calc(0.25rem * 4);
+    }
+    .pl-6 {
+        padding-left: calc(0.25rem * 6);
     }
     .text-center {
         text-align: center;
@@ -1237,6 +1252,10 @@
         outline-style: var(--tw-outline-style);
         outline-width: 1px;
     }
+    .filter {
+        filter: var(--tw-blur,) var(--tw-brightness,) var(--tw-contrast,) var(--tw-grayscale,) var(--tw-hue-rotate,)
+            var(--tw-invert,) var(--tw-saturate,) var(--tw-sepia,) var(--tw-drop-shadow,);
+    }
     .transition {
         transition-property:
             color, background-color, border-color, outline-color, text-decoration-color, fill, stroke,
@@ -1252,6 +1271,11 @@
     }
     .transition-\[opacity\,transform\] {
         transition-property: opacity, transform;
+        transition-timing-function: var(--tw-ease, var(--default-transition-timing-function));
+        transition-duration: var(--tw-duration, var(--default-transition-duration));
+    }
+    .transition-transform {
+        transition-property: transform, translate, scale, rotate;
         transition-timing-function: var(--tw-ease, var(--default-transition-timing-function));
         transition-duration: var(--tw-duration, var(--default-transition-duration));
     }
@@ -1281,6 +1305,9 @@
     }
     :is(.\*\:w-full > *) {
         width: 100%;
+    }
+    .group-open\/group\:rotate-90:is(:where(.group\/group):is([open], :popover-open, :open) *) {
+        rotate: 90deg;
     }
     .group-has-data-\[slot\=combobox-clear\]\/input-group\:hidden:is(
         :where(.group\/input-group):has(*[data-slot='combobox-clear']) *
@@ -1362,11 +1389,6 @@
     }
     .empty\:hidden:empty {
         display: none;
-    }
-    @media (hover: hover) {
-        .hover\:border-primary:hover {
-            border-color: var(--primary);
-        }
     }
     @media (hover: hover) {
         .hover\:bg-fill-hover\/50:hover {
@@ -1624,6 +1646,11 @@
         }
     }
     @media (width >= 40rem) {
+        .sm\:inline {
+            display: inline;
+        }
+    }
+    @media (width >= 40rem) {
         .sm\:flex-row {
             flex-direction: row;
         }
@@ -1736,13 +1763,54 @@
         }
     }
     @container (width >= 48rem) {
+        .\@3xl\:sticky {
+            position: sticky;
+        }
+    }
+    @container (width >= 48rem) {
+        .\@3xl\:top-0 {
+            top: calc(0.25rem * 0);
+        }
+    }
+    @container (width >= 48rem) {
+        .\@3xl\:order-none {
+            order: 0;
+        }
+    }
+    @container (width >= 48rem) {
+        .\@3xl\:hidden {
+            display: none;
+        }
+    }
+    @container (width >= 48rem) {
+        .\@3xl\:max-h-screen {
+            max-height: 100vh;
+        }
+    }
+    @container (width >= 48rem) {
         .\@3xl\:grid-cols-2 {
             grid-template-columns: repeat(2, minmax(0, 1fr));
         }
     }
     @container (width >= 48rem) {
+        .\@3xl\:grid-cols-\[3fr_2fr\] {
+            grid-template-columns: 3fr 2fr;
+        }
+    }
+    @container (width >= 48rem) {
         .\@3xl\:grid-cols-\[16rem_1fr\] {
             grid-template-columns: 16rem 1fr;
+        }
+    }
+    @container (width >= 48rem) {
+        .\@3xl\:overflow-y-auto {
+            overflow-y: auto;
+        }
+    }
+    @container (width >= 48rem) {
+        .\@3xl\:border-t-0 {
+            border-top-style: var(--tw-border-style);
+            border-top-width: 0px;
         }
     }
     @container (width >= 48rem) {
@@ -1752,9 +1820,8 @@
         }
     }
     @container (width >= 48rem) {
-        .\@3xl\:border-b-0 {
-            border-bottom-style: var(--tw-border-style);
-            border-bottom-width: 0px;
+        .\@3xl\:px-6 {
+            padding-inline: calc(0.25rem * 6);
         }
     }
     .rtl\:rotate-180:where([dir='rtl'], [dir='rtl'], [dir='rtl'] *) {
@@ -1784,6 +1851,9 @@
     .\[\&_svg\:not\(\[class\*\=\'size-\'\]\)\]\:size-3\.5 svg:not([class*='size-']) {
         width: calc(0.25rem * 3.5);
         height: calc(0.25rem * 3.5);
+    }
+    .\[\&\:\:-webkit-details-marker\]\:hidden::-webkit-details-marker {
+        display: none;
     }
     .\[\&\>\.sr-only\]\:w-auto > .sr-only {
         width: auto;
@@ -9328,6 +9398,59 @@ body.is-desktop .group\/field:has(> [role='checkbox']) .quill-label {
     inherits: false;
     initial-value: solid;
 }
+@property --tw-blur {
+    syntax: '*';
+    inherits: false;
+}
+@property --tw-brightness {
+    syntax: '*';
+    inherits: false;
+}
+@property --tw-contrast {
+    syntax: '*';
+    inherits: false;
+}
+@property --tw-grayscale {
+    syntax: '*';
+    inherits: false;
+}
+@property --tw-hue-rotate {
+    syntax: '*';
+    inherits: false;
+}
+@property --tw-invert {
+    syntax: '*';
+    inherits: false;
+}
+@property --tw-opacity {
+    syntax: '*';
+    inherits: false;
+}
+@property --tw-saturate {
+    syntax: '*';
+    inherits: false;
+}
+@property --tw-sepia {
+    syntax: '*';
+    inherits: false;
+}
+@property --tw-drop-shadow {
+    syntax: '*';
+    inherits: false;
+}
+@property --tw-drop-shadow-color {
+    syntax: '*';
+    inherits: false;
+}
+@property --tw-drop-shadow-alpha {
+    syntax: '<percentage>';
+    inherits: false;
+    initial-value: 100%;
+}
+@property --tw-drop-shadow-size {
+    syntax: '*';
+    inherits: false;
+}
 @property --tw-duration {
     syntax: '*';
     inherits: false;
@@ -9398,6 +9521,19 @@ body.is-desktop .group\/field:has(> [role='checkbox']) .quill-label {
             --tw-ring-offset-color: #fff;
             --tw-ring-offset-shadow: 0 0 #0000;
             --tw-outline-style: solid;
+            --tw-blur: initial;
+            --tw-brightness: initial;
+            --tw-contrast: initial;
+            --tw-grayscale: initial;
+            --tw-hue-rotate: initial;
+            --tw-invert: initial;
+            --tw-opacity: initial;
+            --tw-saturate: initial;
+            --tw-sepia: initial;
+            --tw-drop-shadow: initial;
+            --tw-drop-shadow-color: initial;
+            --tw-drop-shadow-alpha: 100%;
+            --tw-drop-shadow-size: initial;
             --tw-duration: initial;
             --tw-ease: initial;
         }
