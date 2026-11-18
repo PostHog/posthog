@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { IconCheck, IconWarning } from '@posthog/icons'
+import { IconCheck, IconInfo, IconWarning } from '@posthog/icons'
 import { LemonCollapse, Link } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
@@ -81,7 +81,12 @@ export function ReadyStep(): JSX.Element {
                     },
                     {
                         key: 'reputation',
-                        header: 'Keep your emails out of spam',
+                        header: (
+                            <span className="flex items-center gap-2">
+                                <IconInfo className="text-secondary" />
+                                <span>Keep your emails out of spam</span>
+                            </span>
+                        ),
                         content: (
                             <div className="flex flex-col gap-3 text-sm">
                                 <ul className="m-0 pl-5 list-disc flex flex-col gap-1.5">
