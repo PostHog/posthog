@@ -8765,12 +8765,12 @@ Diffed against: <https://raw.githubusercontent.com/openai/openai-openapi/master/
 - [x] `/chat/completions (list stored completions)` — per-request log with model, tokens and metadata - the finest-grained usage fact table available (high). Added as `chat_completions`; only completions created with `store: true` are listed, and there is no server-side time filter, so it is full refresh
 - [x] `/organization/groups and /organization/groups/{id}/users` — group membership table resolving which users belong to which group (high)
 - [x] `/organization/roles and /organization/users/{id}/roles` — role assignments for the users we already sync (medium)
-- [ ] `/organization/projects/{id}/groups` — project-to-group membership, complements the project_users table we sync (medium)
+- [x] `/organization/projects/{id}/groups` — project-to-group membership, complements the project_users table we sync (medium). Added as `project_groups`
 - [x] `/batches` — batch job records with request counts and completion status (medium). Added as `batches`
-- [ ] `/fine_tuning/jobs (+ /events, /checkpoints)` — training job history, cost and status over time (medium)
+- [x] `/fine_tuning/jobs (+ /events, /checkpoints)` — training job history, cost and status over time (medium). Added as `fine_tuning_jobs`, `fine_tuning_job_events` and `fine_tuning_job_checkpoints`
 - [x] `/evals, /evals/{id}/runs, /evals/{id}/runs/{id}/output_items` — eval run results - the analytical object for model quality tracking (medium). Added as `evals`, `eval_runs` and `eval_run_output_items`
-- [ ] `/chat/completions/{id}/messages` — message-level detail behind each stored completion (low)
-- [ ] `/vector_stores` — lookup resolving the vector store IDs in usage_vector_stores (low)
+- [x] `/chat/completions/{id}/messages` — message-level detail behind each stored completion (low). Added as `chat_completion_messages`
+- [x] `/vector_stores` — lookup resolving the vector store IDs in usage_vector_stores (low). Added as `vector_stores`
 
 Note: Current coverage is exactly the Administration + Usage API surface and is complete there (only certificates, data_retention, spend_alerts/spend_limit and permission endpoints are missing, all config). The gaps listed come from the platform API, which this source does not touch at all.
 

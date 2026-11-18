@@ -7,6 +7,7 @@ export interface AccountViewTileLogicProps {
 }
 
 export interface AccountViewWidgetProps extends AccountViewTileLogicProps {
+    onLoadingChange?: (loading: boolean) => void
     accountId: string
     externalId: string
     projectId?: number
