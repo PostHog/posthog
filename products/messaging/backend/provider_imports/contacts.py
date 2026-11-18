@@ -178,6 +178,16 @@ def save_contact_lists(
         )
     items = [_item(everyone, result, tuple(notes))]
     for contact_list in lists:
+        if result.status == "failed":
+            # The list's contacts never became people, so filling it would leave them out without saying so.
+            items.append(
+                ImportItem(
+                    label=contact_list.cohort_name,
+                    status="skipped",
+                    notes=(f"Not filled, because {everyone.cohort_name} couldn't be imported.",),
+                )
+            )
+            continue
         # A list waits on people the import above creates, so it can't have people that import left out.
         list_result = _import(context, contact_list, create_people=create_people, send_events=False)
         list_notes = _notes(contact_list, list_result)

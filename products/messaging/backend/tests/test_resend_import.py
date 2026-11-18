@@ -646,6 +646,21 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
             assert run.progress["contact_properties"]["status"] == "completed"
             assert not any(re.fullmatch(r"/contacts/[^/]+", call) for call in self.resend.calls)
 
+    def test_segments_stay_unfilled_when_the_contacts_cohort_cannot_be_imported(self) -> None:
+        Cohort.objects.create(
+            team_id=self.team.id, name="Resend contacts", description="Imported from Resend contacts.", deleted=True
+        )
+
+        run = runs.start_run(self.team.id, "resend", ["contacts", "new_people"], API_KEY, self.user.id)
+        with self.captureOnCommitCallbacks(execute=True):
+            runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+        run.refresh_from_db()
+
+        assert self.people.imports == []
+        everyone, *segments = run.progress["contacts"]["items"]
+        assert everyone["status"] == "failed"
+        assert segments and all(item["status"] == "skipped" for item in segments)
+
     @parameterized.expand(
         [
             (
