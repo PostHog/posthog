@@ -2746,6 +2746,7 @@ export interface EndpointType extends WithAccessControl {
     updated_at: string
     created_by: UserBasicType | null
     data_freshness_seconds: number
+    plan_refresh_floor_seconds: number | null
     is_materialized: boolean
     current_version: number
     current_version_id: string
@@ -6146,6 +6147,7 @@ export enum ActivityScope {
     ACTION = 'Action',
     ACCOUNT_VIEW = 'AccountView',
     ALERT_CONFIGURATION = 'AlertConfiguration',
+    SUBSCRIPTION = 'Subscription',
     ANNOTATION = 'Annotation',
     BATCH_EXPORT = 'BatchExport',
     BATCH_IMPORT = 'BatchImport',
@@ -6524,6 +6526,12 @@ export interface ExternalDataSource {
     /** Whether a table of this source uses webhook sync, but the source has no enabled webhook. */
     webhook_not_registered?: boolean
     supports_column_selection?: boolean
+    /** Whether tables can be added by path, which object storage sources support. */
+    supports_adding_tables?: boolean
+    /** False when the source reads a whole bucket, so there is nothing to discover. */
+    supports_table_discovery?: boolean
+    /** Where relative paths for a new table start, such as `my-bucket/exports/`. Null for other sources. */
+    table_root?: string | null
     api_version?: string | null
     api_version_deprecation?: ExternalDataSourceApiVersionDeprecation | null
     connection_warning?: string | null
@@ -6792,6 +6800,8 @@ export interface ExternalDataSchemaSourceSummary {
     api_version?: string | null
     /** Vendor API versions the source type supports — the schema override picker's options */
     supported_api_versions?: string[]
+    /** False when the source reads a whole bucket, so there is nothing to discover. */
+    supports_table_discovery?: boolean
 }
 
 export interface ExternalDataSchemaWithSource extends ExternalDataSourceSchema {
