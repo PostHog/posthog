@@ -6686,6 +6686,10 @@ snapshots:
         hash: v1.k794b7964.42f446b124bea09236f2bed461731e121face0443254e8d8ca16e3df0f6f4b7a.fygV3-fMSGpy4iismNlUQfIZLx_VcMF7pF5ArdYIzgw
     metrics-metricsdashboardimportmodal--import-summary--light:
         hash: v1.k794b7964.e7a41111b399b2b31b9533056e60b1c84182701b2ad4d70ae637610adc776a08.z85gVPCQ05epK3Q41EPh9OWDK2tVbfeAATkLqqH5j7U
+    metrics-metricsstarterdashboardmodal--with-service-health-panels--dark:
+        hash: v1.k794b7964.9c2b6b9034105843fe4b4bd812de31c302f64008dfa46b2dced92c093e97804c.6y6iy9UpHzxyF8mKJPH7HnrESG5QOXoyrSypy19nAFA
+    metrics-metricsstarterdashboardmodal--with-service-health-panels--light:
+        hash: v1.k794b7964.5d63d4afef82d785bc8f45e692fb5e341a38231a29972d31f634dd5a47fcc20a.HAKZh0pogucS3ThF1Y3dDReqCYPQAmNaroFKYketpHs
     metrics-save-as-metric--duration-with-dropped-filter--dark:
         hash: v1.k794b7964.ddf807b6ffc73e6c2c72b04a1492de1f5ef155fc6c68296c7f6fe20d0ff7fb45.XmtCDvc4JZorbNTjXwybf-V42M22hQAw3J02LYUf4hA
     metrics-save-as-metric--duration-with-dropped-filter--light:
