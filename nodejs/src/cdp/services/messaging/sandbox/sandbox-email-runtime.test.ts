@@ -48,12 +48,12 @@ describe('createSandboxEmailRuntime', () => {
         expect(() => createSandboxEmailRuntime({ ...configured, ...override }, deps)).toThrow(setting)
     })
 
-    it('starts a sending pod whose environment sets no warning threshold, and ignores a leftover recipient cap', () => {
+    it('accepts an environment that sets no warning threshold', () => {
         const { WORKFLOWS_SANDBOX_DAILY_TEAM_WARNING: _unset, ...chartEnv } = configured
-        const config = overrideWithEnv(getDefaultConfig(), {
-            ...Object.fromEntries(Object.entries(chartEnv).map(([key, value]) => [key, String(value)])),
-            WORKFLOWS_SANDBOX_DAILY_RECIPIENT_CAP: '1000',
-        })
+        const config = overrideWithEnv(
+            getDefaultConfig(),
+            Object.fromEntries(Object.entries(chartEnv).map(([key, value]) => [key, String(value)]))
+        )
 
         expect(missingSandboxSenderSettings(config)).toEqual([])
     })

@@ -23,6 +23,14 @@ export type SandboxCapClaimRequest = {
     organizationId: string
     teamId: number
     claimId: string
+    isTest?: boolean
+}
+
+const UNCAPPED_TEST_SEND: SandboxCapClaim = {
+    ok: true,
+    markSending: () => Promise.resolve(true),
+    releaseUnsent: () => Promise.resolve(true),
+    refundUnsent: () => Promise.resolve(true),
 }
 
 const sandboxTeamWarningTotal = new Counter({
@@ -33,7 +41,8 @@ const sandboxTeamWarningTotal = new Counter({
 export async function claimSandboxCaps(
     limiter: RateLimiterService,
     caps: SandboxCaps,
-    request: SandboxCapClaimRequest
+    request: SandboxCapClaimRequest,
+    now: Date = new Date()
 ): Promise<SandboxCapClaim> {
     if (!isValidCap(caps.team) || !isValidCap(caps.warning)) {
         return { ok: false, reason: 'cap_storage_unavailable' }
@@ -41,6 +50,10 @@ export async function claimSandboxCaps(
     const { organizationId, teamId, claimId } = request
     const keyPrefix = `@posthog/sandbox-email/{${organizationId}}`
     const claimDigest = createHash('sha256').update(`${teamId}\n${claimId}`).digest('hex')
+    if (request.isTest) {
+        await warnPastThreshold(limiter, caps.warning, request, keyPrefix, claimDigest, now)
+        return UNCAPPED_TEST_SEND
+    }
     const claimKey = `${keyPrefix}/claim/${claimDigest}`
     const attempt = randomUUID()
     const buckets = [dailyBucket(`${keyPrefix}/project/${teamId}`, caps.team)]
@@ -52,7 +65,7 @@ export async function claimSandboxCaps(
     if (claim !== 'granted') {
         return { ok: false, reason: claim === 'denied' ? 'daily_cap_reached' : 'cap_storage_unavailable' }
     }
-    await warnPastThreshold(limiter, caps.warning, request, keyPrefix, claimDigest)
+    await warnPastThreshold(limiter, caps.warning, request, keyPrefix, claimDigest, now)
     return {
         ok: true,
         markSending: () => limiter.markClaimSpent({ key: claimKey, attempt }),
@@ -61,16 +74,19 @@ export async function claimSandboxCaps(
     }
 }
 
-// The warning bucket never blocks a send. Its own claim key makes a retried send count once.
+// Test sends skip the project cap but count here, so a test loop still trips the warning.
+// The bucket never refills, so it counts one UTC day. A denied claim stores no key, so a retry past the threshold counts again.
 async function warnPastThreshold(
     limiter: RateLimiterService,
     threshold: number,
     { organizationId, teamId }: SandboxCapClaimRequest,
     keyPrefix: string,
-    claimDigest: string
+    claimDigest: string,
+    now: Date
 ): Promise<void> {
+    const utcDay = now.toISOString().slice(0, 10)
     const warning = await limiter.claimAllOrNothingAcross(
-        [dailyBucket(`${keyPrefix}/project-warning/${teamId}`, threshold)],
+        [{ ...dailyBucket(`${keyPrefix}/project-warning/${teamId}/${utcDay}`, threshold), refillPerSecond: 0 }],
         { key: `${keyPrefix}/warning-claim/${claimDigest}`, attempt: randomUUID(), ttlSeconds: BUCKET_TTL_SECONDS }
     )
     if (warning === 'denied') {

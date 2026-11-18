@@ -98,6 +98,31 @@ describe('claimSandboxCaps', () => {
         expect(await warnings()).toBe(before + 1)
     })
 
+    it('starts a fresh warning count each UTC day', async () => {
+        const caps = { team: 5, warning: 2 }
+        const before = await warnings()
+        const sendAt = (iso: string) => claimSandboxCaps(limiter, caps, sameSend(), new Date(iso))
+
+        await sendAt('2026-03-02T00:05:00Z')
+        await sendAt('2026-03-02T12:00:00Z')
+        await sendAt('2026-03-02T23:55:00Z')
+        expect(await warnings()).toBe(before + 1)
+
+        await sendAt('2026-03-03T00:05:00Z')
+        expect(await warnings()).toBe(before + 1)
+    })
+
+    it('admits test sends past the project cap without charging it, and counts them toward the warning', async () => {
+        const caps = { team: 1, warning: 1 }
+        const before = await warnings()
+        const testSend = () => claimSandboxCaps(limiter, caps, { ...sameSend(), isTest: true })
+
+        expect(await testSend()).toMatchObject({ ok: true })
+        expect(await testSend()).toMatchObject({ ok: true })
+        expect(await warnings()).toBe(before + 1)
+        expect(await claim(caps)).toMatchObject({ ok: true })
+    })
+
     it('charges a retried claim once when Valkey ran the first attempt but its reply was lost', async () => {
         const replyLost: RedisV2 = {
             ...redis,

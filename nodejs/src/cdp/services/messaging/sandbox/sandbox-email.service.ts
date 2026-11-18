@@ -155,13 +155,12 @@ export class SandboxEmailService {
         if (!tenantAfterRecipient.ok) {
             return refusal(tenantAfterRecipient.reason)
         }
-        const caps = request.isTest
-            ? UNCAPPED_TEST_SEND
-            : await this.deps.claimCaps({
-                  organizationId: authorization.organizationId,
-                  teamId: request.teamId,
-                  claimId: request.capClaimId,
-              })
+        const caps = await this.deps.claimCaps({
+            organizationId: authorization.organizationId,
+            teamId: request.teamId,
+            claimId: request.capClaimId,
+            isTest: request.isTest,
+        })
         if (!caps.ok) {
             return refusal(caps.reason)
         }
@@ -222,13 +221,6 @@ export class SandboxEmailService {
             isTest: request.isTest,
         }
     }
-}
-
-const UNCAPPED_TEST_SEND: SandboxCapClaim = {
-    ok: true,
-    markSending: () => Promise.resolve(true),
-    releaseUnsent: () => Promise.resolve(true),
-    refundUnsent: () => Promise.resolve(true),
 }
 
 const NO_FREQUENCY_CAP = (): Promise<FrequencyCapCheck> => Promise.resolve({ capped: false })
