@@ -13,7 +13,17 @@ import {
 
 import { isMetricThresholdSet } from './ExperimentMetricThreshold'
 
-const DESCRIPTION = 'Set winsorization lower and upper bounds to cap metric values at the specified percentiles.'
+export const OUTLIER_DESCRIPTION =
+    'Set winsorization lower and upper bounds to cap metric values at the specified percentiles.'
+export const OUTLIER_DISABLED_BY_THRESHOLD = 'Not available when a threshold is set.'
+export const OUTLIER_DISABLED_TOOLTIP = 'Outlier handling is not available when a threshold is set.'
+export const OUTLIER_MEAN_HELP =
+    'Prevent outliers from skewing results by capping the lower and upper bounds of a metric.'
+export const OUTLIER_RATIO_HELP =
+    'Prevent outliers from skewing results by capping the numerator and denominator independently. There is no per-user ratio to cap, so each component is winsorized on its own.'
+export const IGNORE_ZEROS_HELP =
+    'Useful if a large number of participants in the experiment does not have the event resulting in a 0 value.'
+export const OUTLIER_DOCS_URL = 'https://posthog.com/docs/experiments/metrics#outlier-handling'
 
 function OutlierHandlingControls({
     value,
@@ -74,10 +84,7 @@ function OutlierHandlingControls({
                         value.upper_bound_percentile === undefined ? 'opacity-0 invisible' : 'opacity-100 visible'
                     }`}
                 >
-                    <Tooltip
-                        title="Useful if a large number of participants in the experiment does not have the event resulting in a 0 value."
-                        docLink="https://posthog.com/docs/experiments/metrics#outlier-handling"
-                    >
+                    <Tooltip title={IGNORE_ZEROS_HELP} docLink={OUTLIER_DOCS_URL}>
                         <span>
                             <LemonCheckbox
                                 label="Ignore zeros when calculating upper bound"
@@ -109,16 +116,14 @@ export function ExperimentMetricOutlierHandling({
     return (
         <SceneSection
             title="Outlier handling"
-            titleHelper={<>Prevent outliers from skewing results by capping the lower and upper bounds of a metric.</>}
+            titleHelper={<>{OUTLIER_MEAN_HELP}</>}
             description={
                 <p className="text-muted text-xs -mb-1">
-                    {disabledByThreshold ? 'Not available when a threshold is set.' : DESCRIPTION}
+                    {disabledByThreshold ? OUTLIER_DISABLED_BY_THRESHOLD : OUTLIER_DESCRIPTION}
                 </p>
             }
         >
-            <Tooltip
-                title={disabledByThreshold ? 'Outlier handling is not available when a threshold is set.' : undefined}
-            >
+            <Tooltip title={disabledByThreshold ? OUTLIER_DISABLED_TOOLTIP : undefined}>
                 <div>
                     <OutlierHandlingControls
                         disabled={disabledByThreshold}
@@ -137,7 +142,7 @@ export function ExperimentMetricOutlierHandling({
 
 // When no bounds are set, drop the whole config so the metric stays clean (and its
 // fingerprint unchanged). ignore_zeros only matters alongside an upper bound.
-function normalizeOutlierHandling(
+export function normalizeOutlierHandling(
     config: ExperimentMetricOutlierHandlingConfig
 ): ExperimentMetricOutlierHandlingConfig | undefined {
     if (config.lower_bound_percentile === undefined && config.upper_bound_percentile === undefined) {
@@ -156,13 +161,8 @@ export function ExperimentRatioMetricOutlierHandling({
     return (
         <SceneSection
             title="Outlier handling"
-            titleHelper={
-                <>
-                    Prevent outliers from skewing results by capping the numerator and denominator independently. There
-                    is no per-user ratio to cap, so each component is winsorized on its own.
-                </>
-            }
-            description={<p className="text-muted text-xs -mb-1">{DESCRIPTION}</p>}
+            titleHelper={<>{OUTLIER_RATIO_HELP}</>}
+            description={<p className="text-muted text-xs -mb-1">{OUTLIER_DESCRIPTION}</p>}
         >
             <div className="flex flex-col gap-4">
                 <div className="flex flex-col gap-2">

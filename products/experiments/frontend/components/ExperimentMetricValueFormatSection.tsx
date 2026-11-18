@@ -14,9 +14,9 @@ import { CurrencyCode, ExperimentMetric, ExperimentMetricValueFormatType } from 
 import { formatValueAs } from 'products/experiments/frontend/metricValueFormat'
 
 /** `number` stands for a metric without a value format. */
-type ValueFormatOption = ExperimentMetricValueFormatType | 'number'
+export type ValueFormatOption = ExperimentMetricValueFormatType | 'number'
 
-const FORMATS: { type: ExperimentMetricValueFormatType; label: string; example: number }[] = [
+export const VALUE_FORMATS: { type: ExperimentMetricValueFormatType; label: string; example: number }[] = [
     { type: 'currency', label: 'Currency', example: 12.5 },
     { type: 'duration', label: 'Duration in seconds', example: 2431 },
     { type: 'duration_ms', label: 'Duration in milliseconds', example: 1500 },
@@ -27,7 +27,7 @@ const FORMATS: { type: ExperimentMetricValueFormatType; label: string; example: 
 function valueFormatOptions(baseCurrency: CurrencyCode): LemonSelectOption<ValueFormatOption>[] {
     return [
         { value: 'number', label: 'Number' },
-        ...FORMATS.map(({ type, label, example }) => {
+        ...VALUE_FORMATS.map(({ type, label, example }) => {
             const fullLabel = type === 'currency' ? `${label} (${baseCurrency})` : label
             return {
                 value: type,
@@ -45,6 +45,51 @@ function valueFormatOptions(baseCurrency: CurrencyCode): LemonSelectOption<Value
     ]
 }
 
+export const VALUE_FORMAT_DESCRIPTION =
+    'Choose what kind of value this metric has. Results show it in that format. The calculation stays the same.'
+
+/** Each value format with its label, and an example of a number before and after the format. */
+export function valueFormatChoices(
+    baseCurrency: CurrencyCode
+): { value: ValueFormatOption; label: string; example?: string }[] {
+    return [
+        { value: 'number', label: 'Number' },
+        ...VALUE_FORMATS.map(({ type, label, example }) => ({
+            value: type,
+            label: type === 'currency' ? `${label} (${baseCurrency})` : label,
+            example: `${humanFriendlyNumber(example)} → ${formatValueAs(example, type, baseCurrency)}`,
+        })),
+    ]
+}
+
+export function useValueFormat(
+    metric: ExperimentMetric,
+    handleSetMetric: (newMetric: ExperimentMetric) => void
+): {
+    visible: boolean
+    value: ValueFormatOption
+    baseCurrency: CurrencyCode
+    onChange: (option: ValueFormatOption) => void
+} {
+    const { baseCurrency } = useValues(teamLogic)
+    const valueFormatEnabled = useFeatureFlag('EXPERIMENTS_METRIC_VALUE_FORMAT')
+
+    return {
+        // A proportion metric always shows a percentage. A metric that has a value format already keeps the
+        // setting editable when the team is not flagged in.
+        visible: !(isProportionMetric(metric) || (!valueFormatEnabled && metric.value_format == null)),
+        value: metric.value_format?.type ?? 'number',
+        baseCurrency,
+        onChange: (option) => {
+            handleSetMetric({ ...metric, value_format: option === 'number' ? undefined : { type: option } })
+            posthog.capture('experiment metric value format changed', {
+                value_format: option,
+                metric_type: metric.metric_type,
+            })
+        },
+    }
+}
+
 export function ExperimentMetricValueFormatSection({
     metric,
     handleSetMetric,
@@ -52,33 +97,18 @@ export function ExperimentMetricValueFormatSection({
     metric: ExperimentMetric
     handleSetMetric: (newMetric: ExperimentMetric) => void
 }): JSX.Element | null {
-    const { baseCurrency } = useValues(teamLogic)
-    const valueFormatEnabled = useFeatureFlag('EXPERIMENTS_METRIC_VALUE_FORMAT')
+    const { visible, value, baseCurrency, onChange: handleValueFormatChange } = useValueFormat(metric, handleSetMetric)
 
-    const handleValueFormatChange = (option: ValueFormatOption): void => {
-        handleSetMetric({ ...metric, value_format: option === 'number' ? undefined : { type: option } })
-        posthog.capture('experiment metric value format changed', {
-            value_format: option,
-            metric_type: metric.metric_type,
-        })
-    }
-
-    // A proportion metric always shows a percentage. A metric that has a value format already keeps the
-    // setting editable when the team is not flagged in.
-    if (isProportionMetric(metric) || (!valueFormatEnabled && metric.value_format == null)) {
+    if (!visible) {
         return null
     }
 
     return (
         <>
-            <SceneSection
-                title="Value format"
-                description="Choose what kind of value this metric has. Results show it in that format. The calculation stays the same."
-                className="max-w-prose"
-            >
+            <SceneSection title="Value format" description={VALUE_FORMAT_DESCRIPTION} className="max-w-prose">
                 <LemonSelect<ValueFormatOption>
                     data-attr="experiment-metric-value-format-select"
-                    value={metric.value_format?.type ?? 'number'}
+                    value={value}
                     onChange={handleValueFormatChange}
                     dropdownMatchSelectWidth={false}
                     options={valueFormatOptions(baseCurrency)}

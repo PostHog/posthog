@@ -52,11 +52,8 @@ import {
     FunnelConversionWindowTimeUnit,
 } from '~/types'
 
-import { ExperimentMetricValueFormatSection } from 'products/experiments/frontend/components/ExperimentMetricValueFormatSection'
-import { ExperimentQuantileMetricFields } from 'products/experiments/frontend/components/ExperimentQuantileMetricFields'
 import { WarehouseNativeMetricFields } from 'products/experiments/frontend/warehouseNative/WarehouseNativeMetricFields'
 
-import { ExperimentMetricConversionWindowFilter } from './ExperimentMetricConversionWindowFilter'
 import {
     DATA_SOURCE_HELP,
     EXPOSURE_HELP,
@@ -79,39 +76,21 @@ import {
     retentionExposureStartHelp,
     useExperimentMetricForm,
 } from './experimentMetricFormModel'
-import { ExperimentMetricFunnelOrderSelector } from './ExperimentMetricFunnelOrderSelector'
-import {
-    ExperimentMetricOutlierHandling,
-    ExperimentRatioMetricOutlierHandling,
-} from './ExperimentMetricOutlierHandling'
-import { ExperimentMetricThreshold } from './ExperimentMetricThreshold'
 import { QuillHelpTooltip } from './ExperimentView/QuillCardParts'
 import { EXPOSURE_DEFAULT_EVENT } from './exposureContract'
 import { metricSourcesToSeries, seriesToMetricSource } from './metricQueryUtils'
 import { commonActionFilterProps } from './Metrics/Selectors'
+import {
+    QuillConversionWindowSection,
+    QuillFormSection as Section,
+    QuillFunnelOrderSection,
+    QuillMetricThreshold,
+    QuillOutlierHandlingSection,
+    QuillQuantileMetricFields,
+    QuillRatioOutlierHandlingSection,
+    QuillValueFormatSection,
+} from './QuillMetricFormSections'
 import { getExposureConfigDisplayName } from './utils'
-
-function Section({
-    title,
-    help,
-    children,
-}: {
-    title: string
-    help?: React.ReactNode
-    children: React.ReactNode
-}): JSX.Element {
-    return (
-        <section className="flex max-w-prose flex-col gap-2">
-            <span className="flex items-center gap-1">
-                <Heading size="sm" render={<h3 className="m-0" />}>
-                    {title}
-                </Heading>
-                {help && <QuillHelpTooltip label={title} help={help} />}
-            </span>
-            {children}
-        </section>
-    )
-}
 
 function LabelWithHelp({
     htmlFor,
@@ -362,7 +341,7 @@ export function QuillExperimentMetricForm(props: ExperimentMetricFormProps): JSX
                                 </Button>
                             </Text>
                         )}
-                        <ExperimentMetricThreshold
+                        <QuillMetricThreshold
                             math={metric.source.math}
                             value={metric.threshold}
                             onChange={(value) =>
@@ -385,7 +364,7 @@ export function QuillExperimentMetricForm(props: ExperimentMetricFormProps): JSX
                 )}
 
                 {isExperimentQuantileMetric(metric) && (
-                    <ExperimentQuantileMetricFields metric={metric} handleSetMetric={handleSetMetric} />
+                    <QuillQuantileMetricFields metric={metric} handleSetMetric={handleSetMetric} />
                 )}
 
                 {isExperimentFunnelMetric(metric) && (
@@ -467,7 +446,7 @@ export function QuillExperimentMetricForm(props: ExperimentMetricFormProps): JSX
                                     { value: 'custom', label: 'Custom event' },
                                     { value: 'exposure', label: 'Experiment exposure' },
                                 ].map((option) => (
-                                    <Field key={option.value} orientation="horizontal">
+                                    <Field key={option.value} orientation="horizontal" className="w-auto">
                                         <RadioGroupItem value={option.value} id={`retention-start-${option.value}`} />
                                         <Label htmlFor={`retention-start-${option.value}`}>{option.label}</Label>
                                     </Field>
@@ -604,29 +583,29 @@ export function QuillExperimentMetricForm(props: ExperimentMetricFormProps): JSX
             </Section>
             <Separator />
 
-            <ExperimentMetricValueFormatSection metric={metric} handleSetMetric={handleSetMetric} />
+            <QuillValueFormatSection metric={metric} handleSetMetric={handleSetMetric} />
             {/* The backend ignores the conversion window for exposure-anchored retention: the retention window already anchors on exposure */}
             {!(isExperimentRetentionMetric(metric) && isExperimentExposureNode(metric.start_event)) && (
                 <>
-                    <ExperimentMetricConversionWindowFilter metric={metric} handleSetMetric={handleSetMetric} />
+                    <QuillConversionWindowSection metric={metric} handleSetMetric={handleSetMetric} />
                     <Separator />
                 </>
             )}
             {isExperimentFunnelMetric(metric) && (
                 <>
-                    <ExperimentMetricFunnelOrderSelector metric={metric} handleSetMetric={handleSetMetric} />
+                    <QuillFunnelOrderSection metric={metric} handleSetMetric={handleSetMetric} />
                     <Separator />
                 </>
             )}
             {isExperimentMeanMetric(metric) && (
                 <>
-                    <ExperimentMetricOutlierHandling metric={metric} handleSetMetric={handleSetMetric} />
+                    <QuillOutlierHandlingSection metric={metric} handleSetMetric={handleSetMetric} />
                     {!usesWarehouseNative && <Separator />}
                 </>
             )}
             {isExperimentRatioMetric(metric) && (
                 <>
-                    <ExperimentRatioMetricOutlierHandling metric={metric} handleSetMetric={handleSetMetric} />
+                    <QuillRatioOutlierHandlingSection metric={metric} handleSetMetric={handleSetMetric} />
                     {!usesWarehouseNative && <Separator />}
                 </>
             )}

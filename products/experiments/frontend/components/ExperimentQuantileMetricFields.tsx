@@ -16,9 +16,70 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import { ExperimentQuantileMetric, NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayCategory } from '~/types'
 
-const PRESET_PERCENTILES = [50, 75, 90, 95, 99]
+export const PRESET_PERCENTILES = [50, 75, 90, 95, 99]
 
-type PercentileOption = number | 'custom'
+export type PercentileOption = number | 'custom'
+
+export const QUANTILE_PROPERTY_HELP = "Events without a numeric value for this property don't count."
+
+export function quantileExplanation(percentile: number): string {
+    return `p${percentile} is the value that ${percentile}% of events in a variant are at or below.`
+}
+
+export function useQuantileMetricFields(
+    metric: ExperimentQuantileMetric,
+    handleSetMetric: (newMetric: ExperimentQuantileMetric) => void
+): {
+    percentile: number
+    isCustom: boolean
+    customPercentile: number | undefined
+    customPercentileError: string | undefined
+    eventName: string | null
+    pickPercentile: (value: PercentileOption) => void
+    setCustom: (value: number | undefined) => void
+    setSource: (source: ReturnType<typeof seriesToMetricSource>) => void
+    setProperty: (value: string) => void
+} {
+    const percentile = quantileToPercentile(metric.quantile)
+    const [isCustom, setIsCustom] = useState(!PRESET_PERCENTILES.includes(percentile))
+    const [customPercentile, setCustomPercentile] = useState<number | undefined>(percentile)
+    const setQuantileFromPercentile = (value: number): void => {
+        handleSetMetric({ ...metric, quantile: Number((value / 100).toFixed(4)) })
+    }
+
+    return {
+        percentile,
+        isCustom,
+        customPercentile,
+        customPercentileError: isCustom ? getPercentileError(customPercentile) : undefined,
+        eventName: metric.source.kind === NodeKind.EventsNode ? (metric.source.event ?? null) : null,
+        pickPercentile: (value) => {
+            if (value === 'custom') {
+                setIsCustom(true)
+                setCustomPercentile(percentile)
+                return
+            }
+            setIsCustom(false)
+            setQuantileFromPercentile(value)
+        },
+        setCustom: (value) => {
+            setCustomPercentile(value)
+            // An invalid level still goes into the metric, so the save button reads the
+            // metric and stays disabled until the level is valid.
+            setQuantileFromPercentile(value ?? 0)
+        },
+        setSource: (source) => {
+            // Percentile metrics read event properties, so a warehouse table can't be a source
+            if (source && source.kind !== NodeKind.ExperimentDataWarehouseNode) {
+                handleSetMetric({
+                    ...metric,
+                    source: { ...source, math: undefined, math_property: metric.source.math_property },
+                })
+            }
+        },
+        setProperty: (value) => handleSetMetric({ ...metric, source: { ...metric.source, math_property: value } }),
+    }
+}
 
 export function ExperimentQuantileMetricFields({
     metric,
@@ -27,15 +88,17 @@ export function ExperimentQuantileMetricFields({
     metric: ExperimentQuantileMetric
     handleSetMetric: (newMetric: ExperimentQuantileMetric) => void
 }): JSX.Element {
-    const percentile = quantileToPercentile(metric.quantile)
-    const [isCustom, setIsCustom] = useState(!PRESET_PERCENTILES.includes(percentile))
-    const [customPercentile, setCustomPercentile] = useState<number | undefined>(percentile)
-    const customPercentileError = isCustom ? getPercentileError(customPercentile) : undefined
-    const eventName = metric.source.kind === NodeKind.EventsNode ? metric.source.event : null
-
-    const setQuantileFromPercentile = (value: number): void => {
-        handleSetMetric({ ...metric, quantile: Number((value / 100).toFixed(4)) })
-    }
+    const {
+        percentile,
+        isCustom,
+        customPercentile,
+        customPercentileError,
+        eventName,
+        pickPercentile,
+        setCustom,
+        setSource,
+        setProperty,
+    } = useQuantileMetricFields(metric, handleSetMetric)
 
     return (
         <div className="space-y-4">
@@ -43,16 +106,7 @@ export function ExperimentQuantileMetricFields({
                 bordered
                 series={metricSourcesToSeries([metric.source])}
                 trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
-                onChange={(series) => {
-                    const source = seriesToMetricSource(series)
-                    // Percentile metrics read event properties, so a warehouse table can't be a source
-                    if (source && source.kind !== NodeKind.ExperimentDataWarehouseNode) {
-                        handleSetMetric({
-                            ...metric,
-                            source: { ...source, math: undefined, math_property: metric.source.math_property },
-                        })
-                    }
-                }}
+                onChange={(series) => setSource(seriesToMetricSource(series))}
                 typeKey="experiment-metric-quantile"
                 buttonCopy="Add event"
                 showSeriesIndicator={false}
@@ -69,9 +123,7 @@ export function ExperimentQuantileMetricFields({
                     groupType={TaxonomicFilterGroupType.NumericalEventProperties}
                     groupTypes={[TaxonomicFilterGroupType.NumericalEventProperties]}
                     value={metric.source.math_property}
-                    onChange={(value) =>
-                        handleSetMetric({ ...metric, source: { ...metric.source, math_property: value } })
-                    }
+                    onChange={setProperty}
                     eventNames={eventName ? [eventName] : []}
                     placeholder="Select a numeric property"
                     showNumericalPropsOnly
@@ -81,9 +133,7 @@ export function ExperimentQuantileMetricFields({
                     )}
                     data-attr="experiment-quantile-property-select"
                 />
-                <div className="text-muted text-xs mt-1">
-                    Events without a numeric value for this property don't count.
-                </div>
+                <div className="text-muted text-xs mt-1">{QUANTILE_PROPERTY_HELP}</div>
             </div>
             <div>
                 <LemonField.Pure label="Percentile" error={customPercentileError}>
@@ -91,15 +141,7 @@ export function ExperimentQuantileMetricFields({
                         <LemonSegmentedButton<PercentileOption>
                             size="small"
                             value={isCustom ? 'custom' : percentile}
-                            onChange={(value) => {
-                                if (value === 'custom') {
-                                    setIsCustom(true)
-                                    setCustomPercentile(percentile)
-                                    return
-                                }
-                                setIsCustom(false)
-                                setQuantileFromPercentile(value)
-                            }}
+                            onChange={pickPercentile}
                             options={[
                                 ...PRESET_PERCENTILES.map((value) => ({
                                     value,
@@ -118,12 +160,7 @@ export function ExperimentQuantileMetricFields({
                                 step={0.1}
                                 value={customPercentile}
                                 status={customPercentileError ? 'danger' : 'default'}
-                                onChange={(value) => {
-                                    setCustomPercentile(value)
-                                    // An invalid level still goes into the metric, so the save button reads the
-                                    // metric and stays disabled until the level is valid.
-                                    setQuantileFromPercentile(value ?? 0)
-                                }}
+                                onChange={setCustom}
                                 prefix={<span className="text-muted">p</span>}
                                 className="w-24"
                                 data-attr="experiment-quantile-custom-percentile"
@@ -132,7 +169,7 @@ export function ExperimentQuantileMetricFields({
                     </div>
                 </LemonField.Pure>
                 {!customPercentileError && (
-                    <p className="text-muted text-xs mt-1 mb-0">{`p${percentile} is the value that ${percentile}% of events in a variant are at or below.`}</p>
+                    <p className="text-muted text-xs mt-1 mb-0">{quantileExplanation(percentile)}</p>
                 )}
             </div>
         </div>
