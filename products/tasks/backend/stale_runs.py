@@ -23,7 +23,7 @@ from products.tasks.backend.models import LIVE_RUN_STALE_AFTER, Task, TaskRun
 logger = structlog.get_logger(__name__)
 
 STALE_RUN_GRACE = timedelta(minutes=15)
-STARTUP_ALLOWANCE = timedelta(hours=2)
+STARTUP_ALLOWANCE = timedelta(hours=1)
 SWEEP_FLAG = "tasks-stale-run-sweep"
 SWEEP_MODE_CACHE_SECONDS = 60
 NO_PROFILE = "none"
