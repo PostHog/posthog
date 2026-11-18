@@ -81,6 +81,12 @@ function presetCondition(
     }
 }
 
+/** Why a row cannot take an alert preset: the alert check counts entry spans only. */
+export function presetDisabledReason(row: AggregatedSpanRow): string | undefined {
+    // Results cached before the count existed leave it out, so only a known zero disables the presets.
+    return row.entry_span_count === 0 ? 'Alerts check entry spans (server, consumer or root) only' : undefined
+}
+
 /** Shortens the operation part of a long name, so the name fits the API and keeps what it alerts on. */
 function presetName(row: AggregatedSpanRow, label: string): string {
     const operation = `${row.service_name} ${row.name}`

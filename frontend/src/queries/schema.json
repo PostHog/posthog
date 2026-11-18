@@ -1851,6 +1851,10 @@
                 "count": {
                     "$ref": "#/definitions/integer"
                 },
+                "entry_span_count": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Spans a traces alert measures: root spans, and server or consumer spans. Absent from older cached results."
+                },
                 "error_count": {
                     "$ref": "#/definitions/integer"
                 },

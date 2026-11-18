@@ -8,7 +8,7 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { AggregatedSpanRow, SpanHealthStatus } from '~/queries/schema/schema-general'
 
-import { TRACES_ALERT_PRESETS, TracesAlertPreset } from './alerting/tracesAlertPresets'
+import { TRACES_ALERT_PRESETS, TracesAlertPreset, presetDisabledReason } from './alerting/tracesAlertPresets'
 import { formatIdentityCoverage } from './identityCoverage'
 import { formatDuration } from './TraceWaterfallView'
 import { VirtualizedTable, VirtualizedTableColumn } from './VirtualizedTable'
@@ -86,6 +86,7 @@ function RowMenu({
     onCreateAlert: (row: AggregatedSpanRow, preset: TracesAlertPreset) => void
     disabledReason: string | undefined
 }): JSX.Element {
+    const presetsDisabledReason = presetDisabledReason(row)
     return (
         // The row opens the operation on click and on Enter, so the menu keeps its own events.
         // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
@@ -98,6 +99,7 @@ function RowMenu({
                         items: TRACES_ALERT_PRESETS.map(({ value, label }) => ({
                             label,
                             'data-attr': `tracing-operation-alert-${value}`,
+                            disabledReason: presetsDisabledReason,
                             onClick: () => onCreateAlert(row, value),
                         })),
                     },

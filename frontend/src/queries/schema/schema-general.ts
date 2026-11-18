@@ -5801,6 +5801,8 @@ export interface AggregatedSpanRow {
     p99_duration_nano: number
     p999_duration_nano: number
     error_count: integer
+    /** Spans a traces alert measures: root spans, and server or consumer spans. Absent from older cached results. */
+    entry_span_count?: integer
     /** Set only when the query asked for `includeImpact`. `sessions` and `users` are uniq() estimates; the two span counts are exact. */
     sessions?: integer
     users?: integer

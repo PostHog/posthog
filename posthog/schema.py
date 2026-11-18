@@ -4115,6 +4115,12 @@ class AggregatedSpanRow(BaseModel):
     )
     avg_duration_nano: float
     count: int
+    entry_span_count: int | None = Field(
+        default=None,
+        description=(
+            "Spans a traces alert measures: root spans, and server or consumer spans. Absent from older cached results."
+        ),
+    )
     error_count: int
     health_reason: str | None = Field(
         default=None,

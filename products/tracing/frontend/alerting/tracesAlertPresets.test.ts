@@ -8,7 +8,7 @@ import {
 } from 'products/alerts_platform/frontend/generated/api.schemas'
 
 import { tracesAlertFormLogic } from './tracesAlertFormLogic'
-import { TracesAlertPreset, buildPresetForm } from './tracesAlertPresets'
+import { TracesAlertPreset, buildPresetForm, presetDisabledReason } from './tracesAlertPresets'
 import { toWritePayload, validateForm } from './tracesAlertUtils'
 
 const ms = (value: number): number => value * 1_000_000
@@ -96,5 +96,16 @@ describe('buildPresetForm', () => {
         logic.mount()
 
         expect(logic.values.alertForm).toEqual(initialForm)
+    })
+})
+
+describe('presetDisabledReason', () => {
+    it.each<[string, Partial<AggregatedSpanRow>, string | undefined]>([
+        ['has entry spans', { entry_span_count: 12 }, undefined],
+        // Internal or client spans only: the alert check would never see them.
+        ['has no entry spans', { entry_span_count: 0 }, 'Alerts check entry spans (server, consumer or root) only'],
+        ['comes from a result cached before the count existed', {}, undefined],
+    ])('when the row %s', (_, overrides, reason) => {
+        expect(presetDisabledReason(row(overrides))).toBe(reason)
     })
 })
