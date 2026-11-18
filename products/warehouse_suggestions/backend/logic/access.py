@@ -80,11 +80,12 @@ def can_take(team: "Team", user: "User", suggestion: WarehouseSuggestion) -> boo
     """Whether `user` has access to the project and every edit access accepting `suggestion` needs."""
     if not team.all_users_with_access().filter(id=user.id).exists():
         return False
-    return suggestion.id in _editable_suggestion_ids(team, user, [suggestion])
+    return suggestion.id in _editable_suggestion_ids(team.pk, UserAccessControl(user, team), [suggestion])
 
 
-def _editable_suggestion_ids(team: "Team", user: "User", suggestions: Sequence[WarehouseSuggestion]) -> frozenset[UUID]:
-    user_access_control = UserAccessControl(user, team)
+def _editable_suggestion_ids(
+    team_id: int, user_access_control: UserAccessControl, suggestions: Sequence[WarehouseSuggestion]
+) -> frozenset[UUID]:
     catalog_editor = any(
         suggestion.kind in CATALOG_KINDS for suggestion in suggestions
     ) and user_access_control.check_access_level_for_resource("data_catalog", required_level=EDITOR_LEVEL)
@@ -93,7 +94,7 @@ def _editable_suggestion_ids(team: "Team", user: "User", suggestions: Sequence[W
         subject_ids[WarehouseSuggestionSubjectKind(suggestion.subject_kind)].add(suggestion.subject_id)
     editable = {
         subject_kind: ALLOWED_SUBJECT_IDS[subject_kind](
-            team.pk, user_access_control, required_level=EDITOR_LEVEL, ids=ids
+            team_id, user_access_control, required_level=EDITOR_LEVEL, ids=ids
         )
         for subject_kind, ids in subject_ids.items()
     }
@@ -233,10 +234,11 @@ def _taken_by_other_assignees(team: "Team", suggestions: Sequence[WarehouseSugge
     if not by_assignee:
         return frozenset()
     assignee_uuids = [str(uuid) for uuid in User.objects.filter(id__in=by_assignee).values_list("uuid", flat=True)]
+    member_ids = team.all_users_with_access(user_uuids=assignee_uuids).values_list("id", flat=True)
     return frozenset(
         suggestion_id
-        for assignee in team.all_users_with_access(user_uuids=assignee_uuids)
-        for suggestion_id in _editable_suggestion_ids(team, assignee, by_assignee[assignee.pk])
+        for assignee_id, user_access_control in UserAccessControl.for_user_ids(user_ids=member_ids, team=team).items()
+        for suggestion_id in _editable_suggestion_ids(team.pk, user_access_control, by_assignee[assignee_id])
     )
 
 
