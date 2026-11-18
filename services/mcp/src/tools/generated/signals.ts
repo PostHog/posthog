@@ -1465,6 +1465,38 @@ const inboxSourceFilterCatalogsList = (): ToolBase<
     },
 })
 
+const InboxSourceFilterPreviewSchema = () => {
+    const SignalsSourceConfigsFilterPreviewCreateBody = orvalSchemas.SignalsSourceConfigsFilterPreviewCreateBody()
+    return SignalsSourceConfigsFilterPreviewCreateBody
+}
+
+const inboxSourceFilterPreview = (): ToolBase<
+    ReturnType<typeof InboxSourceFilterPreviewSchema>,
+    Schemas.SourceFilterPreviewResponse
+> => ({
+    name: 'inbox-source-filter-preview',
+    schema: InboxSourceFilterPreviewSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxSourceFilterPreviewSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.source_product !== undefined) {
+            body['source_product'] = params.source_product
+        }
+        if (params.source_type !== undefined) {
+            body['source_type'] = params.source_type
+        }
+        if (params.expression !== undefined) {
+            body['expression'] = params.expression
+        }
+        const result = await context.api.request<Schemas.SourceFilterPreviewResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/source_configs/filter_preview/`,
+            body,
+        })
+        return result
+    },
+})
+
 const InboxSteeringInstructionsGetSchema = () => z.object({})
 
 const inboxSteeringInstructionsGet = (): ToolBase<
@@ -4022,6 +4054,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-source-configs-retrieve': inboxSourceConfigsRetrieve,
     'inbox-source-configs-update': inboxSourceConfigsUpdate,
     'inbox-source-filter-catalogs-list': inboxSourceFilterCatalogsList,
+    'inbox-source-filter-preview': inboxSourceFilterPreview,
     'inbox-steering-instructions-get': inboxSteeringInstructionsGet,
     'inbox-steering-instructions-update': inboxSteeringInstructionsUpdate,
     'inbox-usage-get': inboxUsageGet,

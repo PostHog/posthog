@@ -3,7 +3,7 @@ from datetime import datetime
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Q, QuerySet
+from django.db.models import Q, QuerySet, TextChoices
 from django.utils import timezone
 
 import structlog
@@ -26,6 +26,16 @@ from products.signals.backend.models import (
 logger = structlog.get_logger(__name__)
 
 SOURCE_FILTERS_FLAG = "signals-source-filters"
+
+
+class SourceFilterPreviewStatus(TextChoices):
+    OK = "ok", "ok"
+    INVALID_EXPRESSION = "invalid_expression", "invalid_expression"
+    NOT_CONNECTED = "not_connected", "not_connected"
+    NOT_SYNCED = "not_synced", "not_synced"
+    ACCESS_DENIED = "access_denied", "access_denied"
+    INCOMPATIBLE_TABLE = "incompatible_table", "incompatible_table"
+    QUERY_FAILED = "query_failed", "query_failed"
 
 
 @frozen

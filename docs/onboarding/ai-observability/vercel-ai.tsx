@@ -21,7 +21,7 @@ export const getVercelAISteps = (ctx: OnboardingComponentsContext): StepDefiniti
                     <CodeBlock
                         language="bash"
                         code={dedent`
-                            npm install @posthog/ai@^8.7.0 @ai-sdk/openai @ai-sdk/otel ai @opentelemetry/sdk-node @opentelemetry/resources zod
+                            npm install @posthog/ai@8 @ai-sdk/openai @ai-sdk/otel ai @opentelemetry/sdk-node @opentelemetry/resources zod
                         `}
                     />
                 </>

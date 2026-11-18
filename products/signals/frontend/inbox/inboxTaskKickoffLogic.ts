@@ -17,7 +17,6 @@ import { userLogic } from 'scenes/userLogic'
 
 import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 import { REPORT_AI_PANEL } from '~/layout/ai/aiPanelIds'
-import { aiShellLogic } from '~/layout/ai/aiShellLogic'
 import type { AttachedContextItem } from '~/layout/ai/attachedContext'
 import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
 import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
@@ -463,7 +462,6 @@ function panelStillOnReport(context: ReportChatContext | null, reportId: string)
 export interface inboxTaskKickoffLogicValues {
     dataProcessingAccepted: boolean // aiConsentLogic
     dataProcessingApprovalDisabledReason: string | null // aiConsentLogic
-    isPhaiSandboxFlagOn: boolean // aiShellLogic
     pageItems: AttachedContextItem[] // chatContextLogic
     picks: AttachedContextItem[] // chatContextLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
@@ -675,8 +673,6 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             ['openSidePanel', 'closeSidePanel', 'setSidePanelOptions'],
         ],
         values: [
-            aiShellLogic,
-            ['isPhaiSandboxFlagOn'],
             projectLogic,
             ['currentProjectId'],
             teamLogic,
@@ -858,9 +854,6 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
 
     listeners(({ actions, cache, values, selectors }) => ({
         openReportCheckMetricSuggestion: ({ report, check }) => {
-            if (!values.isPhaiSandboxFlagOn) {
-                return
-            }
             if (values.metricCheckReplacementDisabledReason) {
                 return
             }
@@ -883,9 +876,6 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             }
         },
         openReportDiscussion: ({ report, reportUrl }) => {
-            if (!values.isPhaiSandboxFlagOn) {
-                return
-            }
             actions.alignReportDiscussion(report, reportUrl)
             actions.openSidePanel(SidePanelTab.Max, REPORT_AI_PANEL)
             if (!values.isCreatingPr) {
@@ -893,9 +883,6 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             }
         },
         warmReportDiscussion: async ({ report }) => {
-            if (!values.isPhaiSandboxFlagOn) {
-                return
-            }
             if (values.aiConsentDisabledReason || values.currentProjectId == null) {
                 return
             }
@@ -1004,10 +991,6 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             actions.openSidePanel(SidePanelTab.Max, REPORT_AI_PANEL)
         },
         discussReport: async ({ report, reportUrl, question, agentQuestion, intent, pullRequestUrl, background }) => {
-            if (!values.isPhaiSandboxFlagOn) {
-                actions.discussReportFailure()
-                return
-            }
             // The CTAs carry this as a `disabledReason`, but Discuss also submits on Enter, and the
             // run endpoint enforces no consent of its own.
             const disabledReason =
@@ -1150,9 +1133,6 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             }
         },
         implementReport: async ({ report, feedback, surface, openedFromLink, repository }) => {
-            if (!values.isPhaiSandboxFlagOn) {
-                return
-            }
             // A repeated press while the lazy chunks load would start the run twice.
             if (cache.implementationPending || values.isCreatingPr) {
                 return
@@ -1233,10 +1213,6 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             }
         },
         createPrFromReport: async ({ report, feedback, repository }) => {
-            if (!values.isPhaiSandboxFlagOn) {
-                actions.createPrFailure()
-                return
-            }
             // Lazy: a static import puts the inbox setup stack in the shell bundle of every logged-in page.
             const modules = await Promise.all([import('./logics/reportGithubAccessLogic'), loadRunStreamLogic()]).catch(
                 (error) => {
