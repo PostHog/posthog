@@ -158,6 +158,31 @@ export const Disabled: Story = {
     },
 } satisfies Story
 
+export const DisabledReason: Story = {
+    render: () => {
+        return (
+            <RadioGroup defaultValue="email" className="w-fit">
+                <Field orientation="horizontal">
+                    <RadioGroupItem value="email" id="reason-email" />
+                    <FieldLabel htmlFor="reason-email" className="font-normal">
+                        Email
+                    </FieldLabel>
+                </Field>
+                <Field orientation="horizontal" data-disabled>
+                    <RadioGroupItem
+                        value="sms"
+                        id="reason-sms"
+                        disabledReason="Add a phone number to get SMS notifications"
+                    />
+                    <FieldLabel htmlFor="reason-sms" className="font-normal">
+                        SMS
+                    </FieldLabel>
+                </Field>
+            </RadioGroup>
+        )
+    },
+} satisfies Story
+
 export const Invalid: Story = {
     render: () => {
         return (

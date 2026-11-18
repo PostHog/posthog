@@ -1,20 +1,35 @@
+import './textarea.css'
+
 import * as React from 'react'
 
-import './textarea.css'
 import { cn } from './lib/utils'
+import { hasTooltipContent, withTooltip } from './with-tooltip'
 
-const Textarea = React.forwardRef<HTMLTextAreaElement, React.ComponentProps<'textarea'>>(function Textarea(
-    { className, ...props },
-    ref
-) {
-    return (
+const Textarea = React.forwardRef<
+    HTMLTextAreaElement,
+    React.ComponentProps<'textarea'> & {
+        /**
+         * Disables the field and says why in a tooltip. The field turns read-only and stays hoverable and
+         * focusable, so the reason is reachable. Takes the place of `disabled` while set.
+         */
+        disabledReason?: React.ReactNode
+    }
+>(function Textarea({ className, disabled, disabledReason, ...props }, ref) {
+    const hasDisabledReason = hasTooltipContent(disabledReason)
+
+    return withTooltip(
         <textarea
             ref={ref}
             data-quill
             data-slot="textarea"
             className={cn('quill-textarea flex', className)}
+            disabled={hasDisabledReason ? undefined : disabled}
             {...props}
-        />
+            // A native disabled textarea ignores the pointer and leaves the tab order, which would hide its reason.
+            {...(hasDisabledReason && { readOnly: true, 'aria-disabled': true })}
+        />,
+        disabledReason,
+        { target: 'self' }
     )
 })
 

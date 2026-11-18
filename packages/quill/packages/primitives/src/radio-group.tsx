@@ -1,10 +1,12 @@
+import './radio-group.css'
+
 import { Radio as RadioPrimitive } from '@base-ui/react/radio'
 import { RadioGroup as RadioGroupPrimitive } from '@base-ui/react/radio-group'
 import { cva, type VariantProps } from 'class-variance-authority'
 import * as React from 'react'
 
-import './radio-group.css'
 import { cn } from './lib/utils'
+import { hasTooltipContent, withTooltip } from './with-tooltip'
 
 const radioIndicatorVariants = cva('quill-radio-indicator', {
     variants: {
@@ -85,12 +87,17 @@ const radioGroupItemIndicatorVariants = cva('quill-radio__indicator', {
 
 const RadioGroupItem = React.forwardRef<
     React.ComponentRef<typeof RadioPrimitive.Root>,
-    RadioPrimitive.Root.Props & VariantProps<typeof radioGroupItemVariants>
->(function RadioGroupItem({ className, size = 'default', ...props }, ref) {
-    return (
+    RadioPrimitive.Root.Props &
+        VariantProps<typeof radioGroupItemVariants> & {
+            /** Disables the item and says why in a tooltip. */
+            disabledReason?: React.ReactNode
+        }
+>(function RadioGroupItem({ className, size = 'default', disabled, disabledReason, ...props }, ref) {
+    return withTooltip(
         <RadioPrimitive.Root
             ref={ref}
             data-slot="radio-group-item"
+            disabled={disabled || hasTooltipContent(disabledReason)}
             className={cn(radioGroupItemVariants({ size }), className)}
             {...props}
         >
@@ -100,7 +107,9 @@ const RadioGroupItem = React.forwardRef<
             >
                 <span className={radioDotVariants({ size })} />
             </RadioPrimitive.Indicator>
-        </RadioPrimitive.Root>
+        </RadioPrimitive.Root>,
+        disabledReason,
+        { target: 'inline', focusable: hasTooltipContent(disabledReason) }
     )
 })
 
