@@ -93,7 +93,7 @@ while IFS='|' read -r tag outcome expected_status reported_outcome; do
     status=0
     bash "$helper" require "$tag" "$outcome" > "$scratch/annotations" 2>&1 || status=$?
     if [ "$status" != "$expected_status" ]; then
-        echo "FAIL require tag=${tag:-<empty>} outcome=${outcome:-<empty>} expected status=$expected_status, got $status" >&2
+        echo "FAIL require tag=${tag:-empty} outcome=${outcome:-empty} expected status=$expected_status, got $status" >&2
         exit 1
     fi
     if [ "$expected_status" = 0 ]; then
@@ -104,7 +104,7 @@ while IFS='|' read -r tag outcome expected_status reported_outcome; do
     else
         grep -Eq "^::error title=Ordered image alias missing::.*\\(outcome: ${reported_outcome:-$outcome}\\)" "$scratch/annotations"
     fi
-    echo "PASS require tag=${tag:-<empty>} outcome=${outcome:-<empty>} status=$status"
+    echo "PASS require tag=${tag:-empty} outcome=${outcome:-empty} status=$status"
 done <<CASES
 $ORDERED_ALIAS|present-at-expected-digest|0|
 $ORDERED_ALIAS|absent|1|
