@@ -34,7 +34,6 @@ at most one row group of record batches. Collecting the whole staged batch first
 
 from __future__ import annotations
 
-import re
 import json
 import asyncio
 import datetime as dt
@@ -65,6 +64,7 @@ from products.batch_exports.backend.facade.destinations.s3 import (
     get_s3_integration,
     s3_client,
 )
+from products.batch_exports.backend.facade.key_prefix import datetime_template_variables, render_key_prefix_template
 from products.batch_exports.backend.facade.pipeline import ParquetStreamTransformer
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
     BatchWriteOutcome,
@@ -140,36 +140,17 @@ EXPONENTIAL_BACKOFF_COEFFICIENT = ConcurrentS3Consumer.EXPONENTIAL_BACKOFF_COEFF
 
 RefreshCredentials = Callable[[], Awaitable[AWSCredentials]]
 
-_TEMPLATE_FIELD = re.compile(r"\{([^{}]*)\}")
-
 
 def render_key_prefix(prefix: str, *, run_started_at: dt.datetime | None, table: str) -> str | None:
-    """Fill the key prefix template variables batch exports' S3 destination supports.
+    """Fill the prefix the way a batch export fills its key prefix, with times from the run's start in UTC.
 
     Returns None when the prefix names a variable there is no value for, or is not a valid
     template. The caller then uses the prefix as typed, which is what batch exports does.
-
-    Only an exact `{name}` is replaced. `str.format` also honors widths and indexing, so a stored
-    `{table:1000000000}` would allocate a gigabyte on every delivery attempt.
     """
     variables = {"table": table}
     if run_started_at is not None:
-        started = run_started_at.astimezone(dt.UTC)
-        variables |= {
-            "year": f"{started:%Y}",
-            "month": f"{started:%m}",
-            "day": f"{started:%d}",
-            "hour": f"{started:%H}",
-            "minute": f"{started:%M}",
-            "second": f"{started:%S}",
-        }
-    if any(name not in variables for name in _TEMPLATE_FIELD.findall(prefix)):
-        return None
-    # A brace left over outside a field makes the whole template invalid, as it does for `str.format`.
-    leftover = _TEMPLATE_FIELD.sub("", prefix)
-    if "{" in leftover or "}" in leftover:
-        return None
-    return _TEMPLATE_FIELD.sub(lambda match: variables[match.group(1)], prefix)
+        variables |= datetime_template_variables(run_started_at.astimezone(dt.UTC))
+    return render_key_prefix_template(prefix, variables)
 
 
 @dataclass(frozen=False, kw_only=True)

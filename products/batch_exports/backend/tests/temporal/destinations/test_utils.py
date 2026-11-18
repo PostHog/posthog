@@ -63,6 +63,24 @@ base_inputs = {"bucket_name": "test", "region": "test", "team_id": 1}
         ),
         (
             S3InsertInputs(
+                prefix="huge-width-{data_interval_start:>1000000000}",
+                data_interval_start="2023-01-01 00:00:00",
+                data_interval_end="2023-01-01 01:00:00",
+                **base_inputs,  # type: ignore
+            ),
+            "huge-width-{data_interval_start:>1000000000}/2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl",
+        ),
+        (
+            S3InsertInputs(
+                prefix="indexing-{data_interval_end[foo]}",
+                data_interval_start="2023-01-01 00:00:00",
+                data_interval_end="2023-01-01 01:00:00",
+                **base_inputs,  # type: ignore
+            ),
+            "indexing-{data_interval_end[foo]}/2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl",
+        ),
+        (
+            S3InsertInputs(
                 prefix="",
                 data_interval_start="2023-01-01 00:00:00",
                 data_interval_end="2023-01-01 01:00:00",
@@ -267,6 +285,7 @@ def test_get_object_key(inputs, expected):
         ("posthog-{table}/{hour}:{minute}:{second}", BatchExportEventsModel(), "posthog-events/03:04:05"),
         ("posthog/{year}-{month}-{day}/{hour}:{minute}:{second}", None, "posthog/2023-01-02/03:04:05"),
         ("{year}-{month}-{day}", BatchExportPersonsModel(), "2023-01-02"),
+        ("posthog/{{year}}/{year}", None, "posthog/{year}/2023"),
     ],
 )
 def test_get_object_key_fills_prefix_template_variables(prefix, batch_export_model, expected_prefix):

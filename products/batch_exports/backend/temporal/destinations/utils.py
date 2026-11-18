@@ -1,5 +1,7 @@
+import re
 import datetime as dt
 import posixpath
+from collections.abc import Mapping
 
 from posthog.temporal.common.logger import get_logger
 
@@ -12,6 +14,43 @@ from products.batch_exports.backend.temporal.errors import MissingRequiredInputs
 
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
+_TEMPLATE_TOKEN = re.compile(r"\{\{|\}\}|\{([^{}]*)\}|[{}]")
+
+
+def render_key_prefix_template(prefix: str, variables: Mapping[str, str]) -> str | None:
+    """Fill each `{name}` in a key prefix from `variables`, reading `{{` and `}}` as literal braces.
+
+    Returns None when the prefix names a variable with no value or is not a valid template.
+    Only an exact `{name}` is replaced. `str.format` also honors format specs and indexing, so a
+    stored `{table:1000000000}` would allocate a gigabyte.
+    """
+    rendered: list[str] = []
+    position = 0
+    for token in _TEMPLATE_TOKEN.finditer(prefix):
+        rendered.append(prefix[position : token.start()])
+        position = token.end()
+        name = token.group(1)
+        if token.group(0) in ("{{", "}}"):
+            rendered.append(token.group(0)[0])
+        elif name is not None and name in variables:
+            rendered.append(variables[name])
+        else:
+            return None
+    rendered.append(prefix[position:])
+    return "".join(rendered)
+
+
+def datetime_template_variables(at: dt.datetime) -> dict[str, str]:
+    """The date and time variables a key prefix can use, read from `at` as given."""
+    return {
+        "second": f"{at:%S}",
+        "minute": f"{at:%M}",
+        "hour": f"{at:%H}",
+        "day": f"{at:%d}",
+        "month": f"{at:%m}",
+        "year": f"{at:%Y}",
+    }
+
 
 def get_allowed_template_variables(
     data_interval_start: str | None, data_interval_end: str, batch_export_model: BatchExportModelInput | None
@@ -20,12 +59,7 @@ def get_allowed_template_variables(
     export_datetime = dt.datetime.fromisoformat(data_interval_end)
 
     return {
-        "second": f"{export_datetime:%S}",
-        "minute": f"{export_datetime:%M}",
-        "hour": f"{export_datetime:%H}",
-        "day": f"{export_datetime:%d}",
-        "month": f"{export_datetime:%m}",
-        "year": f"{export_datetime:%Y}",
+        **datetime_template_variables(export_datetime),
         "data_interval_start": data_interval_start or "START",
         "data_interval_end": data_interval_end,
         "table": batch_export_model.name if batch_export_model is not None else "events",
@@ -41,13 +75,13 @@ def get_key_prefix(
     """Format a key prefix with template variables."""
     template_variables = get_allowed_template_variables(data_interval_start, data_interval_end, batch_export_model)
 
-    try:
-        return prefix.format(**template_variables)
-    except (KeyError, ValueError) as e:
+    rendered = render_key_prefix_template(prefix, template_variables)
+    if rendered is None:
         EXTERNAL_LOGGER.warning(
-            f"The key prefix '{prefix}' will be used as-is since it contains invalid template variables: {str(e)}"
+            f"The key prefix '{prefix}' will be used as-is since it contains invalid template variables"
         )
         return prefix
+    return rendered
 
 
 def get_absolute_key_prefix(
