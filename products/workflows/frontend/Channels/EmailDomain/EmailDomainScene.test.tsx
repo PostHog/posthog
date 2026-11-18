@@ -180,16 +180,20 @@ describe('EmailDomainScene', () => {
         expect(screen.getByText('Send another test')).toBeInTheDocument()
     })
 
-    it('sends the person to Cloudflare and verifies after they return', async () => {
+    it.each([
+        ['workflows', ''],
+        ['transactional emails', '?from=transactional'],
+    ])('sends the person to Cloudflare and back to the setup they came from %s', async (_origin, originQuery) => {
         seedSender()
         const tab = { location: { href: '' }, opener: {}, close: jest.fn() }
         jest.spyOn(window, 'open').mockReturnValue(tab as unknown as Window)
-        await open(urls.workflowsEmailDomain(SENDER_ID))
+        await open(`${urls.workflowsEmailDomain(SENDER_ID)}${originQuery}`)
         expectStep('Add 8 settings at Cloudflare')
 
         click('email-domain-auto-configure')
         await flush()
-        const returnUrl = `http://localhost/project/997${urls.workflowsEmailDomain(SENDER_ID)}?domain_connect=email`
+        const returnPath = `${urls.workflowsEmailDomain(SENDER_ID)}${originQuery}${originQuery ? '&' : '?'}domain_connect=email`
+        const returnUrl = `http://localhost/project/997${returnPath}`
         expect(backend.requestsTo('domain_connect_apply_url')[0].body).toEqual({
             context: 'email',
             integration_id: SENDER_ID,
@@ -200,8 +204,8 @@ describe('EmailDomainScene', () => {
 
         backend.approveDomainConnect(DOMAIN)
         cleanup()
-        await open(`${urls.workflowsEmailDomain(SENDER_ID)}?domain_connect=email`)
-        expect(router.values.location.search).toBe('')
+        await open(returnPath)
+        expect(router.values.location.search).toBe(originQuery)
         expect(backend.requestsTo('email_status').at(-1)?.url).toContain('refresh=true')
         expectStep('Checking your settings…')
         expectProgress('8 of 8 found')
@@ -377,6 +381,45 @@ describe('EmailDomainScene', () => {
         await open(urls.workflowsEmailDomain(SENDER_ID))
         expectStep('This sending domain no longer exists')
         expect(document.querySelector('[data-attr="email-domain-retry"]')).toBeNull()
+        expectBackToChannels()
+    })
+
+    it('keeps a setup started from transactional emails pointed back there, from the new domain to ready', async () => {
+        await open(`${urls.workflowsEmailDomain('new')}?from=transactional`)
+        expect(screen.getByText('Back to transactional emails').closest('a')).toHaveAttribute(
+            'href',
+            expect.stringMatching(new RegExp(`${urls.transactional()}$`))
+        )
+        typeInto('email-domain-another-domain', 'acme.com')
+        click('email-domain-use-custom-domain')
+        click('email-domain-continue')
+        await flush()
+        expect(router.values.location.pathname).toMatch(new RegExp(`${urls.workflowsEmailDomain(SENDER_ID)}$`))
+        expect(router.values.location.search).toBe('?from=transactional')
+
+        backend.verifyDomain(DOMAIN)
+        cleanup()
+        await open(`${urls.workflowsEmailDomain(SENDER_ID)}?from=transactional`)
+        expectStep(/You can send from/)
+        expect(element('email-domain-ready-back-to-origin')).toHaveAttribute(
+            'href',
+            expect.stringMatching(/\/transactional\?guide=send-from-code$/)
+        )
+
+        cleanup()
+        await open(`${urls.workflowsEmailDomain('new')}?from=transactional`)
+        typeInto('email-domain-another-domain', 'acme.com')
+        click('email-domain-use-custom-domain')
+        expect(screen.getByText('Open it').closest('a')).toHaveAttribute(
+            'href',
+            expect.stringMatching(new RegExp(`${urls.workflowsEmailDomain(SENDER_ID)}\\?from=transactional$`))
+        )
+    })
+
+    it('returns to workflows when the link names an origin the setup does not know', async () => {
+        seedSender()
+        await open(`${urls.workflowsEmailDomain(SENDER_ID)}?from=nowhere`)
+        expect(screen.getByText('Add 8 settings at Cloudflare')).toBeInTheDocument()
         expectBackToChannels()
     })
 

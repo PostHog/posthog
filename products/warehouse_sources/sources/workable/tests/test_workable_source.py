@@ -42,18 +42,20 @@ class TestValidateCredentials:
 
     @parameterized.expand(
         [
-            ("default", None, "/spi/v3/jobs"),
-            ("top_level_endpoint", "departments", "/spi/v3/departments"),
+            ("default", None, "/spi/v3/jobs", "1"),
+            ("top_level_endpoint", "departments", "/spi/v3/departments", "1"),
             # A fan-out endpoint has no bare list path; probing its literal template would 404.
-            ("fanout_probes_parent", "candidate_activities", "/spi/v3/candidates"),
+            ("fanout_probes_parent", "candidate_activities", "/spi/v3/candidates", "1"),
+            # Time entries reject a `limit` outside 10, 20, 50 and 100 with a 400.
+            ("time_entries_probes_an_allowed_limit", "time_entries", "/spi/v3/time-tracking/time-entries", "10"),
         ]
     )
-    def test_probe_path(self, _name: str, schema_name: str | None, expected_path: str) -> None:
+    def test_probe_path(self, _name: str, schema_name: str | None, expected_path: str, expected_limit: str) -> None:
         with scripted_network(always(ScriptedResponse(json={}))) as network:
             valid, _msg = WorkableSource().validate_credentials(_config(), team_id=1, schema_name=schema_name)
 
         assert valid is True
-        assert [r.path for r in network.requests_log] == [expected_path]
+        assert [(r.path, r.param("limit")) for r in network.requests_log] == [(expected_path, expected_limit)]
 
     def test_invalid_subdomain_is_a_failure(self) -> None:
         def _raise(*_a: Any, **_k: Any) -> Any:

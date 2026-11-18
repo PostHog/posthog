@@ -105,6 +105,7 @@ from products.signals.backend.anomaly_scores.spend import (
 )
 from products.signals.backend.anomaly_scores.state import RunPlan, load_state, plan_run, save_state
 from products.signals.backend.anomaly_scores.tick import (
+    ANOMALY_SCOUT_SKILL,
     AnomalyScoringTickInput,
     AnomalyScoringTickPlan,
     AnomalyScoringTickResult,
@@ -121,6 +122,7 @@ from products.signals.backend.contracts import ALERT_SCOPE_SOURCE
 from products.signals.backend.models import (
     AnomalyScoringDueInsight,
     AnomalyScoringState,
+    SignalScoutConfig,
     SignalSourceConfig,
     SignalTeamConfig,
 )
@@ -1377,6 +1379,8 @@ class TestDueList(ClickhouseTestMixin, BaseTest):
         cache.delete_many([_cooldown_key(insight.id), _first_train_key(self.team.id)])
         self.addCleanup(cache.delete, _first_train_key(self.team.id))
         source_enabled_at = SignalSourceConfig.objects.get(team=self.team).created_at
+        # The first pre-check found no scores yet and skipped, and the coordinator stamped the anchor.
+        scout = SignalScoutConfig.all_teams.create(team=self.team, skill_name=ANOMALY_SCOUT_SKILL, last_run_at=NOW)
         tick = "products.signals.backend.anomaly_scores.tick"
         capture = MagicMock()
         pick = InsightPick(
@@ -1398,13 +1402,22 @@ class TestDueList(ClickhouseTestMixin, BaseTest):
         ]
         assert {
             key: event["properties"][key]
-            for key in ("team_id", "insight_id", "seconds_since_source_enabled", "seconds_since_listed")
+            for key in (
+                "team_id",
+                "insight_id",
+                "seconds_since_source_enabled",
+                "seconds_since_listed",
+                "scout_made_due",
+            )
         } == {
             "team_id": self.team.id,
             "insight_id": insight.id,
             "seconds_since_source_enabled": round((NOW - source_enabled_at).total_seconds()),
             "seconds_since_listed": 0,
+            "scout_made_due": True,
         }
+        scout.refresh_from_db()
+        assert scout.last_run_at is not None and scout.last_run_at < NOW
 
     @parameterized.expand([("one_shard", 1, 1), ("three_shards", 3, 3)])
     @time_machine.travel(NOW, tick=False)

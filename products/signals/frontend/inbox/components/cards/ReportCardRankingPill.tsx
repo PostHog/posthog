@@ -23,7 +23,7 @@ const STRENGTH_VALUE_CLASSES: Record<RankingStrength, string> = {
 
 /**
  * The three ranking scores in funnel order, in the card's meta row on the Recommended and Personalized
- * sorts. The chip stays neutral and each value takes the color of its own strength. A stale or unscored
+ * sorts. The chip stays neutral and each value takes the color of its own strength. An unscored
  * report keeps the muted tag that the score sorts show. On the Personalized sort the hover card leads
  * with the report's place on the user's own list.
  */
@@ -36,7 +36,7 @@ export function ReportCardRankingPill({
 }): JSX.Element {
     const isStaff = useValues(userLogic).user?.is_staff ?? false
     const lifts = rankingPillLifts(report)
-    const state = lifts ? 'scored' : report.ranking?.status === 'stale' ? 'stale' : 'unscored'
+    const state = !lifts ? 'unscored' : report.ranking?.status === 'stale' ? 'stale' : 'scored'
     const personalTier = personalSort ? (report.personal_tier ?? null) : null
     // Tooltip re-fires onOpen when the callback identity changes, so a new one each render would double count views.
     const onOpen = useCallback(
@@ -52,7 +52,7 @@ export function ReportCardRankingPill({
         [report, state, personalTier]
     )
     if (!lifts || !report.ranking) {
-        return <RankingStatusTag state={state === 'stale' ? 'stale' : 'unscored'} onOpen={onOpen} />
+        return <RankingStatusTag onOpen={onOpen} />
     }
     return (
         <Tooltip

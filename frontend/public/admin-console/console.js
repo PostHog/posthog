@@ -12,6 +12,15 @@ document.addEventListener('submit', (event) => {
     if (!(form instanceof HTMLFormElement)) {
         return
     }
+    // A disabled button posts no value, so the value of the button that submits moves to a hidden field first.
+    const submitter = event.submitter
+    if (submitter instanceof HTMLButtonElement && submitter.name) {
+        const field = document.createElement('input')
+        field.type = 'hidden'
+        field.name = submitter.name
+        field.value = submitter.value
+        form.append(field)
+    }
     for (const button of form.querySelectorAll('button[type="submit"]')) {
         if (button.dataset.pendingLabel) {
             showPending(button)
@@ -54,6 +63,23 @@ document.addEventListener('keydown', (event) => {
     if (search) {
         event.preventDefault()
         search.focus()
+    }
+})
+
+// A Decision block: a key such as ArrowRight presses the button or link that names it, unless staff are typing.
+document.addEventListener('keydown', (event) => {
+    const target = event.target
+    const typing =
+        target instanceof HTMLElement && (target.isContentEditable || target.closest('input, textarea, select'))
+    if (typing || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) {
+        return
+    }
+    const control = [...document.querySelectorAll('[data-console-key]')].find(
+        (element) => element.dataset.consoleKey === event.key
+    )
+    if (control instanceof HTMLElement && !control.hasAttribute('disabled')) {
+        event.preventDefault()
+        control.click()
     }
 })
 
@@ -136,4 +162,57 @@ async function refreshLiveBlock(element, failures) {
 
 for (const element of document.querySelectorAll('[data-console-live]')) {
     scheduleLiveRefresh(element, 0)
+}
+
+const toolFilter = document.querySelector('[data-tool-filter]')
+if (toolFilter instanceof HTMLInputElement) {
+    const groups = [...document.querySelectorAll('[data-tool-group]')]
+    const renderedOpen = new Map(groups.map((group) => [group, group.open]))
+    const emptyNote = document.querySelector('[data-tool-filter-empty]')
+    toolFilter.hidden = false
+    const applyFilter = () => {
+        const query = toolFilter.value.trim().toLowerCase()
+        let matches = 0
+        for (const group of groups) {
+            let groupMatches = 0
+            for (const item of group.querySelectorAll('[data-tool-title]')) {
+                const match = !query || item.dataset.toolTitle.includes(query)
+                item.hidden = !match
+                groupMatches += match ? 1 : 0
+            }
+            group.parentElement.hidden = groupMatches === 0
+            const count = group.querySelector('[data-tool-count]')
+            if (count) {
+                count.textContent = String(groupMatches)
+            }
+            group.open = query ? groupMatches > 0 : renderedOpen.get(group)
+            matches += groupMatches
+        }
+        if (emptyNote) {
+            emptyNote.hidden = matches > 0
+        }
+    }
+    toolFilter.addEventListener('input', applyFilter)
+    toolFilter.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && toolFilter.value) {
+            toolFilter.value = ''
+            applyFilter()
+        } else if (event.key === 'Enter' && toolFilter.value.trim()) {
+            const first = document.querySelector('[data-tool-group][open] [data-tool-title]:not([hidden]) a')
+            if (first instanceof HTMLAnchorElement) {
+                event.preventDefault()
+                first.click()
+            }
+        }
+    })
+}
+
+// The sidebar scrolls on its own, so the current tool can sit below its fold. Scroll the sidebar, not the page.
+const navScroller = document.querySelector('[data-nav-scroller]')
+const currentNavLink = navScroller?.querySelector('[aria-current="page"]')
+if (navScroller instanceof HTMLElement && currentNavLink instanceof HTMLElement) {
+    const linkBottom = currentNavLink.offsetTop + currentNavLink.offsetHeight
+    if (linkBottom > navScroller.clientHeight) {
+        navScroller.scrollTop = linkBottom - navScroller.clientHeight / 2
+    }
 }

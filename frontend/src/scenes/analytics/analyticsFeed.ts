@@ -107,10 +107,7 @@ export function analyticsSourceKey(projectId: string, query: AnalyticsFeedQuery,
 
 /** Keeps the rows a source's API could not filter itself. */
 export function matchesAnalyticsQuery(item: AnalyticsItem, query: AnalyticsFeedQuery): boolean {
-    return (
-        (!query.createdBy.length || (!!item.createdBy && query.createdBy.includes(item.createdBy.uuid))) &&
-        query.tags.every((tag) => item.tags.includes(tag))
-    )
+    return !query.createdBy.length || (!!item.createdBy && query.createdBy.includes(item.createdBy.uuid))
 }
 
 // Insights file as `insight` or under a subtype such as `insight/trends`, so they match on the prefix.
@@ -133,6 +130,7 @@ export async function fetchAnalyticsSourcePage(
         search: search || undefined,
         orderBy: query.orderBy ?? '-created_at',
         includeTags: true,
+        tags: query.tags,
         limit,
         offset,
     })

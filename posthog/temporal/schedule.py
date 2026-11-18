@@ -51,6 +51,7 @@ from posthog.temporal.alerts.schedule import (
     create_schedule_due_alert_checks_schedule,
 )
 from posthog.temporal.common.client import async_connect
+from posthog.temporal.common.registration import combined_registration
 from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_schedule_exists, a_update_schedule
 from posthog.temporal.health_checks.schedule import create_health_check_schedules
 from posthog.temporal.ingestion_acceptance_test.schedule import create_ingestion_acceptance_test_schedule
@@ -64,10 +65,6 @@ from posthog.temporal.salesforce_enrichment.workflow import SalesforceEnrichment
 from posthog.temporal.session_replay.delete_recordings.types import PurgeDeletedMetadataInput
 from posthog.temporal.session_replay.enforce_max_replay_retention.types import EnforceMaxReplayRetentionInput
 from posthog.temporal.session_replay.replay_count_metrics.types import ReplayCountMetricsInput
-from posthog.temporal.session_replay.surfacing_score_export_sweep.schedule import (
-    create_surfacing_score_export_sweep_schedule,
-)
-from posthog.temporal.session_replay.surfacing_scoring_sweep.schedule import create_surfacing_scoring_sweep_schedule
 from posthog.temporal.sync_events_retention.types import SyncEventsRetentionInput
 from posthog.temporal.usage_report.types import RunUsageReportsInputs
 from posthog.temporal.warehouse_sources_queue_partition_management.schedule import (
@@ -149,7 +146,6 @@ from products.replay_vision.backend.temporal.learned_rules import create_replay_
 from products.replay_vision.backend.temporal.read_meter import create_replay_vision_read_meter_schedule
 from products.replay_vision.backend.temporal.reconciler import create_replay_vision_reconciler_schedule
 from products.replay_vision.backend.temporal.vision_alerts.schedule import create_vision_alert_check_schedule
-from products.review_hog.backend.facade.temporal import create_review_hog_finding_outcomes_schedule
 from products.security.backend.facade.temporal import create_sync_access_rules_schedule
 from products.signals.backend.facade.temporal import (
     create_activity_summary_tick_schedule,
@@ -175,21 +171,21 @@ from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
 logger = structlog.get_logger(__name__)
 
 
+async def _delete_retired_schedules(client: Client, schedule_ids: list[str]) -> None:
+    """Delete schedules whose workflows are gone. Any in-flight run ends on its own execution timeout."""
+    for schedule_id in schedule_ids:
+        if await a_schedule_exists(client, schedule_id):
+            await a_delete_schedule(client, schedule_id)
+
+
 async def cleanup_sync_vectors_schedule(client: Client):
-    """Disabled: delete the actions embedding sync schedule. Any in-flight runs die on their own execution_timeout."""
-    if await a_schedule_exists(client, "ai-sync-vectors-schedule"):
-        await a_delete_schedule(client, "ai-sync-vectors-schedule")
+    await _delete_retired_schedules(client, ["ai-sync-vectors-schedule"])
 
 
 async def cleanup_retired_replay_vision_schedules(client: Client):
-    """Delete Replay Vision schedules whose workflows are gone. Any in-flight run ends on its own execution timeout."""
-    retired_schedule_ids = [
-        "replay-vision-search-suggestions-refresher-schedule",
-        "replay-vision-jev-watch-rank-schedule",
-    ]
-    for schedule_id in retired_schedule_ids:
-        if await a_schedule_exists(client, schedule_id):
-            await a_delete_schedule(client, schedule_id)
+    await _delete_retired_schedules(
+        client, ["replay-vision-search-suggestions-refresher-schedule", "replay-vision-jev-watch-rank-schedule"]
+    )
 
 
 async def create_run_quota_limiting_schedule(client: Client):
@@ -972,8 +968,6 @@ schedules = [
     create_count_trigger_schedule,
     create_evaluation_sampler_schedule,
     create_evaluation_clustering_schedule,
-    create_surfacing_score_export_sweep_schedule,
-    create_surfacing_scoring_sweep_schedule,
     create_ducklake_compaction_schedule,
     create_purge_deleted_recording_metadata_schedule,
     create_experiment_regular_metrics_schedules,
@@ -1033,7 +1027,6 @@ schedules = [
     create_replay_vision_read_meter_schedule,
     create_replay_vision_highlight_rebuild_schedule,
     create_github_job_logs_coordinator_schedule,
-    create_review_hog_finding_outcomes_schedule,
     create_knowledge_writer_merge_reconcile_schedule,
     create_ci_signals_coordinator_schedule,
     create_cleanup_data_quality_check_runs_schedule,
@@ -1087,7 +1080,7 @@ async def a_init_general_queue_schedules():
     temporal = await async_connect()
     try:
         async with asyncio.TaskGroup() as tg:
-            for schedule in schedules:
+            for schedule in [*schedules, *combined_registration().schedules]:
                 tg.create_task(schedule(temporal))
     except* Exception as eg:
         for exc in eg.exceptions:

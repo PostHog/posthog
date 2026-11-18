@@ -93,6 +93,26 @@ class BlandAIEndpointConfig:
 #   One row per scored call per run, with the normalized scores. Same cursor pagination as
 #   `eval_runs`; rows carry their own `eval_run_id`, which goes in the composite key. Off by
 #   default for the same reason as `eval_runs`.
+#
+# - `agent_test_runs` — GET /v1/agent-testing/runs. The regression test runs of pathways and
+#   personas, with their status, score and assertion results. Offset pagination (`offset` +
+#   `limit`, max 100) with `total_count` in the response, and no timestamp filters, so full refresh.
+#
+# - `agent_test_scenarios` — GET /v1/agent-testing/scenarios. The test scenarios and their
+#   assertions. Single unpaginated page, no timestamp filters, so full refresh.
+#
+# - `widget_threads` — GET /v1/widget/{id}/threads, fanned out over GET /v1/widgets. One row per
+#   web widget conversation, with its messages inline. Page-number pagination (`page` + `limit`,
+#   max 100) and no timestamp filters, so full refresh. Thread ids aren't documented as globally
+#   unique, so rows carry the parent `widget_id` in a composite key.
+#
+# - `audit_logs` — GET /v1/audit-logs. Account change events (logins, pathway and knowledge base
+#   edits). Page-number pagination (`page` + `page_size`, max 100) with `data.total_pages`. The
+#   `created_after` filter gives a server-side incremental cursor on `created_at`, but the events
+#   always arrive newest first. Off by default: the endpoint needs an admin or owner role.
+#
+# - `knowledge_bases` — GET /v1/knowledge. The knowledge base items that agents answer from.
+#   Page-number pagination (`page` + `limit`, max 100) and no timestamp filters, so full refresh.
 BLAND_AI_ENDPOINTS: dict[str, BlandAIEndpointConfig] = {
     "calls": BlandAIEndpointConfig(
         name="calls",
@@ -260,6 +280,61 @@ BLAND_AI_ENDPOINTS: dict[str, BlandAIEndpointConfig] = {
             "One row per call scored in an eval run, with its overall, text and audio scores "
             "normalized to 0-100. Requires Evals to be enabled on your Bland organization. "
             "Full refresh only."
+        ),
+    ),
+    "agent_test_runs": BlandAIEndpointConfig(
+        name="agent_test_runs",
+        primary_keys=["id"],
+        partition_key="created_at",
+        description=(
+            "Your agent test runs — one simulated conversation per test scenario — with their status, "
+            "score, duration and assertion results. Full refresh only."
+        ),
+    ),
+    "agent_test_scenarios": BlandAIEndpointConfig(
+        name="agent_test_scenarios",
+        primary_keys=["id"],
+        partition_key="created_at",
+        description=(
+            "Your agent test scenarios: the simulated caller, the pathway or persona under test, the "
+            "assertions and the most recent run. Full refresh only."
+        ),
+    ),
+    "widget_threads": BlandAIEndpointConfig(
+        name="widget_threads",
+        primary_keys=["widget_id", "id"],
+        partition_key="created_at",
+        description=(
+            "One row per conversation thread on your web chat widgets, with the messages of the thread. "
+            "Full refresh only."
+        ),
+    ),
+    "audit_logs": BlandAIEndpointConfig(
+        name="audit_logs",
+        primary_keys=["id"],
+        partition_key="created_at",
+        supports_incremental=True,
+        incremental_fields=[
+            {
+                "label": "created_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "created_at",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+        should_sync_default=False,
+        description=(
+            "The audit events of your organization: logins, logouts, and pathway and knowledge base "
+            "changes. Requires an API key with an admin or owner role."
+        ),
+    ),
+    "knowledge_bases": BlandAIEndpointConfig(
+        name="knowledge_bases",
+        primary_keys=["id"],
+        partition_key="created_at",
+        description=(
+            "Your knowledge base items — the files, web pages and text that agents answer from — with "
+            "their processing status. Full refresh only."
         ),
     ),
 }

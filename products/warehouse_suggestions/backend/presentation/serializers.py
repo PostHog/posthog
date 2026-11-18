@@ -396,6 +396,12 @@ class WarehouseSuggestionDecisionQuerySerializer(serializers.Serializer):
         required=False,
         help_text="Page the decision was made on. Only recorded on the analytics event.",
     )
+    bulk = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Whether the decision was part of one action on several selected suggestions. Only recorded on the "
+        "analytics event.",
+    )
 
 
 class AssignWarehouseSuggestionSerializer(serializers.Serializer):

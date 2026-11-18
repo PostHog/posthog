@@ -6,8 +6,9 @@ import type { Provenance } from './provenance'
 
 export const SCHEMA_VERSION = 1
 export const TARGET = 'local'
+export const ADAPTERS: readonly string[] = ['workflows']
 
-type Property = string | number | boolean | null | string[] | unknown[]
+type Property = string | number | boolean | null | readonly string[] | unknown[]
 
 export type ScorecardProperties = { run_id: string; ended_at: string } & Record<string, Property>
 
@@ -54,11 +55,14 @@ export function scorecardOf(
     return {
         schema_version: SCHEMA_VERSION,
         run_id: result.runId,
+        adapters: ADAPTERS,
+        owners: [],
         card_id: result.cardId,
         card_version: card.version,
         card_hash: result.cardHash,
         profile_name: profile.name,
         profile_hash: result.profileHash,
+        topology_hash: result.topologyHash ?? null,
         head_sha: provenance.headSha,
         head_dirty: provenance.headDirty,
         origin: result.origin,
@@ -79,9 +83,11 @@ export function scorecardOf(
         units_offered: result.units?.offeredUnits ?? null,
         converged: result.convergence?.converged ?? null,
         unfinished_jobs: result.convergence?.unfinishedJobs ?? null,
+        janitor_resets: result.janitorResets ?? null,
         ...invariantProperties(result),
         ...measurementProperties(result),
         admissions: result.admissions,
+        bars: result.bars,
         valve_timeline: result.timeline,
         evidence_dir: result.evidenceDir,
     }

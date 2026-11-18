@@ -7,15 +7,15 @@ import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
-    reviewHogInstallationClaimsCreate,
-    reviewHogInstallationClaimsDestroy,
-    reviewHogInstallationClaimsPartialUpdate,
-    reviewHogProjectSettingsPartialUpdate,
-    reviewHogProjectSettingsPeopleCreate,
-    reviewHogProjectSettingsPeopleDestroy,
-    reviewHogProjectSettingsRetrieve,
-    reviewHogRepositoriesList,
-    reviewHogRepositoryOverviewRetrieve,
+    codeReviewInstallationClaimsCreate,
+    codeReviewInstallationClaimsDestroy,
+    codeReviewInstallationClaimsPartialUpdate,
+    codeReviewProjectSettingsPartialUpdate,
+    codeReviewProjectSettingsPeopleCreate,
+    codeReviewProjectSettingsPeopleDestroy,
+    codeReviewProjectSettingsRetrieve,
+    codeReviewRepositoriesList,
+    codeReviewRepositoryOverviewRetrieve,
 } from 'products/review_hog/frontend/generated/api'
 import type {
     PatchedReviewProjectSettingsApi,
@@ -25,7 +25,7 @@ import type {
     ReviewRepositoryPersonApi,
     ReviewRepositoryPersonKindEnumApi,
 } from 'products/review_hog/frontend/generated/api.schemas'
-import { ReviewHogRepositoryOverviewRetrieveView } from 'products/review_hog/frontend/generated/api.schemas'
+import { CodeReviewRepositoryOverviewRetrieveView } from 'products/review_hog/frontend/generated/api.schemas'
 import {
     requestUnlessFeatureFlagGated,
     reviewHogSettingsLogic,
@@ -49,12 +49,12 @@ export function errorMessage(error: unknown, fallback: string): string {
 /** Repositories that leave the project when its claim switches from all repositories to only selected ones. */
 async function countRepositoriesLeaving(installationId: string): Promise<number> {
     const [inProject, rows] = await Promise.all([
-        reviewHogRepositoryOverviewRetrieve(currentProjectId(), {
+        codeReviewRepositoryOverviewRetrieve(currentProjectId(), {
             installation_id: installationId,
-            view: ReviewHogRepositoryOverviewRetrieveView.InProject,
+            view: CodeReviewRepositoryOverviewRetrieveView.InProject,
             limit: 1,
         }),
-        reviewHogRepositoriesList(currentProjectId()),
+        codeReviewRepositoriesList(currentProjectId()),
     ])
     const selected = rows.filter((row) => row.installation_id === installationId && row.selected).length
     return Math.max(0, inProject.total - selected)
@@ -215,20 +215,20 @@ export const reviewHogProjectSettingsLogic = kea<reviewHogProjectSettingsLogicTy
                 loadProjectSettings: async () =>
                     await requestUnlessFeatureFlagGated(
                         { values, actions },
-                        () => reviewHogProjectSettingsRetrieve(currentProjectId()),
+                        () => codeReviewProjectSettingsRetrieve(currentProjectId()),
                         values.projectSettings
                     ),
                 updateProjectSettings: async (patch: PatchedReviewProjectSettingsApi) =>
-                    await reviewHogProjectSettingsPartialUpdate(currentProjectId(), patch),
+                    await codeReviewProjectSettingsPartialUpdate(currentProjectId(), patch),
                 addProjectPerson: async ({
                     userId,
                     kind,
                 }: {
                     userId: number
                     kind: ReviewRepositoryPersonKindEnumApi
-                }) => await reviewHogProjectSettingsPeopleCreate(currentProjectId(), { user_id: userId, kind }),
+                }) => await codeReviewProjectSettingsPeopleCreate(currentProjectId(), { user_id: userId, kind }),
                 removeProjectPerson: async (person: ReviewRepositoryPersonApi) =>
-                    await reviewHogProjectSettingsPeopleDestroy(currentProjectId(), person.id),
+                    await codeReviewProjectSettingsPeopleDestroy(currentProjectId(), person.id),
             },
         ],
     })),
@@ -325,12 +325,14 @@ export const reviewHogProjectSettingsLogic = kea<reviewHogProjectSettingsLogicTy
             try {
                 if (scope === 'none') {
                     if (installation.claim_id) {
-                        await reviewHogInstallationClaimsDestroy(currentProjectId(), installation.claim_id)
+                        await codeReviewInstallationClaimsDestroy(currentProjectId(), installation.claim_id)
                     }
                 } else if (installation.claim_id) {
-                    await reviewHogInstallationClaimsPartialUpdate(currentProjectId(), installation.claim_id, { scope })
+                    await codeReviewInstallationClaimsPartialUpdate(currentProjectId(), installation.claim_id, {
+                        scope,
+                    })
                 } else {
-                    await reviewHogInstallationClaimsCreate(currentProjectId(), {
+                    await codeReviewInstallationClaimsCreate(currentProjectId(), {
                         installation_id: installation.installation_id,
                         scope,
                     })

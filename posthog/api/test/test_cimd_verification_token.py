@@ -1,5 +1,7 @@
 from posthog.test.base import APIBaseTest
 
+from django.test import override_settings
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -33,6 +35,17 @@ class TestCIMDVerificationTokenViewSet(APIBaseTest):
         self.assertEqual(token.organization_id, self.organization.id)
         self.assertEqual(token.created_by_id, self.user.id)
         self.assertNotEqual(token.secure_value, body["value"])
+
+    @override_settings(CIMD_VERIFICATION_TOKEN_ISSUER_URL="https://us.posthog.com")
+    def test_an_instance_that_does_not_issue_tokens_refuses_to_create_them(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post(self._url(), {"label": "Prod partner", "cimd_url": VALID_CIMD_URL}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("us.posthog.com", response.json()["detail"])
+        self.assertFalse(CIMDVerificationToken.objects.exists())
 
     def test_non_admin_cannot_create(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER

@@ -153,6 +153,7 @@ WORKFLOWS_TEMPLATE_ID_MAP: dict[str, str] = {
     "password_changed": "01a16467-f65c-0000-31de-f71cdefe710f",
     "login_notification": "01a16468-8007-0000-8fd2-911a6b6e5891",
     "personal_api_key_exposed": "01a16469-2b55-0000-aff5-d3bcfc293ff8",
+    "personal_api_key_changed_by_org_admin": "01a1cc79-d82c-0000-732e-c847b629727e",
     "code_based_verification": "01a16472-1d73-0000-2828-3a196b3d5bc5",
     "email_verification_code": "01a16473-0e70-0000-fcab-8290ccf17558",
     "feature_flags_secure_api_key_exposed": "01a16469-95fd-0000-6717-9ec46285eef3",
@@ -178,6 +179,10 @@ WORKFLOWS_TEMPLATE_ID_MAP: dict[str, str] = {
     "wizard_pr_ready": "01a16471-c17b-0000-8ee5-eb254065b7a1",
     "loop_run_summary": "01a16473-9c4d-0000-99d8-958c03b0f1a0",
     "workload_trust_policy_changed": "01a19e4f-595d-0000-bb58-5b9ae018bceb",
+    "report_note_mentioned": "01a1d219-2b68-0000-c323-fc36fde319d2",
+    "oauth_app_provisioning_accepted": "01a1ead9-ce16-0000-e8fd-dad300f776e0",
+    "oauth_app_provisioning_rejected": "01a1eada-49dc-0000-ebd5-6c02c2a9b87b",
+    "oauth_app_provisioning_in_review": "01a1eada-c67b-0000-7581-1894d06284d9",
 }
 
 # 422 codes for an email the send API refused before queueing it because the address can't receive email: the syntax
@@ -290,13 +295,13 @@ def _queue_workflows_email(
 
     Takes the same arguments as posthog-python's `Emails.send`, so the SDK can replace this body once it ships.
     """
-    payload: dict[str, Any] = {"to": to, "message_data": template_data}
+    payload: dict[str, Any] = {"template_id": template_id, "to": to, "message_data": template_data}
     if distinct_id:
-        payload["identifiers"] = {"distinct_id": distinct_id}
+        payload["distinct_id"] = distinct_id
     try:
         response = requests.post(
-            # The project secret API key names the project, so `@current` resolves to it.
-            f"{settings.POSTHOG_HOST.rstrip('/')}/api/projects/@current/messaging_templates/{template_id}/send/",
+            # The path names no project, because PostHog sends from the project the secret API key belongs to.
+            f"{settings.POSTHOG_HOST.rstrip('/')}/api/messaging/send/email/",
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {settings.POSTHOG_TRANSACTIONAL_EMAIL_API_KEY}",

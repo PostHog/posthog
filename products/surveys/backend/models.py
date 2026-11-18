@@ -30,6 +30,15 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
 
+class SurveyMatchType(models.TextChoices):
+    REGEX = "regex", "regex"
+    NOT_REGEX = "not_regex", "not_regex"
+    EXACT = "exact", "exact"
+    IS_NOT = "is_not", "is_not"
+    ICONTAINS = "icontains", "icontains"
+    NOT_ICONTAINS = "not_icontains", "not_icontains"
+
+
 class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     class SurveyType(models.TextChoices):
         POPOVER = "popover", "popover"
