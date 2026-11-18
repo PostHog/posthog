@@ -188,8 +188,9 @@ class _HogCodeVisitor(TraversingVisitor):
             super().visit_lambda(node)
 
     def visit_for_in_statement(self, node: ast.ForInStatement) -> None:
+        self.visit(node.expr)
         with self._scope([node.valueVar, *([node.keyVar] if node.keyVar else [])]):
-            super().visit_for_in_statement(node)
+            self.visit(node.body)
 
     def visit_for_statement(self, node: ast.ForStatement) -> None:
         with self._scope():
@@ -353,6 +354,10 @@ def _liquid_tags(template: str) -> Iterator[str]:
             if closing_end == -1:
                 return
             position = closing_end + 2
+            continue
+        if name == "liquid":
+            # Each line of a `{% liquid %}` block is a statement, and a line that starts with `#` is a comment.
+            yield from (line for line in tag.splitlines() if not line.strip().startswith("#"))
             continue
         yield tag
 

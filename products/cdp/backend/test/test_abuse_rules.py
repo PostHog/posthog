@@ -223,6 +223,11 @@ class TestAbuseRules(SimpleTestCase):
                 (Rule.INTERNAL_FUNCTION,),
             ),
             (
+                "internal_function_in_the_iterable_of_a_loop_variable_of_that_name",
+                content(hog="for (let sendEmail in [sendEmail({'to': inputs.to})]) {\n  print(sendEmail)\n}"),
+                (Rule.INTERNAL_FUNCTION,),
+            ),
+            (
                 "internal_function_named_as_a_local_in_another_scope",
                 content(hog="fun helper() {\n  let postHogCreateTask := 1\n}\npostHogCreateTask({})"),
                 (Rule.INTERNAL_FUNCTION,),
@@ -325,6 +330,10 @@ class TestAbuseRules(SimpleTestCase):
                     ("an_escaped_quote", '{{ "a\\"b" | concat: (1..20000) | size }}'),
                     ("a_quote_in_an_inline_comment", "{% # ' %}{{ (1..20000) | size }}"),
                     ("a_raw_block_with_a_loose_end_tag", "{% raw %}x{% endraw ignored %}{{ (1..20000) | size }}"),
+                    (
+                        "a_line_comment_in_a_liquid_block",
+                        "{% liquid\n  # the customer's note\n  assign xs = (1..20000)\n%}",
+                    ),
                     ("html_encoded_quotes", "{{ (&quot;1&quot;..&quot;20000&quot;) | size }}"),
                     ("encoded_spaces", "{{%20(1%20..%2020000)%20|%20size%20}}"),
                     ("unicode_escapes", "{{ ('1'..'\\u0032\\u0030\\u0030\\u0030\\u0030') | size }}"),
@@ -337,6 +346,7 @@ class TestAbuseRules(SimpleTestCase):
                     ("in_an_inline_comment", "{% # {{ (1..20000) | size }} %}"),
                     ("in_a_comment_block", "{% comment %}{{ (1..20000) | size }}{% endcomment %}"),
                     ("in_a_raw_block", "{%- raw -%}{% for i in (1..20000) %}{% endfor %}{% endraw %}"),
+                    ("in_a_liquid_block_line_comment", "{% liquid\n  # (1..20000)\n  echo event.event\n%}"),
                     ("in_a_raw_block_with_trimmed_tags", "{%raw-%}{{ (1..20000) | size }}{%endraw%}"),
                     ("after_an_unclosed_quote", "{{ 'Hi }}{{ (1..20000) | size }}"),
                 ]
