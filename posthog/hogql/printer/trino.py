@@ -520,6 +520,7 @@ class TrinoPrinter(PostgresPrinter):
                 )
                 if isinstance(projection, ast.Alias):
                     projection.expr = cast_expression
+                    projection.hidden = False
                 else:
                     branch.select[index] = cast_expression
         return lowered
