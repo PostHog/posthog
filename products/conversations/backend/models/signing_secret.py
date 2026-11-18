@@ -41,7 +41,8 @@ class SigningSecret(UUIDModel):
     # Non-deterministic ciphertext: never filter by this value — fetch by team and compare.
     secret = EncryptedTextField()
     # Historical (#66179): marked rows whose secret stopped mirroring the retired legacy
-    # token column. Kept until the column drop; no reader branches on it anymore.
+    # token column. Migration 0091 resyncs only rows where this is False, so rotate()
+    # must keep setting it; kept until the column drop.
     rotated_independently = models.BooleanField(default=False)
     # The secret that `secret` replaced, kept verifying for PREVIOUS_SECRET_GRACE after
     # previous_secret_rotated_at so in-flight hashes survive a rotation. Expiry is judged
