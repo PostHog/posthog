@@ -539,6 +539,16 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(self.organization_membership.level, OrganizationMembership.Level.ADMIN)
         self.assertEqual(membership.level, OrganizationMembership.Level.MEMBER)
 
+    def test_list_organization_members_includes_service_account_without_email(self):
+        service_account = User.objects.create_service_account(organization=self.organization, name="Terraform")
+
+        response = self.client.get("/api/organizations/@current/members/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        members_by_uuid = {member["user"]["uuid"]: member["user"] for member in response.json()["results"]}
+        self.assertEqual(members_by_uuid[str(service_account.uuid)]["email"], None)
+        self.assertEqual(members_by_uuid[str(service_account.uuid)]["first_name"], "Terraform")
+
     def test_list_organization_members_filter_by_email(self):
         # Create additional users
         user1 = User.objects.create_and_join(self.organization, "specific@posthog.com", None)

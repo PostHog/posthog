@@ -90,7 +90,7 @@ def resolve_login_organization(user: User) -> bool:
         (
             organization
             for organization in user.organizations.all()
-            if not OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(user.email, organization)
+            if not OrganizationDomain.objects.is_user_blocked_by_domain_enforcement(user, organization)
         ),
         None,
     )

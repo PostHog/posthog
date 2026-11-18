@@ -4,8 +4,10 @@ from posthog.test.base import BaseTest
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.db import IntegrityError, transaction
 
 from posthog.constants import AvailableFeature
+from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.models import Team, User
 from posthog.models.organization import Organization, OrganizationMembership
 
@@ -30,6 +32,27 @@ class TestUser(BaseTest):
         with self.assertRaises(CommandError) as ctx:
             call_command("createsuperuser", "--noinput", "--email", "admin@posthog.com")
         self.assertIn("doesn't support `createsuperuser`", str(ctx.exception))
+
+    def test_service_accounts_share_a_missing_email(self):
+        first = User.objects.create_service_account(organization=self.organization, name="CI")
+        second = User.objects.create_service_account(organization=self.organization, name="Terraform")
+
+        self.assertIsNone(first.email)
+        self.assertIsNone(second.email)
+        self.assertEqual(str(first), "CI")
+        self.assertFalse(first.has_usable_password())
+
+    def test_human_requires_email(self):
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            User.objects.create(email=None, first_name="Tim")
+
+    def test_login_lookup_ignores_service_account_contact_email(self):
+        User.objects.create_service_account(
+            organization=self.organization, name="CI", contact_email="engineering@posthog.com"
+        )
+
+        self.assertIsNone(EmailLookupHandler.get_user_by_email("engineering@posthog.com"))
+        self.assertTrue(EmailLookupHandler.users_matching_email("engineering@posthog.com").exists())
 
     def test_analytics_metadata(self):
         self.maxDiff = None

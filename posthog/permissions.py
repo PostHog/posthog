@@ -331,7 +331,7 @@ class VerifiedDomainEnforcementPermission(BasePermission):
         if is_impersonated_session(request):
             return True
 
-        if OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(user.email, organization):
+        if OrganizationDomain.objects.is_user_blocked_by_domain_enforcement(user, organization):
             raise PermissionDenied(detail=VERIFIED_DOMAIN_REQUIRED_ERROR, code="verified_domain_required")
 
         return True

@@ -13,7 +13,7 @@ export function UserSelectItem({ user }: UserSelectItemProps): JSX.Element {
         <span className="ph-no-capture flex gap-2 items-center">
             <ProfilePicture user={user} size="sm" />
             <span>
-                {fullName(user)} <b>{`<${user.email}>`}</b>
+                {fullName(user)} {user.email && <b>{`<${user.email}>`}</b>}
             </span>
         </span>
     )
@@ -24,8 +24,9 @@ export function usersLemonSelectOptions(
     key: 'email' | 'uuid' = 'email'
 ): LemonInputSelectOption[] {
     return users.map((user) => ({
-        key: user[key],
-        label: `${fullName(user)} ${user.email}`,
+        // An account without an email has no email key, so fall back to the uuid to keep options distinct.
+        key: user[key] ?? user.uuid,
+        label: `${fullName(user)} ${user.email ?? ''}`.trim(),
         labelComponent: <UserSelectItem user={user} />,
     }))
 }

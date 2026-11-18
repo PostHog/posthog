@@ -593,7 +593,7 @@ class BillingManager:
             members_with_distinct_id.values("email", "distinct_id", "organization_membership__level")
             .order_by("email")  # Deterministic order for tests
             .annotate(role=F("organization_membership__level"))
-            .filter(role__gte=OrganizationMembership.Level.ADMIN)
+            .filter(role__gte=OrganizationMembership.Level.ADMIN, email__isnull=False)
             .values(
                 "email",
                 "distinct_id",

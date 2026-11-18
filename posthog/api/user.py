@@ -466,6 +466,8 @@ class UserSerializer(serializers.ModelSerializer):
 
         extra_kwargs = {
             "password": {"write_only": True},
+            # The column is nullable for service accounts only. This serializer edits a person's own profile.
+            "email": {"allow_null": False, "allow_blank": False},
         }
 
     def validate_first_name(self, value: str) -> str:
@@ -1010,7 +1012,7 @@ class UserSerializer(serializers.ModelSerializer):
             organization_id = str(team.organization_id)
             if organization_id not in organization_admits:
                 organization_admits[organization_id] = not (
-                    OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(user.email, team.organization)
+                    OrganizationDomain.objects.is_user_blocked_by_domain_enforcement(user, team.organization)
                     or organization_refuses_personal_api_key(request, team.organization)
                 )
             if (

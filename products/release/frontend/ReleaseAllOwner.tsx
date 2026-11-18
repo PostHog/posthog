@@ -14,7 +14,7 @@ export function ReleaseAllOwner({ owner }: { owner: Owner | null }): JSX.Element
         )
     }
     const full = fullName(owner)
-    const label = owner.first_name?.trim() || owner.email.split('@')[0]
+    const label = owner.first_name?.trim() || owner.email?.split('@')[0] || ''
     return (
         <Tooltip>
             <TooltipTrigger render={<span className="flex min-w-0 items-center gap-1.5" />}>

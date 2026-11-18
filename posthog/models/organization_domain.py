@@ -39,7 +39,7 @@ class OrganizationDomainManager(models.Manager):
         # instead of clearing.
         return self.exclude(verified_at__isnull=True)
 
-    def get_verified_for_email_address(self, email: str) -> Optional["OrganizationDomain"]:
+    def get_verified_for_email_address(self, email: str | None) -> Optional["OrganizationDomain"]:
         """
         Returns an `OrganizationDomain` configuration for a specific email address (if it exists and is verified),
         using the domain of the email address
@@ -50,7 +50,7 @@ class OrganizationDomainManager(models.Manager):
         return self.verified_domains().filter(domain__iexact=domain).first()
 
     def get_sso_enforcement_for_email_address(
-        self, email: str, organization: Organization | None = None
+        self, email: str | None, organization: Organization | None = None
     ) -> Optional[str]:
         """
         Returns the specific `sso_enforcement` applicable for an email address or an `OrganizationDomain` objects.
@@ -113,14 +113,14 @@ class OrganizationDomainManager(models.Manager):
 
         return candidate_sso_enforcement
 
-    def is_domain_verified_for_organization(self, email: str, organization: Organization) -> bool:
+    def is_domain_verified_for_organization(self, email: str | None, organization: Organization) -> bool:
         """Whether the domain of `email` is a verified domain owned by `organization`."""
         domain = email_domain(email)
         if domain is None:
             return False
         return self.verified_domains().filter(organization=organization, domain__iexact=domain).exists()
 
-    def is_email_blocked_by_domain_enforcement(self, email: str, organization: Organization) -> bool:
+    def is_email_blocked_by_domain_enforcement(self, email: str | None, organization: Organization) -> bool:
         """
         Whether a login or join for `email` into `organization` should be blocked: the org requires
         a verified email domain, and `email`'s domain is not one of the org's verified domains.
@@ -128,6 +128,16 @@ class OrganizationDomainManager(models.Manager):
         if not organization.enforce_verified_domains:
             return False
         return not self.is_domain_verified_for_organization(email, organization)
+
+    def is_user_blocked_by_domain_enforcement(self, user: "User", organization: Organization) -> bool:
+        """
+        Whether `user` should be denied access to `organization` under verified-domain enforcement.
+
+        A service account is exempt. The organization owns it, and it has no email domain to verify.
+        """
+        if user.is_service_account:
+            return False
+        return self.is_email_blocked_by_domain_enforcement(user.email, organization)
 
     def is_access_blocked_by_domain_enforcement(self, user: "User") -> bool:
         """
@@ -139,7 +149,7 @@ class OrganizationDomainManager(models.Manager):
         organization = user.organization
         if organization is None:
             return False
-        return self.is_email_blocked_by_domain_enforcement(user.email, organization)
+        return self.is_user_blocked_by_domain_enforcement(user, organization)
 
 
 class OrganizationDomain(ModelActivityMixin, UUIDTModel):

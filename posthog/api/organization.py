@@ -547,7 +547,7 @@ class OrganizationSerializer(
             self.instance
             and request
             and isinstance(request.user, User)
-            and OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(request.user.email, self.instance)
+            and OrganizationDomain.objects.is_user_blocked_by_domain_enforcement(request.user, self.instance)
         ):
             if set(attrs) != {"enforce_verified_domains"} or attrs["enforce_verified_domains"]:
                 raise exceptions.PermissionDenied(VERIFIED_DOMAIN_REQUIRED_ERROR, code="verified_domain_required")

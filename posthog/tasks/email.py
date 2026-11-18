@@ -115,7 +115,7 @@ def get_members_to_notify(
     """Members who turned this email on and may open the project. `user_ids` limits the check to those people."""
     memberships_to_email = []
     queryset = OrganizationMembership.objects.prefetch_related("user", "organization").filter(
-        organization_id=team.organization_id, user__is_active=True
+        organization_id=team.organization_id, user__is_active=True, user__email__isnull=False
     )
     if user_ids is not None:
         queryset = queryset.filter(user_id__in=user_ids)
@@ -465,7 +465,7 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
     invitee: User = User.objects.get(uuid=invitee_uuid)
     organization: Organization = Organization.objects.get(id=organization_id)
     # Don't send this email to the new member themselves; respect per-user org notification prefs
-    candidates = list(organization.members.exclude(email=invitee.email))
+    candidates = list(organization.members.exclude(pk=invitee.pk))
     locks_by_user = notification_locks_for_users([user.id for user in candidates], organization_id=organization_id)
     members_to_email = [
         user

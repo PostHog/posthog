@@ -51,7 +51,7 @@ function scoreCandidate(target: string, candidate: string): number {
 
 function userNames(member: OrganizationMemberType): string[] {
     const { user } = member
-    return [user.first_name, user.email.split('@')[0], user.email]
+    return [user.first_name, user.email?.split('@')[0] ?? '', user.email ?? '']
         .map((value) => normalizeName(value))
         .filter((value) => value.length > 0)
 }
