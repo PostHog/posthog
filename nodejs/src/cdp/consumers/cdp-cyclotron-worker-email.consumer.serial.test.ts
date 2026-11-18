@@ -36,7 +36,7 @@ import { CyclotronJobInvocation } from '~/cdp/types'
 import { convertToHogFunctionFilterGlobal } from '~/cdp/utils/hog-function-filtering'
 import { KAFKA_EMAIL_STATUS } from '~/common/config/kafka-topics'
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { PostgresRouter } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
@@ -376,24 +376,6 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         expect(await emailCount('email_sender_unverified')).toBe(unverifiedBefore + 1)
         expect(await emailCount('email_failed')).toBe(failuresBefore)
         expect(delivered()).toEqual([])
-    })
-
-    it('delivers an email when the sender exists on the primary but is missing from the replica', async () => {
-        const query = hub.postgres.query.bind(hub.postgres)
-        const replica = jest.spyOn(hub.postgres, 'query').mockImplementation(async (use, sql, params, tag, level) => {
-            const response = await query(use, sql, params, tag, level)
-            if (use === PostgresUse.COMMON_READ && tag === 'fetchIntegrations') {
-                return { ...response, rows: response.rows.filter((row) => row.id !== integration.id) }
-            }
-            return response
-        })
-        try {
-            await enqueue(transactionalSend(null))
-            await startWorker(null)
-            await waitForExpect(() => expect(delivered()).toEqual([[]]))
-        } finally {
-            replica.mockRestore()
-        }
     })
 
     it('a worker whose job the janitor re-queued to another worker does not send it, and its write is refused', async () => {

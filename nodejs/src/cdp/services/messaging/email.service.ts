@@ -728,7 +728,7 @@ export class EmailService {
 
         const params = invocation.queueParameters
         const integrationId = selectEmailSenderIntegrationId(invocation.id, params.from)
-        const storedIntegration = await this.integrationManager.getCheckingPrimaryOnMiss(integrationId)
+        const storedIntegration = await this.integrationManager.get(integrationId)
 
         let success: boolean = false
         let rescheduled: boolean = false
