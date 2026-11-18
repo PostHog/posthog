@@ -6,6 +6,7 @@ import pytest
 from products.dashboards.backend.benchmarks.scorecard_scenarios import (
     NOT_MERGED,
     config_from_env,
+    real_redis,
     run_scorecard,
     write_outputs,
 )
@@ -23,7 +24,8 @@ def _log(line: str) -> None:
 @pytest.mark.django_db(transaction=True)
 def test_dashboard_v2_scorecard() -> None:
     cfg = config_from_env()
-    scorecard = run_scorecard(cfg, log=_log)
+    with real_redis():
+        scorecard = run_scorecard(cfg, log=_log)
     markdown = write_outputs(
         scorecard, os.environ.get("DASHBOARD_V2_BENCH_OUT"), os.environ.get("DASHBOARD_V2_BENCH_MD_OUT")
     )

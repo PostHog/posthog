@@ -167,9 +167,12 @@ class AutoRefreshTab:
     def start(self) -> None:
         self._thread.start()
 
-    def stop(self) -> None:
+    def stop_refreshing(self) -> None:
         self._stop.set()
         self._thread.join()
+
+    def stop(self) -> None:
+        self.stop_refreshing()
         self.queue.stop()
 
 
@@ -177,9 +180,15 @@ def run_auto_refresh(tabs: list[AutoRefreshTab], duration_s: float) -> list[dict
     for tab in tabs:
         tab.start()
     time.sleep(duration_s)
+    # Stop every refresh loop before draining any queue, so no tab keeps cycling while another drains.
     for tab in tabs:
-        tab.stop()
+        tab.stop_refreshing()
+    for tab in tabs:
+        tab.queue.stop()
     return [summarize(tab.samples) for tab in tabs]
+
+
+BOARD_LOAD_TIMEOUT_S = 900
 
 
 def run_board_load(
@@ -214,9 +223,13 @@ def run_board_load(
 
     for i in range(requested_tiles):
         queue.submit(partial(task, i))
-    done.wait(timeout=900)
+    settled = done.wait(timeout=BOARD_LOAD_TIMEOUT_S)
     total_ms = (time.monotonic() - start) * 1000
     queue.stop()
+    if not settled:
+        raise TimeoutError(
+            f"board load did not settle within {BOARD_LOAD_TIMEOUT_S} s: {remaining[0]} of {requested_tiles} tiles pending"
+        )
     return {
         "requested_tiles": requested_tiles,
         "outcomes": dict(outcomes),

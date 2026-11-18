@@ -34,7 +34,9 @@ from unittest.mock import patch
 from django.conf import settings
 from django.db import connection, connections
 from django.test import Client
-from django.test.utils import CaptureQueriesContext
+from django.test.utils import CaptureQueriesContext, override_settings
+
+import redis as redis_lib
 
 from posthog.schema import (
     EventsNode,
@@ -46,7 +48,10 @@ from posthog.schema import (
     TrendsQueryResponse,
 )
 
-from posthog import permissions
+from posthog import (
+    permissions,
+    redis as posthog_redis,
+)
 from posthog.caching import warming
 from posthog.clickhouse.client import limit
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
@@ -301,6 +306,27 @@ def mocked_compute(team: Team, backend: MockBackend) -> Iterator[None]:
 
 
 @contextmanager
+def real_redis() -> Iterator[None]:
+    """pytest sets TEST, which swaps Redis for FakeRedis and the Django caches for LocMemCache.
+    Point both back at the local Redis so limiter and cache timings include real round trips."""
+    client = redis_lib.from_url(settings.REDIS_URL, db=0)
+    client.ping()
+    redis_cache = {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": settings.REDIS_URL,
+        "OPTIONS": {"CLIENT_CLASS": "django_redis.client.DefaultClient"},
+        "KEY_PREFIX": "dv2bench",
+    }
+    caches = {**settings.CACHES, **dict.fromkeys(("default", "query_cache"), redis_cache)}
+    with (
+        patch.object(posthog_redis, "get_client", lambda *args, **kwargs: client),
+        patch.object(limit.RateLimit, "redis_client", client),
+        override_settings(CACHES=caches),
+    ):
+        yield
+
+
+@contextmanager
 def live_limiters(organization: Organization) -> Iterator[None]:
     """The app limiters skip themselves when TEST is set. Lift that so the real Redis limiters apply."""
     try:
@@ -534,6 +560,8 @@ def scenario_e(cfg: Config, enabled: bool, run: int) -> dict[str, float]:
         )
     if server.errors:
         raise RuntimeError(f"scenario E tile requests failed unexpectedly: {dict(server.errors)}")
+    if load["outcomes"] != {"ok": requested}:
+        raise RuntimeError(f"scenario E did not load every requested tile: {load['outcomes']}")
     return {
         "tile_queries": backend.calls["metrics"],
         "first_screen_ms": load["first_screen_ms"] or 0.0,

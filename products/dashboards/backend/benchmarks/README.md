@@ -12,7 +12,7 @@ DEBUG=1 PYTHONPATH=. DJANGO_SETTINGS_MODULE=posthog.settings \
 - Full mode runs each arm 3 times. It took 13 minutes on master and takes longer as more "after" arms light up. `--quick` runs once per arm with short windows and takes about 2 minutes.
 - `--dashboard-v2 off|on|both` picks the arm. `on` forces the flag through `_FORCE_ENABLED_FLAGS`, the set behind `POSTHOG_FEATURE_FLAGS_FORCE_ENABLED`.
 - `--scenarios BC` runs a subset. `--repeats N` sets runs per arm. `--md-out` defaults to `--out` with `.md`.
-- It needs the local Postgres and Redis. ClickHouse and Snuffle are not called.
+- It needs the local Postgres and Redis. pytest swaps Redis and the Django caches for in-memory fakes, so the run points the Redis client, the limiters and the `default` and `query_cache` caches back at `REDIS_URL`. ClickHouse and Snuffle are not called.
 - The scenarios need a Django test database, so the script runs them through pytest against `test_$POSTHOG_DB_NAME` (default `test_posthog_dv2bench`). The first run migrates it, which takes a few minutes.
 - `RUN_DASHBOARD_V2_BENCH=1 PGDATABASE=posthog_dv2bench pytest products/dashboards/backend/benchmarks/test_dashboard_v2_scorecard.py` runs quick mode and checks every scenario reports. It is skipped without `RUN_DASHBOARD_V2_BENCH`, so it never runs in CI.
 
