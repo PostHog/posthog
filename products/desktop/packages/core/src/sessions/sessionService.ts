@@ -624,7 +624,7 @@ export interface ReconcileTaskConnectionParams {
 }
 
 const ACTIVITY_HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000;
-const LOCAL_RUN_HEARTBEAT_INTERVAL_MS = 60 * 1000;
+const LOCAL_RUN_HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000;
 
 export type SessionPlan = Extract<SessionUpdate, { sessionUpdate: "plan" }>;
 

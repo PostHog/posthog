@@ -144,7 +144,7 @@ describe("session subscription lifecycle", () => {
   });
 
   describe("local run heartbeat", () => {
-    it("beats on connect and once a minute while the channel is open", async () => {
+    it("beats on connect and every 5 minutes while the channel is open", async () => {
       vi.useFakeTimers();
       try {
         const { heartbeatTaskRun } = createHarness();
@@ -153,7 +153,7 @@ describe("session subscription lifecycle", () => {
         expect(heartbeatTaskRun).toHaveBeenCalledTimes(1);
         expect(heartbeatTaskRun).toHaveBeenCalledWith("task-1", RUN_ID);
 
-        await vi.advanceTimersByTimeAsync(180_000);
+        await vi.advanceTimersByTimeAsync(900_000);
         expect(heartbeatTaskRun).toHaveBeenCalledTimes(4);
       } finally {
         vi.useRealTimers();
@@ -167,7 +167,7 @@ describe("session subscription lifecycle", () => {
         await vi.advanceTimersByTimeAsync(0);
 
         service.reset();
-        await vi.advanceTimersByTimeAsync(180_000);
+        await vi.advanceTimersByTimeAsync(900_000);
 
         expect(heartbeatTaskRun).toHaveBeenCalledTimes(1);
       } finally {
@@ -184,7 +184,7 @@ describe("session subscription lifecycle", () => {
         for (let i = 0; i < 5; i++) {
           events.subscriptions.at(-1)?.handlers.onComplete?.();
         }
-        await vi.advanceTimersByTimeAsync(180_000);
+        await vi.advanceTimersByTimeAsync(900_000);
 
         expect(heartbeatTaskRun).toHaveBeenCalledTimes(1);
       } finally {
@@ -197,7 +197,7 @@ describe("session subscription lifecycle", () => {
       try {
         const { heartbeatTaskRun } = createHarness({ isCloud: true });
 
-        await vi.advanceTimersByTimeAsync(180_000);
+        await vi.advanceTimersByTimeAsync(900_000);
 
         expect(heartbeatTaskRun).not.toHaveBeenCalled();
       } finally {
@@ -224,7 +224,7 @@ describe("session subscription lifecycle", () => {
           vi.fn().mockRejectedValue(error),
         );
 
-        await vi.advanceTimersByTimeAsync(180_000);
+        await vi.advanceTimersByTimeAsync(900_000);
 
         expect(heartbeatTaskRun).toHaveBeenCalledTimes(beats);
       } finally {
