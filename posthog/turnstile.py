@@ -1,9 +1,11 @@
 """
 Cloudflare Turnstile integration for challenge verification.
 
-Provides token verification against Cloudflare's siteverify API and
-single-use nonce management via Redis for tying challenges to specific
-signup attempts.
+When WorkOS Radar answers "challenge" for a signup or a login, Turnstile is the
+challenge the person solves. This module verifies Turnstile tokens against
+Cloudflare's siteverify API. It also keeps a single-use nonce in Redis that ties
+each challenge to the Radar attempt that asked for it, so a solved challenge can
+be reported against that attempt.
 """
 
 import uuid
