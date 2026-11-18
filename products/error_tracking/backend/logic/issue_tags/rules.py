@@ -7,6 +7,7 @@ from posthog.schema import EmptyPropertyFilter, EventPropertyFilter, PropertyGro
 
 from posthog.hogql.errors import BaseHogQLError
 
+from posthog.dataclasses import frozen
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.user import User
 
@@ -37,6 +38,12 @@ class IssueTagRuleLimitError(Exception):
     pass
 
 
+@frozen
+class _CompiledRuleFilters:
+    filters: dict
+    bytecode: list[Any]
+
+
 def list_issue_tag_rules(team_id: int, user: User) -> list[ErrorTrackingIssueTagRule]:
     """The team's rules that `user` can see. A rule that reads a property the user may not access is left out."""
     require_issue_tags(team_id)
@@ -58,8 +65,8 @@ def create_issue_tag_rule(
     team_id: int, user: User, *, label: str, description: str, filters: dict, order_key: int = 0
 ) -> ErrorTrackingIssueTagRule:
     require_issue_tags(team_id)
-    filters, bytecode = _normalize_and_compile(team_id, filters)
-    if not _rule_visibility(team_id, user).shows(ErrorTrackingIssueTagRule(filters=filters)):
+    compiled = _normalize_and_compile(team_id, filters)
+    if not _rule_visibility(team_id, user).shows(ErrorTrackingIssueTagRule(filters=compiled.filters)):
         raise IssueTagRuleFiltersError(RESTRICTED_PROPERTY_MESSAGE)
     canonical_team_id = resolve_effective_team_id(team_id)
     rules = ErrorTrackingIssueTagRule.objects.for_team(canonical_team_id, canonical=True)
@@ -77,8 +84,8 @@ def create_issue_tag_rule(
             team_id=canonical_team_id,
             label=label,
             description=description,
-            filters=filters,
-            bytecode=bytecode,
+            filters=compiled.filters,
+            bytecode=compiled.bytecode,
             order_key=order_key,
         )
 
@@ -111,13 +118,14 @@ def update_issue_tag_rule(
         if rule is None or not visibility.shows(rule):
             return None
         if filters is not None:
-            normalized, rule.bytecode = _normalize_and_compile(team_id, filters)
-            if normalized != rule.filters:
+            compiled = _normalize_and_compile(team_id, filters)
+            if compiled.filters != rule.filters:
                 rule.version += 1
-            if _read_properties(normalized) != _read_properties(rule.filters):
+            if _read_properties(compiled.filters) != _read_properties(rule.filters):
                 ErrorTrackingIssueTag.objects.for_team(team_id).filter(key=rule.key).delete()
                 rule.key = ErrorTrackingIssueTagRule._meta.get_field("key").get_default()
-            rule.filters = normalized
+            rule.filters = compiled.filters
+            rule.bytecode = compiled.bytecode
             rule.disabled_data = None
             if not visibility.shows(rule):
                 raise IssueTagRuleFiltersError(RESTRICTED_PROPERTY_MESSAGE)
@@ -135,10 +143,16 @@ def delete_issue_tag_rule(team_id: int, rule_id: str, user: User) -> bool:
     The ClickHouse copies of the tags stay. A rule key is never reused, and reads use only the team's current
     tag definitions, so nothing reads them again.
     """
-    rule = get_issue_tag_rule(team_id, rule_id, user)
-    if rule is None:
+    require_issue_tags(team_id)
+    parsed_id = _parse_rule_id(rule_id)
+    if parsed_id is None:
         return False
+    visibility = _rule_visibility(team_id, user)
     with transaction.atomic():
+        # Lock the rule before its tags, in the same order as an edit, so a concurrent edit and delete cannot deadlock.
+        rule = ErrorTrackingIssueTagRule.objects.for_team(team_id).select_for_update().filter(id=parsed_id).first()
+        if rule is None or not visibility.shows(rule):
+            return False
         ErrorTrackingIssueTag.objects.for_team(team_id).filter(key=rule.key).delete()
         rule.delete()
     return True
@@ -159,7 +173,7 @@ def reorder_issue_tag_rules(team_id: int, orders: dict[str, int], user: User) ->
     _reorder_rules(rules, {rule_id: order for rule_id, order in canonical_orders.items() if rule_id in visible_ids})
 
 
-def _normalize_and_compile(team_id: int, filters: dict) -> tuple[dict, list[Any]]:
+def _normalize_and_compile(team_id: int, filters: dict) -> _CompiledRuleFilters:
     """The filters in their stored form, and their bytecode. Raise IssueTagRuleFiltersError for filters a rule cannot run.
 
     The compiler fills in defaults, such as a missing filter type meaning an event property. The access check, the
@@ -183,7 +197,7 @@ def _normalize_and_compile(team_id: int, filters: dict) -> tuple[dict, list[Any]
         raise IssueTagRuleFiltersError(
             f"A tag rule's bytecode cannot exceed {MAX_SEVERITY_RULE_BYTECODE_OPS} operations."
         )
-    return normalized, bytecode
+    return _CompiledRuleFilters(filters=normalized, bytecode=bytecode)
 
 
 def _read_properties(filters: object) -> set[tuple[str, str]]:
