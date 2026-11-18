@@ -2026,7 +2026,17 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         location = response.headers["Location"]
         self.assertIn("https://idp.hogflix.io/saml?SAMLRequest=", location)
 
-    def test_cannot_initiate_saml_flow_with_multiple_configurations(self):
+    @parameterized.expand(
+        [
+            ("ambiguous", None, "member@posthog.com", False),
+            ("selected", "configured", "member@posthog.com", True),
+            ("invalid", "not-a-uuid", "member@posthog.com", False),
+            ("other_domain", "configured", "member@other.example", False),
+        ]
+    )
+    def test_saml_configuration_selection_remains_scoped_to_the_email(
+        self, _name: str, selection: str | None, email: str, allowed: bool
+    ):
         config = self.organization_domain.saml_identity_provider_configs.first()
         assert config is not None
         duplicate_config = IdentityProviderConfig.objects.create(
@@ -2039,9 +2049,14 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
             organization_domain=self.organization_domain, identity_provider_config=duplicate_config
         )
 
-        response = self.client.get("/login/saml/?email=hellohello@posthog.com")
-
-        self.assertRedirects(response, "/login?error_code=improperly_configured_sso", fetch_redirect_response=False)
+        query = {"email": email}
+        if selection:
+            query["idp"] = str(config.saml_relay_state) if selection == "configured" else selection
+        response = self.client.get("/login/saml/", query)
+        if allowed:
+            self.assertIn("https://idp.hogflix.io/saml?SAMLRequest=", response["Location"])
+        else:
+            self.assertRedirects(response, "/login?error_code=improperly_configured_sso", fetch_redirect_response=False)
 
     def test_saml_flow_carries_next_url_in_relay_state(self):
         # The session cookie is SameSite=Lax, so it's dropped on the IdP's cross-site POST
@@ -2235,11 +2250,11 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
     @parameterized.expand([("missing_cookie", False), ("other_browser", True)])
     @pytest.mark.disable_mock_code_based_verifier
     @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)
-    def test_first_saml_mailbox_proof_rejects_a_response_from_another_browser(
-        self, _name: str, other_browser: bool
-    ) -> None:
+    def test_first_saml_mailbox_proof_restarts_in_another_browser(self, _name: str, other_browser: bool) -> None:
         user = User.objects.create_user(email="engineering@posthog.com", first_name="Member", password=None)
-        begin = self.client.get("/login/saml/?email=engineering@posthog.com")
+        begin = self.client.get(
+            "/login/saml/", {"email": "engineering@posthog.com", "next": "/settings/organization/authentication"}
+        )
         relay_state = parse_qs(urlparse(begin["Location"]).query)["RelayState"][0]
         if other_browser:
             self.client.get("/login/saml/?email=engineering@posthog.com")
@@ -2252,7 +2267,10 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
                 "/complete/saml/", {"SAMLResponse": saml_response, "RelayState": relay_state}, format="multipart"
             )
         self.assertNotIn("code_verification_pending", response["Location"])
-        self.assertIn("oauth_state_invalid", response["Location"])
+        self.assertEqual(urlparse(response["Location"]).path, "/login/saml/")
+        self.assertEqual(
+            parse_qs(urlparse(response["Location"]).query)["next"], ["/settings/organization/authentication"]
+        )
         self.assertFalse(sent.called)
         self.assertNotIn("_auth_user_id", self.client.session)
         self.assertFalse(UserSocialAuth.objects.filter(user=user).exists())
@@ -2310,7 +2328,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
                 },
                 format="multipart",
             )
-        self.assertIn("oauth_state_invalid", response["Location"])
+        self.assertEqual(urlparse(response["Location"]).path, "/login/saml/")
         self.assertNotEqual(self.client.session.session_key, foreign_session)
         self.assertNotIn(CODE_BASED_VERIFICATION_SSO_SESSION_KEY, self.client.session)
         self.assertNotIn("_auth_user_id", self.client.session)
@@ -2365,17 +2383,39 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
     @parameterized.expand(
         [
             # Azure AD / Entra omits RelayState entirely for IdP-initiated SSO.
-            ("no_relay_state", None),
+            ("no_relay_state", None, False, False),
             # Other IdPs send their own RelayState (e.g. an app launch URL) that isn't our UUID.
-            ("url_relay_state", "https://idp.hogflix.io/saml/launch"),
+            ("url_relay_state", "https://idp.hogflix.io/saml/launch", False, False),
+            ("linked_account_mailbox", None, True, False),
+            ("overlapping_domains", None, False, True),
         ]
     )
+    @pytest.mark.disable_mock_code_based_verifier
     @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)  # Ensures the SAML timestamp validation passes
-    def test_can_login_with_idp_initiated_saml(self, _name: str, relay_state: str | None) -> None:
+    def test_can_login_with_idp_initiated_saml(
+        self, _name: str, relay_state: str | None, linked_account: bool, overlapping_domains: bool
+    ) -> None:
         # IdP-initiated assertions don't carry the OrganizationDomain UUID in RelayState, so we
         # route to the tenant via the assertion's <Issuer> instead of rejecting it as "Invalid
         # RelayState". The fixture's Issuer matches the linked IdP config's saml_entity_id.
         user = User.objects.create(email="engineering@posthog.com", distinct_id=str(uuid.uuid4()))
+        if overlapping_domains:
+            config = self.organization_domain.saml_identity_provider_configs.get()
+            IdentityProviderConfig.objects.create(
+                organization=self.organization,
+                config_scope="saml",
+                domain_scope="all",
+                saml_entity_id="https://other-idp.example.com",
+                saml_acs_url=config.saml_acs_url,
+                saml_x509_cert=config.saml_x509_cert,
+            )
+        if linked_account:
+            config = self.organization_domain.saml_identity_provider_configs.get()
+            user.email = "owner@example.net"
+            user.save()
+            UserSocialAuth.objects.create(
+                user=user, provider="saml", uid=f"{config.saml_relay_state}:engineering@posthog.com"
+            )
 
         with open(
             os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"),
@@ -2389,13 +2429,29 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         if relay_state is not None:
             post_data["RelayState"] = relay_state
 
-        response = self.client.post("/complete/saml/", post_data, follow=True, format="multipart")
+        with enable_code_sending() as sent:
+            response = self.client.post("/complete/saml/", post_data, format="multipart")
+            self.assertEqual(urlparse(response["Location"]).path, "/login/saml/")
+            self.assertEqual(parse_qs(urlparse(response["Location"]).query)["email"], ["engineering@posthog.com"])
+            self.assertFalse(sent.called)
+            self.assertNotIn("_auth_user_id", self.client.session)
+            initiate = self.client.get(response["Location"])
+            self.assertIn("SAMLRequest=", initiate["Location"])
+            bound_state = parse_qs(urlparse(initiate["Location"]).query)["RelayState"][0]
+            self.assertIn(SAML_BROWSER_COOKIE, initiate.cookies)
+            response = self.client.post("/complete/saml/", {**post_data, "RelayState": bound_state}, format="multipart")
+            self.assertIn("code_verification_pending=1", response["Location"])
+            self.assertEqual(sent.call_args.kwargs["to_email"], user.email)
+            response = self.client.post("/api/login/code-based-verification/", {"code": sent.call_args.args[1]})
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(self.client.session["_auth_user_id"], str(user.pk))
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
-        self.assertRedirects(response, "/")  # redirect to the home page
-
-        _session = self.client.session
-        self.assertEqual(_session.get("_auth_user_id"), str(user.pk))
+        self.client.logout()
+        with enable_code_sending() as sent:
+            response = self.client.post("/complete/saml/", post_data, format="multipart")
+        self.assertEqual(response["Location"], "/")
+        self.assertFalse(sent.called)
+        self.assertEqual(self.client.session["_auth_user_id"], str(user.pk))
 
     @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)  # Ensures the SAML timestamp validation passes
     def test_saml_login_redirects_to_next_url_from_relay_state(self):

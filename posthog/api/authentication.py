@@ -75,6 +75,7 @@ from posthog.helpers.sso import (
     GITHUB_EMAIL_LOOKUP_ERROR,
     IDP_SSO_BACKENDS,
     UNVERIFIED_SOCIAL_EMAIL_ERROR,
+    get_safe_next_url,
     idp_authentication_is_fresh,
     is_sso_reauth_begin,
     sso_failure_redirect_url,
@@ -1820,7 +1821,10 @@ def social_require_idp_email_verification(
     if not idp_authentication_is_fresh(authenticated_at):
         raise AuthStateForbidden(backend)
     if backend.name == "saml" and kwargs.get("saml_browser_verified") is not True:
-        return redirect(sso_failure_redirect_url(request, "oauth_state_invalid"))
+        restart = {"email": email, "idp": str((response or {})["idp_name"])}
+        if next_url := get_safe_next_url(strategy.session_get("next"), request):
+            restart["next"] = next_url
+        return redirect(f"{reverse('social:begin', args=['saml'])}?{urlencode(restart)}")
 
     pending = request.session.get(CODE_BASED_VERIFICATION_SSO_SESSION_KEY)
     issued_at = code_based_verifier.get_pending_code_based_verification_issued_at(request)
