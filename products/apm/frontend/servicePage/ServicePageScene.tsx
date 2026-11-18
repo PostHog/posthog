@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { IconArrowUpRight } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -16,8 +17,9 @@ import { healthColumns } from '../healthColumns'
 import { formatMs, formatPercent, formatRate } from '../healthDisplay'
 import { HealthStatusTag } from '../HealthStatusTag'
 import { Sparkline } from '../Sparkline'
+import { TelemetryLinks } from '../TelemetryLinks'
 import { ServiceLatencyChart } from './ServiceLatencyChart'
-import { readScopeParam } from './servicePage'
+import { readScopeParam, serviceTracesUrl } from './servicePage'
 import { ERROR_SAMPLE_LIMIT, servicePageLogic, ServicePageLogicProps } from './servicePageLogic'
 import { ServiceRequestsChart } from './ServiceRequestsChart'
 import { ServiceScopeSelectors } from './ServiceScopeSelectors'
@@ -35,6 +37,8 @@ const SECTIONS = [
     { id: 'summary', title: 'Summary' },
     { id: 'endpoints', title: 'Endpoints' },
     { id: 'errors', title: 'Errors' },
+    { id: 'traces', title: 'Traces' },
+    { id: 'logs', title: 'Logs' },
 ] as const
 
 function StatBlock({ label, value }: { label: string; value: string }): JSX.Element {
@@ -82,8 +86,10 @@ export function ServicePageScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const {
         serviceName,
+        timeRange,
         dateRange,
         scope,
+        scopeFilters,
         service,
         servicesHealthLoading,
         servicesHealthFailed,
@@ -272,6 +278,38 @@ export function ServicePageScene(): JSX.Element {
                                 }
                             }}
                         />
+                    </ServiceSection>
+                    <ServiceSection id="traces" title="Traces">
+                        <div className="flex flex-wrap gap-2">
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                sideIcon={<IconArrowUpRight />}
+                                to={serviceTracesUrl(serviceName, dateRange, scopeFilters)}
+                                data-attr="apm-service-traces-link"
+                            >
+                                View traces
+                            </LemonButton>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                sideIcon={<IconArrowUpRight />}
+                                to={serviceTracesUrl(serviceName, dateRange, scopeFilters, { errorsOnly: true })}
+                                data-attr="apm-service-error-traces-link"
+                            >
+                                View error traces
+                            </LemonButton>
+                        </div>
+                    </ServiceSection>
+                    <ServiceSection id="logs" title="Logs">
+                        <span className="flex flex-wrap gap-3">
+                            <TelemetryLinks
+                                serviceName={serviceName}
+                                timeRange={timeRange}
+                                source="service-page"
+                                signals={['logs', 'metrics']}
+                            />
+                        </span>
                     </ServiceSection>
                 </div>
             </div>
