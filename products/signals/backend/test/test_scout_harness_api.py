@@ -1680,17 +1680,23 @@ class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("plain_member", False, False, False, status.HTTP_403_FORBIDDEN),
-            ("scout_author", True, False, False, status.HTTP_200_OK),
-            ("project_admin", False, True, False, status.HTTP_200_OK),
+            ("plain_member_widens", False, False, False, False, status.HTTP_403_FORBIDDEN),
+            ("scout_author_widens", True, False, False, False, status.HTTP_200_OK),
+            # The started run acts with the author's full access, so an admin must not expose it.
+            ("project_admin_widens", False, True, False, False, status.HTTP_403_FORBIDDEN),
+            ("project_admin_narrows", False, True, False, True, status.HTTP_200_OK),
+            ("plain_member_narrows", False, False, False, True, status.HTTP_403_FORBIDDEN),
             # The scout's runs act as its author, so the author leg alone would let a scout grant itself actions.
-            ("authors_sandbox_token", True, False, True, status.HTTP_403_FORBIDDEN),
+            ("authors_sandbox_token_widens", True, False, True, False, status.HTTP_403_FORBIDDEN),
         ]
     )
-    def test_granting_report_actions_requires_the_acting_user_or_an_admin_outside_a_sandbox(
-        self, _name: str, is_author: bool, is_admin: bool, from_sandbox: bool, expected: int
+    def test_only_the_acting_user_widens_report_actions_and_an_admin_may_narrow_them(
+        self, _name: str, is_author: bool, is_admin: bool, from_sandbox: bool, granted_before: bool, expected: int
     ) -> None:
-        config = self._config()
+        granted = {"report_actions": ["make_it_green"], "max_report_actions_per_day": 5}
+        ungranted = {"report_actions": [], "max_report_actions_per_day": 3}
+        before, requested = (granted, ungranted) if granted_before else (ungranted, granted)
+        config = self._config(**before)
         self._authored_by(self.user if is_author else self._other_member())
         if is_admin:
             self._become_admin()
@@ -1716,19 +1722,15 @@ class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
             self.client.logout()
             self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
 
-        response = self.client.patch(
-            self._detail_url(str(config.id)),
-            data={"report_actions": ["make_it_green"], "max_report_actions_per_day": 5},
-            format="json",
-        )
+        response = self.client.patch(self._detail_url(str(config.id)), data=requested, format="json")
 
         assert response.status_code == expected, response.json()
         config.refresh_from_db()
-        granted = expected == status.HTTP_200_OK
-        assert config.report_actions == (["make_it_green"] if granted else [])
-        assert config.max_report_actions_per_day == (5 if granted else 3)
-        if granted:
-            assert response.json()["report_actions"] == ["make_it_green"]
+        stored = {
+            "report_actions": config.report_actions,
+            "max_report_actions_per_day": config.max_report_actions_per_day,
+        }
+        assert stored == (requested if expected == status.HTTP_200_OK else before)
 
     def test_a_stored_object_is_not_a_grant_to_compare_against(self) -> None:
         # The mint path treats a non-list column as no grant, so the gate must read it the same
@@ -2395,7 +2397,10 @@ class TestWriteScopesValidation(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("deduped_and_sorted", ["make_it_green", "ask", "ask"], True, ["ask", "make_it_green"]),
+            ("make_it_green", ["make_it_green"], True, ["make_it_green"]),
+            # Both carry text a scout can write, and the run they start holds its acting user's full access.
+            ("ask", ["ask"], False, None),
+            ("suggested_prompt", ["suggested_prompt"], False, None),
             # Merging stays with a person, so no config can carry it.
             ("get_it_merged", ["get_it_merged"], False, None),
             ("unknown_kind", ["update_branch"], False, None),

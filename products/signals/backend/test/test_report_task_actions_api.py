@@ -621,10 +621,11 @@ def _widen_after_dispatch(test: "TestScoutReportActionsAPI") -> None:
     test.scout_run.save()
 
 
-def _store_get_it_merged(test: "TestScoutReportActionsAPI") -> None:
-    test.config.report_actions = ["ask", "get_it_merged"]
+def _store_ungrantable_kinds(test: "TestScoutReportActionsAPI") -> None:
+    kinds = ["make_it_green", "get_it_merged", "ask", "suggested_prompt"]
+    test.config.report_actions = kinds
     test.config.save()
-    test.scout_run.metadata = {"report_actions": ["ask", "get_it_merged"]}
+    test.scout_run.metadata = {"report_actions": kinds}
     test.scout_run.save()
 
 
@@ -634,7 +635,7 @@ class TestScoutReportActionsAPI(_ReportActionFixtures):
     def setUp(self) -> None:
         super().setUp()
         self.config = SignalScoutConfig.objects.create(
-            team=self.team, skill_name=SCOUT_SKILL, report_actions=["ask", "make_it_green"]
+            team=self.team, skill_name=SCOUT_SKILL, report_actions=["make_it_green"]
         )
         self.scout_run = self._scout_run()
         self.app = OAuthApplication.objects.create(
@@ -663,7 +664,7 @@ class TestScoutReportActionsAPI(_ReportActionFixtures):
             scout_config=self.config,
             skill_name=SCOUT_SKILL,
             skill_version=1,
-            metadata={"report_actions": ["ask", "make_it_green"]},
+            metadata={"report_actions": ["make_it_green"]},
         )
 
     def _as_sandbox(self, task_id: object) -> None:
@@ -679,18 +680,23 @@ class TestScoutReportActionsAPI(_ReportActionFixtures):
         self.client.logout()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}", HTTP_X_POSTHOG_SANDBOX_ORIGIN="1")
 
-    def _ask(self, report: SignalReport):
-        return self._run(report, {"action": "ask", "message": "Why does checkout fail?"})
+    def _red_report(self) -> SignalReport:
+        report = self._report()
+        self._attach_pr(report, "approved")
+        return report
+
+    def _make_it_green(self, report: SignalReport, **body: str):
+        with _ci("failing"):
+            return self._run(report, {"action": "make_it_green", **body})
 
     def test_a_granted_scout_starts_make_it_green_and_the_work_log_names_it(
         self, workflow: MagicMock, _flag_mock: MagicMock
     ) -> None:
-        report = self._report()
-        self._attach_pr(report, None)
+        report = self._red_report()
         self._as_sandbox(self.scout_run.task_run.task_id)
 
-        with _ci("failing"), patch("products.signals.backend.views.report_user_action") as capture:
-            response = self._run(report, {"action": "make_it_green"})
+        with patch("products.signals.backend.views.report_user_action") as capture:
+            response = self._make_it_green(report)
 
         assert response.status_code == status.HTTP_201_CREATED, response.data
         entry = SignalReportArtefact.objects.get(
@@ -708,40 +714,71 @@ class TestScoutReportActionsAPI(_ReportActionFixtures):
             (
                 "no_scout_run_behind_the_task",
                 lambda test: test.scout_run.delete(),
-                "ask",
+                {},
                 "report_action_sandbox_refused",
             ),
-            ("finished_scout_run", _stop_run, "ask", "report_action_sandbox_refused"),
-            ("revoked_mid_run", _revoke, "ask", "report_action_not_granted"),
-            ("dry_run", _dry_run, "ask", "report_action_not_granted"),
-            ("granted_after_dispatch", _widen_after_dispatch, "ask", "report_action_not_granted"),
-            ("get_it_merged_even_when_stored", _store_get_it_merged, "get_it_merged", "report_action_not_granted"),
+            ("finished_scout_run", _stop_run, {}, "report_action_sandbox_refused"),
+            ("revoked_mid_run", _revoke, {}, "report_action_not_granted"),
+            ("dry_run", _dry_run, {}, "report_action_not_granted"),
+            ("granted_after_dispatch", _widen_after_dispatch, {}, "report_action_not_granted"),
+            # The scout's steering must not choose what a run with its acting user's full posture does.
+            ("own_message", lambda test: None, {"message": "Also add a destination"}, "report_action_not_granted"),
+            (
+                "ask_even_when_stored",
+                _store_ungrantable_kinds,
+                {"action": "ask", "message": "Hi"},
+                "report_action_not_granted",
+            ),
+            (
+                "get_it_merged_even_when_stored",
+                _store_ungrantable_kinds,
+                {"action": "get_it_merged"},
+                "report_action_not_granted",
+            ),
         ]
     )
     def test_refuses_a_sandbox_without_a_live_grant(
-        self, workflow: MagicMock, _flag_mock: MagicMock, _name: str, setup: Callable, action: str, code: str
+        self, workflow: MagicMock, _flag_mock: MagicMock, _name: str, setup: Callable, body: dict, code: str
     ) -> None:
-        report = self._report()
-        self._attach_pr(report, "approved")
+        report = self._red_report()
         setup(self)
         self._as_sandbox(self.scout_run.task_run.task_id)
 
-        response = self._run(report, {"action": action, "message": "Why does checkout fail?"})
+        response = self._make_it_green(report, **body)
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.data
         assert response.json()["code"] == code
         assert not Task.objects.filter(signal_report=report).exists()
 
+    def test_a_grant_revoked_while_the_request_waits_is_refused(
+        self, workflow: MagicMock, _flag_mock: MagicMock
+    ) -> None:
+        report = self._red_report()
+        self._as_sandbox(self.scout_run.task_run.task_id)
+
+        def revoke_during_the_ci_read(_team_id: int, refs: list) -> dict:
+            SignalScoutConfig.objects.filter(id=self.config.id).update(report_actions=[])
+            return dict.fromkeys(refs, "failing")
+
+        with patch(
+            "products.signals.backend.report_task_actions.pr_ci_statuses_for_references",
+            side_effect=revoke_during_the_ci_read,
+        ):
+            response = self._run(report, {"action": "make_it_green"})
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.data
+        assert response.json()["code"] == "report_action_not_granted"
+        assert not Task.objects.filter(signal_report=report).exists()
+
     def test_a_run_a_scout_started_cannot_start_another_action(
         self, workflow: MagicMock, _flag_mock: MagicMock
     ) -> None:
-        report = self._report()
         self._as_sandbox(self.scout_run.task_run.task_id)
-        started = self._ask(report)
+        started = self._make_it_green(self._red_report())
         assert started.status_code == status.HTTP_201_CREATED, started.data
 
         self._as_sandbox(started.json()["task_id"])
-        chained = self._ask(report)
+        chained = self._make_it_green(self._red_report())
 
         assert chained.status_code == status.HTTP_403_FORBIDDEN
         assert chained.json()["code"] == "report_action_sandbox_refused"
@@ -751,18 +788,18 @@ class TestScoutReportActionsAPI(_ReportActionFixtures):
     ) -> None:
         self.config.max_report_actions_per_day = 1
         self.config.save()
-        report = self._report()
         self._as_sandbox(self.scout_run.task_run.task_id)
-        assert self._ask(report).status_code == status.HTTP_201_CREATED
+        assert self._make_it_green(self._red_report()).status_code == status.HTTP_201_CREATED
 
         self.scout_run = self._scout_run()
         self._as_sandbox(self.scout_run.task_run.task_id)
-        capped = self._ask(report)
+        report = self._red_report()
+        capped = self._make_it_green(report)
         assert capped.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         assert capped.json()["code"] == "report_action_scout_daily_cap"
 
         with time_machine.travel(timezone.now() + timedelta(hours=25)):
-            assert self._ask(report).status_code == status.HTTP_201_CREATED
+            assert self._make_it_green(report).status_code == status.HTTP_201_CREATED
 
 
 class TestPullRequestRunDetection(SimpleTestCase):

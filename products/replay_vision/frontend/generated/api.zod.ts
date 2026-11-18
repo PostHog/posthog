@@ -1111,7 +1111,7 @@ export const visionScannersScoutsCreateBodyConfigOneRepositoriesMax = 10
 
 export const visionScannersScoutsCreateBodyConfigOneWriteScopesMax = 16
 
-export const visionScannersScoutsCreateBodyConfigOneReportActionsMax = 3
+export const visionScannersScoutsCreateBodyConfigOneReportActionsMax = 1
 
 export const visionScannersScoutsCreateBodyConfigOneMaxReportActionsPerDayMin = 0
 export const visionScannersScoutsCreateBodyConfigOneMaxReportActionsPerDayMax = 20
@@ -1214,7 +1214,7 @@ export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
                     .max(visionScannersScoutsCreateBodyConfigOneReportActionsMax)
                     .optional()
                     .describe(
-                        "Report actions this scout may start on inbox reports, from `ask`, `make_it_green`, `suggested_prompt`. Empty by default, and then every request the scout makes to start one is refused. `get_it_merged` can never be granted: a person merges. Each action starts an agent run that acts as the person the scout's runs act as. Only that person or a project admin can set it, and a scoped API key must carry `inbox:write` and `task:write`. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
+                        "Report actions this scout may start on inbox reports, from `make_it_green`. Empty by default, and then every request the scout makes to start one is refused. Only actions with a fixed request are grantable, and a scout cannot send its own message with one. `get_it_merged` can never be granted: a person merges. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add an action. A project admin can remove one. A scoped API key must carry `inbox:write` and `task:write`. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
                     ),
                 max_report_actions_per_day: zod
                     .number()
@@ -1222,7 +1222,7 @@ export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
                     .max(visionScannersScoutsCreateBodyConfigOneMaxReportActionsPerDayMax)
                     .optional()
                     .describe(
-                        'How many report actions this scout may start in a rolling 24 hours, across all its runs. Defaults to 3. Changing it needs the same access as `report_actions`.'
+                        "How many report actions this scout may start in a rolling 24 hours, across all its runs. Defaults to 3. Only the person the scout's runs act as can raise it. A project admin can lower it."
                     ),
                 lifecycle_locked: zod
                     .boolean()

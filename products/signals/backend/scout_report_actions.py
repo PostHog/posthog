@@ -7,8 +7,14 @@ fixes a report's pull request. This module is the one exception to the refusal.
 A sandbox request passes only when the task its OAuth token is bound to is a live scout run, and
 both that run and the scout's current config hold the action. The run's grant is stamped at
 dispatch (`runner._create_run_row`), so a grant widened mid-run does not reach a run already going,
-and the config is read again here, so a revoke takes effect at once. The task a scout action starts
-is a report discussion, not a scout run, so it cannot start another action: chains stop at one level.
+and the config is read again under its row lock when the start is admitted, so a revoke takes
+effect at once. The task a scout action starts is a report discussion, not a scout run, so it
+cannot start another action: chains stop at one level.
+
+The started run is an inbox discussion that acts as the scout's acting user with that person's full
+posture, wider than the scout's own. Whoever can steer the scout (its skill, its run notes, event
+text reaching a workflow-triggered run) must not choose what that run does, so only a fixed-prompt
+action is grantable and a scout cannot send its own message with it.
 """
 
 from __future__ import annotations
@@ -27,10 +33,9 @@ from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.limits import WORKFLOW_HARD_CEILING_S
 from products.tasks.backend.facade import api as tasks_facade
 
-# Merging stays a human decision, so `get_it_merged` is not here and nothing can grant it.
-SCOUT_GRANTABLE_REPORT_ACTIONS = frozenset(
-    {ReportTaskActionKind.MAKE_IT_GREEN, ReportTaskActionKind.SUGGESTED_PROMPT, ReportTaskActionKind.ASK}
-)
+# Only actions whose request text is fixed. Merging stays a human decision, so `get_it_merged` is
+# not here, and `ask` and `suggested_prompt` carry text a scout can write.
+SCOUT_GRANTABLE_REPORT_ACTIONS = frozenset({ReportTaskActionKind.MAKE_IT_GREEN})
 MAX_SCOUT_REPORT_ACTIONS_PER_DAY = 20
 
 REPORT_ACTION_SANDBOX_REFUSED = "report_action_sandbox_refused"
@@ -59,6 +64,17 @@ class ScoutReportActionRefusal:
 SANDBOX_REFUSAL = ScoutReportActionRefusal(
     code=REPORT_ACTION_SANDBOX_REFUSED, detail="A task sandbox cannot start report actions."
 )
+DAILY_CAP_REFUSAL = ScoutReportActionRefusal(
+    code=REPORT_ACTION_SCOUT_DAILY_CAP,
+    detail="This scout started as many report actions as it may in 24 hours. Leave a note for a person instead.",
+)
+
+
+def _not_granted(kind: ReportTaskActionKind) -> ScoutReportActionRefusal:
+    return ScoutReportActionRefusal(
+        code=REPORT_ACTION_NOT_GRANTED,
+        detail=f"This scout is not granted {kind.value}. A person grants report actions in the scout's settings.",
+    )
 
 
 def stored_report_actions(raw: object) -> list[str]:
@@ -73,8 +89,13 @@ def granted_report_actions_for_run(config: SignalScoutConfig) -> list[str]:
     return stored_report_actions(config.report_actions) if config.emit else []
 
 
+def _holds(run: SignalScoutRun, config: SignalScoutConfig, kind: ReportTaskActionKind) -> bool:
+    stamped = set(stored_report_actions((run.metadata or {}).get("report_actions")))
+    return kind in stamped & set(granted_report_actions_for_run(config))
+
+
 def resolve_scout_report_action_grant(
-    *, sandbox_task_id: UUID | None, team_id: int, kind: ReportTaskActionKind
+    *, sandbox_task_id: UUID | None, team_id: int, kind: ReportTaskActionKind, message: str | None
 ) -> ScoutReportActionGrant | ScoutReportActionRefusal:
     """Whether the scout run behind a sandbox token may start `kind`.
 
@@ -99,17 +120,15 @@ def resolve_scout_report_action_grant(
         return ScoutReportActionRefusal(
             code=REPORT_ACTION_NOT_GRANTED, detail="A scout cannot start get_it_merged. A person merges."
         )
-    config = run.scout_config
-    held = set(stored_report_actions((run.metadata or {}).get("report_actions"))) & set(
-        granted_report_actions_for_run(config)
-    )
-    if kind not in held:
+    if message:
         return ScoutReportActionRefusal(
             code=REPORT_ACTION_NOT_GRANTED,
-            detail=f"This scout is not granted {kind.value}. A person grants report actions in the scout's settings.",
+            detail="A scout cannot send its own message with a report action. Send the action alone.",
         )
+    if not _holds(run, run.scout_config, kind):
+        return _not_granted(kind)
     return ScoutReportActionGrant(
-        team_id=team_id, skill_name=run.skill_name, scout_run_id=str(run.id), config_id=str(config.id)
+        team_id=team_id, skill_name=run.skill_name, scout_run_id=str(run.id), config_id=str(run.scout_config.id)
     )
 
 
@@ -122,11 +141,15 @@ def _start_times(metadata: object) -> Iterable[datetime]:
             continue
 
 
-def reserve_scout_report_action(grant: ScoutReportActionGrant, *, report_id: str, kind: ReportTaskActionKind) -> bool:
-    """Spend one of the scout's daily starts, or return False when none is left.
+def reserve_scout_report_action(
+    grant: ScoutReportActionGrant, *, report_id: str, kind: ReportTaskActionKind
+) -> ScoutReportActionRefusal | None:
+    """Admit the start and spend one of the scout's daily starts, or say why not.
 
-    The config row lock serializes concurrent requests from the scout's runs. A reservation stays
-    spent when the start fails afterwards, so a failing start cannot be retried without bound.
+    The grant is checked again under the config row lock, which a config edit also takes, so a
+    revoke that commits while the request waits on its earlier checks still refuses it. The lock
+    also serializes concurrent requests from the scout's runs. A reservation stays spent when the
+    start fails afterwards, so a failing start cannot be retried without bound.
     """
     now = timezone.now()
     window_start = now - SCOUT_DAILY_CAP_WINDOW
@@ -134,8 +157,9 @@ def reserve_scout_report_action(grant: ScoutReportActionGrant, *, report_id: str
         config = (
             SignalScoutConfig.objects.for_team(grant.team_id).select_for_update().filter(id=grant.config_id).first()
         )
-        if config is None:
-            return False
+        run = SignalScoutRun.objects.for_team(grant.team_id).select_for_update().filter(id=grant.scout_run_id).first()
+        if config is None or run is None or not _holds(run, config, kind):
+            return _not_granted(kind)
         # A run records its starts while it runs, so one created a run budget before the window can hold a start inside it.
         recent_metadata = (
             SignalScoutRun.objects.for_team(grant.team_id)
@@ -147,8 +171,7 @@ def reserve_scout_report_action(grant: ScoutReportActionGrant, *, report_id: str
         )
         started = sum(1 for metadata in recent_metadata for at in _start_times(metadata) if at >= window_start)
         if started >= config.max_report_actions_per_day:
-            return False
-        run = SignalScoutRun.objects.for_team(grant.team_id).select_for_update().get(id=grant.scout_run_id)
+            return DAILY_CAP_REFUSAL
         metadata = run.metadata if isinstance(run.metadata, dict) else {}
         starts = metadata.get(STARTS_METADATA_KEY)
         run.metadata = {
@@ -159,4 +182,4 @@ def reserve_scout_report_action(grant: ScoutReportActionGrant, *, report_id: str
             ],
         }
         run.save(update_fields=["metadata"])
-    return True
+    return None

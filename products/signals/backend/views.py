@@ -4327,6 +4327,7 @@ class SignalReportViewSet(
                 sandbox_task_id=getattr(get_oauth_access_token(request), "sandbox_task_id", None),
                 team_id=self.team.parent_team_id or self.team.id,
                 kind=kind,
+                message=data.get("message"),
             )
             if isinstance(resolved, ScoutReportActionRefusal):
                 return self._task_action_error(resolved.code, resolved.detail, status.HTTP_403_FORBIDDEN)
@@ -4408,14 +4409,15 @@ class SignalReportViewSet(
                 str(limit_response.data["code"]), str(limit_response.data["error"]), limit_response.status_code
             )
 
-        if scout_grant is not None and not reserve_scout_report_action(
-            scout_grant, report_id=str(report.id), kind=kind
+        if scout_grant is not None and (
+            refusal := reserve_scout_report_action(scout_grant, report_id=str(report.id), kind=kind)
         ):
-            capture("limited", REPORT_ACTION_SCOUT_DAILY_CAP)
+            daily_cap = refusal.code == REPORT_ACTION_SCOUT_DAILY_CAP
+            capture("limited" if daily_cap else "blocked", refusal.code)
             return self._task_action_error(
-                REPORT_ACTION_SCOUT_DAILY_CAP,
-                "This scout started as many report actions as it may in 24 hours. Leave a note for a person instead.",
-                status.HTTP_429_TOO_MANY_REQUESTS,
+                refusal.code,
+                refusal.detail,
+                status.HTTP_429_TOO_MANY_REQUESTS if daily_cap else status.HTTP_403_FORBIDDEN,
             )
 
         if kind == ReportTaskActionKind.IMPLEMENT:
