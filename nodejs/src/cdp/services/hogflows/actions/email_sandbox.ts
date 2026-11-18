@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { HogFlowAction } from '~/cdp/schema/hogflow'
 
 import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult, SandboxEmailOutcome } from '../../../types'
-import { EmailStatusService, isTransactionalEmailRun } from '../../messaging/email-status.service'
+import { EmailStatusService, isTransactionalEmailRun, messageCreatedAtOf } from '../../messaging/email-status.service'
 import { actionIdForLogging, findContinueAction } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 
@@ -149,6 +149,7 @@ export class SandboxEmailActionHandler implements ActionHandler {
             messageId: invocation.id,
             status: outcome === 'accepted' ? 'sent' : 'failed',
             reason,
+            messageCreatedAt: messageCreatedAtOf(invocation.state.event),
         })
     }
 

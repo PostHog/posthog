@@ -794,7 +794,7 @@ export interface ErrorTrackingExternalReferenceCreateApi {
 }
 
 /**
- * Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}.
+ * Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. For GitHub, add resource_type 'pull_request' to link a pull request instead of an issue.
  */
 export type ErrorTrackingExternalReferenceLinkApiExternalContext = { [key: string]: unknown }
 
@@ -803,7 +803,7 @@ export interface ErrorTrackingExternalReferenceLinkApi {
     integration_id: number
     /** ID of the error tracking issue to link the reference to. */
     issue: string
-    /** Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. */
+    /** Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. For GitHub, add resource_type 'pull_request' to link a pull request instead of an issue. */
     external_context: ErrorTrackingExternalReferenceLinkApiExternalContext
 }
 
@@ -955,6 +955,17 @@ export interface ErrorTrackingIssueCohortReadApi {
     name: string
 }
 
+export interface ErrorTrackingIssueTagReadApi {
+    /** Key of the tag. Pass it as `issueTag.key` to filter the issue list. */
+    key: string
+    /** Short name of the tag. */
+    label: string
+    /** What the tag means, for a tooltip. */
+    description: string
+    /** The tagger that applied the tag: `jev` for AI, `manual` for a person. */
+    source: string
+}
+
 /**
  * Read-only serializer for issue contract types returned by the facade.
  */
@@ -972,6 +983,8 @@ export interface ErrorTrackingIssueReadApi {
     assignee: ErrorTrackingIssueAssigneeReadApi | null
     external_issues: ErrorTrackingExternalReferenceResultApi[]
     cohort: ErrorTrackingIssueCohortReadApi | null
+    /** The enabled tags that are applied to the issue. Only issue detail returns it, and only while the project has an enabled tag. */
+    tags?: ErrorTrackingIssueTagReadApi[]
 }
 
 export interface PaginatedErrorTrackingIssueReadListApi {
@@ -1168,6 +1181,29 @@ export interface ErrorTrackingIssueSummaryResponseApi {
     reason: IssueSummaryUnavailableReasonEnumApi | null
 }
 
+export interface PatchedErrorTrackingIssueTagWriteApi {
+    /**
+     * Key of the tag to apply or remove. The tag definitions endpoint lists the tags enabled for the project.
+     * @maxLength 64
+     */
+    key?: string
+    /** True applies the tag. False removes it and stops automatic taggers from applying it again. */
+    applied?: boolean
+}
+
+export interface ErrorTrackingIssueTagCorrectionApi {
+    /** Key of the tag. Pass it as `issueTag.key` to filter the issue list. */
+    key: string
+    /** Short name of the tag. */
+    label: string
+    /** What the tag means, for a tooltip. */
+    description: string
+    /** The tagger that applied the tag: `jev` for AI, `manual` for a person. */
+    source: string
+    /** Whether the tag is applied to the issue after the change. */
+    applied: boolean
+}
+
 /**
  * * `set_status` - set_status
  * * `assign` - assign
@@ -1201,6 +1237,20 @@ export interface ErrorTrackingIssueBulkRequestApi {
 export interface ErrorTrackingIssueExistsResponseApi {
     /** Whether the project has recorded any issue at all. */
     exists: boolean
+}
+
+export interface ErrorTrackingIssueTagDefinitionApi {
+    /** Key of the tag. Pass it as `issueTag.key` to filter the issue list. */
+    key: string
+    /** Short name of the tag. */
+    label: string
+    /** What the tag means, for a tooltip. */
+    description: string
+}
+
+export interface ErrorTrackingIssueTagDefinitionsResponseApi {
+    /** The tags enabled for the project. Empty while issue tags are off for the project. */
+    results: ErrorTrackingIssueTagDefinitionApi[]
 }
 
 export interface ErrorTrackingIssueValueApi {
@@ -1465,6 +1515,8 @@ export interface ErrorTrackingIssueDetailApi {
     sparkline?: number[]
     /** Aggregate over matching events. Returned only when includeBreakdown is true. */
     breakdown?: ErrorTrackingIssueBreakdownApi
+    /** Work linked to this issue in GitHub, GitLab, Linear, or Jira, such as provider issues and GitHub pull requests, oldest first. An empty list means nothing is linked. Absent when the lookup failed. */
+    external_issues?: ErrorTrackingExternalReferenceResultApi[]
     /** An AI-written summary of the issue. Present only when summary_status is 'ready'. Treat likely_cause as a hypothesis, not a fact. */
     summary?: ErrorTrackingIssueSummaryApi
     /** 'ready' means summary is present. 'not_generated' means no summary exists for this issue. A summary is written only when an issue is created. 'unavailable' means no summary can be shown, and summary_reason says why.
@@ -2739,7 +2791,7 @@ export type ErrorTrackingExternalReferencesSearchIssuesRetrieveParams = {
      */
     repository?: string
     /**
-     * Text to match against existing issue titles or identifiers in the provider. GitHub matches titles as an exact phrase. Leave blank for recent issues.
+     * Text to match against existing issue titles or identifiers in the provider. GitHub matches titles as an exact phrase and returns issues only, not pull requests. Leave blank for recent issues.
      */
     search?: string
 }

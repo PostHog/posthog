@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from posthog.clickhouse.client.execute import ClickHouseExternalTable
     from posthog.clickhouse.query_tagging import FlagCallsRead
     from posthog.models import Team, User
-    from posthog.scopes import APIScopeObject
+    from posthog.scopes.catalog import APIScopeObject
 
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
@@ -238,11 +238,16 @@ class HogQLContext:
         )
 
     def reads_flag_calls_with_union(self) -> bool:
-        """Whether flag calls that a mixed query reads come from events and flag_evaluations together."""
+        """Whether flag calls that a mixed query reads come from events and flag_evaluations together.
+
+        A query whose flag calls are only in flag_evaluations reads the union, unless FLAG_EVALUATIONS_UNION_DISABLED
+        is on. On READ_FLAG_EVALUATIONS, a query reads the union only when the organization's hogql-flag-calls-union
+        flag is on.
+        """
         database = self.database
-        return (
-            database is not None and database.flag_calls_union_enabled and self.reads_flag_calls_from_flag_evaluations()
-        )
+        if database is None or not database.flag_calls_union_enabled:
+            return False
+        return database.flag_calls_union_opted_in or self.flag_calls_only_in_flag_evaluations()
 
     def _reads_native_events_with_flag_evaluations(self) -> bool:
         database = self.database

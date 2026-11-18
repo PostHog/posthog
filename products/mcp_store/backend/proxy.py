@@ -11,7 +11,6 @@ import httpx
 import structlog
 
 from posthog.api.streaming import sse_streaming_response
-from posthog.models.utils import OAUTH_ACCESS_TOKEN_PREFIX, PERSONAL_API_KEY_PREFIX
 from posthog.security.pinned_httpx import pinned_client
 from posthog.security.pinned_requests import SSRFBlockedError
 from posthog.security.url_validation import is_url_allowed
@@ -19,10 +18,9 @@ from posthog.settings import SERVER_GATEWAY_INTERFACE
 
 from ee.hogai.utils.asgi import SyncIterableToAsync
 
-from .borrowed_credential import BorrowedCredentialRefused, confine_borrowed_credential
+from .borrowed_credential import BorrowedCredentialRefused, refuse_borrowed_posthog_credential
 from .models import MCPAuditEvent, MCPGatewayServer, MCPServerInstallation, MCPServerInstallationTool
 from .oauth import TokenRefreshError, TokenRefreshRejectedError, is_token_expiring, refresh_installation_token
-from .oauth_credentials import oauth_credentials_source_is_allowed
 from .policy import GatewayCaller, PolicyContext, legacy_state_for_caller
 from .url_policy import resolve_mcp_url_policy, trust_environment_proxy
 
@@ -121,15 +119,14 @@ def send_mcp_request_with_same_origin_redirect(
 
 
 def build_upstream_auth_headers(installation: MCPServerInstallation, *, borrowed: bool = False) -> dict[str, str]:
-    """`borrowed` marks a caller other than the credential's owner. A PostHog credential is then narrowed to the
-    installation's project, and BorrowedCredentialRefused is raised when it cannot be."""
+    """`borrowed` marks a caller other than the credential's owner. BorrowedCredentialRefused is raised when that
+    caller would act with a PostHog credential."""
     headers = _owner_auth_headers(installation)
-    if not borrowed or "Authorization" not in headers:
-        return headers
-    confined = confine_borrowed_credential(headers["Authorization"].removeprefix("Bearer "), installation.team_id)
-    if confined is None:
-        return headers
-    return {"Authorization": f"Bearer {confined}"}
+    if borrowed:
+        refuse_borrowed_posthog_credential(
+            installation.url, headers.get("Authorization", "").removeprefix("Bearer ") or None
+        )
+    return headers
 
 
 def is_borrowed_by(installation: MCPServerInstallation, caller: GatewayCaller | None) -> bool:
@@ -137,10 +134,6 @@ def is_borrowed_by(installation: MCPServerInstallation, caller: GatewayCaller | 
 
 
 def _owner_auth_headers(installation: MCPServerInstallation) -> dict[str, str]:
-    if installation.template and not oauth_credentials_source_is_allowed(
-        installation.template.oauth_credentials_source, installation.team_id
-    ):
-        raise TokenRefreshRejectedError("OAuth app is not available for this project")
     sensitive = installation.sensitive_configuration or {}
 
     if installation.auth_type == "api_key":
@@ -171,12 +164,7 @@ def validate_installation_auth(
 
     Returns (True, None) if auth is valid, or (False, error_response) if not.
     """
-    if not installation.is_enabled or (
-        installation.template
-        and not oauth_credentials_source_is_allowed(
-            installation.template.oauth_credentials_source, installation.team_id
-        )
-    ):
+    if not installation.is_enabled:
         logger.warning(
             "Proxy auth failed: server is disabled",
             installation_id=str(installation.id),
@@ -561,8 +549,12 @@ def proxy_mcp_request(
     actor_label: str = "",
     credential_owner_id: int | None = None,
     grant_scope: str = "",
+    scoped_session: bool = False,
 ) -> HttpResponseBase:
     """Forward one MCP request upstream, enforcing tool policy and auditing it.
+
+    `scoped_session` marks a caller whose own credential is limited to some projects or organizations. Such a
+    caller counts as borrowing the connection even when they own it, because the connection may reach further.
 
     `credential_owner_id` and `grant_scope` describe the agent grant the call
     rides, so the audit trail answers whose connection an agent used. Both are
@@ -626,7 +618,7 @@ def proxy_mcp_request(
             status=413,
         )
 
-    borrowed = is_borrowed_by(installation, caller)
+    borrowed = scoped_session or is_borrowed_by(installation, caller)
     try:
         auth_headers = build_upstream_auth_headers(installation, borrowed=borrowed)
     except BorrowedCredentialRefused as exc:
@@ -645,10 +637,6 @@ def proxy_mcp_request(
     # Store policy must see leaf tools, and shared credentials must not expand nested connectors.
     headers["x-posthog-mcp-mode"] = "tools"
     headers["x-posthog-mcp-store"] = "true"
-    if borrowed and auth_headers.get("Authorization", "").startswith(
-        (f"Bearer {OAUTH_ACCESS_TOKEN_PREFIX}", f"Bearer {PERSONAL_API_KEY_PREFIX}")
-    ):
-        headers["x-posthog-project-id"] = str(installation.team_id)
 
     mcp_session_id = request.headers.get("mcp-session-id")
     if mcp_session_id:

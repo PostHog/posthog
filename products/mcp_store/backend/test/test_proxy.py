@@ -2,7 +2,6 @@ import os
 import time
 import uuid
 import ipaddress
-from datetime import timedelta
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from unittest.mock import MagicMock, patch
@@ -17,7 +16,8 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, Team, User
-from posthog.models.oauth import OAuthApplication, find_oauth_access_token, mint_oauth_access_token
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.security.url_validation import PinnedUrlVerdict
 
 from products.mcp_store.backend.models import (
@@ -25,40 +25,16 @@ from products.mcp_store.backend.models import (
     MCPGatewayServer,
     MCPServerInstallation,
     MCPServerInstallationTool,
-    MCPServerTemplate,
     MCPToolPolicy,
 )
 from products.mcp_store.backend.oauth import TokenRefreshRejectedError
-from products.mcp_store.backend.proxy import (
-    _build_sse_response,
-    build_upstream_auth_headers,
-    validate_installation_auth,
-)
+from products.mcp_store.backend.proxy import _build_sse_response
 from products.mcp_store.backend.tools import UpstreamToolList
 
 ALLOWED_VERDICT = PinnedUrlVerdict(allowed=True, reason=None, pinned_ips=set())
 
 
 class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
-    @parameterized.expand([True, False])
-    def test_slack_dev_token_use_requires_project_access(self, allowed: bool) -> None:
-        template = MCPServerTemplate(oauth_credentials_source="slack_dev_app")
-        installation = MCPServerInstallation(
-            team_id=self.team.id,
-            template=template,
-            auth_type="oauth",
-            sensitive_configuration={"access_token": "dev-user-token"},
-        )
-        with self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[str(self.team.id)] if allowed else []):
-            valid, response = validate_installation_auth(installation)
-            assert valid is allowed
-            if allowed:
-                assert build_upstream_auth_headers(installation) == {"Authorization": "Bearer dev-user-token"}
-            else:
-                assert response is not None and response.status_code == 403
-                with self.assertRaises(TokenRefreshRejectedError):
-                    build_upstream_auth_headers(installation)
-
     def setUp(self):
         super().setUp()
         # Policy checks flow through url_policy (resolve_mcp_url_policy);
@@ -1146,24 +1122,53 @@ class TestMCPProxyAccessControl(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         response = self.client.post(self._proxy_url(installation.id), data=self.JSON_RPC_BODY, format="json")
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    @parameterized.expand(
+        [
+            ("posthog_credential", "https://mcp.example.com/mcp", "pha_" + "x" * 40),
+            ("posthog_mcp_host", "https://mcp.posthog.com/mcp", "opaque-token"),
+        ]
+    )
     @patch("products.mcp_store.backend.proxy.pinned_client")
-    def test_teammate_on_shared_posthog_connection_gets_a_credential_limited_to_the_project(self, mock_client_cls):
+    def test_teammate_cannot_use_a_shared_posthog_connection(self, _name, url, token, mock_client_cls):
         owner = User.objects.create_and_join(self.organization, "owner@example.com", "password")
-        application = OAuthApplication.objects.create(
-            name="MCP store client",
-            client_id="mcp-store-proxy-test",
-            client_secret="",
-            client_type=OAuthApplication.CLIENT_PUBLIC,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://app.example.com/callback",
-            algorithm="RS256",
-        )
-        owner_token = mint_oauth_access_token(
-            application=application, user=owner, scope="project:read", lifetime=timedelta(hours=1), scoped_teams=[]
-        ).token
         installation = self._create_installation(
-            self.team, owner, scope="shared", sensitive_configuration={"api_key": owner_token}
+            self.team, owner, scope="shared", url=url, sensitive_configuration={"api_key": token}
         )
+
+        response = self.client.post(self._proxy_url(installation.id), data=self.JSON_RPC_BODY, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        mock_client_cls.assert_not_called()
+
+    @patch("products.mcp_store.backend.proxy.pinned_client")
+    def test_owner_on_a_project_scoped_key_cannot_use_their_posthog_connection(self, mock_client_cls):
+        installation = self._create_installation(
+            self.team, self.user, sensitive_configuration={"api_key": "pha_" + "x" * 40}
+        )
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="scoped",
+            secure_value=hash_key_value(key),
+            scopes=["*"],
+            scoped_teams=[self.team.id],
+        )
+        self.client.logout()
+
+        response = self.client.post(
+            self._proxy_url(installation.id),
+            data=self.JSON_RPC_BODY,
+            format="json",
+            headers={"authorization": f"Bearer {key}"},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        mock_client_cls.assert_not_called()
+
+    @patch("products.mcp_store.backend.proxy.pinned_client")
+    def test_teammate_on_shared_third_party_connection_cannot_choose_the_project(self, mock_client_cls):
+        owner = User.objects.create_and_join(self.organization, "owner@example.com", "password")
+        installation = self._create_installation(self.team, owner, scope="shared")
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.headers = {"content-type": "application/json"}
@@ -1180,11 +1185,8 @@ class TestMCPProxyAccessControl(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         assert response.status_code == 200
         _, kwargs = mock_client.build_request.call_args
         forwarded = {k.lower(): v for k, v in kwargs["headers"].items()}
-        forwarded_token = forwarded["authorization"].removeprefix("Bearer ")
-        assert forwarded_token != owner_token
-        forwarded_row = find_oauth_access_token(forwarded_token)
-        assert forwarded_row is not None and forwarded_row.scoped_teams == [self.team.id]
-        assert forwarded["x-posthog-project-id"] == str(self.team.id)
+        assert forwarded["authorization"] == "Bearer sk-secret"
+        assert "x-posthog-project-id" not in forwarded
         assert "x-posthog-organization-id" not in forwarded
 
     def test_proxy_rejects_get_and_other_http_methods(self):

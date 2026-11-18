@@ -18,6 +18,7 @@
 
 use replay_core_v4::inspect::features::{SurfacingFeatures, PATH_TOKENS};
 use replay_core_v4::inspect::session::Moment;
+use replay_core_v4::inspect::sketch::DistinctSketch;
 use replay_core_v4::inspect::stats::BlockStats;
 use serde::ser::{SerializeMap, Serializer};
 use serde::Serialize;
@@ -99,6 +100,7 @@ fn serialize_stats<S: Serializer>(stats: &&BlockStats, serializer: S) -> Result<
         image_bytes,
         images_inline,
         image_urls,
+        image_ref_sketch,
         written_jsonl_bytes,
         max_written_event_bytes,
         decode_failures,
@@ -129,6 +131,7 @@ fn serialize_stats<S: Serializer>(stats: &&BlockStats, serializer: S) -> Result<
     );
     columns!(|v: &bool| *v => cold_start, node_cap_reached, moments_truncated, touch_input);
     columns!(|v: &Vec<String>| v.clone() => url_fingerprints, window_ids);
+    columns!(|v: &DistinctSketch| v.entries() => image_ref_sketch);
     columns!(|v: &Option<u32>| v.map(int32) => viewport_width, viewport_height);
     columns!(
         |v: &u32| int32(*v) =>
@@ -578,6 +581,7 @@ mod tests {
         ("surfacing_click_target_ids", "LIST<INT64>", true),
         ("surfacing_form_field_ids", "LIST<INT64>", true),
         ("unread_reason", "UTF8", true),
+        ("image_ref_sketch", "LIST<INT32>", true),
     ];
 
     const IMAGE_COLUMNS: &[(&str, &str, bool)] = &[
@@ -603,6 +607,9 @@ mod tests {
             "LIST<INT64>" => value
                 .as_array()
                 .is_some_and(|items| items.iter().all(|item| fits(item, "INT64"))),
+            "LIST<INT32>" => value
+                .as_array()
+                .is_some_and(|items| items.iter().all(|item| fits(item, "INT32"))),
             "MOMENTS" => value.as_array().is_some_and(|moments| {
                 moments.iter().all(|moment| {
                     let moment = moment.as_object().unwrap();
@@ -638,7 +645,10 @@ mod tests {
 
     #[test]
     fn rows_have_exactly_the_parquet_columns_and_types() {
+        let mut image_ref_sketch = DistinctSketch::default();
+        image_ref_sketch.insert("image:v4:7:2026-09:abc");
         let stats = BlockStats {
+            image_ref_sketch: image_ref_sketch.clone(),
             // 2^53, and a 1e100 timestamp read as an integer: past what JavaScript holds exactly.
             first_ts_ms: Some(1 << 53),
             max_gap_ms: i64::MIN,
@@ -729,6 +739,7 @@ mod tests {
                 &value["flush_row_count"],
                 &value["url_fingerprints"],
                 &value["window_ids"],
+                &value["image_ref_sketch"],
             ],
             [
                 &json!(MAX_SAFE_INTEGER),
@@ -744,6 +755,7 @@ mod tests {
                 &json!(i32::MAX),
                 &json!(["b08517cee3ff5ecc"]),
                 &json!(["w1", "w2"]),
+                &json!(image_ref_sketch.entries()),
             ]
         );
         assert_eq!(

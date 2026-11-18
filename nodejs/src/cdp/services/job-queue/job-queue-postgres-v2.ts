@@ -9,6 +9,7 @@ import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk } from '../../../types'
 import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
+import { EncryptedFields } from '../../utils/encryption-utils'
 import { settleAllThenThrowFirst } from '../../utils/settle-all'
 import {
     CyclotronV2DequeuedJob,
@@ -17,9 +18,9 @@ import {
     CyclotronV2Worker,
     countStaleCommit,
 } from '../cyclotron-v2'
-import { encodeJob, encodeStateColumns, v2JobToInvocation } from '../cyclotron-v2/job-codec'
+import { StateOpener, encodeJob, encodeStateColumns, v2JobToInvocation } from '../cyclotron-v2/job-codec'
 import { IDEMPOTENCY_CLAIM_LOCK_TIMEOUT_MS } from '../cyclotron-v2/manager'
-import { CyclotronV2IdempotentClaim, CyclotronV2WorkerConfig } from '../cyclotron-v2/types'
+import { CyclotronV2IdempotencyKey, CyclotronV2IdempotentClaim, CyclotronV2WorkerConfig } from '../cyclotron-v2/types'
 import { IdempotentInvocation, IdempotentJobQueue } from './job-queue.interface'
 import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer, observeConsumedBatch } from './shared'
 
@@ -38,10 +39,14 @@ const resultWriteFailuresCounter = new Counter({
 
 const jobLatenessHistogram = new Histogram({
     name: 'cdp_cyclotron_job_lateness_seconds',
-    help: 'Seconds between a postgres-v2 job becoming due and a worker dequeuing it',
-    labelNames: ['queue', 'wait'],
-    buckets: [0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 300, 900],
+    help: 'Seconds between a postgres-v2 job becoming due and a worker dequeuing it, counted once the worker releases it, so the outcome is known',
+    labelNames: ['queue', 'wait', 'priority', 'outcome'],
+    buckets: [0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 180, 300, 900],
 })
+
+type PickupOutcome = 'processed' | 'parked'
+
+type Pickup = { queue: string; wait: 'deferred' | 'scheduled'; priority: string; latenessSeconds: number }
 
 export const CONSUMER_STOP_DEADLINE_MS = 25_000
 
@@ -74,10 +79,12 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
     private manager?: CyclotronV2Manager
     private worker?: CyclotronV2Worker
     private pendingJobs = new Map<string, CyclotronV2DequeuedJob>()
+    private pickups = new WeakMap<CyclotronV2DequeuedJob, Pickup>()
     private consumerQueue?: string
     private resultWrites = new PromiseScheduler()
     private stopDeadline?: number
     private sanitizer: ReturnType<typeof createInvocationSanitizer>
+    private stateOpener: StateOpener
 
     constructor(
         // protected — the rate-limited subclass needs this to cap its token
@@ -96,10 +103,13 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
             | 'CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES'
             | 'CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS'
             | 'CDP_CYCLOTRON_BACKGROUND_DEPTH_CHECK'
+            | 'CDP_CYCLOTRON_RELEASE_WRITE_RETRY'
+            | 'CDP_SEALED_STATE_KEYS'
         > &
             Pick<CommonConfig, 'ENCRYPTION_SALT_KEYS'>
     ) {
         this.sanitizer = createInvocationSanitizer(config)
+        this.stateOpener = new EncryptedFields(config.CDP_SEALED_STATE_KEYS)
     }
 
     public async startAsProducer(): Promise<void> {
@@ -146,6 +156,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
             pollDelayMaxMs: this.config.CDP_CYCLOTRON_BATCH_DELAY_MAX_MS,
             boundedPolls: this.config.CDP_CYCLOTRON_BOUNDED_POLLS,
             boundedFairDequeue: this.config.CDP_CYCLOTRON_BOUNDED_FAIR_DEQUEUE,
+            releaseWriteRetry: this.config.CDP_CYCLOTRON_RELEASE_WRITE_RETRY,
             includeEmptyBatches: true,
         })
 
@@ -155,10 +166,15 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
 
             for (const job of jobs) {
                 this.pendingJobs.set(job.id, job)
-                const invocation = v2JobToInvocation(job)
+                const invocation = v2JobToInvocation(job, this.stateOpener)
                 invocations.push(invocation)
                 const { wait, dueAt } = dueTimeOf(job, invocation)
-                jobLatenessHistogram.labels({ queue, wait }).observe(Math.max(0, now - dueAt) / 1000)
+                this.pickups.set(job, {
+                    queue,
+                    wait,
+                    priority: String(job.priority),
+                    latenessSeconds: Math.max(0, now - dueAt) / 1000,
+                })
             }
 
             pendingJobsGauge.set(this.pendingJobs.size)
@@ -211,9 +227,15 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
         return !invocation.queueLockId || job?.lockId === invocation.queueLockId ? job : undefined
     }
 
-    private forgetPendingJob(job: CyclotronV2DequeuedJob): void {
+    private forgetPendingJob(job: CyclotronV2DequeuedJob, outcome: PickupOutcome): void {
         if (this.pendingJobs.get(job.id) === job) {
             this.pendingJobs.delete(job.id)
+        }
+        const pickup = this.pickups.get(job)
+        if (pickup) {
+            this.pickups.delete(job)
+            const { latenessSeconds, ...labels } = pickup
+            jobLatenessHistogram.labels({ ...labels, outcome }).observe(latenessSeconds)
         }
     }
 
@@ -242,7 +264,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
 
     public async queueInvocations(
         invocations: CyclotronJobInvocation[],
-        options: { overwriteExisting?: boolean } = {}
+        options: { overwriteExisting?: boolean; oneInsert?: boolean } = {}
     ): Promise<void> {
         if (invocations.length === 0) {
             return
@@ -260,7 +282,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
         }))
 
         try {
-            const chunked = chunk(jobs, this.config.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE)
+            const chunked = options.oneInsert ? [jobs] : chunk(jobs, this.config.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE)
             if (this.config.CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES) {
                 await Promise.all(
                     chunked.map((batch) =>
@@ -301,12 +323,13 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
             invocations.map((invocation, i) => ({
                 job: invocationToV2JobInit(invocation),
                 fingerprint: entries[i].fingerprint,
+                reply: entries[i].reply,
             })),
             { lockTimeoutMs: IDEMPOTENCY_CLAIM_LOCK_TIMEOUT_MS }
         )
     }
 
-    public async findIdempotencyKey(id: string): Promise<{ fingerprint: string } | null> {
+    public async findIdempotencyKey(id: string): Promise<CyclotronV2IdempotencyKey | null> {
         if (!this.manager) {
             throw new Error('CyclotronV2Manager not initialized')
         }
@@ -339,7 +362,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
                 try {
                     await this.resultWrites.schedule(this.writeResult(job, result))
                 } finally {
-                    this.forgetPendingJob(job)
+                    this.forgetPendingJob(job, result.parked ? 'parked' : 'processed')
                 }
             })
         )
@@ -367,7 +390,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
                     try {
                         await this.resultWrites.schedule(job.fail())
                     } finally {
-                        this.forgetPendingJob(job)
+                        this.forgetPendingJob(job, 'processed')
                     }
                 }
             })
@@ -382,7 +405,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
                     try {
                         await this.resultWrites.schedule(job.ack())
                     } finally {
-                        this.forgetPendingJob(job)
+                        this.forgetPendingJob(job, 'processed')
                     }
                 }
             })
@@ -398,10 +421,10 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
                 if (job) {
                     try {
                         await this.resultWrites.schedule(
-                            job.defer({ scheduledAt, state: encodeStateColumns(invocation).state })
+                            job.defer({ scheduledAt, state: encodeStateColumns(this.sanitizer.seal(invocation)).state })
                         )
                     } finally {
-                        this.forgetPendingJob(job)
+                        this.forgetPendingJob(job, 'parked')
                     }
                 }
             })

@@ -37,7 +37,12 @@ from posthog.event_usage import report_user_action
 from posthog.ip_restrictions import enforce_ip_restrictions
 from posthog.models import User
 from posthog.models.scoping.manager import resolve_effective_team_id
-from posthog.permissions import DenyMCPBuiltInAgentOAuth, DenyWorkloadAccessToken
+from posthog.permissions import (
+    DenyMCPBuiltInAgentOAuth,
+    DenyWorkloadAccessToken,
+    get_authenticator_scoped_organization_ids,
+    get_authenticator_scoped_team_ids,
+)
 from posthog.rate_limit import (
     MCPOAuthBurstThrottle,
     MCPOAuthRedirectBurstThrottle,
@@ -87,7 +92,6 @@ from ..policy import GatewayCaller, PolicyContext, ResolvedPolicy, is_policy_sta
 from ..proxy import proxy_mcp_request, record_tool_call_audit, resolve_call_decision, validate_installation_auth
 from ..tasks import sync_installation_tools_task
 from ..tools import ToolCallError, ToolsFetchError, call_upstream_tool, sync_installation_tools
-from .visibility import slack_dev_mcp_ui_enabled
 
 
 class MCPProxyRenderer(renderers.BaseRenderer):
@@ -270,10 +274,6 @@ class MCPServerViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.G
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         queryset = MCPServerTemplate.available_for_team(self.team_id).order_by("name")
-        if queryset.filter(oauth_credentials_source="slack_dev_app").exists() and not slack_dev_mcp_ui_enabled(
-            user=cast(User, request.user), team=self.team
-        ):
-            queryset = queryset.exclude(oauth_credentials_source="slack_dev_app")
         serializer = MCPServerTemplateSerializer(queryset, many=True)
         return Response({"results": serializer.data})
 
@@ -625,6 +625,14 @@ class MCPServerInstallationToolSerializer(serializers.ModelSerializer):
 
 class ToolApprovalUpdateSerializer(serializers.Serializer):
     approval_state = serializers.ChoiceField(choices=["approved", "needs_approval", "do_not_use"])
+
+
+def _is_scoped_session(request: Request) -> bool:
+    authenticator = request.successful_authenticator
+    return (
+        get_authenticator_scoped_team_ids(authenticator) is not None
+        or get_authenticator_scoped_organization_ids(authenticator) is not None
+    )
 
 
 def _installation_display_name(installation: MCPServerInstallation) -> str:
@@ -1285,6 +1293,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             caller=caller,
             gateway_server=gateway_server,
             actor_label=cast(User, request.user).email or "",
+            scoped_session=_is_scoped_session(request),
         )
 
     @validated_request(
@@ -1367,7 +1376,10 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
         try:
             result = call_upstream_tool(
-                installation, tool_name, arguments, borrowed=installation.user_id != request.user.id
+                installation,
+                tool_name,
+                arguments,
+                borrowed=installation.user_id != request.user.id or _is_scoped_session(request),
             )
         except (ToolCallError, ToolsFetchError) as exc:
             logger.warning(

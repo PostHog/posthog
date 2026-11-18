@@ -52,6 +52,7 @@ from products.workflows.backend.services.email_sending_controls import (
 )
 from products.workflows.backend.services.existing_email_tools import (
     lookup_existing_email_tools as _lookup_existing_email_tools,
+    lookup_existing_email_tools_when_answered as _lookup_existing_email_tools_when_answered,
 )
 from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
 from products.workflows.backend.services.owned_workflow_health import list_owned_workflow_health
@@ -533,6 +534,10 @@ def get_maildev_email_domain_status(domain: str, *, mail_from_subdomain: str) ->
 
 def lookup_existing_email_tools(root_domain: str) -> list[str]:
     return _lookup_existing_email_tools(root_domain)
+
+
+def lookup_existing_email_tools_when_answered(root_domain: str) -> list[str] | None:
+    return _lookup_existing_email_tools_when_answered(root_domain)
 
 
 def delete_ses_identity(identity: str) -> None:

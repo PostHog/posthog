@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 from botocore.exceptions import ClientError
 
@@ -20,7 +21,9 @@ from posthog import settings
 
 from products.signals.backend.ranking.features import (
     EMBEDDING_COLUMN,
+    EMBEDDING_DIMENSIONS,
     EMBEDDING_INSERTED_AT_COLUMN,
+    HAS_VECTOR_COLUMN,
     REPORT_EMBEDDINGS_EXTRA,
     Extras,
 )
@@ -40,6 +43,9 @@ from products.signals.dags.inbox_ranking.training.examples import Snapshot, drop
 
 _PREFIX = "local"
 _TABLES = (STATE_TABLE, LABELS_TABLE, EMBEDDINGS_TABLE)
+
+# The vectors `report_vector_presence` decodes at once: about 50 MiB of float32 at 1536 values each.
+PRESENCE_BATCH_ROWS = 8192
 
 
 class LocalSnapshotStore:
@@ -91,14 +97,43 @@ def consenting_snapshots(
     return kept
 
 
+# The embeddings snapshot columns `report_vectors` and `report_vector_presence` read.
+REPORT_VECTOR_COLUMNS = ("report_id", EMBEDDING_COLUMN, EMBEDDING_INSERTED_AT_COLUMN)
+
+
 def report_vectors(embeddings: pa.Table) -> Extras:
     """The `report_embeddings` side input, indexed by report_id."""
-    vectors = (
-        embeddings.select(["report_id", EMBEDDING_COLUMN, EMBEDDING_INSERTED_AT_COLUMN])
+    vectors = embeddings.select(list(REPORT_VECTOR_COLUMNS)).to_pandas().set_index("report_id")
+    return {REPORT_EMBEDDINGS_EXTRA: vectors[~vectors.index.duplicated()]}
+
+
+def report_vector_presence(embeddings: pq.ParquetFile, *, batch_rows: int = PRESENCE_BATCH_ROWS) -> Extras:
+    """The `report_embeddings` side input without the vector values: whether each report's vector has
+    `EMBEDDING_DIMENSIONS` values, and when it landed. `buildable` reads it the same as
+    `report_vectors`, and `build_matrix` cannot read it. The object is decoded `batch_rows` vectors at
+    a time, and the check runs on the Arrow list lengths, so no vector becomes a Python or numpy
+    object and the decoded vectors are never held all at once."""
+    schema = embeddings.schema_arrow
+    report_ids: list[pa.Array] = []
+    landed: list[pa.Array] = []
+    has_vector: list[pa.Array] = []
+    for batch in embeddings.iter_batches(batch_size=batch_rows, columns=list(REPORT_VECTOR_COLUMNS)):
+        lengths = pc.list_value_length(batch[EMBEDDING_COLUMN])
+        report_ids.append(batch["report_id"])
+        landed.append(batch[EMBEDDING_INSERTED_AT_COLUMN])
+        has_vector.append(pc.equal(lengths, pa.scalar(EMBEDDING_DIMENSIONS)).fill_null(False))
+    presence = (
+        pa.table(
+            {
+                "report_id": pa.chunked_array(report_ids, schema.field("report_id").type),
+                EMBEDDING_INSERTED_AT_COLUMN: pa.chunked_array(landed, schema.field(EMBEDDING_INSERTED_AT_COLUMN).type),
+                HAS_VECTOR_COLUMN: pa.chunked_array(has_vector, pa.bool_()),
+            }
+        )
         .to_pandas()
         .set_index("report_id")
     )
-    return {REPORT_EMBEDDINGS_EXTRA: vectors[~vectors.index.duplicated()]}
+    return {REPORT_EMBEDDINGS_EXTRA: presence[~presence.index.duplicated()]}
 
 
 def run_from_cache(arguments: argparse.Namespace) -> None:

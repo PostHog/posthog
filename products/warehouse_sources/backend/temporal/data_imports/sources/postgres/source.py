@@ -196,6 +196,22 @@ _DATABASE_NOT_FOUND_VALIDATION_ERROR = (
     "correct and try again."
 )
 
+# A source past the SSL cutoff connects with sslmode=require, so a server built without SSL support
+# fails the moment the sync — or a direct query — opens its connection. An SSH tunnel with
+# `require_tls` off is the supported way to reach such a server.
+_SSL_UNSUPPORTED_ERROR = (
+    "Your database doesn't support the encrypted connection PostHog requires. Enable SSL/TLS on "
+    "your database server, or connect through an SSH tunnel instead."
+)
+
+# libpq reports "server does not support SSL, but SSL was required" without `SSLRequiredError` only
+# when the SSL requirement is off, so the sslmode that demanded SSL came from the source's own
+# certificate settings (verification or a client certificate). An SSH tunnel doesn't relax those.
+_SSL_UNSUPPORTED_BY_CERTIFICATE_SETTINGS_ERROR = (
+    "Your database doesn't support encrypted connections, but your certificate settings need one. "
+    "Enable SSL/TLS on your database, or clear this source's certificate settings."
+)
+
 # The source type the managed-warehouse host exemption is keyed on. It names the listener
 # set the exemption applies to, and both the validation and the connect path pass it.
 POSTGRES_HOST_CHECK_SOURCE_TYPE = "postgres"
@@ -341,8 +357,8 @@ PostgresErrors = {
     'database "': _DATABASE_NOT_FOUND_VALIDATION_ERROR,
     "timeout expired": _CONNECT_TIMEOUT_VALIDATION_ERROR,
     "the database system is starting up": "Your database is starting up or recovering. Wait a moment and try again.",
-    "SSL/TLS connection is required": "SSL/TLS connection is required but your database does not support it. Please enable SSL/TLS on your PostgreSQL server.",
-    "server does not support SSL, but SSL was required": "SSL/TLS connection is required but your database does not support it. Please enable SSL/TLS on your PostgreSQL server.",
+    "SSL/TLS connection is required": _SSL_UNSUPPORTED_ERROR,
+    "server does not support SSL, but SSL was required": _SSL_UNSUPPORTED_BY_CERTIFICATE_SETTINGS_ERROR,
     # The plaintext half of the SNI rejection mapped above: with sslmode=prefer libpq retries
     # without SSL after a failed encrypted attempt, and a provider that requires TLS refuses that
     # too with "FATAL: SSL/TLS connection required. Connect with sslmode=require or higher." The
@@ -455,14 +471,6 @@ _SSH_FORWARD_FAILED_EXHAUSTED_MESSAGE = (
     "enabled and will run again on its next schedule."
 )
 
-# A source past the SSL cutoff connects with sslmode=require, so a server built without SSL support
-# fails the moment the sync — or a direct query — opens its connection. An SSH tunnel with
-# `require_tls` off is the supported way to reach such a server.
-_SSL_UNSUPPORTED_ERROR = (
-    "Your database doesn't support the encrypted connection PostHog requires. Enable SSL/TLS on "
-    "your database server, or connect through an SSH tunnel instead."
-)
-
 # Terminal messages for the transient classes in `get_retryable_errors`. Those stay retryable, but
 # once every retry is spent the job stores whatever the driver said — a raw libpq or pooler string
 # carrying the customer's host and IP and no next action. Each message below names the class and
@@ -545,6 +553,17 @@ _METADATA_PROBE_TIMEOUT_EXHAUSTED_MESSAGE = (
     "else is holding a long-running lock on this table. Check your pooler's session affinity and "
     "your database for long-running transactions on this table. This sync is still enabled and "
     "will run again on its next schedule."
+)
+
+# Twin of `_METADATA_PROBE_TIMEOUT_EXHAUSTED_MESSAGE` for a sustained lock conflict
+# (`psycopg.errors.LockNotAvailable`) rather than a statement timeout: PostHog's read waited past
+# the source's lock_timeout for a lock a concurrent DDL change, a VACUUM FULL, or another
+# long-running transaction held on the table, and it kept happening on every retry.
+_LOCK_TIMEOUT_EXHAUSTED_MESSAGE = (
+    "PostHog's read kept hitting your database's lock timeout, and it did so again on every "
+    "retry. This usually means another session is holding a long-running lock on this table, such "
+    "as a schema change (DDL), a VACUUM FULL, or a long transaction. Check your database for one of "
+    "those on this table. This sync is still enabled and will run again on its next schedule."
 )
 
 _SERIALIZATION_CONFLICT_EXHAUSTED_MESSAGE = (
@@ -1875,10 +1894,22 @@ class PostgresSource(
         # statement on different backends, or a lock another session holds), not a query doomed to
         # repeat the same failure. A fresh connection on retry can land on a backend without that
         # problem, so it's self-recovering like the other entries here.
+        #
+        # "canceling statement due to lock timeout" (`psycopg.errors.LockNotAvailable`) is a
+        # concurrent DDL/VACUUM FULL holding ACCESS EXCLUSIVE against our ACCESS SHARE — transient,
+        # since the lock frees once that other transaction ends. `get_rows`'s server-cursor DECLARE
+        # and keyset-page reads already retry it in-process with backoff
+        # (`_MAX_INITIAL_READ_LOCK_TIMEOUT_RETRIES`, `_MAX_KEYSET_PAGE_LOCK_RETRIES` in postgres.py)
+        # and only re-raise the raw error once that budget is spent; `_has_duplicate_primary_keys`'s
+        # cheap pre-read probe doesn't retry in-process at all and re-raises immediately via its own
+        # `except psycopg.OperationalError: raise`. Without this entry, every one of those re-raises
+        # floods error tracking at `exception` level instead of the self-recovering whole-activity
+        # retry this condition actually gets.
         return {
             CLIENT_DEADLINE_ERROR,
             "canceling statement due to user request",
             "canceling statement due to statement timeout",
+            "canceling statement due to lock timeout",
             *_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
             *_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
             *_SERVER_STARTING_UP_ERROR_SUBSTRINGS,
@@ -1915,6 +1946,7 @@ class PostgresSource(
             CLIENT_DEADLINE_ERROR: _CLIENT_DEADLINE_EXHAUSTED_MESSAGE,
             "canceling statement due to user request": _SPURIOUS_CANCEL_EXHAUSTED_MESSAGE,
             "canceling statement due to statement timeout": _METADATA_PROBE_TIMEOUT_EXHAUSTED_MESSAGE,
+            "canceling statement due to lock timeout": _LOCK_TIMEOUT_EXHAUSTED_MESSAGE,
             HOST_RESOLUTION_TIMEOUT_ERROR: HOST_RESOLUTION_EXHAUSTED_MESSAGE,
             TEMPORARY_HOST_RESOLUTION_ERROR: HOST_RESOLUTION_EXHAUSTED_MESSAGE,
             _SSH_FORWARD_FAILED_ERROR: _SSH_FORWARD_FAILED_EXHAUSTED_MESSAGE,

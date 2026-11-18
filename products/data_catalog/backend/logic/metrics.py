@@ -33,6 +33,7 @@ from products.product_analytics.backend.facade.models import Insight
 
 from ..facade.contracts import MetricBulkOwnerChange, MetricListFilters
 from ..facade.enums import CreatedSource, MetricStatus
+from ..metrics import DatabaseBuildTrigger
 from ..models import METRIC_NAME_REGEX, Metric
 from ..tasks.tasks import refresh_metric_embedding_task, sync_metric_lineage_task
 from .analytics import (
@@ -215,7 +216,9 @@ def _refine(metric: Metric, fields: dict) -> None:
 def _denied_tables(team: Team, user: User, user_access_control: UserAccessControl) -> set[str]:
     if user_access_control.is_organization_admin:
         return {f"system.{name}" for name in system_table_denials(team, user, user_access_control)}
-    return Database.create_for(team=team, user=user, user_access_control=user_access_control)._denied_tables
+    return Database.create_for(
+        team=team, user=user, user_access_control=user_access_control, trigger=DatabaseBuildTrigger.METRIC_ACCESS
+    )._denied_tables
 
 
 def _live_metric_reads_tables(team: Team, name: str) -> bool:
@@ -263,8 +266,7 @@ def _schedule_lineage_sync(metric: Metric) -> None:
 def _schedule_embedding_refresh(metric: Metric) -> None:
     """Clear the stale vector, then refresh it after the write commits, for organizations that allow embedding.
 
-    `robust=True` for the same reason as the lineage sync. The embedding backfill sweep repairs a
-    message that never went.
+    `robust=True` for the same reason as the lineage sync.
     """
     clear_stale_embedding(metric)
     if not can_embed(metric.team):

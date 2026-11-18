@@ -2681,6 +2681,7 @@ export interface EvalSuggestionRunApi {
  * * `new_hog` - New Hog eval
  * * `new_llm_judge` - New LLM judge
  * * `fix_eval` - Fix an evaluation
+ * * `fix_prompt` - Fix a prompt
  */
 export type EvalSuggestionKindEnumApi = (typeof EvalSuggestionKindEnumApi)[keyof typeof EvalSuggestionKindEnumApi]
 
@@ -2688,6 +2689,7 @@ export const EvalSuggestionKindEnumApi = {
     NewHog: 'new_hog',
     NewLlmJudge: 'new_llm_judge',
     FixEval: 'fix_eval',
+    FixPrompt: 'fix_prompt',
 } as const
 
 /**
@@ -2740,18 +2742,19 @@ export const EvalSuggestionDismissReasonEnumApi = {
 } as const
 
 /**
- * For new_hog and new_llm_judge: the evaluation create input (name, description, evaluation_type, evaluation_config, output_type, output_config, target), without conditions, which accept builds from `filters` and `rollout_percentage`. For fix_eval: the update body apply_fix applies to the target evaluation, or {} when the evaluation needs a manual fix.
+ * For new_hog and new_llm_judge: the evaluation create input (name, description, evaluation_type, evaluation_config, output_type, output_config, target), without conditions, which accept builds from `filters` and `rollout_percentage`. For fix_eval: the update body apply_fix applies to the target evaluation, or {} when the evaluation needs a manual fix. For fix_prompt: the check's name and description, and prompt_name when one managed prompt holds the rule.
  */
 export type EvalSuggestionApiDraft = { [key: string]: unknown }
 
 export interface EvalSuggestionApi {
     /** Suggestion identifier. */
     readonly id: string
-    /** new_hog: a Hog check, measured on a sample. new_llm_judge: an LLM judge that possibly applies, with examples. fix_eval: an existing evaluation that matches nothing or gives inconsistent results.
+    /** new_hog: a Hog check, measured on a sample. new_llm_judge: an LLM judge that possibly applies, with examples. fix_eval: an existing evaluation that matches nothing or gives inconsistent results. fix_prompt: a rule the prompt sets that most sampled calls break, which a prompt change fixes and an evaluation cannot; it has no evaluation to accept.
      *
      * * `new_hog` - New Hog eval
      * * `new_llm_judge` - New LLM judge
-     * * `fix_eval` - Fix an evaluation */
+     * * `fix_eval` - Fix an evaluation
+     * * `fix_prompt` - Fix a prompt */
     readonly kind: EvalSuggestionKindEnumApi
     /** proposed until someone accepts or dismisses it.
      *
@@ -2764,25 +2767,29 @@ export interface EvalSuggestionApi {
     readonly applies: boolean
     /** Catalog template or adapted check the suggestion comes from. Empty for fix_eval. */
     readonly template_key: string
-    /** The problem in the project's own terms, with the number that makes it concrete, such as '1 in 125 traces ends on a failed call'. Judges carry no rate, because only Hog checks are measured. */
+    /** A short, stable name for the issue, such as 'Tool or model calls that never succeed'. For fix_eval, the condition observed on the evaluation. It carries no counts; `observation` does. */
     readonly headline: string
-    /** What adding the evaluation does and what it costs, in one or two plain sentences. */
+    /** One sentence on what the evaluation flags and where it applies, starting with 'Flags'. For fix_eval and fix_prompt, what was observed and the next step. */
     readonly outcome: string
-    /** How the problem was measured or found, for people who want the detail. */
+    /** Why the issue matters for the project's users, or empty when nothing supports it. */
     readonly reason: string
-    /** For new_hog and new_llm_judge: the evaluation create input (name, description, evaluation_type, evaluation_config, output_type, output_config, target), without conditions, which accept builds from `filters` and `rollout_percentage`. For fix_eval: the update body apply_fix applies to the target evaluation, or {} when the evaluation needs a manual fix. */
+    /** What the sample showed, such as '9 of 27 sampled generations flagged', or empty when nothing was measured. */
+    readonly observation: string
+    /** Where the observation came from, such as 'Sampled from the last 7 days'. */
+    readonly observation_scope: string
+    /** For new_hog and new_llm_judge: the evaluation create input (name, description, evaluation_type, evaluation_config, output_type, output_config, target), without conditions, which accept builds from `filters` and `rollout_percentage`. For fix_eval: the update body apply_fix applies to the target evaluation, or {} when the evaluation needs a manual fix. For fix_prompt: the check's name and description, and prompt_name when one managed prompt holds the rule. */
     readonly draft: EvalSuggestionApiDraft
     /** Property filters the suggested evaluation runs on. Empty means all AI traffic. */
     readonly filters: readonly EvalSuggestionFilterApi[]
     /** Percentage (0-100) of matching units the evaluation runs on. */
     readonly rollout_percentage: number
     /**
-     * Share (0-1) of sampled traces that fail the check. Only Hog checks are measured; null otherwise.
+     * Share (0-1) of sampled traces or generations, per the draft's target, that fail the check. Null when nothing measured it.
      * @nullable
      */
     readonly measured_failure_rate: number | null
     /**
-     * Traces the failure rate was measured on. Null when there is no rate.
+     * Traces or generations, per the draft's target, that the failure rate was measured on. Null when there is no rate.
      * @nullable
      */
     readonly sample_size: number | null
@@ -6407,6 +6414,11 @@ export interface TaggerApi {
     readonly updated_at: string
     readonly created_by: UserBasicApi
     deleted?: boolean
+    /**
+     * The evaluation that replaced this tagger when it was migrated. Null until then.
+     * @nullable
+     */
+    readonly migrated_to_evaluation_id: string | null
 }
 
 export interface PaginatedTaggerListApi {
@@ -7775,6 +7787,10 @@ export type TaggersListParams = {
      * Number of results to return per page.
      */
     limit?: number
+    /**
+     * Only the tagger that was migrated to this evaluation
+     */
+    migrated_to_evaluation_id?: string
     /**
      * The initial index from which to return the results.
      */

@@ -6,7 +6,7 @@ import { LemonButton, LemonCard, LemonTag, LemonTagType } from '@posthog/lemon-u
 import { IconSlack, IconTwilio } from 'lib/lemon-ui/icons'
 
 import { channelCatalogLogic } from './channelCatalogLogic'
-import { CHANNEL_COPY, ChannelStatus, ChannelSummary } from './channelSummary'
+import { CHANNEL_COPY, ChannelStatus, ChannelSummary, isWorkflowsOnlyChannel } from './channelSummary'
 import type { ChannelType } from './MessageChannels'
 
 const CHANNEL_ICONS: Record<ChannelType, JSX.Element> = {
@@ -49,6 +49,15 @@ export function ChannelCatalogCard({
                     <LemonTag size="small" type={tag.type}>
                         {tag.label}
                     </LemonTag>
+                    {isWorkflowsOnlyChannel(channel.kind) && (
+                        <LemonTag
+                            size="small"
+                            type="default"
+                            title="Broadcasts send email and push notifications only."
+                        >
+                            Workflows only
+                        </LemonTag>
+                    )}
                 </div>
                 <span className="text-secondary text-sm">{description}</span>
                 {isSetUp && (

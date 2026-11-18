@@ -648,6 +648,7 @@ Triage warns before a verdict closes an open implementation PR.
 New failed reports consume a daily inbox slot when they first become visible.
 Existing failed reports without a visibility timestamp remain historical backlog; they do not consume the rollout day's slots.
 Signal admission checks the daily report limit before billable processing. Accepted signals finish buffering, report generation, and automatic implementation even if the limit is reached meanwhile. This can take the day's count above the configured limit; new work remains blocked. The configured limit, visibility-based count, and project-local day boundary are unchanged.
+Provider 400 errors containing `specified API usage limits` in the signal safety filter skip activity retries. The buffer carries the failed signals into a fresh run and pauses for 15 minutes before trying again, so the pause does not consume the previous run's one-hour timeout. Safe signals in the same batch still proceed to grouping. Before each safety-filter attempt, the buffer drops the entire batch if its oldest signal has waited more than seven days, including newer signals in that batch. Each signal retains its first buffer arrival time across retries and fresh runs; signals from older workflow histories start aging when the buffer first records that time. Expired signals increment `signals_dropped_total` with stage `buffer` and reason `expired`. Other failures keep their existing retry behavior. Processing resumes on the next retry after the provider limit is raised or resets; a lower error count alone does not confirm recovery.
 The desktop eligibility change must ship separately after this backend transition is deployed.
 A suppressed report can resolve if its prior status was `ready`, `pending_input`, `failed`, or `resolved`.
 
@@ -701,6 +702,10 @@ When a report has a linked task run, the View task button opens it in the PostHo
 The button fits its label, including when it appears below the Solution section.
 
 Trial-funded background runs require the PostHog AI gateway.
+The free trial does not add an enabled-scout count limit or pause scouts when it starts.
+Scouts keep the standard project count limit, and setup permits up to five selections.
+Trial spend and report limits still apply.
+Eligible free-trial scout runs use GPT-5.6 Luna on the Flex queue.
 Pi scouts, including the first-report DeepSeek arm, use the scoped gateway path and retain trial spend accounting.
 They cannot start without a scoped gateway token; a transient mint failure retries provisioning without falling back to unaccounted execution.
 Pi runs outside scouts and own-subscription model access are refused before a run is created, with instructions to choose Claude Code or Codex with PostHog model access.

@@ -1,105 +1,66 @@
-from datetime import timedelta
-
+import pytest
 from posthog.test.base import BaseTest
 
-from django.utils import timezone
+from django.test import SimpleTestCase, override_settings
 
+import jwt
 from parameterized import parameterized
 
-from posthog.models import Organization, Team
-from posthog.models.oauth import OAuthAccessToken, OAuthApplication, find_oauth_access_token, mint_oauth_access_token
 from posthog.models.personal_api_key import PersonalAPIKey
-from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.models.utils import hash_key_value
 
-from products.mcp_store.backend.borrowed_credential import BorrowedCredentialRefused, confine_borrowed_credential
+from products.mcp_store.backend.borrowed_credential import (
+    BorrowedCredentialRefused,
+    is_posthog_connection,
+    refuse_borrowed_posthog_credential,
+)
+
+THIRD_PARTY_URL = "https://mcp.linear.app/mcp"
+SITE_URL = "https://app.posthog.example"
+LEGACY_SHAPED_KEY = "A" * 43
 
 
-class TestConfineBorrowedCredential(BaseTest):
-    def setUp(self):
-        super().setUp()
-        self.application = OAuthApplication.objects.create(
-            name="MCP store client",
-            client_id="mcp-store-test-client",
-            client_secret="",
-            client_type=OAuthApplication.CLIENT_PUBLIC,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://app.example.com/callback",
-            algorithm="RS256",
-        )
-        other_org = Organization.objects.create(name="Other org")
-        self.other_team = Team.objects.create(organization=other_org, name="Other team")
+def _access_token_jwt(issuer: str) -> str:
+    return jwt.encode({"iss": issuer, "sub": "user"}, "k" * 32, algorithm="HS256", headers={"typ": "at+jwt"})
 
-    def _oauth_token(self, scoped_teams: list[int]) -> str:
-        return mint_oauth_access_token(
-            application=self.application,
-            user=self.user,
-            scope="project:read query:read",
-            lifetime=timedelta(hours=1),
-            scoped_teams=scoped_teams,
-        ).token
 
-    def _personal_api_key(self, scoped_teams: list[int] | None) -> str:
-        value = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            user=self.user, label="mcp", secure_value=hash_key_value(value), scoped_teams=scoped_teams
-        )
-        return value
-
-    def test_unscoped_oauth_token_is_swapped_for_one_limited_to_the_project(self):
-        original = self._oauth_token(scoped_teams=[])
-
-        confined = confine_borrowed_credential(original, self.team.id)
-
-        assert confined is not None and confined != original
-        row = find_oauth_access_token(confined)
-        assert row is not None
-        assert (row.user_id, row.application_id, row.scope, row.scoped_teams) == (
-            self.user.id,
-            self.application.id,
-            "project:read query:read",
-            [self.team.id],
-        )
-        assert row.expires <= timezone.now() + timedelta(minutes=15)
-
-    def test_confined_token_is_reused_while_it_has_time_left(self):
-        original = self._oauth_token(scoped_teams=[])
-
-        first = confine_borrowed_credential(original, self.team.id)
-        second = confine_borrowed_credential(original, self.team.id)
-
-        assert first == second
-        assert OAuthAccessToken.objects.filter(user=self.user, scoped_teams=[self.team.id]).count() == 1
-
-    def test_oauth_token_already_limited_to_the_project_is_forwarded_unchanged(self):
-        original = self._oauth_token(scoped_teams=[self.team.id])
-
-        assert confine_borrowed_credential(original, self.team.id) == original
-
-    def test_project_scoped_personal_api_key_is_forwarded_unchanged(self):
-        key = self._personal_api_key(scoped_teams=[self.team.id])
-
-        assert confine_borrowed_credential(key, self.team.id) == key
-
+@override_settings(SITE_URL=SITE_URL, MCP_SERVER_URL="https://mcp.posthog.example/mcp", ID_JAG_ALLOWED_RESOURCES=[])
+class TestIsPostHogConnection(SimpleTestCase):
     @parameterized.expand(
         [
-            ("oauth_token_for_another_project", "oauth_other_team"),
-            ("oauth_token_from_another_instance", "unknown_oauth"),
-            ("unscoped_personal_api_key", "pak_unscoped"),
-            ("personal_api_key_spanning_projects", "pak_two_teams"),
-            ("personal_api_key_from_another_instance", "unknown_pak"),
+            ("oauth_access_token", THIRD_PARTY_URL, "pha_" + "x" * 40, True),
+            ("personal_api_key", THIRD_PARTY_URL, "phx_" + "x" * 40, True),
+            ("access_token_jwt_issued_here", THIRD_PARTY_URL, _access_token_jwt(SITE_URL), True),
+            (
+                "access_token_jwt_from_a_third_party",
+                THIRD_PARTY_URL,
+                _access_token_jwt("https://auth.linear.app"),
+                False,
+            ),
+            ("posthog_cloud_host", "https://mcp.posthog.com/mcp", "opaque-token", True),
+            ("posthog_cloud_host_without_a_token", "https://mcp-eu.posthog.com/mcp", None, True),
+            ("this_instance_mcp_server", "https://mcp.posthog.example/mcp", "opaque-token", True),
+            ("lookalike_host", "https://notposthog.com/mcp", "opaque-token", False),
+            ("third_party_token", THIRD_PARTY_URL, "sk-linear-abc123", False),
+            ("third_party_without_a_token", THIRD_PARTY_URL, None, False),
         ]
     )
-    def test_posthog_credentials_that_cannot_be_limited_are_refused(self, _name: str, kind: str):
-        token = {
-            "oauth_other_team": lambda: self._oauth_token(scoped_teams=[self.other_team.id]),
-            "unknown_oauth": lambda: "pha_" + "x" * 40,
-            "pak_unscoped": lambda: self._personal_api_key(scoped_teams=None),
-            "pak_two_teams": lambda: self._personal_api_key(scoped_teams=[self.team.id, self.other_team.id]),
-            "unknown_pak": lambda: "phx_" + "x" * 40,
-        }[kind]()
+    def test_classifies_connection(self, _name: str, url: str, token: str | None, expected: bool):
+        assert is_posthog_connection(url, token) is expected
 
-        with self.assertRaises(BorrowedCredentialRefused):
-            confine_borrowed_credential(token, self.team.id)
+    def test_posthog_connection_is_refused(self):
+        with pytest.raises(BorrowedCredentialRefused):
+            refuse_borrowed_posthog_credential(THIRD_PARTY_URL, "pha_" + "x" * 40)
 
-    def test_third_party_token_is_left_alone(self):
-        assert confine_borrowed_credential("sk-linear-abc123", self.team.id) is None
+    def test_third_party_connection_is_allowed(self):
+        refuse_borrowed_posthog_credential(THIRD_PARTY_URL, "sk-linear-abc123")
+
+
+class TestLegacyPersonalApiKey(BaseTest):
+    def test_legacy_key_issued_here_is_a_posthog_credential(self):
+        PersonalAPIKey.objects.create(user=self.user, label="legacy", secure_value=hash_key_value(LEGACY_SHAPED_KEY))
+
+        assert is_posthog_connection(THIRD_PARTY_URL, LEGACY_SHAPED_KEY) is True
+
+    def test_unknown_token_of_the_same_shape_is_third_party(self):
+        assert is_posthog_connection(THIRD_PARTY_URL, LEGACY_SHAPED_KEY) is False

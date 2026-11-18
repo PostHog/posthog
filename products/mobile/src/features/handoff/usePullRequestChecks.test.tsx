@@ -30,8 +30,8 @@ function check(
     return { name: 'tests', status, conclusion, url: null }
 }
 
-const PASS = { checks: [check('completed', 'success')] }
-const FAIL = { checks: [check('completed', 'failure')] }
+const PASS = { checks: [check('completed', 'success')], has_conflict: false }
+const FAIL = { checks: [check('completed', 'failure')], has_conflict: false }
 
 const SCOPE = { host: 'https://app.example.com', projectId: 2 }
 

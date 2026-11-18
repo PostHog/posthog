@@ -139,11 +139,11 @@ export const ANTHROPIC_CLIENT_NAME_FRAGMENTS = ['claudecode', 'claudeai', 'cowor
 
 // Anthropic clients connect through a pooled MCP transport and usually omit the
 // `initialize` body's `clientInfo.name`, reporting their live product only in the
-// `x-anthropic-client` (`vendorClient`) header. Map that vendor value to the
-// canonical client-name token the MCP analytics dashboard buckets on, so these
-// sessions are attributed to a real client instead of falling into "Other".
-// Mirrors the vendor→name mapping in the dashboard (harnessRegistry.ts and
-// models-mcp.md) — keep the three in sync.
+// `x-anthropic-client` (`vendorClient`) header. Map that vendor value to a
+// canonical client-name token for `$mcp_client_name` and the API client header.
+// A vendor missing from this map keeps its raw header value as the client name.
+// The analytics harness label does not depend on this map, because
+// mcp_harness.py in products/mcp_analytics reads the vendor header first.
 const VENDOR_CLIENT_TO_CLIENT_NAME: Readonly<Record<string, string>> = {
     claudecode: 'claude-code',
     claudeai: 'claude-ai',
@@ -283,16 +283,20 @@ export class MCPClientProfile {
         this.uiSupported = input.uiSupported
     }
 
+    isCursor(): boolean {
+        return (
+            matchesAnyFragment(this.clientName, TOOLS_MODE_CLIENT_NAME_FRAGMENTS) ||
+            matchesAnyFragment(this.userAgent, TOOLS_MODE_USER_AGENT_FRAGMENTS)
+        )
+    }
+
     isToolsModeClient(): boolean {
         // The only clients that auto-select the full per-tool roster; everyone
         // else defaults to CLI (single-exec) mode — see `resolveMode`. Matched on
         // the self-reported `clientInfo.name` and the User-Agent (older Cursor
         // builds identify only through the UA); never on the vendor header, so
         // Anthropic pooled transports can't land in tools mode.
-        return (
-            matchesAnyFragment(this.clientName, TOOLS_MODE_CLIENT_NAME_FRAGMENTS) ||
-            matchesAnyFragment(this.userAgent, TOOLS_MODE_USER_AGENT_FRAGMENTS)
-        )
+        return this.isCursor()
     }
 
     isCliModeEnabled(): boolean {

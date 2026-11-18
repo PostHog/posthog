@@ -18,7 +18,10 @@ function update(update: Record<string, unknown>): Record<string, unknown> {
 }
 
 function userMessage(text: string): Record<string, unknown> {
-    return update({ sessionUpdate: 'user_message_chunk', content: { type: 'text', text } })
+    return {
+        ...update({ sessionUpdate: 'user_message_chunk', content: { type: 'text', text } }),
+        timestamp: '2026-11-15T14:30:00Z',
+    }
 }
 
 function thought(text: string): Record<string, unknown> {
@@ -26,7 +29,10 @@ function thought(text: string): Record<string, unknown> {
 }
 
 function agentMessage(text: string): Record<string, unknown> {
-    return update({ sessionUpdate: 'agent_message', content: { type: 'text', text } })
+    return {
+        ...update({ sessionUpdate: 'agent_message', content: { type: 'text', text } }),
+        timestamp: '2026-11-15T14:32:00Z',
+    }
 }
 
 function tool(

@@ -170,6 +170,13 @@ _RETRYABLE_CODES = frozenset(
 # not an application-level failure, so unlike INTERNAL in general it's always safe to retry.
 _DESERIALIZATION_FAILURE_DETAILS = "Exception deserializing response!"
 
+# A peer-initiated HTTP/2 stream reset (a load balancer recycling the connection, a router restart
+# mid-call) surfaces from grpcio as INTERNAL with this detail substring rather than a code already in
+# _RETRYABLE_CODES. The request was never processed by personhog, so a retry on a fresh stream is
+# safe - the same transient shape already retried for other gRPC clients in this codebase (Google
+# Ads, BigQuery's Storage Read API).
+_STREAM_RESET_DETAILS_SIGNATURE = "Stream removed"
+
 # Must match DB_TIMEOUT_METADATA_KEY in rust/personhog-common/src/grpc.rs.
 _DB_TIMEOUT_METADATA_KEY = "x-db-timeout"
 
@@ -183,7 +190,9 @@ def _is_retryable(code: grpc.StatusCode | None, details: str | None, codes: Coll
         return False
     if code in codes:
         return True
-    return code == grpc.StatusCode.INTERNAL and details == _DESERIALIZATION_FAILURE_DETAILS
+    if code != grpc.StatusCode.INTERNAL or details is None:
+        return False
+    return details == _DESERIALIZATION_FAILURE_DETAILS or _STREAM_RESET_DETAILS_SIGNATURE in details
 
 
 def _is_db_timeout(call: grpc.Call) -> bool:
@@ -241,9 +250,10 @@ class RetryInterceptor(grpc.UnaryUnaryClientInterceptor):
     - DEADLINE_EXCEEDED: transient timeout (event loop saturation, brief backend slowness), but not a
       Postgres statement or lock timeout, which personhog marks with ``_DB_TIMEOUT_METADATA_KEY``
     - UNKNOWN: catch-all for transient failures that don't map to a specific code
-    - INTERNAL, but only the client-side response deserialization failure (see
-      ``_DESERIALIZATION_FAILURE_DETAILS``) - INTERNAL otherwise stays terminal here since personhog
-      also maps DB-level conditions (a deadlock, a read-only primary) to it.
+    - INTERNAL, but only two detail signatures diagnosed as pure transport failures: the client-side
+      response deserialization failure (``_DESERIALIZATION_FAILURE_DETAILS``) and a peer-reset HTTP/2
+      stream (``_STREAM_RESET_DETAILS_SIGNATURE``) - INTERNAL otherwise stays terminal here since
+      personhog also maps DB-level conditions (a deadlock, a read-only primary) to it.
 
     DB-level conditions, timeouts included, must not be hammered with a fast in-process retry.
 
