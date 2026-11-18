@@ -1394,7 +1394,11 @@ def test_the_sandbox_change_check_runs_without_posthog_on_the_path(
     expected_warnings: list[str],
 ) -> None:
     git_env = {
-        "PATH": os.environ["PATH"],
+        **{
+            name: value
+            for name, value in os.environ.items()
+            if name not in ("PYTHONPATH", "DJANGO_SETTINGS_MODULE") and not name.startswith("GIT_")
+        },
         "HOME": str(tmp_path),
         **{
             f"GIT_{role}_{field}": value

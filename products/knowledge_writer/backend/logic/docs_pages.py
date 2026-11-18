@@ -93,6 +93,18 @@ def nav_line_links(line: str) -> tuple[str, ...] | None:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class PatchHunk:
+    tag: str
+    base_start: int
+    base_end: int
+    head_start: int
+    head_end: int
+
+
+EQUAL_START_HUNK = PatchHunk(tag="equal", base_start=0, base_end=0, head_start=0, head_end=0)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class NavEntryEdit:
     line_number: int
     line: str
@@ -111,7 +123,7 @@ def nav_entry_edits_outside_pages(
     edits = (
         hunk_edit_outside_page_entries(hunks, hunk_index, base_nav, head_nav)
         for hunk_index, hunk in enumerate(hunks)
-        if hunk[0] != "equal"
+        if hunk.tag != "equal"
     )
     return tuple(dict.fromkeys(edit for edit in edits if edit is not None))
 
@@ -129,8 +141,17 @@ class NavText:
     objects_linking_pages: frozenset[int]
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class NavObjects:
+    object_by_position: list[int | None]
+    array_separator_positions: frozenset[int]
+    parent_by_object: dict[int, int | None]
+    end_by_object: dict[int, int]
+
+
 def read_nav_text(text: str, page_paths: frozenset[str]) -> NavText:
-    object_by_position, array_separator_positions, parent_by_object, end_by_object = nav_objects(text)
+    objects = nav_objects(text)
+    object_by_position, parent_by_object = objects.object_by_position, objects.parent_by_object
     links = list(NAV_LINK_PAIR_PATTERN.finditer(text))
     objects_with_links = frozenset(owner for link in links if (owner := object_by_position[link.start()]) is not None)
     return NavText(
@@ -138,9 +159,9 @@ def read_nav_text(text: str, page_paths: frozenset[str]) -> NavText:
         lines=text.split("\n"),
         line_starts=[0, *(newline.end() for newline in re.finditer("\n", text)), len(text)],
         object_by_position=object_by_position,
-        array_separator_positions=array_separator_positions,
+        array_separator_positions=objects.array_separator_positions,
         parent_by_object=parent_by_object,
-        end_by_object=end_by_object,
+        end_by_object=objects.end_by_object,
         linked_entry_by_object=linked_entries(parent_by_object, objects_with_links),
         objects_linking_pages=frozenset(
             owner
@@ -150,10 +171,8 @@ def read_nav_text(text: str, page_paths: frozenset[str]) -> NavText:
     )
 
 
-def patch_hunks(
-    patch: str, base_lines: list[str], head_lines: list[str]
-) -> list[tuple[str, int, int, int, int]] | None:
-    hunks: list[tuple[str, int, int, int, int]] = []
+def patch_hunks(patch: str, base_lines: list[str], head_lines: list[str]) -> list[PatchHunk] | None:
+    hunks: list[PatchHunk] = []
     base_cursor, head_cursor = 0, 0
     base_end, head_end = content_line_count(base_lines), content_line_count(head_lines)
     previous_marker = ""
@@ -233,16 +252,16 @@ def is_unchanged_run(
     return base_lines[base_start:base_end] == head_lines[head_start:head_end]
 
 
-def extend_hunks(hunks: list[tuple[str, int, int, int, int]], *, is_change: bool, base_end: int, head_end: int) -> None:
-    previous = hunks[-1] if hunks else ("equal", 0, 0, 0, 0)
-    base_start, head_start = previous[2], previous[4]
-    if hunks and (previous[0] != "equal") == is_change:
+def extend_hunks(hunks: list[PatchHunk], *, is_change: bool, base_end: int, head_end: int) -> None:
+    previous = hunks[-1] if hunks else EQUAL_START_HUNK
+    base_start, head_start = previous.base_end, previous.head_end
+    if hunks and (previous.tag != "equal") == is_change:
         hunks.pop()
-        base_start, head_start = previous[1], previous[3]
+        base_start, head_start = previous.base_start, previous.head_start
     if base_end == base_start and head_end == head_start:
         return
     tag = hunk_tag(is_change, base_end - base_start, head_end - head_start)
-    hunks.append((tag, base_start, base_end, head_start, head_end))
+    hunks.append(PatchHunk(tag=tag, base_start=base_start, base_end=base_end, head_start=head_start, head_end=head_end))
 
 
 def hunk_tag(is_change: bool, base_line_count: int, head_line_count: int) -> str:
@@ -264,21 +283,24 @@ def linked_entries(
 
 
 def hunk_edit_outside_page_entries(
-    hunks: Sequence[tuple[str, int, int, int, int]], hunk_index: int, base_nav: NavText, head_nav: NavText
+    hunks: Sequence[PatchHunk], hunk_index: int, base_nav: NavText, head_nav: NavText
 ) -> NavEntryEdit | None:
-    tag, base_start, base_end, head_start, head_end = hunks[hunk_index]
-    if tag == "replace":
+    hunk = hunks[hunk_index]
+    base_start, base_end, head_start, head_end = hunk.base_start, hunk.base_end, hunk.head_start, hunk.head_end
+    if hunk.tag == "replace":
         return first_edit_outside_page_entries(
             head_nav, head_start, head_end, is_replacement=True, is_base=False
         ) or first_edit_outside_page_entries(base_nav, base_start, base_end, is_replacement=True, is_base=True)
-    is_deletion = tag == "delete"
+    is_deletion = hunk.tag == "delete"
     nav, start, end = (base_nav, base_start, base_end) if is_deletion else (head_nav, head_start, head_end)
-    previous_hunk = hunks[hunk_index - 1] if hunk_index > 0 else ("equal", 0, 0, 0, 0)
+    previous_hunk = hunks[hunk_index - 1] if hunk_index > 0 else EQUAL_START_HUNK
     next_hunk = (
-        hunks[hunk_index + 1] if hunk_index + 1 < len(hunks) else ("equal", 0, len(nav.lines), 0, len(nav.lines))
+        hunks[hunk_index + 1]
+        if hunk_index + 1 < len(hunks)
+        else PatchHunk(tag="equal", base_start=0, base_end=len(nav.lines), head_start=0, head_end=len(nav.lines))
     )
-    lowest_start = previous_hunk[1] if is_deletion else previous_hunk[3]
-    highest_end = next_hunk[2] if is_deletion else next_hunk[4]
+    lowest_start = previous_hunk.base_start if is_deletion else previous_hunk.head_start
+    highest_end = next_hunk.base_end if is_deletion else next_hunk.head_end
     slid_starts = slid_line_starts(nav.lines, start, end, lowest_start, highest_end)
     if is_any_window_inside_page_entries(nav, slid_starts, end - start):
         return None
@@ -295,7 +317,7 @@ def slid_line_starts(lines: list[str], start: int, end: int, lowest_start: int, 
     return range(upper_start, lower_start + 1)
 
 
-@dataclass(slots=True, kw_only=True)
+@dataclass(frozen=False, slots=True, kw_only=True)
 class EntryWindow:
     nav: NavText
     is_replacement: bool
@@ -381,7 +403,7 @@ def is_page_entry_edit(nav: NavText, edited_object: int | None, start: int, end:
     return nav.line_starts[start] <= edited_object and nav.end_by_object[edited_object] < nav.line_starts[end]
 
 
-def nav_objects(text: str) -> tuple[list[int | None], frozenset[int], dict[int, int | None], dict[int, int]]:
+def nav_objects(text: str) -> NavObjects:
     object_by_position: list[int | None] = []
     array_separator_positions: set[int] = set()
     parent_by_object: dict[int, int | None] = {}
@@ -405,7 +427,12 @@ def nav_objects(text: str) -> tuple[list[int | None], frozenset[int], dict[int, 
         if innermost is not None and innermost[0] == OPENING_BRACKET_BY_CLOSING.get(character):
             close_bracket(innermost, open_brackets, open_objects, end_by_object, position)
         position = span_end
-    return object_by_position, frozenset(array_separator_positions), parent_by_object, end_by_object
+    return NavObjects(
+        object_by_position=object_by_position,
+        array_separator_positions=frozenset(array_separator_positions),
+        parent_by_object=parent_by_object,
+        end_by_object=end_by_object,
+    )
 
 
 def close_bracket(
@@ -827,7 +854,7 @@ class SandboxChangeSettings:
     routed_page_keys: frozenset[str]
 
 
-@dataclass(slots=True, kw_only=True)
+@dataclass(frozen=False, slots=True, kw_only=True)
 class SandboxChange:
     problems: list[str]
     written: dict[str, str]
