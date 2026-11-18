@@ -4,7 +4,7 @@ import { router } from 'kea-router'
 import { useState } from 'react'
 
 import { LemonInput, LemonSelect, LemonTag, Tooltip, lemonToast } from '@posthog/lemon-ui'
-import { Button } from '@posthog/quill'
+import { Button, Tabs, TabsList, TabsTrigger } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -640,6 +640,26 @@ export function ExperimentsScene(): JSX.Element {
     const [surveyModalExperiment, setSurveyModalExperiment] = useState<Experiment | null>(null)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
+    const resultsRedesignList = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
+    const quillList = todayRailNav && resultsRedesignList
+    const listTabs: { key: ExperimentsTabs; label: string; content: JSX.Element }[] = [
+        {
+            key: ExperimentsTabs.All,
+            label: 'Experiments',
+            content: (
+                <ExperimentsTable
+                    openDuplicateModal={setDuplicateModalExperiment}
+                    openSurveyModal={setSurveyModalExperiment}
+                    openCopyToProjectModal={setCopyToProjectModalExperiment}
+                />
+            ),
+        },
+        { key: ExperimentsTabs.SharedMetrics, label: 'Shared metrics', content: <ExperimentsSharedMetricsScene /> },
+        { key: ExperimentsTabs.Holdouts, label: 'Holdout groups', content: <ExperimentsHoldoutsScene /> },
+        { key: ExperimentsTabs.History, label: 'History', content: <ActivityLog scope={ActivityScope.EXPERIMENT} /> },
+        { key: ExperimentsTabs.Settings, label: 'Settings', content: <ExperimentsSettingsScene /> },
+    ]
+
     // Register feature flag creation tool so that it's always available on experiments page
     useMaxTool({
         identifier: 'create_feature_flag',
@@ -734,40 +754,28 @@ export function ExperimentsScene(): JSX.Element {
                     </>
                 }
             />
-            <LemonTabs
-                activeKey={tab}
-                onChange={(newKey) => setExperimentsTab(newKey)}
-                sceneInset
-                tabs={[
-                    {
-                        key: ExperimentsTabs.All,
-                        label: 'Experiments',
-                        content: (
-                            <ExperimentsTable
-                                openDuplicateModal={setDuplicateModalExperiment}
-                                openSurveyModal={setSurveyModalExperiment}
-                                openCopyToProjectModal={setCopyToProjectModalExperiment}
-                            />
-                        ),
-                    },
-                    {
-                        key: ExperimentsTabs.SharedMetrics,
-                        label: 'Shared metrics',
-                        content: <ExperimentsSharedMetricsScene />,
-                    },
-                    { key: ExperimentsTabs.Holdouts, label: 'Holdout groups', content: <ExperimentsHoldoutsScene /> },
-                    {
-                        key: ExperimentsTabs.History,
-                        label: 'History',
-                        content: <ActivityLog scope={ActivityScope.EXPERIMENT} />,
-                    },
-                    {
-                        key: ExperimentsTabs.Settings,
-                        label: 'Settings',
-                        content: <ExperimentsSettingsScene />,
-                    },
-                ]}
-            />
+            {quillList ? (
+                <Tabs value={tab} onValueChange={(next) => setExperimentsTab(next as ExperimentsTabs)} data-quill>
+                    <TabsList
+                        variant="line"
+                        className="max-w-full justify-start overflow-x-auto border-b border-border"
+                    >
+                        {listTabs.map(({ key, label }) => (
+                            <TabsTrigger key={key} value={key}>
+                                {label}
+                            </TabsTrigger>
+                        ))}
+                    </TabsList>
+                    <div className="pt-4">{listTabs.find(({ key }) => key === tab)?.content}</div>
+                </Tabs>
+            ) : (
+                <LemonTabs
+                    activeKey={tab}
+                    onChange={(newKey) => setExperimentsTab(newKey)}
+                    sceneInset
+                    tabs={listTabs}
+                />
+            )}
             {duplicateModalExperiment && (
                 <DuplicateExperimentModal
                     isOpen={true}
