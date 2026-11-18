@@ -28,15 +28,13 @@ import { EmailStatusService } from './email-status.service'
 import { EmailSuppressionService } from './email-suppression.service'
 import { escapeHtml } from './helpers/escape-html'
 import { replaceHrefAnchors } from './helpers/href-anchors'
-import { hasClickTrackingOptOut, hasSesNoTrack } from './helpers/link-tags'
+import { HtmlOpeningTag, findAttribute, withAttribute } from './helpers/html-attributes'
+import { hasClickTrackingOptOutAttribute, hasSesNoTrackAttribute } from './helpers/link-tags'
 import { SES_LINK_INDEX_TAG, SesWebhookHandler } from './helpers/ses'
 import { SnsEnvelope } from './helpers/sns-envelope'
 import { EmailTrackingCodeSigner, trackingCodeFormatCounter } from './helpers/tracking-code'
 
 export const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==', 'base64')
-
-// Matches an existing `ses:tags` attribute so our link tag can be merged into its value.
-const SES_TAGS_ATTR_REGEX = /\bses:tags\s*=\s*(?:"([^"]*)"|'([^']*)'|([^'">\s]+))/i
 
 /**
  * How anchors in the email body are prepared for click attribution.
@@ -51,27 +49,19 @@ const SES_TAGS_ATTR_REGEX = /\bses:tags\s*=\s*(?:"([^"]*)"|'([^']*)'|([^'">\s]+)
  */
 export type EmailTrackingMode = 'redirect' | 'ses'
 
-const addAttributeToOpeningTag = (openingTag: string, attribute: string): string => {
-    if (!openingTag.endsWith('>')) {
-        return openingTag
-    }
-    const attributes = openingTag.slice(0, -1)
-    const withoutSelfClose = attributes.endsWith('/') ? attributes.slice(0, -1) : attributes
-    return `${withoutSelfClose.trimEnd()} ${attribute}>`
-}
-
-const withSesLinkIndexTag = (openingTag: string, linkIndex: number): string => {
-    const tag = `${SES_LINK_INDEX_TAG}:${linkIndex}`
-    const existing = openingTag.match(SES_TAGS_ATTR_REGEX)
+const withSesLinkIndexTag = (anchor: string, tag: HtmlOpeningTag, linkIndex: number): string => {
+    const linkTag = `${SES_LINK_INDEX_TAG}:${linkIndex}`
+    const existing = findAttribute(tag, 'ses:tags')
     if (!existing) {
-        return addAttributeToOpeningTag(openingTag, `ses:tags="${tag}"`)
+        return withAttribute(anchor, tag, `ses:tags="${linkTag}"`)
     }
     // An HTML parser keeps only the first of two same-named attributes, so emitting a second
     // `ses:tags` would silently discard whichever set loses. Merge into the author's existing
     // value instead so both their tags and ours reach SES. SES separates pairs with `;` and
     // allows only `0-9 A-Z a-z - _` in a value, so any other separator makes one malformed tag.
-    const value = existing[1] ?? existing[2] ?? existing[3] ?? ''
-    return openingTag.replace(SES_TAGS_ATTR_REGEX, () => `ses:tags="${value ? `${value};` : ''}${tag}"`)
+    const value = (existing.value ?? '').replaceAll('"', '&quot;')
+    const merged = `ses:tags="${value ? `${value};` : ''}${linkTag}"`
+    return anchor.slice(0, existing.start) + merged + anchor.slice(existing.end)
 }
 
 const trackingEventsCounter = new Counter({
@@ -237,7 +227,7 @@ export const addTrackingToEmail = (
     // a click-tracking redirect unless the send turns clicks on. Opens and deliveries are still tracked.
     const allLinksOptedOut = !(invocation.state?.send?.tracking.clicks ?? !isSensitiveMessage(invocation))
 
-    html = replaceHrefAnchors(html, ({ html: m, href: rawHref }) => {
+    html = replaceHrefAnchors(html, ({ html: m, href: rawHref, hrefAttribute, openingTag }) => {
         const linkIndex = anchorIndex++
         const href = decodeHtmlEntitiesInHref(rawHref)
         // The anchor scan skips literal `javascript:` hrefs, but an attacker could entity-encode
@@ -247,10 +237,9 @@ export const addTrackingToEmail = (
         }
         // Per-link opt-out. Leaves the href on its own domain so mobile universal links /
         // app deeplinks resolve - routing through our cross-domain redirect breaks them.
-        // Match only the opening <a> tag so a marker in the link's inner HTML (a child
-        // element's attribute or literal link text) can't silently disable tracking.
-        const openingTag = m.match(/^<a\b[^>]*>/i)?.[0] ?? ''
-        const optedOut = allLinksOptedOut || hasClickTrackingOptOut(openingTag)
+        // Read only the attributes of the opening <a> tag so a marker in the link's inner HTML
+        // or inside another attribute's value can't silently disable tracking.
+        const optedOut = allLinksOptedOut || hasClickTrackingOptOutAttribute(openingTag)
 
         if (mode === 'ses') {
             // SES rewrites every http(s) anchor once click tracking is on, and it honors only its
@@ -258,11 +247,9 @@ export const addTrackingToEmail = (
             // keeps a universal link or app deeplink off awstrack.me; leaving the href alone (the
             // `redirect` mode's opt-out) does nothing here.
             if (optedOut) {
-                return hasSesNoTrack(openingTag)
-                    ? m
-                    : addAttributeToOpeningTag(openingTag, 'ses:no-track') + m.slice(openingTag.length)
+                return hasSesNoTrackAttribute(openingTag) ? m : withAttribute(m, openingTag, 'ses:no-track')
             }
-            return withSesLinkIndexTag(openingTag, linkIndex) + m.slice(openingTag.length)
+            return withSesLinkIndexTag(m, openingTag, linkIndex)
         }
 
         if (optedOut) {
@@ -270,8 +257,8 @@ export const addTrackingToEmail = (
         }
         const tracked = signer.redirectUrl(trackingInvocation, href, isTest)
 
-        // replace just the href in the original tag to preserve other attributes
-        return m.replace(/\bhref\s*=\s*(?:"[^"]*"|'[^']*'|[^'">\s]+)/i, `href="${tracked}"`)
+        // Replace just the href a browser follows, so every other attribute stays as written.
+        return m.slice(0, hrefAttribute.start) + `href="${tracked}"` + m.slice(hrefAttribute.end)
     })
 
     html = html.replace('</body>', `${openPixelTag(trackingUrl)}</body>`)

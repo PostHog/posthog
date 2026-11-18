@@ -253,6 +253,106 @@ describe('EmailTrackingService', () => {
                     '<abbr href="https://example.com/a">a</abbr><a href="https://example.com/b">b</a>',
                     '<abbr href="https://example.com/a">a</abbr><a href="https://example.com/b" ses:tags="phl:0">b</a>',
                 ],
+                [
+                    'a double-quoted href holding a >',
+                    '<a href="https://example.com/?q=a>b&amp;Signature=abc">a</a>',
+                    '<a href="https://example.com/?q=a>b&amp;Signature=abc" ses:tags="phl:0">a</a>',
+                ],
+                [
+                    'a single-quoted href holding a >',
+                    `<a href='https://example.com/?q=a>b&amp;Signature=abc'>a</a>`,
+                    `<a href='https://example.com/?q=a>b&amp;Signature=abc' ses:tags="phl:0">a</a>`,
+                ],
+                [
+                    'a > in an earlier value of an opted-out link',
+                    '<a title="Price > $10" href="https://example.com/" data-ph-no-track>a</a>',
+                    '<a title="Price > $10" href="https://example.com/" data-ph-no-track ses:no-track>a</a>',
+                ],
+                [
+                    'a double quote in a single-quoted href before an opted-out link',
+                    `<a href='https://example.com/?q="a'>a</a><a href="https://example.com/b" data-ph-no-track>b</a>`,
+                    `<a href='https://example.com/?q="a' ses:tags="phl:0">a</a><a href="https://example.com/b" data-ph-no-track ses:no-track>b</a>`,
+                ],
+                [
+                    'a single quote in a double-quoted href before an opted-out link',
+                    `<a href="https://example.com/?q='a">a</a><a href='https://example.com/b' data-ph-no-track>b</a>`,
+                    `<a href="https://example.com/?q='a" ses:tags="phl:0">a</a><a href='https://example.com/b' data-ph-no-track ses:no-track>b</a>`,
+                ],
+                [
+                    'a quote in an unquoted href before an opted-out link',
+                    '<a href=https://example.com/?q="a>a</a><a href="https://example.com/b" data-ph-no-track>b</a>',
+                    '<a href=https://example.com/?q="a ses:tags="phl:0">a</a><a href="https://example.com/b" data-ph-no-track ses:no-track>b</a>',
+                ],
+                [
+                    'ses:tags text inside the href',
+                    '<a href="https://example.com/?offer=1>0&amp;label=ses:tags=sale">a</a>',
+                    '<a href="https://example.com/?offer=1>0&amp;label=ses:tags=sale" ses:tags="phl:0">a</a>',
+                ],
+                [
+                    'ses:tags text inside the href and an author ses:tags attribute',
+                    `<a href="https://example.com/?label=ses:tags=sale" ses:tags='campaign:spring'>a</a>`,
+                    '<a href="https://example.com/?label=ses:tags=sale" ses:tags="campaign:spring;phl:0">a</a>',
+                ],
+                [
+                    'a double quote in a single-quoted author ses:tags value',
+                    `<a href="https://example.com/" ses:tags='campaign:"spring'>a</a>`,
+                    '<a href="https://example.com/" ses:tags="campaign:&quot;spring;phl:0">a</a>',
+                ],
+                [
+                    'opt-out text inside another value',
+                    '<a title="Tracking > data-ph-no-track clicktracking=off" href="https://example.com/">a</a>',
+                    '<a title="Tracking > data-ph-no-track clicktracking=off" href="https://example.com/" ses:tags="phl:0">a</a>',
+                ],
+                [
+                    'ses:no-track text inside a value of an opted-out link',
+                    '<a title="a > ses:no-track" href="https://example.com/" data-ph-no-track>a</a>',
+                    '<a title="a > ses:no-track" href="https://example.com/" data-ph-no-track ses:no-track>a</a>',
+                ],
+                [
+                    'an opt-out right after a closing quote',
+                    '<a href="https://example.com/"data-ph-no-track>a</a>',
+                    '<a href="https://example.com/"data-ph-no-track ses:no-track>a</a>',
+                ],
+                [
+                    'tab, newline and form feed between attributes',
+                    '<a\thref="https://example.com/"\ndata-ph-no-track\f>a</a>',
+                    '<a\thref="https://example.com/"\ndata-ph-no-track ses:no-track>a</a>',
+                ],
+                [
+                    'a nonbreaking space, which joins two names into one',
+                    '<a href="https://example.com/" x data-ph-no-track>a</a>',
+                    '<a href="https://example.com/" x data-ph-no-track ses:tags="phl:0">a</a>',
+                ],
+                [
+                    'slashes between attributes',
+                    '<a/href="https://example.com/"/data-ph-no-track>a</a>',
+                    '<a/href="https://example.com/"/data-ph-no-track ses:no-track>a</a>',
+                ],
+                [
+                    'an unquoted href that ends in a slash',
+                    '<a href=https://example.com/>a</a>',
+                    '<a href=https://example.com/ ses:tags="phl:0">a</a>',
+                ],
+                [
+                    'an unquoted uppercase clicktracking opt-out',
+                    '<a href="https://example.com/" CLICKTRACKING=OFF>a</a>',
+                    '<a href="https://example.com/" CLICKTRACKING=OFF ses:no-track>a</a>',
+                ],
+                [
+                    'a clicktracking value that is not off',
+                    '<a href="https://example.com/" clicktracking="offline">a</a>',
+                    '<a href="https://example.com/" clicktracking="offline" ses:tags="phl:0">a</a>',
+                ],
+                [
+                    'a quoted href that never closes',
+                    '<a href="https://example.com/>a</a>',
+                    '<a href="https://example.com/>a</a>',
+                ],
+                [
+                    'a quoted href that closes inside the next tag, as a browser reads it',
+                    '<a href="https://example.com/>a</a><a href="https://example.com/b">b</a>',
+                    '<a href="https://example.com/>a</a><a href="https://example.com/b" ses:tags="phl:0">b</a>',
+                ],
             ])('tags the anchors in %s', (_name, body, tagged) => {
                 const out = sesTrack(`<body>${body}</body>`)
                 expect(out.slice(0, out.indexOf('<img src="'))).toBe(`<body>${tagged}`)
@@ -419,7 +519,22 @@ describe('EmailTrackingService', () => {
                 [
                     'two valid hrefs',
                     `<a href="https://example.com/a" href='https://example.com/b'>x</a>`,
-                    'https://example.com/b',
+                    'https://example.com/a',
+                ],
+                [
+                    'href text in an earlier value',
+                    '<a title="href=x" href="https://example.com/a">x</a>',
+                    'https://example.com/a',
+                ],
+                [
+                    'a single-quoted href holding a double quote',
+                    `<a href='https://example.com/?q="a'>x</a>`,
+                    'https://example.com/?q=%22a',
+                ],
+                [
+                    'an unquoted href holding a double quote',
+                    '<a href=https://example.com/?q="a>x</a>',
+                    'https://example.com/?q=%22a',
                 ],
                 [
                     'a javascript: href after a valid one',
@@ -427,19 +542,22 @@ describe('EmailTrackingService', () => {
                     'https://example.com/a',
                 ],
                 ['a quoted href holding a >', '<a href="https://example.com/?a>b">x</a>', 'https://example.com/?a%3Eb'],
-            ])('should redirect a tracked link in %s to its last trackable href', async (_name, anchor, expected) => {
-                const html = addTrackingToEmail(
-                    `<body>${anchor}</body>`,
-                    { functionId: hogFunction.id, id: invocationId, teamId: team.id, state: {} } as any,
-                    signer
-                )
-                const link = new URL(html.match(/href="([^"]+\/public\/m\/redirect[^"]+)"/)![1])
+            ])(
+                'should redirect a tracked link in %s to the href a browser follows',
+                async (_name, anchor, expected) => {
+                    const html = addTrackingToEmail(
+                        `<body>${anchor}</body>`,
+                        { functionId: hogFunction.id, id: invocationId, teamId: team.id, state: {} } as any,
+                        signer
+                    )
+                    const link = new URL(html.match(/href="([^"]+\/public\/m\/redirect[^"]+)"/)![1])
 
-                const res = await supertest(app).get(`${link.pathname}${link.search}`)
+                    const res = await supertest(app).get(`${link.pathname}${link.search}`)
 
-                expect(res.status).toBe(302)
-                expect(res.headers.location).toBe(expected)
-            })
+                    expect(res.status).toBe(302)
+                    expect(res.headers.location).toBe(expected)
+                }
+            )
 
             it.each([
                 [

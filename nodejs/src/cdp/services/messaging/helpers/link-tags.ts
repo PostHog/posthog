@@ -1,3 +1,5 @@
+import { HtmlOpeningTag, findAttribute } from './html-attributes'
+
 export const WORKFLOW_RUN_PARAM = 'ph_workflow_run'
 
 // `clicktracking="off"` is the ESP de-facto standard; `data-ph-no-track` is our name.
@@ -10,6 +12,12 @@ export const hasSesNoTrack = (openingTag: string): boolean => SES_NO_TRACK_ATTR_
 
 export const isNeverClickTracked = (openingTag: string): boolean =>
     hasClickTrackingOptOut(openingTag) || hasSesNoTrack(openingTag)
+
+export const hasClickTrackingOptOutAttribute = (tag: HtmlOpeningTag): boolean =>
+    findAttribute(tag, 'data-ph-no-track') !== undefined ||
+    findAttribute(tag, 'clicktracking')?.value?.toLowerCase() === 'off'
+
+export const hasSesNoTrackAttribute = (tag: HtmlOpeningTag): boolean => findAttribute(tag, 'ses:no-track') !== undefined
 
 const paramName = (param: string): string => {
     const name = param.split('=')[0]

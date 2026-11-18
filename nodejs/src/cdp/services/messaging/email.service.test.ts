@@ -4036,6 +4036,30 @@ describe('EmailService', () => {
                 ])
             })
 
+            it.each([
+                ['a double-quoted', '"', '"'],
+                ['a single-quoted', "'", "'"],
+            ])(
+                'hands SES %s marked link with a > and a quote in its href whole, before an opted-out link',
+                async (_name, open, close) => {
+                    const signed = `https://app.posthog-test.com/f.pdf?q=${open === '"' ? "'" : '"'}a>b&amp;Signature=abc`
+                    invocation.hogFunction.metadata = { tracking_enabled: true, sensitive: false }
+                    invocation.queueParameters = createEmailParams({
+                        from: { integrationId: 1 },
+                        html: `<a data-ph-no-utm href=${open}${signed}${close}>a</a><a href="https://example.com/" data-ph-no-track>b</a>`,
+                    })
+
+                    const result = await service.executeSendEmail(invocation)
+
+                    expect(result.error).toBeUndefined()
+                    const openingTags = [...ses.sent[0].html!.matchAll(/<a\b(?:[^>"']|"[^"]*"|'[^']*')*>/g)]
+                    expect(openingTags.map(([tag]) => tag)).toEqual([
+                        `<a data-ph-no-utm href=${open}${signed}${close} ses:tags="phl:0">`,
+                        '<a href="https://example.com/" data-ph-no-track ses:no-track>',
+                    ])
+                }
+            )
+
             it('records an email_untracked app metric for untracked sends but not for test sends', async () => {
                 invocation.state.renderedWorkflowVersion = 3
                 const normal = await service.executeSendEmail(invocation)
