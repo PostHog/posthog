@@ -1342,7 +1342,7 @@ class CachedTileInsightResultSerializer(InsightSerializer):
     """
 
     class Meta:
-        model = Insight
+        model = InsightSerializer.Meta.model
         fields = [
             "id",
             "result",
@@ -1367,7 +1367,8 @@ class CachedTileInsightResultSerializer(InsightSerializer):
         # drops. The view checks insight access before any tile reaches this serializer.
         # The per-tile endpoint's `query` field maps stale variable IDs to current ones in place before the
         # result is computed. This serializer has no `query` field, so it maps them here to read the same entry.
-        self._query_variables_mapping(instance.query)
+        if isinstance(instance.query, dict):
+            self._query_variables_mapping(instance.query)
         return serializers.ModelSerializer.to_representation(self, instance)
 
 
@@ -4428,14 +4429,12 @@ class DashboardsViewSet(
             )
 
         dashboard = self.get_object()
-        tiles_by_id: dict[int, DashboardTile] = {
-            tile.id: tile
+        tiles_by_id = {
+            tile.id: (tile, insight)
             for tile in DashboardTile.dashboard_queryset(dashboard.tiles.filter(id__in=tile_ids))
-            if tile.insight is not None and tile.insight.query is not None
+            if (insight := tile.insight) is not None and insight.query is not None
         }
-        restricted_levels = self._restricted_insight_levels(
-            [(tile, cast(Insight, tile.insight)) for tile in tiles_by_id.values()]
-        )
+        restricted_levels = self._restricted_insight_levels(list(tiles_by_id.values()))
 
         context = self.get_serializer_context()
         context["dashboard"] = dashboard
@@ -4446,15 +4445,16 @@ class DashboardsViewSet(
 
         results: list[dict[str, Any]] = []
         for tile_id in tile_ids:
-            tile = tiles_by_id.get(tile_id)
-            if tile is None:
+            tile_and_insight = tiles_by_id.get(tile_id)
+            if tile_and_insight is None:
                 results.append({"id": tile_id, "status": CachedTileStatus.NOT_FOUND})
                 continue
+            tile, insight = tile_and_insight
             if tile_id in restricted_levels:
                 results.append({"id": tile_id, "status": CachedTileStatus.FORBIDDEN})
                 continue
             context["dashboard_tile"] = tile
-            insight_data = insight_serializer.to_representation(cast(Insight, tile.insight))
+            insight_data = insight_serializer.to_representation(insight)
             if not insight_data.get("is_cached"):
                 results.append({"id": tile_id, "status": CachedTileStatus.MISS})
                 continue

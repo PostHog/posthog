@@ -10,8 +10,6 @@ from django.test.utils import CaptureQueriesContext
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.schema import DateRange, EventsNode, InsightVizNode, TrendsQuery
-
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
@@ -24,10 +22,11 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.event_definitions.backend.models import PropertyDefinition
 
 
-def _trends_query(event: str) -> dict:
-    return InsightVizNode(
-        source=TrendsQuery(series=[EventsNode(event=event)], dateRange=DateRange(date_from="-7d"))
-    ).model_dump()
+def _event_count_query(event: str) -> dict:
+    return {
+        "kind": "DataTableNode",
+        "source": {"kind": "EventsQuery", "select": ["count()"], "event": event},
+    }
 
 
 class TestDashboardCachedTiles(APIBaseTest):
@@ -46,7 +45,7 @@ class TestDashboardCachedTiles(APIBaseTest):
 
     def _add_insight_tile(self, event: str) -> tuple[int, int]:
         insight_id, _ = self.dashboard_api.create_insight(
-            {"name": event, "query": _trends_query(event), "dashboards": [self.dashboard_id]}
+            {"name": event, "query": _event_count_query(event), "dashboards": [self.dashboard_id]}
         )
         tile = DashboardTile.objects.get(dashboard_id=self.dashboard_id, insight_id=insight_id)
         return insight_id, tile.id
