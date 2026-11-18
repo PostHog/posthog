@@ -3,7 +3,7 @@
 from drf_spectacular.utils import extend_schema_serializer
 from rest_framework import serializers
 
-from products.apm.backend.facade.api import HealthStatus, UsageSignal
+from products.apm.backend.facade.api import DependencyKind, HealthStatus, UsageSignal
 
 
 class WindowRequestSerializer(serializers.Serializer):
@@ -85,6 +85,43 @@ class ServiceMapResponseSerializer(serializers.Serializer):
     edges = ServiceEdgeSerializer(many=True, help_text="One edge per calling and called service, most calls first.")
     trace_count = serializers.IntegerField(help_text="Traces sampled to build the map.")
     environment = serializers.CharField(help_text="The environment the map was built for.")
+    date_from = serializers.DateTimeField(help_text="Start of the window used.")
+    date_to = serializers.DateTimeField(help_text="End of the window used.")
+
+
+class DependenciesRequestSerializer(ServicesHealthRequestSerializer):
+    service = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        max_length=400,
+        help_text="Only edges where this service is the caller or the callee.",
+    )
+
+
+class DependencyEdgeSerializer(serializers.Serializer):
+    caller = serializers.CharField(help_text="The calling service.")
+    callee = serializers.CharField(
+        help_text="The called service, or for an inferred dependency the peer service, database, queue or host it names."
+    )
+    inferred = serializers.BooleanField(
+        help_text="True when the callee sends no spans and is named by the caller's client span attributes."
+    )
+    kind = serializers.ChoiceField(choices=DependencyKind.choices, help_text="What the callee is.")
+    requests = serializers.IntegerField(help_text="Calls from the caller into the callee in the window.")
+    error_count = serializers.IntegerField(
+        help_text="Calls with an error status, on the caller's client span when it has one."
+    )
+    p95_ms = serializers.FloatField(
+        allow_null=True, help_text="95th percentile call duration in ms, on the caller's client span when it has one."
+    )
+
+
+@extend_schema_serializer(many=False)
+class DependenciesResponseSerializer(serializers.Serializer):
+    edges = DependencyEdgeSerializer(many=True, help_text="One edge per caller and callee, most requests first.")
+    truncated = serializers.BooleanField(help_text="True when more edges matched than the response holds.")
+    environment = serializers.CharField(help_text="The environment the edges were computed for.")
+    service = serializers.CharField(allow_null=True, help_text="The service filter applied, if any.")
     date_from = serializers.DateTimeField(help_text="Start of the window used.")
     date_to = serializers.DateTimeField(help_text="End of the window used.")
 
