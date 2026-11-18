@@ -4,7 +4,7 @@ import hashlib
 from datetime import timedelta
 from typing import cast
 
-from django.core.cache import cache
+from django.core.cache import BaseCache, caches
 from django.db import models
 from django.utils import timezone
 
@@ -297,6 +297,11 @@ def _may_view_recording(user_access_control: UserAccessControl, team: Team, sess
     return user_access_control.check_access_level_for_resource("session_recording", required_level="viewer")
 
 
+def _cache() -> BaseCache:
+    # Polls must see the claim and asset pointer a render just wrote, so this alias reads from the Redis primary.
+    return caches["survey_site_snapshot"]
+
+
 def _snapshot_asset_cache_key(team: Team, key: str) -> str:
     # The exports API returns export_context to anyone who can view the recording, and the key can be checked
     # against guessed URL targeting, so it is kept out of the export.
@@ -366,7 +371,7 @@ def _snapshot_of(asset: ExportedAsset) -> SiteSnapshot:
     return SiteSnapshot(
         status=SnapshotStatus.READY if asset.has_content else SnapshotStatus.RENDERING,
         exported_asset_id=asset.id,
-        page_url=cache.get(_page_url_cache_key(asset)),
+        page_url=_cache().get(_page_url_cache_key(asset)),
         viewport_width=export_context["width"],
         site_style=_site_style_of(export_context),
     )
@@ -383,7 +388,7 @@ def get_site_snapshot(
     target = target or UrlTarget.of(survey)
     key = _snapshot_key(team, target, device)
     cached = ExportedAsset.objects.filter(
-        id=cache.get(_snapshot_asset_cache_key(team, key)),
+        id=_cache().get(_snapshot_asset_cache_key(team, key)),
         team_id=team.id,
         export_format=ExportedAsset.ExportFormat.PNG,
         export_context__read_site_style=True,
@@ -400,21 +405,21 @@ def get_site_snapshot(
             return _snapshot_of(cached)
 
     no_snapshot_key = _snapshot_cache_key("none", team, key)
-    if cache.get(no_snapshot_key) or cache.get(_denied_cache_key(team, user, key)):
+    if _cache().get(no_snapshot_key) or _cache().get(_denied_cache_key(team, user, key)):
         return UNAVAILABLE
     render_claim_key = _snapshot_cache_key("claim", team, key)
-    if not cache.add(render_claim_key, True, timeout=RENDER_CLAIM_TTL.total_seconds()):
+    if not _cache().add(render_claim_key, True, timeout=RENDER_CLAIM_TTL.total_seconds()):
         return SiteSnapshot(status=SnapshotStatus.RENDERING)
     try:
         return _start_snapshot(team, target, device, user, user_access_control, key, no_snapshot_key)
     finally:
-        cache.delete(render_claim_key)
+        _cache().delete(render_claim_key)
 
 
 def _spend_cold_snapshot_budget(team: Team) -> bool:
     key = _snapshot_cache_key("cold", team, timezone.now().strftime("%Y%m%d%H"))
-    cache.add(key, 0, timeout=timedelta(hours=1).total_seconds())
-    return cache.incr(key) <= COLD_SNAPSHOTS_PER_TEAM_PER_HOUR
+    _cache().add(key, 0, timeout=timedelta(hours=1).total_seconds())
+    return _cache().incr(key) <= COLD_SNAPSHOTS_PER_TEAM_PER_HOUR
 
 
 def _start_snapshot(
@@ -430,10 +435,10 @@ def _start_snapshot(
         return UNAVAILABLE
     moment = find_snapshot_moment(team, target, device)
     if moment is None:
-        cache.set(no_snapshot_key, True, timeout=NO_SNAPSHOT_TTL.total_seconds())
+        _cache().set(no_snapshot_key, True, timeout=NO_SNAPSHOT_TTL.total_seconds())
         return UNAVAILABLE
     if not _may_view_recording(user_access_control, team, moment.session_id):
-        cache.set(_denied_cache_key(team, user, key), True, timeout=NO_SNAPSHOT_TTL.total_seconds())
+        _cache().set(_denied_cache_key(team, user, key), True, timeout=NO_SNAPSHOT_TTL.total_seconds())
         return UNAVAILABLE
     asset = create_export_asset_async(
         team=team,
@@ -449,6 +454,6 @@ def _start_snapshot(
         expires_after=timezone.now() + SNAPSHOT_WINDOW,
         is_system=True,
     )
-    cache.set(_page_url_cache_key(asset), moment.page_url, timeout=SNAPSHOT_WINDOW.total_seconds())
-    cache.set(_snapshot_asset_cache_key(team, key), asset.id, timeout=SNAPSHOT_WINDOW.total_seconds())
+    _cache().set(_page_url_cache_key(asset), moment.page_url, timeout=SNAPSHOT_WINDOW.total_seconds())
+    _cache().set(_snapshot_asset_cache_key(team, key), asset.id, timeout=SNAPSHOT_WINDOW.total_seconds())
     return _snapshot_of(asset)
