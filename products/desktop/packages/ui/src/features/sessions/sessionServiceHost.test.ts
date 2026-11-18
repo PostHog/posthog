@@ -10812,7 +10812,7 @@ describe("SessionService", () => {
       expect(onError).toBeDefined();
 
       onError?.(new Error("connection dropped"));
-      await vi.runAllTimersAsync();
+      await vi.advanceTimersByTimeAsync(30_000);
 
       expect(mockTrpcAgent.reconnect.mutate).toHaveBeenCalledTimes(2);
       expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledWith(
@@ -10855,7 +10855,7 @@ describe("SessionService", () => {
       expect(onError).toBeDefined();
 
       onError?.(new Error("connection dropped"));
-      await vi.runAllTimersAsync();
+      await vi.advanceTimersByTimeAsync(30_000);
 
       expect(mockTrpcAgent.reconnect.mutate).toHaveBeenCalledTimes(4);
       expect(mockSessionStoreSetters.setSession).toHaveBeenCalledWith(
