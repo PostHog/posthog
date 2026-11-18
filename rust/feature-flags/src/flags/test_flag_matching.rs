@@ -13920,12 +13920,12 @@ mod tests {
     }
 
     #[rstest::rstest]
-    #[case::listed(&["plan"], Some(true))]
-    #[case::unlisted(&[], Some(false))]
+    #[case::listed(&["plan"], true)]
+    #[case::unlisted(&[], false)]
     #[tokio::test]
     async fn test_known_absent_v1_completeness_under_pending(
         #[case] listed: &[&str],
-        #[case] expected_match: Option<bool>,
+        #[case] expected_match: bool,
     ) {
         let (_context, matcher, team_id) = matcher_for_team("test_user").await;
         let matcher = matcher.with_known_absent_properties(known_absent_person(listed));
@@ -13939,11 +13939,10 @@ mod tests {
         let overrides: HashMap<String, serde_json::Value> = HashMap::new();
         assert!(matcher.flag_evaluation_state.person_properties_pending());
 
-        let result = matcher.get_match(&flag, Some(&overrides), None, None, &None);
+        let result = matcher
+            .get_match(&flag, Some(&overrides), None, None, &None)
+            .unwrap();
 
-        assert_eq!(
-            result.ok().map(|flag_match| flag_match.matches),
-            expected_match
-        );
+        assert_eq!(result.matches, expected_match);
     }
 }
