@@ -3,6 +3,7 @@ import type { ReactElement, ReactNode } from 'react'
 import { Platform } from 'react-native'
 import { MobileScene } from '@/ui/MobileScene'
 import { OverlayPortal } from '@/ui/OverlayPortal'
+import { ScreenBlur } from '@/ui/ScreenBlur'
 import { useNativeRail } from '@/ui/useNativeRail'
 import { TabsChrome } from './TabsChrome'
 import { TabsNavigation } from './TabsNavigation'
@@ -16,8 +17,7 @@ export function TabScene({ children, tab }: { children: ReactNode; tab: TabKey }
     if (Platform.OS !== 'ios') return <>{children}</>
     return (
         <MobileScene>
-            {children}
-            {focused ? <TabsChrome /> : null}
+            <ScreenBlur chrome={focused ? <TabsChrome /> : null}>{children}</ScreenBlur>
             {focused && !nativeRail ? (
                 <OverlayPortal>
                     <TabsNavigation tab={tab} />

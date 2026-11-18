@@ -578,18 +578,29 @@ class PostgresDestinationWriter:
     async def _ensure_merge_stage(self, client: PostgreSQLClient, target: str, stage: str, schema: pa.Schema) -> None:
         """Ready the run's stage table to receive one batch.
 
+        Created from `target`'s own column definitions (`LIKE`), not re-derived from `schema`:
+        a batch whose rows are all null for a column carries no real type information for it
+        (Arrow infers such a column as untyped, which `sql_types` falls back to mapping as
+        TEXT), and building the stage straight from that batch would then create the column as
+        TEXT against a `target` that already holds it as, say, BIGINT -- the upsert's
+        `INSERT ... SELECT` refuses to assign the stage's TEXT output into target's BIGINT
+        column. `target` always already carries every column this batch has, because the
+        caller ensures and evolves it from this same `schema` first.
+
         Created once per run and emptied between batches rather than created and dropped per
         batch. A table per batch is not free on someone else's server: each one writes catalog
         rows that later have to be vacuumed, and vacuuming catalog tables can need locks.
         `abort_run` and `finalize_run` drop it.
-
-        `target` is unused here because `ON CONFLICT` names its columns, so a stage carrying
-        only the batch's own columns is enough. Redshift's merge selects the destination's full
-        column list out of the stage, so its override builds the stage from `target` instead.
         """
-        await client.acreate_table(
-            self._schema, stage, self._fields_for(schema, with_batch_index=False), exists_ok=True
-        )
+        async with self._write_cursor(client) as cursor:
+            await cursor.execute(
+                sql.SQL("CREATE TABLE IF NOT EXISTS {}.{} (LIKE {}.{})").format(
+                    sql.Identifier(self._schema),
+                    sql.Identifier(stage),
+                    sql.Identifier(self._schema),
+                    sql.Identifier(target),
+                )
+            )
         # The stage outlives the batch that created it, so a column the source grew mid-run has
         # to reach it too, or the COPY names a column the stage does not have.
         await self._evolve_table(client, stage, schema)
@@ -666,21 +677,28 @@ class PostgresDestinationWriter:
 
     async def _has_unique_index_on(self, client: PostgreSQLClient, target: str, columns: list[str]) -> bool:
         """Whether some unique index already covers exactly these columns, in any order."""
-        async with client.connection.cursor() as cursor:
-            await cursor.execute(
-                """
-                SELECT array_agg(a.attname::text ORDER BY a.attname)
-                FROM pg_index i
-                JOIN pg_class c ON c.oid = i.indrelid
-                JOIN pg_namespace n ON n.oid = c.relnamespace
-                JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = ANY (i.indkey)
-                WHERE i.indisunique AND c.relname = %(table)s AND n.nspname = %(schema)s
-                GROUP BY i.indexrelid
-                """,
-                {"table": target, "schema": self._schema},
-            )
-            wanted = sorted(columns)
-            return any(sorted(row[0] or []) == wanted for row in await cursor.fetchall())
+        # Demarcated like every other query here, unlike a bare cursor: left open, this
+        # probe's own implicit transaction would still be live when the next statement on
+        # this connection opens its own `transaction()`, which then nests as a savepoint
+        # instead of starting clean. Redshift has no savepoints, so that next statement
+        # fails outright with "current transaction is aborted", for a probe that already
+        # finished and had nothing left to protect.
+        async with client.connection.transaction():
+            async with client.connection.cursor() as cursor:
+                await cursor.execute(
+                    """
+                    SELECT array_agg(a.attname::text ORDER BY a.attname)
+                    FROM pg_index i
+                    JOIN pg_class c ON c.oid = i.indrelid
+                    JOIN pg_namespace n ON n.oid = c.relnamespace
+                    JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = ANY (i.indkey)
+                    WHERE i.indisunique AND c.relname = %(table)s AND n.nspname = %(schema)s
+                    GROUP BY i.indexrelid
+                    """,
+                    {"table": target, "schema": self._schema},
+                )
+                wanted = sorted(columns)
+                return any(sorted(row[0] or []) == wanted for row in await cursor.fetchall())
 
     async def _mark_owned(self, client: PostgreSQLClient, table: str, schema_id: str) -> None:
         async with self._write_cursor(client) as cursor:
@@ -699,19 +717,22 @@ class PostgresDestinationWriter:
         return is_owned_by(await self._table_comment(client, table), schema_id)
 
     async def _table_comment(self, client: PostgreSQLClient, table: str) -> str | None:
-        async with client.connection.cursor() as cursor:
-            await cursor.execute(
-                """
-                SELECT d.description
-                FROM pg_catalog.pg_description d
-                JOIN pg_catalog.pg_class c ON c.oid = d.objoid AND d.objsubid = 0
-                JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-                WHERE c.relname = %(table)s AND n.nspname = %(schema)s
-                """,
-                {"table": table, "schema": self._schema},
-            )
-            row = await cursor.fetchone()
-            return row[0] if row else None
+        # See `_has_unique_index_on`: demarcated so this probe's implicit transaction closes
+        # before the next statement on the connection can nest a savepoint into it.
+        async with client.connection.transaction():
+            async with client.connection.cursor() as cursor:
+                await cursor.execute(
+                    """
+                    SELECT d.description
+                    FROM pg_catalog.pg_description d
+                    JOIN pg_catalog.pg_class c ON c.oid = d.objoid AND d.objsubid = 0
+                    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+                    WHERE c.relname = %(table)s AND n.nspname = %(schema)s
+                    """,
+                    {"table": table, "schema": self._schema},
+                )
+                row = await cursor.fetchone()
+                return row[0] if row else None
 
     async def _already_published(self, client: PostgreSQLClient, ctx: DestinationRunContext) -> bool:
         """Whether this run already swapped its staging table into place."""
