@@ -9,7 +9,7 @@ use anyhow::Error;
 use async_trait::async_trait;
 use common_types::{InternallyCapturedEvent, RawEvent};
 use metrics::counter;
-use posthog_rs::{Client, Error as PosthogError, Event};
+use posthog::{Client, Error as PosthogError, Event};
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -198,7 +198,7 @@ impl<'a> Transaction<'a> for CaptureTransaction<'a> {
 /// metrics. The split is what makes worker-side alerting actionable: `quota` (HTTP
 /// 402) is expected billing enforcement and is excluded from alerts, while
 /// transport / server / bad_request failures are real ingestion problems. The
-/// `_` arm is required because `posthog_rs::Error` is `#[non_exhaustive]`.
+/// `_` arm is required because `posthog::Error` is `#[non_exhaustive]`.
 fn failure_reason(err: &PosthogError) -> &'static str {
     match err {
         PosthogError::BillingLimitExceeded(_) => "quota", // 402
@@ -403,17 +403,17 @@ mod tests {
     }
 
     async fn make_client(base_url: &str) -> Client {
-        let options = posthog_rs::ClientOptionsBuilder::default()
+        let options = posthog::ClientOptionsBuilder::default()
             .api_key("test_api_key".to_string())
             .host(base_url)
             .max_capture_attempts(1u32)
             .build()
             .unwrap();
-        posthog_rs::client(options).await
+        posthog::client(options).await
     }
 
     async fn make_client_with_retries(base_url: &str, attempts: u32) -> Client {
-        let options = posthog_rs::ClientOptionsBuilder::default()
+        let options = posthog::ClientOptionsBuilder::default()
             .api_key("test_api_key".to_string())
             .host(base_url)
             .max_capture_attempts(attempts)
@@ -421,7 +421,7 @@ mod tests {
             .retry_max_backoff_ms(1u64)
             .build()
             .unwrap();
-        posthog_rs::client(options).await
+        posthog::client(options).await
     }
 
     fn make_transaction(client: &Client) -> Box<CaptureTransaction<'_>> {

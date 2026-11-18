@@ -34,8 +34,8 @@ async fn init_hook_emits_delivery_failure_metric_on_terminal_reject() {
         .await
         .expect("init should succeed when an api key is provided");
 
-    posthog_rs::capture(posthog_rs::Event::new_anon("test_event"));
-    posthog_rs::flush().await;
+    posthog::capture(posthog::Event::new_anon("test_event"));
+    posthog::flush().await;
 
     mock.assert_async().await;
 

@@ -1683,7 +1683,7 @@ dependencies = [
  "moka",
  "natord",
  "object_store",
- "posthog-rs",
+ "posthog",
  "rayon",
  "rdkafka",
  "reqwest 0.12.28",
@@ -3099,7 +3099,7 @@ dependencies = [
  "httpmock",
  "metrics",
  "metrics-util",
- "posthog-rs",
+ "posthog",
  "serde_json",
  "tokio",
  "tracing",
@@ -3639,7 +3639,7 @@ dependencies = [
  "mockall",
  "moka",
  "personhog-common",
- "posthog-rs",
+ "posthog",
  "posthog-symbol-data",
  "proguard",
  "rand 0.8.8",
@@ -9922,6 +9922,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "posthog"
+version = "1.0.0"
+source = "git+https://github.com/PostHog/posthog-rs?rev=86b58dfd94b6e2d29a8395f3c3c89294e3e3f521#86b58dfd94b6e2d29a8395f3c3c89294e3e3f521"
+dependencies = [
+ "backtrace",
+ "brotli 9.1.1",
+ "bytes",
+ "chrono",
+ "derive_builder",
+ "findshlibs",
+ "flate2",
+ "os_info",
+ "regex",
+ "reqwest 0.13.5",
+ "serde",
+ "serde_json",
+ "sha1 0.10.7",
+ "sha2 0.10.9",
+ "tokio",
+ "tracing",
+ "uuid",
+ "zstd 0.14.3",
+]
+
+[[package]]
 name = "posthog-replay-anonymizer"
 version = "0.15.0"
 dependencies = [
@@ -9942,33 +9967,6 @@ dependencies = [
  "simd-json",
  "url",
  "zstd 0.13.4",
-]
-
-[[package]]
-name = "posthog-rs"
-version = "0.33.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3949f96688c0661cb43bde67b585a2974351ac998b1bef25af02d218b0bba2b"
-dependencies = [
- "backtrace",
- "brotli 9.1.1",
- "bytes",
- "chrono",
- "derive_builder",
- "findshlibs",
- "flate2",
- "os_info",
- "regex",
- "reqwest 0.13.5",
- "semver",
- "serde",
- "serde_json",
- "sha1 0.11.0",
- "sha2 0.10.9",
- "tokio",
- "tracing",
- "uuid",
- "zstd 0.14.3",
 ]
 
 [[package]]
