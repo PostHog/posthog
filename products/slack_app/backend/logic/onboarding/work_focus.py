@@ -43,7 +43,11 @@ from products.slack_app.backend.logic.onboarding.checks import has_ai_approval
 from products.slack_app.backend.logic.onboarding.step import OnboardingContext, read_action_value
 from products.slack_app.backend.services.slack_messages import context_block, section_block
 from products.slack_app.backend.services.slack_settings import resolve_onboarding, update_onboarding
-from products.slack_app.backend.services.slack_user_oauth import LinkedUserToken, linked_search_token
+from products.slack_app.backend.services.slack_user_oauth import (
+    LinkedUserToken,
+    linked_posthog_distinct_id,
+    linked_search_token,
+)
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
 
 logger = structlog.get_logger(__name__)
@@ -211,7 +215,9 @@ def find_and_send_daily_focus(
     """One workday's work focus, from the messages sent after ``since``, for the run the sweep claimed at ``run_at``.
     A quiet day sends nothing. The free checks come first, so a run that cannot send spends no queries, Slack calls
     or credits."""
-    if not is_slack_app_daily_work_focus_enabled(integration):
+    if not is_slack_app_daily_work_focus_enabled(
+        integration, linked_posthog_distinct_id(slack_user_id=slack_user_id, slack_team_id=integration.integration_id)
+    ):
         return "flag_off"
     daily = resolve_daily_focus(integration.integration_id, slack_user_id)
     if not daily.enabled:
@@ -291,7 +297,9 @@ def _ready_to_send(integration: WorkspaceIntegration, slack_user_id: str) -> Non
 def _daily_focus_footer(integration: WorkspaceIntegration, slack_user_id: str) -> dict | None:
     """The onboarding turns the daily work focus on, unless the person already chose. The footer shows while it is
     on."""
-    if not is_slack_app_daily_work_focus_enabled(integration):
+    if not is_slack_app_daily_work_focus_enabled(
+        integration, linked_posthog_distinct_id(slack_user_id=slack_user_id, slack_team_id=integration.integration_id)
+    ):
         return None
     daily = resolve_daily_focus(integration.integration_id, slack_user_id)
     if daily.enabled is None:
