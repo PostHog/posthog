@@ -3,6 +3,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -33,14 +34,22 @@ describe('flagCallsSceneLogic', () => {
         logic.mount()
     })
 
-    it('loads a query from the URL', async () => {
-        const query = flagCallsQuery({ after: '-7d' })
+    test.each<'the URL' | 'the saved tab state'>(['the URL', 'the saved tab state'])(
+        'loads a query from %s',
+        async (arrival) => {
+            const query = flagCallsQuery({ after: '-7d' })
 
-        router.actions.push(combineUrl(urls.activity(ActivityTab.ExploreFlagCalls), {}, { q: query }).url)
-        await expectLogic(logic).toFinishAllListeners()
+            if (arrival === 'the URL') {
+                router.actions.push(combineUrl(urls.activity(ActivityTab.ExploreFlagCalls), {}, { q: query }).url)
+            } else {
+                tabUiStateLogic.actions.setSavedQueryForTab(undefined, 'flag-calls', query)
+                router.actions.push(urls.activity(ActivityTab.ExploreFlagCalls))
+            }
+            await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.query).toEqual(query)
-    })
+            expect(logic.values.query).toEqual(query)
+        }
+    )
 
     // Any filter other than the flag call event alone makes the runner read the events table, which holds no new flag calls.
     test.each<[string, Partial<EventsQuery>]>([
@@ -54,11 +63,16 @@ describe('flagCallsSceneLogic', () => {
         ],
     ])('keeps a URL query with %s on flag calls', async (_name, source) => {
         router.actions.push(
-            combineUrl(urls.activity(ActivityTab.ExploreFlagCalls), {}, { q: flagCallsQuery(source) }).url
+            combineUrl(
+                urls.activity(ActivityTab.ExploreFlagCalls),
+                {},
+                { q: flagCallsQuery({ after: '-7d', ...source }) }
+            ).url
         )
         await expectLogic(logic).toFinishAllListeners()
 
         const pinned = logic.values.query.source
+        expect(pinned.after).toEqual('-7d')
         expect(pinned.event).toEqual('$feature_flag_called')
         expect(pinned).not.toHaveProperty('events')
         expect(pinned).not.toHaveProperty('actionId')
