@@ -2008,17 +2008,31 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("code_send_with_only_its_flag", "code", {EMAIL_FROM_CODE_FLAG}, status.HTTP_202_ACCEPTED),
-            ("code_send_without_its_flag", "code", {TRANSACTIONAL_EMAIL_API_FLAG}, status.HTTP_404_NOT_FOUND),
-            ("template_send_without_its_flag", "template", {EMAIL_FROM_CODE_FLAG}, status.HTTP_404_NOT_FOUND),
+            ("code_send_with_only_its_flag", "code", {EMAIL_FROM_CODE_FLAG}, status.HTTP_202_ACCEPTED, {}),
+            ("code_send_without_its_flag", "code", {TRANSACTIONAL_EMAIL_API_FLAG}, status.HTTP_404_NOT_FOUND, {}),
+            ("template_send_without_its_flag", "template", {EMAIL_FROM_CODE_FLAG}, status.HTTP_404_NOT_FOUND, {}),
+            (
+                "code_send_with_a_time_without_its_flag",
+                "code",
+                {TRANSACTIONAL_EMAIL_API_FLAG},
+                status.HTTP_400_BAD_REQUEST,
+                {"scheduled_at": "2026-11-20T09:00:00Z"},
+            ),
+            (
+                "template_send_with_a_time_without_its_flag",
+                "template",
+                {EMAIL_FROM_CODE_FLAG},
+                status.HTTP_400_BAD_REQUEST,
+                {"scheduled_at": "2026-11-20T09:00:00Z"},
+            ),
         ]
     )
     def test_each_form_of_a_send_answers_only_while_its_flag_is_on(
-        self, mock_post, flag, _capture, _name, form, enabled_flags, expected_status
+        self, mock_post, flag, _capture, _name, form, enabled_flags, expected_status, extra
     ):
         self._cdp_accepts(mock_post)
         flag.side_effect = lambda key, *_args, **_kwargs: key in enabled_flags
-        body = self._code_send() if form == "code" else self._flat(self.body)
+        body = {**(self._code_send() if form == "code" else self._flat(self.body)), **extra}
 
         response = self.client.post(self.send_email_url, body, format="json")
 
