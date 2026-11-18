@@ -152,8 +152,8 @@ def remove_suppressions(team_id: int, identifiers: list[str], confirm_complaints
     """
     with transaction.atomic():
         rows = MessageSuppression.objects.for_team(team_id)
-        # The lock stops a complaint that lands during the check from being removed unconfirmed. A row inserted or
-        # re-suppressed after the lock is not checked, so only the locked rows are removed.
+        # The lock stops a complaint that lands during the check from being removed unconfirmed. A row inserted after
+        # the lock is not checked, so only the locked rows are removed.
         locked = list(
             rows.filter(identifier__in=identifiers, suppressed=True, deleted=False)
             .order_by("identifier")
