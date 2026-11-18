@@ -136,7 +136,8 @@ export type ReplayFields = Record<string, number>
 
 export type SenderKind = 'email_sandbox'
 
-export type FingerprintWithPreviousShape = { current: string; previousShape: string }
+// `alsoMatches` lists other values that a stored record of the same request can hold.
+export type FingerprintWithPreviousShape = { current: string; previousShape: string; alsoMatches?: readonly string[] }
 
 export type Fingerprint = string | FingerprintWithPreviousShape
 
@@ -160,7 +161,11 @@ export const storedFingerprint = (fingerprint: Fingerprint): Pick<StoredKey, 'fi
 const sameRequest = (stored: StoredKey, fingerprint: Fingerprint): boolean =>
     typeof fingerprint === 'string'
         ? stored.fingerprint === fingerprint
-        : stored.fingerprint === fingerprint.previousShape || stored.currentFingerprint === fingerprint.current
+        : stored.fingerprint === fingerprint.previousShape ||
+          stored.currentFingerprint === fingerprint.current ||
+          !!fingerprint.alsoMatches?.some(
+              (value) => value === stored.fingerprint || value === stored.currentFingerprint
+          )
 
 type PendingCompletion = { redisKey: string; value: StoredKey; leaseToken: string; expiresAt: number }
 

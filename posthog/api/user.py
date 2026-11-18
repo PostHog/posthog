@@ -2020,7 +2020,12 @@ def toolbar_oauth_callback(request):
     base_url = urllib.parse.urlunparse(parsed._replace(fragment=""))
     quoted_code = urllib.parse.quote(code, safe="")
     quoted_client_id = urllib.parse.quote(oauth_app.client_id, safe="")
-    toolbar_param = f"__posthog_toolbar=code:{quoted_code},client_id:{quoted_client_id}"
+    # The toolbar builds every API path from these ids. The grant above is scoped to this team, so they name the only
+    # project its token can reach. Older toolbar builds read up to client_id and ignore the rest.
+    toolbar_param = (
+        f"__posthog_toolbar=code:{quoted_code},client_id:{quoted_client_id},"
+        f"team_id:{team.id},project_id:{team.project_id}"
+    )
     if original_fragment:
         # SPA hash routes (e.g. `#/login`) treat the entire post-`#` substring
         # as the path, so `&` would make the auth params part of the route and

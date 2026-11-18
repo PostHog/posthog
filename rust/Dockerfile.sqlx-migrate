@@ -11,6 +11,7 @@ RUN apt-get update && \
     ca-certificates \
     libpq5 \
     postgresql-client \
+    jq \
     libssl3 \
     && rm -rf /var/lib/apt/lists/*
 
@@ -27,8 +28,10 @@ COPY ./bin/migrate-persons ./bin/migrate-persons
 COPY ./bin/migrate-cyclotron-node ./bin/migrate-cyclotron-node
 COPY ./bin/migrate-behavioral-cohorts ./bin/migrate-behavioral-cohorts
 COPY ./bin/migrate-entry ./bin/migrate-entry
+COPY ./bin/deploy-requirements-check ./bin/deploy-requirements-check
 
 RUN chmod +x /migrations/bin/migrate-entry && \
+    chmod +x /migrations/bin/deploy-requirements-check && \
     chmod +x /migrations/bin/migrate-persons && \
     chmod +x /migrations/bin/migrate-cyclotron-node && \
     chmod +x /migrations/bin/migrate-behavioral-cohorts

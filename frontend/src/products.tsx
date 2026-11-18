@@ -123,6 +123,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/annotations': ['Annotations', 'annotations'],
     '/data-management/annotations/:id': ['Annotations', 'annotation'],
     '/application-observability': ['ApplicationObservability', 'applicationObservability'],
+    '/application-observability/service': ['ApplicationObservabilityService', 'applicationObservabilityService'],
     '/autoresearch': ['Autoresearch', 'autoresearch'],
     '/autoresearch/new': ['AutoresearchNew', 'autoresearchNew'],
     '/autoresearch/:id': ['AutoresearchPipeline', 'autoresearchPipeline'],
@@ -335,6 +336,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/integrations/slack/:integrationId/setup': ['SlackAppWorkspaceSetup', 'slackAppWorkspaceSetup'],
     '/stamphog': ['Stamphog', 'stamphog'],
     '/stamphog/runs': ['StamphogRuns', 'stamphogRuns'],
+    '/stamphog/area': ['StamphogArea', 'stamphogArea'],
     '/stamphog/digests': ['StamphogDigests', 'stamphogDigests'],
     '/stamphog/install/callback': ['Stamphog', 'stamphogCallback'],
     '/streamlit-apps': ['StreamlitApps', 'streamlitApps'],
@@ -626,6 +628,7 @@ export const productRedirects: Record<
         combineUrl(urls.visualReviewRuns(), searchParams, hashParams).url,
     '/visual_review/*': ({ _ }, searchParams, hashParams): string =>
         combineUrl(`/visual-review/${_}`, searchParams, hashParams).url,
+    '/elt': (_params, searchParams, hashParams) => combineUrl(urls.etlOverview(), searchParams, hashParams).url,
     '/web/content-autopilot': (_, searchParams) => combineUrl(urls.webAnalyticsContentAutopilot(), searchParams).url,
     '/web/content-autopilot/prompts/:promptId': ({ promptId }, searchParams) =>
         combineUrl(urls.webAnalyticsContentAutopilotPrompt(promptId ?? ''), searchParams).url,
@@ -794,6 +797,14 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         activityScope: 'Tracing',
         description: 'Whether your application is OK, one row per service, from the signals you already send.',
+        iconType: 'tracing',
+    },
+    ApplicationObservabilityService: {
+        name: 'Service',
+        projectBased: true,
+        layout: 'app-container',
+        activityScope: 'Tracing',
+        description: 'Requests, errors, latency and endpoints for one service.',
         iconType: 'tracing',
     },
     Autoresearch: {
@@ -1257,6 +1268,7 @@ export const productConfiguration: Record<string, any> = {
     SlackAppWorkspaceSetup: { projectBased: true, name: 'Slack app setup', layout: 'plain' },
     Stamphog: { projectBased: true, name: 'Stamphog', iconType: 'stamphog', activityScope: 'StamphogRepoConfig' },
     StamphogRuns: { projectBased: true, name: 'Stamphog runs', iconType: 'stamphog' },
+    StamphogArea: { projectBased: true, name: 'Stamphog area', iconType: 'stamphog' },
     StamphogDigests: { projectBased: true, name: 'Stamphog digests', iconType: 'stamphog' },
     StreamlitApps: {
         name: 'Streamlit apps',
@@ -1498,6 +1510,29 @@ export const productUrls = {
     annotations: (): string => '/data-management/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
     applicationObservability: (): string => '/application-observability',
+    applicationObservabilityService: (
+        serviceName: string,
+        params?: {
+            range?: string | null
+            environment?: string | null
+            version?: string | null
+            operation?: string | null
+        }
+    ): string => {
+        const asText = (value: string): string | string[] =>
+            /^(true|false)$/i.test(value) || (value.trim() !== '' && !Number.isNaN(Number(value))) ? [value] : value
+        const query: Record<string, string | string[]> = { service: asText(serviceName) }
+        if (params?.range && params.range !== '-1h') {
+            query.range = params.range
+        }
+        for (const key of ['environment', 'version', 'operation'] as const) {
+            const value = params ? params[key] : null
+            if (value) {
+                query[key] = asText(value)
+            }
+        }
+        return combineUrl('/application-observability/service', query).url
+    },
     autoresearch: (): string => '/autoresearch',
     autoresearchNew: (): string => '/autoresearch/new',
     autoresearchPipeline: (id: string): string => `/autoresearch/${id}`,
@@ -1840,6 +1875,7 @@ export const productUrls = {
     legalDocumentNew: (type: 'BAA' | 'DPA'): string => `/legal/new/${type.toLowerCase()}`,
     organizationLegalDocuments: (): string => '/organization/legal',
     logs: (activeTab?: LogsSceneActiveTab): string => (activeTab ? `/logs?activeTab=${activeTab}` : '/logs'),
+    logsSavedView: (shortId: string): string => combineUrl('/logs', { savedView: shortId }).url,
     logsAlertDetail: (id: string, tab?: string): string =>
         tab ? `/logs/alerts/${id}?tab=${tab}` : `/logs/alerts/${id}`,
     logsAlertNotificationDetail: (alertId: string, hogFunctionId: string): string =>
@@ -2025,6 +2061,7 @@ export const productUrls = {
     slackAppWorkspaceSetup: (integrationId: number | string): string => `/integrations/slack/${integrationId}/setup`,
     stamphog: (): string => '/stamphog',
     stamphogRuns: (): string => '/stamphog/runs',
+    stamphogArea: (): string => '/stamphog/area',
     stamphogDigests: (): string => '/stamphog/digests',
     stamphogCallback: (): string => '/stamphog/install/callback',
     streamlitApps: (): string => '/streamlit-apps',
@@ -2528,7 +2565,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: '/application-observability',
         flag: FEATURE_FLAGS.APPLICATION_OBSERVABILITY,
         sceneKey: 'ApplicationObservability',
-        sceneKeys: ['ApplicationObservability'],
+        sceneKeys: ['ApplicationObservability', 'ApplicationObservabilityService'],
     },
     {
         path: 'Apps',

@@ -1,3 +1,4 @@
+import json
 from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, timedelta
 from typing import Any, TypedDict, cast
@@ -38,6 +39,7 @@ from posthog.models.tagged_item import TaggedItem
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.alerts.backend.models.alert import AlertConfiguration
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -124,6 +126,82 @@ class TestFileSystemAPI(APIBaseTest):
         }
         self.assertEqual(by_ref[("dashboard", str(dashboard.id))], ["finance", "weekly"])
         self.assertEqual(by_ref[("insight", "tagged")], ["growth"])
+
+    @parameterized.expand(
+        [
+            ("one_tag", ["finance"], {"dashboard:revenue"}),
+            ("any_of_several_tags", ["finance", "growth"], {"dashboard:revenue", "insight:signups"}),
+            ("unknown_tag", ["missing"], set()),
+            ("newest_first", ["finance", "growth"], {"dashboard:revenue", "insight:signups"}, "-created_at"),
+            ("last_viewed", ["finance", "growth"], {"dashboard:revenue", "insight:signups"}, "-last_viewed_at"),
+        ]
+    )
+    def test_list_filters_by_any_tag(
+        self, _name: str, tags: list[str], expected: set[str], order_by: str | None = None
+    ) -> None:
+        revenue = Dashboard.objects.create(team=self.team, name="Revenue")
+        untagged = Dashboard.objects.create(team=self.team, name="Untagged")
+        signups = Insight.objects.create(team=self.team, short_id="signups", name="Signups")
+        churn = Insight.objects.create(team=self.team, short_id="churn", name="Churn")
+        for tag_name, obj in (("finance", revenue), ("growth", signups), ("ops", churn)):
+            tag, _ = Tag.objects.get_or_create(name=tag_name, team=self.team)
+            TaggedItem.objects.create(
+                tag=tag, team=self.team, content_type=ContentType.objects.get_for_model(type(obj)), object_id=obj.id
+            )
+        names = {
+            ("dashboard", str(revenue.id)): "dashboard:revenue",
+            ("dashboard", str(untagged.id)): "dashboard:untagged",
+            ("insight", "signups"): "insight:signups",
+            ("insight", "churn"): "insight:churn",
+        }
+
+        found: set[str] = set()
+        for type_params in ({"type": "dashboard"}, {"type__startswith": "insight"}):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/file_system/",
+                {**type_params, "tags": json.dumps(tags), **({"order_by": order_by} if order_by else {})},
+            )
+            self.assertEqual(response.status_code, 200, response.content)
+            found |= {names[(item["type"].split("/")[0], item["ref"])] for item in response.json()["results"]}
+        self.assertEqual(found, expected)
+
+    def test_list_rejects_malformed_tags(self) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"tags": "finance"})
+        self.assertEqual(response.status_code, 400, response.content)
+
+    def test_list_rejects_deeply_nested_tags(self) -> None:
+        """Past a few tens of thousands of levels CPython's JSON decoder raises RecursionError, which is
+        not a ValueError, so an unguarded parse would answer a 500 instead of a 400."""
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"tags": "[" * 60000})
+        self.assertEqual(response.status_code, 400, response.content)
+
+    def test_recents_without_a_type_filters_by_tag(self) -> None:
+        """`order_by=-last_viewed_at` with no type is served by `_list_recents`, which never reaches
+        `safely_get_queryset`, so the tag filter has to be applied there too."""
+        revenue = Dashboard.objects.create(team=self.team, name="Revenue")
+        churn = Dashboard.objects.create(team=self.team, name="Churn")
+        tag, _ = Tag.objects.get_or_create(name="finance", team=self.team)
+        TaggedItem.objects.create(
+            tag=tag, team=self.team, content_type=ContentType.objects.get_for_model(Dashboard), object_id=revenue.id
+        )
+        now = timezone.now()
+        for dashboard in (revenue, churn):
+            FileSystemViewLog.objects.create(
+                team=self.team,
+                user=self.user,
+                type="dashboard",
+                ref=str(dashboard.id),
+                viewed_at=now,
+                view_days=[now.date()],
+            )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/file_system/",
+            {"order_by": "-last_viewed_at", "tags": json.dumps(["finance"])},
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        refs = {item["ref"] for item in response.json()["results"] if item["type"] == "dashboard"}
+        self.assertEqual(refs, {str(revenue.id)}, "recents with no type must drop the untagged dashboard")
 
     @parameterized.expand([(False,), (True,)])
     def test_list_content_types_without_object_contents(self, include_content_type: bool) -> None:
@@ -1704,6 +1782,45 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         self.assertEqual([item["ref"] for item in response.json()], [self.file_a.ref])
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_tag_filter_skips_objects_the_user_cannot_see(self, mock_flag: MagicMock) -> None:
+        """A row the user filed against an object they are denied survives access filtering, and
+        `_add_object_types` withholds that object's tags. The tag filter has to withhold it too, or the
+        tag can be read back from which filter values return the row."""
+        hidden = Dashboard.objects.create(team=self.team, name="Hidden", created_by=self.other_user)
+        # Carries the same tag and stays visible, so an over-eager access filter fails this test too.
+        visible = Dashboard.objects.create(team=self.team, name="Visible", created_by=self.other_user)
+        tag = Tag.objects.create(name="secret", team=self.team)
+        for dashboard in (hidden, visible):
+            TaggedItem.objects.create(
+                tag=tag,
+                team=self.team,
+                content_type=ContentType.objects.get_for_model(Dashboard),
+                object_id=dashboard.id,
+            )
+            FileSystem.objects.create(
+                team=self.team,
+                path=f"Docs/{dashboard.name}",
+                depth=2,
+                type="dashboard",
+                ref=str(dashboard.id),
+                created_by=self.user,
+            )
+        self._create_access_control(resource="dashboard", resource_id=str(hidden.id), access_level="none")
+        base = f"/api/projects/{self.team.id}/file_system/"
+
+        unfiltered = self.client.get(base, {"type": "dashboard", "include_tags": "true"})
+        self.assertEqual(unfiltered.status_code, status.HTTP_200_OK, unfiltered.content)
+        rows = {item["ref"]: item for item in unfiltered.json()["results"]}
+        self.assertIn(str(hidden.id), rows, "the row itself stays listed, because this user filed it")
+        self.assertEqual(rows[str(hidden.id)]["meta"].get("tags", []), [], "its tags are withheld already")
+
+        filtered = self.client.get(base, {"type": "dashboard", "tags": json.dumps(["secret"])})
+        self.assertEqual(filtered.status_code, status.HTTP_200_OK, filtered.content)
+        refs = {item["ref"] for item in filtered.json()["results"]}
+        self.assertNotIn(str(hidden.id), refs, "a withheld tag must not be inferable from the filter")
+        self.assertIn(str(visible.id), refs, "the filter must still return tagged objects the user can see")
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_list_excludes_items_with_none_access(self, mock_flag):
         self._create_access_control(resource="dashboard", resource_id=self.file_b.ref, access_level="none")
         # The user is not staff, not the creator of file_b => 'none' should exclude it
@@ -2888,6 +3005,48 @@ class TestDestroyRepairsLeftoverHogFunctions(APIBaseTest):
                             any(change.get("field") == field for change in changes),
                             f"Expected {field} change for {case['scope']} restore",
                         )
+
+    @parameterized.expand([("one_insight", 1), ("folder_of_insights", 2)])
+    def test_deleting_insights_removes_their_alerts_with_one_cleanup(self, _name: str, insight_count: int):
+        alerts = [
+            AlertConfiguration.objects.create(
+                team=self.team,
+                insight=Insight.objects.create(team=self.team, saved=True, name=f"Alerted {index}"),
+                name=f"Alert {index}",
+                calculation_interval="daily",
+            )
+            for index in range(insight_count)
+        ]
+        entries = [
+            self._ensure_file_system_entry(
+                file_type="insight", ref=alert.insight.short_id, fallback_name=alert.insight.short_id
+            )
+            for alert in alerts
+        ]
+        target = entries[0]
+        if insight_count > 1:
+            target = FileSystem.objects.create(
+                team=self.team, path="Alerted", depth=1, type="folder", created_by=self.user
+            )
+            for entry in entries:
+                entry.path = f"Alerted/{entry.ref}"
+                entry.depth = 2
+                entry.save()
+
+        with patch("products.alerts.backend.platform_native_cleanup.start_native_cleanup") as start_cleanup:
+            with self.captureOnCommitCallbacks(execute=True):
+                delete_response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{target.pk}/")
+
+        self.assertIn(delete_response.status_code, (status.HTTP_200_OK, status.HTTP_204_NO_CONTENT))
+        for alert in alerts:
+            self.assertTrue(Insight.objects_including_soft_deleted.get(pk=alert.insight_id).deleted)
+            self.assertFalse(AlertConfiguration.objects.filter(pk=alert.pk).exists())
+        start_cleanup.assert_called_once()
+        ((insights_by_team,), _) = start_cleanup.call_args
+        self.assertEqual(
+            {team: sorted(ids) for team, ids in insights_by_team.items()},
+            {self.team.id: sorted(alert.insight_id for alert in alerts)},
+        )
 
     def _ensure_file_system_entry(self, *, file_type: str, ref: str, fallback_name: str) -> FileSystem:
         fs_entry = (

@@ -21,6 +21,7 @@ FIXTURE_DIR = Path(settings.BASE_DIR) / "rust" / "feature-flags" / "tests" / "fi
         pytest.param("flags_cache_invalidation_v1.json", False, "edit", id="real_invalidation"),
         pytest.param("flags_cache_invalidation_v1_shadow.json", True, "edit", id="shadow_invalidation"),
         pytest.param("flags_cache_invalidation_v1_refresh.json", False, "refresh", id="refresh_invalidation"),
+        pytest.param("flags_cache_invalidation_v1_cohort.json", False, "cohort", id="cohort_invalidation"),
     ],
 )
 def test_fixture_round_trip(fixture_name: str, expected_shadow: bool, expected_source: str) -> None:

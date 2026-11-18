@@ -16,7 +16,7 @@ from django.test import SimpleTestCase
 
 import httpx
 from parameterized import parameterized
-from rest_framework import status
+from rest_framework import serializers, status
 
 from posthog.schema import AlertCalculationInterval, AlertConditionType, AlertState, InsightThresholdType
 
@@ -45,6 +45,7 @@ from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration,
 from products.alerts.backend.platform_native_cleanup import NativeCleanupInputs, delete_native_alert, native_alert_ids
 from products.alerts.backend.platform_source_config_schema import INSIGHT_SOURCE_CONFIG
 from products.alerts.backend.presentation.views.alert import FORECAST_PREVIEW_UNAVAILABLE_MESSAGE, AlertSerializer
+from products.alerts.backend.test.insight_alerts import create_insight_alert
 from products.alerts_platform.backend.facade import (
     api as platform_api,
     testing as platform_testing,
@@ -143,7 +144,27 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         }
         self.insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=self.default_insight_data).json()
 
+    def _keep_the_team_on_insight(self) -> None:
+        create_insight_alert(self.team, name="Kept on insight", enabled=False)
+
+    def test_validate_uses_loaded_alert_without_refetching(self) -> None:
+        alert = create_insight_alert(self.team, created_by=self.user)
+        serializer = AlertSerializer(
+            instance=alert,
+            context={
+                "get_team": lambda: self.team,
+                "request": mock.Mock(user=self.user, successful_authenticator=None),
+            },
+        )
+        with self.assertNumQueries(0):
+            assert serializer.validate({"name": "Renamed alert"}) == {"name": "Renamed alert"}
+
+        alert.config = {"type": "TrendsAlertConfig", "series_index": 99}
+        with self.assertNumQueries(0), pytest.raises(serializers.ValidationError):
+            serializer.validate({"name": "Renamed alert"})
+
     def test_create_and_delete_alert(self) -> None:
+        self._keep_the_team_on_insight()
         creation_request = {
             "insight": self.insight["id"],
             "subscribed_users": [
@@ -196,13 +217,13 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         assert response.status_code == status.HTTP_201_CREATED, response.content
         assert response.json() == expected_alert_json
 
-        alerts = self.client.get(f"/api/projects/{self.team.id}/alerts")
+        alerts = self.client.get(f"/api/projects/{self.team.id}/alerts?insight={self.insight['id']}")
         assert alerts.json()["results"] == [{**expected_alert_json, "checks": []}]
 
         alert_id = response.json()["id"]
         self.client.delete(f"/api/projects/{self.team.id}/alerts/{alert_id}")
 
-        alerts = self.client.get(f"/api/projects/{self.team.id}/alerts")
+        alerts = self.client.get(f"/api/projects/{self.team.id}/alerts?insight={self.insight['id']}")
         assert len(alerts.json()["results"]) == 0
 
     def test_alert_rejects_insight_without_viewer_access(self) -> None:
@@ -432,6 +453,7 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
     def test_retrieve_checks_limit_behaviour(
         self, _name: str, total_checks: int, query_param: str, expected_count: int
     ) -> None:
+        self._keep_the_team_on_insight()
         creation_request = {
             "insight": self.insight["id"],
             "subscribed_users": [self.user.id],
@@ -464,6 +486,7 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         ]
     )
     def test_retrieve_check_includes_allowlisted_error_code(self, code: str, message: str) -> None:
+        self._keep_the_team_on_insight()
         creation_request = {
             "insight": self.insight["id"],
             "subscribed_users": [self.user.id],
@@ -487,6 +510,7 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         assert response.json()["checks"][0]["error"] == {"code": code, "message": message}
 
     def test_retrieve_check_hides_internal_error_message(self) -> None:
+        self._keep_the_team_on_insight()
         creation_request = {
             "insight": self.insight["id"],
             "subscribed_users": [self.user.id],
@@ -521,6 +545,7 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
     def test_retrieve_checks_offset_pagination(
         self, _label: str, checks_limit: int, checks_offset: int, expected_values: list[float]
     ) -> None:
+        self._keep_the_team_on_insight()
         creation_request = {
             "insight": self.insight["id"],
             "subscribed_users": [self.user.id],
@@ -551,6 +576,7 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         assert [c["calculated_value"] for c in body["checks"]] == expected_values
 
     def test_retrieve_checks_with_date_from(self) -> None:
+        self._keep_the_team_on_insight()
         creation_request = {
             "insight": self.insight["id"],
             "subscribed_users": [self.user.id],
@@ -594,6 +620,7 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
             assert check["calculated_value"] >= 10.0
 
     def test_retrieve_checks_with_date_from_and_date_to(self) -> None:
+        self._keep_the_team_on_insight()
         creation_request = {
             "insight": self.insight["id"],
             "subscribed_users": [self.user.id],
@@ -794,6 +821,7 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         expected_deliveries: list[dict] | None,
         expected_targets_notified: bool,
     ) -> None:
+        self._keep_the_team_on_insight()
         creation_request = {
             "insight": self.insight["id"],
             "subscribed_users": [self.user.id],
@@ -1075,6 +1103,7 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         assert self.client.get(f"/api/projects/{self.team.id}/alerts/{alert_id}").status_code == status.HTTP_200_OK
 
     def test_alert_is_deleted_on_insight_soft_delete(self) -> None:
+        self._keep_the_team_on_insight()
         another_insight = self.client.post(
             f"/api/projects/{self.team.id}/insights", data=self.default_insight_data
         ).json()
@@ -1160,6 +1189,7 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         assert unrelated_hog_function.enabled is True
 
     def test_snooze_alert(self) -> None:
+        self._keep_the_team_on_insight()
         creation_request = {
             "insight": self.insight["id"],
             "subscribed_users": [
@@ -2141,23 +2171,33 @@ class TestAlertTestDelivery(TrendsInsightAPITest):
         assert response.status_code == status.HTTP_201_CREATED, response.content
         self.alert = response.json()
 
-    def _create_destination(self, *, enabled: bool = True, alert_id: str | None = None) -> HogFunction:
+    def _create_destination(
+        self,
+        *,
+        enabled: bool = True,
+        alert_id: str | None = None,
+        template_id: str | None = "template-webhook",
+        function_type: str = "internal_destination",
+        source: str | None = "internal-events",
+        operator: str = "exact",
+    ) -> HogFunction:
         return HogFunction.objects.create(
             team=self.team,
             name="Alert destination",
-            type="internal_destination",
-            template_id="template-webhook",
+            type=function_type,
+            template_id=template_id,
             enabled=enabled,
             inputs_schema=[],
             inputs={},
             hog="return event",
             filters={
+                **({"source": source} if source is not None else {}),
                 "events": [{"id": "$insight_alert_firing", "type": "events"}],
                 "properties": [
                     {
                         "key": "alert_id",
                         "value": alert_id or self.alert["id"],
-                        "operator": "exact",
+                        "operator": operator,
                         "type": "event",
                     }
                 ],
@@ -2193,6 +2233,27 @@ class TestAlertTestDelivery(TrendsInsightAPITest):
         assert alert_after.state == alert_before.state
         assert alert_after.last_notified_at == alert_before.last_notified_at
         assert AlertCheck.objects.filter(alert_configuration_id=self.alert["id"]).count() == 0
+
+    @parameterized.expand([("clickup", "template-clickup"), ("custom", None)])
+    @mock.patch("products.cdp.backend.internal_events.get_producer")
+    def test_delivery_enqueues_event_for_other_destination_templates(
+        self, _name: str, template_id: str | None, mock_producer: mock.MagicMock
+    ) -> None:
+        self._create_destination(template_id=template_id)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/alerts/{self.alert['id']}/test-delivery/")
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.content
+        assert response.json() == {
+            "destination_count": 1,
+            "email_recipient_count": 0,
+            "failed_delivery_channels": [],
+        }
+        event = mock_producer.return_value.produce.call_args.kwargs["data"]
+        assert event["team_id"] == self.team.id
+        assert event["event"]["event"] == "$insight_alert_firing"
+        assert event["event"]["properties"]["alert_id"] == self.alert["id"]
+        assert event["event"]["properties"]["is_test"] is True
 
     @mock.patch("products.alerts.backend.presentation.views.alert.trigger_alert_hog_functions")
     @mock.patch("products.alerts.backend.facade.email.EmailMessage")
@@ -2269,15 +2330,32 @@ class TestAlertTestDelivery(TrendsInsightAPITest):
         }
         mock_trigger.assert_called_once()
 
-    @mock.patch("products.alerts.backend.presentation.views.alert.trigger_alert_hog_functions")
-    def test_rejects_test_delivery_without_active_destinations(self, mock_trigger) -> None:
-        self._create_destination(enabled=False)
+    @parameterized.expand(
+        [
+            ("disabled", False, "internal_destination", "internal-events", "exact"),
+            ("event_destination", True, "destination", "internal-events", "exact"),
+            ("event_source", True, "internal_destination", "events", "exact"),
+            ("missing_source", True, "internal_destination", None, "exact"),
+            ("excluded_alert", True, "internal_destination", "internal-events", "is_not"),
+        ]
+    )
+    @mock.patch("products.cdp.backend.internal_events.get_producer")
+    def test_rejects_test_delivery_without_active_destinations(
+        self,
+        _name: str,
+        enabled: bool,
+        function_type: str,
+        source: str | None,
+        operator: str,
+        mock_producer: mock.MagicMock,
+    ) -> None:
+        self._create_destination(enabled=enabled, function_type=function_type, source=source, operator=operator)
 
         response = self.client.post(f"/api/projects/{self.team.id}/alerts/{self.alert['id']}/test-delivery/")
 
         assert response.status_code == status.HTTP_409_CONFLICT
         assert response.json() == {"detail": "Add an email recipient or active destination before sending a test."}
-        mock_trigger.assert_not_called()
+        mock_producer.return_value.produce.assert_not_called()
 
     @mock.patch("posthog.rate_limit.AlertTestDeliveryThrottle.rate", new="2/minute")
     @mock.patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
@@ -3370,6 +3448,7 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
             ),
             ("instructions_too_long", {"type": "llm", "instructions": "x" * 2001}, "characters or fewer"),
             ("instructions_not_text", {"type": "llm", "instructions": 5}, "must be text"),
+            ("unknown_model", {"type": "llm", "model": "claude-opus-5-5"}, "claude-haiku-5-5, gpt-6-luna"),
             ("removed_threshold", {"type": "llm", "threshold": 0.7}, "Invalid detector configuration"),
             ("removed_window", {"type": "llm", "window": 90}, "Invalid detector configuration"),
             ("forecast_empty_side", {"type": "forecast", "above": {}}, "above needs at least one condition"),
@@ -3501,6 +3580,7 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
     def test_rejected_on_the_real_time_cadence(self, _name, concurrent_change, _flag) -> None:
         config = {"type": "llm"}
         if concurrent_change:
+            create_insight_alert(self.team, name="Kept on insight", enabled=False)
             created = self._create({"type": "zscore", "threshold": 0.9, "window": 30})
             assert created.status_code == status.HTTP_201_CREATED, created.content
             update = AlertSerializer.update
@@ -3849,7 +3929,7 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
 
         def answer(request: httpx.Request, **_kwargs: Any) -> httpx.Response:
             body = json.loads(request.content)
-            quantiles = {"0.05": [80.0], "0.5": [100.0], "0.95": [120.0]}
+            quantiles = {"0.01": [80.0], "0.5": [100.0], "0.99": [120.0]}
             return httpx.Response(
                 200, json={"predictions": [{"item_id": item["item_id"], **quantiles} for item in body["inputs"]]}
             )
@@ -3869,8 +3949,8 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
         assert body["scores"] == [None] * 34
         unscored, scored = [None] * 30, [100.0] * 4
         assert body["forecast"] == {
-            "lower_quantile": 0.05,
-            "upper_quantile": 0.95,
+            "lower_quantile": 0.01,
+            "upper_quantile": 0.99,
             "expected": unscored + scored,
             "lower": unscored + [80.0] * 4,
             "upper": unscored + [120.0] * 4,
