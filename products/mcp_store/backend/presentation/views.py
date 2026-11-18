@@ -37,12 +37,7 @@ from posthog.event_usage import report_user_action
 from posthog.ip_restrictions import enforce_ip_restrictions
 from posthog.models import User
 from posthog.models.scoping.manager import resolve_effective_team_id
-from posthog.permissions import (
-    DenyMCPBuiltInAgentOAuth,
-    DenyWorkloadAccessToken,
-    get_authenticator_scoped_organization_ids,
-    get_authenticator_scoped_team_ids,
-)
+from posthog.permissions import DenyMCPBuiltInAgentOAuth, DenyWorkloadAccessToken
 from posthog.rate_limit import (
     MCPOAuthBurstThrottle,
     MCPOAuthRedirectBurstThrottle,
@@ -632,14 +627,6 @@ class MCPServerInstallationToolSerializer(serializers.ModelSerializer):
 
 class ToolApprovalUpdateSerializer(serializers.Serializer):
     approval_state = serializers.ChoiceField(choices=["approved", "needs_approval", "do_not_use"])
-
-
-def _is_scoped_session(request: Request) -> bool:
-    authenticator = request.successful_authenticator
-    return (
-        get_authenticator_scoped_team_ids(authenticator) is not None
-        or get_authenticator_scoped_organization_ids(authenticator) is not None
-    )
 
 
 def _installation_display_name(installation: MCPServerInstallation) -> str:
@@ -1300,7 +1287,6 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             caller=caller,
             gateway_server=gateway_server,
             actor_label=cast(User, request.user).email or "",
-            scoped_session=_is_scoped_session(request),
         )
 
     @validated_request(
@@ -1350,7 +1336,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        borrowed = installation.user_id != request.user.id or _is_scoped_session(request)
+        borrowed = installation.user_id != request.user.id
         refusal_detail = borrowed_refusal_detail(installation, borrowed=borrowed)
 
         gateway_server = installation.gateway_server
@@ -2160,7 +2146,6 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             _server_slug_base(_installation_display_name(row), row.url) for row in namespace_rows
         )
 
-        scoped_session = _is_scoped_session(request)
         servers: list[dict[str, Any]] = []
         for installation in installations:
             # The same credential check `call_tool` runs, so the list can never
@@ -2168,7 +2153,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             ok, _error = validate_installation_auth(installation)
             if not ok:
                 continue
-            if (installation.user_id != user.id or scoped_session) and is_posthog_installation(installation):
+            if installation.user_id != user.id and is_posthog_installation(installation):
                 continue
 
             states = resolve_member_tool_states(

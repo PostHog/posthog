@@ -1239,18 +1239,7 @@ class TestCallMemberServerTool(BaseTest):
         )
 
     def _call(self, name: str = "list_events", **kwargs):
-        kwargs.setdefault("scoped_session", False)
         return call_member_server_tool(self.team.id, self.user.id, self.HOST, name, {"limit": 5}, **kwargs)
-
-    @parameterized.expand([("scoped_session", True, "blocked", 0), ("full_session", False, "ok", 1)])
-    @patch("products.mcp_store.backend.facade.api.call_upstream_tool", return_value={"content": []})
-    def test_own_posthog_connection_is_refused_on_a_scoped_session(
-        self, _name: str, scoped_session: bool, expected_status: str, expected_calls: int, mock_call
-    ) -> None:
-        self._tool(self._installation(sensitive_configuration={"api_key": "pha_" + "x" * 40}))
-
-        assert self._call(scoped_session=scoped_session).status == expected_status
-        assert mock_call.call_count == expected_calls
 
     @patch("products.mcp_store.backend.tools.fetch_upstream_tools")
     @patch("products.mcp_store.backend.facade.api.call_upstream_tool", return_value={"content": []})

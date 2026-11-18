@@ -562,12 +562,8 @@ def proxy_mcp_request(
     actor_label: str = "",
     credential_owner_id: int | None = None,
     grant_scope: str = "",
-    scoped_session: bool = False,
 ) -> HttpResponseBase:
     """Forward one MCP request upstream, enforcing tool policy and auditing it.
-
-    `scoped_session` marks a caller whose own credential is limited to some projects or organizations. Such a
-    caller counts as borrowing the connection even when they own it, because the connection may reach further.
 
     `credential_owner_id` and `grant_scope` describe the agent grant the call
     rides, so the audit trail answers whose connection an agent used. Both are
@@ -591,7 +587,7 @@ def proxy_mcp_request(
             status=400,
         )
 
-    borrowed = scoped_session or is_borrowed_by(installation, caller)
+    borrowed = is_borrowed_by(installation, caller)
     refusal_detail = borrowed_refusal_detail(installation, borrowed=borrowed)
 
     policy_context: PolicyContext | None = None

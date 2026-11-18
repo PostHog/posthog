@@ -16,8 +16,6 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, Team, User
-from posthog.models.personal_api_key import PersonalAPIKey
-from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.security.url_validation import PinnedUrlVerdict
 
 from products.mcp_store.backend.models import (
@@ -1136,31 +1134,6 @@ class TestMCPProxyAccessControl(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         )
 
         response = self.client.post(self._proxy_url(installation.id), data=self.JSON_RPC_BODY, format="json")
-
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        mock_client_cls.assert_not_called()
-
-    @patch("products.mcp_store.backend.proxy.pinned_client")
-    def test_owner_on_a_project_scoped_key_cannot_use_their_posthog_connection(self, mock_client_cls):
-        installation = self._create_installation(
-            self.team, self.user, sensitive_configuration={"api_key": "pha_" + "x" * 40}
-        )
-        key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            user=self.user,
-            label="scoped",
-            secure_value=hash_key_value(key),
-            scopes=["*"],
-            scoped_teams=[self.team.id],
-        )
-        self.client.logout()
-
-        response = self.client.post(
-            self._proxy_url(installation.id),
-            data=self.JSON_RPC_BODY,
-            format="json",
-            headers={"authorization": f"Bearer {key}"},
-        )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         mock_client_cls.assert_not_called()

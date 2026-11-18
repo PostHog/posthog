@@ -214,7 +214,6 @@ def call_connector(
     tool: str,
     arguments: dict[str, Any],
     approval_token: str | None,
-    scoped_session: bool,
 ) -> ConnectorCallResult:
     """Call one declared connector tool as the viewer. Raises CanvasRequestRejected for an undeclared tool."""
     declared = declared_connectors(capabilities)
@@ -235,7 +234,6 @@ def call_connector(
         actor_label=actor_label,
         approval_token=approval_token,
         approval_context=f"{canvas_id}:{head_version_id or ''}",
-        scoped_session=scoped_session,
     )
 
 

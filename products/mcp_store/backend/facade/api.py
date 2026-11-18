@@ -990,20 +990,15 @@ def call_member_server_tool(
     allow_writes: bool = True,
     approval_token: str | None = None,
     approval_context: str = "",
-    scoped_session: bool,
 ) -> ConnectorCallOutcome:
     """Call one tool on the server at ``server_host`` with the member's own
     connection (or the team's shared one). Runs the same policy resolution
     and audit as the member proxy, so a canvas cannot reach a tool the member
-    could not call from the MCP settings page.
-
-    ``scoped_session`` marks a member whose own credential is limited to some
-    projects or organizations. That member cannot use a PostHog connection,
-    even their own, because the connection may reach further."""
+    could not call from the MCP settings page."""
     installation = member_installation_for_host(team_id, user_id, server_host)
     if installation is None:
         return ConnectorCallOutcome(status="not_connected", detail=f"You have not connected {server_host}.")
-    borrowed = installation.user_id != user_id or scoped_session
+    borrowed = installation.user_id != user_id
     refusal_detail = borrowed_refusal_detail(installation, borrowed=borrowed)
     if refusal_detail is not None:
         if installation.gateway_server is not None:
