@@ -236,7 +236,7 @@ async fn non_ai_modes_never_serve_the_v1_ai_endpoint(
 /// The `PostHog-Request-Id` echo comes from the v1 stack, so it shows whether
 /// those layers ran; the served cases prove the echo works.
 #[rstest]
-#[case::ai_otel_signal_suffix(CaptureMode::Ai, "/i/v0/ai/otel/v1/traces", true)]
+#[case::ai_otel_unserved_signal_path(CaptureMode::Ai, "/i/v0/ai/otel/v1/logs", true)]
 #[case::ai_unknown_v1_path(CaptureMode::Ai, "/i/v1/ai/bogus", true)]
 #[case::ai_unknown_path(CaptureMode::Ai, "/does/not/exist", true)]
 #[case::events_unknown_v1_path(CaptureMode::Events, "/i/v1/analytics/bogus", true)]
