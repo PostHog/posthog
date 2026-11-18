@@ -28,6 +28,7 @@ posthog/hogql/test/fixtures/real_queries/
 *-esbuild-bundle-visualization.html
 *-esbuild-meta.json
 frontend/vite-app-graph.json
+frontend/hashed-worker-files.json
 *.code-workspace
 *.db
 *.isorted
