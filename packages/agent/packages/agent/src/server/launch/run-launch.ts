@@ -85,7 +85,7 @@ export function readProductLaunch(
   return {
     taskId: sources.payload.task_id,
     runId: sources.payload.run_id,
-    originProduct: readInteractionOrigin(sources.env),
+    interactionOrigin: readInteractionOrigin(sources.env),
     clientProvenance: readClientProvenance(sources),
     launchOptions: structuredClone(sources.taskRun?.state ?? {}),
     source: readTaskSource(sources),
