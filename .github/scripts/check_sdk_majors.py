@@ -76,8 +76,6 @@ RUST_PINS = (
 )
 # posthog-rs publishes as `posthog` since 1.0 and keeps `posthog-rs` as a compatibility crate.
 RUST_CRATES = ("posthog", "posthog-rs")
-# The CLI is its own workspace with its own release, so it moves to 1.x in a separate migration PR.
-RUST_EXPECTED_MAJOR_OVERRIDES = {"cli/Cargo.toml": 0}
 
 GO_MODULE = "github.com/posthog/posthog-go"
 GO_MANIFEST = "bin/hobby-installer/go.mod"
@@ -335,7 +333,7 @@ def check_python(root: Path) -> list[str]:
 def check_rust(root: Path) -> list[str]:
     problems = []
     for manifest, table, lock in RUST_PINS:
-        expected = RUST_EXPECTED_MAJOR_OVERRIDES.get(manifest, EXPECTED_MAJORS["posthog-rs"])
+        expected = EXPECTED_MAJORS["posthog-rs"]
         data = tomllib.loads((root / manifest).read_text(encoding="utf-8"))
         for key in table:
             data = data[key]
