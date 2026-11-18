@@ -65,7 +65,7 @@ jobs:
             - name: Install pnpm dependencies
               uses: ./.github/actions/pnpm-install
               with:
-                  install-command: pnpm --filter='@posthog/hog...' install --frozen-lockfile
+                  install-command: pnpm --filter='hog...' install --frozen-lockfile
 
             - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
               with:
@@ -121,14 +121,14 @@ jobs:
                       message=$(printf '%s' "$TITLE" | tr '\r\n' '  ')
                       quoted="'${message//\'/\'\\\'\'}'"
                       echo "::error::This pull request changes code compiled into hog, so it needs a hog changeset. CI can't commit to a fork. From hog/, run:"
-                      echo "  sampo add --package npm/@posthog/hog --bump $BUMP --message $quoted"
+                      echo "  sampo add --package npm/hog --bump $BUMP --message $quoted"
                       echo "Then commit the file it writes under hog/.sampo/changesets/ and push."
                       exit 1
                   fi
 
                   # A push to a merge queue branch ends the queue attempt.
                   if [[ "$BRANCH" == trunk-merge/* ]]; then
-                      echo "::error::This change needs a hog changeset. Add one to the pull request branch: sampo add --package npm/@posthog/hog --bump $BUMP"
+                      echo "::error::This change needs a hog changeset. Add one to the pull request branch: sampo add --package npm/hog --bump $BUMP"
                       exit 1
                   fi
 
@@ -216,7 +216,7 @@ jobs:
               run: |
                   set -euo pipefail
                   message=$(printf '%s' "$TITLE" | tr '\r\n' '  ')
-                  contents=$(printf -- '---\nnpm/@posthog/hog: %s\n---\n\n%s\n' "$BUMP" "$message" | base64 -w0)
+                  contents=$(printf -- '---\nnpm/hog: %s\n---\n\n%s\n' "$BUMP" "$message" | base64 -w0)
 
                   jq -n \
                       --arg repo "$GITHUB_REPOSITORY" \
