@@ -1908,12 +1908,21 @@ class TrinoPrinter(PostgresPrinter):
         return finder.found
 
     def _subquery_scalar_type(self, node: ast.SelectQuery | ast.SelectSetQuery) -> ast.ConstantType | None:
-        query = node
-        while isinstance(query, ast.SelectSetQuery):
-            query = query.initial_select_query
-        if not query.select:
+        if isinstance(node, ast.SelectSetQuery):
+            branches = [
+                node.initial_select_query,
+                *(subsequent.select_query for subsequent in node.subsequent_select_queries),
+            ]
+            types = [self._subquery_scalar_type(branch) for branch in branches]
+            # A set query of a Date and a DateTime branch yields a DateTime, so the first branch alone is wrong.
+            if all(isinstance(t, (ast.DateType, ast.DateTimeType)) for t in types) and not all(
+                isinstance(t, type(types[0])) for t in types
+            ):
+                return ast.DateTimeType(nullable=any(t is not None and t.nullable for t in types))
+            return types[0]
+        if not node.select:
             return None
-        expression = query.select[0]
+        expression = node.select[0]
         while isinstance(expression, ast.Alias):
             expression = expression.expr
         return self._resolve_type(expression)

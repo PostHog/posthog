@@ -579,6 +579,10 @@ def test_prints_core_trino_expression_mappings(expression: str, expected: str) -
             "date_add('second'",
         ),
         (
+            "SELECT (SELECT toDate('2024-01-01') UNION ALL SELECT toDateTime('2024-01-01 00:00:00') LIMIT 1) + 1",
+            "date_add('second'",
+        ),
+        (
             "WITH a AS (SELECT [toDate('2024-01-01')] AS days) SELECT days[1] + 1 FROM a",
             'date_add(\'day\', CAST(1 AS BIGINT), element_at("a"."days", 1))',
         ),
@@ -920,6 +924,17 @@ def test_regex_character_classes_keep_clickhouse_meaning(pattern: str, expected:
             "SELECT id FROM (SELECT a.id, b.id FROM users AS a JOIN users AS b ON a.user_id = b.user_id)",
             '"b"."id" AS "__hogql_duplicate_id_1"',
             '"b"."id" FROM',
+        ),
+        (
+            "SELECT id FROM (SELECT 1 AS __hogql_duplicate_id_2, a.id, b.id "
+            "FROM users AS a JOIN users AS b ON a.user_id = b.user_id)",
+            '"b"."id" AS "__hogql_duplicate_id_3"',
+            '"b"."id" AS "__hogql_duplicate_id_2"',
+        ),
+        (
+            "SELECT id FROM (SELECT a.id, b.user_id AS id FROM users AS a JOIN users AS b ON a.user_id = b.user_id)",
+            '"a"."id" AS "__hogql_duplicate_id_1"',
+            '"b"."user_id" AS "__hogql_duplicate_id_',
         ),
         # Trino rejects an aggregate inside a lambda, so the aggregate is computed outside and passed in.
         (

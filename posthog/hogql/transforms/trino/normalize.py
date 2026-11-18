@@ -592,14 +592,25 @@ class TrinoDuplicateOutputNameLowerer(CloningVisitor):
             self.depth -= 1
         if self.depth == 0:
             return lowered
-        seen: set[str] = set()
+        taken = {projection.alias for projection in lowered.select if isinstance(projection, ast.Alias)}
+        holders: dict[str, ast.Alias] = {}
         for index, projection in enumerate(lowered.select):
             if not isinstance(projection, ast.Alias):
                 continue
-            if projection.alias in seen:
-                projection.alias = f"__hogql_duplicate_{projection.alias}_{index}"
-                projection.hidden = False
-            seen.add(projection.alias)
+            holder = holders.get(projection.alias)
+            if holder is None:
+                holders[projection.alias] = projection
+                continue
+            # An outer reference binds to an explicit alias, so it is the plain column that gives up the name.
+            renamed = holder if holder.hidden and not projection.hidden else projection
+            if renamed is holder:
+                holders[projection.alias] = projection
+            suffix = index
+            while (alias := f"__hogql_duplicate_{renamed.alias}_{suffix}") in taken:
+                suffix += 1
+            taken.add(alias)
+            renamed.alias = alias
+            renamed.hidden = False
         return lowered
 
 
