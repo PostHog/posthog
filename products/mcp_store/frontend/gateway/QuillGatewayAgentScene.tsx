@@ -122,7 +122,7 @@ export function QuillGatewayAgentScene({
             <QuillGatewayBackToTeamButton onBack={onBack} />
 
             <div className="flex flex-wrap items-start gap-3">
-                <span className="flex size-13 shrink-0 items-center justify-center rounded-md bg-muted">
+                <span data-quill className="flex size-13 shrink-0 items-center justify-center rounded-md bg-muted">
                     <IconSparkles className="text-2xl" />
                 </span>
                 <div className="flex min-w-0 flex-1 flex-col gap-1">

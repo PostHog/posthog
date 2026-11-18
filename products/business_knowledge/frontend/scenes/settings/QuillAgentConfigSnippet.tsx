@@ -1,5 +1,5 @@
 import { IconCopy } from '@posthog/icons'
-import { Button } from '@posthog/quill'
+import { Button, Card } from '@posthog/quill'
 
 import { CodeLine, Language } from 'lib/components/CodeSnippet'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -20,18 +20,21 @@ export function QuillAgentConfigSnippet({ apiKey }: { apiKey?: string }): JSX.El
 
     // ph-no-capture keeps a newly created key out of session recordings.
     return (
-        <div className="ph-no-capture relative rounded-md border border-border bg-muted py-2.5 ps-3 pe-10 font-mono text-xs">
-            <CodeLine text={config} language={Language.JSON} wrapLines />
-            <Button
-                size="icon-xs"
-                className="absolute end-1.5 top-1.5"
-                aria-label="Copy to clipboard"
-                tooltip="Copy to clipboard"
-                onClick={copyConfig}
-                data-attr="copy-code-button"
-            >
-                <IconCopy />
-            </Button>
-        </div>
+        <Card flush className="ph-no-capture flex-row items-start gap-0 py-0">
+            <div className="min-w-0 flex-1 overflow-x-auto py-2.5 ps-3 font-mono text-xs">
+                <CodeLine text={config} language={Language.JSON} wrapLines />
+            </div>
+            <div className="flex shrink-0 items-center p-1.5">
+                <Button
+                    size="icon"
+                    aria-label="Copy to clipboard"
+                    tooltip="Copy to clipboard"
+                    onClick={copyConfig}
+                    data-attr="copy-code-button"
+                >
+                    <IconCopy />
+                </Button>
+            </div>
+        </Card>
     )
 }

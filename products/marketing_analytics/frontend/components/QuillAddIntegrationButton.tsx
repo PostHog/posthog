@@ -64,7 +64,6 @@ export function QuillAddIntegrationButton({
             >
                 <IconPlus />
                 Add source
-                {showNewSources && <Badge variant="info">New</Badge>}
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
                 {newSourcesNotice ? (
