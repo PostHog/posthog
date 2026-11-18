@@ -186,7 +186,7 @@ describe('listFiltersLogic', () => {
         expect(router.values.searchParams).toEqual({ view: 'errors', trace_search: 'invoice' })
     })
 
-    it('clears all four filters, the typed search and their params, and keeps the others', () => {
+    it('clears all four filters, the typed search and their params, turns test account filtering off, and keeps the others', () => {
         const filters = encodeURIComponent(JSON.stringify([MODEL_FILTER]))
         mountAt(
             `${LIST_PATH}?filters=${filters}&filter_test_accounts=true&trace_search=invoice&view=errors&date_from=-7d`
@@ -194,7 +194,7 @@ describe('listFiltersLogic', () => {
 
         logic.actions.resetFilters()
 
-        expect(logic.values).toMatchObject({ filters: NO_FILTERS, searchDraft: '' })
-        expect(router.values.searchParams).toEqual({ date_from: '-7d' })
+        expect(logic.values).toMatchObject({ filters: { ...NO_FILTERS, filterTestAccounts: false }, searchDraft: '' })
+        expect(router.values.searchParams).toEqual({ date_from: '-7d', filter_test_accounts: 'false' })
     })
 })

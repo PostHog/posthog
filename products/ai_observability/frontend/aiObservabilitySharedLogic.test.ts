@@ -179,6 +179,16 @@ describe('aiObservabilitySharedLogic', () => {
             expect(logic.values.dateFilter.dateFrom).toBe(follows ? '-30d' : dateFrom)
         })
 
+        it('keeps an explicit test account choice of false when it syncs the range on another path', async () => {
+            const logic = mountWithFlags([NAV])
+
+            router.actions.push(`${urls.aiObservabilitySessions()}?date_from=-30d&filter_test_accounts=false`)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.shouldFilterTestAccounts).toBe(false)
+            expect(router.values.location.search).toContain('filter_test_accounts=false')
+        })
+
         it('writes nothing to the traces URL', async () => {
             router.actions.push(urls.aiObservabilityTraces(), { view: 'errors' })
             const logic = mountWithFlags([NAV])

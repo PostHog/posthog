@@ -248,6 +248,15 @@ class TestPreviewQueries(ClickhouseTestMixin, BaseTest):
         [heavy] = [query for query in queries if "JSONExtractArrayRaw" in query]
         assert {_event_id(n) for n in range(5) if _event_id(n) in heavy} == {_event_id(0), _event_id(4)}
 
+    def test_both_reads_fail_instead_of_returning_partial_rows_past_their_deadline(self) -> None:
+        self._seed(("trace-1", "$ai_generation", {"$ai_input": "hi", "$ai_output": "hello"}))
+
+        with self.capture_select_queries() as queries:
+            load_preview_sources(self.team, self.user, ["trace-1"])
+
+        assert len(queries) == 2
+        assert all("timeout_overflow_mode='throw'" in query for query in queries)
+
     def _sources_when_the_heavy_read_raises(self, error: type[APIException]) -> TracePreviewSources:
         self._seed(
             ("trace-1", "$ai_trace", {"$ai_input_state": {"step": "planned"}}),

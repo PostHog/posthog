@@ -19,6 +19,7 @@
      HAVING and(greater(countIf(in(events.event, tuple('$ai_trace', '$ai_span', '$ai_generation', '$ai_embedding'))), 0), greater(countIf(ifNull(equals(CAST(events.properties.plan, 'Nullable(String)'), 'pro'), 0)), 0), lessOrEquals(first_timestamp, toDateTime64('today', 6, 'UTC')), greaterOrEquals(last_timestamp, toDateTime64('2026-08-26 10:00:00.000000', 6, 'UTC'))))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=30,
+                     timeout_overflow_mode='throw',
                      allow_experimental_object_type=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,

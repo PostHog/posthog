@@ -7,7 +7,11 @@ from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.models.event.util import bulk_create_events
 
 from products.ai_observability.backend.logic.traces.events_fallback import FALLBACK_AFTER_HINT, page_window
-from products.ai_observability.backend.logic.traces.sentiment_queries import TraceSentimentRow, load_sentiments
+from products.ai_observability.backend.logic.traces.sentiment_queries import (
+    MAX_GENERATION_SENTIMENT_EVALUATIONS_PER_TRACE,
+    TraceSentimentRow,
+    load_sentiments,
+)
 
 T0 = datetime(2026, 10, 5, 9, 0, tzinfo=UTC)
 WINDOW = page_window((T0, T0))
@@ -57,6 +61,31 @@ class TestSentimentQueries(ClickhouseTestMixin, BaseTest):
         sentiments = load_sentiments(self.team, self.user, ["rated", "unrated"], WINDOW, WITHIN_RETENTION)
 
         assert sentiments == {"rated": TraceSentimentRow(label="negative", score=0.8)}
+
+    def test_a_trace_with_more_rated_generations_than_the_cap_leaves_room_for_the_others(self) -> None:
+        bulk_create_ai_events(
+            [
+                _event(self.team, "quiet", _sentiment("negative", 0.8, "generation-quiet"), T0, 0),
+                *(
+                    _event(
+                        self.team,
+                        "busy",
+                        _sentiment("positive", 0.9, f"generation-{index}"),
+                        T0 + timedelta(seconds=index),
+                        index,
+                    )
+                    # Enough newer results to fill the whole two-trace page if the cap were page-wide.
+                    for index in range(1, 2 * MAX_GENERATION_SENTIMENT_EVALUATIONS_PER_TRACE + 1)
+                ),
+            ]
+        )
+
+        sentiments = load_sentiments(self.team, self.user, ["busy", "quiet"], WINDOW, WITHIN_RETENTION)
+
+        assert sentiments == {
+            "busy": TraceSentimentRow(label="positive", score=0.9),
+            "quiet": TraceSentimentRow(label="negative", score=0.8),
+        }
 
     def test_a_page_within_retention_reads_only_ai_events(self) -> None:
         bulk_create_events([_event(self.team, "aged", _sentiment("negative", 0.8, "generation-1"), T0, 0)])
