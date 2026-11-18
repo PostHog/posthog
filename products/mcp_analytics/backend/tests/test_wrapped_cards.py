@@ -1,6 +1,7 @@
 from parameterized import parameterized
 
-from products.mcp_analytics.backend.wrapped.cards import Archetype, WrappedCards, build_wrapped_cards
+from products.mcp_analytics.backend.facade.enums import Archetype
+from products.mcp_analytics.backend.wrapped.cards import WrappedCards, build_wrapped_cards
 from products.mcp_analytics.backend.wrapped.queries import DimensionRow, WrappedAggregates
 
 DEFAULT_MONTHS = {"2026-07": 400, "2026-08": 600}
@@ -118,7 +119,7 @@ def test_reliability_names_no_struggling_tool_when_every_rate_matches() -> None:
 def test_apps_card(_name: str, harnesses: dict[str, int], labels: list[str] | None) -> None:
     apps = _build(_aggregates(harnesses=harnesses)).apps
 
-    assert (apps and [share.label for share in apps.shares]) == labels
+    assert (apps and [share.name for share in apps.shares]) == labels
 
 
 @parameterized.expand(
@@ -147,8 +148,8 @@ def test_labs_and_models_cards(
         assert cards.labs is None and cards.models is None
     else:
         assert cards.labs is not None and cards.models is not None
-        assert [(share.label, share.share) for share in cards.labs.shares] == [("Anthropic", 0.9), ("OpenAI", 0.1)]
-        assert [share.label for share in cards.models.shares] == family_labels
+        assert [(share.name, share.share) for share in cards.labs.shares] == [("Anthropic", 0.9), ("OpenAI", 0.1)]
+        assert [share.name for share in cards.models.shares] == family_labels
 
 
 def test_rush_hour_needs_enough_calls_and_finds_the_busiest_slot() -> None:

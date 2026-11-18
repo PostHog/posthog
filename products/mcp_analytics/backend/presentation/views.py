@@ -39,6 +39,7 @@ from .serializers import (
     MCPSessionSerializer,
     MCPSessionToolCallsQuerySerializer,
     MCPToolCallSerializer,
+    MCPWrappedResponseSerializer,
 )
 
 
@@ -458,3 +459,30 @@ class MCPCustomHarnessViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def perform_destroy(self, instance: MCPCustomHarness) -> None:
         super().perform_destroy(instance)
         api.invalidate_custom_harness_rules(self.team)
+
+
+class MCPWrappedViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    serializer_class = MCPWrappedResponseSerializer
+    scope_object = "mcp_analytics"
+    scope_object_read_actions = ["current"]
+    scope_object_write_actions: list[str] = []
+    posthog_feature_flag = contracts.MCP_ANALYTICS_WRAPPED_FEATURE_FLAG
+    permission_classes = [PostHogFeatureFlagPermission]
+    pagination_class = None
+
+    def dangerously_get_queryset(self) -> QuerySet:
+        # The wrap is read through the facade; this satisfies GenericViewSet plumbing.
+        return MCPAnalyticsSubmission.objects.none()
+
+    @extend_schema(
+        operation_id="mcp_analytics_wrapped_retrieve",
+        description=(
+            "Return the project's MCP Wrapped: a yearly story of its MCP tool calls. The wrap is returned for 14 days "
+            "after it is computed, and `wrapped` is null outside that window or when the project has none."
+        ),
+        responses={200: MCPWrappedResponseSerializer},
+    )
+    @action(detail=False, methods=["get"], url_path="current")
+    def current(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        serializer = self.get_serializer({"wrapped": api.get_fresh_wrapped(self.team)})
+        return Response(serializer.data)

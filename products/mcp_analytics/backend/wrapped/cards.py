@@ -7,10 +7,10 @@ skips it. The cards hold only what the story shows, so the stored payload stays 
 
 from collections.abc import Iterable, Sequence
 from datetime import date
-from enum import StrEnum
 
 from posthog.dataclasses import frozen
 
+from products.mcp_analytics.backend.facade.enums import Archetype
 from products.mcp_analytics.backend.wrapped.model_families import OTHER_FAMILY, UNKNOWN_FAMILY
 from products.mcp_analytics.backend.wrapped.queries import DimensionRow, MonthCalls, WrappedAggregates
 
@@ -65,20 +65,9 @@ SUPERHERO_SUCCESS_RATE = 0.995
 SUPERHERO_P95_MS = 1000
 
 
-class Archetype(StrEnum):
-    ONE_HIT_WONDER = "one_hit_wonder"
-    SWISS_ARMY_KNIFE = "swiss_army_knife"
-    NIGHT_OWL = "night_owl"
-    WEEKEND_WARRIOR = "weekend_warrior"
-    SPEED_DEMON = "speed_demon"
-    ROCKET = "rocket"
-    SUPERHERO = "superhero"
-    ALL_ROUNDER = "all_rounder"
-
-
 @frozen
 class Share:
-    label: str
+    name: str
     share: float
 
 
@@ -264,10 +253,10 @@ def _top_shares(rows: Sequence[DimensionRow], limit: int, denominator: int) -> t
     if denominator <= 0:
         return ()
     top = _ranked(rows)[:limit]
-    shares = [Share(label=row.key, share=_ratio(row.calls / denominator)) for row in top]
+    shares = [Share(name=row.key, share=_ratio(row.calls / denominator)) for row in top]
     rest = denominator - sum(row.calls for row in top)
     if rest > 0:
-        shares.append(Share(label=OTHER_SHARE_LABEL, share=_ratio(rest / denominator)))
+        shares.append(Share(name=OTHER_SHARE_LABEL, share=_ratio(rest / denominator)))
     return tuple(shares)
 
 

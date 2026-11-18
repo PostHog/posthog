@@ -31,6 +31,8 @@ import { mcpAnalyticsNotificationsLogic } from './notifications/mcpAnalyticsNoti
 import { MCPSessionsPlaylist } from './sessions/MCPSessionsPlaylist'
 import { MCPSetupMode } from './setupMode/MCPSetupMode'
 import { SetupGuideButton } from './setupMode/SetupGuideButton'
+import { MCPWrapped } from './wrapped/MCPWrapped'
+import { WrappedButton } from './wrapped/WrappedButton'
 
 export const scene: SceneExport = {
     component: MCPAnalyticsScene,
@@ -139,6 +141,7 @@ function MCPAnalyticsSceneBody(): JSX.Element {
     return (
         <SceneContent>
             <MCPSetupMode />
+            <MCPWrapped />
             <MCPAnalyticsSceneMenuBar />
             <SceneTitleSection
                 name="MCP analytics"
@@ -147,6 +150,7 @@ function MCPAnalyticsSceneBody(): JSX.Element {
                 actions={
                     todayRailNav ? (
                         <>
+                            <WrappedButton quill />
                             <SetupGuideButton quill />
                             <Button variant="outline" render={<LinkPrimitive to={MCP_DOCS_URL} target="_blank" />}>
                                 Documentation
@@ -154,6 +158,7 @@ function MCPAnalyticsSceneBody(): JSX.Element {
                         </>
                     ) : (
                         <>
+                            <WrappedButton quill={false} />
                             <SetupGuideButton quill={false} />
                             <LemonButton to={MCP_DOCS_URL} type="secondary" targetBlank size="small">
                                 Documentation

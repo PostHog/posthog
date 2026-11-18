@@ -21,6 +21,7 @@ from products.mcp_analytics.backend.facade.constants import (
     MAX_CUSTOM_HARNESSES,
     UNIDENTIFIED_HARNESS_LABEL,
 )
+from products.mcp_analytics.backend.facade.enums import Archetype
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPCustomHarness
 
 if TYPE_CHECKING:
@@ -1071,3 +1072,148 @@ class MCPCustomHarnessSerializer(serializers.ModelSerializer):
                 return super().update(instance, validated_data)
         except IntegrityError:
             raise serializers.ValidationError({"match_pattern": DUPLICATE_MATCH_PATTERN_ERROR})
+
+
+class MCPWrappedShareSerializer(serializers.Serializer):
+    name = serializers.CharField(read_only=True, help_text='Name of the app, AI lab or model family, or "Other".')
+    share = serializers.FloatField(read_only=True, help_text="Share of the calls the bar covers, from 0 to 1.")
+
+
+class MCPWrappedSharesCardSerializer(serializers.Serializer):
+    shares = MCPWrappedShareSerializer(
+        many=True, read_only=True, help_text="Largest first, with the remainder as a final Other entry."
+    )
+
+
+class MCPWrappedIntroCardSerializer(serializers.Serializer):
+    tracked_since = serializers.CharField(
+        read_only=True, help_text="First month with 100+ tool calls, as YYYY-MM. MCP analytics started tracking then."
+    )
+    server_count = serializers.IntegerField(
+        read_only=True, help_text="MCP servers that each sent at least 1% of the project's tool calls."
+    )
+
+
+class MCPWrappedMonthSerializer(serializers.Serializer):
+    month = serializers.CharField(read_only=True, help_text="Month as YYYY-MM.")
+    calls = serializers.IntegerField(read_only=True, help_text="Tool calls in the month.")
+
+
+class MCPWrappedToolCallsCardSerializer(serializers.Serializer):
+    total_calls = serializers.IntegerField(read_only=True, help_text="Tool calls in the period.")
+    months = MCPWrappedMonthSerializer(
+        many=True, read_only=True, help_text="Calls per month from the tracked-since month on, oldest first."
+    )
+    growth_multiple = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text="The last month's calls over the first full month's, set only when it is 1.5 or more.",
+    )
+
+
+class MCPWrappedToolCountSerializer(serializers.Serializer):
+    tool = serializers.CharField(read_only=True, help_text="Tool name.")
+    calls = serializers.IntegerField(read_only=True, help_text="Tool calls in the period.")
+
+
+class MCPWrappedTopToolsCardSerializer(serializers.Serializer):
+    tools = MCPWrappedToolCountSerializer(many=True, read_only=True, help_text="Up to five tools, busiest first.")
+
+
+class MCPWrappedRushHourCardSerializer(serializers.Serializer):
+    weekday = serializers.IntegerField(read_only=True, help_text="Busiest ISO weekday, 1 is Monday.")
+    hour = serializers.IntegerField(read_only=True, help_text="Busiest hour, 0 to 23, in timezone.")
+    timezone = serializers.CharField(read_only=True, help_text="The project's timezone, which weekday and hour use.")
+    heat = serializers.ListField(
+        child=serializers.IntegerField(),
+        read_only=True,
+        help_text="Intensity from 0 to 100 for each of the 168 weekday-hour slots, index (weekday - 1) * 24 + hour.",
+    )
+    quiet_weekends = serializers.BooleanField(read_only=True, help_text="Under 15% of calls fell on weekends.")
+    night_shift = serializers.BooleanField(
+        read_only=True, help_text="Over half of the calls fell between 10 pm and 6 am."
+    )
+
+
+class MCPWrappedToolErrorRateSerializer(serializers.Serializer):
+    tool = serializers.CharField(read_only=True, help_text="Tool name.")
+    error_rate = serializers.FloatField(read_only=True, help_text="Share of the tool's calls that errored, 0 to 1.")
+
+
+class MCPWrappedReliabilityCardSerializer(serializers.Serializer):
+    success_rate = serializers.FloatField(read_only=True, help_text="Share of calls without an error, 0 to 1.")
+    struggling_tool = MCPWrappedToolErrorRateSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="The tool with the highest error rate among tools with 100+ calls, when 3 or more qualify.",
+    )
+
+
+class MCPWrappedToolLatencySerializer(serializers.Serializer):
+    tool = serializers.CharField(read_only=True, help_text="Tool name.")
+    p95_duration_ms = serializers.FloatField(read_only=True, help_text="95th percentile response time in ms.")
+
+
+class MCPWrappedSpeedCardSerializer(serializers.Serializer):
+    p95_duration_ms = serializers.FloatField(
+        read_only=True, help_text="95th percentile response time across all calls, in ms."
+    )
+    quickest_busy_tool = MCPWrappedToolLatencySerializer(
+        read_only=True, allow_null=True, help_text="The quickest of the five busiest tools."
+    )
+    slowest_tool = MCPWrappedToolLatencySerializer(
+        read_only=True, allow_null=True, help_text="The slowest tool with 100+ calls."
+    )
+
+
+class MCPWrappedArchetypeCardSerializer(serializers.Serializer):
+    archetype = serializers.ChoiceField(
+        choices=Archetype.choices, read_only=True, help_text="The server's personality, from the first rule it meets."
+    )
+    evidence = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text="The number that earned the archetype: a share, a tool count, a p95 in ms or a growth multiple.",
+    )
+
+
+class MCPWrappedCardsSerializer(serializers.Serializer):
+    intro = MCPWrappedIntroCardSerializer(read_only=True, help_text="Opening card.")
+    tool_calls = MCPWrappedToolCallsCardSerializer(read_only=True, help_text="Total and monthly tool calls.")
+    top_tools = MCPWrappedTopToolsCardSerializer(read_only=True, help_text="The busiest tools.")
+    apps = MCPWrappedSharesCardSerializer(
+        read_only=True, allow_null=True, help_text="Share of calls by app. Null when too many calls have no client."
+    )
+    labs = MCPWrappedSharesCardSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="Share of calls by AI lab, as agents report it. Null when too few calls carry a model.",
+    )
+    models = MCPWrappedSharesCardSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="Share of calls by model family, as agents report it. Null when too few calls carry a model.",
+    )
+    rush_hour = MCPWrappedRushHourCardSerializer(
+        read_only=True, allow_null=True, help_text="Busiest weekday and hour. Null under 1,000 calls."
+    )
+    reliability = MCPWrappedReliabilityCardSerializer(read_only=True, help_text="Calls without an error.")
+    speed = MCPWrappedSpeedCardSerializer(
+        read_only=True, allow_null=True, help_text="Response times. Null when most calls have no duration."
+    )
+    archetype = MCPWrappedArchetypeCardSerializer(read_only=True, help_text="The server's personality.")
+
+
+class MCPWrappedSerializer(serializers.Serializer):
+    year = serializers.IntegerField(read_only=True, help_text="Year the wrap covers, Jan 1 to Dec 1.")
+    generated_at = serializers.DateTimeField(read_only=True, help_text="When the wrap was computed.")
+    expires_at = serializers.DateTimeField(
+        read_only=True, help_text="When the wrap stops showing, 14 days after it was computed."
+    )
+    cards = MCPWrappedCardsSerializer(read_only=True, help_text="Values for each story card.")
+
+
+class MCPWrappedResponseSerializer(serializers.Serializer):
+    wrapped = MCPWrappedSerializer(
+        read_only=True, allow_null=True, help_text="The project's wrap, or null when none is ready and fresh."
+    )
