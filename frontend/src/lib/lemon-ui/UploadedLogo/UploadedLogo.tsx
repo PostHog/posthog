@@ -1,10 +1,12 @@
 import clsx from 'clsx'
 import React, { useState } from 'react'
 
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { backendAssetUrl } from 'lib/utils/apiHost'
 
 import { LemonSkeleton } from '../LemonSkeleton'
 import { Lettermark } from '../Lettermark'
+import { QuillUploadedLogo } from './QuillUploadedLogo'
 
 export interface UploadedLogoProps {
     name: string
@@ -26,6 +28,24 @@ export const UploadedLogo = React.forwardRef<HTMLDivElement, UploadedLogoProps>(
     ref
 ) {
     const [isLoadingImage, setIsLoadingImage] = useState(true)
+    const quillSurface = useQuillSurface()
+    const imageSrc = mediaId
+        ? mediaId.startsWith('data:')
+            ? mediaId
+            : backendAssetUrl(`/uploaded_media/${mediaId}`)
+        : null
+
+    if (quillSurface) {
+        return (
+            <QuillUploadedLogo
+                name={name}
+                entityId={entityId}
+                imageSrc={imageSrc}
+                size={size}
+                outlinedLettermark={outlinedLettermark}
+            />
+        )
+    }
 
     if (!mediaId) {
         return <Lettermark index={entityId} name={name} size={size} outlined={outlinedLettermark} />
@@ -48,7 +68,7 @@ export const UploadedLogo = React.forwardRef<HTMLDivElement, UploadedLogoProps>(
             {isLoadingImage && <LemonSkeleton className="absolute inset-0" />}
             <img
                 className="size-full object-cover"
-                src={mediaId.startsWith('data:') ? mediaId : backendAssetUrl(`/uploaded_media/${mediaId}`)}
+                src={imageSrc ?? undefined}
                 alt="Uploaded logo"
                 onError={() => setIsLoadingImage(false)}
                 onLoad={() => setIsLoadingImage(false)}

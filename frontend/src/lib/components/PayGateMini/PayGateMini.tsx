@@ -5,9 +5,11 @@ import { useEffect } from 'react'
 
 import { IconInfo, IconOpenSidebar, IconUnlock } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
+import { Card, CardContent, Skeleton } from '@posthog/quill'
 
 import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { getProductIcon } from 'scenes/onboarding/shared/utils'
 import { userLogic } from 'scenes/userLogic'
 
@@ -15,6 +17,7 @@ import { AvailableFeature, BillingFeatureType, BillingProductV2AddonType, Billin
 
 import { PayGateButton } from './PayGateButton'
 import { PayGateMiniLogicProps, payGateMiniLogic } from './payGateMiniLogic'
+import { QuillPayGateContent } from './QuillPayGateContent'
 
 export type PayGateMiniProps = PayGateMiniLogicProps & {
     /**
@@ -67,6 +70,7 @@ export function PayGateMini({
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { billingLoading } = useValues(billingLogic)
     const { user } = useValues(userLogic)
+    const quillSurface = useQuillSurface()
 
     useEffect(() => {
         if (gateVariant) {
@@ -93,7 +97,25 @@ export function PayGateMini({
         })
     }
 
+    const learnMoreUrl = `${docsLink}?utm_medium=in-product&utm_campaign=${feature}-upgrade-learn-more`
+
     if (billingLoading) {
+        if (quillSurface) {
+            return (
+                loadingSkeleton || (
+                    <Card className={className}>
+                        <CardContent className="flex flex-col items-center gap-2">
+                            <Skeleton className="h-10 w-20" />
+                            <Skeleton className="h-6 w-48" />
+                            <Skeleton className="h-4 w-1/2" />
+                            <Skeleton className="h-4 w-1/2" />
+                            <Skeleton className="h-8 w-32" />
+                        </CardContent>
+                    </Card>
+                )
+            )
+        }
+
         return (
             loadingSkeleton || (
                 <div
@@ -121,6 +143,22 @@ export function PayGateMini({
     }
 
     if (isGated && !overrideShouldShowGate) {
+        if (quillSurface) {
+            return (
+                <QuillPayGateContent
+                    feature={feature}
+                    currentUsage={currentUsage}
+                    className={className}
+                    background={background}
+                    isGrandfathered={isGrandfathered}
+                    handleCtaClick={handleCtaClick}
+                    learnMoreUrl={docsLink && isCloudOrDev ? learnMoreUrl : null}
+                    onBypass={user?.is_impersonated ? () => setBypassPaywall(true) : null}
+                    renderProductIcon={getProductIcon}
+                />
+            )
+        }
+
         return (
             <PayGateContent
                 feature={feature}
@@ -135,7 +173,7 @@ export function PayGateMini({
                     {docsLink && isCloudOrDev && (
                         <LemonButton
                             type="secondary"
-                            to={`${docsLink}?utm_medium=in-product&utm_campaign=${feature}-upgrade-learn-more`}
+                            to={learnMoreUrl}
                             targetBlank
                             center
                             data-attr={`${feature}-learn-more`}

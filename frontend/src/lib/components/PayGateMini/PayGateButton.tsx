@@ -3,6 +3,11 @@ import posthog from 'posthog-js'
 
 import { IconLock } from '@posthog/icons'
 import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
+
+import { quillButtonVariant } from 'lib/lemon-ui/LemonButton/quillButtonVariant'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { PayGateMiniLogicProps, payGateMiniLogic } from './payGateMiniLogic'
 import type { payGateMiniLogicType } from './payGateMiniLogic'
@@ -51,6 +56,22 @@ export const PayGateButton = ({ feature, currentUsage, ...buttonProps }: PayGate
         currentUsage,
         onClick: buttonProps.onClick,
     })
+    const quillSurface = useQuillSurface()
+
+    if (quillSurface) {
+        return (
+            <Button
+                variant={quillButtonVariant(buttonProps.type ?? 'primary')}
+                onClick={clickHandlerProps.onClick ?? buttonProps.onClick}
+                nativeButton={!clickHandlerProps.to}
+                render={clickHandlerProps.to ? <LinkPrimitive to={clickHandlerProps.to} /> : undefined}
+                disabledReason={ctaDisabledReason || buttonProps.disabledReason}
+                data-attr={buttonProps['data-attr']}
+            >
+                {ctaLabel}
+            </Button>
+        )
+    }
 
     return (
         <LemonButton

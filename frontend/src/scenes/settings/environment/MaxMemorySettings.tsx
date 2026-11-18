@@ -5,10 +5,12 @@ import { LemonBanner, LemonButton, LemonSkeleton, LemonTextArea } from '@posthog
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { CORE_MEMORY_MAX_CHARACTERS, maxSettingsLogic } from './maxSettingsLogic'
+import { QuillMaxMemorySettings } from './QuillMaxMemorySettings'
 
 export function MaxMemorySettings(): JSX.Element {
     const { currentProject, currentProjectLoading } = useValues(projectLogic)
@@ -18,6 +20,35 @@ export function MaxMemorySettings(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const placeholder = `What should PostHog AI know about ${
+        currentProject ? currentProject.name : 'your company or this product'
+    }?`
+    const saveDisabledReason =
+        !currentProject || isLoading
+            ? 'Loading project and memory...'
+            : coreMemoryLoadError
+              ? 'Memory could not be loaded'
+              : coreMemoryOverLimit
+                ? 'Memory is over the character limit. Trim it to fit first.'
+                : restrictedReason
+
+    if (todayRailNav) {
+        return (
+            <QuillMaxMemorySettings
+                loading={currentProjectLoading || isLoading}
+                loadError={coreMemoryLoadError}
+                overLimit={coreMemoryOverLimit}
+                updating={isUpdating}
+                placeholder={placeholder}
+                restrictedReason={restrictedReason}
+                saveDisabledReason={saveDisabledReason}
+                onRetry={() => loadCoreMemory()}
+                onTrim={() => trimCoreMemoryToFit()}
+            />
+        )
+    }
 
     return (
         <Form
@@ -64,9 +95,7 @@ export function MaxMemorySettings(): JSX.Element {
                     <LemonField name="text" label="PostHog AI's memory">
                         <LemonTextArea
                             id="product-description-textarea" // Slightly dirty ID for .focus() elsewhere
-                            placeholder={`What should PostHog AI know about ${
-                                currentProject ? currentProject.name : 'your company or this product'
-                            }?`}
+                            placeholder={placeholder}
                             maxLength={CORE_MEMORY_MAX_CHARACTERS}
                             maxRows={5}
                             disabled={!!restrictedReason}
@@ -74,20 +103,7 @@ export function MaxMemorySettings(): JSX.Element {
                     </LemonField>
                 </>
             )}
-            <LemonButton
-                type="primary"
-                htmlType="submit"
-                disabledReason={
-                    !currentProject || isLoading
-                        ? 'Loading project and memory...'
-                        : coreMemoryLoadError
-                          ? 'Memory could not be loaded'
-                          : coreMemoryOverLimit
-                            ? 'Memory is over the character limit. Trim it to fit first.'
-                            : restrictedReason
-                }
-                loading={isUpdating}
-            >
+            <LemonButton type="primary" htmlType="submit" disabledReason={saveDisabledReason} loading={isUpdating}>
                 Save memory
             </LemonButton>
         </Form>

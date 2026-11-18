@@ -5,6 +5,7 @@ import { LemonButton, LemonDialog, LemonInput, Link } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -14,6 +15,7 @@ import { GroupType } from '~/types'
 import { GroupsIntroduction } from 'products/groups/frontend/components/GroupsIntroduction'
 
 import { groupAnalyticsConfigLogic } from './groupAnalyticsConfigLogic'
+import { QuillGroupAnalyticsConfig } from './QuillGroupAnalyticsConfig'
 
 export interface DeleteGroupTypeDialogProps {
     onConfirm: () => void
@@ -62,9 +64,20 @@ export function GroupAnalyticsConfig(): JSX.Element | null {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (needsUpgradeForGroups) {
         return <GroupsIntroduction />
+    }
+
+    const handleDelete = (groupType: GroupType): void =>
+        openDeleteGroupTypeDialog({
+            onConfirm: () => deleteGroupType(groupType.group_type_index),
+            groupTypeName: groupType.group_type,
+        })
+
+    if (todayRailNav) {
+        return <QuillGroupAnalyticsConfig restrictedReason={restrictedReason} onDelete={handleDelete} />
     }
 
     const columns: LemonTableColumns<GroupType> = [
@@ -121,12 +134,7 @@ export function GroupAnalyticsConfig(): JSX.Element | null {
                         status="danger"
                         size="small"
                         icon={<IconTrash />}
-                        onClick={() =>
-                            openDeleteGroupTypeDialog({
-                                onConfirm: () => deleteGroupType(groupType.group_type_index),
-                                groupTypeName: groupType.group_type,
-                            })
-                        }
+                        onClick={() => handleDelete(groupType)}
                         disabledReason={restrictedReason}
                     />
                 )

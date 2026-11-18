@@ -5,7 +5,10 @@ import { IconCopy } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+
+import { QuillCopyToClipboardInline } from './QuillCopyToClipboardInline'
 
 interface InlinePropsBase {
     description?: string
@@ -55,7 +58,26 @@ export const CopyToClipboardInline = React.forwardRef<HTMLSpanElement, InlinePro
     },
     ref
 ) {
+    const quillSurface = useQuillSurface()
     const copy = (): void => void copyToClipboard((explicitValue ?? children) as string, description)
+
+    if (quillSurface) {
+        return (
+            <QuillCopyToClipboardInline
+                ref={ref}
+                onCopy={copy}
+                selectable={selectable}
+                isValueSensitive={isValueSensitive}
+                tooltipMessage={tooltipMessage}
+                iconPosition={iconPosition}
+                className={className}
+                data-attr={dataAttr}
+                {...props}
+            >
+                {children}
+            </QuillCopyToClipboardInline>
+        )
+    }
 
     let content = (
         <LemonButton

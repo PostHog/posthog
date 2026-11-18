@@ -1,7 +1,10 @@
 import { useValues } from 'kea'
 
 import { Link } from '@posthog/lemon-ui'
+import { Button, Item, ItemContent, ItemDescription } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { urls } from 'scenes/urls'
 
@@ -39,6 +42,36 @@ function planSummary(plan: EventsRetentionPlan, billingPlan: BillingPlan | null)
 
 export function EventsRetentionPlanNote({ plan }: { plan: EventsRetentionPlan }): JSX.Element {
     const { billingPlan } = useValues(billingLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const canUpgrade = plan.plan_retention_months < LONGEST_PLAN_RETENTION_MONTHS
+
+    if (todayRailNav) {
+        return (
+            <Item variant="outline" size="sm" className="max-w-160" data-attr="events-retention-plan-note">
+                <ItemContent>
+                    <ItemDescription>
+                        <span>{planSummary(plan, billingPlan)}</span>
+                        {canUpgrade && (
+                            <>
+                                {' '}
+                                Need longer data retention? Head over to our{' '}
+                                <Button
+                                    variant="link"
+                                    size="inline"
+                                    nativeButton={false}
+                                    render={<LinkPrimitive to={urls.organizationBilling()} />}
+                                >
+                                    billing page
+                                </Button>{' '}
+                                to upgrade.
+                            </>
+                        )}
+                    </ItemDescription>
+                </ItemContent>
+            </Item>
+        )
+    }
 
     return (
         <p
@@ -46,7 +79,7 @@ export function EventsRetentionPlanNote({ plan }: { plan: EventsRetentionPlan })
             data-attr="events-retention-plan-note"
         >
             <span>{planSummary(plan, billingPlan)}</span>
-            {plan.plan_retention_months < LONGEST_PLAN_RETENTION_MONTHS && (
+            {canUpgrade && (
                 <>
                     {' '}
                     Need longer data retention? Head over to our{' '}
