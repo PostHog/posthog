@@ -52,6 +52,7 @@ import { GENERATED_TOOLS as product_analytics } from './product_analytics'
 import { GENERATED_TOOLS as proxyRecords } from './proxy-records'
 import { GENERATED_TOOLS as push_templates } from './push_templates'
 import { GENERATED_TOOLS as queryWrappers } from './query-wrappers'
+import { GENERATED_TOOLS as release } from './release'
 import { GENERATED_TOOLS as reminders } from './reminders'
 import { GENERATED_TOOLS as replay } from './replay'
 import { GENERATED_TOOLS as replay_vision } from './replay_vision'
@@ -127,6 +128,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...proxyRecords,
     ...push_templates,
     ...queryWrappers,
+    ...release,
     ...reminders,
     ...replay,
     ...replay_vision,

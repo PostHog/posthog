@@ -1,4 +1,6 @@
+from pathlib import Path
 from typing import Any
+from uuid import UUID, uuid4
 
 import pytest
 from unittest.mock import call, patch
@@ -8,6 +10,7 @@ from django.test import override_settings
 
 from asgiref.sync import async_to_sync
 from posthoganalytics.types import FlagsAndPayloads
+from structlog.testing import capture_logs
 from temporalio.testing import ActivityEnvironment
 
 from posthog.models import OrganizationMembership, User
@@ -36,6 +39,7 @@ from products.tasks.backend.constants import (
 )
 from products.tasks.backend.exceptions import ProcessTaskFatalError, TaskInvalidStateError, TaskRunNotReadyError
 from products.tasks.backend.facade.profiles import get_task_profile
+from products.tasks.backend.logic.services.agent_egress_probe import AgentEgressProbeConfig
 from products.tasks.backend.logic.services.agent_instructions import AgentInstructionsStore
 from products.tasks.backend.models import (
     TASK_OWNERSHIP_VERSION_STATE_KEY,
@@ -51,6 +55,7 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
     GetTaskProcessingContextInput,
     TaskProcessingContext,
     VmSandboxDecision,
+    _agent_egress_observation_config,
     _ensure_subscription_allowed,
     _fetch_run_flags,
     _is_agent_shadow_enabled,
@@ -93,6 +98,83 @@ async def _run_context(
     return await activity_environment.run(get_task_processing_context, input_data)
 
 
+def _write_observation_config(directory: Path, *, team_id: int, run_id: str) -> str:
+    path = directory / "observation.json"
+    path.write_text(
+        AgentEgressProbeConfig(
+            team_id=team_id,
+            run_id=UUID(run_id),
+            endpoint="https://run-a.egress.example.com",
+            relay_image_id="im-example",
+            server_ca_file=directory / "server.pem",
+            client_ca_file=directory / "client.pem",
+            client_ca_key_file=directory / "client-key.pem",
+        ).model_dump_json()
+    )
+    return str(path)
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "enabled",
+        "disabled",
+        "production",
+        "provider",
+        "resumed",
+        "snapshot",
+        "local",
+        "interactive",
+        "hogland",
+        "gvisor",
+        "restricted",
+        "team",
+        "run",
+    ],
+)
+def test_egress_observation_requires_an_explicit_eligible_development_run(case: str, tmp_path: Path) -> None:
+    context = TaskProcessingContext(
+        task_id=str(uuid4()),
+        run_id=str(uuid4()),
+        team_id=1,
+        team_uuid=str(uuid4()),
+        organization_id=str(uuid4()),
+        github_integration_id=None,
+        repository=None,
+        distinct_id="egress-observation",
+        environment="cloud",
+        use_modal_vm_sandbox=True,
+    )
+    path = _write_observation_config(tmp_path, team_id=context.team_id, run_id=context.run_id)
+    if case == "snapshot":
+        context.state = {"same_run_resume": True, "snapshot_external_id": "snapshot-example"}
+    elif case == "local":
+        context.environment = "local"
+    elif case == "interactive":
+        context.state = {"mode": "interactive"}
+    elif case == "hogland":
+        context.sandbox_backend = "hogland"
+    elif case == "gvisor":
+        context.use_modal_vm_sandbox = False
+    elif case == "restricted":
+        context.allowed_domains = []
+    elif case == "team":
+        context.team_id += 1
+    elif case == "run":
+        context.run_id = str(uuid4())
+    if case not in {"enabled", "team", "run"}:
+        Path(path).unlink()
+    with override_settings(
+        DEBUG=case != "production",
+        SANDBOX_PROVIDER="modal" if case == "provider" else "MODAL_DOCKER",
+        AGENT_EGRESS_PROBE_CONFIG_DIR=str(tmp_path),
+        AGENT_EGRESS_OBSERVATION_CONFIG="" if case == "disabled" else path,
+    ):
+        assert _agent_egress_observation_config(context, resumed=case == "resumed") == (
+            path if case == "enabled" else None
+        )
+
+
 @pytest.mark.parametrize(
     "state,expected",
     [
@@ -133,18 +215,26 @@ def test_snapshot_resume_requires_a_resume_marker_and_snapshot(state: dict[str, 
 
 
 @pytest.mark.parametrize(
-    "origin_product,model,expected",
+    "origin_product,gateway_ai_product,model,expected",
     [
-        ("posthog_ai", "deepseek-ai/deepseek-v4-flash-0731", None),
-        ("posthog_ai", "zai-org/glm-5.3", None),
-        ("posthog_ai", "claude-opus-5-5", "claude-opus-5-5"),
-        ("posthog_ai", "gpt-6-sol", "gpt-6-sol"),
-        ("user_created", "deepseek-ai/deepseek-v4-flash-0731", "deepseek-ai/deepseek-v4-flash-0731"),
-        ("posthog_ai", None, None),
+        ("posthog_ai", "posthog_ai", "deepseek-ai/deepseek-v4-flash-0731", None),
+        ("posthog_ai", "posthog_ai", "zai-org/glm-5.3", None),
+        ("posthog_ai", "posthog_ai", "claude-opus-5-5", "claude-opus-5-5"),
+        ("posthog_ai", "posthog_ai", "gpt-6-sol", "gpt-6-sol"),
+        ("posthog_ai", "posthog_ai", None, None),
+        ("slack", "slack_app", "zai-org/glm-5.3", None),
+        ("feature_flags", "posthog_ai", "zai-org/glm-5.3-flash", None),
+        ("signal_report", "posthog_ai", "deepseek-ai/deepseek-v4-flash-0731", None),
+        ("user_created", "workflows", "zai-org/glm-5.2", None),
+        ("slack", "slack_app", "claude-opus-5-5", "claude-opus-5-5"),
+        # Outside posthog_code's own pin, so only the posthog_code exemption keeps it.
+        ("user_created", "posthog_code", "gpt-6.1-terra", "gpt-6.1-terra"),
+        ("posthog_ai", None, "zai-org/glm-5.3", None),
+        ("slack", None, "zai-org/glm-5.3", "zai-org/glm-5.3"),
     ],
 )
-def test_posthog_ai_run_drops_a_model_outside_its_gateway_pin(
-    origin_product: str, model: str | None, expected: str | None
+def test_a_run_drops_a_model_outside_its_gateway_products_pin(
+    origin_product: str, gateway_ai_product: str | None, model: str | None, expected: str | None
 ):
     context = TaskProcessingContext(
         task_id="task-id",
@@ -157,6 +247,7 @@ def test_posthog_ai_run_drops_a_model_outside_its_gateway_pin(
         distinct_id="distinct-id",
         origin_product=origin_product,
         state={"model": model},
+        gateway_ai_product=gateway_ai_product,
     )
 
     assert context.model == expected
@@ -516,6 +607,29 @@ class TestGetTaskProcessingContextActivity:
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
+        "stored_profile,expected_product,expected_model",
+        [
+            ("slack", "slack_app", None),
+            ("feature_flags.code", "posthog_ai", None),
+            ("workflow", "workflows", None),
+            (None, "posthog_code", "zai-org/glm-5.3"),
+        ],
+    )
+    def test_get_task_processing_context_drops_a_model_its_gateway_product_would_refuse(
+        self, activity_environment, test_task, stored_profile, expected_product, expected_model
+    ):
+        test_task.profile = stored_profile
+        test_task.save(update_fields=["profile"])
+        task_run = test_task.create_run(extra_state={"model": "zai-org/glm-5.3"})
+
+        result = async_to_sync(activity_environment.run)(
+            get_task_processing_context, GetTaskProcessingContextInput(run_id=str(task_run.id))
+        )
+
+        assert (result.gateway_ai_product, result.model) == (expected_product, expected_model)
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
         "stored_profile,expected_profile",
         [
             (None, None),
@@ -733,7 +847,12 @@ class TestGetTaskProcessingContextActivity:
         assert result.allowed_domains == []
 
     @pytest.mark.django_db(transaction=True)
-    def test_get_task_processing_context_keeps_full_access_unrestricted(self, activity_environment, test_task):
+    @pytest.mark.parametrize(
+        "configuration", ["disabled", "valid", "missing", "unconfigured_directory", "malformed", "outside_directory"]
+    )
+    def test_get_task_processing_context_keeps_full_access_unrestricted(
+        self, activity_environment, test_task, tmp_path: Path, configuration: str
+    ) -> None:
         sandbox_environment = SandboxEnvironment.objects.create(
             team=test_task.team,
             created_by=test_task.created_by,
@@ -743,11 +862,58 @@ class TestGetTaskProcessingContextActivity:
         )
         task_run = test_task.create_run(extra_state={"sandbox_environment_id": str(sandbox_environment.id)})
 
-        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
-        result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+        directory = tmp_path / "approved"
+        directory.mkdir()
+        path = _write_observation_config(
+            tmp_path if configuration == "outside_directory" else directory,
+            team_id=task_run.team_id,
+            run_id=str(task_run.id),
+        )
+        marker = "synthetic-observation-private-material"
+        if configuration == "missing":
+            Path(path).unlink()
+        elif configuration == "malformed":
+            Path(path).write_text('{"unexpected":"' + marker + '",')
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id), launches_agent=True)
+        with (
+            capture_logs() as logs,
+            override_settings(
+                DEBUG=True,
+                SANDBOX_PROVIDER="MODAL_DOCKER",
+                AGENT_EGRESS_PROBE_CONFIG_DIR="" if configuration == "unconfigured_directory" else str(directory),
+                AGENT_EGRESS_OBSERVATION_CONFIG="" if configuration == "disabled" else path,
+            ),
+            patch(
+                ALL_FLAGS_TARGET,
+                return_value=_flags(
+                    payloads={MODAL_VM_SANDBOX_FEATURE_FLAG: '{"default_base_origin_products": ["user_created"]}'}
+                ),
+            ),
+        ):
+            result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
         assert result.sandbox_environment_id == str(sandbox_environment.id)
         assert result.allowed_domains is None
+        assert result.agent_egress_observation_config == (path if configuration == "valid" else None)
+        invalid = configuration not in {"disabled", "valid"}
+        warnings = [record for record in logs if record["event"] == "agent_egress_observation_disabled"]
+        assert len(warnings) == int(invalid)
+        assert marker not in str(logs)
+        assert path not in str(logs)
+        if invalid:
+            assert warnings[0]["run_id"] == str(task_run.id)
+            assert warnings[0]["team_id"] == task_run.team_id
+            assert warnings[0]["reason"] == "invalid_configuration"
+            assert warnings[0]["log_level"] == "warning"
+            assert not warnings[0].get("exc_info")
+            repaired_path = _write_observation_config(directory, team_id=task_run.team_id, run_id=str(task_run.id))
+            with override_settings(
+                DEBUG=True,
+                SANDBOX_PROVIDER="MODAL_DOCKER",
+                AGENT_EGRESS_PROBE_CONFIG_DIR=str(directory),
+                AGENT_EGRESS_OBSERVATION_CONFIG=repaired_path,
+            ):
+                assert _agent_egress_observation_config(result, resumed=False) == repaired_path
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(

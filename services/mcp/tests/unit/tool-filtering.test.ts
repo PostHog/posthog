@@ -1130,6 +1130,7 @@ describe('Tool Filtering - Feature Flags', () => {
         const branchFlags = [
             'workflows-supabase-auth-emails',
             'scout-trials',
+            'scout-scratchpad-discard-mcp',
             'signals-report-monitoring',
             'inbox-report-actions-mcp',
             'inbox-reports-create-mcp',
@@ -1207,6 +1208,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'aeo-citation-tracking',
                 'self-driving-usage-display',
                 'logs-agent-tools',
+                'releases-area',
                 'workflows-transactional-push-api',
             ])
         )
@@ -1214,7 +1216,7 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(flags).toContain('ai-observability-composite-validation')
         expect(allFlags).not.toContain('dashboard-widgets')
         expect(allFlags).not.toContain('self-driving-usage-mcp')
-        expect(flags).toHaveLength(39)
+        expect(flags).toHaveLength(40)
     })
 
     it('keeps human and task context wiki tools on separate scopes', () => {

@@ -108,6 +108,7 @@ class TestSpanCountErrorHandling(APIBaseTest):
             ("query_string_prefetch_spans", "post", "query/", {"query": {"prefetchSpans": "abc"}}),
             ("query_negative_prefetch_spans", "post", "query/", {"query": {"prefetchSpans": -5}}),
             ("query_negative_offset", "post", "query/", {"query": {"offset": -1}}),
+            ("query_object_include_events", "post", "query/", {"query": {"includeEvents": {}}}),
             ("trace_string_offset", "post", "trace/abcdef/", {"offset": "abc"}),
             ("trace_negative_offset", "post", "trace/abcdef/", {"offset": -1}),
             ("attributes_string_limit", "get", "attributes/", {"limit": "abc"}),

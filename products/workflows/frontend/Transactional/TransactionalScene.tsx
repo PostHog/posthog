@@ -12,6 +12,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { EmailSuspensionBanner } from '../EmailSuspensionBanner'
+import { EngagementEventsBanner } from '../EngagementEventsBanner'
 import { MessagingTabActions } from '../MessagingTabActions'
 import { NewTransactionalPushModal } from './push/NewTransactionalPushModal'
 import { TransactionalNewButtons } from './TransactionalNewButtons'
@@ -52,6 +53,7 @@ export function TransactionalScene(): JSX.Element {
                 actions={<TransactionalSceneActions tab={currentTab} />}
             />
             <EmailSuspensionBanner />
+            <EngagementEventsBanner />
             <TransactionalTabs currentTab={currentTab} showWebhooks={showWebhooks} />
             {showPush ? <NewTransactionalPushModal /> : null}
         </SceneContent>
