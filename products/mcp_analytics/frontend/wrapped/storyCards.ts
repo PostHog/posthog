@@ -1,6 +1,6 @@
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import type { ArchetypeEnumApi, MCPWrappedCardsApi } from '../generated/api.schemas'
+import type { ArchetypeEnumApi, MCPWrappedCardsApi, MCPWrappedMonthApi } from '../generated/api.schemas'
 
 export type WrappedCardKey =
     | 'intro'
@@ -61,6 +61,33 @@ export function storyCardKeys(cards: MCPWrappedCardsApi): WrappedCardKey[] {
 export function formatMonth(month: string, style: 'long' | 'short' = 'long'): string {
     const [year, monthNumber] = month.split('-').map(Number)
     return new Date(Date.UTC(year, monthNumber - 1, 1)).toLocaleString('en-US', { month: style, timeZone: 'UTC' })
+}
+
+export interface ChartMonth {
+    month: string
+    // null for months before tracking started, so the chart can draw them apart from quiet months.
+    calls: number | null
+}
+
+/** Every month from January to the last month with data, so the chart shows when tracking started. */
+export function yearMonths(months: readonly MCPWrappedMonthApi[]): ChartMonth[] {
+    if (months.length === 0) {
+        return []
+    }
+    const sorted = [...months].sort((a, b) => a.month.localeCompare(b.month))
+    const [year, firstMonth] = sorted[0].month.split('-').map(Number)
+    const lastMonth = Number(sorted[sorted.length - 1].month.split('-')[1])
+    const calls = new Map(sorted.map((month) => [month.month, month.calls]))
+    return Array.from({ length: lastMonth }, (_, index) => {
+        const key = `${year}-${String(index + 1).padStart(2, '0')}`
+        return { month: key, calls: index + 1 < firstMonth ? null : (calls.get(key) ?? 0) }
+    })
+}
+
+const COMPACT = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 })
+
+export function formatCompact(value: number): string {
+    return COMPACT.format(value)
 }
 
 export function formatPercent(share: number): string {
