@@ -2,11 +2,15 @@ import { useValues } from 'kea'
 
 import { LemonBanner, LemonCard, Spinner } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 
 import { HealthChecksPanel } from './HealthChecksPanel'
+import { HEALTH_LOAD_ERROR, QuillExperimentHealthTab } from './QuillExperimentHealthTab'
 
 export function ExperimentHealthTab(): JSX.Element {
+    const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const {
         experimentHealth,
         healthFindings,
@@ -17,6 +21,10 @@ export function ExperimentHealthTab(): JSX.Element {
         exposures,
     } = useValues(experimentLogic)
 
+    if (todayRailNav && resultsRedesign) {
+        return <QuillExperimentHealthTab />
+    }
+
     if (healthFindings === null || healthChecks === null) {
         return experimentHealthLoading ? (
             <div className="flex items-center gap-2 py-8 text-secondary" data-attr="experiment-health-tab-loading">
@@ -24,7 +32,7 @@ export function ExperimentHealthTab(): JSX.Element {
                 <span>Running the health checks</span>
             </div>
         ) : (
-            <LemonBanner type="error">Couldn't load the health checks. Refresh the page to try again.</LemonBanner>
+            <LemonBanner type="error">{HEALTH_LOAD_ERROR}</LemonBanner>
         )
     }
 
