@@ -1,5 +1,5 @@
 import type { MCPWrappedCardsApi } from '../generated/api.schemas'
-import { formatHour, shareTiles, storyCardKeys, yearMonths } from './storyCards'
+import { formatHour, shareTiles, storyCardKeys, chartMonths } from './storyCards'
 
 const BASE: MCPWrappedCardsApi = {
     intro: { tracked_since: '2026-07', server_count: 1 },
@@ -56,18 +56,16 @@ describe('storyCards', () => {
         expect(formatHour(weekday, hour)).toBe(expected)
     })
 
-    it('fills the year from January, marking untracked months apart from quiet ones', () => {
+    it('fills months between tracked months with zero calls', () => {
         expect(
-            yearMonths([
-                { month: '2026-05', calls: 40 },
-                { month: '2026-03', calls: 10 },
+            chartMonths([
+                { month: '2026-11', calls: 40 },
+                { month: '2026-09', calls: 10 },
             ])
         ).toEqual([
-            { month: '2026-01', calls: null },
-            { month: '2026-02', calls: null },
-            { month: '2026-03', calls: 10 },
-            { month: '2026-04', calls: 0 },
-            { month: '2026-05', calls: 40 },
+            { month: '2026-09', calls: 10 },
+            { month: '2026-10', calls: 0 },
+            { month: '2026-11', calls: 40 },
         ])
     })
 })
