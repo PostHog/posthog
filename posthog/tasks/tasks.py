@@ -971,6 +971,16 @@ def capture_task_status_shadow_metrics() -> None:
             )
             for row in tasks_facade.repair_task_status_mismatches():
                 repaired_gauge.labels(stored_status=row.stored_status, derived_status=row.derived_status).set(row.count)
+            stale_runs_gauge = Gauge(
+                "posthog_tasks_stale_live_runs",
+                "Live task runs that went quiet for longer than their idle timeout allows, by the rule that finds them.",
+                registry=registry,
+                labelnames=["profile", "run_environment", "rule"],
+            )
+            for stale in tasks_facade.collect_stale_live_task_runs():
+                stale_runs_gauge.labels(
+                    profile=stale.profile, run_environment=stale.run_environment, rule=stale.rule
+                ).set(stale.count)
     except OperationalError as err:
         logger.warning("capture_task_status_shadow_metrics_transient_db_error", exception=err)
     except Exception as err:

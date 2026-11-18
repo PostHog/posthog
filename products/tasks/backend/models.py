@@ -822,6 +822,14 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         value = (self.options or {}).get("github_access")
         return GithubAccess(value) if value else None
 
+    @staticmethod
+    def is_user_origin(origin_product: str | None) -> bool:
+        return not origin_product or origin_product in (
+            Task.OriginProduct.USER_CREATED.value,
+            Task.OriginProduct.IMAGE_BUILDER.value,
+            Task.OriginProduct.SPACE_SETUP.value,
+        )
+
     @property
     def stored_profile(self) -> TaskProfile | None:
         if not self.profile:

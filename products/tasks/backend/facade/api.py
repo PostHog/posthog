@@ -245,6 +245,7 @@ from products.tasks.backend.run_options import (
     run_options_record as run_options_record,
     validate_run_options as validate_run_options,
 )
+from products.tasks.backend.stale_runs import collect_stale_live_runs
 from products.tasks.backend.storage import (
     TaskRunLog as TaskRunLog,
     read_run_log,
@@ -371,6 +372,7 @@ __all__ = [
     "readonly_github_integration_id",
     "check_task_run_startable",
     "collect_task_run_state_metrics",
+    "collect_stale_live_task_runs",
     "collect_task_status_mismatches",
     "compute_repository_readiness",
     "create_and_run_task",
@@ -2146,6 +2148,15 @@ def repair_task_status_mismatches() -> list[contracts.TaskStatusMismatchRow]:
             stored_status=row.stored_status or "none", derived_status=row.derived_status, count=row.count
         )
         for row in repair_status_mismatches()
+    ]
+
+
+def collect_stale_live_task_runs() -> list[contracts.StaleLiveRunRow]:
+    return [
+        contracts.StaleLiveRunRow(
+            profile=row.profile or "none", run_environment=row.environment, rule=row.rule.value, count=row.count
+        )
+        for row in collect_stale_live_runs()
     ]
 
 
