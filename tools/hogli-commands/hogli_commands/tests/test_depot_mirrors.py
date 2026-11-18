@@ -9,12 +9,13 @@ import pytest
 from hogli_commands.depot_mirrors import mirror_violations
 
 TREE = {
-    ".depot/workflows/ci-backend.yml": "steps:\n  - uses: ./.depot/actions/setup-uv\n  - uses: './.github/actions/pnpm-install'\n",
+    ".depot/workflows/ci-backend.yml": "steps:\n  - uses: ./.depot/actions/setup-uv\n  - uses: './.github/actions/pnpm-install'\n  - uses: ./.depot/actions/install-hogql-parser-rs\n",
     ".github/actions/setup-uv/action.yml": "name: uv\n",
     ".depot/actions/setup-uv/action.yml": "name: uv\n",
     ".github/actions/pnpm-install/action.yml": "name: pnpm\n",
     ".depot/actions/pnpm-install/action.yml": "name: pnpm with a depot delta\n",
     ".github/actions/semgrep-ci/action.yml": "name: not used by depot\n",
+    ".depot/actions/install-hogql-parser-rs/action.yml": "name: depot only\n",
 }
 
 
@@ -57,6 +58,18 @@ class TestMirrorViolations:
                 lambda root: shutil.rmtree(root / ".depot/actions/pnpm-install"),
                 "but .depot/actions/pnpm-install/ does not exist",
                 id="used-mirror-deleted",
+            ),
+            pytest.param(
+                {".depot/actions/install-hogql-parser-rs/action.yml"},
+                None,
+                None,
+                id="depot-only-action",
+            ),
+            pytest.param(
+                set(),
+                lambda root: (root / ".github/actions/install-hogql-parser-rs").mkdir(parents=True),
+                ".github/actions/install-hogql-parser-rs/ exists",
+                id="depot-only-action-gains-canonical",
             ),
         ],
     )

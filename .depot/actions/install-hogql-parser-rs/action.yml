@@ -1,0 +1,85 @@
+name: Install hogql-parser-rs from source
+description: |
+    Installs the hogql-parser-rs wheel built from this checkout's rust/hogql/parser crate, when that
+    crate differs from master or names a version other than the root pyproject.toml pin.
+    rust-py is the production parser, so its tests must run against this checkout's crate.
+    Publishing is a manual step after merge, so master can carry a crate version that the pin
+    does not name yet, and that version is installed from source too.
+    The wheel is cached by a hash of the crate and its workspace inputs, so only a cache miss
+    compiles it. Callers run this after `uv sync`, which installs the pinned PyPI wheel.
+
+inputs:
+    save-cache:
+        description: 'Save a freshly built wheel to the cache. Pass true only on master runs.'
+        required: false
+        default: 'false'
+    toolchain:
+        description: 'Rust toolchain used to build the wheel on a cache miss'
+        required: false
+        default: '1.91.1'
+
+runs:
+    using: composite
+    steps:
+        - name: Decide whether hogql-parser-rs needs the in-repo crate
+          id: detect
+          shell: bash
+          run: |
+              needed=false
+              if [[ -f rust/hogql/parser/pyproject.toml ]]; then
+                  crate_version=$(grep -m1 '^version = ' rust/hogql/parser/pyproject.toml | sed -E 's/version = "(.*)"/\1/')
+                  if ! grep -q "\"hogql-parser-rs==$crate_version\"" pyproject.toml; then
+                      needed=true
+                  else
+                      git fetch --no-tags --depth=1 --filter=blob:none https://github.com/PostHog/posthog.git master \
+                          || echo "::warning::Could not fetch master, so hogql-parser-rs builds from source"
+                      git diff --quiet HEAD FETCH_HEAD -- rust/hogql/parser/ || needed=true
+                  fi
+              fi
+              echo "needed=$needed" >> "$GITHUB_OUTPUT"
+
+        - name: Restore hogql-parser-rs wheel from cache
+          id: wheel-cache
+          if: steps.detect.outputs.needed == 'true'
+          timeout-minutes: 2
+          continue-on-error: true
+          uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+          with:
+              path: ~/.cache/hogql-parser-rs-wheel
+              key: hogql-parser-rs-wheel-${{ hashFiles('rust/hogql/parser/**', 'rust/Cargo.toml', 'rust/Cargo.lock', 'rust/.cargo/config.toml') }}-rust${{ inputs.toolchain }}-${{ runner.os }}-${{ runner.arch }}
+
+        - name: Install Rust to build hogql-parser-rs
+          if: steps.detect.outputs.needed == 'true' && steps.wheel-cache.outputs.cache-hit != 'true'
+          uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+          with:
+              toolchain: ${{ inputs.toolchain }}
+              components: cargo
+
+        - name: Build hogql-parser-rs wheel on cache miss
+          if: steps.detect.outputs.needed == 'true' && steps.wheel-cache.outputs.cache-hit != 'true'
+          shell: bash
+          run: |
+              set -euo pipefail
+              rm -rf "$HOME/.cache/hogql-parser-rs-wheel"
+              python -m pip wheel --no-deps --wheel-dir "$HOME/.cache/hogql-parser-rs-wheel" ./rust/hogql/parser
+
+        - name: Save hogql-parser-rs wheel to cache
+          if: steps.detect.outputs.needed == 'true' && steps.wheel-cache.outputs.cache-hit != 'true' && inputs.save-cache == 'true'
+          continue-on-error: true
+          uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+          with:
+              path: ~/.cache/hogql-parser-rs-wheel
+              key: ${{ steps.wheel-cache.outputs.cache-primary-key }}
+
+        - name: Install hogql-parser-rs wheel
+          if: steps.detect.outputs.needed == 'true'
+          shell: bash
+          run: |
+              set -euo pipefail
+              shopt -s nullglob
+              wheels=("$HOME"/.cache/hogql-parser-rs-wheel/hogql_parser_rs-*.whl)
+              if [[ ${#wheels[@]} -ne 1 ]]; then
+                  echo "::error::Expected one hogql_parser_rs wheel, found ${#wheels[@]}"
+                  exit 1
+              fi
+              python -m pip install --no-deps --force-reinstall "${wheels[0]}"

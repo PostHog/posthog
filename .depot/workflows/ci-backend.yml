@@ -3282,17 +3282,6 @@ jobs:
                   git fetch --no-tags --prune --depth=1 https://github.com/PostHog/posthog.git master
                   changed=$(git diff --quiet HEAD FETCH_HEAD -- common/hogql_parser/ && echo "false" || echo "true")
                   echo "changed=$changed" >> $GITHUB_OUTPUT
-                  # A branch that predates the crate has nothing to install.
-                  rust_changed=false
-                  if [[ -f rust/hogql/parser/pyproject.toml ]]; then
-                      crate_version=$(grep -m1 '^version = ' rust/hogql/parser/pyproject.toml | sed -E 's/version = "(.*)"/\1/')
-                      # Publishing is a manual step after merge, so master can carry a crate version that
-                      # the root pin does not name yet. That version builds from source too.
-                      if ! git diff --quiet HEAD FETCH_HEAD -- rust/hogql/parser/ || ! grep -q "\"hogql-parser-rs==$crate_version\"" pyproject.toml; then
-                          rust_changed=true
-                      fi
-                  fi
-                  echo "rust_changed=$rust_changed" >> $GITHUB_OUTPUT
               retry: 2
             # tests would intermittently fail in GH actions
             # with exit code 134 _after passing_ all tests
@@ -3355,18 +3344,11 @@ jobs:
                   sudo ldconfig
                   cd ..
                   pip install ./common/hogql_parser
-            - name: Install Rust to build hogql-parser-rs
-              if: ${{ needs.changes.outputs.backend == 'true' && steps.hogql-parser-diff.outputs.rust_changed == 'true' }}
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
-              with:
-                  toolchain: 1.91.1
-                  components: cargo
             - name: Install the working version of hogql-parser-rs
-              if: ${{ needs.changes.outputs.backend == 'true' && steps.hogql-parser-diff.outputs.rust_changed == 'true' }}
-              shell: bash
-              # rust-py is the production parser, so its tests must run against this branch's
-              # crate rather than the version pinned in the root pyproject.toml.
-              run: pip install ./rust/hogql/parser
+              if: needs.changes.outputs.backend == 'true'
+              uses: ./.depot/actions/install-hogql-parser-rs
+              with:
+                  save-cache: ${{ env.IS_MASTER == 'true' }}
             - name: Set up needed files
               shell: bash
               run: |
