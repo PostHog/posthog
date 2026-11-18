@@ -13,6 +13,8 @@ export function EmailHtmlCodeField({
 }): JSX.Element {
     const [draft, setDraft] = useState(html)
     const pending = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const latest = useRef({ draft: html, onChange })
+    latest.current.onChange = onChange
 
     // A change from elsewhere, such as undo or the larger editor, replaces the draft unless one is still being applied.
     useEffect(() => {
@@ -21,10 +23,13 @@ export function EmailHtmlCodeField({
         }
     }, [html])
 
+    // Picking another block or closing the panel unmounts the field, so an edit still waiting is applied then.
     useEffect(
         () => () => {
             if (pending.current) {
                 clearTimeout(pending.current)
+                pending.current = null
+                latest.current.onChange(latest.current.draft)
             }
         },
         []
@@ -41,6 +46,7 @@ export function EmailHtmlCodeField({
                     onChange={(value) => {
                         const next = value ?? ''
                         setDraft(next)
+                        latest.current.draft = next
                         if (pending.current) {
                             clearTimeout(pending.current)
                         }
