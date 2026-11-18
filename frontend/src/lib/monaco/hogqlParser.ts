@@ -1,6 +1,6 @@
 import posthog from 'posthog-js'
 
-import type { HogQLParser } from '@posthog/hogql-parser'
+import type { ASTNode, HogQLParser } from '@posthog/hogql-parser'
 
 let parserPromise: Promise<HogQLParser> | null = null
 let initFailureReported = false
@@ -75,6 +75,10 @@ export function parseSelect(input: string, isInternal?: boolean): Promise<string
 export async function parseExpr(input: string, isInternal?: boolean): Promise<string> {
     const parser = await getParser()
     return parser.parseExpr(input, isInternal)
+}
+
+export async function parseSelectAst(input: string): Promise<ASTNode> {
+    return JSON.parse(await parseSelect(input)) as ASTNode
 }
 
 export async function parseOrderExpr(input: string, isInternal?: boolean): Promise<string> {
