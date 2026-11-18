@@ -30,7 +30,12 @@ const UNTRUSTED_RESULT_NOTE =
 const MAX_QUESTION_CHARS = 500
 
 function truncate(text: string | null, maxChars: number): string | null {
-    return text && text.length > maxChars ? `${text.slice(0, maxChars).trimEnd()}…` : text
+    if (!text || text.length <= maxChars) {
+        return text
+    }
+    // A lone high surrogate makes encodeURIComponent throw in the agent deep-link builders.
+    const highSurrogate = text.charCodeAt(maxChars - 1) >= 0xd800 && text.charCodeAt(maxChars - 1) <= 0xdbff
+    return `${text.slice(0, highSurrogate ? maxChars - 1 : maxChars).trimEnd()}…`
 }
 
 function resultLines(observation: ReplayObservationApi): string[] {
