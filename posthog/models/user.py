@@ -31,7 +31,7 @@ from posthog.settings import INSTANCE_TAG, SITE_URL
 from posthog.utils import get_instance_realm
 
 from products.authorization.backend.facade.contracts import Resource, Subject
-from products.authorization.backend.facade.enums import Action, ResourceType
+from products.authorization.backend.facade.enums import Action
 
 from .organization import Organization, OrganizationMembership
 from .team import Team
@@ -626,7 +626,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
 
         membership: OrganizationMembership = OrganizationMembership.objects.get(user=self, organization=organization)
         if authorization.check(
-            resource=Resource(type=ResourceType.ORGANIZATION, id=str(organization.id)),
+            resource=Resource.organization(organization.id),
             action=Action.MANAGE_OWNERS,
             subject=Subject(user_id=self.pk),
         ):

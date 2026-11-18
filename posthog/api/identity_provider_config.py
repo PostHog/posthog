@@ -39,9 +39,11 @@ from posthog.models.linked_identity_provider_config import LinkedIdentityProvide
 from posthog.models.organization import Organization
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.scim_request_log import SCIMRequestLog
-from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission, can_in_organization
+from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission, request_subject
 from posthog.security.url_validation import is_url_allowed
 
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
 from products.authorization.backend.facade.enums import Action
 
 
@@ -483,7 +485,9 @@ class IdentityProviderConfigViewSet(TeamAndOrgViewSetMixin, ModelViewSet):
     @action(methods=["GET"], detail=True, url_path="scim/logs")
     def scim_logs(self, request: Request, **kwargs: Any) -> response.Response:
         config = cast(IdentityProviderConfig, self.get_object())
-        if not can_in_organization(request, config.organization, Action.EDIT):
+        if not authorization.check(
+            resource=Resource.organization(config.organization_id), action=Action.EDIT, subject=request_subject(request)
+        ):
             raise exceptions.PermissionDenied("Only organization admins can view SCIM logs.")
 
         queryset = SCIMRequestLog.objects.filter(identity_provider_config=config)

@@ -60,9 +60,9 @@ from posthog.permissions import (
     OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
     TimeSensitiveActionPermission,
-    can_in_organization,
     extract_organization,
     get_authenticator_scoped_organization_ids,
+    request_subject,
 )
 from posthog.rate_limit import PostHogAIAccessRequestIPThrottle, PostHogAIAccessRequestUserThrottle
 from posthog.rbac.migrations.rbac_feature_flag_migration import rbac_feature_flag_role_access_migration
@@ -74,7 +74,7 @@ from posthog.utils import get_safe_cache, safe_cache_set
 from products.access_control.backend.models.role import Role
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.authorization.backend.facade import api as authorization
-from products.authorization.backend.facade.contracts import Subject
+from products.authorization.backend.facade.contracts import Resource, Subject
 from products.authorization.backend.facade.enums import Action
 from products.authorization.backend.presentation.querysets import filter_projects
 from products.legal_documents.backend.facade.api import SIGNED_BAA_ANNOTATION, annotate_signed_baa, has_signed_baa
@@ -104,7 +104,11 @@ class OrganizationPermissionsWithDelete(OrganizationAdminWritePermissions):
         if request.method in permissions.SAFE_METHODS:
             return True
         organization = extract_organization(object, view)
-        return can_in_organization(request, organization, Action.DELETE if request.method == "DELETE" else Action.EDIT)
+        return authorization.check(
+            resource=Resource.organization(organization.id),
+            action=Action.DELETE if request.method == "DELETE" else Action.EDIT,
+            subject=request_subject(request),
+        )
 
 
 tracer = trace.get_tracer(__name__)
@@ -975,8 +979,9 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise exceptions.ValidationError("PostHog AI is already enabled for this organization.")
 
         # Members only — admins can enable PostHog AI themselves, so there's nobody to ask.
-        if not can_in_organization(request, organization, Action.VIEW) or can_in_organization(
-            request, organization, Action.EDIT
+        resource, subject = Resource.organization(organization.id), request_subject(request)
+        if not authorization.check(resource=resource, action=Action.VIEW, subject=subject) or authorization.check(
+            resource=resource, action=Action.EDIT, subject=subject
         ):
             raise exceptions.PermissionDenied("Only members can request access; admins can enable PostHog AI directly.")
 

@@ -25,8 +25,10 @@ from posthog.models import OrganizationDomain, User
 from posthog.models.identity_provider_config import ConfigScope
 from posthog.models.organization import Organization
 from posthog.models.scim_request_log import SCIMRequestLog
-from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission, can_in_organization
+from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission, request_subject
 
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
 from products.authorization.backend.facade.enums import Action
 
 DOMAIN_REGEX = r"^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$"
@@ -229,7 +231,9 @@ class OrganizationDomainViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     @extend_schema(parameters=[SCIMRequestLogQuerySerializer], responses=PaginatedSCIMRequestLogSerializer)
     @action(methods=["GET"], detail=True, url_path="scim/logs")
     def scim_logs(self, request: Request, **kwargs) -> response.Response:
-        if not can_in_organization(request, self.organization, Action.EDIT):
+        if not authorization.check(
+            resource=Resource.organization(self.organization.id), action=Action.EDIT, subject=request_subject(request)
+        ):
             raise exceptions.PermissionDenied("Only organization admins can view SCIM logs.")
 
         domain: OrganizationDomain = self.get_object()
