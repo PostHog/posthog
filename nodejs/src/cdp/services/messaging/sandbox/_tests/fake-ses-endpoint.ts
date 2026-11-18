@@ -23,7 +23,7 @@ export type DeliveredEmail = {
 }
 
 export type SesReply =
-    | { kind: 'error'; status: number; errorType: string }
+    | { kind: 'error'; status: number; errorType: string; message?: string }
     | { kind: 'accept-without-id' }
     | { kind: 'hang' }
     | { kind: 'deliver-without-reply' }
@@ -34,6 +34,13 @@ export const SES_THROTTLE: SesReply = { kind: 'error', status: 400, errorType: '
 export const SES_SENDING_RATE: SesReply = { kind: 'error', status: 429, errorType: 'TooManyRequestsException' }
 export const SES_SERVER_ERROR: SesReply = { kind: 'error', status: 500, errorType: 'InternalFailure' }
 export const SES_REJECTED: SesReply = { kind: 'error', status: 400, errorType: 'MessageRejected' }
+export const SES_ACCESS_DENIED = {
+    kind: 'error',
+    status: 403,
+    errorType: 'AccessDeniedException',
+    message:
+        'User: arn:aws:sts::000000000000:assumed-role/example-sender/session is not authorized to perform: ses:SendEmail on resource: arn:aws:ses:us-east-1:000000000000:identity/send.example.com',
+} as const satisfies SesReply
 
 const SEND_EMAIL_PATH = '/v2/email/outbound-emails'
 
@@ -113,7 +120,7 @@ export class FakeSesEndpoint {
             return
         }
         if (reply?.kind === 'error') {
-            respond(res, reply.status, { message: reply.errorType }, reply.errorType)
+            respond(res, reply.status, { message: reply.message ?? reply.errorType }, reply.errorType)
             return
         }
         if (reply?.kind === 'accept-without-id') {
