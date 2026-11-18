@@ -17,9 +17,6 @@ export function ConnectAgentAdminSteps(): JSX.Element {
                     <div className="flex flex-col gap-2">
                         <span>Create a key, and choose what the agent can read.</span>
                         <ConnectAgentKeyForm />
-                        <span className="text-xs text-secondary">
-                            A key for one library reads only the sources and repositories in that library.
-                        </span>
                     </div>
                 </li>
                 <li>

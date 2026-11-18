@@ -21,47 +21,53 @@ export function ConnectAgentKeyForm(): JSX.Element {
     }
 
     return (
-        <div className="flex flex-wrap items-center gap-2">
-            <LemonSelect
-                size="small"
-                placeholder="Choose what the agent can read"
-                value={reads}
-                onChange={setReads}
-                options={[
-                    { options: [{ value: ALL_KNOWLEDGE, label: 'All business knowledge' }] },
-                    {
-                        title: 'One library',
-                        options: libraries.map((library) => ({ value: library.id, label: library.name })),
-                        footer:
-                            libraries.length === 0 ? (
-                                <div className="px-2 py-1 text-xs text-secondary">
-                                    <Link to={urls.businessKnowledge()}>Create a library</Link> to limit a key to it.
-                                </div>
-                            ) : undefined,
-                    },
-                ]}
-                data-attr="business-knowledge-connect-agent-library"
-            />
-            <LemonInput
-                size="small"
-                className="w-48"
-                placeholder="Key name"
-                value={label}
-                onChange={setLabel}
-                maxLength={MAX_KEY_LABEL_LENGTH}
-                onPressEnter={createDisabledReason ? undefined : createKey}
-                data-attr="business-knowledge-connect-agent-key-name"
-            />
-            <LemonButton
-                type="primary"
-                size="small"
-                loading={creating}
-                disabledReason={createDisabledReason}
-                onClick={createKey}
-                data-attr="business-knowledge-connect-agent-create-library-key"
-            >
-                Create key
-            </LemonButton>
+        <div className="flex flex-col gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+                <LemonSelect
+                    size="small"
+                    placeholder="Choose what the agent can read"
+                    value={reads}
+                    onChange={setReads}
+                    options={[
+                        { options: [{ value: ALL_KNOWLEDGE, label: 'All business knowledge' }] },
+                        {
+                            title: 'One library',
+                            options: libraries.map((library) => ({ value: library.id, label: library.name })),
+                        },
+                    ]}
+                    data-attr="business-knowledge-connect-agent-library"
+                />
+                <LemonInput
+                    size="small"
+                    className="w-48"
+                    placeholder="Key name"
+                    value={label}
+                    onChange={setLabel}
+                    maxLength={MAX_KEY_LABEL_LENGTH}
+                    onPressEnter={createDisabledReason ? undefined : createKey}
+                    data-attr="business-knowledge-connect-agent-key-name"
+                />
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    loading={creating}
+                    disabledReason={createDisabledReason}
+                    onClick={createKey}
+                    data-attr="business-knowledge-connect-agent-create-library-key"
+                >
+                    Create key
+                </LemonButton>
+            </div>
+            <span className="text-xs text-secondary">
+                {libraries.length === 0 ? (
+                    <>
+                        To limit a key to part of your business knowledge,{' '}
+                        <Link to={urls.businessKnowledge()}>create a library</Link> and add sources to it.
+                    </>
+                ) : (
+                    'A key for one library reads only the sources and repositories in that library.'
+                )}
+            </span>
         </div>
     )
 }
