@@ -19,7 +19,7 @@ function WrappedTeaser(): JSX.Element | null {
     const Hoggie = CARD_THEMES.intro.hoggie
     return (
         <div
-            className="relative grid grid-cols-[1fr_7rem] gap-3 overflow-hidden rounded-xl p-5 text-white"
+            className="MCPWrapped__teaser relative grid grid-cols-[1fr_7rem] gap-3 overflow-hidden rounded-xl p-5 text-white"
             style={{ background: CARD_THEMES.intro.background }}
         >
             <div className="flex flex-col gap-2">

@@ -15,12 +15,14 @@ export function ToolCallsCard({ card }: { card: MCPWrappedToolCallsCardApi }): J
             <p className="MCPWrapped__rise m-0 text-base">times this year.</p>
             <div className="MCPWrapped__rise flex h-20 items-end gap-1.5">
                 {card.months.map((month) => (
-                    <div key={month.month} className="flex h-full flex-1 flex-col items-center justify-end gap-1">
-                        <div
-                            className="w-full rounded-t bg-white/85"
-                            style={{ height: `${Math.max(4, (month.calls / busiest) * 100)}%` }}
-                            title={`${humanFriendlyNumber(month.calls)} calls`}
-                        />
+                    <div key={month.month} className="flex h-full flex-1 flex-col items-center gap-1">
+                        <div className="flex w-full flex-1 items-end">
+                            <div
+                                className="w-full rounded-t bg-white/85"
+                                style={{ height: `${Math.max(4, (month.calls / busiest) * 100)}%` }}
+                                title={`${humanFriendlyNumber(month.calls)} calls`}
+                            />
+                        </div>
                         <span className="font-mono text-[10px] font-semibold">{formatMonth(month.month, 'short')}</span>
                     </div>
                 ))}
