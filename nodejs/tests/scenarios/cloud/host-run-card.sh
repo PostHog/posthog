@@ -24,10 +24,11 @@ mark() {
 
 checksums() (
     cd "$evidence" || exit 1
+    find . -type f ! -name SHA256SUMS -print0 | sort -z >"$root/evidence.list" || exit 1
     while IFS= read -r -d '' file; do
         sum=$(sha256sum <"$file") || exit 1
         printf '%s  %s\n' "${sum%% *}" "$file"
-    done < <(find . -type f ! -name SHA256SUMS -print0 | sort -z)
+    done <"$root/evidence.list"
 )
 
 upload_evidence() {

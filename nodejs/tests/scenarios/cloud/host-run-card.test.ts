@@ -58,6 +58,7 @@ exit "\${FAKE_CARD_EXIT:-0}"
 
 const RECORD_ARGS = `#!/usr/bin/env bash
 printf '%s\\n' "\${0##*/} $*" >>"$FAKE_COMMANDS"
+[ "\${FAKE_FAILS:-}" != "\${0##*/}" ] || exit 1
 PATH=\${PATH#*:} exec "\${0##*/}" "$@"
 `
 
@@ -92,7 +93,7 @@ describe('host-run-card.sh', () => {
             writeFileSync(path.join(bin, 'node'), runner, { mode: 0o755 })
         }
         writeFileSync(path.join(bin, 'pnpm'), FAKE_PNPM, { mode: 0o755 })
-        for (const command of ['tail', 'sha256sum']) {
+        for (const command of ['cp', 'mkdir', 'mv', 'tail', 'find', 'sort', 'sha256sum']) {
             writeFileSync(path.join(bin, command), RECORD_ARGS, { mode: 0o755 })
         }
         return spawn('bash', [WRAPPER], {
@@ -132,6 +133,7 @@ describe('host-run-card.sh', () => {
         ['the card fails', { FAKE_CARD_EXIT: '1' }, 1, true],
         ['the evidence upload fails', { FAKE_CARD_EXIT: '1', FAKE_UPLOAD_FAILS: '1' }, 1, false],
         ['the evidence cannot be copied', { FAKE_CARD_EXIT: '0', FAKE_CARD_BLOCKS_COPY: '1' }, 0, false],
+        ['the evidence cannot be listed', { FAKE_CARD_EXIT: '0', FAKE_FAILS: 'find' }, 0, false],
     ])('marks done with the runner exit code when %s', async (_, env, exitCode, uploaded) => {
         await exited(start(env))
 
