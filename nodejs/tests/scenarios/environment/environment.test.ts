@@ -1099,8 +1099,12 @@ describe('scenario environment', () => {
                     process.exit(3)
                 }
                 if (stack.hangs && !stack.ready) {
-                    fs.writeFileSync(path.join(__dirname, 'waiting'), String(process.pid))
-                    setInterval(() => undefined, 60_000)
+                    const waiter = require('child_process').spawn(
+                        process.execPath,
+                        ['-e', 'setInterval(() => undefined, 60_000)'],
+                        { stdio: 'ignore' }
+                    )
+                    fs.writeFileSync(path.join(__dirname, 'waiting'), String(waiter.pid))
                     return
                 }
                 if (stack.firstStartS !== undefined && Number(flags.timeout ?? 300) < stack.firstStartS) {
@@ -1427,6 +1431,9 @@ describe('scenario environment', () => {
         afterEach(async () => {
             await environment?.down()
             environment = undefined
+            if (existsSync(path.join(fakes, 'waiting'))) {
+                processes.signal(Number(readFileSync(path.join(fakes, 'waiting'), 'utf8')), 'SIGKILL')
+            }
             portHolder?.close()
             portHolder = undefined
             unspawnable = undefined

@@ -503,7 +503,7 @@ A scorecard records the profile's name and hash, never its numbers.
 ```ts
 // nodejs/tests/scenarios/runner/runner.ts
 export interface Runner {
-  up(): Promise<void>
+  up(signal: AbortSignal): Promise<void>
   run(loaded: LoadedCard, signal: AbortSignal): Promise<RunResult>
   down(): Promise<void>
 }
@@ -529,7 +529,7 @@ export interface Runner {
 ```ts
 // nodejs/tests/scenarios/environment/environment.ts
 export interface Environment {
-  up(): Promise<void>
+  up(signal: AbortSignal): Promise<void>
   reset(settings: Profile['settings']): Promise<void>
   edgeUrl(): string
   role(name: Role): RoleHandle

@@ -11,6 +11,7 @@ import { internalFetch } from '~/common/utils/request'
 import { TEST_IDS_BELOW } from '~/tests/helpers/sql'
 import { PluginsServerConfig } from '~/types'
 
+import { signal as sendSignal } from './processes'
 import { ConsumerGroup, ROLE_PORTS, RoleSpec, SCENARIO_SESSION_PREFIX, SES_RATE_LIMITER_VALKEY } from './roles'
 
 const PROBE_TIMEOUT_MS = 2000
@@ -37,13 +38,30 @@ async function hogliExit(
     env: NodeJS.ProcessEnv,
     signal: AbortSignal
 ): Promise<number | null> {
+    signal.throwIfAborted()
     const log = openSync(logFile, 'a')
-    const child = spawn(hogli.command, args, { cwd: hogli.cwd, env, stdio: ['ignore', log, log], signal })
+    const child = spawn(hogli.command, args, { cwd: hogli.cwd, env, stdio: ['ignore', log, log], detached: true })
     closeSync(log)
-    return await new Promise<number | null>((resolve, reject) => {
-        child.once('error', reject)
-        child.once('exit', resolve)
-    })
+    const stopGroup = (sig: NodeJS.Signals): void => {
+        if (child.pid !== undefined) {
+            sendSignal(-child.pid, sig)
+        }
+    }
+    const abort = (): void => stopGroup('SIGTERM')
+    signal.addEventListener('abort', abort, { once: true })
+    try {
+        const code = await new Promise<number | null>((resolve, reject) => {
+            child.once('error', reject)
+            child.once('exit', resolve)
+        })
+        if (signal.aborted) {
+            stopGroup('SIGKILL')
+            signal.throwIfAborted()
+        }
+        return code
+    } finally {
+        signal.removeEventListener('abort', abort)
+    }
 }
 
 async function runHogli(
