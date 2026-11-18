@@ -18,9 +18,10 @@ from products.tasks.backend.exceptions import (
     SandboxTimeoutError,
 )
 from products.tasks.backend.facade.contracts import AgentStartupFailure
+from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
 from products.tasks.backend.logic.services.launch_preparation_metrics import record_launch_preparation_ms
 from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
-from products.tasks.backend.logic.services.sandbox import ExecutionResult, sandbox_repo_path
+from products.tasks.backend.logic.services.sandbox import ExecutionResult, SandboxConfig, sandbox_repo_path
 from products.tasks.backend.logic.services.startup_failure import AgentServerStartupError
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.start_agent_server import (
@@ -354,18 +355,33 @@ def test_invoke_start_agent_server_forwards_sandbox_runtime(
     assert sandbox.start_agent_server.call_args.kwargs["sandbox_runtime"] == expected_runtime
 
 
-def test_invoke_start_agent_server_forwards_the_run_policy(mocker) -> None:
-    sandbox = mocker.Mock(id="sandbox-id")
-    sandbox.start_agent_server.return_value = None
+def test_invoke_start_agent_server_launches_the_agent_with_the_run_policy(mocker) -> None:
+    sandbox = DockerSandbox(container_id="c" * 64, config=SandboxConfig(name="test-sandbox"), host_port=8000)
+    commands: list[str] = []
 
-    _invoke_start_agent_server(
-        sandbox,
-        _context(),
-        mocker.Mock(agentsh_domains=None, run_policy='{"finish_tool":true}'),
-        repo_ready_file=None,
+    def execute(command: str, **kwargs) -> ExecutionResult:
+        commands.append(command)
+        return ExecutionResult(stdout="", stderr="", exit_code=0)
+
+    mocker.patch.object(sandbox, "is_running", return_value=True)
+    mocker.patch.object(sandbox, "write_file", return_value=ExecutionResult(stdout="", stderr="", exit_code=0))
+    mocker.patch.object(sandbox, "execute", side_effect=execute)
+    params = _LaunchParams(
+        mcp_configs=[],
+        relayed_mcp_servers=[],
+        actor_user_id=None,
+        agentsh_domains=None,
+        protected_base_branch=None,
+        event_ingest_token=None,
+        task_run_session_token=None,
+        codex_run_token=None,
+        event_ingest_url=None,
+        run_policy='{"finish_tool":true}',
     )
 
-    assert sandbox.start_agent_server.call_args.kwargs["run_policy"] == '{"finish_tool":true}'
+    _invoke_start_agent_server(sandbox, _context(), params, repo_ready_file=None)
+
+    assert any("""POSTHOG_TASK_RUN_POLICY='{"finish_tool":true}'""" in command for command in commands)
 
 
 @pytest.mark.parametrize(
