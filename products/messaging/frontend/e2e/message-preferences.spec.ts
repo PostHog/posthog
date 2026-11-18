@@ -263,36 +263,37 @@ test.describe('Message preferences page', () => {
             await eventInvites.click()
             await expect(status(eventInvitesId)).toHaveText('Not subscribed')
 
+            let holding = true
             const heldSaves: (() => void)[] = []
             const holdSave = async (route: Route): Promise<void> => {
-                await new Promise<void>((release) => heldSaves.push(release))
+                if (holding) {
+                    await new Promise<void>((release) => heldSaves.push(release))
+                }
                 await route.continue()
             }
             // No `times` limit: once a limited handler runs out, Playwright turns interception off,
-            // which lets the other held save through before the test releases it
+            // which lets a held save through before the test releases it
             await recipientPage.route(UPDATE_URL, holdSave)
             await productNews.click()
             await expect.poll(() => heldSaves.length).toBe(1)
             await expect(status(productNewsId)).toHaveText('Saving…')
             await allMarketing.click()
 
-            // The page may send the second save at once or only after the first one returns.
-            // Each save is held until the test releases it, so the topic save always commits first.
+            // The topic save commits first. Any later save the page sends, at once or after the
+            // topic save returns, goes through only after that
             const topicSaved = recipientPage.waitForResponse(UPDATE_URL)
             heldSaves[0]()
-            // A failed topic save would leave the all-marketing save to store the new topic choice on its own
+            // A failed topic save would leave a later save to store the new topic choice on its own
             expect((await topicSaved).ok()).toBe(true)
-            await expect.poll(() => heldSaves.length).toBe(2)
-            const allOffSaved = recipientPage.waitForResponse(UPDATE_URL)
-            heldSaves[1]()
-            await allOffSaved
-            await recipientPage.unroute(UPDATE_URL, holdSave)
+            holding = false
+            heldSaves.splice(1).forEach((release) => release())
 
             await expect(status('$all')).toHaveText('Not subscribed')
             await expect(status(productNewsId)).toHaveText('Not subscribed')
             await expect
                 .poll(() => storedPreferences())
                 .toEqual({ $all: 'OPTED_OUT', [productNewsId]: 'OPTED_OUT', [eventInvitesId]: 'OPTED_OUT' })
+            await recipientPage.unroute(UPDATE_URL, holdSave)
 
             await recipientPage.reload()
             await allMarketing.click()

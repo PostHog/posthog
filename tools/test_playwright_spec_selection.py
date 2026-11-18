@@ -305,12 +305,15 @@ class TestPlaywrightSpecSelection(unittest.TestCase):
             git("mv", template, "products/messaging/backend/tests/preferences.html")
             (Path(repo) / "playwright/e2e/auth.spec.ts").write_text("edited\n")
             git("commit", "-am", "head")
-            with mock.patch.object(selection, "REPO_ROOT", Path(repo)):
-                changed = selection.changed_files_from_git("base")
+            # Git reads the temporary repository, while the map's targets resolve against this checkout's specs
+            all_specs = selection.discover_specs(selection.REPO_ROOT)
+            args = argparse.Namespace(map=str(selection.MAP_PATH), base_ref="base")
+            with (
+                mock.patch.object(selection, "REPO_ROOT", Path(repo)),
+                mock.patch.object(selection, "discover_specs", return_value=all_specs),
+            ):
+                result = selection._compute_result(args)
 
-        result = selection.select(
-            changed, selection.load_map(selection.MAP_PATH), selection.discover_specs(selection.REPO_ROOT)
-        )
         self.assertEqual(result["mode"], "selected")
         self.assertIn("products/messaging/frontend/e2e/message-preferences.spec.ts", result["spec_files"])
 
