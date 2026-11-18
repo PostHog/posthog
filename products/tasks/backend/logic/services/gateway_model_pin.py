@@ -63,6 +63,7 @@ FREE_TIER_MODELS: list[str] = [
     "zai-org/glm-5.2",
     "deepseek-ai/deepseek-v4-flash-0731",
     "moonshotai/kimi-k3",
+    "moonshotai/kimi-k3.1-pro",
     "zai-org/glm-5.3-flash",
 ]
 

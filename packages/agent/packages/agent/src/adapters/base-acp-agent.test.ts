@@ -245,6 +245,44 @@ describe("BaseAcpAgent", () => {
     );
   });
 
+  it("offers retired moonshotai/kimi-k3 only to the session that runs it", async () => {
+    vi.mocked(fetchGatewayModels).mockResolvedValue(
+      ["claude-opus-4-8", "moonshotai/kimi-k3", "moonshotai/kimi-k3.1-pro"].map(
+        (id) => ({
+          id,
+          owned_by: id.startsWith("claude") ? "anthropic" : "modal",
+          context_window: 1_000_000,
+          supports_streaming: true,
+          supports_vision: false,
+          allowed: true,
+        }),
+      ),
+    );
+
+    const agent = new TestAcpAgent({} as AgentSideConnection);
+    const fresh = await agent.getModelConfigOptions(
+      undefined,
+      "https://gateway.us.posthog.com/posthog_code",
+      "token",
+    );
+    const saved = await agent.getModelConfigOptions(
+      "moonshotai/kimi-k3",
+      "https://gateway.us.posthog.com/posthog_code",
+      "token",
+    );
+
+    expect(fresh.options.map((option) => option.value)).toEqual(
+      expect.arrayContaining(["claude-opus-4-8", "moonshotai/kimi-k3.1-pro"]),
+    );
+    expect(fresh.options).not.toContainEqual(
+      expect.objectContaining({ value: "moonshotai/kimi-k3" }),
+    );
+    expect(saved.currentModelId).toBe("moonshotai/kimi-k3");
+    expect(saved.options).toContainEqual(
+      expect.objectContaining({ value: "moonshotai/kimi-k3" }),
+    );
+  });
+
   it.each([
     "moonshotai/kimi-k3.1-pro",
     "deepseek-ai/deepseek-v4-flash-0731",

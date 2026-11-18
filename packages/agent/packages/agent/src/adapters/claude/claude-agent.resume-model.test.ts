@@ -905,7 +905,7 @@ describe("ClaudeAcpAgent session creation", () => {
     });
     vi.mocked(fetchGatewayModels).mockResolvedValueOnce([
       gatewayModel("claude-opus-5-5", "anthropic"),
-      gatewayModel("moonshotai/kimi-k3", "modal"),
+      gatewayModel("moonshotai/kimi-k3.1-pro", "modal"),
     ]);
     const agent = makeAgent();
     const warnSpy = vi.spyOn(agent.logger, "warn");
@@ -921,7 +921,7 @@ describe("ClaudeAcpAgent session creation", () => {
     await agent.setSessionConfigOption({
       sessionId,
       configId: "model",
-      value: "moonshotai/kimi-k3",
+      value: "moonshotai/kimi-k3.1-pro",
     });
 
     await vi.waitFor(() => {
