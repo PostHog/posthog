@@ -105,6 +105,7 @@ describe('sandbox email test sends', () => {
     })
 
     afterEach(() => {
+        jest.useRealTimers()
         server.close()
     })
 
@@ -274,6 +275,25 @@ describe('sandbox email test sends', () => {
     ])(
         'sends the next test at a daily cap of one after %s, and counts it past the warning',
         async (_case, arrange, first, next) => {
+            // Both sends must fall on one UTC day for the warning to count. Only Date is faked, and the
+            // tenant is stamped on that clock so its freshness check passes.
+            jest.useFakeTimers({
+                now: new Date('2026-03-02T12:00:00Z'),
+                advanceTimers: true,
+                doNotFake: [
+                    'hrtime',
+                    'nextTick',
+                    'performance',
+                    'queueMicrotask',
+                    'setImmediate',
+                    'clearImmediate',
+                    'setInterval',
+                    'clearInterval',
+                    'setTimeout',
+                    'clearTimeout',
+                ],
+            })
+            await world.setTenant('ENABLED', new Date())
             const bucket = world.sesBucket(1)
             serveWorker({ bucket, caps: { team: 1, warning: 1 } })
             const warningsBefore = await warnings()

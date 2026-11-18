@@ -102,16 +102,16 @@ describe('claimSandboxCaps', () => {
         const caps = { team: 5, warning: 1 }
         const before = await warnings()
         const sendAt = (iso: string, send = sameSend()) => claimSandboxCaps(limiter, caps, send, new Date(iso))
-        const throttledBeforeMidnight = sameSend()
+        const grantedBeforeMidnight = sameSend()
 
-        await sendAt('2026-03-02T23:50:00Z', throttledBeforeMidnight)
+        await sendAt('2026-03-02T23:50:00Z', grantedBeforeMidnight)
         await sendAt('2026-03-02T23:55:00Z')
         expect(await warnings()).toBe(before + 1)
 
         await sendAt('2026-03-03T00:05:00Z')
         expect(await warnings()).toBe(before + 1)
 
-        await sendAt('2026-03-03T00:10:00Z', throttledBeforeMidnight)
+        await sendAt('2026-03-03T00:10:00Z', grantedBeforeMidnight)
         expect(await warnings()).toBe(before + 2)
     })
 

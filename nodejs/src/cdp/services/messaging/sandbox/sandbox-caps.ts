@@ -75,7 +75,6 @@ export async function claimSandboxCaps(
 }
 
 // Test sends skip the project cap but count here, so a test loop still trips the warning.
-// The claim key carries the day, so a retry after midnight counts toward the new day.
 // A denied claim stores no key, so a retry past the threshold counts again.
 async function warnPastThreshold(
     limiter: RateLimiterService,
