@@ -273,12 +273,21 @@ def _reviewed_proposals(
     prompt_bugs = [card for card in cards if ranking.is_prompt_bug(card)]
     # The code stops in time for the judge calibration that a card falls back to.
     code_deadline = None if deadline is None else deadline - call_review.max_seconds(judge_calibration.TIMEOUT_SECONDS)
-    to_code = [card for card in cards if card.code_check and card not in prompt_bugs]
-    day_calls = _code_check_calls(team, day, per_mille, to_code, deadline)
-    checked = [(card, judge_calibration.check_code(card, rendering, day_calls, code_deadline)) for card in to_code]
-    coded = [
+    checked = [
+        (card, judge_calibration.check_code(card, rendering, code_deadline))
+        for card in cards
+        if card.code_check and card not in prompt_bugs
+    ]
+    kept_code = [
         (card, code) for card, code in checked if code is not None and judge_calibration.keeps(card, code.calibration)
     ]
+    # Every card is settled on the calls the review labelled before the time left goes to counting more calls.
+    day_calls = _code_check_calls(team, day, per_mille, [card for card, _ in kept_code], code_deadline)
+    widened = [
+        (card, judge_calibration.counted_on_day(card, code, rendering, day_calls, code_deadline))
+        for card, code in kept_code
+    ]
+    coded = [(card, code) for card, code in widened if code is not None]
     coded_cards = [card for card, _ in coded]
     judged = [card for card in cards if card not in prompt_bugs and card not in coded_cards]
     calibrated = _calibrate(team, run, judged, rendering, judge_model, budget, deadline)
