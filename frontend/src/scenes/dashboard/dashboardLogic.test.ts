@@ -565,7 +565,6 @@ describe('dashboardLogic', () => {
                 logic = dashboardLogic({ id: 21 })
                 logic.mount()
 
-                // Both queues together stay within the server's 6 dashboard slots per organization.
                 await waitFor(() => expect(refreshInsight).toHaveBeenCalledTimes(requestsStarted))
                 expect(loadedShortIds().includes(analyticsTile.insight!.short_id)).toBe(analyticsTileStarts)
             }

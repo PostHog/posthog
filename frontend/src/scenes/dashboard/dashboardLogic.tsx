@@ -2457,9 +2457,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             forceRefresh: boolean = false,
             settings: DashboardSettings | null = null
         ) => ({ tileIds, forceRefresh, settings }),
-        /** A tile reports whether it is near the viewport. */
         setTileInView: (tileId: number, inView: boolean) => ({ tileId, inView }),
-        /** A tile scrolled near the viewport; loads it if the first load skipped it. */
         loadDeferredTiles: (tileIds: number[]) => ({ tileIds }),
         setRevealedTileGroup: (revealedTileGroup: RevealedTileGroup | null) => ({ revealedTileGroup }),
         /** A band grid reports its own layout, which joins the other bands into one dashboard layout. */
