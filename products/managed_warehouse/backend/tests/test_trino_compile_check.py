@@ -2,6 +2,7 @@ import json
 import uuid
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
@@ -19,6 +20,7 @@ from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseTableNames,
     ManagedWarehouseTeamMembership,
 )
+from products.managed_warehouse.backend.tasks import run_trino_compile_check_task
 from products.managed_warehouse.backend.trino_compile_check import (
     TrinoCompileCheckReport,
     TrinoCompileCheckStage,
@@ -30,6 +32,7 @@ from products.managed_warehouse.backend.trino_compile_check_run import (
     HOGTOWER_NOT_CONFIGURED,
     RESULT_EVENT,
     run_trino_compile_check,
+    start_trino_compile_check,
 )
 from products.managed_warehouse.backend.trino_materialization import compile_trino_shadow_query
 
@@ -174,6 +177,93 @@ class TestTrinoCompileCheck(BaseTest):
             run_trino_compile_check(self.team.pk, run_id="run-1", explain=False)
         capture = scoped.return_value.__enter__.return_value
         return [(call.kwargs["event"], call.kwargs["properties"]) for call in capture.call_args_list]
+
+    @parameterized.expand([("all", None, ["a_good", "b_refused", "d_bound"]), ("limited", 2, ["a_good", "b_refused"])])
+    def test_start_enqueues_the_ordered_ids_to_check(self, _case: str, limit: int | None, names: list[str]) -> None:
+        with patch.object(run_trino_compile_check_task, "delay") as delay:
+            start_trino_compile_check(self.team.pk, explain=False, limit=limit)
+
+        assert delay.call_args.kwargs["saved_query_ids"] == self._ids(*names)
+
+    @override_settings(HOGTOWER_API_URL="https://hogtower.example.com")
+    def test_run_over_more_models_than_one_batch_enqueues_the_remaining_ids(self) -> None:
+        events, next_batch = self._batch_events(run_id="run-1", explain=False)
+
+        assert [(event, properties.get("name")) for event, properties in events] == [
+            (RESULT_EVENT, "a_good"),
+            (RESULT_EVENT, "b_refused"),
+        ]
+        assert next_batch is not None
+        assert (next_batch["run_id"], next_batch["saved_query_ids"], next_batch["batch_index"]) == (
+            "run-1",
+            self._ids("d_bound"),
+            1,
+        )
+
+    @parameterized.expand([("each_batch_delivered_once", None), ("first_batch_redelivered", 0)])
+    @override_settings(HOGTOWER_API_URL="https://hogtower.example.com")
+    def test_last_batch_completes_with_totals_over_every_batch(self, _case: str, killed_batch: int | None) -> None:
+        events: list[tuple[str, dict]] = []
+        batch: dict | None = {"run_id": "run-1", "explain": False}
+        while batch is not None:
+            if batch.get("batch_index", 0) == killed_batch:
+                killed_events, _ = self._batch_events(**batch, enqueue_error=SystemExit())
+                events += killed_events
+            batch_events, batch = self._batch_events(**batch)
+            events += batch_events
+
+        result_names = [properties["name"] for event, properties in events if event == RESULT_EVENT]
+        assert result_names == ["a_good", "b_refused"] * (2 if killed_batch == 0 else 1) + ["d_bound"]
+        completed = [properties for event, properties in events if event == COMPLETED_EVENT]
+        assert [(c["ok"], c["total"], c["error_counts"], c["batches"]) for c in completed] == [
+            (2, 3, {"TRINO_FUNCTION_UNSUPPORTED": 1}, 2)
+        ]
+
+    @override_settings(HOGTOWER_API_URL="https://hogtower.example.com")
+    def test_batch_counts_a_model_already_in_the_carried_results_once(self) -> None:
+        events, next_batch = self._batch_events(
+            run_id="run-1",
+            explain=False,
+            saved_query_ids=self._ids("b_refused", "d_bound"),
+            batch_index=1,
+            results={str(self.good.id): None, str(self.refused.id): "TRINO_FUNCTION_UNSUPPORTED"},
+        )
+
+        assert next_batch is None
+        [completed] = [properties for event, properties in events if event == COMPLETED_EVENT]
+        assert (completed["ok"], completed["total"], completed["error_counts"]) == (
+            2,
+            3,
+            {"TRINO_FUNCTION_UNSUPPORTED": 1},
+        )
+
+    def test_task_is_redelivered_when_its_worker_dies(self) -> None:
+        assert run_trino_compile_check_task.acks_late is True
+        assert run_trino_compile_check_task.reject_on_worker_lost is True
+
+    def _batch_events(
+        self, *, enqueue_error: BaseException | None = None, **task_kwargs: Any
+    ) -> tuple[list[tuple[str, dict]], dict | None]:
+        with (
+            patch("products.managed_warehouse.backend.trino_compile_check_run.ph_scoped_capture") as scoped,
+            patch("products.managed_warehouse.backend.trino_compile_check_run.BATCH_SIZE", 2),
+            patch.object(run_trino_compile_check_task, "apply_async", side_effect=enqueue_error) as apply_async,
+        ):
+            try:
+                run_trino_compile_check_task(**{"team_id": self.team.pk, **task_kwargs})
+            except SystemExit:
+                assert enqueue_error is not None
+        capture = scoped.return_value.__enter__.return_value
+        events = [(call.kwargs["event"], call.kwargs["properties"]) for call in capture.call_args_list]
+        next_batch = apply_async.call_args.kwargs["kwargs"] if apply_async.called and enqueue_error is None else None
+        return events, next_batch
+
+    def _ids(self, *names: str) -> list[str]:
+        by_name = {
+            saved_query.name: str(saved_query.id)
+            for saved_query in DataWarehouseSavedQuery.objects.filter(team=self.team)
+        }
+        return [by_name[name] for name in names]
 
     @parameterized.expand([("partial_last_record",), ("missing_final_newline",)])
     def test_command_appends_rows_and_resumes_from_its_output_file(self, damage: str) -> None:
