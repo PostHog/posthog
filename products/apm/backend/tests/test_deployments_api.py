@@ -36,10 +36,15 @@ class TestDeploymentsAPI(ClickhouseTestMixin, APIBaseTest):
             w.span("api", env="prod", resource={"service.version": "1.1.0"}, ms=60, status_code=2 if i < 3 else 0)
         w.span("api", env="prod", name="no version")
         w.span("worker", env="prod", resource={"service.version": "9.9.9"})
+        for _ in range(2):
+            w.span("jobs", env="prod", resource={"service.version": "3.0.0"})
+        for i in range(3):
+            w.span("jobs", env="staging", kind=3, resource={"service.version": "3.0.0"}, status_code=2 if i == 0 else 0)
         w.insert()
 
     def _get(self, **params) -> dict:
         query = {"date_from": DATE_FROM, "date_to": DATE_TO, "environment": "prod", "service": "api", **params}
+        query = {key: value for key, value in query.items() if value is not None}
         with patch(FLAG_PATCH, return_value=True):
             response = self.client.get(URL.format(self.team.id), query)
         self.assertEqual(response.status_code, 200, response.content)
@@ -58,6 +63,10 @@ class TestDeploymentsAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertAlmostEqual(new["error_rate_change"], 0.3)
         self.assertAlmostEqual(new["p95_change_pct"], 200, delta=15)
         self.assertLess(old["first_seen"], new["first_seen"])
+
+    def test_every_environment_picks_entry_or_root_spans_per_environment(self) -> None:
+        (row,) = self._get(service="jobs", environment=None)["results"]
+        self.assertEqual((row["version"], row["requests"], row["error_count"]), ("3.0.0", 5, 1))
 
     def test_limit_keeps_the_newest_versions(self) -> None:
         with patch("products.apm.backend.logic.health.deployments.DEPLOYMENTS_LIMIT", 1):

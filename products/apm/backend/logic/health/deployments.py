@@ -17,7 +17,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
 
-from products.apm.backend.logic.health.sources import environment_where, window_where
+from products.apm.backend.logic.health.sources import environment_expr, environment_where, window_where
 
 DEPLOYMENTS_LIMIT = 200
 MAX_BYTES_TO_READ = 10_000_000_000
@@ -42,26 +42,41 @@ class DeploymentVersion:
 def _deployments_query(
     date_from: datetime, date_to: datetime, environment: str | None, service: str
 ) -> ast.SelectQuery:
+    # Entry or root spans are chosen per environment, as on the services tab, so a version that
+    # only has root spans in one environment keeps those requests when every environment is read.
     query = parse_select(
         """
         SELECT
-            ifNull(resource_attributes['service.version'], '') AS version,
-            min(timestamp) AS first_seen,
-            max(timestamp) AS last_seen,
-            countIf(kind IN (2, 5)) AS entry_spans,
-            if(countIf(kind IN (2, 5)) > 0, countIf(kind IN (2, 5) AND status_code = 2), countIf(is_root_span AND status_code = 2)) AS errors,
-            if(countIf(kind IN (2, 5)) > 0, countIf(kind IN (2, 5)), countIf(is_root_span)) AS requests,
-            if(countIf(kind IN (2, 5)) > 0,
-               quantileIf(0.95)(duration_nano, kind IN (2, 5)),
-               quantileIf(0.95)(duration_nano, is_root_span)) / 1e6 AS p95_ms
-        FROM posthog.trace_spans
-        WHERE {where} AND {env_where} AND service_name = {service}
+            version,
+            min(env_first_seen) AS first_seen,
+            max(env_last_seen) AS last_seen,
+            sum(entry_spans) AS entry_span_count,
+            sum(if(entry_spans > 0, entry_errors, root_errors)) AS errors,
+            sum(if(entry_spans > 0, entry_spans, root_spans)) AS requests,
+            arrayElement(quantilesMerge(0.95)(if(entry_spans > 0, entry_p95, root_p95)), 1) / 1e6 AS p95_ms
+        FROM (
+            SELECT
+                ifNull(resource_attributes['service.version'], '') AS version,
+                {env_expr} AS environment,
+                min(timestamp) AS env_first_seen,
+                max(timestamp) AS env_last_seen,
+                countIf(kind IN (2, 5)) AS entry_spans,
+                countIf(kind IN (2, 5) AND status_code = 2) AS entry_errors,
+                quantilesStateIf(0.95)(duration_nano, kind IN (2, 5)) AS entry_p95,
+                countIf(is_root_span) AS root_spans,
+                countIf(is_root_span AND status_code = 2) AS root_errors,
+                quantilesStateIf(0.95)(duration_nano, is_root_span) AS root_p95
+            FROM posthog.trace_spans
+            WHERE {where} AND {env_where} AND service_name = {service}
+            GROUP BY version, environment
+        )
         GROUP BY version
         HAVING version != '' AND requests > 0
         ORDER BY first_seen DESC, version DESC
         LIMIT {limit}
         """,
         placeholders={
+            "env_expr": environment_expr(),
             "where": window_where(date_from, date_to),
             "env_where": environment_where(environment),
             "service": ast.Constant(value=service),
