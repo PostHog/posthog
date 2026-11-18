@@ -189,7 +189,9 @@ export const Published: Story = {
             timeout: 60000,
         })
         await waitFor(() => expect(metric('64.9%')).toBeVisible())
-        await waitFor(() => expect(appElement.querySelector('[data-attr="notebook-app-results-status"]')).toBeNull())
+        await waitFor(() =>
+            expect(app.queryByText('Inputs changed. Run all to update the charts and calculated values.')).toBeNull()
+        )
         await waitFor(() =>
             expect(saved.content).toEqual(
                 expect.objectContaining({

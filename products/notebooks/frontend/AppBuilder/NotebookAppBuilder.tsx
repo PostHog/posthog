@@ -233,11 +233,7 @@ export function NotebookAppBuilder({
                 </LemonBanner>
             )}
             {(staleCount > 0 || isRunning) && (
-                <LemonBanner
-                    type={isRunning ? 'info' : 'warning'}
-                    className="mb-4"
-                    data-attr="notebook-app-results-status"
-                >
+                <LemonBanner type={isRunning ? 'info' : 'warning'} className="mb-4">
                     {isRunning
                         ? progressLabel || 'Updating notebook results…'
                         : 'Inputs changed. Run all to update the charts and calculated values.'}
