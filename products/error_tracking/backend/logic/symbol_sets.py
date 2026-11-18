@@ -511,10 +511,7 @@ def _get_or_raise(team_id: int, symbol_set_id: str) -> ErrorTrackingSymbolSet:
 
 
 def delete_symbol_set(team_id: int, symbol_set_id: str) -> bool:
-    parsed_id = parse_uuid(symbol_set_id)
-    if parsed_id is None:
-        return False
-    symbol_set = ErrorTrackingSymbolSet.objects.filter(team_id=team_id, id=parsed_id).first()
+    symbol_set = get_symbol_set(team_id, symbol_set_id)
     if symbol_set is None:
         return False
     symbol_set.delete()

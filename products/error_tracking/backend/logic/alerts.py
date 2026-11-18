@@ -15,6 +15,7 @@ from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
 
 from products.cdp.backend.filters import compile_filters_bytecode
+from products.error_tracking.backend.logic.ids import parse_uuid
 from products.error_tracking.backend.models import ErrorTrackingAlert, ErrorTrackingAlertDestination
 
 logger = structlog.get_logger(__name__)
@@ -55,17 +56,8 @@ def list_alerts(team_id: int) -> QuerySet[ErrorTrackingAlert]:
     return ErrorTrackingAlert.objects.for_team(team_id).prefetch_related("destinations").order_by("-created_at")
 
 
-def _parse_alert_id(alert_id: UUID | str) -> Optional[UUID]:
-    if isinstance(alert_id, UUID):
-        return alert_id
-    try:
-        return UUID(str(alert_id))
-    except ValueError:
-        return None
-
-
 def get_alert(team_id: int, alert_id: UUID | str) -> Optional[ErrorTrackingAlert]:
-    parsed_id = _parse_alert_id(alert_id)
+    parsed_id = parse_uuid(alert_id)
     if parsed_id is None:
         return None
     return ErrorTrackingAlert.objects.for_team(team_id).prefetch_related("destinations").filter(id=parsed_id).first()
@@ -138,7 +130,7 @@ def update_alert(
     throttle_seconds: Optional[int] = None,
     destinations: Optional[list[dict[str, Any]]] = None,
 ) -> Optional[ErrorTrackingAlert]:
-    parsed_id = _parse_alert_id(alert_id)
+    parsed_id = parse_uuid(alert_id)
     if parsed_id is None:
         return None
 
@@ -188,7 +180,7 @@ def update_alert(
 
 
 def delete_alert(team_id: int, alert_id: UUID | str) -> bool:
-    parsed_id = _parse_alert_id(alert_id)
+    parsed_id = parse_uuid(alert_id)
     if parsed_id is None:
         return False
     deleted, _ = ErrorTrackingAlert.objects.for_team(team_id).filter(id=parsed_id).delete()

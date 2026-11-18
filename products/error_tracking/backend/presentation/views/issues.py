@@ -1,4 +1,3 @@
-from contextlib import suppress
 from dataclasses import asdict
 from typing import cast
 from uuid import UUID
@@ -386,10 +385,13 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             raise NotFound("Issue not found")
 
     def _parse_issue_ids(self, ids: object) -> list[UUID]:
-        if isinstance(ids, list):
-            with suppress(ValueError):
-                return [UUID(str(issue_id)) for issue_id in ids]
-        raise ValidationError({"ids": "Provide a list of valid issue UUIDs."})
+        error = ValidationError({"ids": "Provide a list of valid issue UUIDs."})
+        if not isinstance(ids, list):
+            raise error
+        try:
+            return [UUID(str(issue_id)) for issue_id in ids]
+        except ValueError:
+            raise error
 
     def list(self, request: request.Request, *args: object, **kwargs: object) -> Response:
         return facade_page_response(self, lambda page: facade_api.list_issues_detailed(self.team.id, page=page))
@@ -561,10 +563,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     )
     @action(methods=["PATCH"], detail=True)
     def tag(self, request: ValidatedRequest, *args: object, pk: object = None, **kwargs: object) -> Response:
-        try:
-            issue_id = UUID(str(pk))
-        except ValueError:
-            raise NotFound("Issue not found")
+        issue_id = self._parse_issue_id(pk)
         key = request.validated_data["key"]
         applied = request.validated_data["applied"]
         try:
