@@ -140,6 +140,23 @@
     }
 }
 
+// Modals sit near the top of the window; the story reads better centered on it.
+.LemonModal__overlay.MCPWrapped__overlay {
+    align-items: center;
+}
+
+.MCPWrapped__header-button {
+    color: white;
+    background: linear-gradient(110deg, var(--wrapped-from), var(--wrapped-to));
+    border-color: transparent;
+    transition: filter 150ms ease;
+
+    &:hover {
+        color: white;
+        filter: brightness(1.12);
+    }
+}
+
 .MCPWrapped__teaser h2 {
     color: inherit;
 }

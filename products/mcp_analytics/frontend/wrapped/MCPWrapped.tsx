@@ -59,6 +59,7 @@ function MCPWrappedOverlay(): JSX.Element | null {
             hideCloseButton
             width={view === 'teaser' ? 460 : 400}
             className="!border-none !bg-transparent !shadow-none"
+            overlayClassName="MCPWrapped__overlay"
             data-attr="mcp-wrapped"
         >
             {view === 'teaser' ? <WrappedTeaser /> : <WrappedStoryPlayer />}

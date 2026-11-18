@@ -1,11 +1,19 @@
-import { useActions, useValues } from 'kea'
+import './MCPWrapped.scss'
 
+import { useActions, useValues } from 'kea'
+import { CSSProperties } from 'react'
+
+import { colors } from '@posthog/brand/colors'
 import { LemonButton } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { mcpWrappedLogic } from './mcpWrappedLogic'
+import { CARD_THEMES } from './wrappedTheme'
+
+// The intro card's colors, so the button reads as the way into the story.
+const GRADIENT = { '--wrapped-from': colors.violet.core, '--wrapped-to': colors.tangerine.core } as CSSProperties
 
 function WrappedButtonContent({ quill }: { quill: boolean }): JSX.Element | null {
     const { wrapped } = useValues(mcpWrappedLogic)
@@ -13,19 +21,33 @@ function WrappedButtonContent({ quill }: { quill: boolean }): JSX.Element | null
     if (!wrapped) {
         return null
     }
-    const label = `Your ${wrapped.year} wrapped`
+    const Hoggie = CARD_THEMES.intro.hoggie
+    const content = (
+        <>
+            <Hoggie className="-my-1 h-6 w-6" loading="eager" />
+            Your {wrapped.year} wrapped
+        </>
+    )
     return quill ? (
-        <Button variant="outline" onClick={() => openStory('header_button')} data-attr="mcp-wrapped-header-button">
-            {label}
+        <Button
+            variant="outline"
+            className="MCPWrapped__header-button"
+            style={GRADIENT}
+            onClick={() => openStory('header_button')}
+            data-attr="mcp-wrapped-header-button"
+        >
+            {content}
         </Button>
     ) : (
         <LemonButton
             type="secondary"
             size="small"
+            className="MCPWrapped__header-button"
+            style={GRADIENT}
             onClick={() => openStory('header_button')}
             data-attr="mcp-wrapped-header-button"
         >
-            {label}
+            {content}
         </LemonButton>
     )
 }
