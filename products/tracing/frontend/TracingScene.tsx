@@ -24,7 +24,7 @@ import { AggregatedSpanRow, ProductIntentContext, ProductKey } from '~/queries/s
 
 import { QueryFailedOverlay } from 'products/logs/frontend/components/QueryFailedOverlay'
 
-import { TracesAlertCreateModal } from './alerting/TracesAlertCreateModal'
+import { TracesAlertFromRowModals } from './alerting/TracesAlertFromRowModals'
 import { TracesAlertPreset, buildPresetForm } from './alerting/tracesAlertPresets'
 import { TracesAlertsTab } from './alerting/TracesAlertsTab'
 import { TracesAlertFormType } from './alerting/tracesAlertUtils'
@@ -194,6 +194,9 @@ function TracingSceneContents(): JSX.Element {
         posthog.capture('tracing operation alert preset opened', { preset })
         setAlertDraft(buildPresetForm(row, preset))
     }, [])
+    const closeAlertDraft = useCallback((): void => setAlertDraft(null), [])
+    // The platform API serves traces alerts only when the Alerts tab is available.
+    const alertsAvailable = availableSceneTabs.includes('alerts')
 
     // Absent while the flag is off, which is how the list decides whether to keep a badge column.
     const spanErrors = useMemo(
@@ -336,7 +339,13 @@ function TracingSceneContents(): JSX.Element {
                                 groupedByEndpoint={displayMode === 'endpoints'}
                                 // Operations only: an endpoint row can merge span names, and an alert
                                 // filters on one span name.
-                                onCreateAlert={displayMode === 'operations' ? createAlertFromRow : undefined}
+                                onCreateAlert={
+                                    displayMode === 'operations' && alertsAvailable ? createAlertFromRow : undefined
+                                }
+                                // Rows can still be the endpoints tab's until the operations load.
+                                createAlertDisabledReason={
+                                    aggregationLoading ? 'Wait for the operations to load' : undefined
+                                }
                                 // No row click on endpoints yet: an endpoint row can merge span
                                 // names, and the operation page opens one span name. Rows stay
                                 // unclickable while loading, because they can still be the other tab's.
@@ -402,11 +411,7 @@ function TracingSceneContents(): JSX.Element {
             </div>
             {activeSceneTab === 'sql' && <TracingSqlEditor id={TRACING_SCENE_VIEWER_ID} />}
             {activeSceneTab === 'alerts' && <TracesAlertsTab />}
-            <TracesAlertCreateModal
-                isOpen={alertDraft !== null}
-                onClose={() => setAlertDraft(null)}
-                initialForm={alertDraft ?? undefined}
-            />
+            {alertDraft !== null && <TracesAlertFromRowModals initialForm={alertDraft} onDone={closeAlertDraft} />}
             <TraceDrawer
                 viewId={traceViewId(TRACING_SCENE_VIEWER_ID)}
                 isOpen={isTraceOpen}

@@ -80,9 +80,11 @@ function healthRank(row: AggregatedSpanRow): number {
 function RowMenu({
     row,
     onCreateAlert,
+    disabledReason,
 }: {
     row: AggregatedSpanRow
     onCreateAlert: (row: AggregatedSpanRow, preset: TracesAlertPreset) => void
+    disabledReason: string | undefined
 }): JSX.Element {
     return (
         // The row opens the operation on click and on Enter, so the menu keeps its own events.
@@ -106,6 +108,7 @@ function RowMenu({
                     icon={<IconEllipsis />}
                     aria-label={`More options for ${row.name}`}
                     data-attr="tracing-operation-row-menu"
+                    disabledReason={disabledReason}
                 />
             </LemonMenu>
         </div>
@@ -116,7 +119,8 @@ function buildColumns(
     windowMs: number,
     showImpact: boolean,
     groupedByEndpoint: boolean,
-    onCreateAlert: ((row: AggregatedSpanRow, preset: TracesAlertPreset) => void) | undefined
+    onCreateAlert: ((row: AggregatedSpanRow, preset: TracesAlertPreset) => void) | undefined,
+    createAlertDisabledReason: string | undefined
 ): VirtualizedTableColumn<AggregatedSpanRow>[] {
     const menuColumns: VirtualizedTableColumn<AggregatedSpanRow>[] = onCreateAlert
         ? [
@@ -124,7 +128,9 @@ function buildColumns(
                   key: 'actions',
                   title: '',
                   width: 48,
-                  render: (row) => <RowMenu row={row} onCreateAlert={onCreateAlert} />,
+                  render: (row) => (
+                      <RowMenu row={row} onCreateAlert={onCreateAlert} disabledReason={createAlertDisabledReason} />
+                  ),
               },
           ]
         : []
@@ -298,6 +304,8 @@ export interface OperationsTableProps {
     groupedByEndpoint?: boolean
     onRowClick?: (row: AggregatedSpanRow) => void
     onCreateAlert?: (row: AggregatedSpanRow, preset: TracesAlertPreset) => void
+    /** Keeps the alert menu in place but disabled, such as while the rows are loading. */
+    createAlertDisabledReason?: string
 }
 
 export function OperationsTable({
@@ -308,10 +316,11 @@ export function OperationsTable({
     groupedByEndpoint = false,
     onRowClick,
     onCreateAlert,
+    createAlertDisabledReason,
 }: OperationsTableProps): JSX.Element {
     const columns = useMemo(
-        () => buildColumns(windowMs, showImpact, groupedByEndpoint, onCreateAlert),
-        [windowMs, showImpact, groupedByEndpoint, onCreateAlert]
+        () => buildColumns(windowMs, showImpact, groupedByEndpoint, onCreateAlert, createAlertDisabledReason),
+        [windowMs, showImpact, groupedByEndpoint, onCreateAlert, createAlertDisabledReason]
     )
     return (
         <VirtualizedTable<AggregatedSpanRow>

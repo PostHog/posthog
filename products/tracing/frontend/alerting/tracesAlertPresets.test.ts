@@ -50,6 +50,8 @@ describe('buildPresetForm', () => {
         ],
         // An operation without errors still gets a 1% floor, not a 0% threshold every error crosses.
         ['error_rate', { error_count: 0 }, { measure: MeasureEnumApi.ErrorRate, threshold: 0.01 }],
+        // The check fires strictly above the threshold, so a 100% threshold would never fire.
+        ['error_rate', { error_count: 700 }, { measure: MeasureEnumApi.ErrorRate, threshold: 0.99 }],
         [
             'p95_latency',
             {},
@@ -74,6 +76,13 @@ describe('buildPresetForm', () => {
             condition: expect.objectContaining({ ...condition, window_minutes: 5 }),
         })
         expect(payload.grouping.mode).toBe('single')
+    })
+
+    it('shortens a long operation name to the API limit and keeps the condition', () => {
+        const form = buildPresetForm(row({ name: 'x'.repeat(400) }), 'error_rate')
+
+        expect(form.name).toHaveLength(255)
+        expect(form.name.endsWith('…: error rate')).toBe(true)
     })
 
     it('starts the create form from the preset rather than the viewer filters', () => {

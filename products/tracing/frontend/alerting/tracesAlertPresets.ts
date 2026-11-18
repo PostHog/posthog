@@ -20,6 +20,10 @@ export const TRACES_ALERT_PRESETS: { value: TracesAlertPreset; label: string }[]
 // A new alert fires at half again the current value, so normal noise does not fire it.
 const HEADROOM = 1.5
 const MIN_ERROR_RATE_PERCENT = 1
+// The check fires strictly above the threshold, so a 100% threshold could never fire.
+const MAX_ERROR_RATE_PERCENT = 99
+// The API's limit on an alert name.
+const MAX_NAME_LENGTH = 255
 const NANOS_PER_MILLISECOND = 1_000_000
 
 function operationFilterGroup(spanName: string): UniversalFiltersGroup {
@@ -48,7 +52,10 @@ function presetCondition(
     switch (preset) {
         case 'error_rate': {
             const currentPercent = row.count > 0 ? (row.error_count / row.count) * 100 : 0
-            const threshold = Math.min(100, Math.max(MIN_ERROR_RATE_PERCENT, currentPercent * HEADROOM))
+            const threshold = Math.min(
+                MAX_ERROR_RATE_PERCENT,
+                Math.max(MIN_ERROR_RATE_PERCENT, currentPercent * HEADROOM)
+            )
             return {
                 label: 'error rate',
                 measure: MeasureEnumApi.ErrorRate,
@@ -74,10 +81,18 @@ function presetCondition(
     }
 }
 
+/** Shortens the operation part of a long name, so the name fits the API and keeps what it alerts on. */
+function presetName(row: AggregatedSpanRow, label: string): string {
+    const operation = `${row.service_name} ${row.name}`
+    const suffix = `: ${label}`
+    const room = MAX_NAME_LENGTH - suffix.length
+    return `${operation.length > room ? `${operation.slice(0, room - 1)}…` : operation}${suffix}`
+}
+
 export function buildPresetForm(row: AggregatedSpanRow, preset: TracesAlertPreset): TracesAlertFormType {
     const { label, ...condition } = presetCondition(row, preset)
     return {
-        name: `${row.service_name} ${row.name}: ${label}`,
+        name: presetName(row, label),
         serviceNames: [row.service_name],
         filterGroup: operationFilterGroup(row.name),
         ...condition,
