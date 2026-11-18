@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 import pytest
 from unittest.mock import patch
 
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
 from posthog.temporal.ai_observability.trace_summarization.models import SummarizeAndSaveInput, TextReprExpiredError
@@ -25,8 +26,15 @@ def mock_team(db):
     from posthog.models.organization import Organization
     from posthog.models.team import Team
 
-    organization = Organization.objects.create(name="Test Org")
+    from products.ai_observability.backend.models.clustering_config import ClusteringConfig
+    from products.ai_observability.backend.models.clustering_job import ClusteringJob
+
+    organization = Organization.objects.create(name="Test Org", is_ai_data_processing_approved=True)
     team = Team.objects.create(organization=organization, name="Test Team")
+    ClusteringConfig.objects.create(team=team, enabled=True)
+    ClusteringJob.objects.create(
+        id="00000000-0000-0000-0000-000000000123", team=team, name="Traces", analysis_level="trace"
+    )
     return team
 
 
@@ -59,7 +67,7 @@ def _make_input(mock_team, generation_id=None):
         generation_id=generation_id,
         event_count=3,
         text_repr_length=100,
-        job_id="123",
+        job_id="00000000-0000-0000-0000-000000000123",
         job_name="OpenAI only",
     )
 
@@ -69,6 +77,52 @@ def _make_input(mock_team, generation_id=None):
     _noop_heartbeater,
 )
 class TestSummarizeAndSaveActivity:
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "change", ["job_disabled", "job_deleted", "filters_changed", "project_disabled", "consent_revoked"]
+    )
+    async def test_obsolete_job_does_not_request_a_summary(self, mock_team, change):
+        from asgiref.sync import sync_to_async
+
+        from products.ai_observability.backend.facade.clustering_runtime import scope_key
+        from products.ai_observability.backend.models.clustering_config import ClusteringConfig
+        from products.ai_observability.backend.models.clustering_job import ClusteringJob
+
+        @sync_to_async
+        def change_job():
+            job = ClusteringJob.objects.get(team=mock_team)
+            if change == "job_disabled":
+                job.enabled = False
+                job.save()
+            elif change == "job_deleted":
+                job.delete()
+            elif change == "filters_changed":
+                job.event_filters = [{"key": "$ai_model", "type": "event", "value": "example-model"}]
+                job.save()
+            elif change == "project_disabled":
+                ClusteringConfig.objects.filter(team=mock_team).update(enabled=False)
+            else:
+                mock_team.organization.is_ai_data_processing_approved = False
+                mock_team.organization.save()
+
+        input_data = dataclasses.replace(_make_input(mock_team), job_scope=scope_key("trace", []))
+        await change_job()
+        with (
+            patch("posthog.temporal.ai_observability.trace_summarization.summarize_and_save.get_async_client"),
+            patch(
+                "posthog.temporal.ai_observability.trace_summarization.summarize_and_save.load_text_repr",
+                return_value="Example trace",
+            ),
+            patch(
+                "posthog.temporal.ai_observability.trace_summarization.summarize_and_save.summarize",
+                side_effect=AssertionError("Obsolete jobs must not send data to the model"),
+            ) as summarize,
+        ):
+            with pytest.raises(ApplicationError, match="disabled or the job has changed"):
+                await _run_activity(input_data)
+            summarize.assert_not_called()
+
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
     async def test_redis_key_missing_raises_text_repr_expired(self, mock_team):

@@ -166,13 +166,40 @@ export const EvaluationsNeedsSetup: ProductEmptyStateStory = productEmptyStateSt
     }
 )
 
-// Clusters detection is three-state: no AI events, AI events but no clustering run
-// yet, and runs. The default query mock answers the run query with no rows.
-export const ClustersNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(clustersEmptyState, 'needs-setup')
+export const ClustersNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(clustersEmptyState, 'needs-setup', {
+    mocks: {
+        get: {
+            '/api/projects/:team_id/llm_analytics/clustering_config/': {
+                enabled: false,
+                event_filters: [],
+                created_at: '2026-01-01T00:00:00Z',
+                updated_at: '2026-01-01T00:00:00Z',
+            },
+        },
+    },
+})
 
 export const ClustersWaitingForData: ProductEmptyStateStory = productEmptyStateStory(
     clustersEmptyState,
-    'waiting-for-data'
+    'waiting-for-data',
+    {
+        mocks: {
+            get: {
+                '/api/projects/:team_id/llm_analytics/clustering_config/': {
+                    enabled: true,
+                    event_filters: [],
+                    created_at: '2026-01-01T00:00:00Z',
+                    updated_at: '2026-01-01T00:00:00Z',
+                },
+                '/api/projects/:team_id/llm_analytics/clustering_jobs/': {
+                    results: [],
+                    count: 0,
+                    next: null,
+                    previous: null,
+                },
+            },
+        },
+    }
 )
 
 const businessKnowledgeNeedsSetup = productEmptyStateStory(businessKnowledgeEmptyState, 'needs-setup', {
