@@ -11,7 +11,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache as real_cache
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 from django.utils.html import escape
 
@@ -22,10 +22,12 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.oauth.cimd import (
+    CIMD_CACHE_MIN_TTL,
     THROWAWAY_JWKS_HOST_MESSAGE,
     CIMDFetchError,
     CIMDMetadataDocument,
     CIMDValidationError,
+    _cache_key,
     _fetch_lock_key,
     _resolve_scopes,
     _resolve_verification_token,
@@ -1171,6 +1173,76 @@ class TestCIMDVerificationToken(APIBaseTest):
         refreshed = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
         assert refreshed is not None
         self.assertIsNone(refreshed.organization_id)
+
+    @parameterized.expand(
+        [
+            ("says_it_is_not_valid", MagicMock(status_code=200, json=MagicMock(return_value={"valid": False}))),
+            ("refuses_the_token", MagicMock(status_code=400)),
+        ]
+    )
+    @override_settings(CIMD_VERIFICATION_TOKEN_ISSUER_URL="https://us.posthog.com")
+    @patch("posthog.api.oauth.cimd.requests.post")
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_links_through_the_issuer_and_keeps_the_link_when_it_cannot_answer(
+        self, _name, refusal, mock_get, mock_post, _url_mock
+    ):
+        metadata = _make_metadata(com_posthog={"verification_token": "phvt_issued_in_us"})
+        mock_get.side_effect = lambda *args, **kwargs: _mock_response(metadata, headers={})
+        mock_post.return_value = MagicMock(status_code=200, json=MagicMock(return_value={"valid": True}))
+
+        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        assert app is not None
+        self.assertIsNone(app.organization_id)
+        self.assertEqual(app.organization_link_issuer, "https://us.posthog.com")
+        self.assertEqual(mock_post.call_args.args[0], "https://us.posthog.com/oauth/cimd/verification-token-check/")
+        self.assertEqual(mock_post.call_args.kwargs["json"], {"token": "phvt_issued_in_us", "cimd_url": VALID_CIMD_URL})
+
+        real_cache.delete(_fetch_lock_key(VALID_CIMD_URL))
+        mock_post.side_effect = requests.ConnectionError("US is unreachable")
+        with patch.object(real_cache, "set", wraps=real_cache.set) as cache_set:
+            refreshed = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+        assert refreshed is not None
+        self.assertEqual(refreshed.organization_link_issuer, "https://us.posthog.com")
+        self.assertEqual(cache_set.call_args.args[0], _cache_key(VALID_CIMD_URL))
+        self.assertEqual(cache_set.call_args.kwargs["timeout"], CIMD_CACHE_MIN_TTL)
+
+        real_cache.delete(_fetch_lock_key(VALID_CIMD_URL))
+        mock_post.side_effect = None
+        mock_post.return_value = refusal
+        revoked = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+        assert revoked is not None
+        self.assertEqual(revoked.organization_link_issuer, "")
+
+    @patch("posthog.api.oauth.cimd.requests.post")
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_a_link_through_the_issuer_ends_when_the_instance_issues_its_own_tokens(
+        self, mock_get, mock_post, _url_mock
+    ):
+        metadata = _make_metadata(com_posthog={"verification_token": "phvt_issued_in_us"})
+        mock_get.side_effect = lambda *args, **kwargs: _mock_response(metadata, headers={})
+        mock_post.return_value = MagicMock(status_code=200, json=MagicMock(return_value={"valid": True}))
+        with self.settings(CIMD_VERIFICATION_TOKEN_ISSUER_URL="https://us.posthog.com"):
+            fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        real_cache.delete(_fetch_lock_key(VALID_CIMD_URL))
+        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        assert app is not None
+        self.assertEqual(app.organization_link_issuer, "")
+
+    @override_settings(CIMD_VERIFICATION_TOKEN_ISSUER_URL="https://us.posthog.com")
+    @patch("posthog.api.oauth.cimd.requests.post")
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_a_token_too_long_to_be_issued_is_never_sent_to_the_issuer(self, mock_get, mock_post, _url_mock):
+        metadata = _make_metadata(com_posthog={"verification_token": "phvt_" + "a" * 300})
+        mock_get.return_value = _mock_response(metadata, headers={})
+
+        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        assert app is not None
+        self.assertEqual(app.organization_link_issuer, "")
+        mock_post.assert_not_called()
 
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_refresh_links_app_when_token_added(self, mock_get, _url_mock):
