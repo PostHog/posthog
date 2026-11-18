@@ -256,7 +256,19 @@ def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
     # `social_reauth_complete` grants the step-up on the way back in.
 
     try:
-        return auth(request, backend)
+        response = auth(request, backend)
+        if backend == "saml" and (nonce := request.session.pop("saml_browser_nonce", None)):
+            from posthog.api.sso import SAML_BROWSER_COOKIE, SAML_RELAY_STATE_CACHE_TTL_SECONDS
+
+            response.set_cookie(
+                SAML_BROWSER_COOKIE,
+                nonce,
+                max_age=SAML_RELAY_STATE_CACHE_TTL_SECONDS,
+                secure=True,
+                httponly=True,
+                samesite="None",
+            )
+        return response
     except (AuthFailed, AuthMissingParameter, AuthConnectionError) as e:
         # AuthConnectionError covers an unreachable IdP or a TLS cert that fails during OIDC discovery -
         # it's a sibling of AuthFailed (not a subclass), so it would otherwise surface as an unhandled 500.
@@ -315,6 +327,16 @@ def _clear_unverified_local_credentials(user: User) -> bool:
 def _send_login_code(
     request: HttpRequest, user: User, *, is_resend: bool = False, target_email: str | None = None
 ) -> bool:
+    if target_email is not None:
+        from posthog.token_bucket import BucketDecision, Budget, consume
+
+        recipient = sha256(target_email.strip().lower().encode()).hexdigest()
+        decision = consume(f"idp_login_code:{user.pk}:{recipient}", Budget(burst=1, per_hour=60))
+        if not isinstance(decision, BucketDecision):
+            logger.warning("idp_login_code_rate_limit_unavailable", user_id=user.pk)
+            return False
+        if not decision.allowed:
+            return False
     try:
         return code_based_verifier.create_and_send_code_based_verification(
             request, user, is_resend=is_resend, target_email=target_email
@@ -1363,13 +1385,13 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
                 samesite=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_SAMESITE", "Strict"),
             )
 
-        # Also add device to fingerprint cache
-        short_user_agent = get_short_user_agent(request)
-        ip_address = get_ip_address(request)
-        geoip = get_geoip_properties(ip_address)
-        country = geoip.get("$geoip_country_name", "Unknown")
-
-        check_and_cache_login_device(user.id, country, short_user_agent)
+        if not sso:
+            # The SSO notification worker must inspect the previous fingerprint before caching it.
+            short_user_agent = get_short_user_agent(request)
+            ip_address = get_ip_address(request)
+            geoip = get_geoip_properties(ip_address)
+            country = geoip.get("$geoip_country_name", "Unknown")
+            check_and_cache_login_device(user.id, country, short_user_agent)
 
         return response
 
@@ -1791,8 +1813,27 @@ def social_require_idp_email_verification(
         return None
 
     request = strategy.request
+    if backend.name == "saml" and not strategy.session_get("saml_browser_verified"):
+        return redirect(sso_failure_redirect_url(request, "oauth_state_invalid"))
+
+    pending = request.session.get(CODE_BASED_VERIFICATION_SSO_SESSION_KEY)
+    issued_at = code_based_verifier.get_pending_code_based_verification_issued_at(request)
+    reuse_code = (
+        pending is not None
+        and pending.get("provider") == identity.provider
+        and pending.get("issuer") == identity.issuer
+        and pending.get("subject") == identity.subject
+        and pending.get("uid") == str(uid)
+        and pending.get("user_id") == user.pk
+        and pending.get("email") == email
+        and code_based_verifier.get_pending_code_based_verification_user_id(request) == user.pk
+        and code_based_verifier.get_pending_code_based_verification_target(request) == email
+        and pending.get("issued_at") == issued_at
+        and issued_at is not None
+        and 0 <= time.time() - issued_at < CODE_TTL_SECONDS
+    )
     try:
-        sent = _send_login_code(request, user, target_email=email)
+        sent = reuse_code or _send_login_code(request, user, target_email=email)
     except LoginCodeEmailUndeliverable:
         logger.warning("idp_email_verification_code_undeliverable", user_id=user.pk, backend=backend.name)
         sent = False

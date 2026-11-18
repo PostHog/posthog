@@ -1150,6 +1150,20 @@ def process_social_invite_signup(
         return _user
 
 
+def _pending_domain_invite(email: str, domain: OrganizationDomain) -> Optional[OrganizationInvite]:
+    # An email can hold more than one pending invite in an organization, so accept
+    # the one with the highest level.
+    return (
+        OrganizationInvite.objects.filter(
+            target_email__iexact=email,
+            organization_id=domain.organization_id,
+            created_at__gt=timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY),
+        )
+        .order_by("-level", "-created_at")
+        .first()
+    )
+
+
 def process_social_domain_jit_provisioning_signup(
     strategy: DjangoStrategy, email: str, full_name: str, user: Optional[User] = None, *, backend: BaseAuth
 ) -> Optional[User]:
@@ -1180,17 +1194,7 @@ def process_social_domain_jit_provisioning_signup(
                 _refuse_blocked_sso_join(strategy, backend, email, user)
             if not user:
                 try:
-                    # An email can hold more than one pending invite in an organization, so accept
-                    # the one with the highest level.
-                    invite = (
-                        OrganizationInvite.objects.filter(
-                            target_email__iexact=email,
-                            organization=domain_instance.organization,
-                            created_at__gt=timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY),
-                        )
-                        .order_by("-level", "-created_at")
-                        .first()
-                    )
+                    invite = _pending_domain_invite(email, domain_instance)
                     if invite is None:
                         raise OrganizationInvite.DoesNotExist()
                     invite.validate(user=None, email=email)
@@ -1245,13 +1249,18 @@ def process_social_domain_jit_provisioning_signup(
     return user
 
 
-def _resolve_invite_organization(invite_id: str) -> Optional[Organization]:
-    """Organization an invite grants access to, or None for legacy team-invite surrogates / missing invites."""
+def _resolve_invite_organization(invite_id: str, *, include_legacy: bool = False) -> Optional[Organization]:
+    """Resolve both organization invitations and legacy team signup tokens before the mailbox gate."""
     try:
         # nosemgrep: idor-lookup-without-org (invite UUID from server session serves as auth token)
         invite = OrganizationInvite.objects.select_related("organization").get(id=invite_id)
     except (OrganizationInvite.DoesNotExist, ValidationError):
-        return None
+        if not include_legacy:
+            return None
+        try:
+            return TeamInviteSurrogate(invite_id).organization
+        except Team.DoesNotExist:
+            return None
     return invite.organization
 
 
@@ -1300,7 +1309,9 @@ def social_create_user(
         logger.warning("social_create_user_blocked_domain_enforcement", user_id=user.pk)
         return redirect("/login?error_code=verified_domain_required")
 
-    invite_organization = _resolve_invite_organization(invite_id) if invite_id else None
+    invite_organization = (
+        _resolve_invite_organization(invite_id, include_legacy=backend.name in IDP_SSO_BACKENDS) if invite_id else None
+    )
     enforcement_email = user.email if user else email
     if (
         invite_organization is not None
@@ -1327,6 +1338,11 @@ def social_create_user(
 
         if user is None:
             jit_domain = OrganizationDomain.objects.get_verified_for_email_address(email)
+            if not invite_id and jit_domain is not None and jit_domain.jit_provisioning_enabled:
+                pending_invite = _pending_domain_invite(email, jit_domain)
+                if pending_invite is not None:
+                    invite_id = str(pending_invite.pk)
+                    strategy.session_set("invite_id", invite_id)
             if invite_organization is not None or (jit_domain is not None and jit_domain.jit_provisioning_enabled):
                 _refuse_blocked_sso_join(strategy, backend, email, None)
                 user = strategy.create_user(email=email, first_name=full_name, password=None, is_email_verified=False)

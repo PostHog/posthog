@@ -1,11 +1,13 @@
 import json
 import base64
+from hashlib import sha256
 from typing import Any, cast
 from uuid import UUID, uuid4
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.http.response import HttpResponse
 from django.urls.base import reverse
+from django.utils.crypto import constant_time_compare, get_random_string
 
 import structlog
 import posthoganalytics
@@ -80,6 +82,7 @@ def saml_metadata_view(request, *args, **kwargs):
 
 # OASIS SAML bindings cap RelayState at 80 bytes; the cache TTL only needs to outlast the IdP round trip.
 SAML_RELAY_STATE_CACHE_TTL_SECONDS = 60 * 10
+SAML_BROWSER_COOKIE = "__Host-posthog-saml-browser"
 
 
 def _saml_relay_state_cache_key(key: str) -> str:
@@ -122,6 +125,15 @@ class MultitenantSAMLAuth(SAMLAuth):
     def auth_complete(self, *args, **kwargs):
         # attempt to recover from missing relay state in idp-initiated SAML
         self._recover_idp_initiated_relay_state()
+        data = self.strategy.request_data()
+        relay_state = self.parse_relay_state(data.get("RelayState") or "")
+        # The Lax session cookie is absent on cross-site ACS posts; a separate cookie binds
+        # first-time mailbox proof to the browser that initiated sign-in.
+        nonce = cast(DjangoStrategy, self.strategy).request.COOKIES.get(SAML_BROWSER_COOKIE, "")
+        self.strategy.session_set(
+            "saml_browser_verified",
+            bool(nonce) and constant_time_compare(sha256(nonce.encode()).hexdigest(), relay_state.get("browser", "")),
+        )
 
         try:
             result = super().auth_complete(*args, **kwargs)
@@ -300,7 +312,13 @@ class MultitenantSAMLAuth(SAMLAuth):
         # We deliberately omit the session key that upstream `SAMLAuth.auth_url` also packs into
         # RelayState: it would be disclosed to the (potentially attacker-controlled) IdP in the
         # redirect, and `next` alone is enough to recover the redirect without it.
-        relay_state = {"idp": identity_provider.name, "next": self.data.get("next")}
+        nonce = get_random_string(64)
+        self.strategy.session_set("saml_browser_nonce", nonce)
+        relay_state = {
+            "idp": identity_provider.name,
+            "next": self.data.get("next"),
+            "browser": sha256(nonce.encode()).hexdigest(),
+        }
         return auth.login(return_to=_store_saml_relay_state(relay_state))
 
     def _get_attr(
