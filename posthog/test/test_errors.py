@@ -27,12 +27,28 @@ class TestWrapClickhouseQueryError:
             (59, "ILLEGAL_TYPE_OF_COLUMN_FOR_FILTER"),
             (80, "INCORRECT_QUERY"),
             (122, "INCOMPATIBLE_COLUMNS"),
+            (133, "AGGREGATE_FUNCTION_DOESNT_ALLOW_PARAMETERS"),
+            (134, "PARAMETERS_TO_AGGREGATE_FUNCTIONS_MUST_BE_LITERALS"),
+            (141, "SAMPLING_NOT_SUPPORTED"),
+            (152, "UNKNOWN_DIRECTION_OF_SORTING"),
             (174, "CYCLIC_ALIASES"),
+            (181, "ILLEGAL_FINAL"),
+            (182, "ILLEGAL_PREWHERE"),
+            (183, "UNEXPECTED_EXPRESSION"),
+            (186, "UNSUPPORTED_COLLATION_LOCALE"),
+            (206, "ALIAS_REQUIRED"),
             (207, "AMBIGUOUS_IDENTIFIER"),
             (211, "EMPTY_QUERY"),
+            (262, "BAD_COLLATION"),
             (264, "INCOMPATIBLE_TYPE_OF_JOIN"),
+            (309, "FUNCTION_CANNOT_HAVE_PARAMETERS"),
             (352, "AMBIGUOUS_COLUMN_NAME"),
             (377, "ILLEGAL_SYNTAX_FOR_DATA_TYPE"),
+            (378, "DATA_TYPE_CANNOT_HAVE_ARGUMENTS"),
+            (406, "TOP_AND_LIMIT_TOGETHER"),
+            (417, "EXPECTED_ALL_OR_ANY"),
+            (418, "UNKNOWN_JOIN"),
+            (421, "CANNOT_ADD_DIFFERENT_AGGREGATE_STATES"),
             (703, "INVALID_IDENTIFIER"),
         ]
     )
@@ -172,6 +188,7 @@ class TestWrapClickhouseQueryError:
 
     @parameterized.expand(
         [
+            (48, CHQueryErrorNotImplemented),
             (376, CHQueryErrorCannotParseUuid),
             (403, CHQueryErrorInvalidJoinOnExpression),
             (467, CHQueryErrorCannotParseBool),

@@ -19,9 +19,10 @@ from unittest import mock
 from unittest.mock import patch
 
 from django.conf import settings
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
 from posthog.schema import (
@@ -39,6 +40,7 @@ from posthog.hogql.batch import BatchQueryResult
 from posthog.hogql.compilation import COMPILATION_TIMEOUT_SECONDS
 from posthog.hogql.constants import HogQLGlobalSettings, HogQLQuerySettings, LimitContext, get_default_limit_for_context
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.multi_query import MultiQueryPlanner
@@ -58,7 +60,12 @@ from posthog.hogql.test.utils import (
 
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE, ADHOC_EVENTS_DELETION_TABLE_SQL
 from posthog.clickhouse.client import sync_execute
-from posthog.errors import CHQueryErrorS3Error, InternalCHQueryError
+from posthog.errors import (
+    CHQueryErrorNotImplemented,
+    CHQueryErrorS3Error,
+    InternalCHQueryError,
+    wrap_clickhouse_query_error,
+)
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
 from posthog.models.team import Team
@@ -2714,3 +2721,70 @@ class TestQueryStatsRecording(BaseTest):
                     execute_hogql_query("select count() from events", team=self.team, query_type="test")
         assert len(killed_stats.executions) == 1
         assert killed_stats.executions[0].rows_read == 90
+
+
+class TestHogQLQueryErrorHandling(SimpleTestCase):
+    def test_not_implemented_surfaces_clean_reason_in_debug_mode(self):
+        err = wrap_clickhouse_query_error(
+            ServerException(
+                "DB::Exception: The RANGE OFFSET frame for 'DB::ColumnDecimal<DB::DateTime64>' ORDER BY column is not implemented. Stack trace:\n0. DB::Exception::Exception()",
+                code=48,
+            )
+        )
+        mock_team = mock.MagicMock(pk=1)
+        with (
+            patch("posthog.hogql.query.Database.create_for", return_value=Database(None)),
+            patch(
+                "products.access_control.backend.property_access_control.get_restricted_properties_with_group_type_index_for_team",
+                return_value=[],
+            ),
+            patch("posthog.hogql.query.tag_queries"),
+            patch("posthog.hogql.query.sync_execute", side_effect=err),
+        ):
+            response = execute_hogql_query("SELECT 1", team=mock_team, modifiers=HogQLQueryModifiers(debug=True))
+
+        self.assertEqual(
+            response.error,
+            "A window frame with RANGE and an offset doesn't work with the type of this ORDER BY column. Use a ROWS frame, or change the type of the ORDER BY column.",
+        )
+
+    def test_not_implemented_raises_exposed_error_when_not_debug(self):
+        err = wrap_clickhouse_query_error(
+            ServerException(
+                "DB::Exception: The RANGE OFFSET frame for 'DB::ColumnDecimal<DB::DateTime64>' ORDER BY column is not implemented. Stack trace:\n0. DB::Exception::Exception()",
+                code=48,
+            )
+        )
+        mock_team = mock.MagicMock(pk=1)
+        with (
+            patch("posthog.hogql.query.Database.create_for", return_value=Database(None)),
+            patch(
+                "products.access_control.backend.property_access_control.get_restricted_properties_with_group_type_index_for_team",
+                return_value=[],
+            ),
+            patch("posthog.hogql.query.tag_queries"),
+            patch("posthog.hogql.query.sync_execute", side_effect=err),
+        ):
+            with self.assertRaises(CHQueryErrorNotImplemented) as cm:
+                execute_hogql_query("SELECT 1", team=mock_team)
+
+        self.assertEqual(
+            str(cm.exception),
+            "A window frame with RANGE and an offset doesn't work with the type of this ORDER BY column. Use a ROWS frame, or change the type of the ORDER BY column.",
+        )
+
+    def test_internal_error_surfaces_curated_message_in_debug_mode(self):
+        err = InternalCHQueryError("DB::Exception: Too many rows. Stack trace: ...", code=158)
+        mock_team = mock.MagicMock(pk=1)
+        with (
+            patch("posthog.hogql.query.Database.create_for", return_value=Database(None)),
+            patch(
+                "products.access_control.backend.property_access_control.get_restricted_properties_with_group_type_index_for_team",
+                return_value=[],
+            ),
+            patch("posthog.hogql.query.tag_queries"),
+            patch("posthog.hogql.query.sync_execute", side_effect=err),
+        ):
+            response = execute_hogql_query("SELECT 1", team=mock_team, modifiers=HogQLQueryModifiers(debug=True))
+
+        self.assertIn("reads or returns more data than the limit allows", response.error)
