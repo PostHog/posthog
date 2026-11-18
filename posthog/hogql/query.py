@@ -99,7 +99,9 @@ from posthog.errors import (
     CHQueryErrorS3Error,
     CHQueryErrorS3FileChangedDuringRead,
     CHQueryErrorUnknownIdentifier,
+    CHQueryErrorUnknownType,
     ExposedCHQueryError,
+    unknown_type_error,
 )
 from posthog.exceptions_capture import capture_exception
 from posthog.models.event.new_events_schema import events_route_scope, use_new_events_schema
@@ -1059,6 +1061,7 @@ class HogQLQueryExecutor:
             return
         if self.clickhouse_sql is None:
             raise ValueError("Cannot execute ClickHouse query: SQL was not prepared")
+        clickhouse_sql = self.clickhouse_sql
         clickhouse_context = self.clickhouse_context
         if clickhouse_context is None:
             raise ValueError("Cannot execute ClickHouse query: ClickHouse context was not prepared")
@@ -1089,18 +1092,25 @@ class HogQLQueryExecutor:
             if table_workload is not None and table_workload != Workload.DEFAULT and workload in MAIN_CLUSTER_WORKLOADS:
                 workload = table_workload
 
-            def run_clickhouse_query() -> Any:
+            def run_on_clickhouse(sql: str, *, with_column_types: bool) -> Any:
                 with events_route_scope(printed_events_route):
                     return sync_execute(
-                        self.clickhouse_sql,
+                        sql,
                         clickhouse_context.values,
-                        with_column_types=True,
+                        with_column_types=with_column_types,
                         workload=workload,
                         team_id=self.team.pk,
                         readonly=True,
                         ch_user=self.ch_user,
                         external_tables=list(clickhouse_context.external_tables.values()) or None,
                     )
+
+            def run_clickhouse_query() -> Any:
+                return run_on_clickhouse(clickhouse_sql, with_column_types=True)
+
+            def describe_column_types() -> list[str]:
+                rows = run_on_clickhouse(f"DESCRIBE TABLE ({clickhouse_sql})", with_column_types=False)
+                return [column_type for _, column_type, *_ in rows]
 
             stats = query_stats.get_active()
             if stats is not None:
@@ -1118,6 +1128,8 @@ class HogQLQueryExecutor:
                     # Files backing a warehouse table can be replaced mid-read; one retry re-lists them
                     sleep(TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS)
                     self.results, self.types = run_clickhouse_query()
+                except CHQueryErrorUnknownType as error:
+                    raise self._name_unreadable_columns(error, describe_column_types) from error
                 _raise_for_raw_bytes_in_string_results(
                     self.results[: self.returned_row_limit], self.types, self.query_type
                 )
@@ -1166,6 +1178,23 @@ class HogQLQueryExecutor:
                     prepared_ast=self.clickhouse_prepared_ast,
                     printed_sql=self.clickhouse_sql,
                 )
+
+    def _name_unreadable_columns(
+        self, error: CHQueryErrorUnknownType, describe_column_types: Callable[[], list[str]]
+    ) -> CHQueryErrorUnknownType:
+        try:
+            column_types = describe_column_types()
+        except Exception as describe_error:
+            capture_exception(describe_error, {"team_id": self.team.pk})
+            return error
+        if not error.unreadable_type or len(column_types) != len(self.print_columns):
+            return error
+        unreadable_names = [
+            name for name, column_type in zip(self.print_columns, column_types) if error.unreadable_type in column_type
+        ]
+        if not unreadable_names:
+            return error
+        return unknown_type_error(error.unreadable_type, unreadable_names, code=error.code)
 
     @tracer.start_as_current_span("HogQLQueryExecutor.prepare_for_sharing")
     def prepare_for_sharing(self, *, query_id: str, scope_key: str) -> SharingQuery:

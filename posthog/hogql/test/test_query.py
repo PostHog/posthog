@@ -58,7 +58,7 @@ from posthog.hogql.test.utils import (
 
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE, ADHOC_EVENTS_DELETION_TABLE_SQL
 from posthog.clickhouse.client import sync_execute
-from posthog.errors import CHQueryErrorS3Error, InternalCHQueryError
+from posthog.errors import CHQueryErrorS3Error, CHQueryErrorUnknownType, InternalCHQueryError
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
 from posthog.models.team import Team
@@ -2639,6 +2639,22 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.results, [("41FF", "Qf8=")])
+
+    def test_unreadable_result_type_names_the_columns_that_return_it(self):
+        with self.assertRaises(CHQueryErrorUnknownType) as error:
+            execute_hogql_query(
+                "SELECT 1 AS readable, if(rand() > 0, 1, 'a') AS mixed, "
+                "if(rand() > 0, 2, 'b') AS also_mixed, toString(1) AS also_readable",
+                team=self.team,
+            )
+
+        self.assertTrue(
+            str(error.exception).startswith(
+                "The `mixed` and `also_mixed` columns have type `Variant(String, UInt8)`, "
+                "which PostHog can't send back in results."
+            ),
+            str(error.exception),
+        )
 
     @parameterized.expand(
         [
