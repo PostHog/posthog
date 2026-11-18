@@ -245,18 +245,6 @@ class SandboxCleanupError(ProcessTaskTransientError):
     pass
 
 
-class SnapshotNotFoundError(ProcessTaskTransientError):
-    """Snapshot does not exist."""
-
-    pass
-
-
-class SnapshotNotReadyError(ProcessTaskTransientError):
-    """Snapshot exists but is not ready for use."""
-
-    pass
-
-
 class SnapshotCreationError(ProcessTaskTransientError):
     """Failed to create snapshot."""
 

@@ -486,7 +486,6 @@
 2 products/tasks/backend/temporal/create_snapshot/activities/get_snapshot_context.py
 2 products/tasks/backend/temporal/create_snapshot/workflow.py
 2 products/tasks/backend/temporal/process_task/activities/cleanup_sandbox.py
-2 products/tasks/backend/temporal/process_task/activities/create_sandbox_from_snapshot.py
 2 products/tasks/backend/temporal/process_task/activities/execute_task_in_sandbox.py
 2 products/tasks/backend/temporal/process_task/activities/get_pr_context.py
 2 products/tasks/backend/temporal/process_task/activities/get_sandbox_for_repository.py
