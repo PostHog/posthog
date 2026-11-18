@@ -181,7 +181,9 @@ test('only Dagster Python that still exists counts as a Dagster-only legacy edit
 test('a product cascade gets the lowest phase that covers every file it changed', () => {
     const cases = [
         ['non_isolated_product', ['products/tasks/backend/tests/test_api.py'], 1],
-        ['non_isolated_product', ['products/tasks/backend/test/fixtures/run.json'], 1],
+        ['non_isolated_product', ['products/tasks/backend/tests/__snapshots__/test_api.ambr'], 1],
+        ['non_isolated_product', ['products/tasks/backend/test/fixtures/run.json'], 3],
+        ['non_isolated_product', ['products/logs/backend/test/test_logs.jsonnd', 'products/logs/backend/test/test_api.py'], 3],
         ['contract_cascade', ['products/logs/backend/facade/contracts.py'], 1],
         [
             'non_isolated_product',
@@ -213,6 +215,8 @@ test('a product cascade gets the lowest phase that covers every file it changed'
     }
 })
 
+const cascadeSelection = (extra) => selectionFixture({ snob: { status: 'ok' }, ...extra })
+
 // A ready product-only PR: Django runs only because a product cascaded into it.
 const decideCascade = (overrides) =>
     decideSelectionWithShadow({
@@ -222,7 +226,7 @@ const decideCascade = (overrides) =>
         legacyChanged: false,
         runLegacy: true,
         runLegacyReason: 'non_isolated_product',
-        selection: selectionFixture(),
+        selection: cascadeSelection(),
         ...overrides,
     })
 
@@ -236,13 +240,13 @@ test('only phase 1 product cascades select today, and the rest report a shadow s
             { mode: 'selected', skip_reason: '', would_trust_phase: 1, ...noShadow },
         ],
         [
-            { productCascadePhase: 1, selection: selectionFixture({ combined: { count: 0, products: [], segments: segments() } }) },
+            { productCascadePhase: 1, selection: cascadeSelection({ combined: { count: 0, products: [], segments: segments() } }) },
             { mode: 'selected', skip_reason: '', core_files: '', would_trust_phase: 1, ...noShadow },
         ],
         [{ productCascadePhase: 2, runLegacyReason: 'contract_cascade' }, { ...shadowed, would_trust_phase: 2 }],
         [{ productCascadePhase: 3 }, { ...shadowed, would_trust_phase: 3 }],
         [
-            { productCascadePhase: 3, selection: selectionFixture({ ast: { full_run_reasons: ['conftest.py'] } }) },
+            { productCascadePhase: 3, selection: cascadeSelection({ ast: { full_run_reasons: ['conftest.py'] } }) },
             { ...shadowed, would_trust_phase: 3, shadow_mode: 'full', shadow_skip_reason: 'full_run_requested', shadow_selection_size: null },
         ],
         [{ productCascadePhase: null }, { mode: 'full', skip_reason: 'untrusted', would_trust_phase: null, ...noShadow }],
@@ -251,10 +255,18 @@ test('only phase 1 product cascades select today, and the rest report a shadow s
             { mode: 'full', skip_reason: 'untrusted', would_trust_phase: 1, shadow_mode: 'full', shadow_skip_reason: 'untrusted' },
         ],
         [
-            { productCascadePhase: 1, selection: selectionFixture({ ast: { full_run_reasons: ['products/tasks/backend/tests/conftest.py'] } }) },
+            { productCascadePhase: 1, selection: cascadeSelection({ ast: { full_run_reasons: ['products/tasks/backend/tests/conftest.py'] } }) },
             { mode: 'full', skip_reason: 'full_run_requested', would_trust_phase: 1, ...noShadow },
         ],
         [{ productCascadePhase: 1, selection: null }, { mode: 'full', skip_reason: 'selector_error', would_trust_phase: 1, ...noShadow }],
+        [
+            { productCascadePhase: 1, selection: cascadeSelection({ snob: { status: 'error' }, combined: { count: 0, products: [], segments: segments() } }) },
+            { mode: 'full', skip_reason: 'selector_error', would_trust_phase: 1, ...noShadow },
+        ],
+        [
+            { productCascadePhase: 3, selection: cascadeSelection({ snob: { status: 'error' } }) },
+            { ...shadowed, would_trust_phase: 3, shadow_mode: 'full', shadow_skip_reason: 'selector_error', shadow_selection_size: null },
+        ],
         [{ productCascadePhase: 1, draft: true, selection: null }, { mode: 'skip', skip_reason: 'selector_error', ...noShadow }],
         [{ productCascadePhase: 1, disabled: true }, { mode: 'full', skip_reason: 'disabled', ...noShadow }],
         [

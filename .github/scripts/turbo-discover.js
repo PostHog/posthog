@@ -1308,6 +1308,12 @@ function decideSelection({
     if (!selection) {
         return fallbackSelection(fallbackMode, 'selector_error', selection)
     }
+    if (PRODUCT_CASCADE_REASONS.has(runLegacyReason) && selection.snob?.status !== 'ok') {
+        // A product cascade has no legacy edit for the empty_selection guard below to catch,
+        // so only the import graph shows which core tests reach the product. A failed Snob
+        // run still exits cleanly with the AST-only subset, which can be no test at all.
+        return fallbackSelection(fallbackMode, 'selector_error', selection)
+    }
     const fullRunReasons = selection.ast?.full_run_reasons ?? []
     if (fullRunReasons.length > 0) {
         console.error(`Selector requested a full run:\n  ${fullRunReasons.join('\n  ')}`)
@@ -1359,9 +1365,19 @@ const PRODUCT_FRONTEND_FILE = /^products\/[^/]+\/frontend\//
 const PRODUCT_FACADE_FILE = /^products\/[^/]+\/backend\/facade\//
 const PRODUCT_MODEL_OR_MIGRATION_FILE = /^products\/[^/]+\/.*\b(models|migrations)(\/|\.py$)/
 
+// Python test code and syrupy snapshots. Any other file under a test directory is a fixture,
+// and core tests can read a product's fixture from disk, which no import edge shows: the
+// hogql tests read products/logs/backend/test/test_logs.jsonnd.
 function isProductTestFile(file) {
     const parts = file.split('/').slice(2)
-    return parts.slice(0, -1).some((part) => part === 'tests' || part === 'test') || /^test_.*\.py$/.test(parts.at(-1) ?? '')
+    const name = parts.at(-1) ?? ''
+    if (parts.at(-2) === '__snapshots__') {
+        return name.endsWith('.ambr')
+    }
+    if (!name.endsWith('.py')) {
+        return false
+    }
+    return parts.slice(0, -1).some((part) => part === 'tests' || part === 'test') || name.startsWith('test_')
 }
 
 // How far a product cascade has to be trusted for the selector's subset to replace the
@@ -1369,7 +1385,8 @@ function isProductTestFile(file) {
 // The full matrices exist because core can reach a product's internals through edges no
 // import shows: signal receivers, URL registration, Celery task names. Each phase widens
 // what the selector is trusted to see past them.
-//   1  every changed product file is a test or a facade file, which core reaches only by import
+//   1  every changed product file is Python test code, a snapshot, or a facade file, which core
+//      reaches only by import
 //   2  an isolated product's contract cascade
 //   3  a non-isolated product change, while it touches no models or migrations
 // A changed file outside products/ that the backend can read leaves the cascade unclassified,
