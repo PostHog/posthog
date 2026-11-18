@@ -1986,7 +1986,9 @@ export const hogFlowsInvocationsCreateBodyConfigurationOneCreatedByOneFirstNameM
 
 export const hogFlowsInvocationsCreateBodyConfigurationOneCreatedByOneLastNameMax = 150
 
-export const hogFlowsInvocationsCreateBodyConfigurationOneCreatedByOneEmailMax = 254
+export const hogFlowsInvocationsCreateBodyConfigurationOneCreatedByOneEmailOneMax = 254
+
+export const hogFlowsInvocationsCreateBodyConfigurationOneCreatedByOneEmailTwoMax = 0
 
 export const hogFlowsInvocationsCreateBodyConfigurationOneTriggerMaskingOneTtlMin = 60
 export const hogFlowsInvocationsCreateBodyConfigurationOneTriggerMaskingOneTtlMax = 94608000
@@ -2077,7 +2079,15 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                     .string()
                     .max(hogFlowsInvocationsCreateBodyConfigurationOneCreatedByOneLastNameMax)
                     .optional(),
-                email: zod.email().max(hogFlowsInvocationsCreateBodyConfigurationOneCreatedByOneEmailMax),
+                email: zod
+                    .union([
+                        zod
+                            .email()
+                            .max(hogFlowsInvocationsCreateBodyConfigurationOneCreatedByOneEmailOneMax)
+                            .nullable(),
+                        zod.string().max(hogFlowsInvocationsCreateBodyConfigurationOneCreatedByOneEmailTwoMax),
+                    ])
+                    .optional(),
                 is_email_verified: zod.boolean().nullish(),
                 hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
                 role_at_organization: zod

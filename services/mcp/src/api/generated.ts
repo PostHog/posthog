@@ -2380,8 +2380,11 @@ export namespace Schemas {
       first_name: string;
       /** The user's last name. */
       last_name: string;
-      /** The user's email. */
-      email: string;
+      /**
+         * The user's email. Null for a service account without a contact email.
+         * @nullable
+         */
+      email: string | null;
     }
 
     /**
@@ -4013,8 +4016,7 @@ export namespace Schemas {
       first_name?: string;
       /** @maxLength 150 */
       last_name?: string;
-      /** @maxLength 254 */
-      email: string;
+      email?: string | null;
       /** @nullable */
       is_email_verified?: boolean | null;
       /** @nullable */
@@ -78330,8 +78332,11 @@ export namespace Schemas {
       readonly first_name: string;
       /** Last name of the key's owner. */
       readonly last_name: string;
-      /** Email address of the key's owner. */
-      readonly email: string;
+      /**
+         * Email address of the key's owner. Null for a service account without a contact email.
+         * @nullable
+         */
+      readonly email: string | null;
     }
 
     export interface OrganizationPersonalAPIKeyProjectScope {
@@ -82291,7 +82296,8 @@ export namespace Schemas {
       readonly uuid: string;
       readonly first_name: string;
       readonly last_name: string;
-      readonly email: string;
+      /** @nullable */
+      readonly email: string | null;
     }
 
     export type SignalReportArtefactContent = { [key: string]: unknown } | unknown[];
@@ -86013,7 +86019,7 @@ export namespace Schemas {
       /** @maxLength 150 */
       last_name?: string;
       /** @maxLength 254 */
-      email: string;
+      email?: string;
       /** @nullable */
       readonly pending_email: string | null;
       /** @nullable */

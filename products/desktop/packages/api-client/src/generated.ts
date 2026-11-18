@@ -889,7 +889,7 @@ export namespace Schemas {
         distinct_id?: (string | null) | undefined;
         first_name?: string | undefined;
         last_name?: string | undefined;
-        email: string;
+        email?: ((string | null) | string) | undefined;
         is_email_verified?: (boolean | null) | undefined;
         hedgehog_config: Record<string, unknown> | null;
         role_at_organization?:
@@ -16315,7 +16315,7 @@ export namespace Schemas {
         distinct_id: string | null;
         first_name?: string | undefined;
         last_name?: string | undefined;
-        email: string;
+        email?: string | undefined;
         pending_email: string | null;
         is_email_verified: boolean | null;
         notification_settings?: Record<string, unknown> | undefined;

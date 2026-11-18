@@ -1575,7 +1575,7 @@ export const usersUpdateBodyPasswordMax = 128
 export const UsersUpdateBody = /* @__PURE__ */ zod.object({
     first_name: zod.string().max(usersUpdateBodyFirstNameMax).optional(),
     last_name: zod.string().max(usersUpdateBodyLastNameMax).optional(),
-    email: zod.email().max(usersUpdateBodyEmailMax),
+    email: zod.email().max(usersUpdateBodyEmailMax).optional(),
     notification_settings: zod
         .record(zod.string(), zod.unknown())
         .optional()
@@ -2030,7 +2030,7 @@ export const usersScenePersonalisationCreateBodyPasswordMax = 128
 export const UsersScenePersonalisationCreateBody = /* @__PURE__ */ zod.object({
     first_name: zod.string().max(usersScenePersonalisationCreateBodyFirstNameMax).optional(),
     last_name: zod.string().max(usersScenePersonalisationCreateBodyLastNameMax).optional(),
-    email: zod.email().max(usersScenePersonalisationCreateBodyEmailMax),
+    email: zod.email().max(usersScenePersonalisationCreateBodyEmailMax).optional(),
     notification_settings: zod
         .record(zod.string(), zod.unknown())
         .optional()
@@ -2121,7 +2121,7 @@ export const usersTwoFactorBackupCodesCreateBodyPasswordMax = 128
 export const UsersTwoFactorBackupCodesCreateBody = /* @__PURE__ */ zod.object({
     first_name: zod.string().max(usersTwoFactorBackupCodesCreateBodyFirstNameMax).optional(),
     last_name: zod.string().max(usersTwoFactorBackupCodesCreateBodyLastNameMax).optional(),
-    email: zod.email().max(usersTwoFactorBackupCodesCreateBodyEmailMax),
+    email: zod.email().max(usersTwoFactorBackupCodesCreateBodyEmailMax).optional(),
     notification_settings: zod
         .record(zod.string(), zod.unknown())
         .optional()
@@ -2212,7 +2212,7 @@ export const usersTwoFactorDisableCreateBodyPasswordMax = 128
 export const UsersTwoFactorDisableCreateBody = /* @__PURE__ */ zod.object({
     first_name: zod.string().max(usersTwoFactorDisableCreateBodyFirstNameMax).optional(),
     last_name: zod.string().max(usersTwoFactorDisableCreateBodyLastNameMax).optional(),
-    email: zod.email().max(usersTwoFactorDisableCreateBodyEmailMax),
+    email: zod.email().max(usersTwoFactorDisableCreateBodyEmailMax).optional(),
     notification_settings: zod
         .record(zod.string(), zod.unknown())
         .optional()
@@ -2300,7 +2300,7 @@ export const usersTwoFactorValidateCreateBodyPasswordMax = 128
 export const UsersTwoFactorValidateCreateBody = /* @__PURE__ */ zod.object({
     first_name: zod.string().max(usersTwoFactorValidateCreateBodyFirstNameMax).optional(),
     last_name: zod.string().max(usersTwoFactorValidateCreateBodyLastNameMax).optional(),
-    email: zod.email().max(usersTwoFactorValidateCreateBodyEmailMax),
+    email: zod.email().max(usersTwoFactorValidateCreateBodyEmailMax).optional(),
     notification_settings: zod
         .record(zod.string(), zod.unknown())
         .optional()
@@ -2388,7 +2388,7 @@ export const usersValidate2faCreateBodyPasswordMax = 128
 export const UsersValidate2faCreateBody = /* @__PURE__ */ zod.object({
     first_name: zod.string().max(usersValidate2faCreateBodyFirstNameMax).optional(),
     last_name: zod.string().max(usersValidate2faCreateBodyLastNameMax).optional(),
-    email: zod.email().max(usersValidate2faCreateBodyEmailMax),
+    email: zod.email().max(usersValidate2faCreateBodyEmailMax).optional(),
     notification_settings: zod
         .record(zod.string(), zod.unknown())
         .optional()
@@ -2564,7 +2564,7 @@ export const usersRequestEmailVerificationCreateBodyPasswordMax = 128
 export const UsersRequestEmailVerificationCreateBody = /* @__PURE__ */ zod.object({
     first_name: zod.string().max(usersRequestEmailVerificationCreateBodyFirstNameMax).optional(),
     last_name: zod.string().max(usersRequestEmailVerificationCreateBodyLastNameMax).optional(),
-    email: zod.email().max(usersRequestEmailVerificationCreateBodyEmailMax),
+    email: zod.email().max(usersRequestEmailVerificationCreateBodyEmailMax).optional(),
     notification_settings: zod
         .record(zod.string(), zod.unknown())
         .optional()

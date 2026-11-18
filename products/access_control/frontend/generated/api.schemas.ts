@@ -1144,8 +1144,11 @@ export interface AccessControlMemberUserApi {
     first_name: string
     /** The user's last name. */
     last_name: string
-    /** The user's email. */
-    email: string
+    /**
+     * The user's email. Null for a service account without a contact email.
+     * @nullable
+     */
+    email: string | null
 }
 
 /**

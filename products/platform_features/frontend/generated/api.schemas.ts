@@ -438,8 +438,7 @@ export interface UserBasicApi {
     first_name?: string
     /** @maxLength 150 */
     last_name?: string
-    /** @maxLength 254 */
-    email: string
+    email?: string | null
     /** @nullable */
     is_email_verified?: boolean | null
     /** @nullable */
@@ -566,8 +565,11 @@ export interface OrganizationPersonalAPIKeyOwnerApi {
     readonly first_name: string
     /** Last name of the key's owner. */
     readonly last_name: string
-    /** Email address of the key's owner. */
-    readonly email: string
+    /**
+     * Email address of the key's owner. Null for a service account without a contact email.
+     * @nullable
+     */
+    readonly email: string | null
 }
 
 export interface OrganizationPersonalAPIKeyProjectScopeApi {

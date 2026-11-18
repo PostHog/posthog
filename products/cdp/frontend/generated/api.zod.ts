@@ -1155,7 +1155,9 @@ export const hogFunctionsInvocationsCreateBodyConfigurationOneCreatedByOneFirstN
 
 export const hogFunctionsInvocationsCreateBodyConfigurationOneCreatedByOneLastNameMax = 150
 
-export const hogFunctionsInvocationsCreateBodyConfigurationOneCreatedByOneEmailMax = 254
+export const hogFunctionsInvocationsCreateBodyConfigurationOneCreatedByOneEmailOneMax = 254
+
+export const hogFunctionsInvocationsCreateBodyConfigurationOneCreatedByOneEmailTwoMax = 0
 
 export const hogFunctionsInvocationsCreateBodyConfigurationOneInputsSchemaItemRequiredDefault = false
 export const hogFunctionsInvocationsCreateBodyConfigurationOneInputsSchemaItemSecretDefault = false
@@ -1233,7 +1235,15 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                     .string()
                     .max(hogFunctionsInvocationsCreateBodyConfigurationOneCreatedByOneLastNameMax)
                     .optional(),
-                email: zod.email().max(hogFunctionsInvocationsCreateBodyConfigurationOneCreatedByOneEmailMax),
+                email: zod
+                    .union([
+                        zod
+                            .email()
+                            .max(hogFunctionsInvocationsCreateBodyConfigurationOneCreatedByOneEmailOneMax)
+                            .nullable(),
+                        zod.string().max(hogFunctionsInvocationsCreateBodyConfigurationOneCreatedByOneEmailTwoMax),
+                    ])
+                    .optional(),
                 is_email_verified: zod.boolean().nullish(),
                 hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
                 role_at_organization: zod

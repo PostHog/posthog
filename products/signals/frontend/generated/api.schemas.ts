@@ -2453,7 +2453,8 @@ export interface _UserApi {
     readonly uuid: string
     readonly first_name: string
     readonly last_name: string
-    readonly email: string
+    /** @nullable */
+    readonly email: string | null
 }
 
 export interface SignalReportPullRequestAttachedByApi {
@@ -8529,8 +8530,7 @@ export interface UserBasicApi {
     first_name?: string
     /** @maxLength 150 */
     last_name?: string
-    /** @maxLength 254 */
-    email: string
+    email?: string | null
     /** @nullable */
     is_email_verified?: boolean | null
     /** @nullable */

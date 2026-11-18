@@ -157,8 +157,7 @@ export interface UserBasicApi {
     first_name?: string
     /** @maxLength 150 */
     last_name?: string
-    /** @maxLength 254 */
-    email: string
+    email?: string | null
     /** @nullable */
     is_email_verified?: boolean | null
     /** @nullable */
@@ -6729,7 +6728,7 @@ export interface UserApi {
     /** @maxLength 150 */
     last_name?: string
     /** @maxLength 254 */
-    email: string
+    email?: string
     /** @nullable */
     readonly pending_email: string | null
     /** @nullable */

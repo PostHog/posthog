@@ -1295,7 +1295,9 @@ export const warehouseTablesCreateBodyCredentialCreatedByOneFirstNameMax = 150
 
 export const warehouseTablesCreateBodyCredentialCreatedByOneLastNameMax = 150
 
-export const warehouseTablesCreateBodyCredentialCreatedByOneEmailMax = 254
+export const warehouseTablesCreateBodyCredentialCreatedByOneEmailOneMax = 254
+
+export const warehouseTablesCreateBodyCredentialCreatedByOneEmailTwoMax = 0
 
 export const warehouseTablesCreateBodyCredentialAccessKeyMax = 500
 
@@ -1332,7 +1334,12 @@ export const WarehouseTablesCreateBody = /* @__PURE__ */ zod
                 distinct_id: zod.string().max(warehouseTablesCreateBodyCredentialCreatedByOneDistinctIdMax).nullish(),
                 first_name: zod.string().max(warehouseTablesCreateBodyCredentialCreatedByOneFirstNameMax).optional(),
                 last_name: zod.string().max(warehouseTablesCreateBodyCredentialCreatedByOneLastNameMax).optional(),
-                email: zod.email().max(warehouseTablesCreateBodyCredentialCreatedByOneEmailMax),
+                email: zod
+                    .union([
+                        zod.email().max(warehouseTablesCreateBodyCredentialCreatedByOneEmailOneMax).nullable(),
+                        zod.string().max(warehouseTablesCreateBodyCredentialCreatedByOneEmailTwoMax),
+                    ])
+                    .optional(),
                 is_email_verified: zod.boolean().nullish(),
                 hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
                 role_at_organization: zod
@@ -1391,7 +1398,9 @@ export const warehouseTablesUpdateBodyCredentialCreatedByOneFirstNameMax = 150
 
 export const warehouseTablesUpdateBodyCredentialCreatedByOneLastNameMax = 150
 
-export const warehouseTablesUpdateBodyCredentialCreatedByOneEmailMax = 254
+export const warehouseTablesUpdateBodyCredentialCreatedByOneEmailOneMax = 254
+
+export const warehouseTablesUpdateBodyCredentialCreatedByOneEmailTwoMax = 0
 
 export const warehouseTablesUpdateBodyCredentialAccessKeyMax = 500
 
@@ -1428,7 +1437,12 @@ export const WarehouseTablesUpdateBody = /* @__PURE__ */ zod
                 distinct_id: zod.string().max(warehouseTablesUpdateBodyCredentialCreatedByOneDistinctIdMax).nullish(),
                 first_name: zod.string().max(warehouseTablesUpdateBodyCredentialCreatedByOneFirstNameMax).optional(),
                 last_name: zod.string().max(warehouseTablesUpdateBodyCredentialCreatedByOneLastNameMax).optional(),
-                email: zod.email().max(warehouseTablesUpdateBodyCredentialCreatedByOneEmailMax),
+                email: zod
+                    .union([
+                        zod.email().max(warehouseTablesUpdateBodyCredentialCreatedByOneEmailOneMax).nullable(),
+                        zod.string().max(warehouseTablesUpdateBodyCredentialCreatedByOneEmailTwoMax),
+                    ])
+                    .optional(),
                 is_email_verified: zod.boolean().nullish(),
                 hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
                 role_at_organization: zod
@@ -1487,7 +1501,9 @@ export const warehouseTablesPartialUpdateBodyCredentialCreatedByOneFirstNameMax 
 
 export const warehouseTablesPartialUpdateBodyCredentialCreatedByOneLastNameMax = 150
 
-export const warehouseTablesPartialUpdateBodyCredentialCreatedByOneEmailMax = 254
+export const warehouseTablesPartialUpdateBodyCredentialCreatedByOneEmailOneMax = 254
+
+export const warehouseTablesPartialUpdateBodyCredentialCreatedByOneEmailTwoMax = 0
 
 export const warehouseTablesPartialUpdateBodyCredentialAccessKeyMax = 500
 
@@ -1537,7 +1553,15 @@ export const WarehouseTablesPartialUpdateBody = /* @__PURE__ */ zod
                         .string()
                         .max(warehouseTablesPartialUpdateBodyCredentialCreatedByOneLastNameMax)
                         .optional(),
-                    email: zod.email().max(warehouseTablesPartialUpdateBodyCredentialCreatedByOneEmailMax),
+                    email: zod
+                        .union([
+                            zod
+                                .email()
+                                .max(warehouseTablesPartialUpdateBodyCredentialCreatedByOneEmailOneMax)
+                                .nullable(),
+                            zod.string().max(warehouseTablesPartialUpdateBodyCredentialCreatedByOneEmailTwoMax),
+                        ])
+                        .optional(),
                     is_email_verified: zod.boolean().nullish(),
                     hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
                     role_at_organization: zod
@@ -1612,7 +1636,9 @@ export const warehouseTablesUpdateSchemaCreateBodyCredentialCreatedByOneFirstNam
 
 export const warehouseTablesUpdateSchemaCreateBodyCredentialCreatedByOneLastNameMax = 150
 
-export const warehouseTablesUpdateSchemaCreateBodyCredentialCreatedByOneEmailMax = 254
+export const warehouseTablesUpdateSchemaCreateBodyCredentialCreatedByOneEmailOneMax = 254
+
+export const warehouseTablesUpdateSchemaCreateBodyCredentialCreatedByOneEmailTwoMax = 0
 
 export const warehouseTablesUpdateSchemaCreateBodyCredentialAccessKeyMax = 500
 
@@ -1658,7 +1684,15 @@ export const WarehouseTablesUpdateSchemaCreateBody = /* @__PURE__ */ zod
                     .string()
                     .max(warehouseTablesUpdateSchemaCreateBodyCredentialCreatedByOneLastNameMax)
                     .optional(),
-                email: zod.email().max(warehouseTablesUpdateSchemaCreateBodyCredentialCreatedByOneEmailMax),
+                email: zod
+                    .union([
+                        zod
+                            .email()
+                            .max(warehouseTablesUpdateSchemaCreateBodyCredentialCreatedByOneEmailOneMax)
+                            .nullable(),
+                        zod.string().max(warehouseTablesUpdateSchemaCreateBodyCredentialCreatedByOneEmailTwoMax),
+                    ])
+                    .optional(),
                 is_email_verified: zod.boolean().nullish(),
                 hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
                 role_at_organization: zod
@@ -1742,7 +1776,9 @@ export const warehouseTablesFileCreateBodyCredentialCreatedByOneFirstNameMax = 1
 
 export const warehouseTablesFileCreateBodyCredentialCreatedByOneLastNameMax = 150
 
-export const warehouseTablesFileCreateBodyCredentialCreatedByOneEmailMax = 254
+export const warehouseTablesFileCreateBodyCredentialCreatedByOneEmailOneMax = 254
+
+export const warehouseTablesFileCreateBodyCredentialCreatedByOneEmailTwoMax = 0
 
 export const warehouseTablesFileCreateBodyCredentialAccessKeyMax = 500
 
@@ -1785,7 +1821,12 @@ export const WarehouseTablesFileCreateBody = /* @__PURE__ */ zod
                     .max(warehouseTablesFileCreateBodyCredentialCreatedByOneFirstNameMax)
                     .optional(),
                 last_name: zod.string().max(warehouseTablesFileCreateBodyCredentialCreatedByOneLastNameMax).optional(),
-                email: zod.email().max(warehouseTablesFileCreateBodyCredentialCreatedByOneEmailMax),
+                email: zod
+                    .union([
+                        zod.email().max(warehouseTablesFileCreateBodyCredentialCreatedByOneEmailOneMax).nullable(),
+                        zod.string().max(warehouseTablesFileCreateBodyCredentialCreatedByOneEmailTwoMax),
+                    ])
+                    .optional(),
                 is_email_verified: zod.boolean().nullish(),
                 hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
                 role_at_organization: zod

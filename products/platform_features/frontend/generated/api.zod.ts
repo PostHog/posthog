@@ -395,7 +395,9 @@ export const advancedActivityLogsExportCreateBodyUserFirstNameMax = 150
 
 export const advancedActivityLogsExportCreateBodyUserLastNameMax = 150
 
-export const advancedActivityLogsExportCreateBodyUserEmailMax = 254
+export const advancedActivityLogsExportCreateBodyUserEmailOneMax = 254
+
+export const advancedActivityLogsExportCreateBodyUserEmailTwoMax = 0
 
 export const advancedActivityLogsExportCreateBodyTeamIdMin = 0
 export const advancedActivityLogsExportCreateBodyTeamIdMax = 2147483647
@@ -415,7 +417,12 @@ export const AdvancedActivityLogsExportCreateBody = /* @__PURE__ */ zod.object({
         distinct_id: zod.string().max(advancedActivityLogsExportCreateBodyUserDistinctIdMax).nullish(),
         first_name: zod.string().max(advancedActivityLogsExportCreateBodyUserFirstNameMax).optional(),
         last_name: zod.string().max(advancedActivityLogsExportCreateBodyUserLastNameMax).optional(),
-        email: zod.email().max(advancedActivityLogsExportCreateBodyUserEmailMax),
+        email: zod
+            .union([
+                zod.email().max(advancedActivityLogsExportCreateBodyUserEmailOneMax).nullable(),
+                zod.string().max(advancedActivityLogsExportCreateBodyUserEmailTwoMax),
+            ])
+            .optional(),
         is_email_verified: zod.boolean().nullish(),
         hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
         role_at_organization: zod
