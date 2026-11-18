@@ -908,5 +908,45 @@
     },
     "liquid": "Hi {{ \"{\" }}{.x}}",
     "expected": "Hi {{.x}}"
+  },
+  {
+    "name": "go range fallback sees the collection",
+    "engine": "go",
+    "template": "{{range $e := .Items}}x{{else}}{{if $e}}yes{{else}}no{{end}}{{end}}",
+    "variables": {
+      "Items": []
+    },
+    "liquid": "{% assign item1_is_object = variables.Items | json | slice: 0 %}{% if item1_is_object == \"{\" %}{% assign item1_is_object = true %}{% else %}{% assign item1_is_object = false %}{% endif %}{% for item1 in variables.Items %}{% if item1_is_object %}{% assign item1_key = item1[0] %}{% assign item1_value = item1[1] %}{% else %}{% assign item1_key = forloop.index0 %}{% assign item1_value = item1 %}{% endif %}x{% else %}{% if variables.Items and variables.Items != empty and variables.Items != 0 %}yes{% else %}no{% endif %}{% endfor %}",
+    "expected": "no"
+  },
+  {
+    "name": "go link with a javascript address is blocked",
+    "engine": "go",
+    "template": "<a href=\"{{.U}}\">x</a>",
+    "variables": {
+      "U": "javascript:alert(1)"
+    },
+    "liquid": "<a href=\"{% assign url1 = variables.U | append: \"\" %}{% assign url1_head = url1 | split: \"/\" | first %}{% assign url1_scheme = \"http\" %}{% if url1_head contains \":\" %}{% assign url1_scheme = url1_head | split: \":\" | first | downcase %}{% endif %}{% if url1_scheme == \"http\" or url1_scheme == \"https\" or url1_scheme == \"mailto\" %}{{ url1 | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% else %}#ZgotmplZ{% endif %}\">x</a>",
+    "expected": "<a href=\"#ZgotmplZ\">x</a>"
+  },
+  {
+    "name": "go link with a web address is kept",
+    "engine": "go",
+    "template": "<a href=\"{{.U}}\">x</a>",
+    "variables": {
+      "U": "https://example.com/a"
+    },
+    "liquid": "<a href=\"{% assign url1 = variables.U | append: \"\" %}{% assign url1_head = url1 | split: \"/\" | first %}{% assign url1_scheme = \"http\" %}{% if url1_head contains \":\" %}{% assign url1_scheme = url1_head | split: \":\" | first | downcase %}{% endif %}{% if url1_scheme == \"http\" or url1_scheme == \"https\" or url1_scheme == \"mailto\" %}{{ url1 | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% else %}#ZgotmplZ{% endif %}\">x</a>",
+    "expected": "<a href=\"https://example.com/a\">x</a>"
+  },
+  {
+    "name": "go value in a link query is percent-encoded",
+    "engine": "go",
+    "template": "<a href=\"/s?q={{.X}}\">x</a>",
+    "variables": {
+      "X": "a&b"
+    },
+    "liquid": "<a href=\"/s?q={{ variables.X | url_encode }}\">x</a>",
+    "expected": "<a href=\"/s?q=a%26b\">x</a>"
   }
 ]

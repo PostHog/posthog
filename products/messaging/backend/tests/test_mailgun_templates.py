@@ -1,11 +1,15 @@
+import re
 import json
-import time
 from pathlib import Path
+from typing import Any
+
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from products.messaging.backend.provider_imports import mailgun_templates
 from products.messaging.backend.provider_imports.mailgun_templates import convert_text, convert_version
 
 ESCAPED_X = '{{ variables.x | escape | replace: "=", "&#x3D;" | replace: "`", "&#x60;" | raw }}'
@@ -96,6 +100,8 @@ class TestMailgunTemplateConversion(SimpleTestCase):
             ("custom_text", "%recipient.city%", False, "{{ variables.city }}"),
             ("dotted_key_is_one_name", "%recipient.a.b%", True, ESCAPED_X.replace("variables.x", 'variables["a.b"]')),
             ("value_inside_a_tag", '<a href="%recipient.x%">', True, f'<a href="{ESCAPED_X}">'),
+            ("name_with_a_backslash_stays", "%recipient.a\\b%", True, "%recipient.a\\b%"),
+            ("name_with_an_entity_stays", "%recipient.a&amp;b%", True, "%recipient.a&amp;b%"),
             ("unsubscribe", 'href="%unsubscribe_url%"', True, 'href="{{ unsubscribe_url }}"'),
             ("percent_signs_alone", "100% of 50%", True, "100% of 50%"),
             ("unsubscribe_email_stays", "%unsubscribe_email%", True, "%unsubscribe_email%"),
@@ -126,12 +132,22 @@ class TestMailgunTemplateConversion(SimpleTestCase):
         )
 
     @parameterized.expand([("handlebars", "{{!"), ("handlebars_block", "{{!--"), ("go", "{{/*"), ("go_trim", "{{- /*")])
-    def test_unclosed_comments_scan_in_linear_time(self, _name: str, opener: str) -> None:
-        started = time.perf_counter()
-        converted = convert_text(opener * 20000)
+    def test_unclosed_comments_look_for_their_end_once(self, _name: str, opener: str) -> None:
+        counted = [(start, _CountedSearch(end)) for start, end in mailgun_templates._COMMENTS]
 
-        assert time.perf_counter() - started < 1
+        with patch.object(mailgun_templates, "_COMMENTS", tuple(counted)):
+            converted = convert_text(opener * 20000)
+
+        assert sum(end.calls for _, end in counted) <= len(counted)
         assert not converted.too_large
+
+    def test_a_long_comment_renders_nothing(self) -> None:
+        source = "{{!-- " + "x" * 30000 + " {{secret}} --}}after"
+
+        assert convert_text(source).text == "after"
+
+    def test_a_template_with_too_many_tags_stops_before_converting(self) -> None:
+        assert convert_text("{{" * 50001).too_large
 
     def test_unclosed_braces_scan_in_linear_time(self) -> None:
         assert convert_text("{{ " * 20000).text.count('{{ "{{" }}') == 20000
@@ -149,3 +165,13 @@ class TestMailgunTemplateConversion(SimpleTestCase):
 
         assert converted.too_large
         assert converted.text == f"{{% raw %}}{source}{{% endraw %}}"
+
+
+class _CountedSearch:
+    def __init__(self, pattern: re.Pattern[str]) -> None:
+        self.pattern = pattern
+        self.calls = 0
+
+    def search(self, *args: Any) -> re.Match[str] | None:
+        self.calls += 1
+        return self.pattern.search(*args)

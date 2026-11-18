@@ -11,7 +11,7 @@ https://documentation.mailgun.com/docs/mailgun/user-manual/sending-messages/send
 
 import re
 from collections.abc import Mapping
-from dataclasses import field
+from dataclasses import field, replace
 from typing import Any, Literal
 
 from posthog.dataclasses import frozen
@@ -28,7 +28,8 @@ _TOKEN = re.compile(
     r"|\{\{|\{%"
 )
 _OPENING = re.compile(r"\{[{%]")
-_MAX_COMMENT_CHARS = 20_000
+# Far more tags than any real template, so a huge malformed one stops before its tokens fill memory.
+_MAX_TOKENS = 50_000
 # Each comment opener with the text that ends it, longest opener first.
 _COMMENTS = (
     (re.compile(r"\{\{~?!--"), re.compile(r"--~?\}\}")),
@@ -42,6 +43,26 @@ _RECIPIENT_VARIABLE = re.compile(r"%recipient\.([^%\s<>\"'{}]{1,128})%")
 _FIXED_VARIABLE = re.compile(
     r"%(recipient|recipient_email|recipient_name|recipient_fname|recipient_lname"
     r"|unsubscribe_url|tag_unsubscribe_url|mailing_list_unsubscribe_url|unsubscribe_email)%"
+)
+# Attributes Go's html/template treats as URLs.
+_URL_ATTRIBUTES = frozenset(
+    {
+        "action",
+        "background",
+        "cite",
+        "codebase",
+        "data",
+        "formaction",
+        "href",
+        "icon",
+        "longdesc",
+        "manifest",
+        "poster",
+        "profile",
+        "src",
+        "usemap",
+        "xmlns",
+    }
 )
 _IDENTIFIER = re.compile(r"^[A-Za-z_][\w-]*$")
 # Text every Handlebars or Go parser would read as an argument, such as "x", 5 or true.
@@ -70,6 +91,24 @@ class _Block:
     converted: bool = True
     pops_frame: bool = False
     saved_go_variables: Mapping[str, str] | None = None
+    # The names an `else` sees. Go keeps a range's declared variables there, holding the collection.
+    fallback_go_variables: Mapping[str, str] | None = None
+
+
+@frozen
+class _TagState:
+    """Where the text so far ends, relative to HTML markup."""
+
+    in_tag: bool = False
+    quote: str = ""
+    # The attribute named last, and whether the text is inside its value.
+    attribute: str = ""
+    name_done: bool = False
+    after_equals: bool = False
+    in_value: bool = False
+    # Whether the value has text before this point, and whether that text reached a URL's query or fragment.
+    value_started: bool = False
+    value_query: bool = False
 
 
 @frozen
@@ -210,6 +249,8 @@ def _tokens(text: str) -> list[_Token]:
     next_end: dict[int, re.Match[str] | None] = {}
     position = 0
     while match := _TOKEN.search(text, position):
+        if len(tokens) >= _MAX_TOKENS:
+            raise _TooLarge
         token = _Token(
             start=match.start(),
             end=match.end(),
@@ -225,7 +266,7 @@ def _tokens(text: str) -> list[_Token]:
             if kind not in next_end or ((found := next_end[kind]) is not None and found.start() < opened.end()):
                 next_end[kind] = terminator.search(text, opened.end())
             end = next_end[kind]
-            if end is not None and end.start() - opened.end() <= _MAX_COMMENT_CHARS:
+            if end is not None:
                 token = _Token(start=match.start(), end=end.end(), text=text[match.start() : end.end()])
                 break
         tokens.append(token)
@@ -249,12 +290,11 @@ class _Converter:
         self.unsubscribe_email = False
         self.has_tags = False
         self.go_variables: dict[str, str] = {}
-        # Whether the text so far ends inside an HTML tag, where an unquoted attribute can end at a space or `=`.
-        self.in_tag = False
-        self.tag_quote = ""
+        self.tag = _TagState()
         self.go_value_in_tag = False
+        self.url_count = 0
         # Per open block: the tag state where it opened, and where each earlier branch ended.
-        self.tag_branches: list[tuple[tuple[bool, str], list[tuple[bool, str]]]] = []
+        self.tag_branches: list[tuple[_TagState, list[_TagState]]] = []
         # Set by the token just read when it started another branch of the open block.
         self.took_branch = False
 
@@ -312,33 +352,90 @@ class _Converter:
         )
 
     def _track_tag(self, text: str) -> None:
-        # A `>` inside a quoted attribute value doesn't close the tag.
-        for character in text:
-            if not self.in_tag:
-                if character == "<":
-                    self.in_tag, self.tag_quote = True, ""
-            elif self.tag_quote:
-                if character == self.tag_quote:
-                    self.tag_quote = ""
-            elif character in "\"'":
-                self.tag_quote = character
+        # A `>` inside a quoted attribute value doesn't close the tag. Long values, such as an inline image, are only
+        # scanned for a quote, never copied.
+        if not text:
+            return
+        state = self.tag
+        in_tag, quote, attribute, name_done = state.in_tag, state.quote, state.attribute, state.name_done
+        after_equals, in_value, started, query = (
+            state.after_equals,
+            state.in_value,
+            state.value_started,
+            state.value_query,
+        )
+        index = 0
+        while index < len(text):
+            character = text[index]
+            if not in_tag:
+                next_open = text.find("<", index)
+                if next_open < 0:
+                    break
+                in_tag, quote, attribute, name_done, after_equals, in_value = True, "", "", False, False, False
+                index = next_open + 1
+                continue
+            if in_value and quote:
+                close = text.find(quote, index)
+                segment = text[index:] if close < 0 else text[index:close]
+                started = started or bool(segment)
+                query = query or "?" in segment or "#" in segment
+                if close < 0:
+                    break
+                quote, in_value, attribute, name_done = "", False, "", False
+                index = close + 1
+                continue
+            if in_value:
+                if character.isspace():
+                    in_value, attribute, name_done = False, "", False
+                elif character == ">":
+                    in_tag, in_value = False, False
+                else:
+                    started, query = True, query or character in "?#"
+            elif after_equals:
+                if character in "\"'":
+                    quote, in_value, after_equals, started, query = character, True, False, False, False
+                elif character == ">":
+                    in_tag, after_equals = False, False
+                elif not character.isspace():
+                    in_value, after_equals, started, query = True, False, True, character in "?#"
             elif character == ">":
-                self.in_tag = False
+                in_tag = False
+            elif character == "=":
+                after_equals = True
+            elif character in "\"'":
+                quote, in_value, attribute, started, query = character, True, "", False, False
+            elif character.isspace():
+                name_done = bool(attribute)
+            elif name_done or not attribute:
+                attribute, name_done = character.lower(), False
+            else:
+                attribute += character.lower()
+            index += 1
+        self.tag = _TagState(
+            in_tag=in_tag,
+            quote=quote,
+            attribute=attribute,
+            name_done=name_done,
+            after_equals=after_equals,
+            in_value=in_value,
+            value_started=started,
+            value_query=query,
+        )
 
     def _track_branches(self, depth: int) -> None:
         """Only one branch of an if/else renders, so after the block a value is inside a tag if any branch left one
         open. A block can also render nothing, like an if with no else or an empty each, so the state before it counts
         too."""
         if len(self.blocks) > depth:
-            self.tag_branches.append(((self.in_tag, self.tag_quote), []))
+            self.tag_branches.append((self.tag, []))
         elif len(self.blocks) < depth and self.tag_branches:
             opened, ended = self.tag_branches.pop()
-            states = [*ended, (self.in_tag, self.tag_quote), opened]
-            self.in_tag, self.tag_quote = next((state for state in states if state[0]), states[-1])
+            states = [*ended, self.tag, opened]
+            self.tag = next((state for state in states if state.in_tag), states[-1])
         elif self.took_branch and self.tag_branches:
             opened, ended = self.tag_branches[-1]
-            ended.append((self.in_tag, self.tag_quote))
-            self.in_tag, self.tag_quote = opened
+            ended.append(self.tag)
+            self.tag = opened
 
     def _strip_whitespace(self, pieces: list[str], matches: list[_Token], kept: list[tuple[str, bool]]) -> None:
         previous_ended_its_line = False
@@ -514,8 +611,9 @@ class _Converter:
             if self.frames[-1].in_loop:
                 self.loop_depth -= 1
             self.frames.pop()
-            if block.saved_go_variables is not None:
-                self.go_variables = dict(block.saved_go_variables)
+            fallback = block.fallback_go_variables or block.saved_go_variables
+            if fallback is not None:
+                self.go_variables = dict(fallback)
             self.blocks[-1] = _Block(closer=block.closer, pops_frame=False, saved_go_variables=block.saved_go_variables)
         self.took_branch = True
         return "{% else %}"
@@ -623,9 +721,33 @@ class _Converter:
         path = self._go_path(source)
         if path is None:
             return self._unsupported(token)
-        if self.in_tag and self.is_html:
-            self.go_value_in_tag = True
-        return _escaped(path) if self.is_html else f"{{{{ {path} }}}}"
+        if not self.is_html:
+            return f"{{{{ {path} }}}}"
+        if not self.tag.in_tag:
+            return _escaped(path)
+        self.go_value_in_tag = True
+        return self._go_value_in_tag(path)
+
+    def _go_value_in_tag(self, path: str) -> str:
+        """Go escapes a value by where it lands. In a link's address it blocks schemes such as `javascript:` at the
+        start, and percent-encodes a value in the query, so `&` or `=` can't add a parameter."""
+        tag = self.tag
+        if not (tag.in_value and tag.attribute in _URL_ATTRIBUTES):
+            return _escaped(path)
+        self.tag = replace(tag, value_started=True)
+        if tag.value_query:
+            return f"{{{{ {path} | url_encode }}}}"
+        if tag.value_started:
+            return _escaped(path)
+        self.url_count += 1
+        url, head, scheme = f"url{self.url_count}", f"url{self.url_count}_head", f"url{self.url_count}_scheme"
+        return (
+            f'{{% assign {url} = {path} | append: "" %}}{{% assign {head} = {url} | split: "/" | first %}}'
+            f'{{% assign {scheme} = "http" %}}{{% if {head} contains ":" %}}'
+            f'{{% assign {scheme} = {head} | split: ":" | first | downcase %}}{{% endif %}}'
+            f'{{% if {scheme} == "http" or {scheme} == "https" or {scheme} == "mailto" %}}{_escaped(url)}'
+            "{% else %}#ZgotmplZ{% endif %}"
+        )
 
     def _open_go_condition(self, token: str, keyword: str, source: str) -> str:
         if keyword == "with":
@@ -676,7 +798,14 @@ class _Converter:
         if path is None:
             self.blocks.append(_Block(closer="end", converted=False))
             return self._unsupported(token)
+        names_in_fallback = {name: path for name in (index_name, element_name) if name}
         opening = self._open_loop(path, closer="range", saved_go_variables=dict(self.go_variables))
+        self.blocks[-1] = _Block(
+            closer="range",
+            pops_frame=True,
+            saved_go_variables=self.blocks[-1].saved_go_variables,
+            fallback_go_variables={**self.go_variables, **names_in_fallback},
+        )
         if element_name:
             self.go_variables[element_name] = self.frames[-1].expression
         if index_name:
@@ -721,9 +850,11 @@ class _Converter:
             return self._raw_variable(f"variables.{name}")
 
         def replace_recipient(match: re.Match[str]) -> str:
-            name = match.group(1)
+            path = _join("variables", match.group(1), split=False)
+            if path is None:
+                return match.group(0)
             self.recipient_variables.append(match.group(0))
-            return self._raw_variable(_join("variables", name, split=False) or match.group(0))
+            return self._raw_variable(path)
 
         return _RECIPIENT_VARIABLE.sub(replace_recipient, _FIXED_VARIABLE.sub(replace_fixed, text))
 
