@@ -25,6 +25,7 @@ from products.warehouse_sources.sources.twitter_ads.twitter_ads import TwitterAd
         (200, None),
         (401, REVOKED_GRANT),
         (403, ACCOUNT_ACCESS_DENIED),
+        (429, "X Ads could not validate this ad account. Please try again."),
         (503, "X Ads could not validate this ad account. Please try again."),
     ],
 )

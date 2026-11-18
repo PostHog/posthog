@@ -10,6 +10,7 @@ from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.sources.sdk import (
     IntegrationRecord,
+    RESTClientRetryableError,
     ResumableSourceManager,
     SourceResponse,
     credentials_service,
@@ -125,6 +126,13 @@ def _error_detail(response: requests.Response) -> str:
     return "; ".join(part for part in parts if part)[:_MAX_ERROR_DETAIL]
 
 
+def _seconds_until_reset(response: requests.Response) -> float | None:
+    reset = response.headers.get("x-rate-limit-reset", "")
+    if not reset.isdigit():
+        return None
+    return max(int(reset) - datetime.now(UTC).timestamp(), 0.0)
+
+
 class TwitterAdsClient:
     def __init__(self, integration: IntegrationRecord, api_version: str = API_VERSION) -> None:
         if api_version != API_VERSION:
@@ -146,6 +154,12 @@ class TwitterAdsClient:
 
     def get(self, path: str, params: dict[str, str | int] | None = None) -> dict[str, Any]:
         response = self.session.get(f"{self.base_url}/{path}", params=params, timeout=60)
+        if response.status_code == 429:
+            # X sends no Retry-After, only the epoch when its 15-minute window resets. Handing that to
+            # Temporal defers the next attempt past the window instead of spending attempts inside it.
+            raise RESTClientRetryableError(
+                f"429 Client Error: X Ads rate limit on {path}", retry_after=_seconds_until_reset(response)
+            )
         try:
             response.raise_for_status()
         except requests.HTTPError as error:

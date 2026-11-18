@@ -13,6 +13,7 @@ from products.warehouse_sources.sources.sdk import (
     IntegrationAccountListingError,
     OAuthMixin,
     ReleaseStatus,
+    RESTClientRetryableError,
     ResumableSource,
     ResumableSourceManager,
     SourceConfig,
@@ -174,6 +175,8 @@ class TwitterAdsSource(ResumableSource[TwitterAdsSourceConfig, TwitterAdsResumeC
                 if status == 403
                 else "X Ads could not validate this ad account. Please try again.",
             )
+        except RESTClientRetryableError:
+            return False, "X Ads could not validate this ad account. Please try again."
         except requests.RequestException:
             return False, "Could not reach X Ads. Please try again."
 
