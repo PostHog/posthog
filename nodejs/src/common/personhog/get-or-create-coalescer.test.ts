@@ -12,8 +12,8 @@ describe('GetOrCreateCoalescer', () => {
         jest.useRealTimers()
     })
 
-    function entry(distinctId: string): GetOrCreatePersonEntry {
-        return { teamId: 1, distinctId, eventName: '$pageview', createdAtMs: 0 }
+    function entry(distinctId: string, setProperties?: Record<string, string>): GetOrCreatePersonEntry {
+        return { teamId: 1, distinctId, eventName: '$pageview', createdAtMs: 0, setProperties }
     }
 
     function found(distinctId: string): GetOrCreatePersonOutcome {
@@ -35,14 +35,17 @@ describe('GetOrCreateCoalescer', () => {
     const echo = (entries: GetOrCreatePersonEntry[]): GetOrCreatePersonBatchResult[] =>
         entries.map((e) => ({ teamId: e.teamId, distinctId: e.distinctId, outcome: found(e.distinctId) }))
 
-    function coalescing(answer: (entries: GetOrCreatePersonEntry[]) => GetOrCreatePersonBatchResult[]) {
+    function coalescing(
+        answer: (entries: GetOrCreatePersonEntry[]) => GetOrCreatePersonBatchResult[],
+        maxBatchBytes: number = 1_000_000
+    ) {
         const call = jest.fn(
             (entries: GetOrCreatePersonEntry[]): Promise<GetOrCreatePersonBatchResult[]> =>
                 new Promise((resolve) => resolve(answer(entries)))
         )
         const coalescer = new GetOrCreateCoalescer(
             { getOrCreatePersonsByDistinctIds: call },
-            { windowMs: 5, maxBatchSize: 3, clientLabel: 'test' }
+            { windowMs: 5, maxBatchSize: 3, maxBatchBytes, clientLabel: 'test' }
         )
         return { call, coalescer }
     }
@@ -52,7 +55,7 @@ describe('GetOrCreateCoalescer', () => {
             () =>
                 new GetOrCreateCoalescer(
                     { getOrCreatePersonsByDistinctIds: jest.fn() },
-                    { windowMs: 5, maxBatchSize: 251, clientLabel: 'test' }
+                    { windowMs: 5, maxBatchSize: 251, maxBatchBytes: 1_000_000, clientLabel: 'test' }
                 )
         ).toThrow('exceeds the service cap')
     })
@@ -82,6 +85,23 @@ describe('GetOrCreateCoalescer', () => {
 
         expect(call).toHaveBeenCalledTimes(1)
         expect((await answers).map((outcome) => outcome.person.id)).toEqual(['a', 'b', 'c'])
+    })
+
+    it('closes a batch before an entry takes it over the byte budget', async () => {
+        const { call, coalescer } = coalescing(echo, 100)
+
+        const answers = Promise.all([
+            coalescer.submit(entry('over-budget-alone', { k: 'x'.repeat(200) })),
+            coalescer.submit(entry('b', { k: 'x'.repeat(40) })),
+            coalescer.submit(entry('c', { k: 'x'.repeat(40) })),
+        ])
+        await jest.advanceTimersByTimeAsync(5)
+
+        expect(call.mock.calls.map(([entries]) => entries.map((e) => e.distinctId))).toEqual([
+            ['over-budget-alone'],
+            ['b', 'c'],
+        ])
+        expect((await answers).map((outcome) => outcome.person.id)).toEqual(['over-budget-alone', 'b', 'c'])
     })
 
     it('fails only the entry the service refused', async () => {

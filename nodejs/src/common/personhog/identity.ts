@@ -42,7 +42,6 @@ export interface GetOrCreatePersonEntry {
 /** The identity service rejects batches above this; chunk client-side. */
 export const IDENTITY_BATCH_SIZE = 250
 
-/** One entry's answer from a batch get-or-create, in request order. */
 export type GetOrCreatePersonBatchResult = { teamId: number; distinctId: string } & (
     | { outcome: GetOrCreatePersonOutcome; error?: undefined }
     | { outcome?: undefined; error: Error }
@@ -179,6 +178,15 @@ function toProtoEntry(entry: GetOrCreatePersonEntry): MessageInitShape<typeof Ge
     }
 }
 
+export function getOrCreateEntryBytes(entry: GetOrCreatePersonEntry): number {
+    const ids = [entry.distinctId, ...(entry.extraDistinctIds ?? [])]
+    return (
+        encodeJsonBytes(entry.setProperties ?? {}).byteLength +
+        encodeJsonBytes(entry.setOnceProperties ?? {}).byteLength +
+        ids.reduce((total, id) => total + Buffer.byteLength(id), 0)
+    )
+}
+
 /** The service renders a refused batch entry as "<tonic code name>: <message>". */
 const ENTRY_ERROR_CODES: Record<string, Code> = {
     Cancelled: Code.Canceled,
@@ -207,11 +215,7 @@ function decodeEntryError(error: string): ConnectError {
         : new ConnectError(error.slice(separator + 2), code)
 }
 
-/**
- * The size-limit refusal becomes the domain error the create service
- * handles; untranslated, it matches no non-retriable class and the batch
- * redelivers the oversized event forever.
- */
+/** Untranslated, the size-limit refusal matches no non-retriable class and the event redelivers forever. */
 function creationError(error: Error, teamId: number, distinctId: string): Error {
     if (
         error instanceof ConnectError &&
@@ -347,10 +351,7 @@ export class PersonhogIdentityOperations {
         }
     }
 
-    /**
-     * One call for up to IDENTITY_BATCH_SIZE entries, answered per entry in request order. A refused
-     * entry comes back as its error with the service's gRPC code, so callers retry keys, not batches.
-     */
+    /** A refused entry comes back as its error with the service's gRPC code, so callers retry keys, not batches. */
     async getOrCreatePersonsByDistinctIds(
         entries: GetOrCreatePersonEntry[],
         callerTag?: string

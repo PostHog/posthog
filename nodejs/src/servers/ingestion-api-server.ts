@@ -403,6 +403,7 @@ export class IngestionApiServer implements NodeServer {
                 ? new GetOrCreateCoalescer(identityClients.identity, {
                       windowMs: this.config.PERSONHOG_BATCH_CREATE_WINDOW_MS,
                       maxBatchSize: this.config.PERSONHOG_BATCH_CREATE_MAX_SIZE,
+                      maxBatchBytes: this.config.PERSONHOG_BATCH_CREATE_MAX_BYTES,
                       clientLabel: 'ingestion-persons-store',
                   })
                 : undefined

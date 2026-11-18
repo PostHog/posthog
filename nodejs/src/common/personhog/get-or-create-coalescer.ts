@@ -6,6 +6,7 @@ import {
     GetOrCreatePersonOutcome,
     IDENTITY_BATCH_SIZE,
     PersonhogIdentityOperations,
+    getOrCreateEntryBytes,
 } from './identity'
 import { timedGrpc } from './metrics'
 
@@ -22,10 +23,7 @@ const batchSize = new Histogram({
     buckets: [1, 2, 5, 10, 25, 50, 100, 250],
 })
 
-/**
- * The batch call itself failed, so no entry got an answer. Distinct from
- * an entry the service refused, which rejects with that entry's error.
- */
+/** The batch call itself failed, so no entry got an answer. */
 export class BatchCallFailedError extends Error {
     constructor(public override readonly cause: Error) {
         super(`batched get-or-create call failed: ${cause.message}`)
@@ -36,8 +34,9 @@ export class BatchCallFailedError extends Error {
 export interface GetOrCreateCoalescerOptions {
     /** How long the first entry waits for batchmates before the batch is sent. */
     windowMs: number
-    /** Entries that close a batch without waiting; capped at the service's batch limit. */
     maxBatchSize: number
+    /** Entry bytes one batch holds. Keep it under the request size limits of the client and the router. */
+    maxBatchBytes: number
     clientLabel: string
 }
 
@@ -49,13 +48,11 @@ interface Waiter {
 
 interface Batch {
     waiters: Waiter[]
+    bytes: number
     timer: NodeJS.Timeout | null
 }
 
-/**
- * Folds concurrent single get-or-create calls into one batch call; each caller still awaits its
- * own entry's answer. Batches are kept per caller tag because the tag travels as a request header.
- */
+/** Batches are kept per caller tag because the tag travels as a request header. */
 export class GetOrCreateCoalescer {
     private readonly pending = new Map<string, Batch>()
 
@@ -71,6 +68,9 @@ export class GetOrCreateCoalescer {
                 `get-or-create batch size ${options.maxBatchSize} exceeds the service cap ${IDENTITY_BATCH_SIZE}`
             )
         }
+        if (!Number.isInteger(options.maxBatchBytes) || options.maxBatchBytes < 1) {
+            throw new Error(`get-or-create batch bytes must be an integer >= 1, got ${options.maxBatchBytes}`)
+        }
         if (!Number.isFinite(options.windowMs) || options.windowMs < 0) {
             throw new Error(`get-or-create batch window must be >= 0 ms, got ${options.windowMs}`)
         }
@@ -78,12 +78,18 @@ export class GetOrCreateCoalescer {
 
     submit(entry: GetOrCreatePersonEntry, callerTag: string = ''): Promise<GetOrCreatePersonOutcome> {
         return new Promise((resolve, reject) => {
+            const bytes = getOrCreateEntryBytes(entry)
             let batch = this.pending.get(callerTag)
+            if (batch !== undefined && batch.bytes + bytes > this.options.maxBatchBytes) {
+                this.flush(callerTag, 'bytes')
+                batch = undefined
+            }
             if (batch === undefined) {
-                batch = { waiters: [], timer: null }
+                batch = { waiters: [], bytes: 0, timer: null }
                 this.pending.set(callerTag, batch)
             }
             batch.waiters.push({ entry, resolve, reject })
+            batch.bytes += bytes
             if (batch.waiters.length >= this.options.maxBatchSize) {
                 this.flush(callerTag, 'size')
                 return
@@ -94,7 +100,7 @@ export class GetOrCreateCoalescer {
         })
     }
 
-    private flush(callerTag: string, reason: 'size' | 'window'): void {
+    private flush(callerTag: string, reason: 'size' | 'bytes' | 'window'): void {
         const batch = this.pending.get(callerTag)
         if (batch === undefined) {
             return

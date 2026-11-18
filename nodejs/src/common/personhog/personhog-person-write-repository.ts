@@ -118,8 +118,7 @@ export class PersonHogPersonWriteRepository {
 
     /**
      * Resolution and creation in one idempotent verb; the uuid derives deterministically server-side.
-     * A failed batch call moves this key's retries to the singular path, so one bad entry cannot
-     * keep failing its batchmates; a refused entry retries through the batch like any refusal.
+     * A failed batch call moves this key's retries to the singular path.
      */
     getOrCreatePersonByDistinctId(
         entry: GetOrCreatePersonEntry,
