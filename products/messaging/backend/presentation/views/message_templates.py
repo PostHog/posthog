@@ -556,7 +556,8 @@ class SendTransactionalEmailSerializer(TransactionalEmailMessageSerializer):
 # Django's parser also takes week dates, offsets with seconds and digits past the microsecond, and reads some of
 # them as an earlier time than the caller wrote. Only this shape reaches it.
 SCHEDULED_AT_SHAPE = re.compile(
-    r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:[.,](?P<fraction>\d+))?)?(?:Z|[+-]\d{2}:?(?P<offset_minutes>\d{2}))?"
+    r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:[.,](?P<fraction>\d+))?)?(?:Z|[+-]\d{2}(?::?(?P<offset_minutes>\d{2}))?)?",
+    re.ASCII,
 )
 
 
@@ -564,8 +565,8 @@ class ScheduledAtField(serializers.DateTimeField):
     default_error_messages = {
         "no_offset": "Add a UTC offset to the time, such as `Z` or `+01:00`, so PostHog knows when to send it.",
         "invalid_offset": "Use a UTC offset whose minutes run from 00 to 59, such as `+01:30`.",
-        "invalid_format": "Use an ISO 8601 time with a UTC offset, such as `2026-11-20T09:00:00Z` or "
-        "`2026-11-20T10:00:00+01:00`.",
+        "invalid_format": "Use a time like `YYYY-MM-DDThh:mm:ss.sss` followed by a UTC offset, such as "
+        "`2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`. Seconds and their fraction are optional.",
     }
 
     def get_value(self, dictionary: Mapping[str, Any]) -> Any:
@@ -705,8 +706,8 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
     scheduled_at = ScheduledAtField(
         required=False,
         allow_null=True,
-        help_text="When to send the email, in ISO 8601 with a UTC offset, such as `2026-11-20T09:00:00Z` or "
-        "`2026-11-20T10:00:00+01:00`. PostHog holds the email until then, at most 7 days after the request, and "
+        help_text="When to send the email, as `YYYY-MM-DDThh:mm:ss.sss` followed by a UTC offset, such as "
+        "`2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`. Seconds and their fraction are optional. PostHog holds the email until then, at most 7 days after the request, and "
         "rounds a finer time up to the next millisecond. A time that has passed sends the email now. Leave it out "
         "or send null to send now.",
     )

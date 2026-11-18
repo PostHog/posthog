@@ -1219,56 +1219,69 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            (f"{name}_{case}", route, scheduled_at, forwarded, answered, lead_bucket)
-            for name, route in (
-                ("template_id", "send_email"),
-                ("template_key", "code"),
-                ("template_key_form", "code_form"),
-            )
-            for case, scheduled_at, forwarded, answered, lead_bucket in (
-                (
-                    "in_ninety_minutes",
-                    "2026-11-20T09:30:00Z",
-                    "2026-11-20T09:30:00.000Z",
-                    {"status": "scheduled", "scheduled_at": "2026-11-20T09:30:00.000Z"},
-                    "<1d",
-                ),
-                (
-                    "already_passed_in_another_zone",
-                    "2026-11-20T08:30:00.250+01:00",
-                    "2026-11-20T07:30:00.250Z",
-                    {"status": "queued", "scheduled_at": None},
-                    None,
-                ),
-                (
-                    "in_microseconds",
-                    "2026-11-20T08:10:00.000001Z",
-                    "2026-11-20T08:10:00.001Z",
-                    {"status": "scheduled", "scheduled_at": "2026-11-20T08:10:00.001Z"},
-                    "<1h",
-                ),
-                (
-                    "in_tenths_of_a_microsecond",
-                    "2026-11-20T08:10:00.0010001Z",
-                    "2026-11-20T08:10:00.002Z",
-                    {"status": "scheduled", "scheduled_at": "2026-11-20T08:10:00.002Z"},
-                    "<1h",
-                ),
-                (
-                    "after_a_decimal_comma",
-                    "2026-11-20T08:10:00,0010001Z",
-                    "2026-11-20T08:10:00.002Z",
-                    {"status": "scheduled", "scheduled_at": "2026-11-20T08:10:00.002Z"},
-                    "<1h",
-                ),
-                (
-                    "seven_days_ahead",
-                    "2026-11-27T08:00:00Z",
-                    "2026-11-27T08:00:00.000Z",
-                    {"status": "scheduled", "scheduled_at": "2026-11-27T08:00:00.000Z"},
-                    "<7d",
-                ),
-            )
+            *(
+                (f"{name}_{case}", route, scheduled_at, forwarded, answered, lead_bucket)
+                for name, route in (("template_id", "send_email"), ("template_key", "code"))
+                for case, scheduled_at, forwarded, answered, lead_bucket in (
+                    (
+                        "in_ninety_minutes",
+                        "2026-11-20T09:30:00Z",
+                        "2026-11-20T09:30:00.000Z",
+                        {"status": "scheduled", "scheduled_at": "2026-11-20T09:30:00.000Z"},
+                        "<1d",
+                    ),
+                    (
+                        "already_passed_in_another_zone",
+                        "2026-11-20T08:30:00.250+01:00",
+                        "2026-11-20T07:30:00.250Z",
+                        {"status": "queued", "scheduled_at": None},
+                        None,
+                    ),
+                    (
+                        "in_microseconds",
+                        "2026-11-20T08:10:00.000001Z",
+                        "2026-11-20T08:10:00.001Z",
+                        {"status": "scheduled", "scheduled_at": "2026-11-20T08:10:00.001Z"},
+                        "<1h",
+                    ),
+                    (
+                        "in_tenths_of_a_microsecond",
+                        "2026-11-20T08:10:00.0010001Z",
+                        "2026-11-20T08:10:00.002Z",
+                        {"status": "scheduled", "scheduled_at": "2026-11-20T08:10:00.002Z"},
+                        "<1h",
+                    ),
+                    (
+                        "after_a_decimal_comma",
+                        "2026-11-20T08:10:00,0010001Z",
+                        "2026-11-20T08:10:00.002Z",
+                        {"status": "scheduled", "scheduled_at": "2026-11-20T08:10:00.002Z"},
+                        "<1h",
+                    ),
+                    (
+                        "with_an_hour_offset",
+                        "2026-11-20T10:30:00+01",
+                        "2026-11-20T09:30:00.000Z",
+                        {"status": "scheduled", "scheduled_at": "2026-11-20T09:30:00.000Z"},
+                        "<1d",
+                    ),
+                    (
+                        "seven_days_ahead",
+                        "2026-11-27T08:00:00Z",
+                        "2026-11-27T08:00:00.000Z",
+                        {"status": "scheduled", "scheduled_at": "2026-11-27T08:00:00.000Z"},
+                        "<7d",
+                    ),
+                )
+            ),
+            (
+                "template_key_form_in_microseconds",
+                "code_form",
+                "2026-11-20T08:10:00.000001Z",
+                "2026-11-20T08:10:00.001Z",
+                {"status": "scheduled", "scheduled_at": "2026-11-20T08:10:00.001Z"},
+                "<1h",
+            ),
         ]
     )
     @time_machine.travel("2026-11-20T08:00:00Z", tick=False)
@@ -1317,21 +1330,21 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            (f"{name}_{case}", route, scheduled_at, code)
-            for name, route in (
-                ("template_id", "send_email"),
-                ("template_key", "code"),
-                ("template_key_form", "code_form"),
-            )
-            for case, scheduled_at, code in (
-                ("without_an_offset", "2026-11-20T09:00:00", "no_offset"),
-                ("a_millisecond_over_seven_days", "2026-11-27T08:00:00.001Z", "scheduled_too_far"),
-                ("an_offset_past_59_minutes", "2026-11-20T09:00:00+01:99", "invalid_offset"),
-                ("an_offset_with_seconds", "2026-11-20T09:00:00+01:99:00", "invalid_format"),
-                ("a_week_date", "2026-W47-5T09:00:00Z", "invalid_format"),
-                ("a_blank_time", "", "invalid_format"),
-                ("the_last_microsecond_there_is", "9999-12-31T23:59:59.999999Z", "scheduled_too_far"),
-            )
+            *(
+                (f"{name}_{case}", route, scheduled_at, code)
+                for name, route in (("template_id", "send_email"), ("template_key", "code"))
+                for case, scheduled_at, code in (
+                    ("without_an_offset", "2026-11-20T09:00:00", "no_offset"),
+                    ("a_millisecond_over_seven_days", "2026-11-27T08:00:00.001Z", "scheduled_too_far"),
+                    ("an_offset_past_59_minutes", "2026-11-20T09:00:00+01:99", "invalid_offset"),
+                    ("an_offset_with_seconds", "2026-11-20T09:00:00+01:99:00", "invalid_format"),
+                    ("a_week_date", "2026-W47-5T09:00:00Z", "invalid_format"),
+                    ("non_ascii_digits", "2026-11-20T08:10:00,001000\u0660Z", "invalid_format"),
+                    ("a_blank_time", "", "invalid_format"),
+                    ("the_last_microsecond_there_is", "9999-12-31T23:59:59.999999Z", "scheduled_too_far"),
+                )
+            ),
+            ("template_key_form_a_blank_time", "code_form", "", "invalid_format"),
         ]
     )
     @time_machine.travel("2026-11-20T08:00:00Z", tick=False)
