@@ -40,3 +40,12 @@ def days_read_at_this_time(*, team_id: int, identifiers: list[str], now: datetim
             if read_this_hour or read_next_hour:
                 days[identifier] += 1
     return days
+
+
+def read_since(*, team_id: int, since: datetime, now: datetime) -> set[str]:
+    """Identifiers read at least once in the hours from `since` to `now`, both hours included."""
+    first_hour = since.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
+    hours = int((now - first_hour) // timedelta(hours=1)) + 1
+    keys = [_redis_key(team_id, first_hour + timedelta(hours=hour)) for hour in range(hours)]
+    members = redis.get_client().sunion(keys)
+    return {member.decode("utf-8") if isinstance(member, bytes) else str(member) for member in members}

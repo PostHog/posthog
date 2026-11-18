@@ -45,7 +45,10 @@ describe('toolResolver', () => {
             ['call --confirm feature-flag-delete {"key":"x"}'],
             ['call --json --confirm feature-flag-delete {"key":"x"}'],
             ['call --confirm --json feature-flag-delete {"key":"x"}'],
-        ])('strips --json/--confirm flags in any order before the inner tool name (%s)', (command) => {
+            ['call feature-flag-delete --json {"key":"x"}'],
+            ['call feature-flag-delete {"key":"x"} --confirm'],
+            ['call --json feature-flag-delete --confirm {"key":"x"} --json'],
+        ])('strips --json/--confirm flags before and after the inner tool name (%s)', (command) => {
             const resolved = resolveToolKey('posthog', 'exec', { command })
             expect(resolved.resolvedKey).toEqual('feature-flag-delete')
             expect(resolved.innerToolName).toEqual('feature-flag-delete')

@@ -46088,6 +46088,10 @@
                 {
                     "param": "files",
                     "key": "files"
+                },
+                {
+                    "param": "version_description",
+                    "key": "version_description"
                 }
             ],
             "injectBody": {},

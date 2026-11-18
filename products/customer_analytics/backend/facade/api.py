@@ -1378,6 +1378,10 @@ def get_account_view(
     )
 
 
+def authorize_account_view_content(content: dict[str, Any], *, team: Team, user: "User", can_query: bool) -> None:
+    _account_views_logic.authorize_account_view_content(content, team=team, user=user, can_query=can_query)
+
+
 def create_account_view(
     *, team_id: int, user_id: int, name: str, content: dict[str, Any], is_project_admin: bool
 ) -> contracts.AccountView:

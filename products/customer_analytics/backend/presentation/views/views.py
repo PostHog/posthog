@@ -59,6 +59,7 @@ from posthog.permissions import (
     get_authenticator_scopes,
     is_scout_sandbox_request,
     is_service_auth,
+    scopes_caller_lacks,
 )
 from posthog.rate_limit import RunSavedQueryRateThrottle
 from posthog.scopes.catalog import APIScopeObjectOrNotSupported
@@ -964,6 +965,12 @@ class AccountViewTemplateViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
     )
     def create(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         try:
+            api.authorize_account_view_content(
+                request.validated_data["content"],
+                team=self.team,
+                user=cast(User, request.user),
+                can_query=not scopes_caller_lacks(request, ["query:read"]),
+            )
             view = api.create_account_view(
                 team_id=self.team_id,
                 user_id=cast(User, request.user).id,
@@ -973,6 +980,8 @@ class AccountViewTemplateViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
             )
         except api.InvalidAccountViewContent as error:
             raise ValidationError({"content": error.errors})
+        except api.AccountViewPermissionDenied as error:
+            raise PermissionDenied(str(error))
         return Response(AccountViewSerializer(instance=view).data, status=status.HTTP_201_CREATED)
 
     @validated_request(
@@ -988,6 +997,13 @@ class AccountViewTemplateViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
     )
     def partial_update(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         try:
+            if "content" in request.validated_data:
+                api.authorize_account_view_content(
+                    request.validated_data["content"],
+                    team=self.team,
+                    user=cast(User, request.user),
+                    can_query=not scopes_caller_lacks(request, ["query:read"]),
+                )
             view = api.update_account_view(
                 team_id=self.team_id,
                 user_id=cast(User, request.user).id,

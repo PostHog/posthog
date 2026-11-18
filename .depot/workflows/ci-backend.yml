@@ -104,7 +104,8 @@ on:
         # Eligible source PRs run the snob-selected Django subset (one shard per active segment),
         # draft or ready; turbo-tests still skip drafts. When selection can't be
         # trusted, a ready source PR runs the full matrices and a draft skips them.
-        # Add the `run-ci-backend` label to force the full matrices on a PR; the
+        # Add the `run-ci-backend` label to force the full matrices on a PR's next run;
+        # the gate removes it once that run completes, so later pushes select again. The
         # `no-ci` label silences the workflow on a draft entirely. No
         # labeled/unlabeled triggers, so a label takes effect from the next push
         # or from ready_for_review. Every pull request event, merge-queue PRs included,
@@ -221,7 +222,7 @@ jobs:
         name: Determine need to run backend and migration checks
         # Set job outputs to values from filter step
         outputs:
-            # run-ci-backend is documented as forcing the full matrices, but every
+            # run-ci-backend is documented as forcing one full run, but every
             # gate reads this output, so the label cannot reach them while the paths
             # filter says false. Nothing under .github/ is in the backend filter, so
             # a sharding or timing script change was untestable on its own PR.
@@ -1649,15 +1650,15 @@ jobs:
               run: ./bin/hogli lint:migration-deletions < "$RUNNER_TEMP/deleted-migration-paths.txt"
             - name: Bootstrap scaffold product
               run: ./bin/hogli product:bootstrap spline_reticulator --non-interactive
-            - name: Lint product structure
-              env:
-                  CROSSINGS_LEDGER_BASE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
-              run: ./bin/hogli product:lint --all
             # Distributed owners.yaml tree: schema, product.yaml/owners.yaml
             # conflicts, dead rule globs, coverage (warn-only). No --live, so no
             # secrets — fork PRs get validated too (the --live slug check runs in
             # the fork-gated validate-product-yamls job instead).
             - parallel:
+                  - name: Lint product structure
+                    env:
+                        CROSSINGS_LEDGER_BASE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
+                    run: ./bin/hogli product:lint --all
                   - name: Lint owners.yaml files
                     run: ./bin/hogli owners:lint
                   - name: Check version specifiers
@@ -1689,7 +1690,7 @@ jobs:
                   - name: Run repo invariants (whole-repo pytest guards)
                     run: |
                         if [ -d posthog/test/repo_invariants ]; then
-                            pytest -p no:cacheprovider posthog/test/repo_invariants
+                            pytest -n 2 --dist=loadfile -p no:cacheprovider posthog/test/repo_invariants
                         else
                             pytest -p no:cacheprovider posthog/test/test_startup_import_budget.py posthog/test/test_dataclass_defaults.py
                         fi
@@ -1701,6 +1702,15 @@ jobs:
             - name: Check for test files left with no team owner
               if: github.event_name == 'pull_request'
               run: ./bin/hogli lint:test-owners --against HEAD^1 --committed
+            # A module that gains a schema branch needs its importing tests on the events_json
+            # list. The label runs every backend test on both tables, so it covers them instead.
+            # The merge queue's PR carries no labels, and the PR's own run already checked its diff.
+            - name: Check new events schema branches run on the JSON events table
+              if: >
+                  github.event_name == 'pull_request' &&
+                  !startsWith(github.head_ref, 'trunk-merge/') &&
+                  !contains(github.event.pull_request.labels.*.name, 'test-new-events-schema')
+              run: python .github/scripts/check-new-events-schema-targets.py --against HEAD^1 --committed
             # Deterministic = a static check above failed after setup completed.
             # A retry can't fix it, so this signals the cancellation gate to stop the run.
             - name: Flag deterministic failure
@@ -4434,6 +4444,35 @@ jobs:
                   echo "::warning::Could not post the gate check with its summary. Posting it without."
                   gh api "repos/$REPO/check-runs" --method POST -f name="$GATE_CHECK" \
                       -f head_sha="$SHA" -f status=completed -f conclusion="$CONCLUSION" -f details_url="$DEPOT_JOB_URL" --silent
+            - name: Mint full-run label token
+              id: full-run-label-token
+              if: >-
+                  ${{ !cancelled()
+                  && github.event_name == 'pull_request'
+                  && !startsWith(github.head_ref, 'trunk-merge/')
+                  && contains(github.event.pull_request.labels.*.name, 'run-ci-backend')
+                  && needs.changes.outputs.backend == 'true'
+                  && needs.repo-checks.outputs.deterministic_failure != 'true'
+                  && needs.check-openapi-types.outputs.deterministic_failure != 'true' }}
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+                  permission-pull-requests: write
+            - name: Remove the run-ci-backend label
+              if: ${{ !cancelled() && steps.full-run-label-token.outputs.token != '' }}
+              continue-on-error: true
+              env:
+                  GH_TOKEN: ${{ steps.full-run-label-token.outputs.token }}
+                  REPO: ${{ github.repository }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              run: |
+                  if gh api "repos/$REPO/issues/$PR_NUMBER/labels/run-ci-backend" --method DELETE --silent; then
+                      echo "Removed run-ci-backend. Add it again to force another full run."
+                  else
+                      echo "::warning::Could not remove the run-ci-backend label. Later pushes keep running the full matrices until it is removed."
+                  fi
     test-selection-verdict:
         needs: [django, turbo-tests, changes, turbo-discover]
         name: Test selection verdict

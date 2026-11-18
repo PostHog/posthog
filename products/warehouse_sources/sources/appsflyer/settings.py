@@ -134,6 +134,7 @@ APPSFLYER_ENDPOINTS: dict[str, AppsFlyerEndpointConfig] = {
         incremental_fields=list(_EVENT_TIME_INCREMENTAL_FIELDS),
         partition_key="event_time",
         partition_format="day",
+        should_sync_default=False,
     ),
     "installs_organic": AppsFlyerEndpointConfig(
         name="installs_organic",
@@ -143,6 +144,7 @@ APPSFLYER_ENDPOINTS: dict[str, AppsFlyerEndpointConfig] = {
         incremental_fields=list(_EVENT_TIME_INCREMENTAL_FIELDS),
         partition_key="event_time",
         partition_format="day",
+        should_sync_default=False,
     ),
     "installs_retargeting": AppsFlyerEndpointConfig(
         name="installs_retargeting",
@@ -152,6 +154,7 @@ APPSFLYER_ENDPOINTS: dict[str, AppsFlyerEndpointConfig] = {
         incremental_fields=list(_EVENT_TIME_INCREMENTAL_FIELDS),
         partition_key="event_time",
         partition_format="day",
+        should_sync_default=False,
     ),
     "in_app_events": AppsFlyerEndpointConfig(
         name="in_app_events",
@@ -161,6 +164,7 @@ APPSFLYER_ENDPOINTS: dict[str, AppsFlyerEndpointConfig] = {
         incremental_fields=list(_EVENT_TIME_INCREMENTAL_FIELDS),
         partition_key="event_time",
         partition_format="day",
+        should_sync_default=False,
     ),
     "in_app_events_organic": AppsFlyerEndpointConfig(
         name="in_app_events_organic",
@@ -170,6 +174,7 @@ APPSFLYER_ENDPOINTS: dict[str, AppsFlyerEndpointConfig] = {
         incremental_fields=list(_EVENT_TIME_INCREMENTAL_FIELDS),
         partition_key="event_time",
         partition_format="day",
+        should_sync_default=False,
     ),
     "in_app_events_retargeting": AppsFlyerEndpointConfig(
         name="in_app_events_retargeting",
@@ -179,6 +184,7 @@ APPSFLYER_ENDPOINTS: dict[str, AppsFlyerEndpointConfig] = {
         incremental_fields=list(_EVENT_TIME_INCREMENTAL_FIELDS),
         partition_key="event_time",
         partition_format="day",
+        should_sync_default=False,
     ),
     "uninstall_events": AppsFlyerEndpointConfig(
         name="uninstall_events",
@@ -188,6 +194,7 @@ APPSFLYER_ENDPOINTS: dict[str, AppsFlyerEndpointConfig] = {
         incremental_fields=list(_EVENT_TIME_INCREMENTAL_FIELDS),
         partition_key="event_time",
         partition_format="day",
+        should_sync_default=False,
     ),
     "blocked_installs": AppsFlyerEndpointConfig(
         name="blocked_installs",
@@ -235,6 +242,7 @@ APPSFLYER_ENDPOINTS: dict[str, AppsFlyerEndpointConfig] = {
         partition_key="event_time",
         partition_format="day",
         extra_params={"additional_fields": ",".join(_AD_REVENUE_ADDITIONAL_FIELDS)},
+        should_sync_default=False,
     ),
     "ad_revenue_organic": AppsFlyerEndpointConfig(
         name="ad_revenue_organic",
@@ -245,6 +253,7 @@ APPSFLYER_ENDPOINTS: dict[str, AppsFlyerEndpointConfig] = {
         partition_key="event_time",
         partition_format="day",
         extra_params={"additional_fields": ",".join(_AD_REVENUE_ADDITIONAL_FIELDS)},
+        should_sync_default=False,
     ),
     "ad_revenue_retargeting": AppsFlyerEndpointConfig(
         name="ad_revenue_retargeting",
@@ -255,6 +264,7 @@ APPSFLYER_ENDPOINTS: dict[str, AppsFlyerEndpointConfig] = {
         partition_key="event_time",
         partition_format="day",
         extra_params={"additional_fields": ",".join(_AD_REVENUE_ADDITIONAL_FIELDS)},
+        should_sync_default=False,
     ),
     "master_report": AppsFlyerEndpointConfig(
         name="master_report",
@@ -266,6 +276,7 @@ APPSFLYER_ENDPOINTS: dict[str, AppsFlyerEndpointConfig] = {
             "groupings": ",".join(_MASTER_GROUPINGS),
             "kpis": ",".join(_MASTER_KPIS),
         },
+        should_sync_default=False,
     ),
 }
 
@@ -275,8 +286,9 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in APPSFLYER_ENDPOINTS.items() if config.incremental_fields
 }
 
-# The Protect360 fraud reports need the Protect360 add-on, which most accounts don't buy, so they
-# start unselected instead of failing on the first sync of every new source.
+# Only the aggregate reports come with every AppsFlyer subscription. The raw-data reports, the
+# Master API report and the Protect360 reports need a package that most accounts don't have, so
+# they start unselected instead of failing on the first sync of every new source.
 SHOULD_SYNC_DEFAULT: dict[str, bool] = {
     name: config.should_sync_default for name, config in APPSFLYER_ENDPOINTS.items()
 }

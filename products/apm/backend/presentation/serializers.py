@@ -156,6 +156,43 @@ class DependenciesResponseSerializer(serializers.Serializer):
     date_to = serializers.DateTimeField(help_text="End of the window used.")
 
 
+class DeploymentsRequestSerializer(ServicesHealthRequestSerializer):
+    service = serializers.CharField(required=True, max_length=400, help_text="The service to list versions for.")
+
+
+class DeploymentVersionSerializer(serializers.Serializer):
+    version = serializers.CharField(help_text="The service.version resource attribute.")
+    first_seen = serializers.DateTimeField(help_text="First span of this version in the window.")
+    last_seen = serializers.DateTimeField(help_text="Last span of this version in the window.")
+    requests = serializers.IntegerField(help_text="Requests counted in the window.")
+    error_count = serializers.IntegerField(help_text="Requests with an error status.")
+    error_rate = serializers.FloatField(allow_null=True, help_text="Share of requests with an error status, 0 to 1.")
+    p95_ms = serializers.FloatField(allow_null=True, help_text="95th percentile request duration in milliseconds.")
+    previous_version = serializers.CharField(
+        allow_null=True, help_text="The version first seen just before this one. Null for the oldest."
+    )
+    error_rate_change = serializers.FloatField(
+        allow_null=True, help_text="Error rate minus the previous version's, as a fraction."
+    )
+    p95_change_pct = serializers.FloatField(
+        allow_null=True, help_text="Change in p95 from the previous version, in percent."
+    )
+    active = serializers.BooleanField(help_text="True for the version first seen most recently.")
+
+
+@extend_schema_serializer(many=False)
+class DeploymentsResponseSerializer(serializers.Serializer):
+    results = DeploymentVersionSerializer(many=True, help_text="One row per version, oldest first.")
+    service = serializers.CharField(help_text="The service the versions belong to.")
+    environment = serializers.CharField(
+        allow_null=True,
+        allow_blank=True,
+        help_text="The environment filter the rows were computed for: null for every environment, empty for spans with no environment.",
+    )
+    date_from = serializers.DateTimeField(help_text="Start of the window used.")
+    date_to = serializers.DateTimeField(help_text="End of the window used.")
+
+
 class EndpointTimeSpentRequestSerializer(ServicesHealthRequestSerializer):
     service = serializers.CharField(
         allow_blank=False, max_length=400, help_text="The service that handles the endpoint."
