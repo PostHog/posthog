@@ -518,11 +518,14 @@ The PR did not merge, and no person reviewed it. The stale bot closed it. Thus t
 
 Sparse-checkout is correct for small jobs, and `ci-storybook.yml`, `ci-security.yaml`, and `pr-resolve-outdated-bot-comments.yml` use it today.
 Rust parser wheel builds retain the entire `rust/` workspace so Cargo can resolve every member, plus the root `.gitignore` so Cargo can list source distribution files in a blobless checkout.
+The parser npm workflow's WASM build needs only `common/hogql_parser/` and `.github/actions/setup-emsdk/`; its CMake build downloads the ANTLR runtime separately.
 The backend timing collector uses a full checkout because its optimizer uses product directory presence to retain timings for skipped products.
 Sparse checkout enables a blobless fetch by default, which adds on-demand fetching when the collector still needs the broad `products/` tree.
 The bot IP updater needs only `bin/update-bots-list` and `nodejs/assets/bot-ips.txt`; its sparse checkout retains the tracked output so Git can detect and commit updates.
 `ci-depot-action-mirrors.yml` checks out `.depot/`, `.github/actions/`, and `depot_mirrors.py`; its Git diff still covers all changed paths.
 The Dagster path validator also uses a sparse checkout of every internal Python source file, its workflow, and the local uv action. Its import resolver needs the complete internal Python tree, including namespace packages.
+The sandbox base-image job keeps `.dockerignore` and the local `COPY` inputs of all three Dockerfiles; built skills arrive as an artifact.
+Update its sparse paths when a Dockerfile adds an input outside those directories.
 `ci-rust.yml` also uses it on the build and test jobs, but that came before this PR.
 The large Python and frontend test jobs do not use it. Their checkout is complete.
 
