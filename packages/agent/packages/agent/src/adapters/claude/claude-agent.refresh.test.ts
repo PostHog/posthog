@@ -20,6 +20,7 @@ type InitResult = {
 type SdkQueryHandle = {
   interrupt: ReturnType<typeof vi.fn>;
   setModel: ReturnType<typeof vi.fn>;
+  applyFlagSettings: ReturnType<typeof vi.fn>;
   setMcpServers: ReturnType<typeof vi.fn>;
   mcpServerStatus: ReturnType<typeof vi.fn>;
   supportedCommands: ReturnType<typeof vi.fn>;
@@ -50,6 +51,7 @@ function makeQueryHandle(): SdkQueryHandle {
   return {
     interrupt: vi.fn().mockResolvedValue(undefined),
     setModel: vi.fn().mockResolvedValue(undefined),
+    applyFlagSettings: vi.fn().mockResolvedValue(undefined),
     setMcpServers: vi.fn().mockResolvedValue(undefined),
     mcpServerStatus: vi.fn().mockResolvedValue([]),
     supportedCommands: vi.fn().mockResolvedValue([]),
@@ -537,6 +539,30 @@ describe("ClaudeAcpAgent.extMethod refresh_session", () => {
     ).rejects.toThrow(/session has ended/);
   });
 
+  it("fails the refresh when attribution cannot be disabled on the replacement", async () => {
+    const { agent } = makeAgent();
+    const { session } = installFakeSession(agent, "s-attribution-fails");
+    const init = deferInit();
+
+    const refreshPromise = agent.extMethod(POSTHOG_METHODS.REFRESH_SESSION, {
+      mcpServers: freshMcpServers,
+    });
+    const rejection = expect(refreshPromise).rejects.toThrow(
+      /Session attribution update failed/,
+    );
+    await vi.waitFor(() => expect(createdQueries).toHaveLength(1));
+    createdQueries[0].applyFlagSettings.mockRejectedValue(
+      new Error("setting rejected"),
+    );
+    init.resolve({ result: "success", commands: [], models: [] });
+    await rejection;
+
+    expect((session as unknown as { queryClosed: boolean }).queryClosed).toBe(
+      true,
+    );
+    expect(createdQueries[0].close).toHaveBeenCalled();
+  });
+
   it("swaps query/input/options and preserves session state", async () => {
     const { agent } = makeAgent();
     const { session, oldQuery, endSpy } = installFakeSession(agent, "s-2");
@@ -546,6 +572,9 @@ describe("ClaudeAcpAgent.extMethod refresh_session", () => {
     });
 
     expect(result).toEqual({ refreshed: true });
+    expect(createdQueries[0].applyFlagSettings).toHaveBeenCalledWith({
+      attribution: { commit: "", pr: "" },
+    });
     expect(oldQuery.interrupt).toHaveBeenCalledTimes(1);
     expect(endSpy).toHaveBeenCalledTimes(1);
 
