@@ -1,11 +1,14 @@
 import { useMemo } from 'react'
 
-import { LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
+import { IconEllipsis } from '@posthog/icons'
+import { LemonButton, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { AggregatedSpanRow, SpanHealthStatus } from '~/queries/schema/schema-general'
 
+import { TRACES_ALERT_PRESETS, TracesAlertPreset } from './alerting/tracesAlertPresets'
 import { formatIdentityCoverage } from './identityCoverage'
 import { formatDuration } from './TraceWaterfallView'
 import { VirtualizedTable, VirtualizedTableColumn } from './VirtualizedTable'
@@ -74,11 +77,58 @@ function healthRank(row: AggregatedSpanRow): number {
     return row.health_status ? HEALTH_ORDER.indexOf(row.health_status) : HEALTH_ORDER.length
 }
 
+function RowMenu({
+    row,
+    onCreateAlert,
+}: {
+    row: AggregatedSpanRow
+    onCreateAlert: (row: AggregatedSpanRow, preset: TracesAlertPreset) => void
+}): JSX.Element {
+    return (
+        // The row opens the operation on click and on Enter, so the menu keeps its own events.
+        // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
+        <div onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+            <LemonMenu
+                placement="bottom-end"
+                items={[
+                    {
+                        title: 'Alert on this',
+                        items: TRACES_ALERT_PRESETS.map(({ value, label }) => ({
+                            label,
+                            'data-attr': `tracing-operation-alert-${value}`,
+                            onClick: () => onCreateAlert(row, value),
+                        })),
+                    },
+                ]}
+            >
+                <LemonButton
+                    size="xsmall"
+                    icon={<IconEllipsis />}
+                    aria-label={`More options for ${row.name}`}
+                    data-attr="tracing-operation-row-menu"
+                />
+            </LemonMenu>
+        </div>
+    )
+}
+
 function buildColumns(
     windowMs: number,
     showImpact: boolean,
-    groupedByEndpoint: boolean
+    groupedByEndpoint: boolean,
+    onCreateAlert: ((row: AggregatedSpanRow, preset: TracesAlertPreset) => void) | undefined
 ): VirtualizedTableColumn<AggregatedSpanRow>[] {
+    const menuColumns: VirtualizedTableColumn<AggregatedSpanRow>[] = onCreateAlert
+        ? [
+              {
+                  key: 'actions',
+                  title: '',
+                  width: 48,
+                  render: (row) => <RowMenu row={row} onCreateAlert={onCreateAlert} />,
+              },
+          ]
+        : []
+
     const impactColumns: VirtualizedTableColumn<AggregatedSpanRow>[] = showImpact
         ? [
               {
@@ -229,6 +279,7 @@ function buildColumns(
             sorter: (a, b) => a.total_duration_nano - b.total_duration_nano,
             render: durationCell((row) => row.total_duration_nano),
         },
+        ...menuColumns,
     ]
 }
 
@@ -246,6 +297,7 @@ export interface OperationsTableProps {
     /** Rows are `METHOD route` endpoints. Must match the `groupByEndpoint` the rows were fetched with. */
     groupedByEndpoint?: boolean
     onRowClick?: (row: AggregatedSpanRow) => void
+    onCreateAlert?: (row: AggregatedSpanRow, preset: TracesAlertPreset) => void
 }
 
 export function OperationsTable({
@@ -255,10 +307,11 @@ export function OperationsTable({
     showImpact = false,
     groupedByEndpoint = false,
     onRowClick,
+    onCreateAlert,
 }: OperationsTableProps): JSX.Element {
     const columns = useMemo(
-        () => buildColumns(windowMs, showImpact, groupedByEndpoint),
-        [windowMs, showImpact, groupedByEndpoint]
+        () => buildColumns(windowMs, showImpact, groupedByEndpoint, onCreateAlert),
+        [windowMs, showImpact, groupedByEndpoint, onCreateAlert]
     )
     return (
         <VirtualizedTable<AggregatedSpanRow>
