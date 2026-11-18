@@ -163,6 +163,22 @@ export class WebReplayPlayer implements FeedPlayer {
     restart(): void {
         this.pageLoaded = false
         this.initSent = false
+        this.prepareAgain()
+    }
+
+    /**
+     * Try again after a load error. The page is still alive and does not send `loaded` again, so it gets the prepare
+     * at once and asks again for the ranges that failed. A failed listing is fetched again first.
+     */
+    retry(): void {
+        this.errorMessage = null
+        if (this.blocks === null) {
+            void this.loadBlocks()
+        }
+        this.prepareAgain()
+    }
+
+    private prepareAgain(): void {
         const key = this.preparedKey
         this.preparedKey = null
         if (key) {

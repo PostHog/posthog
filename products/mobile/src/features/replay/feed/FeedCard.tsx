@@ -943,7 +943,7 @@ function FeedCardBody({
                         <Text style={styles.errorTitle}>Could not load this recording</Text>
                         <View style={styles.errorActions}>
                             <Pressable44
-                                onPress={() => web?.restart()}
+                                onPress={() => web?.retry()}
                                 accessibilityLabel="Try again"
                                 style={styles.errorButton}
                                 pressedStyle={styles.pressed}
