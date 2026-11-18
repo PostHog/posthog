@@ -30,9 +30,8 @@ CONFIG_ATTRIBUTES = (
     "FIELD_WITH_MASKED_CONTENTS",
     "SIGNAL_EXCLUSIONS",
 )
-# A tuning module may sit anywhere in these trees, including beside a model in a core subdirectory,
-# so the guard walks them rather than globbing one level. The skipped directories hold copies of the
-# repository, not code that ships.
+# Scan broadly to catch misplaced product configs as well as configs beside core models.
+# The skipped directories hold copies of the repository, not code that ships.
 TUNING_TREES = ("posthog", "products", "ee")
 SKIP_DIRS = {"node_modules", "__pycache__", ".venv", "venv", "dist", "build", ".turbo", ".next", ".pytest_cache"}
 
@@ -87,10 +86,27 @@ class TestActivityLogConfigOwnership(SimpleTestCase):
     def test_every_config_module_in_the_tree_is_registered(self) -> None:
         registered = {_repo_path(module) for module in activity_log_config_registry.MODULES}
         in_tree = _tuning_modules_in_tree()
+        for config_path in sorted(registered | in_tree):
+            parts = Path(config_path).parts
+            if parts[0] == "products":
+                assert len(parts) == 4 and parts[2:] == ("backend", "activity_log_config.py"), (
+                    f"{config_path}: product configs must use products/<name>/backend/activity_log_config.py "
+                    'so load_product_modules("activity_log_config") can discover them.'
+                )
+
         assert registered == in_tree, (
             f"A tuning module is not registered: {sorted(in_tree - registered)}. Import it in "
-            "posthog/models/activity_logging/activity_log_config_registry.py and add it to MODULES."
+            "posthog/models/activity_logging/activity_log_config_registry.py and add it to MODULES. "
+            f"Registered modules outside the scanned config paths: {sorted(registered - in_tree)}."
         )
+
+    def test_config_modules_only_define_known_settings(self) -> None:
+        for module in activity_log_config_registry.MODULES:
+            unknown = {name for name in vars(module) if name.isupper()} - set(CONFIG_ATTRIBUTES)
+            assert not unknown, (
+                f"{_repo_path(module)}: unknown activity-log settings {sorted(unknown)}. "
+                f"Use only {', '.join(CONFIG_ATTRIBUTES)}; misspelled settings silently drop tuning."
+            )
 
     def test_the_registry_file_is_unowned(self) -> None:
         registry_path = _repo_path(activity_log_config_registry)

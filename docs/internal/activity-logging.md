@@ -66,6 +66,8 @@ The mixin, the signal, and `log_activity` are core, and they work the same for e
 ## Where the code goes
 
 One receiver module per product, connected at app start.
+Each product wires its own receiver from `apps.py`, following the convention in [#93107](https://github.com/PostHog/posthog/pull/93107).
+Core keeps no list of product receivers.
 Seventeen products follow this shape; `products/feature_flags/backend/activity_logging.py` is a complete example in one screen, and `products/stamphog/backend/activity_logging.py` is the separate-database example.
 
 | Piece           | Location                                                                                                                 | Note                                                                                                                                                  |
@@ -123,7 +125,10 @@ A receiver may resolve it further, for example a change of `deleted` from false 
 
 `changes_between` compares every model field except the ones in `common_field_exclusions` (ids, timestamps, `team`, `created_by`, and similar).
 Four registries tune it per scope.
-Core keeps them in `activity_log.py` for scopes whose model has no product owner, and every other scope keeps its entries in a data only module next to the model, such as `products/feature_flags/backend/activity_log_config.py` or `posthog/models/oauth_activity_log_config.py`.
+Core keeps them in `activity_log.py` for scopes whose model has no product owner.
+Product configs must use exactly `products/<name>/backend/activity_log_config.py`, even when the model lives in a subdirectory.
+Other product config names and locations will not load by convention.
+A core model's config sits beside it, as in `posthog/models/oauth_activity_log_config.py`, and belongs in that model's `owners.yaml` rule's `match` list.
 That placement is the point: `posthog/models/owners.yaml` and `products/<name>/product.yaml` then give the tuning to the team that owns the model, instead of to whoever owns the activity log.
 `activity_log.py` merges those modules at import and raises if one scope is tuned in two places, and `posthog/test/repo_invariants/test_activity_log_config_ownership.py` fails when a module's owners and its model's owners do not overlap.
 
@@ -134,10 +139,21 @@ The registries are:
 - `field_with_masked_contents` - record that the field changed, never its values. Use it for secrets and encrypted inputs.
 - `field_name_overrides` - rename a field in the stored change so the describer shows the user-facing label.
 
-A new scope's tuning goes next to its model as `products/<name>/backend/activity_log_config.py`, and registering it is two mechanical lines in `posthog/models/activity_logging/activity_log_config_registry.py`: an import and an entry in `MODULES`.
+The config setting names are `FIELD_EXCLUSIONS`, `FIELD_NAME_OVERRIDES`, `FIELD_WITH_MASKED_CONTENTS`, and `SIGNAL_EXCLUSIONS`.
+Omit unused settings; the invariant test rejects other uppercase names so a typo cannot silently drop tuning.
+
+Until the discovery follow-up lands, register a config in `posthog/models/activity_logging/activity_log_config_registry.py` with an import and an entry in `MODULES`.
+This core list is temporary and imports product internals that their facades do not export.
+DevEx plans to replace product registration with `posthog.products.load_product_modules("activity_log_config")`.
+That loader checks installed product apps for the named submodule on disk and imports it only where it exists, without walking the tree.
+Core already uses it for routes, scopes, data freshness, webhook consumers, integrations, and Temporal registration.
+The follow-up removes the registry file, its AST guard, and the completeness check; the owner-match check stays.
+
 That file holds nothing but those two things, and `posthog/models/owners.yaml` marks it `owners: null`, so a product registering its own tuning does not wait on the activity log's owners.
 The merge and its check for a scope tuned twice stay in `activity_log.py`, which the activity log's team owns and reviews.
-The guard tests beside the activity log fail when a config module anywhere under `posthog/`, `products/`, or `ee/` is not registered, when that registry file gains an owner, and when a scope is tuned twice.
+`posthog/test/repo_invariants/test_activity_log_config_ownership.py` scans `posthog/`, `products/`, and `ee/` to catch unregistered configs and product configs with an incorrect name or location.
+It also guards the registry's contents and ownership, rejects unknown setting names, and checks that config owners match model owners.
+A separate merge test fails when a scope is tuned twice.
 A config module holds no imports, because its contents are merged at `django.setup()` in every process.
 
 `changes_between` also reads named reverse relations.
