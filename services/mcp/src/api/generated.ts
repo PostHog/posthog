@@ -131072,6 +131072,23 @@ export namespace Schemas {
     export type _SpanResourceAttributes = {[key: string]: string};
 
     /**
+     * Event attributes. Keys are whatever the instrumentation set.
+     */
+    export type _SpanEventAttributes = {[key: string]: string};
+
+    export interface _SpanEvent {
+      /** Event name, for example `exception`. */
+      name: string;
+      /**
+         * When the event occurred. Null when the SDK did not set a time.
+         * @nullable
+         */
+      timestamp: string | null;
+      /** Event attributes. Keys are whatever the instrumentation set. */
+      attributes: _SpanEventAttributes;
+    }
+
+    /**
      * One span row as the query and trace actions return it.
      *
      * The runner assembles these from HogQL result columns by position, so the key set is fixed even
@@ -131113,23 +131130,8 @@ export namespace Schemas {
       attributes: _SpanAttributes;
       /** Resource attributes of the emitting service. Keys are whatever the instrumentation set. */
       resource_attributes: _SpanResourceAttributes;
-    }
-
-    /**
-     * Event attributes. Keys are whatever the instrumentation set.
-     */
-    export type _SpanEventAttributes = {[key: string]: string};
-
-    export interface _SpanEvent {
-      /** Event name, for example `exception`. */
-      name: string;
-      /**
-         * When the event occurred. Null when the SDK did not set a time.
-         * @nullable
-         */
-      timestamp: string | null;
-      /** Event attributes. Keys are whatever the instrumentation set. */
-      attributes: _SpanEventAttributes;
+      /** OpenTelemetry span events, earliest first. The trace action returns them, and list queries only with `includeEvents`. Omitted when `excludeAttributes` is true. */
+      events?: _SpanEvent[];
     }
 
     /**
@@ -131376,7 +131378,7 @@ export namespace Schemas {
     export type _TraceSpanResourceAttributes = {[key: string]: string};
 
     /**
-     * A span in a single trace. The trace action adds self time and span events, which the list does not return.
+     * A span in a single trace. The trace action adds self time, which the list does not return.
      */
     export interface _TraceSpan {
       /** Span's own UUID. */
@@ -131413,10 +131415,10 @@ export namespace Schemas {
       attributes: _TraceSpanAttributes;
       /** Resource attributes of the emitting service. Keys are whatever the instrumentation set. */
       resource_attributes: _TraceSpanResourceAttributes;
+      /** OpenTelemetry span events, earliest first. The trace action returns them, and list queries only with `includeEvents`. Omitted when `excludeAttributes` is true. */
+      events?: _SpanEvent[];
       /** Span duration minus the time spent in its children, in nanoseconds. */
       self_time_nano: number;
-      /** OpenTelemetry span events, earliest first. List queries return them only with `includeEvents`, and never when `excludeAttributes` is true. */
-      events?: _SpanEvent[];
     }
 
     /**
