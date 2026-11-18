@@ -2,6 +2,7 @@ import uuid
 from collections.abc import AsyncIterator
 
 import pytest
+from unittest import mock
 
 from django.conf import settings
 
@@ -67,7 +68,11 @@ def table_name() -> str:
 
 
 def _ctx(
-    table_name: str, sync_type: str, primary_keys: tuple[str, ...] = (), schema_id: str = "schema"
+    table_name: str,
+    sync_type: str,
+    primary_keys: tuple[str, ...] = (),
+    schema_id: str = "schema",
+    schema: str = "public",
 ) -> DestinationRunContext:
     return DestinationRunContext(
         team_id=1,
@@ -81,7 +86,7 @@ def _ctx(
         table_name=table_name,
         sync_type=sync_type,
         primary_keys=primary_keys,
-        config={"schema": "public"},
+        config={"schema": schema},
     )
 
 
@@ -298,6 +303,62 @@ class TestFullRefresh:
             _drop(dsn, table_name, staging_table_name(first), staging_table_name(second))
 
 
+class TestTableExistsAgainstAMissingSchema:
+    """`write_batch`'s first batch calls `_table_exists` before `_ensure_table` has had a
+    chance to run its `CREATE SCHEMA IF NOT EXISTS`, so a destination's first-ever run
+    against a schema nothing created yet must not raise out of this probe. Redshift (and
+    some Postgres error paths) report that case as `InvalidSchemaName`, worded
+    `schema "x" does not exist`, rather than `UndefinedTable`.
+    """
+
+    async def test_a_missing_schema_reads_as_the_table_missing(self) -> None:
+        ctx = _ctx("charges", "incremental", schema="metaads")
+        client = mock.AsyncMock(spec=PostgreSQLClient)
+        client.aget_table_columns.side_effect = psycopg.errors.InvalidSchemaName('schema "metaads" does not exist')
+        writer = PostgresDestinationWriter(ctx)
+
+        assert await writer._table_exists(client, "charges") is False
+
+
+class TestCatalogProbesLeaveTheConnectionIdle:
+    """`_table_comment` and `_has_unique_index_on` run their catalog lookups directly on
+    the writer's own connection, between other statements in the same `write_batch` call.
+    Left inside an open transaction, the next statement on that connection (`_ensure_table`
+    or `_ensure_unique_index`, both opening their own `transaction()`) would nest into it as
+    a savepoint instead of starting clean. Redshift has no savepoints, so that next
+    statement fails outright with "current transaction is aborted" -- for a probe that
+    already returned its answer and had nothing left to protect.
+    """
+
+    async def test_reading_a_tables_comment_leaves_the_connection_idle(self, dsn, table_name) -> None:
+        with psycopg.connect(dsn, autocommit=True) as conn:
+            conn.execute(f'CREATE TABLE public."{table_name}" (id BIGINT)')
+
+        ctx = _ctx(table_name, "incremental")
+        writer = LocalPostgresWriter(ctx, dsn)
+        try:
+            async with writer._client() as client:
+                await writer._table_comment(client, table_name)
+
+                assert client.connection.pgconn.transaction_status == psycopg.pq.TransactionStatus.IDLE
+        finally:
+            _drop(dsn, table_name)
+
+    async def test_checking_for_a_unique_index_leaves_the_connection_idle(self, dsn, table_name) -> None:
+        with psycopg.connect(dsn, autocommit=True) as conn:
+            conn.execute(f'CREATE TABLE public."{table_name}" (id BIGINT)')
+
+        ctx = _ctx(table_name, "incremental", primary_keys=("id",))
+        writer = LocalPostgresWriter(ctx, dsn)
+        try:
+            async with writer._client() as client:
+                await writer._has_unique_index_on(client, table_name, ["id"])
+
+                assert client.connection.pgconn.transaction_status == psycopg.pq.TransactionStatus.IDLE
+        finally:
+            _drop(dsn, table_name)
+
+
 class TestFullRefreshTableOwnership:
     """`table_name` is derived from the source's resource name, which a custom-source
     manifest controls. A full refresh must never take over a table it did not create just
@@ -470,6 +531,39 @@ class TestIncremental:
             with psycopg.connect(dsn, autocommit=True) as conn:
                 rows = conn.execute(f'SELECT id, extra FROM public."{table_name}" ORDER BY id').fetchall()
             assert rows == [(1, None), (2, "kept")]
+        finally:
+            _drop(dsn, table_name)
+
+    async def test_an_untyped_null_batch_column_merges_against_an_already_typed_destination_column(
+        self, dsn, table_name
+    ) -> None:
+        """Regression test: a batch whose rows are all null for a column carries no real type
+        for it -- Arrow infers such a column as `null`, which `sql_types` falls back to mapping
+        as TEXT -- but an earlier run already gave the destination column a real type (BIGINT).
+        The merge stage used to derive its own columns straight from the current batch, so this
+        run's stage would recreate the column as TEXT, and the upsert's `INSERT ... SELECT`
+        then refused to assign the stage's TEXT output into the destination's BIGINT column.
+        """
+        first_run = _ctx(table_name, "incremental", primary_keys=("id",))
+        first_writer = LocalPostgresWriter(first_run, dsn)
+        second_run = _ctx(table_name, "incremental", primary_keys=("id",))
+        second_writer = LocalPostgresWriter(second_run, dsn)
+        try:
+            typed = pa.RecordBatch.from_pydict({"id": [1], "name": ["a"], "count": [5]})
+            await first_writer.write_batch(
+                _batches(typed), DestinationBatchContext(run=first_run, batch_index=0, is_final_batch=True)
+            )
+            await first_writer.finalize_run(first_run)
+
+            untyped = pa.RecordBatch.from_pydict({"id": [2], "name": ["b"], "count": [None]})
+            await second_writer.write_batch(
+                _batches(untyped), DestinationBatchContext(run=second_run, batch_index=0, is_final_batch=True)
+            )
+            await second_writer.finalize_run(second_run)
+
+            with psycopg.connect(dsn, autocommit=True) as conn:
+                rows = conn.execute(f'SELECT id, count FROM public."{table_name}" ORDER BY id').fetchall()
+            assert rows == [(1, 5), (2, None)]
         finally:
             _drop(dsn, table_name)
 

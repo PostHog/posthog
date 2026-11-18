@@ -53,6 +53,9 @@ ORGANIZATION_PROOF_TOKEN_KEY = "organization_proof_token"
 # Set on every sender of a domain once two organizations claim it, and never cleared, so a claim that outlives the
 # other claims cannot verify from DNS records another organization published.
 ORGANIZATION_PROOF_REQUIRED_KEY = "organization_proof_required"
+# Kept apart from `verified`, because the expiry task deletes unverified senders even when workflows use them.
+SES_SENDING_STATUS_KEY = "ses_sending_status"
+SES_SENDING_FAILED = "failed"
 
 
 def _duplicate_sender_error(email_address: str) -> ValidationError:
@@ -489,10 +492,14 @@ class EmailIntegration:
 
     def _record_verification(self) -> UpdatedRows:
         original = self.integration
-        senders = row_writes.row_accessor(original).update_where(
+        same_domain = {"domain": original.config.get("domain"), "provider": original.config.get("provider", "ses")}
+        row_writes.row_accessor(original).update_where(
             original.team_id,
-            where={"domain": original.config.get("domain"), "provider": original.config.get("provider", "ses")},
-            patch=IntegrationPatch(config_patch={"verified": True}),
+            where={**same_domain, SES_SENDING_STATUS_KEY: SES_SENDING_FAILED},
+            patch=IntegrationPatch(config_remove=(SES_SENDING_STATUS_KEY,)),
+        )
+        senders = row_writes.row_accessor(original).update_where(
+            original.team_id, where=same_domain, patch=IntegrationPatch(config_patch={"verified": True})
         )
         fresh = next((sender for sender in senders.records if sender.id == original.id), None)
         if fresh is None:

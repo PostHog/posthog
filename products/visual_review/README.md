@@ -306,6 +306,8 @@ Three tables hold it:
 A run compares against the ledger at the merge-base of its commit and the default branch, with the approvals its commit contains laid over it.
 An approval is contained when the run belongs to the approval's pull request, when the run's commit includes the commit the approval was made or last reproduced on, or when it includes the newest run commit of the approval's pull request.
 So a pull request keeps its approvals across pushes, a stacked pull request sees its parent's approvals, and a merge-queue run sees the approvals of every pull request it tests.
+An approval that landed after the run's merge-base still counts, because the ledger at that merge-base does not hold its hash yet.
+That covers a merge-queue run whose earlier pull request merged while the run was in progress, and a stacked pull request that has not rebased since its parent merged.
 
 Per snapshot, the ledger's hash wins when the render matches it.
 The approved hash is used only when the render does not match the ledger.

@@ -548,6 +548,14 @@ class EarlyAccessFeatureViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             ids = parse_id_list(self.request.query_params.get("ids"), name="ids", parse=UUID)
             if ids is not None:
                 queryset = queryset.filter(id__in=ids)
+            search = self.request.query_params.get("search", "").strip()
+            if search:
+                queryset = queryset.filter(name__icontains=search)
+            created_by = parse_id_list(self.request.query_params.get("created_by_id"), name="created_by_id", parse=int)
+            if created_by:
+                queryset = queryset.filter(created_by_id__in=created_by)
+            oldest_first = self.request.query_params.get("order") == "created_at"
+            queryset = queryset.order_by(*(("created_at", "id") if oldest_first else ("-created_at", "-id")))
         return queryset
 
     @extend_schema(
@@ -558,7 +566,29 @@ class EarlyAccessFeatureViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description=f"Comma-separated early access feature IDs, at most {MAX_LISTED_IDS}.",
-            )
+            ),
+            OpenApiParameter(
+                "search",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Case-insensitive match on the feature name.",
+            ),
+            OpenApiParameter(
+                "created_by_id",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Comma-separated user IDs. Only features created by one of them are listed.",
+            ),
+            OpenApiParameter(
+                "order",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=["-created_at", "created_at"],
+                description="Sort by creation time: -created_at (default) for newest first, created_at for oldest first.",
+            ),
         ]
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:

@@ -45,7 +45,7 @@ from posthog.models.integration import posthog_connect_base_url
 from posthog.oauth_provenance import SANDBOX_ORIGIN_HEADER, is_sandbox_origin_request
 from posthog.permissions import DenyWorkloadAccessToken, get_authenticator_scopes
 from posthog.rate_limit import PostHogConnectionForwardThrottle
-from posthog.scopes import scopes_covered_by_legacy_fallback
+from posthog.scopes.checks import scopes_covered_by_legacy_fallback
 
 logger = structlog.get_logger(__name__)
 

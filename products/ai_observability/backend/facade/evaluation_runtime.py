@@ -16,6 +16,17 @@ from products.ai_observability.backend.logic.evaluations.judge_limits import (
     JUDGE_SESSION_MAX_CHARS,
     JUDGE_TRACE_MAX_CHARS,
 )
+from products.ai_observability.backend.logic.evaluations.judge_prompts import (
+    BooleanEvalResult,
+    BooleanWithNAEvalResult,
+    CategoricalEvalResult,
+    CategoricalWithNAEvalResult,
+    NumericEvalResult,
+    NumericWithNAEvalResult,
+    build_system_prompt,
+    build_user_prompt,
+    get_output_type_config,
+)
 from products.ai_observability.backend.logic.evaluations.settle import (
     INGESTION_LAG_MARGIN_SECONDS,
     SettlePlan,
@@ -30,12 +41,20 @@ from products.ai_observability.backend.logic.message_utils import (
 )
 
 __all__ = [
+    "BooleanEvalResult",
+    "BooleanWithNAEvalResult",
+    "CategoricalEvalResult",
+    "CategoricalWithNAEvalResult",
     "INGESTION_LAG_MARGIN_SECONDS",
     "JUDGE_SESSION_MAX_CHARS",
     "JUDGE_TRACE_MAX_CHARS",
+    "NumericEvalResult",
+    "NumericWithNAEvalResult",
     "SettlePlan",
     "build_hog_event_global",
+    "build_system_prompt",
     "build_trace_hog_globals",
+    "build_user_prompt",
     "coerce_hog_io_value",
     "consented_team_ids",
     "execute_hog_eval_bytecode",
@@ -43,6 +62,7 @@ __all__ = [
     "extract_event_io",
     "extract_text_from_messages",
     "format_tool_definitions",
+    "get_output_type_config",
     "hog_bytecode_references_global",
     "last_message_text",
     "resolve_settle_plan",

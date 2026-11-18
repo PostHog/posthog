@@ -44,7 +44,7 @@ export type LiveQueryRunner = (
 export interface LiveReadInput {
     profile?: LiveProjectProfile
     run: LiveQueryRunner
-    previous: LiveSnapshot
+    previous: LiveSnapshot | (() => LiveSnapshot)
     /** True when the live events service cannot count users online, so the read counts them with HogQL. */
     countUsersOnline: boolean
     pathCleaning: boolean
@@ -87,7 +87,10 @@ function answered(value: unknown): boolean {
  * every job failed.
  */
 export async function readLiveSnapshot(input: LiveReadInput): Promise<LiveReadResult<LiveSnapshot>> {
-    const { run, previous, now, signal } = input
+    const { run, now, signal } = input
+    const latestPrevious = (): LiveSnapshot =>
+        typeof input.previous === 'function' ? input.previous() : input.previous
+    let previous = latestPrevious()
     const profile = input.profile ?? previous.profile ?? { kind: 'unknown' }
     const mobile = profile.kind === 'mobile' || profile.kind === 'mixed'
     const jobs = profile.kind === 'mobile' ? JOBS.filter((key) => key !== 'browser' && key !== 'referrer') : [...JOBS]
@@ -135,6 +138,7 @@ export async function readLiveSnapshot(input: LiveReadInput): Promise<LiveReadRe
         ],
         signal
     )
+    previous = latestPrevious()
     const answers = new Map<LiveQueryKey, unknown>()
     let failure: unknown = null
     for (const [index, key] of [...keys, TOP_JOB[topMode]].entries()) {

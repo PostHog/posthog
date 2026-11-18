@@ -228,6 +228,11 @@ export type SupportFormFields = {
      * check, which stopped being expressible once triage fields were dropped.
      */
     billing_issue?: boolean
+    /**
+     * An organization admin asking about their OAuth app: its provisioning partner review, or a request to verify
+     * it. Answered on every plan, like billing questions, because the app cannot be fixed without us.
+     */
+    oauth_app_request?: boolean
     exception_event?: SupportTicketExceptionEvent
     ticket_context?: string
     isEmailFormOpen?: boolean | 'true' | 'false'
@@ -242,6 +247,7 @@ export type SupportFormFields = {
 export interface supportLogicValues {
     sidePanelAvailable: boolean // sidePanelStateLogic
     user: UserType | null // userLogic
+    earnsSupportExemption: boolean
     isBillingIssue: boolean
     isEmailFormOpen: boolean
     isErrorReport: boolean
@@ -355,6 +361,11 @@ export interface supportLogicMeta {
         title: (arg: SupportFormFields) => string
         isBillingIssue: (sendSupportRequest: SupportFormFields) => boolean
         isErrorReport: (sendSupportRequest: SupportFormFields) => boolean
+        earnsSupportExemption: (
+            isBillingIssue: boolean,
+            isErrorReport: boolean,
+            sendSupportRequest: SupportFormFields
+        ) => boolean
     }
 }
 
@@ -423,6 +434,7 @@ export const supportLogic = kea<supportLogicType>([
                 kind: 'support',
                 message: '',
                 billing_issue: false,
+                oauth_app_request: false,
             } as SupportFormFields,
             errors: ({ name, email, message }) => {
                 return {
@@ -456,11 +468,19 @@ export const supportLogic = kea<supportLogicType>([
             (s) => [s.sendSupportRequest],
             (sendSupportRequest: SupportFormFields) => !!sendSupportRequest.billing_issue,
         ],
+
         // A crash we surfaced ourselves. The error boundary offers to email an engineer, so this
         // earns a support exemption the same way a billing question does — see canCreateTicket.
         isErrorReport: [
             (s) => [s.sendSupportRequest],
             (sendSupportRequest: SupportFormFields) => !!sendSupportRequest.exception_event,
+        ],
+        // Requests answered on every plan, even one that does not include support. Billing questions and OAuth app
+        // reviews only move forward with us, and the error boundary promised an engineer would read a crash report.
+        earnsSupportExemption: [
+            (s) => [s.isBillingIssue, s.isErrorReport, s.sendSupportRequest],
+            (isBillingIssue: boolean, isErrorReport: boolean, sendSupportRequest: SupportFormFields): boolean =>
+                isBillingIssue || isErrorReport || !!sendSupportRequest.oauth_app_request,
         ],
     }),
     listeners(({ actions, props, values }) => ({
@@ -486,6 +506,7 @@ export const supportLogic = kea<supportLogicType>([
             exception_event,
             ticket_context,
             billing_issue,
+            oauth_app_request,
             target,
             ai_conversation_id,
             ai_trace_id,
@@ -500,6 +521,7 @@ export const supportLogic = kea<supportLogicType>([
                 exception_event,
                 ticket_context,
                 billing_issue: billing_issue ?? false,
+                oauth_app_request: oauth_app_request ?? false,
                 // Carried through so a PostHog AI handover still attributes the ticket it files.
                 ai_conversation_id,
                 ai_trace_id,

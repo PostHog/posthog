@@ -137,7 +137,7 @@ class TestReleaseAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
 
-    def _restrict_as_admin(self, resource_path: str) -> None:
+    def _restrict_as_admin(self, resource_path: str, endpoint: str = "access_controls", **extra: str) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
@@ -146,7 +146,9 @@ class TestReleaseAPI(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         restricted = self.client.put(
-            f"/api/projects/{self.team.id}/{resource_path}/access_controls", {"access_level": "none"}, format="json"
+            f"/api/projects/{self.team.id}/{resource_path}/{endpoint}".rstrip("/"),
+            {"access_level": "none", **extra},
+            format="json",
         )
         assert restricted.status_code == status.HTTP_200_OK, restricted.json()
 
@@ -337,6 +339,21 @@ class TestReleaseAPI(APIBaseTest):
         self.client.force_login(self._create_user("member@example.com"))
 
         assert self.client.get(self._url()).json()["results"][0]["name"] == expected
+        assert [release["name"] for release in self.client.get(self._url("catalog_releases/")).json()["results"]] == [
+            expected
+        ]
+        assert self.client.get(self._url("catalog_releases/?search=secret")).json()["results"] == []
+
+    def test_catalog_releases_search_gives_no_hint_of_restricted_generated_names(self) -> None:
+        hidden = [self._flag(key) for key in ("secret-launch", "secret-pricing")]
+        self.client.post(self._url("import_all/"))
+        for flag_id in hidden:
+            self._restrict_as_admin(f"feature_flags/{flag_id}")
+        self.client.force_login(self._create_user("member@example.com"))
+
+        response = self.client.get(self._url("catalog_releases/?search=secret&limit=1"))
+
+        assert response.json() == {"results": [], "next_cursor": None}
 
     def test_merge_moves_every_link_into_the_kept_release_and_deletes_the_others(self) -> None:
         flags = [self._flag(key) for key in ("checkout-button", "checkout-copy", "checkout-form")]
@@ -400,6 +417,89 @@ class TestReleaseAPI(APIBaseTest):
 
         assert response.status_code == expected, response.json()
         assert Release.objects.unscoped().filter(team=self.team).count() == 2
+
+    def test_catalog_flags_lists_visible_flags_newest_first_with_search_and_paging(self) -> None:
+        older = self._flag("checkout-copy")
+        newer = self._flag("checkout-button")
+        self._flag("pricing-page")
+        archived = self._flag("checkout-archived")
+        self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{archived}/",
+            {"archived": True, "active": False},
+            format="json",
+        )
+        deleted = self._flag("checkout-deleted")
+        self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{deleted}/", {"deleted": True}, format="json")
+
+        first = self.client.get(self._url("catalog_flags/?search=checkout&limit=1")).json()
+        second = self.client.get(self._url("catalog_flags/?search=checkout&limit=1&offset=1")).json()
+
+        assert [flag["id"] for flag in first["results"]] == [newer]
+        assert first["has_more"] is True
+        assert [flag["id"] for flag in second["results"]] == [older]
+        assert second["has_more"] is False
+        assert first["results"][0]["created_by"]["id"] == self.user.id
+
+        oldest = self.client.get(self._url("catalog_flags/?search=checkout&order=created_at")).json()
+        assert [flag["id"] for flag in oldest["results"]] == [older, newer]
+
+        other = self._create_user("someone@example.com")
+        assert self.client.get(self._url(f"catalog_flags/?created_by={other.id}")).json()["results"] == []
+        assert self.client.get(self._url("catalog_flags/?created_by=nope")).status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_catalog_releases_lists_newest_first_with_search_and_paging(self) -> None:
+        other = self._create_user("someone@example.com")
+        for name in ("Checkout older", "Billing", "Checkout newer"):
+            Release.objects.unscoped().create(team=self.team, name=name, owner=other if name == "Billing" else None)
+
+        first = self.client.get(self._url("catalog_releases/?search=checkout&limit=1")).json()
+        second = self.client.get(
+            self._url("catalog_releases/"), {"search": "checkout", "limit": "1", "cursor": first["next_cursor"]}
+        ).json()
+
+        assert [release["name"] for release in first["results"]] == ["Checkout newer"]
+        assert [release["name"] for release in second["results"]] == ["Checkout older"]
+        assert second["next_cursor"] is None
+        assert self.client.get(self._url("catalog_releases/?cursor=bad")).status_code == status.HTTP_400_BAD_REQUEST
+
+        oldest = self.client.get(self._url("catalog_releases/?order=created_at&limit=1")).json()
+        after = self.client.get(
+            self._url("catalog_releases/"), {"order": "created_at", "limit": "1", "cursor": oldest["next_cursor"]}
+        ).json()
+        assert [release["name"] for release in oldest["results"] + after["results"]] == ["Checkout older", "Billing"]
+
+        owned = self.client.get(self._url(f"catalog_releases/?owner={other.id}")).json()["results"]
+        assert [(release["name"], release["owner"]["id"]) for release in owned] == [("Billing", other.id)]
+
+    def test_catalog_flags_hides_flags_the_caller_cannot_see(self) -> None:
+        visible = self._flag("checkout-visible")
+        hidden = self._flag("checkout-hidden")
+        self._restrict_as_admin(f"feature_flags/{hidden}")
+        self.client.force_login(self._create_user("member@example.com"))
+
+        response = self.client.get(self._url("catalog_flags/"))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [flag["id"] for flag in response.json()["results"]] == [visible]
+
+    def test_catalog_flags_lists_flags_granted_one_by_one_without_resource_access(self) -> None:
+        granted = self._flag("checkout-granted")
+        self._flag("checkout-other")
+        member = self._create_user("member@example.com")
+        self._restrict_as_admin("resource_access_controls", endpoint="", resource="feature_flag")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        grant = self.client.put(
+            f"/api/projects/{self.team.id}/feature_flags/{granted}/access_controls",
+            {"organization_member": str(membership.id), "access_level": "viewer"},
+            format="json",
+        )
+        assert grant.status_code == status.HTTP_200_OK, grant.json()
+        self.client.force_login(member)
+
+        response = self.client.get(self._url("catalog_flags/"))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [flag["id"] for flag in response.json()["results"]] == [granted]
 
     def test_update_of_a_missing_release_returns_404(self) -> None:
         response = self.client.patch(

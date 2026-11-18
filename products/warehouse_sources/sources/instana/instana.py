@@ -20,7 +20,6 @@ from products.warehouse_sources.sources.instana.settings import (
     METRICS_MAX_LOOKBACK_DAYS,
     METRICS_WINDOW_MS,
     PAGE_SIZE,
-    SNAPSHOTS_MAX_SIZE,
     InstanaEndpointConfig,
     InstanaFanOutConfig,
 )
@@ -109,6 +108,8 @@ class InstanaResumeConfig:
     next_page: int | None = None
     # Next `offset` to fetch for offset/limit-paginated endpoints. Instana counts it in pages.
     next_offset: int | None = None
+    # Next `offset` to fetch for the audit and access logs, which count it in rows.
+    next_row_offset: int | None = None
     # Epoch-ms start of the next `/api/events` window chunk.
     events_window_from: int | None = None
     # Epoch-ms start of the metrics window being walked; `next_page` is the page within it.
@@ -399,6 +400,48 @@ def _get_offset_rows(
         resumable_source_manager.save_state(InstanaResumeConfig(next_offset=offset))
 
 
+def _get_row_offset_rows(
+    session: requests.Session,
+    root: str,
+    config: InstanaEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[InstanaResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Walk an offset/pageSize-paginated log (audit and access logs) until `total` rows are read.
+
+    Unlike the synthetics endpoints, the log `offset` is a row index into the result set. The
+    server may cap `pageSize` below what we ask for, so a short page doesn't mean the end: the
+    offset advances by the rows actually returned, and only `total` or an empty page stops it.
+    """
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    offset = resume.next_row_offset if resume is not None and resume.next_row_offset is not None else 0
+    if offset:
+        logger.debug(f"Instana: resuming {config.name} from offset={offset}")
+
+    pages_walked = 0
+    walk_deadline = time.monotonic() + MAX_CATALOG_WALK_SECONDS
+    while True:
+        _check_walk_bounds(config, walk_deadline, pages_walked)
+        url = _build_url(root, config.path, {"offset": offset, "pageSize": PAGE_SIZE})
+        data = _fetch(session, url, logger)
+        pages_walked += 1
+
+        items = _extract_items(data, config)
+        if not items:
+            break
+
+        offset += len(items)
+        total = data.get("total") if isinstance(data, dict) else None
+        has_more = not isinstance(total, int) or offset < total
+        if has_more:
+            resumable_source_manager.save_state(InstanaResumeConfig(next_row_offset=offset))
+
+        yield items
+
+        if not has_more:
+            break
+
+
 def _metric_rows(item: dict[str, Any], entity_key: str) -> list[dict[str, Any]]:
     """Pivot one metrics item into a row per timestamp, one column per metric.
 
@@ -568,10 +611,11 @@ def _get_list_rows(
     """Fetch a single-shot list endpoint (websites, alerting settings, snapshots, releases, ...)."""
     url = _build_url(root, config.path, dict(config.extra_params))
     items = _extract_items(_fetch(session, url, logger), config)
-    if config.name == "infrastructure_snapshots" and len(items) >= SNAPSHOTS_MAX_SIZE:
+    size_cap = config.extra_params.get("size")
+    if size_cap is not None and len(items) >= int(size_cap):
         logger.warning(
-            f"Instana: infrastructure_snapshots returned {len(items)} items, hitting the size cap "
-            f"({SNAPSHOTS_MAX_SIZE}) — the inventory may be truncated"
+            f"Instana: {config.name} returned {len(items)} items, hitting the size cap "
+            f"({size_cap}) — the inventory may be truncated"
         )
     if items:
         yield items
@@ -622,6 +666,8 @@ def get_rows(
         yield from _get_paged_rows(session, root, config, logger, resumable_source_manager)
     elif config.pagination == "offset":
         yield from _get_offset_rows(session, root, config, logger, resumable_source_manager)
+    elif config.pagination == "row_offset":
+        yield from _get_row_offset_rows(session, root, config, logger, resumable_source_manager)
     else:
         yield from _get_list_rows(session, root, config, logger)
 

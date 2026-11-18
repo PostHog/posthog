@@ -102,6 +102,24 @@ def test_broker_visibility_timeout(env: dict[str, str], expected: dict[str, int]
     assert getattr(celery_settings, "CELERY_BROKER_TRANSPORT_OPTIONS", None) == expected
 
 
+@pytest.mark.parametrize(
+    "env,expected",
+    [
+        ({}, 0),
+        ({"CELERY_BROKER_POOL_LIMIT": "10"}, 10),
+    ],
+)
+@pytest.mark.usefixtures("reload_celery_settings")
+def test_broker_pool_limit(env: dict[str, str], expected: int) -> None:
+    with mock.patch.dict(os.environ, env):
+        if not env:
+            # patch.dict restores the variable afterwards, so a value exported in the shell can't leak in.
+            os.environ.pop("CELERY_BROKER_POOL_LIMIT", None)
+        importlib.reload(celery_settings)
+
+    assert celery_settings.CELERY_BROKER_POOL_LIMIT == expected
+
+
 def test_rewritten_url_verifies_certificate_and_hostname_in_every_client() -> None:
     url = celery_settings.with_tls_verification("rediss://:secret@broker:6379?ssl_cert_reqs=CERT_REQUIRED")
     assert url is not None

@@ -51,7 +51,9 @@ describe('toolbar actionsLogic', () => {
     beforeEach(() => {
         installFetchMock()
         initKeaTests()
-        toolbarConfigLogic.build({ apiURL: 'http://localhost', accessToken: 'test-token' }).mount()
+        toolbarConfigLogic
+            .build({ apiURL: 'http://localhost', accessToken: 'test-token', teamId: 2, projectId: 1 })
+            .mount()
         logic = actionsLogic()
         logic.mount()
     })
