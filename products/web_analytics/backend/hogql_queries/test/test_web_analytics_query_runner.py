@@ -12,6 +12,7 @@ from parameterized import parameterized
 
 from posthog.schema import (
     ActionConversionGoal,
+    CompareFilter,
     CustomEventConversionGoal,
     DateRange,
     EventPropertyFilter,
@@ -32,6 +33,7 @@ from posthog.models.scoping import team_scope
 from products.actions.backend.facade.testing import create_action
 from products.data_tools.backend.models.expression import DataWarehouseExpression
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import compute_shape_key
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
 
 
@@ -334,3 +336,22 @@ class TestWebAnalyticsDatabaseBuild(ClickhouseTestMixin, APIBaseTest):
             runner.calculate()
 
         assert create_for.called == builds_full_database
+
+
+class TestWebAnalyticsQueryExecutedEvent(ClickhouseTestMixin, APIBaseTest):
+    def test_query_executed_event_carries_shape_key_ignoring_range_compare_and_precompute_toggle(self) -> None:
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="-30d"),
+            compareFilter=CompareFilter(compare=True),
+            properties=[],
+            useWebAnalyticsPrecompute=True,
+        )
+
+        with mock.patch("posthog.hogql_queries.query_runner.report_user_or_team_action") as report:
+            WebOverviewQueryRunner(team=self.team, query=query).run()
+
+        (props,) = [c.args[1] for c in report.call_args_list if c.args[0] == "query executed"]
+        expected = compute_shape_key(
+            WebOverviewQuery(dateRange=DateRange(date_from="-7d"), properties=[]), self.team.timezone, []
+        )
+        assert props["shape_key"] == expected

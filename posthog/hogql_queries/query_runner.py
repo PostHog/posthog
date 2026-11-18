@@ -2948,6 +2948,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         phase_times = compute_phase_times(self.timings.to_dict(), before=self._timings_before_run)
         query_executed_props = {
             **query_run.event_properties(self.modifiers),
+            **self._runner_event_properties(),
             "cache_hit": isinstance(results, self.cached_response_type),
             "cache_age_override": self._cache_age_override,
             **self._staleness_event_properties(),
@@ -2985,6 +2986,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             )
             query_failed_props = {
                 **query_run.event_properties(self.modifiers),
+                **self._runner_event_properties(),
                 "calculation_trigger": query_run.trigger,
                 "failed_in": phase.name,
                 "outcome": "refused" if refused else "failed",
@@ -3210,6 +3212,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             phase_times = compute_phase_times(self.timings.to_dict(), before=self._timings_before_run)
             query_executed_props = {
                 **query_run.event_properties(self.modifiers),
+                **self._runner_event_properties(),
                 "cache_hit": False,
                 "last_refresh": last_refresh.isoformat(),
                 "cache_write_success": stored,
@@ -3591,6 +3594,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return False
 
     def _staleness_event_properties(self) -> dict[str, Any]:
+        return {}
+
+    def _runner_event_properties(self) -> dict[str, Any]:
         return {}
 
     def _cache_entry_with_freshness(self, response: dict[str, Any]) -> dict[str, Any]:
