@@ -7,18 +7,15 @@ steps by the stored size of the columns they read. It has a size for a path of a
 with many parts. Without it, two filters on one JSON column tie, and a tie keeps the order of the query. A filter
 that parses a whole property then runs before a filter that reads one small value, when the query wrote it first.
 
-A fast filter compares one path of a native JSON column with constants, and no part of it can fail to convert. The
-read is text, or the conversion that the property type pass wraps around a Numeric or a Boolean property, which gives
-NULL for a value that does not convert. Each constant already has the type of the read, or is decimal text that
-ClickHouse parses into a number. Such a filter cannot raise on any row, so it is safe to run before a filter that the
-query wrote first. A filter that converts can raise when it first runs on a row: ``properties.plan::int > 0`` on a
-value that is not a number, or ``properties.plan = 5``, where ClickHouse finds no common type for text and a number.
-That filter keeps its written order, and so does every other filter, so a filter that guards a later conversion still
-runs before it. The position of a fast filter against filters on other columns changes nothing, because ClickHouse
-orders those by column size.
+A fast filter compares one path of a native JSON column with constants. Its read is bare, or wrapped in conversions that
+give NULL for a value they cannot convert, so it cannot fail on one row and pass on another. That makes it safe to run
+before a filter that the query wrote first. A filter that can fail on some rows, such as ``properties.plan::int > 0``,
+keeps its written order, and so does every other filter, so a filter that guards a later conversion still runs before
+it. A fast filter can hold a constant that ClickHouse cannot compare with the read, such as ``properties.plan = 5`` on
+text. That filter matches no row wherever it runs, so the move can only make a query that returns nothing report the
+error. The position of a fast filter against filters on other columns changes nothing, because ClickHouse orders those
+by column size.
 """
-
-import re
 
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
@@ -38,73 +35,35 @@ _COMPARISONS_WITH_CONSTANTS = frozenset(
         ast.CompareOperationOp.NotIn,
     }
 )
-_COMPARISONS_WITH_A_LIST = frozenset({ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn})
 
-_DECIMAL_TEXT = re.compile(r"-?\d+(\.\d+)?")
-
-
-def _without_alias(expr: ast.Expr) -> ast.Expr:
-    while isinstance(expr, ast.Alias):
-        expr = expr.expr
-    return expr
+# None of these fails on a value: HogQL prints the conversions so that a value they cannot convert becomes NULL. The
+# property type pass wraps them around a typed property, and a Boolean one is `toBool(transform(toString(...), ...))`.
+_CONVERSIONS = frozenset({"toFloat", "toDateTime", "toString", "toBool", "transform"})
 
 
-def _typed_property_read(expr: ast.Expr) -> tuple[ast.PropertyAccess, type] | None:
-    """The property read in `expr` with the Python type of its value, when the read cannot raise.
+def _property_read(expr: ast.Expr) -> ast.Expr:
+    """`expr` without the aliases and the conversions around it.
 
-    A bare read is text. The other two shapes are the conversions that the property type pass wraps around a Numeric
-    and a Boolean property, and both give NULL for a value that does not convert. Any other call or cast around a
-    property does not match, because it can raise, or because one of its arguments can.
+    A conversion with an argument that is not a constant stays, because that argument can fail on a row.
     """
-    # The resolver wraps a field in a hidden alias: around the conversion of the type pass, and inside a call that the
-    # query wrote.
-    expr = _without_alias(expr)
-    value_type: type = str
-    match expr:
-        case ast.Call(name="toFloat", args=[read]):
-            expr, value_type = _without_alias(read), float
-        case ast.Call(
-            name="toBool",
-            args=[
-                ast.Call(
-                    name="transform",
-                    args=[
-                        ast.Call(name="toString", args=[read]),
-                        ast.Constant(value=["true", "false"]),
-                        ast.Constant(value=[1, 0]),
-                        ast.Constant(value=None),
-                    ],
-                )
-            ],
+    while True:
+        if isinstance(expr, ast.Alias):
+            expr = expr.expr
+        elif (
+            isinstance(expr, ast.Call)
+            and expr.name in _CONVERSIONS
+            and expr.args
+            and all(isinstance(arg, ast.Constant) for arg in expr.args[1:])
         ):
-            expr, value_type = _without_alias(read), bool
-    return (expr, value_type) if isinstance(expr, ast.PropertyAccess) else None
+            expr = expr.args[0]
+        else:
+            return expr
 
 
-def _compared_values(term: ast.CompareOperation) -> list[object] | None:
-    """The constant values on the right of `term`, or None when the right side holds anything else.
-
-    Only IN and NOT IN take a list. The query writes it as a tuple or an array, or passes it as one constant.
-    """
-    right = term.right
-    exprs = [right]
-    if term.op in _COMPARISONS_WITH_A_LIST:
-        if isinstance(right, ast.Constant) and isinstance(right.value, (list, tuple)):
-            return list(right.value)
-        if isinstance(right, (ast.Tuple, ast.Array)):
-            exprs = right.exprs
-    constants = [expr for expr in exprs if isinstance(expr, ast.Constant)]
-    return [constant.value for constant in constants] if len(constants) == len(exprs) else None
-
-
-def _has_type(value: object, value_type: type) -> bool:
-    if value is None:
-        return True
-    if value_type is float:
-        return isinstance(value, (int, float)) or (
-            isinstance(value, str) and _DECIMAL_TEXT.fullmatch(value) is not None
-        )
-    return isinstance(value, value_type)
+def _is_constant(expr: ast.Expr) -> bool:
+    if isinstance(expr, (ast.Tuple, ast.Array)):
+        return all(isinstance(item, ast.Constant) for item in expr.exprs)
+    return isinstance(expr, ast.Constant)
 
 
 def _reads_a_json_column_path(property_read: ast.PropertyAccess, context: HogQLContext) -> bool:
@@ -123,15 +82,11 @@ def _reads_a_json_column_path(property_read: ast.PropertyAccess, context: HogQLC
 def _is_fast_property_filter(term: ast.Expr, context: HogQLContext) -> bool:
     if not isinstance(term, ast.CompareOperation) or term.op not in _COMPARISONS_WITH_CONSTANTS:
         return False
-    typed_read = _typed_property_read(term.left)
-    if typed_read is None:
-        return False
-    property_read, value_type = typed_read
-    values = _compared_values(term)
+    property_read = _property_read(term.left)
     return (
-        values is not None
+        isinstance(property_read, ast.PropertyAccess)
         and len(property_read.keys) == 1
-        and all(_has_type(value, value_type) for value in values)
+        and _is_constant(term.right)
         and _reads_a_json_column_path(property_read, context)
     )
 

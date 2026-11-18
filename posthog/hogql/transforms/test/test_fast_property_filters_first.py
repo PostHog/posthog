@@ -11,7 +11,7 @@ from posthog.hogql.property_metadata import PropertyMetadata
 from posthog.hogql.transforms.property_types import PropertySwapper
 from posthog.hogql.visitor import TraversingVisitor
 
-MARKERS = {"deep": "deep", "fast": "fast", "other": "other", 7: "seven", "7": "seven"}
+MARKERS = {"deep": "deep", "fast": "fast", "other": "other", 7: "seven", "2026-01-01": "date"}
 
 
 class _MarkerOrder(TraversingVisitor):
@@ -83,16 +83,6 @@ class TestFastPropertyFiltersFirst(SimpleTestCase):
                 "properties.query.kind = 'deep' AND transform(properties.plan, ['fast'], [1], event::int) > 7",
                 ["deep", "fast", "seven"],
             ),
-            (
-                "constant_of_another_type_stays",
-                "properties.query.kind = 'deep' AND properties.plan = 7",
-                ["deep", "seven"],
-            ),
-            (
-                "list_compared_for_equality_stays",
-                "properties.query.kind = 'deep' AND properties.plan = ['fast']",
-                ["deep", "fast"],
-            ),
         ]
     )
     def test_filter_order_on_the_native_table(self, _name: str, where: str, expected: list[str]) -> None:
@@ -107,16 +97,15 @@ class TestFastPropertyFiltersFirst(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("number_moves", "properties.duration > 7", ["seven", "deep"]),
-            ("number_written_as_text_moves", "properties.duration > '7'", ["seven", "deep"]),
-            ("text_that_is_not_a_number_stays", "properties.duration > 'fast'", ["deep", "fast"]),
-            ("boolean_moves", "properties.active = true", ["true", "deep"]),
+            ("number", "properties.duration > 7", ["seven", "deep"]),
+            ("boolean", "properties.active = true", ["true", "deep"]),
+            ("date", "properties.signed_up > '2026-01-01'", ["date", "deep"]),
         ]
     )
-    def test_a_comparison_of_a_typed_property(self, _name: str, comparison: str, expected: list[str]) -> None:
+    def test_a_comparison_of_a_typed_property_is_fast(self, _name: str, comparison: str, expected: list[str]) -> None:
         order = self._filter_order(
             f"properties.query.kind = 'deep' AND {comparison}",
-            property_types={"duration": "Numeric", "active": "Boolean"},
+            property_types={"duration": "Numeric", "active": "Boolean", "signed_up": "DateTime"},
         )
         assert order == expected
 
