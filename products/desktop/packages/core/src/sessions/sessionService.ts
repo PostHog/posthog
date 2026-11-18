@@ -2369,10 +2369,12 @@ export class SessionService {
       const persistedFastMode =
         fastOpt?.type === "select" ? fastOpt.currentValue === "on" : undefined;
 
+      let workspaceMissing = false;
       this.d.trpc.workspace.verify
         .query({ taskId })
         .then((workspaceResult) => {
           if (!workspaceResult.exists) {
+            workspaceMissing = true;
             this.d.log.warn("Workspace no longer exists", {
               taskId,
               missingPath: workspaceResult.missingPath,
@@ -2383,6 +2385,7 @@ export class SessionService {
                 ? `Working directory no longer exists: ${workspaceResult.missingPath}`
                 : "The working directory for this task no longer exists. Please start a new session.",
             });
+            this.stopLocalRunHeartbeat(taskRunId);
           }
         })
         .catch((err) => {
@@ -2455,7 +2458,9 @@ export class SessionService {
           configOptions,
           ...readCapabilities(result),
         });
-        this.startLocalRunHeartbeat(taskRunId);
+        if (!workspaceMissing) {
+          this.startLocalRunHeartbeat(taskRunId);
+        }
 
         // Persist the merged config options
         if (configOptions) {
