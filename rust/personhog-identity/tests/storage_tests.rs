@@ -1,13 +1,13 @@
 mod common;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::time::Duration;
 
 use chrono::{TimeZone, Utc};
 use common::TestContext;
 use uuid::Uuid;
 
-use personhog_common::persons::person_uuid;
+use personhog_common::persons::{person_uuid, Person};
 use personhog_identity::config::OutboxWrites;
 use personhog_identity::storage::{AttachOutcome, IdentityStorage, PersonStub, StubOutcome};
 
@@ -743,21 +743,57 @@ async fn duplicate_batch_keys_against_tombstones_do_not_error() {
 }
 
 #[tokio::test]
-async fn resolve_returns_only_existing_keys() {
+async fn resolve_returns_only_live_keys_alone_and_in_a_batch() {
     let ctx = TestContext::new().await;
     let person_id = ctx.insert_person_with_distinct_id("known").await;
+    ctx.insert_person_with_distinct_id("dead-mapping").await;
+    ctx.tombstone_distinct_id("dead-mapping", 5).await;
+    let dead_person = ctx.insert_person_with_distinct_id("dead-person").await;
+    ctx.tombstone_person(dead_person, 5).await;
 
-    let resolved = ctx
+    let keys: Vec<(i64, String)> = ["known", "unknown", "dead-mapping", "dead-person"]
+        .into_iter()
+        .map(|distinct_id| (ctx.team_id, distinct_id.to_string()))
+        .collect();
+    let in_a_batch = ctx
         .storage
-        .resolve_distinct_ids(&[
-            (ctx.team_id, "known".to_string()),
-            (ctx.team_id, "unknown".to_string()),
-        ])
+        .resolve_distinct_ids(&keys)
         .await
         .expect("resolve should succeed");
+    let mut alone = HashMap::new();
+    for key in &keys {
+        alone.extend(
+            ctx.storage
+                .resolve_distinct_ids(std::slice::from_ref(key))
+                .await
+                .expect("resolve should succeed"),
+        );
+    }
 
-    assert_eq!(resolved.len(), 1);
-    assert_eq!(resolved[&(ctx.team_id, "known".to_string())].id, person_id);
+    let fields = |resolved: &HashMap<(i64, String), Person>| {
+        resolved
+            .iter()
+            .map(|(key, p)| {
+                let person = (
+                    p.id,
+                    p.uuid,
+                    p.team_id,
+                    p.created_at,
+                    p.version,
+                    p.is_identified,
+                    p.is_user_id,
+                    p.last_seen_at,
+                );
+                (key.clone(), person)
+            })
+            .collect::<BTreeSet<_>>()
+    };
+    assert_eq!(fields(&alone), fields(&in_a_batch));
+    assert_eq!(in_a_batch.len(), 1);
+    assert_eq!(
+        in_a_batch[&(ctx.team_id, "known".to_string())].id,
+        person_id
+    );
 
     ctx.cleanup().await.ok();
 }
@@ -795,15 +831,18 @@ async fn resolve_does_not_lock_person_partitions_outside_the_batch() {
     .await
     .expect("lock should succeed");
 
-    let resolved = tokio::time::timeout(
-        Duration::from_secs(5),
-        ctx.storage
-            .resolve_distinct_ids(&[(ctx.team_id, "pruned".to_string())]),
-    )
-    .await
-    .expect("resolve waited on a person partition its batch does not touch")
-    .expect("resolve should succeed");
-    assert_eq!(resolved[&(ctx.team_id, "pruned".to_string())].id, person_id);
+    let pruned = (ctx.team_id, "pruned".to_string());
+    let absent = (ctx.team_id, "pruned-absent".to_string());
+    for keys in [vec![pruned.clone()], vec![pruned.clone(), absent]] {
+        let resolved = tokio::time::timeout(
+            Duration::from_secs(5),
+            ctx.storage.resolve_distinct_ids(&keys),
+        )
+        .await
+        .expect("resolve waited on a person partition its batch does not touch")
+        .expect("resolve should succeed");
+        assert_eq!(resolved[&pruned].id, person_id);
+    }
 
     blocker.rollback().await.ok();
     ctx.cleanup().await.ok();
