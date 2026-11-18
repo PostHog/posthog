@@ -107,7 +107,9 @@ async def compute_intent_clusters_activity(inputs: IntentClusteringWorkflowInput
     with team_scope(canonical_team_id, canonical=True):
         async with Heartbeater():
             team, user = await _resolve_team_and_user(inputs.team_id, inputs.user_id)
-            async with mcp_analytics_api.registered_intent_writer_async(team, purpose="legacy_snapshot"):
+            async with mcp_analytics_api.registered_intent_writer_async(
+                team, purpose="legacy_snapshot"
+            ) as begin_writes:
                 snapshot = await _mark_computing(team, user)
 
                 try:
@@ -179,6 +181,8 @@ async def compute_intent_clusters_activity(inputs: IntentClusteringWorkflowInput
                         team, lookback_days=inputs.lookback_days
                     )
                     activity.heartbeat("fetched corpus")
+                    # Everything above only read sources; from here the run writes intent-derived data.
+                    begin_writes()
 
                     if not records:
                         await database_sync_to_async(_save_empty_blob)(snapshot, corpus_stats, window_stats, recurring)

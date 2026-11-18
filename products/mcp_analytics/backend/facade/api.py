@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from contextlib import AbstractAsyncContextManager
 from datetime import datetime
 from typing import Literal
@@ -227,7 +227,7 @@ def get_intent_cluster_snapshot(
     return logic.get_intent_cluster_snapshot(team, user=user, tool=tool)
 
 
-def registered_intent_writer_async(team: Team, *, purpose: str) -> AbstractAsyncContextManager[None]:
+def registered_intent_writer_async(team: Team, *, purpose: str) -> AbstractAsyncContextManager[Callable[[], None]]:
     return intent_erasure_writers.registered_intent_writer_async(team, purpose=purpose)
 
 
