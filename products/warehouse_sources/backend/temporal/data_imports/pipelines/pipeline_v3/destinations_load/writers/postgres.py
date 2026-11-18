@@ -377,8 +377,11 @@ class PostgresDestinationWriter:
         with_batch_index: bool,
         primary_keys: list[str] | None = None,
     ) -> None:
-        async with self._write_cursor(client) as cursor:
-            await cursor.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(self._schema)))
+        # `CREATE SCHEMA IF NOT EXISTS` needs CREATE on the database even when the schema exists,
+        # so it runs only for a missing schema.
+        if not await self._schema_exists(client):
+            async with self._write_cursor(client) as cursor:
+                await cursor.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(self._schema)))
 
         fields = self._fields_for(schema, with_batch_index=with_batch_index)
         # Declared at creation rather than added later, so the merge target carries its own
@@ -473,13 +476,18 @@ class PostgresDestinationWriter:
                                 )
                             )
 
-                        await self._ensure_table(
-                            client,
-                            target,
-                            batch.schema,
-                            with_batch_index=full_refresh,
-                            primary_keys=list(run.primary_keys) if run.is_incremental and not full_refresh else None,
-                        )
+                        # `CREATE TABLE IF NOT EXISTS` needs CREATE on the schema even when the
+                        # table exists, so a login that can only write into its tables skips it.
+                        if not table_existed:
+                            await self._ensure_table(
+                                client,
+                                target,
+                                batch.schema,
+                                with_batch_index=full_refresh,
+                                primary_keys=list(run.primary_keys)
+                                if run.is_incremental and not full_refresh
+                                else None,
+                            )
                         await self._evolve_table(client, target, batch.schema)
                         if full_refresh:
                             # This batch may be a re-apply after a crash, so clear whatever its
@@ -795,6 +803,16 @@ class PostgresDestinationWriter:
                             sql.Literal(published_marker(ctx.schema_id, ctx.run_uuid)),
                         )
                     )
+
+    async def _schema_exists(self, client: PostgreSQLClient) -> bool:
+        # See `_has_unique_index_on`: demarcated so this probe's implicit transaction closes
+        # before the next statement on the connection can nest a savepoint into it.
+        async with client.connection.transaction():
+            async with client.connection.cursor() as cursor:
+                await cursor.execute(
+                    "SELECT 1 FROM pg_catalog.pg_namespace WHERE nspname = %(schema)s", {"schema": self._schema}
+                )
+                return await cursor.fetchone() is not None
 
     async def _table_exists(self, client: PostgreSQLClient, table: str) -> bool:
         # The probe batch exports uses. `information_schema.tables` would be the obvious
