@@ -38,6 +38,10 @@ export const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAA
 // Matches an existing `ses:tags` attribute so our link tag can be merged into its value.
 const SES_TAGS_ATTR_REGEX = /\bses:tags\s*=\s*(?:"([^"]*)"|'([^']*)'|([^'">\s]+))/i
 
+// A `>` inside a quoted value does not end the tag, or the SES attributes land inside the URL. A quote
+// starts a value only right after `=`, as in an HTML parser, so an apostrophe in an unquoted href is text.
+const OPENING_TAG_REGEX = /^<a\b(?:[^>=]|=[\t\n\f\r ]*(?:"[^"]*"|'[^']*'|[^\t\n\f\r >"'=][^\t\n\f\r >]*)?)*>/i
+
 /**
  * How anchors in the email body are prepared for click attribution.
  *
@@ -249,7 +253,7 @@ export const addTrackingToEmail = (
         // app deeplinks resolve - routing through our cross-domain redirect breaks them.
         // Match only the opening <a> tag so a marker in the link's inner HTML (a child
         // element's attribute or literal link text) can't silently disable tracking.
-        const openingTag = m.match(/^<a\b[^>]*>/i)?.[0] ?? ''
+        const openingTag = m.match(OPENING_TAG_REGEX)?.[0] ?? ''
         const optedOut = allLinksOptedOut || hasClickTrackingOptOut(openingTag)
 
         if (mode === 'ses') {
