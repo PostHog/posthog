@@ -9,7 +9,7 @@ interface PreferencesPage {
     path: string
     productNewsId: string
     eventInvitesId: string
-    storedPreferences: () => Promise<Record<string, string> | undefined>
+    storedPreferences: (optedOutOf?: string) => Promise<Record<string, string> | undefined>
 }
 
 async function createPreferencesPage(page: Page, playwrightSetup: PlaywrightSetup): Promise<PreferencesPage> {
@@ -42,12 +42,12 @@ async function createPreferencesPage(page: Page, playwrightSetup: PlaywrightSetu
     expect(linkResponse.ok()).toBe(true)
     const path = new URL((await linkResponse.json()).preferences_url).pathname
 
-    // The opt-out list only returns recipients who opted out of the given topic. The test turns
-    // Event invites off first and keeps it off, so this list returns the recipient's full row.
-    const storedPreferences = async (): Promise<Record<string, string> | undefined> => {
+    // The opt-out list only returns recipients who opted out of the given topic. Most steps keep
+    // Event invites off, so the list for that topic returns the recipient's full row.
+    const storedPreferences = async (optedOutOf = 'event_invites'): Promise<Record<string, string> | undefined> => {
         const response = await page.request.get(`${api}/messaging_preferences/opt_outs/`, {
             headers,
-            params: { search: RECIPIENT, category_key: 'event_invites' },
+            params: { search: RECIPIENT, category_key: optedOutOf },
         })
         expect(response.ok()).toBe(true)
         return (await response.json()).results[0]?.preferences
@@ -218,11 +218,13 @@ test.describe('Message preferences page', () => {
             await expect.poll(() => heldSaves.length).toBe(1)
             await expect(status(productNewsId)).toHaveText('Saving…')
             await allMarketing.click()
-            await expect.poll(() => heldSaves.length).toBe(2)
 
+            // The page may send the second save at once or only after the first one returns.
+            // Each save is held until the test releases it, so the topic save always commits first.
             const topicSaved = recipientPage.waitForResponse(UPDATE_URL)
             heldSaves[0]()
             await topicSaved
+            await expect.poll(() => heldSaves.length).toBe(2)
             const allOffSaved = recipientPage.waitForResponse(UPDATE_URL)
             heldSaves[1]()
             await allOffSaved
@@ -265,6 +267,9 @@ test.describe('Message preferences page', () => {
                 if (!startsSubscribed) {
                     await productNews.click()
                     await expect(status(productNewsId)).toHaveText(savedText)
+                    await expect
+                        .poll(() => storedPreferences('product_news'))
+                        .toEqual({ $all: 'OPTED_IN', [productNewsId]: 'OPTED_OUT', [eventInvitesId]: 'OPTED_IN' })
                 }
 
                 await recipientPage.route(

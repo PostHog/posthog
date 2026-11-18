@@ -245,12 +245,14 @@ class TestPlaywrightSpecSelection(unittest.TestCase):
         for changed in (
             [template],
             ["frontend/public/message-preferences.css"],
+            ["products/messaging/frontend/e2e/message-preferences.spec.ts"],
             [
                 template,
                 "products/messaging/backend/tests/fixtures/resend_account.json",
                 "products/messaging/backend/services/test_customerio_sync_service.py",
                 "products/messaging/backend/test_example.py",
                 "products/messaging/backend/conftest.py",
+                "products/messaging/backend/api/conftest.py",
             ],
         ):
             with self.subTest(changed=changed):
