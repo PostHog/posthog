@@ -17,8 +17,9 @@ from temporalio import activity
 
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.github_integration_base import GitHubIntegrationError
-from posthog.models.integration import GitHubIntegration
+from posthog.models.integration import GitHubIntegration, GitLabIntegration, GitLabIntegrationError
 from posthog.models.user_integration import ReauthorizationRequired
 from posthog.temporal.common.utils import asyncify
 
@@ -112,7 +113,8 @@ from products.tasks.backend.temporal.process_task.utils import (
     run_gateway_env_vars,
 )
 
-from .get_task_processing_context import TaskProcessingContext
+from .get_task_processing_context import CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY, TaskProcessingContext
+from .persist_agent_memory import MemoryEventIdentity, restore_agent_memory_into_sandbox
 
 logger = logging.getLogger(__name__)
 SANDBOX_CREATION_CANCELLATION_WAIT_SECONDS = 10
@@ -149,6 +151,7 @@ class PrepareSandboxForRepositoryOutput:
     snapshot_source: str = "none"
     sandbox_creation_timeout_seconds: int = 300
     sandbox_creation_cancellable: bool = False
+    gitlab_token: str = ""
 
 
 @dataclass
@@ -167,6 +170,7 @@ class CreateSandboxForRepositoryOutput:
     jwt_kid: str | None = None
     ttl_expires_at: str | None = None
     dev_stack_preview_sized: bool = False
+    custom_image_fallback_reason: str | None = None
 
 
 @frozen
@@ -188,6 +192,7 @@ class GetSandboxForRepositoryOutput:
     agent_invoke_ms: int | None = None
     dev_stack_preview_sized: bool = False
     agent_shadow_launched: bool = False
+    custom_image_fallback_reason: str | None = None
 
 
 @dataclass
@@ -200,13 +205,14 @@ class CheckoutBranchInSandboxOutput:
     checkout_ms: int | None = None
 
 
-@dataclass
+@dataclass(frozen=False)
 class CloneRepositoryInSandboxInput:
     context: TaskProcessingContext
     sandbox_id: str
     repository: str
     github_token: str
     shallow_clone: bool
+    gitlab_token: str = ""
 
 
 @dataclass
@@ -491,12 +497,43 @@ def _resolve_sandbox_github_token(
         )
 
 
+def _resolve_sandbox_gitlab_token(ctx: TaskProcessingContext) -> str:
+    """The token a GitLab run clones and pushes with, or an empty string for any other run.
+
+    A repo-less run, such as a code-access-exempt Inbox chat, never gets one.
+    """
+    if ctx.repository_integration_id is None or not ctx.repositories:
+        return ""
+    error_context = {"repository_integration_id": ctx.repository_integration_id, "task_id": ctx.task_id}
+    try:
+        gitlab = GitLabIntegration(IntegrationManager.gitlab.token.get(ctx.team_id, ctx.repository_integration_id))
+        # The agent holds the token, so only the connected project's access token may reach it.
+        # Checked on every run, because the connection's token can be replaced after the task exists.
+        if not gitlab.token_reaches_only_connected_project():
+            raise CredentialUnavailableError(
+                "The GitLab token is not the connected project's access token", error_context, cause=None
+            )
+        return gitlab.credentials.access_token().token
+    except GitLabIntegrationError as e:
+        if e.transient:
+            raise ProcessTaskTransientError(
+                "GitLab is unavailable while checking the task's token", error_context, cause=e
+            )
+        raise CredentialUnavailableError(
+            "The GitLab connection for this task is missing or unusable", error_context, cause=e
+        )
+    except IntegrationNotFound as e:
+        raise CredentialUnavailableError(
+            "The GitLab connection for this task is missing or unusable", error_context, cause=e
+        )
+    except requests.RequestException as e:
+        raise ProcessTaskTransientError("Couldn't reach GitLab to check the task's token", error_context, cause=e)
+
+
 @StepTimer("load_task")
 def _load_task(ctx: TaskProcessingContext) -> Task:
     try:
-        task = Task.objects.select_related("created_by", "github_integration", "github_user_integration", "team").get(
-            id=ctx.task_id
-        )
+        task = Task.objects.select_related("created_by", "github_user_integration", "team").get(id=ctx.task_id)
     except Task.DoesNotExist as e:
         raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)
     context_ownership_version = (ctx.state or {}).get(TASK_OWNERSHIP_VERSION_STATE_KEY)
@@ -564,7 +601,7 @@ def _sandbox_image_kind(image_source: str, custom_image_name: str | None) -> str
 
 @StepTimer("environment_variables")
 def _build_environment_variables(
-    ctx: TaskProcessingContext, task: Task, github_token: str, access_token: str
+    ctx: TaskProcessingContext, task: Task, github_token: str, access_token: str, gitlab_token: str = ""
 ) -> dict[str, str]:
     environment_variables = {
         "POSTHOG_PERSONAL_API_KEY": access_token,
@@ -596,6 +633,10 @@ def _build_environment_variables(
     if github_token:
         environment_variables["GITHUB_TOKEN"] = github_token
         environment_variables["GH_TOKEN"] = github_token
+    if gitlab_token:
+        # The agent reads these to push with plain git and open merge requests through the GitLab API.
+        environment_variables["POSTHOG_GIT_PROVIDER"] = "gitlab"
+        environment_variables["GITLAB_TOKEN"] = gitlab_token
 
     # BASH_ENV is intentionally NOT set in the container env: it's applied only to the
     # agent-server launch (see the sandbox services) so backend maintenance execs don't source
@@ -755,6 +796,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         github_token = _resolve_sandbox_github_token(
             ctx, task=task, actor_user=actor_user, repository=credential_repository, has_repo=has_repo
         )
+        gitlab_token = _resolve_sandbox_gitlab_token(ctx)
 
         try:
             with StepTimer("posthog_access_token"):
@@ -766,7 +808,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
                 cause=e,
             )
 
-        environment_variables = _build_environment_variables(ctx, task, github_token, access_token)
+        environment_variables = _build_environment_variables(ctx, task, github_token, access_token, gitlab_token)
 
         resume_snapshot_external_id = run_state.snapshot_external_id
         if resume_snapshot_external_id:
@@ -830,6 +872,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
             sandbox_name=get_sandbox_name_for_task(ctx.task_id),
             repository=repository,
             github_token=github_token,
+            gitlab_token=gitlab_token,
             branch=ctx.branch,
             environment_variables=environment_variables,
             snapshot_id=str(snapshot.id) if snapshot and not resume_snapshot_external_id else None,
@@ -1025,6 +1068,20 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
             sandbox,
             compare_with_pin=_pin_governs_sandbox_agent(ctx, config, used_snapshot=actual_used_snapshot),
         )
+        custom_image_fallback_reason: str | None = None
+        if (
+            config.custom_image_name
+            and (ctx.state or {}).get("custom_image_id")
+            and not (ctx.state or {}).get(CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY)
+            and (sandbox.config.image_fallback or "").endswith("-> base image")
+        ):
+            custom_image_fallback_reason = "boot_failed"
+            try:
+                TaskRun.update_state_atomic(
+                    ctx.run_id, updates={CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY: custom_image_fallback_reason}
+                )
+            except Exception:
+                logger.warning("Failed to persist custom image fallback reason", extra={"run_id": ctx.run_id})
         try:
             if config.outbound_domain_allowlist is not None:
                 log_with_activity_context("Modal sandbox created with network policy requested", run_id=ctx.run_id)
@@ -1089,6 +1146,20 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
                 TaskRun.clear_sandbox_connection_state_atomic(ctx.run_id, sandbox.id)
             raise
 
+        # Every agent-server launch path runs after this activity returns, so the agent cannot
+        # observe or race a half-written memory directory.
+        if ctx.persist_agent_memory_enabled and ctx.task_created_by_id is not None:
+            with StepTimer("agent_memory_restore"):
+                restore_agent_memory_into_sandbox(
+                    sandbox,
+                    run_id=ctx.run_id,
+                    team_id=ctx.team_id,
+                    user_id=ctx.task_created_by_id,
+                    identity=MemoryEventIdentity(
+                        distinct_id=ctx.distinct_id, organization_id=ctx.organization_id, team_uuid=ctx.team_uuid
+                    ),
+                )
+
         log_with_activity_context(f"Sandbox provisioned: {sandbox.id}", run_id=ctx.run_id)
         activity.logger.info(f"Created sandbox {sandbox.id} (used_snapshot={actual_used_snapshot})")
 
@@ -1101,6 +1172,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
             ttl_expires_at=(sandbox_created_at + timedelta(seconds=sandbox.config.ttl_seconds)).isoformat(),
             jwt_kid=jwt_kid,
             dev_stack_preview_sized=ctx.dev_stack_preview_enabled,
+            custom_image_fallback_reason=custom_image_fallback_reason,
         )
 
 
@@ -1163,9 +1235,10 @@ async def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) 
     raise cancellation
 
 
-def _redact_clone_output(output: str, github_token: str | None) -> str:
-    if github_token:
-        output = output.replace(github_token, "<redacted>")
+def _redact_clone_output(output: str, *tokens: str | None) -> str:
+    for token in tokens:
+        if token:
+            output = output.replace(token, "<redacted>")
     return redact_sandbox_command(output)[:500]
 
 
@@ -1214,6 +1287,7 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
                 shallow=input.shallow_clone,
                 branch=ctx.branch if is_resume else None,
                 blobless=blobless_clone,
+                gitlab_token=input.gitlab_token,
             )
 
             if is_resume and ctx.branch and _is_missing_remote_branch_clone_error(clone_result):
@@ -1228,12 +1302,17 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
                     shallow=input.shallow_clone,
                     branch=None,
                     blobless=blobless_clone,
+                    gitlab_token=input.gitlab_token,
                 )
 
             if clone_result.exit_code != 0:
-                stderr = _redact_clone_output(clone_result.stderr, github_token)
-                stdout = _redact_clone_output(clone_result.stdout, github_token)
-                execution_error = _redact_clone_output(clone_result.error, github_token) if clone_result.error else None
+                stderr = _redact_clone_output(clone_result.stderr, github_token, input.gitlab_token)
+                stdout = _redact_clone_output(clone_result.stdout, github_token, input.gitlab_token)
+                execution_error = (
+                    _redact_clone_output(clone_result.error, github_token, input.gitlab_token)
+                    if clone_result.error
+                    else None
+                )
                 error_context = {
                     "repository": input.repository,
                     "sandbox_id": input.sandbox_id,
@@ -1375,8 +1454,7 @@ def checkout_branch_in_sandbox(input: CheckoutBranchInSandboxInput) -> CheckoutB
         log_with_activity_context(f"Checking out branch {input.branch}", run_id=ctx.run_id)
         sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
 
-        org, repo = input.repository.lower().split("/")
-        repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+        repo_path = sandbox_repo_path(input.repository)
 
         if input.used_snapshot and input.github_token:
             update_remote = (
@@ -1542,8 +1620,9 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
 
         # Every clone embeds the token in its own `origin`, so a multi-repository run has to rewrite
         # each of them or the secondary checkouts keep the snapshot's expired token.
+        gitlab_token = _resolve_sandbox_gitlab_token(ctx)
         for repository in ctx.repositories or ([input.repository] if input.repository else []):
-            set_git_remote_token(sandbox, repository, github_token or None)
+            set_git_remote_token(sandbox, repository, github_token or None, gitlab_token=gitlab_token or None)
 
         # Replace both credential domains even when resolution returns no token,
         # so revoked credentials cannot survive in a resumed filesystem snapshot.

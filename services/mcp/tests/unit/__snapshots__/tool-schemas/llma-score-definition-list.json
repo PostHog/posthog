@@ -5,9 +5,18 @@
             "description": "Filter by archived state.",
             "type": "boolean"
         },
+        "calculation": {
+            "description": "Filter reported or composite scorers.\n\n* `reported` - Reported\n* `composite` - Composite",
+            "enum": ["composite", "reported"],
+            "type": "string"
+        },
         "created_by": {
             "description": "Filter by the creator's user ID.",
             "type": "number"
+        },
+        "input_definition_id": {
+            "description": "Find current composite scorers that depend on this input scorer.",
+            "type": "string"
         },
         "kind": {
             "description": "Filter by scorer kind.",

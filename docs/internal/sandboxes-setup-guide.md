@@ -15,6 +15,11 @@ flag for every team, and builds the agent skills bundle.
 > workspace and app once this guide is working — see
 > [slack-local-setup-guide.md](./slack-local-setup-guide.md).
 
+## Test egress identity
+
+Run `go -C products/tasks/services/egress-proxy test -race ./...` from the repository root.
+See the [egress README](../../products/tasks/services/egress-proxy/README.md) for local and Temporal cloud probes, behavior and limits.
+
 ## GitHub App
 
 Each engineer needs their own GitHub App. The setup command will print these
@@ -133,6 +138,8 @@ ends bypasses heartbeat throttling so a quick follow-up cannot look idle.
 Activity during snapshot capture or replacement startup abandons the handoff and
 keeps the live sandbox. The event relay stays active until startup finishes, and
 an abandoned handoff with new activity requests a fresh snapshot.
+For workflow histories with the `tasks-end-run-at-sandbox-limit` patch, a run that stays on its sandbox ends when the sandbox reaches its time limit.
+If the session was saved, the run ends as soon as the agent is idle and no message is queued, so the task can start a new run.
 Directory resume snapshots cover `/tmp/workspace`, including nested Git worktrees
 and agent state. Paths outside that directory are not included.
 Cloud launches set `POSTHOG_AGENT_STATE_DIR=/tmp/workspace/.posthog/agent-state`.
@@ -339,9 +346,9 @@ An explicit Full request also runs after an active Flash review when that head s
 Turning the setting off stops future and pending automatic starts; a running review finishes.
 Automatic Flash uses your existing severity threshold and never resolves comments or changes the PR branch.
 
-The switch sets your `default_review_mode` preference to `flash` or `follow` through `PATCH /api/projects/<project_id>/review_hog/settings/`.
-Project admins choose which repositories the project reviews, and who gets automatic Flash there, through the `review_hog/project_settings`, `review_hog/installation_claims`, and `review_hog/repositories` endpoints.
-Any project member can turn a repository on through `review_hog/repositories`: include it into the project's selection, raise its exception, or turn its draft reviews on.
+The switch sets your `default_review_mode` preference to `flash` or `follow` through `PATCH /api/projects/<project_id>/code_review/settings/`.
+Project admins choose which repositories the project reviews, and who gets automatic Flash there, through the `code_review/project_settings`, `code_review/installation_claims`, and `code_review/repositories` endpoints.
+Any project member can turn a repository on through `code_review/repositories`: include it into the project's selection, raise its exception, or turn its draft reviews on.
 Turning a repository down or removing it stays with admins.
 
 The Code review settings page calls automatic reviews **Standard** and requested reviews **Deep**.

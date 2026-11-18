@@ -58,6 +58,7 @@ from products.signals.backend.filter_catalog import (
     SignalFilterCatalogVersion as SignalFilterCatalogVersion,
     SignalFilterSourceDefinition as SignalFilterSourceDefinition,
 )
+from products.signals.backend.filter_state import SignalSourceFilterState as SignalSourceFilterState
 from products.signals.backend.rated_usage_models import SignalRatedUsage as SignalRatedUsage
 from products.signals.backend.report_checks import MAX_CHECK_TITLE_LENGTH
 from products.signals.backend.report_monitoring_aggregation import MonitoringAggregation
@@ -257,6 +258,9 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     onboarding = models.JSONField(null=True, blank=True)
     default_autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P4)
     default_slack_notification_channel = models.CharField(max_length=255, null=True, blank=True)
+    default_slack_notification_min_priority = models.CharField(
+        max_length=2, choices=AutonomyPriority, null=True, blank=True
+    )
     # The workspace that owns the channel. A team can connect several Slack workspaces, and a channel
     # id from one of them fails in every other. Null on rows saved before the binding existed.
     # A plain id rather than a foreign key, so readers treat an id of a deleted workspace as unbound.
@@ -265,6 +269,9 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     scout_instructions = models.TextField(null=True, blank=True)
     research_instructions = models.TextField(null=True, blank=True)
     implementation_instructions = models.TextField(null=True, blank=True)
+    scout_custom_image_id = models.UUIDField(null=True, blank=True)
+    research_custom_image_id = models.UUIDField(null=True, blank=True)
+    implementation_custom_image_id = models.UUIDField(null=True, blank=True)
     # Daily cap on reports surfacing to the inbox, counted against SignalReport.first_visible_at
     # within the project-timezone day. Once reached, the whole generation pipeline pauses until
     # local midnight (see daily_limit.py). Null means unlimited.
@@ -580,6 +587,12 @@ class SignalReport(UUIDModel):
                 fields=["team", "first_visible_at"],
                 condition=models.Q(first_visible_at__isnull=False),
                 name="signals_report_first_visible",
+            ),
+            # Partial: the stuck-research sweep reads IN_PROGRESS reports across all teams by run start.
+            models.Index(
+                fields=["last_run_at"],
+                condition=models.Q(status="in_progress"),
+                name="signals_report_in_progress",
             ),
             # Partial: the per-user daily create cap counts one member's reports from the start of the day.
             models.Index(
@@ -1475,6 +1488,29 @@ class SignalEmissionRecord(UUIDModel):
                 fields=["team", "source_product", "source_type"],
                 name="signals_emission_lookup_idx",
             ),
+        ]
+
+
+class SignalGroupingRecord(TeamScopedRootMixin, UUIDModel):
+    """Marks a signal as assigned to a report.
+
+    Grouping retries a failed batch, and the failure can come after the assignment committed.
+    The assign step checks this row first, so a retry cannot count the signal on its report again.
+    """
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    signal_id = models.UUIDField()
+    report_id = models.UUIDField()
+    # A retry emits the signal document again with this timestamp, so ClickHouse deduplicates it.
+    emitted_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "signal_id"], name="signals_grouping_record_unique"),
+        ]
+        indexes = [
+            models.Index(fields=["created_at"], name="signals_grouping_rec_created"),
         ]
 
 
@@ -3187,6 +3223,7 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # the flag goes off. Free-form rather than a choices list: the model catalog changes
     # without deploys, and `model_selection` already treats an unroutable id defensively.
     model = models.CharField(max_length=200, null=True, blank=True)
+    custom_image_id = models.UUIDField(null=True, blank=True)
     # Optional destinations for each finding or report this scout emits. Kept as a typed JSON object at
     # the API boundary so adding another destination does not require another pair of nullable
     # config columns. A Slack destination is active only when its integration and a target — a channel,
@@ -3386,12 +3423,7 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
                     touched.add("status_changed_at")
             if fields is not None:
                 kwargs["update_fields"] = fields | touched
-        from products.signals.backend.trial.scouts import (
-            scout_capacity,  # noqa: PLC0415 -- capacity policy depends on this model
-        )
-
-        with scout_capacity(self):
-            super().save(*args, **kwargs)
+        super().save(*args, **kwargs)
 
     @classmethod
     def _pause_reasons_share_writer(cls, current: str | None, incoming: "SignalScoutConfig.PauseReason") -> bool:
@@ -3749,6 +3781,39 @@ class SignalScoutEmission(TeamScopedRootMixin, UUIDModel):
         default_manager_name = "all_teams"
         indexes = [
             models.Index(fields=["team", "scout_run"], name="signal_scout_emission_run_idx"),
+        ]
+
+
+class SignalScoutPendingTrigger(TeamScopedRootMixin, UUIDModel):
+    """A workflow "Run scout" fire that arrived while its scout was busy, waiting for a run.
+
+    Written when the workflow cooldown or the in-flight gate turns a fire away, and deleted when a
+    run takes it: the coordinator attaches it to a due scheduled run, or dispatches one
+    workflow-triggered run carrying every pending fire of the lane. See
+    `scout_harness/workflow_trigger_queue.py`. Rows exist only while a fire waits, so the table
+    stays small and the coordinator can read all of it each tick.
+    """
+
+    # See SignalScoutConfig.all_teams for rationale: the coordinator drains with no team scope set.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    # No single-column index: the lane index below leads with team_id.
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False, related_name="+"
+    )
+    skill_name = models.CharField(max_length=200)
+    # The note the step rendered from its triggering event. Blank means the event fired with no note.
+    note = models.TextField(blank=True, default="")
+    # The HogFlow whose step fired. Not a foreign key: workflows belong to another product.
+    workflow_id = models.CharField(max_length=64, null=True, blank=True)
+    received_at = models.DateTimeField()
+
+    class Meta:
+        verbose_name = "Signal scout pending trigger"
+        verbose_name_plural = "Signal scout pending triggers"
+        default_manager_name = "all_teams"
+        indexes = [
+            models.Index(fields=["team", "skill_name", "received_at"], name="signal_scout_pending_lane_idx"),
         ]
 
 

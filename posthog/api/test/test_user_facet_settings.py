@@ -6,8 +6,9 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.user_facet_settings import UserFacetSettingsEntrySerializer
-from posthog.models import UserFacetSettings
+from posthog.models import Organization, UserFacetSettings
 from posthog.models.scoping import team_scope
+from posthog.test.id_jag import id_jag_access_token
 
 
 class TestUserFacetSettingsEntrySerializer(SimpleTestCase):
@@ -25,6 +26,20 @@ class TestUserFacetSettingsEntrySerializer(SimpleTestCase):
 
 
 class TestUserFacetSettingsAPI(APIBaseTest):
+    def test_id_jag_token_cannot_write_another_organizations_current_project(self) -> None:
+        token = id_jag_access_token(self.user, self.organization, "user:write")
+        _, _, other_team = Organization.objects.bootstrap(self.user)
+        self.user.current_team = other_team
+        self.user.save()
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        response = self.client.patch("/api/user_facet_settings/@me/?product=logs", {"custom_facets": []}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        with team_scope(other_team.id):
+            self.assertFalse(UserFacetSettings.objects.filter(user=self.user, team_id=other_team.id).exists())
+
     def test_missing_product_query_param_returns_400(self):
         response = self.client.get("/api/user_facet_settings/@me/")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

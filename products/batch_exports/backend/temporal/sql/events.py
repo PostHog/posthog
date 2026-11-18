@@ -299,86 +299,6 @@ SETTINGS
 )
 
 
-SELECT_FROM_EVENTS_VIEW_UNBOUNDED = Template(
-    """
-SELECT
-    $fields
-FROM (
-    SELECT DISTINCT ON (team_id, event, cityHash64(events.distinct_id), cityHash64(events.uuid))
-        team_id AS team_id,
-        timestamp AS timestamp,
-        event AS event,
-        distinct_id AS distinct_id,
-        toString(uuid) AS uuid,
-        COALESCE(inserted_at, _timestamp) AS _inserted_at,
-        created_at AS created_at,
-        elements_chain AS elements_chain,
-        toString(person_id) AS person_id,
-        nullIf(properties, '') AS properties,
-        nullIf(person_properties, '') AS person_properties,
-        nullIf(JSONExtractString(properties, '$set'), '') AS set,
-        nullIf(JSONExtractString(properties, '$set_once'), '') AS set_once
-    FROM
-        events
-    PREWHERE
-        COALESCE(events.inserted_at, events._timestamp) >= {interval_start:DateTime64}
-        AND COALESCE(events.inserted_at, events._timestamp) < {interval_end:DateTime64}
-    WHERE
-        team_id = {team_id:Int64}
-        AND (length({include_events:Array(String)}) = 0 OR event IN {include_events:Array(String)})
-        AND (length({exclude_events:Array(String)}) = 0 OR event NOT IN {exclude_events:Array(String)})
-        $filters
-    $order
-) AS events
-FORMAT ArrowStream
-SETTINGS
-    -- This is half of configured MAX_MEMORY_USAGE for batch exports.
-    max_bytes_before_external_sort=50000000000,
-    optimize_aggregation_in_order=1
-"""
-)
-
-
-EXPORT_TO_S3_FROM_EVENTS_UNBOUNDED = Template(
-    """
-INSERT INTO FUNCTION $s3_function
-SELECT
-    $fields
-FROM (
-    SELECT DISTINCT ON (team_id, event, cityHash64(events.distinct_id), cityHash64(events.uuid))
-        team_id AS team_id,
-        timestamp AS timestamp,
-        event AS event,
-        distinct_id AS distinct_id,
-        toString(uuid) AS uuid,
-        COALESCE(inserted_at, _timestamp) AS _inserted_at,
-        created_at AS created_at,
-        elements_chain AS elements_chain,
-        toString(person_id) AS person_id,
-        nullIf(properties, '') AS properties,
-        nullIf(person_properties, '') AS person_properties,
-        nullIf(JSONExtractString(properties, '$set'), '') AS set,
-        nullIf(JSONExtractString(properties, '$set_once'), '') AS set_once
-    FROM
-        events
-    PREWHERE
-        COALESCE(events.inserted_at, events._timestamp) >= {interval_start:DateTime64}
-        AND COALESCE(events.inserted_at, events._timestamp) < {interval_end:DateTime64}
-    WHERE
-        team_id = {team_id:Int64}
-        AND (length({include_events:Array(String)}) = 0 OR event IN {include_events:Array(String)})
-        AND (length({exclude_events:Array(String)}) = 0 OR event NOT IN {exclude_events:Array(String)})
-        $filters
-) AS events
-SETTINGS
-    -- This is half of configured MAX_MEMORY_USAGE for batch exports.
-    max_bytes_before_external_sort=50000000000,
-    optimize_aggregation_in_order=1,
-    log_comment=%(log_comment)s
-"""
-)
-
-
 SELECT_FROM_EVENTS_VIEW_BACKFILL = Template(
     """
 SELECT
@@ -485,14 +405,8 @@ SETTINGS
 
 # `toJSONString` prints a stored dotted key as `a%2Eb` unless the query sets `json_type_escape_dots_in_keys`,
 # which is why the native query's SETTINGS carry it.
-_PROPERTIES_DOCUMENT = event_document_sql(
-    "properties",
-    "properties_null_keys",
-    "temporary_properties",
-    "temporary_properties_null_keys",
-    "properties.`$feature_flags`",
-)
-_PERSON_PROPERTIES_DOCUMENT = person_document_sql("person_properties", "person_properties_null_keys")
+_PROPERTIES_DOCUMENT = event_document_sql("properties", "temporary_properties", "properties.`$feature_flags`")
+_PERSON_PROPERTIES_DOCUMENT = person_document_sql("person_properties")
 SERIALIZED_EVENTS_JSON_SOURCE = """(
     SELECT *,
         nullIf(JSONExtractRaw(properties, '$set'), '') AS set,

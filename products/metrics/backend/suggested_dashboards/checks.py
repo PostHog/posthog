@@ -118,7 +118,7 @@ def attribute_profile(team: Team, metric_names: Sequence[str]) -> dict[str, Attr
         query_type="MetricsDashboardAttributeProfile",
         query=query,
         team=team,
-        workload=Workload.LOGS,
+        workload=Workload.METRICS,
         settings=_QUERY_SETTINGS,
     )
     return {
@@ -166,7 +166,7 @@ def one_to_one(team: Team, metric_names: Sequence[str], first: str, second: str)
         query_type="MetricsDashboardVariablePair",
         query=query,
         team=team,
-        workload=Workload.LOGS,
+        workload=Workload.METRICS,
         settings=_QUERY_SETTINGS,
     )
     first_count, second_count, pairs, together, apart = (int(value) for value in response.results[0])

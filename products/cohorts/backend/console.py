@@ -1,3 +1,4 @@
+import re
 from collections import deque
 from io import TextIOBase
 
@@ -5,13 +6,23 @@ from django import forms
 from django.contrib import messages
 from django.core.management import CommandError, call_command
 from django.http import HttpRequest, HttpResponse
+from django.urls import reverse
 
 import structlog
 
-from posthog.admin.console.panels import Owner
+from posthog.admin.console.panels import Owner, Tone
 from posthog.admin.console.registry import console
-from posthog.admin.console.tools import ConsoleTool, Notice, Output, Page, ToolOperation
+from posthog.admin.console.tools import Cell, ConsoleTool, Notice, Output, Page, Row, Table, ToolOperation
 from posthog.management.commands.resave_cohorts import IncompleteResaveError
+from posthog.utils import pluralize
+
+from products.cohorts.backend.facade.api import (
+    MAX_STATIC_COHORT_RESYNCS,
+    StaticCohortResyncCandidate,
+    StaticCohortResyncSkipReason,
+    get_static_cohort_resync_candidates,
+    queue_static_cohort_resyncs,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -98,13 +109,125 @@ def resave_cohorts(request: HttpRequest, form: forms.Form | None) -> HttpRespons
     return None
 
 
+class ResyncStaticCohortsForm(forms.Form):
+    cohorts = forms.CharField(
+        label="Cohort IDs",
+        widget=forms.Textarea(attrs={"rows": 4}),
+        help_text=(
+            "One cohort ID per line, or separated by commas. Pick cohorts in the Django admin list and choose "
+            "Re-sync static cohort from source query to fill this in."
+        ),
+    )
+    reason = forms.CharField(widget=forms.Textarea(attrs={"rows": 3}), help_text="Goes into the audit log.")
+
+    def clean_cohorts(self) -> list[int]:
+        tokens = re.findall(r"[^,\s]+", self.cleaned_data["cohorts"])
+        if not tokens:
+            raise forms.ValidationError("Enter at least one cohort ID.")
+        if len(tokens) > MAX_STATIC_COHORT_RESYNCS:
+            raise forms.ValidationError(f"Enter {MAX_STATIC_COHORT_RESYNCS} cohort IDs or fewer.")
+        cohort_ids: list[int] = []
+        for token in tokens:
+            try:
+                cohort_ids.append(int(token))
+            except ValueError:
+                raise forms.ValidationError(f"{token} is not a cohort ID.")
+        return list(dict.fromkeys(cohort_ids))
+
+
+SKIP_REASONS: dict[StaticCohortResyncSkipReason, str] = {
+    "not_found": "no cohort has this ID",
+    "not_static": "not static",
+    "no_source_query": "no source query",
+}
+
+
+def _cohort_label(candidate: StaticCohortResyncCandidate) -> str:
+    if candidate.name:
+        return f"cohort {candidate.cohort_id} ({candidate.name})"
+    return f"cohort {candidate.cohort_id}"
+
+
+def _count_text(count: int | None) -> str:
+    return "Not counted yet" if count is None else str(count)
+
+
+def _resync_row(candidate: StaticCohortResyncCandidate) -> Row:
+    if candidate.team_id is None:
+        team = Cell(text="")
+    else:
+        team = Cell(
+            text=f"{candidate.team_name} ({candidate.team_id})",
+            href=reverse("admin_console_team", kwargs={"pk": candidate.team_id}),
+        )
+    if candidate.skip_reason is None:
+        status = Cell(text="Re-sync", tone=Tone.SUCCESS)
+    else:
+        status = Cell(text=f"Skip: {SKIP_REASONS[candidate.skip_reason]}", tone=Tone.WARNING)
+    return Row(
+        cells=(
+            Cell(text=str(candidate.cohort_id), mono=True),
+            Cell(text=candidate.name or ""),
+            team,
+            Cell(text="" if candidate.skip_reason == "not_found" else _count_text(candidate.count)),
+            status,
+        )
+    )
+
+
+def preview_resync_static_cohorts(request: HttpRequest, form: forms.Form) -> Page:
+    candidates = get_static_cohort_resync_candidates(cohort_ids=form.cleaned_data["cohorts"])
+    resync_count = sum(1 for candidate in candidates if candidate.skip_reason is None)
+    if resync_count == 0:
+        form.add_error(
+            "cohorts", "None of these cohorts can be re-synced. A cohort needs to be static and have a source query."
+        )
+        return Page(blocks=())
+    return Page(
+        blocks=(
+            Notice(
+                text=(
+                    f"Adds to {pluralize(resync_count, 'static cohort')} the people who match its source query now "
+                    "and are not members yet. Existing members stay. The count shows the members before the re-sync."
+                )
+            ),
+            Table(
+                columns=("ID", "Name", "Team", "Count", "Status"),
+                rows=tuple(_resync_row(candidate) for candidate in candidates),
+            ),
+        )
+    )
+
+
+def resync_static_cohorts(request: HttpRequest, form: forms.Form | None) -> HttpResponse | Page | None:
+    assert form is not None
+    result = queue_static_cohort_resyncs(cohort_ids=form.cleaned_data["cohorts"])
+    for candidate in result.skipped:
+        assert candidate.skip_reason is not None
+        messages.warning(request, f"Skipped {_cohort_label(candidate)}: {SKIP_REASONS[candidate.skip_reason]}.")
+    if not result.queued:
+        messages.error(request, "Nothing was re-synced. None of these cohorts is static with a source query any more.")
+        return HttpResponse(status=400)
+    counts_before = "; ".join(
+        f"{_cohort_label(candidate)}: {_count_text(candidate.count)}" for candidate in result.queued
+    )
+    messages.success(
+        request,
+        f"Queued a re-sync for {pluralize(len(result.queued), 'cohort')}. Counts before the re-sync: {counts_before}.",
+    )
+    return None
+
+
 @console.register_tool
 class ResaveCohortsTool(ConsoleTool):
     key = "resave-cohorts"
     title = "Re-save cohorts"
     owner = FEATURE_FLAGS
     group = "Data"
-    description = "Re-saves cohorts so their compiled bytecode and cohort type match the current backend logic."
+    description = (
+        "Re-saves cohorts so their compiled bytecode and cohort type match the current backend logic, and re-syncs "
+        "static cohorts from their source query."
+    )
 
     def page(self, request: HttpRequest) -> Page:
         return Page(
@@ -126,5 +249,24 @@ class ResaveCohortsTool(ConsoleTool):
                 handler=resave_cohorts,
                 description="Re-saves the cohorts of one team, or of every team.",
                 form_class=ResaveCohortsForm,
-            )
+            ),
+            ToolOperation(
+                key="resync-static",
+                label="Re-sync static cohorts",
+                handler=resync_static_cohorts,
+                preview=preview_resync_static_cohorts,
+                danger=True,
+                description="Adds the people who match each static cohort's source query now. Existing members stay.",
+                form_class=ResyncStaticCohortsForm,
+                # The Django admin action sends staff here with the cohorts they picked.
+                form_initial={"cohorts": "\n".join(request.GET.getlist("cohort"))},
+                undo_hint="PostHog Admin cannot remove the added people. Remove them from the cohort in the app.",
+            ),
         ]
+
+
+console.register_moved_page(
+    old_path="admin/resave-cohorts/",
+    title="Re-save cohorts",
+    url="/admin/console/tools/resave-cohorts/",
+)

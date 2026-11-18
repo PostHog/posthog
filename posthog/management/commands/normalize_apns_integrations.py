@@ -6,7 +6,7 @@ from django.core.management.base import BaseCommand
 import structlog
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration
+from posthog.integrations import CrossTeamFilter, IntegrationManager, IntegrationRecord
 from posthog.models.integration.push import apns_integration_id
 
 logger = structlog.get_logger(__name__)
@@ -17,7 +17,7 @@ class ApnsRowChange:
     """What one APNs credential row needs, or why it was left alone."""
 
     team_id: int
-    integration_id: str
+    integration_id: str | None
     new_integration_id: str | None = None
     strips_config: bool = False
     strips_signing_key: bool = False
@@ -29,23 +29,23 @@ class ApnsRowChange:
         return bool(self.new_integration_id) or self.strips_config or self.strips_signing_key
 
 
-def apns_environment(integration: Integration) -> str | None:
+def apns_environment(integration: IntegrationRecord) -> str | None:
     config = integration.config
     return config.get("environment") if isinstance(config, dict) else None
 
 
-def sorted_apns_integrations() -> list[Integration]:
+def sorted_apns_integrations() -> list[IntegrationRecord]:
     # Sandbox rows move first. A production row that only needs whitespace stripped can be waiting
     # for the bare id a sandbox row still holds, and it would keep the whitespace if it were read
     # first.
     return sorted(
-        Integration.objects.filter(kind="apns"),
+        IntegrationManager.apns.credentials.list_across_teams(CrossTeamFilter()),
         key=lambda integration: apns_environment(integration) != "sandbox",
     )
 
 
 def normalize_one_apns_integration(
-    integration: Integration, occupied: dict[tuple[int, str], int], *, dry_run: bool
+    integration: IntegrationRecord, occupied: dict[tuple[int, str | None], int], *, dry_run: bool
 ) -> ApnsRowChange | None:
     config: dict[str, Any] = dict(integration.config or {})
     team_id_apple = config.get("team_id")
@@ -73,7 +73,8 @@ def normalize_one_apns_integration(
             unreadable=True,
         )
 
-    update_fields = []
+    config_patch: dict[str, Any] = {}
+    sensitive_config_patch: dict[str, Any] = {}
 
     # A leading space breaks ES256 signing outright, so a credential stored with one has never
     # been able to send. Trailing whitespace is tolerated by the signer but is stripped with it.
@@ -87,8 +88,7 @@ def normalize_one_apns_integration(
     strips_signing_key = False
     if isinstance(signing_key, str) and signing_key != signing_key.strip():
         strips_signing_key = True
-        integration.sensitive_config = {**stored_sensitive_config, "signing_key": signing_key.strip()}
-        update_fields.append("sensitive_config")
+        sensitive_config_patch = {"signing_key": signing_key.strip()}
 
     strips_config = (config.get("team_id"), config.get("bundle_id"), config.get("key_id")) != (
         team_id_apple,
@@ -96,23 +96,19 @@ def normalize_one_apns_integration(
         key_id,
     )
     if strips_config:
-        config.update({"team_id": team_id_apple, "bundle_id": bundle_id, "key_id": key_id})
-        integration.config = config
-        update_fields.append("config")
+        config_patch = {"team_id": team_id_apple, "bundle_id": bundle_id, "key_id": key_id}
 
     wanted_id = apns_integration_id(team_id_apple, bundle_id, config.get("environment") or "")
     # `occupied` tracks the ids this run has already moved, so a dry run reports the same result as
     # a real one. Reading the database instead would still see a row at the id a sandbox row is
     # about to give up, and call the production row blocked.
     holder = occupied.get((integration.team_id, wanted_id))
-    taken = holder is not None and holder != integration.pk
+    taken = holder is not None and holder != integration.id
     new_integration_id = None
     if integration.integration_id != wanted_id and not taken:
         new_integration_id = wanted_id
         occupied.pop((integration.team_id, integration.integration_id), None)
-        occupied[(integration.team_id, wanted_id)] = integration.pk
-        integration.integration_id = wanted_id
-        update_fields.append("integration_id")
+        occupied[(integration.team_id, wanted_id)] = integration.id
 
     change = ApnsRowChange(
         team_id=integration.team_id,
@@ -124,11 +120,20 @@ def normalize_one_apns_integration(
         # drops a credential a team may still send with, so both stay and this names the team.
         blocked_by_existing_row=taken and integration.integration_id != wanted_id,
     )
-    if not update_fields:
+    if not (config_patch or sensitive_config_patch or new_integration_id):
         return change if change.blocked_by_existing_row else None
 
     if not dry_run:
-        integration.save(update_fields=update_fields)
+        accessor = IntegrationManager.apns.credentials
+        if config_patch or sensitive_config_patch:
+            accessor.update(
+                integration.team_id,
+                integration.id,
+                config_patch=config_patch,
+                sensitive_config_patch=sensitive_config_patch,
+            )
+        if new_integration_id:
+            accessor.change_external_id(integration.team_id, integration.id, new_integration_id)
     return change
 
 
@@ -140,7 +145,7 @@ def normalize_apns_integrations(*, dry_run: bool = False) -> Iterator[ApnsRowCha
     the code now writes, which frees the bare id for the production credential.
     """
     integrations = sorted_apns_integrations()
-    occupied = {(integration.team_id, integration.integration_id): integration.pk for integration in integrations}
+    occupied = {(integration.team_id, integration.integration_id): integration.id for integration in integrations}
 
     for integration in integrations:
         # `config` and `sensitive_config` are JSON columns that held whatever the create path was

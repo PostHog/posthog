@@ -3,7 +3,6 @@ import { combineUrl, router } from 'kea-router'
 
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
@@ -13,13 +12,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { aiObservabilityTracesNodesRetrieve } from '../../generated/api'
-import {
-    decodeIdSegment,
-    makeEvaluationResults,
-    makeFeedback,
-    makeNodeDetail,
-    makeTraceResource,
-} from './adapter/testFixtures'
+import { decodeIdSegment, makeEvaluationResults, makeFeedback, makeNodeDetail, makeTraceResource } from './testFixtures'
 import { TraceDrawerHost } from './TraceDrawerHost'
 import type { TraceDrawerListId } from './traceDrawerLists'
 import { traceDrawerLogic } from './traceDrawerLogic'
@@ -74,9 +67,6 @@ function setUp(url: string, sceneRect: Partial<DOMRect> = {}): void {
     initKeaTests()
     localStorage.clear()
     featureFlagLogic.mount()
-    featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN], {
-        [FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN]: true,
-    })
     panelLayoutLogic.mount()
     panelLayoutLogic.actions.setMainContentRect(Object.assign(document.body.getBoundingClientRect(), sceneRect))
     router.actions.push(url)

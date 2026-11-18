@@ -40,16 +40,10 @@ DPA_PAYLOAD = {
 }
 
 
-def _billing_with_addons(addon_types_subscribed: set[str], startup_program_label: str | None = None) -> dict[str, Any]:
+def _billing(startup_program_label: str | None = None, trial_target: str | None = None) -> dict[str, Any]:
     return {
         "startup_program_label": startup_program_label,
-        "products": [
-            {
-                "type": "platform_and_support",
-                "addons": [{"type": addon_type, "subscribed": True} for addon_type in addon_types_subscribed]
-                + [{"type": "unrelated", "subscribed": False}],
-            }
-        ],
+        "trial": {"status": "active", "target": trial_target} if trial_target else None,
     }
 
 
@@ -61,10 +55,14 @@ class TestLegalDocumentAPI(APIBaseTest):
         self.organization_membership.save()
         self.url = f"/api/organizations/{self.organization.id}/legal_documents/"
 
-    @parameterized.expand([("boost",), ("scale",), ("enterprise",)])
+    def _set_baa_entitlement(self, entitled: bool) -> None:
+        self.organization.available_product_features = [{"key": "hipaa_baa", "name": "HIPAA BAA"}] if entitled else []
+        self.organization.save()
+
     @patch("products.legal_documents.backend.logic.BillingManager")
-    def test_create_baa_with_qualifying_addon_succeeds(self, addon_type: str, mock_manager_cls) -> None:
-        mock_manager_cls.return_value.get_billing.return_value = _billing_with_addons({addon_type})
+    def test_create_baa_with_entitlement_succeeds(self, mock_manager_cls) -> None:
+        mock_manager_cls.return_value.get_billing.return_value = _billing()
+        self._set_baa_entitlement(True)
 
         response = self.client.post(self.url, BAA_PAYLOAD, format="json")
 
@@ -74,9 +72,18 @@ class TestLegalDocumentAPI(APIBaseTest):
         self.assertEqual(row.organization_id, self.organization.id)
         self.assertEqual(row.created_by_id, self.user.id)
 
+    @parameterized.expand(
+        [
+            ("not_entitled", False, None),
+            ("entitled_by_addon_trial", True, "boost"),
+        ]
+    )
     @patch("products.legal_documents.backend.logic.BillingManager")
-    def test_create_baa_without_qualifying_addon_is_forbidden(self, mock_manager_cls) -> None:
-        mock_manager_cls.return_value.get_billing.return_value = _billing_with_addons(set())
+    def test_create_baa_without_paid_entitlement_is_forbidden(
+        self, _name: str, entitled: bool, trial_target: str | None, mock_manager_cls: MagicMock
+    ) -> None:
+        mock_manager_cls.return_value.get_billing.return_value = _billing(trial_target=trial_target)
+        self._set_baa_entitlement(entitled)
 
         response = self.client.post(self.url, BAA_PAYLOAD, format="json")
 
@@ -86,18 +93,18 @@ class TestLegalDocumentAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("startup_with_boost", "Startup", {"boost"}, False, status.HTTP_403_FORBIDDEN, "startup program credits"),
-            ("startup_without_addon", "Startup", set(), False, status.HTTP_403_FORBIDDEN, "startup program credits"),
+            ("startup_entitled", "Startup", True, False, status.HTTP_403_FORBIDDEN, "startup program credits"),
+            ("startup_not_entitled", "Startup", False, False, status.HTTP_403_FORBIDDEN, "startup program credits"),
             (
-                "startup_impersonated_without_addon",
+                "startup_impersonated_not_entitled",
                 "Startup",
-                set(),
+                False,
                 True,
                 status.HTTP_403_FORBIDDEN,
                 "Boost, Scale, or Enterprise",
             ),
-            ("startup_impersonated", "Startup", {"boost"}, True, status.HTTP_201_CREATED, None),
-            ("yc", "YC", {"boost"}, False, status.HTTP_201_CREATED, None),
+            ("startup_impersonated", "Startup", True, True, status.HTTP_201_CREATED, None),
+            ("yc", "YC", True, False, status.HTTP_201_CREATED, None),
         ]
     )
     @patch("products.legal_documents.backend.presentation.serializers.is_impersonated")
@@ -106,15 +113,16 @@ class TestLegalDocumentAPI(APIBaseTest):
         self,
         _name: str,
         startup_program_label: str | None,
-        addons: set[str],
+        entitled: bool,
         impersonated: bool,
         expected_status: int,
         expected_error: str | None,
         mock_manager_cls: MagicMock,
         mock_is_impersonated: MagicMock,
     ) -> None:
-        mock_manager_cls.return_value.get_billing.return_value = _billing_with_addons(addons, startup_program_label)
+        mock_manager_cls.return_value.get_billing.return_value = _billing(startup_program_label)
         mock_is_impersonated.return_value = impersonated
+        self._set_baa_entitlement(entitled)
 
         response = self.client.post(self.url, BAA_PAYLOAD, format="json")
 

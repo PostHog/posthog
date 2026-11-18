@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 import logging
 import warnings
@@ -12,6 +13,7 @@ from urllib.parse import quote_plus
 import pytest
 from posthog.test.base import PostHogTestCase, _selective_flush, run_clickhouse_statement_in_parallel
 
+import requests
 from _pytest.junitxml import ET, bin_xml_escape, mangle_test_address
 
 if TYPE_CHECKING:
@@ -27,18 +29,41 @@ from django.core.management.commands.flush import Command as FlushCommand
 from django.db import connections
 from django.test import TransactionTestCase
 
+from clickhouse_driver.errors import NetworkError, SocketTimeoutError
 from infi.clickhouse_orm import Database
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import default_client
+from posthog.clickhouse.client.deferred_setup import clickhouse_test_setup
 from posthog.cloud_utils import is_ci
 from posthog.test import flush_lock_guard
 
 logger = logging.getLogger(__name__)
 
 
-@pytest.fixture(scope="package")
-def clickhouse_database() -> None:
-    # SQL-only tests need a database without the Postgres setup tied to django_db_setup.
+# Host names that reach the ClickHouse container of the local dev stack. The dev setup maps
+# `clickhouse` to loopback in /etc/hosts.
+LOCAL_CLICKHOUSE_HOSTS = frozenset({"clickhouse", "localhost", "127.0.0.1", "::1"})
+
+
+def _start_local_clickhouse() -> bool:
+    """Start the stopped ClickHouse container of the local dev stack.
+
+    `hogli watch` stops an unused ClickHouse, so a local test run starts it again on demand. The same
+    call arms the watcher, which stops ClickHouse again once nothing uses it.
+    """
+    if is_ci() or settings.CLICKHOUSE_HOST not in LOCAL_CLICKHOUSE_HOSTS:
+        return False
+    try:
+        result = subprocess.run(
+            [sys.executable, "-P", "-m", "hogli", "watch", "--ensure", "clickhouse"], timeout=300, check=False
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0
+
+
+def _create_sql_only_clickhouse_database() -> None:
     Database(
         settings.CLICKHOUSE_DATABASE,
         db_url=settings.CLICKHOUSE_HTTP_URL,
@@ -48,6 +73,17 @@ def clickhouse_database() -> None:
         verify_ssl_cert=settings.CLICKHOUSE_VERIFY,
         trust_env=False,
     ).create_database()
+
+
+@pytest.fixture(scope="package")
+def clickhouse_database() -> None:
+    # SQL-only tests need a database without the Postgres setup tied to django_db_setup.
+    try:
+        _create_sql_only_clickhouse_database()
+    except requests.ConnectionError:
+        if not _start_local_clickhouse():
+            raise
+        _create_sql_only_clickhouse_database()
 
 
 def create_clickhouse_tables():
@@ -149,6 +185,7 @@ def reset_clickhouse_tables():
     from products.error_tracking.backend.sql import (
         TRUNCATE_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_SQL,
         TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL,
+        TRUNCATE_ERROR_TRACKING_ISSUE_TAGS_TABLE_SQL,
     )
 
     # REMEMBER TO ADD ANY NEW CLICKHOUSE TABLES TO THIS ARRAY!
@@ -163,6 +200,7 @@ def reset_clickhouse_tables():
         TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL(),
         TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL(),
         TRUNCATE_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_SQL(),
+        TRUNCATE_ERROR_TRACKING_ISSUE_TAGS_TABLE_SQL(),
         TRUNCATE_DOCUMENT_EMBEDDINGS_TABLE_SQL(),
         TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
         TRUNCATE_COHORTPEOPLE_TABLE_SQL,
@@ -219,6 +257,35 @@ def reset_clickhouse_tables():
     from posthog.clickhouse.schema import CREATE_DATA_QUERIES
 
     run_clickhouse_statement_in_parallel(list(CREATE_DATA_QUERIES()))
+
+
+def _create_clickhouse_database(keepdb: bool) -> None:
+    # The native client connects to the "system" database, because the test database can be missing.
+    # It also stays clear of tests that mock the requests library, which the HTTP client of infi uses.
+    with default_client() as client:
+        if not keepdb:
+            client.execute(f"DROP DATABASE IF EXISTS `{settings.CLICKHOUSE_DATABASE}`")
+        client.execute(f"CREATE DATABASE IF NOT EXISTS `{settings.CLICKHOUSE_DATABASE}`")
+
+
+def _create_test_clickhouse_database(keepdb: bool) -> None:
+    try:
+        _create_clickhouse_database(keepdb)
+    except (NetworkError, SocketTimeoutError) as error:
+        if not _start_local_clickhouse():
+            raise RuntimeError(
+                f"This test needs ClickHouse, but ClickHouse at {settings.CLICKHOUSE_HOST} is not reachable. "
+                "Start it with `hogli watch --ensure clickhouse` or `hogli up -d`. "
+                "Tests that do not use ClickHouse run without it."
+            ) from error
+        _create_clickhouse_database(keepdb)
+
+    create_clickhouse_tables()
+
+
+def _drop_test_clickhouse_database() -> None:
+    with default_client() as client:
+        client.execute(f"DROP DATABASE IF EXISTS `{settings.CLICKHOUSE_DATABASE}`")
 
 
 def _sqlx_error_output(error: subprocess.CalledProcessError) -> str:
@@ -392,27 +459,7 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
     # Run sqlx migrations to create posthog_person_new and related tables
     run_persons_sqlx_migrations(keepdb=django_db_keepdb)
 
-    database = Database(
-        settings.CLICKHOUSE_DATABASE,
-        db_url=settings.CLICKHOUSE_HTTP_URL,
-        username=settings.CLICKHOUSE_USER,
-        password=settings.CLICKHOUSE_PASSWORD,
-        cluster=settings.CLICKHOUSE_CLUSTER,
-        verify_ssl_cert=settings.CLICKHOUSE_VERIFY,
-        randomize_replica_paths=True,
-        # don't use the egress proxy, clickhouse is internal
-        trust_env=False,
-    )
-
-    if not django_db_keepdb:
-        try:
-            database.drop_database()
-        except:
-            pass
-
-    database.create_database()  # Create database if it doesn't exist
-
-    create_clickhouse_tables()
+    clickhouse_test_setup.defer(partial(_create_test_clickhouse_database, django_db_keepdb))
 
     # Seed default data that historically lived in RunPython migrations. Squashed
     # migrations drop those ops, so without this tests relying on the defaults
@@ -433,6 +480,9 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
 
     yield
 
+    if not clickhouse_test_setup.has_run:
+        return
+
     if django_db_keepdb:
         # Reset ClickHouse data, unless we're running AI evals, where we want to keep the DB between runs
         # Also allow skipping reset via environment variable for faster development iteration
@@ -440,7 +490,7 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
         if not settings.IN_EVAL_TESTING and not skip_ch_reset:
             reset_clickhouse_tables()
     else:
-        database.drop_database()
+        _drop_test_clickhouse_database()
 
 
 @pytest.fixture(scope="package")
@@ -579,14 +629,12 @@ def mock_code_based_verifier(request, mocker):
     Mock the CodeBasedVerifier.should_send_code_based_verification method to return False for all tests.
     Can be disabled by using @pytest.mark.disable_mock_code_based_verifier decorator.
     """
-    from posthog.helpers.two_factor_session import CodeBasedVerificationCheckResult
-
     if "disable_mock_code_based_verifier" in request.keywords:
         return
 
     mocker.patch(
         "posthog.helpers.two_factor_session.CodeBasedVerifier.should_send_code_based_verification",
-        return_value=CodeBasedVerificationCheckResult(should_send=False),
+        return_value=False,
     )
 
 

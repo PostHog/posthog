@@ -125,6 +125,20 @@ WAITING_CASES = [
         ),
         expected=_offer(True),
     ),
+    # The follow-up belongs to option 1 only, so it must not hide option 2 behind the two-questions rule.
+    BaseEvalCase(
+        name="choice_with_a_follow_up_for_one_option",
+        prompt=(
+            "I can stop old exports from filling the bucket in one of two ways:\n\n"
+            "1. **Delete after 30 days (recommended).** A nightly job removes export files older than 30 days. "
+            "This keeps the bucket small, but a person can't download an old export again.\n"
+            "2. **Move to cold storage.** The files stay, but a download takes a few hours to start.\n\n"
+            "If you pick option 1, should I add the setting for the number of days in the same pull request, "
+            "or open a second pull request for it later?"
+        ),
+        expected=_offer(True),
+        metadata={PERSON_MESSAGE_KEY: "Can you make sure old exports don't fill up the bucket?"},
+    ),
     BaseEvalCase(
         name="permission_in_german",
         prompt=(

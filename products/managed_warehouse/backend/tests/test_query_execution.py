@@ -313,7 +313,7 @@ def test_raw_target_rejects_unauthorized_callers_before_cached_results(
             return_value=has_project_access,
         ),
         patch(
-            "products.managed_warehouse.backend.query_execution.get_query_tags",
+            "posthog.hogql.direct_connection.get_query_tags",
             return_value=QueryTags(access_method=access_method),
         ),
         patch.object(AnalyticsQueryRunner, "run") as cached_run,

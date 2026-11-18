@@ -43,8 +43,8 @@ Pick the role by **which cluster owns the object**, not by its type alone:
   tables, materialized views and writable `Distributed` tables that write into storage on `LOGS`.
   Stateless like the other ingestion nodes, so storage tables never go here.
 - `[NodeRole.METRICS]`, `[NodeRole.INGESTION_METRICS]`: the `metrics` cluster and the `ingestion-metrics`
-  nodes that write to it. The metrics4 tables run on both these and `LOGS`/`APM` until reads cut over, so a
-  metrics4 change has to target both pairs.
+  nodes that write to it. In cloud the metrics4 tables run only on these (0376 and 0379 removed them from
+  `APM` and `LOGS`). The local stacks still run them on `APM` and `LOGS`, so a metrics4 change targets both pairs.
 - `[NodeRole.OPS]`, `[NodeRole.LOGS]`, `[NodeRole.AUX]`, `[NodeRole.AI_EVENTS]`, `[NodeRole.SESSIONS]`,
   `[NodeRole.BATCH_EXPORTS]`: objects that live on a satellite cluster. A table for one of those on
   `DATA` lands on the wrong nodes and leaves the intended cluster without it, so check where the

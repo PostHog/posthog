@@ -23,6 +23,7 @@ from posthog.temporal.common.utils import close_db_connections
 from posthog.temporal.oauth import McpScopePreset, grants_scratchpad_write
 
 from products.business_knowledge.backend.logic import is_available_for_team
+from products.signals.backend.agent_instructions import SignalAgentRole, resolve_custom_image_id
 from products.signals.backend.agent_runtime import STEP_RESEARCH, resolve_agent_runtime
 from products.signals.backend.artefact_schemas import (
     ArtefactContent,
@@ -1174,9 +1175,10 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
         )
         repository = input.repo_selection.repository
         if repository is not None:
-            sources = await database_sync_to_async(monitoring_repository_sources, thread_sensitive=False)(
-                input.team_id, input.signals
-            )
+            async with Heartbeater():
+                sources = await database_sync_to_async(monitoring_repository_sources, thread_sensitive=False)(
+                    input.team_id, input.signals
+                )
             if sources is not None:
                 allowed = await database_sync_to_async(
                     filter_repository_candidates_for_sources, thread_sensitive=False
@@ -1214,6 +1216,9 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
             agent_runtime = await database_sync_to_async(resolve_agent_runtime, thread_sensitive=False)(
                 input.team_id, STEP_RESEARCH
             )
+            custom_image_id = await database_sync_to_async(resolve_custom_image_id, thread_sensitive=False)(
+                input.team_id, SignalAgentRole.RESEARCH
+            )
             context = CustomPromptSandboxContext(
                 team_id=input.team_id,
                 user_id=user_id,
@@ -1230,6 +1235,7 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
                 reasoning_effort=agent_runtime.reasoning_effort,
                 service_tier=agent_runtime.service_tier,
                 disable_repo_hooks=True,
+                custom_image_id=custom_image_id,
             )
             has_bk = await database_sync_to_async(_team_has_business_knowledge, thread_sensitive=False)(input.team_id)
             metrics_enabled = await database_sync_to_async(team_report_metrics_enabled, thread_sensitive=False)(
@@ -1434,13 +1440,15 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
             error=str(error),
             sandbox_error_type=error.error_type,
         )
+        if error.error_type == "RepositoryAccessError" or (
+            error.error_type == "RepositoryCloneError" and "GitHub rejected the repository credentials" in str(error)
+        ):
+            raise temporalio.exceptions.ApplicationError(
+                str(error), type=error.error_type, non_retryable=True
+            ) from error
         if error.transient:
             raise temporalio.exceptions.ApplicationError(
                 str(error), type=RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE
-            ) from error
-        if error.error_type == "RepositoryAccessError":
-            raise temporalio.exceptions.ApplicationError(
-                str(error), type=error.error_type, non_retryable=True
             ) from error
         raise
     except Exception as error:

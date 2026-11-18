@@ -12,8 +12,10 @@ from asgiref.sync import async_to_sync
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
-from posthog.models import Team
+from posthog.dataclasses import frozen
+from posthog.models import OrganizationMembership, Team, User
 
+from products.access_control.backend.facade.api import access_rules
 from products.access_control.backend.facade.testing import create_access_control
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -29,6 +31,12 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
 from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import (
     HistoryTableNameTakenError,
     history_naming,
+)
+from products.warehouse_sources.backend.temporal.data_imports.history_access_rules import (
+    PENDING_COPY_KEY,
+    registered_history_table,
+    request_access_rules_copy,
+    run_pending_access_rules_copy,
 )
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
@@ -347,6 +355,92 @@ class TestRegisterCDCCompanionTable(BaseTest):
         assert companions.count() == 0
 
 
+_HISTORY_ACCESS_RULES_MODULE = "products.warehouse_sources.backend.temporal.data_imports.history_access_rules"
+
+
+@frozen
+class _WaitingCopy:
+    source: ExternalDataSource
+    schema: ExternalDataSchema
+    job: ExternalDataJob
+
+
+@frozen
+class _SeenFromOutside:
+    schema_locked: bool
+    table_visible: bool
+
+
+def _schema_waiting_for_a_history_copy(team: Team, mode: str, request: bool = True) -> _WaitingCopy:
+    source = ExternalDataSource.objects.create(
+        source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=team, source_type="Postgres"
+    )
+    table = DataWarehouseTable.objects.create(
+        team=team, name="postgres_orders", format="DeltaS3Wrapper", url_pattern="s3://b/o", external_data_source=source
+    )
+    schema = ExternalDataSchema.objects.create(
+        name="orders",
+        team=team,
+        source=source,
+        table=table,
+        sync_type=ExternalDataSchema.SyncType.CDC,
+        sync_type_config={"cdc_table_mode": mode},
+    )
+    create_access_control(team_id=team.pk, resource="warehouse_table", resource_id=str(table.id), access_level="none")
+    if request:
+        organization_admin = User.objects.create_and_join(
+            team.organization, "admin@example.com", "testtest", level=OrganizationMembership.Level.ADMIN
+        )
+        request_access_rules_copy(schema, organization_admin)
+    job = ExternalDataJob.objects.create(
+        team=team, pipeline=source, schema=schema, status=ExternalDataJobStatus.RUNNING, rows_synced=10
+    )
+    return _WaitingCopy(source=source, schema=schema, job=job)
+
+
+def _register_history_table(team: Team, schema: ExternalDataSchema, job: ExternalDataJob, mode: str) -> None:
+    with (
+        patch.object(DataWarehouseTable, "get_columns", return_value={}),
+        patch.object(DataWarehouseTable, "get_count", return_value=100),
+    ):
+        async_to_sync(register_cdc_companion_table)(
+            run_id=str(job.id),
+            team_id=team.pk,
+            schema_id=schema.id,
+            resource_name="orders_history",
+            row_count=100,
+            table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+            queryable_folder="orders_history__query_a",
+            table_schema_dict={
+                "id": "Int64",
+                HISTORY_NAMING.valid_from: "DateTime",
+                HISTORY_NAMING.valid_to: "DateTime",
+            },
+            set_as_schema_table=mode == "cdc_only",
+        )
+
+
+def _seen_from_another_connection(schema_id: uuid.UUID, table_id: uuid.UUID) -> _SeenFromOutside:
+    """Whether another connection finds the schema row locked, and whether it can see the table."""
+    other = connections.create_connection("default")
+    try:
+        with other.cursor() as cursor:
+            try:
+                cursor.execute(
+                    f"SELECT id FROM {ExternalDataSchema._meta.db_table} WHERE id = %s FOR UPDATE NOWAIT",
+                    [str(schema_id)],
+                )
+                locked = False
+            except OperationalError:
+                locked = True
+        with other.cursor() as cursor:
+            cursor.execute(f"SELECT count(*) FROM {DataWarehouseTable._meta.db_table} WHERE id = %s", [str(table_id)])
+            visible = cursor.fetchone()[0] > 0
+        return _SeenFromOutside(schema_locked=locked, table_visible=visible)
+    finally:
+        other.close()
+
+
 # transaction=True: the real async function (not the sync mirror above) writes from the async thread
 # pool (database_sync_to_async_pool), which can't see an atomic TestCase's uncommitted rows.
 @pytest.mark.django_db(transaction=True)
@@ -415,6 +509,100 @@ class TestRegisterCdcCompanionTableStamp:
             )
 
         assert history_naming(ExternalDataSchema.objects.get(id=schema.id)) == expected
+
+    @pytest.mark.parametrize("mode", ["both", "cdc_only"])
+    def test_registering_the_history_table_runs_a_copy_of_access_rules_that_waits(self, team, mode):
+        waiting = _schema_waiting_for_a_history_copy(team, mode)
+
+        _register_history_table(team, waiting.schema, waiting.job, mode)
+
+        history = DataWarehouseTable.objects.get(team=team, name=build_table_name(waiting.source, "orders_history"))
+        history_rules = {
+            (rule.access_level, rule.organization_member_id)
+            for rule in access_rules(team_id=team.pk, resources=["warehouse_table"])
+            if rule.resource_id == str(history.id)
+        }
+        assert history_rules == {("none", None)}
+        assert PENDING_COPY_KEY not in (ExternalDataSchema.objects.get(id=waiting.schema.id).sync_type_config or {})
+
+    def test_a_new_history_table_commits_with_its_access_rules(self, team):
+        waiting = _schema_waiting_for_a_history_copy(team, "both")
+        seen_from_outside: list[_SeenFromOutside] = []
+
+        def copy_while_watching(schema_id, team_id, history_table):
+            seen_from_outside.append(_seen_from_another_connection(schema_id, history_table.id))
+            run_pending_access_rules_copy(schema_id, team_id, history_table)
+
+        with patch(f"{_PIPELINE_SYNC_MODULE}.run_pending_access_rules_copy", side_effect=copy_while_watching):
+            _register_history_table(team, waiting.schema, waiting.job, "both")
+
+        assert seen_from_outside == [_SeenFromOutside(schema_locked=True, table_visible=False)]
+
+    def test_a_new_history_table_is_not_kept_when_its_access_rules_cannot_be_written(self, team):
+        waiting = _schema_waiting_for_a_history_copy(team, "both")
+
+        with (
+            patch(f"{_HISTORY_ACCESS_RULES_MODULE}.copy_object_access_rules", side_effect=OperationalError("down")),
+            patch(f"{_HISTORY_ACCESS_RULES_MODULE}.replace_object_access_rules", side_effect=OperationalError("down")),
+            pytest.raises(OperationalError),
+        ):
+            _register_history_table(team, waiting.schema, waiting.job, "both")
+
+        history_name = build_table_name(waiting.source, "orders_history")
+        assert not DataWarehouseTable.objects.filter(team=team, name=history_name).exists()
+
+    def test_a_new_history_table_is_denied_when_its_original_table_is_gone(self, team):
+        waiting = _schema_waiting_for_a_history_copy(team, "both")
+        assert waiting.schema.table_id is not None
+        DataWarehouseTable.objects.filter(id=waiting.schema.table_id).update(deleted=True)
+
+        _register_history_table(team, waiting.schema, waiting.job, "both")
+
+        history = DataWarehouseTable.objects.get(team=team, name=build_table_name(waiting.source, "orders_history"))
+        history_rules = {
+            (rule.access_level, rule.organization_member_id)
+            for rule in access_rules(team_id=team.pk, resources=["warehouse_table"])
+            if rule.resource_id == str(history.id)
+        }
+        assert history_rules == {("none", None)}
+        assert PENDING_COPY_KEY not in (ExternalDataSchema.objects.get(id=waiting.schema.id).sync_type_config or {})
+
+    def test_an_overlapping_first_registration_reuses_the_history_table(self, team):
+        waiting = _schema_waiting_for_a_history_copy(team, "both")
+        history_name = build_table_name(waiting.source, "orders_history")
+        real_filter = DataWarehouseTable.objects.filter
+        lookups = 0
+
+        def first_lookup_misses(*args, **kwargs):
+            # The registration's first lookup runs before another registration commits the table.
+            nonlocal lookups
+            if kwargs.get("name") == history_name:
+                lookups += 1
+                if lookups == 1:
+                    return real_filter(*args, **kwargs).none()
+            return real_filter(*args, **kwargs)
+
+        _register_history_table(team, waiting.schema, waiting.job, "both")
+        with patch.object(DataWarehouseTable.objects, "filter", side_effect=first_lookup_misses):
+            _register_history_table(team, waiting.schema, waiting.job, "both")
+
+        assert DataWarehouseTable.objects.filter(team=team, name=history_name, deleted=False).count() == 1
+
+    def test_a_copy_request_holds_the_schema_lock_while_it_checks_for_the_history_table(self, team):
+        organization_admin = User.objects.create_and_join(
+            team.organization, "requester@example.com", "testtest", level=OrganizationMembership.Level.ADMIN
+        )
+        schema = _schema_waiting_for_a_history_copy(team, "both", request=False).schema
+        locked_during_check: list[bool] = []
+
+        def check_while_watching(table):
+            locked_during_check.append(_seen_from_another_connection(schema.id, table.id).schema_locked)
+            return registered_history_table(table)
+
+        with patch(f"{_HISTORY_ACCESS_RULES_MODULE}.registered_history_table", side_effect=check_while_watching):
+            request_access_rules_copy(schema, organization_admin)
+
+        assert locked_during_check == [True]
 
     def test_does_not_take_the_record_of_a_source_table_with_the_history_name(self, team):
         source = ExternalDataSource.objects.create(

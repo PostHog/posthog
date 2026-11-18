@@ -4,6 +4,7 @@ import structlog
 
 from products.warehouse_sources.sources.app_store_connect._config import AppStoreConnectSourceConfig
 from products.warehouse_sources.sources.app_store_connect.app_store_connect import (
+    APP_STORE_CONNECT_AGREEMENT_REQUIRED_ERROR,
     APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR,
     APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR,
     APP_STORE_CONNECT_INVALID_REPORT_ERROR,
@@ -155,6 +156,8 @@ Leave **app IDs** blank to sync every app the key can read. To sync only some of
         # Match the stable status text plus the base host, not the per-request path and cursor.
         return {
             "401 Client Error: Unauthorized for url: https://api.appstoreconnect.apple.com": "App Store Connect rejected your API key. Check the issuer ID, key ID and private key, or generate a new key, then reconnect.",
+            # A 403 because the account has an unaccepted Apple agreement. Not a role problem.
+            APP_STORE_CONNECT_AGREEMENT_REQUIRED_ERROR: APP_STORE_CONNECT_AGREEMENT_REQUIRED_ERROR,
             # A 403 on the analytics report request create. Apple gates it on Admin, not the read
             # roles. Kept before the read message so the create case never inherits the read wording.
             APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR: APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR,

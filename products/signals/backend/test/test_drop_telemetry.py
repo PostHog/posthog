@@ -54,6 +54,7 @@ async def test_capture_signal_dropped_activity_emits_event(ateam):
                 stage="grouping_parallel",
                 error_type="OperationalError",
                 error="the connection is closed",
+                attempt=3,
                 extra={
                     "skill_name": "error-tracking",
                     "task_run_id": "task-run-1",
@@ -75,6 +76,7 @@ async def test_capture_signal_dropped_activity_emits_event(ateam):
     assert kwargs["properties"]["source_type"] == "cross_source_issue"
     assert kwargs["properties"]["source_id"] == "run:abc:finding:def"
     assert kwargs["properties"]["weight"] == 0.7
+    assert kwargs["properties"]["attempt"] == 3
     # extra is flattened to top-level scalars; nested customer-derived content is dropped
     assert kwargs["properties"]["skill_name"] == "error-tracking"
     assert kwargs["properties"]["task_run_id"] == "task-run-1"

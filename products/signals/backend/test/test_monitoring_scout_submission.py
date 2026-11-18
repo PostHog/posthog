@@ -9,7 +9,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from posthog.models import OAuthAccessToken, OAuthApplication
-from posthog.scopes import SCOUT_MONITORING_RESULT_SCOPE
+from posthog.scopes.catalog import SCOUT_MONITORING_RESULT_SCOPE
 
 from products.signals.backend.models import (
     SignalReport,

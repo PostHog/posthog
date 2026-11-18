@@ -96,6 +96,14 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             {"os_name": "Operating system of the device (for example ios or android)."},
         ),
     },
+    "device_type_report": {
+        "description": "Daily aggregated performance per app broken down by device type.",
+        "docs_url": _DOCS_URL,
+        "columns": _columns(
+            _USER_COLUMNS,
+            {"device_type": "Type of device (for example phone, tablet, pc, or tv)."},
+        ),
+    },
     "retention_report": {
         "description": "Day 1, 7, and 30 retention per daily install cohort, broken down by attribution partner.",
         "docs_url": _DOCS_URL,

@@ -386,7 +386,7 @@ export const SettingsWithSpendBilling: Story = {
     ],
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        await expect(await canvas.findByText('$12.34')).toBeVisible()
+        await expect(await canvas.findByText('1,234 credits')).toBeVisible()
         await expect(await canvas.findByText('Spending limit reached')).toBeVisible()
         await expect(canvas.getByText(/Work already underway will finish/)).toBeVisible()
     },

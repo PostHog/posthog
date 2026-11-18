@@ -1,4 +1,5 @@
 import dataclasses
+from functools import partial
 from typing import Optional, cast
 
 from posthog.hogql import ast
@@ -9,8 +10,13 @@ from posthog.hogql.database.lazy_join_tags import DATA_WAREHOUSE, DATA_WAREHOUSE
 from posthog.hogql.database.models import LazyJoinToAdd, LazyTableToAdd, UnexpandedScan
 from posthog.hogql.database.schema.events_with_flag_calls import EventsWithFlagCallsTable
 from posthog.hogql.errors import ResolutionError
+from posthog.hogql.join_sources import JoinSources
 from posthog.hogql.resolver import ResolverFactory, resolve_types
 from posthog.hogql.resolver_utils import get_long_table_name
+from posthog.hogql.transforms.flag_calls_in_lazy_joins import (
+    read_flag_calls_in_lazy_join,
+    refuse_flag_calls_in_wrapped_lazy_join,
+)
 from posthog.hogql.transforms.grouped_clauses import (
     GroupedClauseTracker,
     before_grouping,
@@ -181,6 +187,24 @@ class WrappedTableExport:
     as_json: bool
 
 
+def _add_json_text_export(table_to_add: LazyTableToAdd, chain: list[str | int]) -> str:
+    """Adds an export of the JSON text of `chain` to `table_to_add`, and returns its name.
+
+    Reads of the same chain share one export. A name that another export of the table uses gets a counter.
+    """
+    base = f"{'___'.join(str(link) for link in chain)}___json"
+    name = base
+    counter = 1
+    while name in table_to_add.fields_accessed and not (
+        name in table_to_add.json_text_fields and table_to_add.fields_accessed[name] == chain
+    ):
+        counter += 1
+        name = f"{base}_{counter}"
+    table_to_add.fields_accessed[name] = chain
+    table_to_add.json_text_fields.add(name)
+    return name
+
+
 class WrappedTableReferenceCollector(GroupedClauseTracker, TraversingVisitor):
     """Collects the outer reads of one table binding before a subquery replaces that table.
 
@@ -343,6 +367,23 @@ class LazyTableResolver(TraversingVisitor):
         # factory (e.g. BoundedResolver) applies to subqueries built mid-transform
         self.resolver_factory = resolver_factory
 
+    def _resolve_join_subquery(
+        self, select_type: ast.SelectQueryType, subquery: ast.SelectQuery, *, join_sources: JoinSources | None = None
+    ) -> ast.SelectQuery:
+        # The resolver copies `subquery`. A copy made here would have no source in `join_sources`. The swap then
+        # refuses the subquery on mode 2.
+        return cast(
+            ast.SelectQuery,
+            resolve_types(
+                subquery,
+                self.context,
+                self.dialect,
+                [select_type],
+                resolver_factory=self.resolver_factory,
+                join_sources=join_sources,
+            ),
+        )
+
     def _find_tables_needing_lazy_preresolution(
         self, node: ast.SelectQuery, select_type: ast.SelectQueryType
     ) -> list[str]:
@@ -447,6 +488,29 @@ class LazyTableResolver(TraversingVisitor):
             field_type.name = export_name
             field_type.table_type = join_ptr.type
         return scan
+
+    def _union_json_text_reads(self, node: ast.SelectQuery, select_type: ast.SelectQueryType) -> set[int]:
+        """The ids of the property reads in `node` that serialize a key of a union scan with `toJSONString`.
+
+        Each branch of the union exports the key's value as text. On the native JSON events table, `toJSONString` of
+        that text quotes a number, an object or an array, but a direct read on events returns the key's JSON value. So
+        each such read gets its own export, which each branch serializes as a direct read on events does.
+        """
+        reads: set[int] = set()
+        if not self.context.uses_new_events_schema():
+            # The legacy events table serializes the text, which the outer `toJSONString` already does.
+            return reads
+        for table_type in select_type.tables.values():
+            if not isinstance(_lazy_table_of(table_type), EventsWithFlagCallsTable):
+                continue
+            collector = WrappedTableReferenceCollector(table_type, self.context)
+            collector.visit(node)
+            reads.update(
+                id(property_type)
+                for property_type, name, _ in collector.properties.values()
+                if collector.exports[name].as_json
+            )
+        return reads
 
     def _read_property_path(
         self, subquery_type: ast.SelectQueryType, column: ast.Alias, property_path: tuple[str | int, ...]
@@ -561,6 +625,15 @@ class LazyTableResolver(TraversingVisitor):
             key=lambda field: isinstance(field, ast.FieldType) and isinstance(field.table_type, ast.VirtualTableType)
         )
         sorted_properties: list[ast.PropertyType | ast.FieldType] = matched_properties + matched_fields
+        json_text_reads = self._union_json_text_reads(node, select_type)
+        pending_json_text: list[tuple[LazyTableToAdd, ast.PropertyType, list[str | int]]] = []
+
+        def add_table_property(table: LazyTableToAdd, property: ast.PropertyType, chain: list[str | int]) -> None:
+            if id(property) in json_text_reads:
+                pending_json_text.append((table, property, chain))
+            else:
+                property.joined_subquery_field_name = "___".join(str(x) for x in chain)
+                table.fields_accessed[property.joined_subquery_field_name] = chain
 
         # Look for tables without requested fields to support cases like `select count() from table`
         join = node.select_from
@@ -687,8 +760,7 @@ class LazyTableResolver(TraversingVisitor):
                         lazy_chain.append(field.name)
                         if property is not None:
                             lazy_chain.extend(property.chain)
-                            property.joined_subquery_field_name = "___".join(str(x) for x in lazy_chain)
-                            new_table.fields_accessed[property.joined_subquery_field_name] = lazy_chain
+                            add_table_property(new_table, property, lazy_chain)
                         else:
                             new_table.fields_accessed[
                                 allocate_export_name(new_table.fields_accessed, field, lazy_chain)
@@ -747,12 +819,16 @@ class LazyTableResolver(TraversingVisitor):
                             chain.append(field.name)
                             if property is not None:
                                 chain.extend(property.chain)
-                                property.joined_subquery_field_name = "___".join(str(x) for x in chain)
-                                new_table.fields_accessed[property.joined_subquery_field_name] = chain
+                                add_table_property(new_table, property, chain)
                             else:
                                 new_table.fields_accessed[
                                     allocate_export_name(new_table.fields_accessed, field, chain)
                                 ] = chain
+
+        # A JSON text export gets its name after every other property export, so that it can avoid their names.
+        for new_table, property, chain in pending_json_text:
+            property.joined_subquery_field_name = _add_json_text_export(new_table, chain)
+            property.joined_subquery_json_text = True
 
         # Make sure we also add fields we will use for the join's "ON" condition into the list of fields accessed.
         # Without this "pdi.person.id" won't work if you did not ALSO select "pdi.person_id" explicitly for the join.
@@ -789,6 +865,13 @@ class LazyTableResolver(TraversingVisitor):
         # This must happen BEFORE we add lazy joins to avoid forward reference issues.
         tables_to_wrap = self._find_tables_needing_lazy_preresolution(node, select_type)
         wrapped_table_types = [select_type.tables[table_alias] for table_alias in tables_to_wrap]
+        joins_in_wrappers = {
+            name
+            for name, join_scope in joins_to_add.items()
+            if any(_hops_to_table(join_scope.lazy_join_type, wrapped) is not None for wrapped in wrapped_table_types)
+        }
+        for name in joins_in_wrappers:
+            refuse_flag_calls_in_wrapped_lazy_join(joins_to_add[name], node, original_select_type, self.context)
         unexpanded_scans: dict[str, UnexpandedScan] = {}
         for table_alias in tables_to_wrap:
             wrapped_scan = self._wrap_table_for_lazy_resolution(node, table_alias, select_type)
@@ -796,11 +879,7 @@ class LazyTableResolver(TraversingVisitor):
                 unexpanded_scans[table_alias] = wrapped_scan
 
         # Remove lazy joins that are now resolved inside wrapped subqueries
-        joins_to_add = {
-            k: v
-            for k, v in joins_to_add.items()
-            if not any(_hops_to_table(v.lazy_join_type, wrapped) is not None for wrapped in wrapped_table_types)
-        }
+        joins_to_add = {k: v for k, v in joins_to_add.items() if k not in joins_in_wrappers}
 
         # For all the collected tables, create the subqueries, and add them to the table.
         for table_name, table_to_add in tables_to_add.items():
@@ -871,6 +950,17 @@ class LazyTableResolver(TraversingVisitor):
             ]
             if len(overrides) != 0:
                 FieldChainReplacer(overrides).visit(join_to_add)
+
+            # The swap already ran on the query before this join existed. The outer fields still read the join's
+            # LazyJoinType here. The hook reads which of them filter the join's `event` from that type.
+            read_flag_calls_in_lazy_join(
+                join_to_add,
+                join_scope,
+                node,
+                original_select_type,
+                self.context,
+                partial(self._resolve_join_subquery, select_type),
+            )
 
             join_to_add = cast(ast.JoinExpr, clone_expr(join_to_add, clear_locations=True, clear_types=True))
             join_to_add = cast(

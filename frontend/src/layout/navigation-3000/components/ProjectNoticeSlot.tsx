@@ -37,6 +37,7 @@ export function ProjectNoticeSlot({
     noPaddingScene: boolean
 }): JSX.Element | null {
     const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const { activeSceneId } = useValues(sceneLogic)
 
     if (sceneMenuBarEnabled || sceneHidesProjectNotice(sceneConfig, activeSceneId)) {
@@ -55,6 +56,11 @@ export function ProjectNoticeSlot({
                 <ChunkLoadErrorBoundary>
                     <Suspense fallback={null}>
                         <ProjectNotice
+                            hiddenVariants={
+                                todayRailNav && activeSceneId === Scene.ProjectHomepage
+                                    ? ['real_project_with_no_events']
+                                    : undefined
+                            }
                             className={cn('my-0 mb-4', {
                                 'mt-4': noPaddingScene,
                             })}

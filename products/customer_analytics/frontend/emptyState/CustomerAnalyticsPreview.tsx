@@ -2,7 +2,7 @@ import './CustomerAnalyticsPreview.scss'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 /**
  * Example-data preview for the customer analytics empty state: an accounts list
@@ -12,7 +12,7 @@ import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
  * states crossfade in `__swap` grids, so nothing shifts.
  */
 export function CustomerAnalyticsPreview(): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     return (
         <div className={cn('CustomerPreview', isStatic && 'CustomerPreview--static')}>

@@ -18,7 +18,7 @@ export const getRubyInstallSteps = (ctx: OnboardingComponentsContext): StepDefin
                                 language: 'ruby',
                                 file: 'Gemfile',
                                 code: dedent`
-                                gem "posthog-ruby"
+                                gem "posthog-ruby", "~> 3.0"
                             `,
                             },
                         ]}

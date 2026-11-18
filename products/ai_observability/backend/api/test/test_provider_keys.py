@@ -250,6 +250,37 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         )
         mock_validate.assert_called_once_with(provider, "sk-test-key-12345", team_id=self.team.id, **expected_config)
 
+    @parameterized.expand(
+        [
+            (
+                "unknown_model",
+                404,
+                "system_one_model",
+                "The endpoint returned 404 for this model ID. Check the model ID, and that the base URL ends before /systemone.",
+            ),
+            ("rejected_token", 401, "api_key", "The endpoint rejected this credential. Check the bearer token."),
+        ]
+    )
+    @mock_anti_ssrf_dns_lookup(resolves_to=["8.8.8.8"])
+    @patch("httpx.AsyncHTTPTransport.handle_async_request")
+    def test_system_one_validation_error_names_the_field_to_fix(
+        self, _name: str, endpoint_status: int, expected_attr: str, expected_detail: str, request: Mock, _dns: Mock
+    ) -> None:
+        request.return_value = httpx.Response(endpoint_status, stream=httpx.ByteStream(b""))
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
+            {
+                "provider": "system_one",
+                "name": "Custom",
+                "api_key": "example-token",
+                "base_url": "https://decisions.example.com/v1",
+                "system_one_model": "example-model",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual((response.json()["attr"], response.json()["detail"]), (expected_attr, expected_detail))
+        self.assertFalse(LLMProviderKey.objects.exists())
+
     @mock_anti_ssrf_dns_lookup(resolves_to=["8.8.8.8"])
     @patch("httpx.AsyncHTTPTransport.handle_async_request")
     def test_custom_system_one_connection_round_trip(self, request: Mock, _dns: Mock) -> None:

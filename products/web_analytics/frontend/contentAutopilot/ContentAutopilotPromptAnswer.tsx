@@ -1,10 +1,17 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonSegmentedButton, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
+import { IconExternal } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonSegmentedButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
-import { ContentAutopilotCheckResultTag } from './ContentAutopilotCheckResultTag'
+import { ContentAutopilotAnswerMentionList } from './ContentAutopilotAnswerMentionList'
+import { ContentAutopilotAnswerSentimentTag } from './ContentAutopilotAnswerSentimentTag'
+import { ContentAutopilotAnswerText } from './ContentAutopilotAnswerText'
+import { ContentAutopilotCheckResult } from './ContentAutopilotCheckResult'
+import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
+import { CITATIONS_MAX_DAYS } from './contentAutopilotCitationsModalLogic'
+import { ContentAutopilotEngineLabel } from './ContentAutopilotEngineLabel'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
 import { checkPromptVersion, engineLabel } from './utils'
 
@@ -12,8 +19,19 @@ import { checkPromptVersion, engineLabel } from './utils'
 const isWebUrl = (url: string): boolean => /^https?:\/\//i.test(url)
 
 export const ContentAutopilotPromptAnswer = (): JSX.Element => {
-    const { engines, activeEngine, shownCheck, selectedCheck, latestChecksLoading, latestChecksFailed, promptId } =
-        useValues(contentAutopilotPromptDetailLogic)
+    const {
+        engines,
+        activeEngine,
+        shownCheck,
+        shownAnswerMentions,
+        competitorBrands,
+        competitorBrandsLoading,
+        competitorBrandsFailed,
+        selectedCheck,
+        latestChecksLoading,
+        latestChecksFailed,
+        promptId,
+    } = useValues(contentAutopilotPromptDetailLogic)
     const { selectEngine, loadAeoPromptLatestChecks } = useActions(contentAutopilotPromptDetailLogic)
 
     return (
@@ -23,7 +41,10 @@ export const ContentAutopilotPromptAnswer = (): JSX.Element => {
                     size="small"
                     value={selectedCheck ? undefined : (activeEngine ?? undefined)}
                     onChange={selectEngine}
-                    options={engines.map((engine) => ({ value: engine, label: engineLabel(engine) }))}
+                    options={engines.map((engine) => ({
+                        value: engine,
+                        label: <ContentAutopilotEngineLabel engine={engine} />,
+                    }))}
                     data-attr="content-autopilot-prompt-answer-engine"
                 />
                 {selectedCheck ? (
@@ -41,11 +62,22 @@ export const ContentAutopilotPromptAnswer = (): JSX.Element => {
             {shownCheck ? (
                 <div className="flex flex-col gap-3">
                     <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
-                        <ContentAutopilotCheckResultTag
-                            cited={shownCheck.cited}
-                            checkFailed={shownCheck.check_failed}
-                            position={shownCheck.target_best_position}
-                        />
+                        {shownCheck.mode === 'no_search' && !shownCheck.check_failed ? (
+                            <LemonTag type="muted">No search</LemonTag>
+                        ) : (
+                            <ContentAutopilotCheckResult
+                                cited={shownCheck.cited}
+                                checkFailed={shownCheck.check_failed}
+                                position={shownCheck.target_best_position}
+                            />
+                        )}
+                        {shownCheck.check_failed ? null : (
+                            <ContentAutopilotAnswerSentimentTag
+                                sentiment={shownCheck.brand_sentiment ?? null}
+                                score={shownCheck.brand_sentiment_score ?? null}
+                                namesBrand={shownAnswerMentions?.mentions.some((m) => m.brand.isOwn) ?? false}
+                            />
+                        )}
                         <span>
                             {selectedCheck ? 'Older answer' : 'Latest answer'} from {engineLabel(shownCheck.engine)},{' '}
                             <TZLabel time={shownCheck.created_at} />
@@ -60,8 +92,22 @@ export const ContentAutopilotPromptAnswer = (): JSX.Element => {
                             {shownCheck.error ? ` Error: ${shownCheck.error}` : ''}
                         </p>
                     ) : (
-                        <div className="whitespace-pre-wrap break-words text-sm bg-surface-secondary rounded p-3 max-h-96 overflow-y-auto">
-                            {shownCheck.answer_text || 'The engine returned an empty answer.'}
+                        <div className="grid grid-cols-1 @3xl/prompt-report:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-4">
+                            <ContentAutopilotAnswerText
+                                text={shownCheck.answer_text ?? ''}
+                                mentions={shownAnswerMentions}
+                                sentences={shownCheck.brand_sentiment_sentences}
+                            />
+                            <ContentAutopilotAnswerMentionList
+                                mentions={shownAnswerMentions?.mentions ?? []}
+                                competitors={
+                                    competitorBrands !== null
+                                        ? 'ready'
+                                        : competitorBrandsFailed && !competitorBrandsLoading
+                                          ? 'failed'
+                                          : 'loading'
+                                }
+                            />
                         </div>
                     )}
 
@@ -71,13 +117,30 @@ export const ContentAutopilotPromptAnswer = (): JSX.Element => {
                             <ol className="m-0 pl-5 flex flex-col gap-1 text-sm">
                                 {shownCheck.cited_urls.map((url, index) => (
                                     <li key={`${index}-${url}`} className="break-all">
+                                        <ContentAutopilotCitationsLink
+                                            lookup={{
+                                                kind: 'url',
+                                                value: url,
+                                                days: CITATIONS_MAX_DAYS,
+                                                branded: 'all',
+                                            }}
+                                            source="prompt-answer-sources"
+                                            className="break-all"
+                                        >
+                                            {url}
+                                        </ContentAutopilotCitationsLink>
                                         {isWebUrl(url) ? (
-                                            <Link to={url} target="_blank">
-                                                {url}
-                                            </Link>
-                                        ) : (
-                                            url
-                                        )}
+                                            <LemonButton
+                                                size="xsmall"
+                                                icon={<IconExternal />}
+                                                to={url}
+                                                targetBlank
+                                                hideExternalLinkIcon
+                                                tooltip="Open the page"
+                                                className="inline-flex align-middle ml-1"
+                                                data-attr="content-autopilot-prompt-answer-source-open"
+                                            />
+                                        ) : null}
                                         {shownCheck.target_urls.includes(url) ? (
                                             <LemonTag type="success" size="small" className="ml-2">
                                                 Your site
@@ -97,7 +160,18 @@ export const ContentAutopilotPromptAnswer = (): JSX.Element => {
                             <ul className="m-0 pl-5 flex flex-col gap-1 text-sm">
                                 {shownCheck.search_queries.map((query, index) => (
                                     <li key={`${index}-${query}`} className="break-words">
-                                        {query}
+                                        <ContentAutopilotCitationsLink
+                                            lookup={{
+                                                kind: 'search',
+                                                value: query,
+                                                days: CITATIONS_MAX_DAYS,
+                                                branded: 'all',
+                                            }}
+                                            source="prompt-answer-searches"
+                                            className="break-words"
+                                        >
+                                            {query}
+                                        </ContentAutopilotCitationsLink>
                                     </li>
                                 ))}
                             </ul>

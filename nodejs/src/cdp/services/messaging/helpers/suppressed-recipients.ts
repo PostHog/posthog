@@ -40,7 +40,7 @@ export const quoteMailbox = (email: string): string => {
 
 // Parses the list the way SES does (RFC 5322), so quoted display names, comments and commas inside
 // quotes never hide the mailbox that receives the email.
-const parseAddressList = (value: string | undefined): ParsedAddress[] =>
+export const parseAddressList = (value: string | undefined): ParsedAddress[] =>
     typeof value === 'string'
         ? addressparser(value, { flatten: true })
               .filter((entry) => entry.address.trim().length > 0)

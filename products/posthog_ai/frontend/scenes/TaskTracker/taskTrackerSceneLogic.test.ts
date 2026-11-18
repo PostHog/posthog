@@ -131,6 +131,29 @@ describe('taskTrackerSceneLogic', () => {
         toolEvents?.unmount()
     })
 
+    it.each([true, false])('resets the warm budget only after a successful cold run (success: %s)', async (success) => {
+        let warmCalls = 0
+        useMocks({
+            post: {
+                '/api/projects/:team/tasks/warm/': () => {
+                    warmCalls++
+                    return [200, {}]
+                },
+                '/api/projects/:team/tasks/:id/run/': () =>
+                    success ? [200, { run: { id: 'cold-run' } }] : [500, { detail: 'Run failed' }],
+            },
+        })
+        logic.mount()
+        const warm = taskWarmLogic({ panelId: undefined })
+        logic.actions.setNewTaskData({ description: 'First draft' })
+        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(warm, () => warm.actions.prewarm({ branch: null })).toFinishAllListeners()
+        expect(warmCalls).toBe(1)
+        await expectLogic(logic, () => logic.actions.submitNewTask()).toFinishAllListeners()
+        await expectLogic(warm, () => warm.actions.prewarm({ branch: null })).toFinishAllListeners()
+        expect(warmCalls).toBe(success ? 2 : 1)
+    })
+
     describe('file attachments', () => {
         let attachments: ReturnType<typeof composerAttachmentsLogic.build>
 
@@ -663,7 +686,7 @@ describe('taskTrackerSceneLogic', () => {
     // Issuing the usual run-create on top would strand that warm sandbox and cold-boot a second one —
     // exactly the ~16s the warm existed to avoid. The create must also carry the warm-reuse hints, since
     // the backend never even attempts a match unless `branch` is present as a key.
-    it('skips the run create when the backend activated a warm run', async () => {
+    it.each([false, true])('targets a capable warm and skips a second run (mutable: %s)', async (mutable) => {
         useMocks({
             post: {
                 '/api/projects/:team/tasks/': async ({ request }) => {
@@ -678,6 +701,13 @@ describe('taskTrackerSceneLogic', () => {
         })
         logic.mount()
         logic.actions.setNewTaskData({ description: 'do the thing' })
+        const warm = taskWarmLogic({ panelId: undefined })
+        warm.actions.setWarmLease({
+            key: 'k',
+            taskId: 'warm-task',
+            runId: 'warm-run-1',
+            permissionModeMutable: mutable,
+        })
         logic.actions.submitNewTask()
 
         await expectLogic(logic).toFinishAllListeners()
@@ -691,6 +721,8 @@ describe('taskTrackerSceneLogic', () => {
         // stored default for warm matching the same way the warm was provisioned.
         expect(createBody?.model).toBeUndefined()
         expect(createBody?.runtime_adapter).toBeUndefined()
+        expect(createBody?.warm_run_id).toBe(mutable ? 'warm-run-1' : undefined)
+        expect(createBody?.warm_submission_id).toEqual(mutable ? expect.any(String) : undefined)
         expect(runBody).toBeNull()
         expect(logic.values.activeCreation?.runId).toBe('warm-run-1')
     })
@@ -1021,7 +1053,17 @@ describe('taskTrackerSceneLogic', () => {
     // A channel host starts on its own repo instead of the remembered one, files the task in its channel, and
     // keeps the shared last-used repo intact.
     it('creates the task in the host channel from the host repository default', async () => {
+        let finishCreation!: (response: [number, Record<string, unknown>]) => void
+        const creation = new Promise<[number, Record<string, unknown>]>((resolve) => {
+            finishCreation = resolve
+        })
         useMocks({
+            post: {
+                '/api/projects/:team/tasks/': async ({ request }) => {
+                    createBody = (await request.json()) as Record<string, any>
+                    return creation
+                },
+            },
             get: {
                 '/api/projects/:team/integrations/': {
                     results: [{ id: 7, kind: 'github', display_name: 'acme', config: {} }],
@@ -1045,7 +1087,11 @@ describe('taskTrackerSceneLogic', () => {
 
         logic.actions.setNewTaskData({ description: 'ship it' })
         logic.actions.submitNewTask()
-        await expectLogic(logic).toFinishAllListeners()
+        const nextOnTaskCreated = jest.fn()
+        taskTrackerSceneLogic({ ...logic.props, onTaskCreated: nextOnTaskCreated })
+        await expectLogic(logic, () =>
+            finishCreation([200, { id: 'new-task', latest_run: { id: 'run-1' } }])
+        ).toFinishAllListeners()
 
         expect(createBody).toMatchObject({
             channel: 'channel-1',
@@ -1053,6 +1099,7 @@ describe('taskTrackerSceneLogic', () => {
             github_integration: 7,
         })
         expect(onTaskCreated).toHaveBeenCalledWith('new-task')
+        expect(nextOnTaskCreated).not.toHaveBeenCalled()
         expect(logic.values.newTaskData.repositoryConfig.repository).toBe('acme/space-repo')
         expect(logic.values.persistedRepositoryConfig).toEqual({ integrationId: 7, repository: 'acme/remembered' })
     })

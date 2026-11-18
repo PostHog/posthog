@@ -1,13 +1,22 @@
 from django.db import models
+from django.db.models import QuerySet
 
+from posthog.models.file_system.constants import (
+    DEFAULT_SURFACE,
+    resolved_workflows_list_v2_answer,
+    workflows_list_v2_enabled,
+)
+from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.tagged_items_relation import Taggable
+from posthog.models.team import Team
 from posthog.models.utils import UUIDTModel
 
 KEY_CONSTRAINT = "unique_message_template_key_per_team"
 
 
 # nosemgrep: no-new-uuidt-models -- an existing model, and its stored ids cannot change.
-class MessageTemplate(Taggable, UUIDTModel):
+class MessageTemplate(FileSystemSyncMixin, Taggable, UUIDTModel):
     """
     A model for storing message templates used for email and eventually other messaging channels.
     """
@@ -50,3 +59,34 @@ class MessageTemplate(Taggable, UUIDTModel):
 
     def __str__(self):
         return self.name
+
+    @classmethod
+    def get_file_system_unfiled(cls, team: Team, surface: str = DEFAULT_SURFACE) -> QuerySet["MessageTemplate"]:
+        return cls._filter_unfiled_queryset(
+            cls.objects.filter(team=team, deleted=False).only(
+                "id", "team_id", "name", "created_at", "created_by_id", "deleted"
+            ),
+            team,
+            type="message_template",
+            ref_field="id",
+            surface=surface,
+        )
+
+    def files_new_rows(self) -> bool:
+        if self.created_by_id is None:
+            return False
+        resolved = resolved_workflows_list_v2_answer(self.team_id, self.created_by_id)
+        if resolved is not None:
+            return resolved
+        return self.created_by is not None and workflows_list_v2_enabled(self.team, self.created_by)
+
+    def get_file_system_representation(self) -> FileSystemRepresentation:
+        return FileSystemRepresentation(
+            base_folder=self._get_assigned_folder("Unfiled/Email templates"),
+            type="message_template",
+            ref=str(self.id),
+            name=self.name or "Untitled",
+            href=f"/workflows/library/templates/{self.id}",
+            meta={"created_at": str(self.created_at), "created_by": self.created_by_id},
+            should_delete=self.deleted,
+        )

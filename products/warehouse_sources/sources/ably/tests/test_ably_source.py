@@ -1,6 +1,7 @@
 import pytest
 
 from products.warehouse_sources.sources.ably._config import AblySourceConfig
+from products.warehouse_sources.sources.ably.ably import MALFORMED_API_KEY_ERROR, REJECTED_API_KEY_ERROR
 from products.warehouse_sources.sources.ably.source import AblySource
 from products.warehouse_sources.sources.sdk import (
     SourceFieldInputConfig,
@@ -35,8 +36,8 @@ class TestAblySource:
         ("status_code", "expected"),
         [
             (200, (True, None)),
-            (401, (False, "Ably authentication failed. Please check your API key.")),
-            (403, (False, "Ably authentication failed. Please check your API key.")),
+            (401, (False, REJECTED_API_KEY_ERROR)),
+            (403, (False, REJECTED_API_KEY_ERROR)),
         ],
     )
     def test_validate_credentials(self, status_code: int, expected: tuple[bool, str | None]) -> None:
@@ -48,7 +49,7 @@ class TestAblySource:
         config = AblySourceConfig(api_key="no-colon-here", unit="hour")
         ok, error = self.source.validate_credentials(config, self.team_id)
         assert ok is False
-        assert error is not None and "malformed" in error.lower()
+        assert error == MALFORMED_API_KEY_ERROR
 
     @pytest.mark.parametrize(
         ("schema_name", "primary_keys", "partition_keys"),

@@ -1,13 +1,16 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { EditableField } from 'lib/components/EditableField/EditableField'
 
+import { workflowLogic } from '../../workflowLogic'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { isScheduleTrigger } from '../steps/types'
 import type { HogFlowAction } from '../types'
 
 export function HogFlowStepNameFields({ action }: { action: HogFlowAction }): JSX.Element {
     const { setWorkflowAction } = useActions(hogFlowEditorLogic)
+    const { isViewOnly } = useValues(workflowLogic)
+    const editProps = isViewOnly ? { mode: 'view' as const, clickToEdit: false } : { clickToEdit: true }
     return (
         <>
             <EditableField
@@ -22,13 +25,13 @@ export function HogFlowStepNameFields({ action }: { action: HogFlowAction }): JS
                 placeholder="Step name"
                 minLength={1}
                 saveOnBlur
-                clickToEdit
+                {...editProps}
                 compactButtons
                 compactIcon
                 className="text-sm font-semibold"
                 data-attr="workflow-step-name"
             />
-            {!isScheduleTrigger(action) && (
+            {!isScheduleTrigger(action) && (!isViewOnly || !!action.description) && (
                 <EditableField
                     name="step-description"
                     value={action.description || ''}
@@ -36,7 +39,7 @@ export function HogFlowStepNameFields({ action }: { action: HogFlowAction }): JS
                     placeholder="Add a description (optional)"
                     multiline
                     saveOnBlur
-                    clickToEdit
+                    {...editProps}
                     compactButtons
                     compactIcon
                     className="text-xs text-secondary"

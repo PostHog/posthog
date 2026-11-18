@@ -6,9 +6,10 @@ few seconds. These tests pin the hit/miss/expiry/invalidation contract so future
 refactors don't silently regress the rate-limit-friendliness of the path.
 """
 
-import time
+from datetime import UTC, datetime
 
 import pytest
+import time_machine
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
@@ -125,25 +126,16 @@ class TestCachedCollectThreadMessages:
         assert mock_fetch.call_count == 2
 
     def test_ttl_expiry_triggers_refetch(self):
-        # A snapshot that's older than the TTL should be re-fetched; otherwise a
-        # long-lived workflow run would risk handing the agent indefinitely-stale data.
-        # `cache.set` with a tiny TTL is the cheapest way to verify this without
-        # waiting 10 seconds — patch `cache.set` to use a 1-second TTL instead.
-        original_set = cache.set
-
-        def short_lived_set(key, value, timeout=None, **kw):
-            return original_set(key, value, timeout=1)
-
         sentinel = [SlackThreadMessage(user="alice", user_id="U_A", text="hi", ts="1.000")]
         with (
-            patch.object(cache, "set", side_effect=short_lived_set),
+            time_machine.travel(datetime(2026, 1, 1, tzinfo=UTC), tick=False) as traveller,
             patch(
                 "products.slack_app.backend.services.slack_messages.collect_thread_messages",
                 return_value=sentinel,
             ) as mock_fetch,
         ):
             cached_collect_thread_messages(self.slack, self.integration, "C001", "1.000", our_bot_id=None)
-            time.sleep(1.1)
+            traveller.shift(THREAD_REPLIES_CACHE_TTL_SECONDS + 1)
             cached_collect_thread_messages(self.slack, self.integration, "C001", "1.000", our_bot_id=None)
 
         assert mock_fetch.call_count == 2

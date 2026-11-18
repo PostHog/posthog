@@ -18,6 +18,7 @@ from temporalio import activity
 
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import Product
+from posthog.clickhouse.workload import Workload
 from posthog.credentials import AWSKeyPair
 from posthog.dataclasses import frozen
 from posthog.models.event.new_events_schema import use_new_events_schema
@@ -76,7 +77,6 @@ from products.batch_exports.backend.temporal.sql.events import (
     EXPORT_TO_S3_FROM_EVENTS,
     EXPORT_TO_S3_FROM_EVENTS_BACKFILL,
     EXPORT_TO_S3_FROM_EVENTS_RECENT,
-    EXPORT_TO_S3_FROM_EVENTS_UNBOUNDED,
     EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS,
     native_events_export_query,
 )
@@ -253,6 +253,8 @@ async def get_s3_client():
             read_timeout=300,
             connector_args={"keepalive_timeout": 30},
             http_session_cls=AIOHTTPSession,
+            # connect directly to our internal stage without any egress proxy
+            proxies={},
         ),
     ) as s3_client:
         yield s3_client
@@ -636,9 +638,6 @@ async def _get_query(
         ):
             logger.info("Using distributed_events_recent table for batch export")
             query_template = EXPORT_TO_S3_FROM_DISTRIBUTED_EVENTS_RECENT
-        elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
-            logger.info("Using unbounded events query for batch export")
-            query_template = EXPORT_TO_S3_FROM_EVENTS_UNBOUNDED
         elif is_workflows:
             logger.info("Using workflows events query for batch export")
             query_template = EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS
@@ -651,9 +650,10 @@ async def _get_query(
             lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
             parameters["lookback_days"] = lookback_days
 
-        native_source = query_template is EXPORT_TO_S3_FROM_EVENTS_BACKFILL and await database_sync_to_async(
-            use_new_events_schema
-        )(team_id)
+        native_source = query_template in (
+            EXPORT_TO_S3_FROM_EVENTS_BACKFILL,
+            EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS,
+        ) and await database_sync_to_async(use_new_events_schema)(team_id)
 
         filters_str = ""
         if filters is not None and len(filters) > 0:
@@ -754,11 +754,6 @@ async def _write_batch_export_record_batches_to_internal_stage(
     """
     logger = LOGGER.bind()
 
-    clickhouse_url = None
-    # 5 min batch exports should query a single node, which is known to have zero replication lag
-    if is_5_min_batch_export(full_range=full_range):
-        clickhouse_url = settings.CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST
-
     # Data can sometimes take a while to settle, so for 5 min batch exports we wait several seconds just to be safe.
     # For all other batch exports we wait for 1 minute since we're querying the events_recent table using a
     # distributed table and setting `max_replica_delay_for_distributed_queries` to 1 minute
@@ -785,9 +780,43 @@ async def _write_batch_export_record_batches_to_internal_stage(
         with TRACER.start_as_current_span("batch_export.stage.wait_for_delta"):
             await wait_for_delta_past_data_interval_end(interval_end, delta)
 
+    # TODO - in future we might want to catch any ClickHouse memory usage errors and split the
+    # interval into sub-intervals, running one query per sub-interval, to reduce memory usage
+    if interval_start is not None:
+        query_parameters["interval_start"] = interval_start.strftime("%Y-%m-%d %H:%M:%S.%f")
+    else:
+        query_parameters["interval_start"] = None
+    if interval_end is not None:
+        query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+    workload = Workload.OFFLINE
+    if isinstance(query_or_model, RecordBatchModel):
+        query, context = await query_or_model.as_insert_into_s3_query_with_context(
+            data_interval_start=interval_start,
+            data_interval_end=interval_end,
+            s3_folder=s3_staging_folder_url,
+            credentials=_get_s3_credentials(),
+            num_partitions=num_partitions or settings.BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS,
+        )
+        query_parameters = context.values
+        query_settings = query_or_model.get_clickhouse_request_settings()
+        workload = context.workload or Workload.OFFLINE
+    else:
+        query = query_or_model
+        query_settings = {}
+
+    if str(team_id) in settings.BATCH_EXPORT_ARROW_COMPRESSION_TEAM_IDS:
+        query_settings["output_format_arrow_compression_method"] = settings.BATCH_EXPORT_ARROW_COMPRESSION_METHOD
+
+    clickhouse_url = None
+    # 5 min batch exports should query a single node, which is known to have zero replication lag
+    if workload in (Workload.DEFAULT, Workload.OFFLINE) and is_5_min_batch_export(full_range=full_range):
+        clickhouse_url = settings.CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST
+
     async with get_client(
         team_id=team_id,
         clickhouse_url=clickhouse_url,
+        workload=workload,
         # TODO: Strict limits are available in ClickHouse 26.4
         # We should uncomment all of these here to let max_insert_block_size_bytes dictate the size
         # once clickhouse is upgraded.
@@ -800,31 +829,6 @@ async def _write_batch_export_record_batches_to_internal_stage(
     ) as client:
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
-
-        # TODO - in future we might want to catch any ClickHouse memory usage errors and split the
-        # interval into sub-intervals, running one query per sub-interval, to reduce memory usage
-        if interval_start is not None:
-            query_parameters["interval_start"] = interval_start.strftime("%Y-%m-%d %H:%M:%S.%f")
-        else:
-            query_parameters["interval_start"] = None
-        if interval_end is not None:
-            query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
-
-        if isinstance(query_or_model, RecordBatchModel):
-            query, query_parameters = await query_or_model.as_insert_into_s3_query_with_parameters(
-                data_interval_start=interval_start,
-                data_interval_end=interval_end,
-                s3_folder=s3_staging_folder_url,
-                credentials=_get_s3_credentials(),
-                num_partitions=num_partitions or settings.BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS,
-            )
-            query_settings = query_or_model.get_clickhouse_request_settings()
-        else:
-            query = query_or_model
-            query_settings = {}
-
-        if str(team_id) in settings.BATCH_EXPORT_ARROW_COMPRESSION_TEAM_IDS:
-            query_settings["output_format_arrow_compression_method"] = settings.BATCH_EXPORT_ARROW_COMPRESSION_METHOD
 
         base_s3_staging_folder = get_base_s3_staging_folder(
             batch_export_id=batch_export_id,

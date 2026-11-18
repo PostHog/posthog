@@ -5,11 +5,13 @@ A metric on `ai_triage.human_outcome`, not a learning input.
 
 from __future__ import annotations
 
-from difflib import SequenceMatcher
+import re
 from typing import Literal
 
 from django.db import models, transaction
 from django.db.models import Q, QuerySet
+
+from rapidfuzz.distance import Indel
 
 from posthog.models.comment import Comment
 
@@ -27,9 +29,40 @@ class AiDraftHumanOutcome(models.TextChoices):
 USED_RATIO = 0.85
 EDITED_RATIO = 0.4
 
+# Matching is quadratic in the token counts, and comment content has no size limit. Texts past this
+# size get no outcome, so a giant comment cannot hold the ticket row lock while it is matched.
+MAX_SCORED_CHARS = 20_000
 
-def classify_human_outcome(ai_draft: str, human_reply: str) -> HumanOutcome:
-    ratio = SequenceMatcher(None, ai_draft.strip(), human_reply.strip()).ratio()
+
+# Chinese, Japanese, Thai and Korean write without spaces between words, so a run of word
+# characters is a whole sentence. One token per character there keeps a small edit from
+# replacing the only token the sentence has.
+_UNSPACED_SCRIPTS = "぀-ヿ㐀-䶿一-鿿豈-﫿가-힯฀-๿"
+_TOKEN_PATTERN = re.compile(rf"[{_UNSPACED_SCRIPTS}]|[^\W{_UNSPACED_SCRIPTS}]+")
+
+
+def classify_human_outcome(ai_draft: str, human_reply: str) -> HumanOutcome | None:
+    draft = ai_draft.strip()
+    reply = human_reply.strip()
+    if len(draft) > MAX_SCORED_CHARS or len(reply) > MAX_SCORED_CHARS:
+        return None
+    if not draft or not reply:
+        return "ignored"
+    if draft == reply:
+        return "used"
+    draft_tokens = _TOKEN_PATTERN.findall(draft.lower())
+    reply_tokens = _TOKEN_PATTERN.findall(reply.lower())
+    if not draft_tokens or not reply_tokens:
+        return "ignored"
+    total_tokens = len(draft_tokens) + len(reply_tokens)
+    # Length alone caps how similar two texts can be. Settling that case without matching keeps
+    # the ticket row lock short on the common path, where the human wrote their own reply.
+    if 2 * min(len(draft_tokens), len(reply_tokens)) / total_tokens < EDITED_RATIO:
+        return "ignored"
+    # Indel matches both whole token lists, so text kept anywhere in a long draft counts. Matching
+    # characters instead would score unrelated replies as edited, because two texts in one language
+    # share many letters in order.
+    ratio = Indel.normalized_similarity(draft_tokens, reply_tokens)
     if ratio >= USED_RATIO:
         return "used"
     if ratio >= EDITED_RATIO:
@@ -128,8 +161,12 @@ def maybe_record_human_outcome(*, team_id: int, ticket_id: str, comment_id: str,
         if first_after is None or str(first_after.id) != str(comment_id):
             return
 
-        classified = classify_human_outcome(_inserted_draft_text(ai_note), human_content)
-        if current == classified:
+        draft_text = _inserted_draft_text(ai_note)
+        if not draft_text.strip():
+            # Investigation notes with no suggested question give the human nothing to adopt.
+            return
+        classified = classify_human_outcome(draft_text, human_content)
+        if classified is None or current == classified:
             return
         if current and current != "used":
             return

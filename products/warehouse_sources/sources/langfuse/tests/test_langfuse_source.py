@@ -3,6 +3,8 @@ from datetime import date
 import pytest
 from unittest import mock
 
+import requests
+
 from products.warehouse_sources.sources.langfuse._config import LangfuseSourceConfig
 from products.warehouse_sources.sources.langfuse.settings import ENDPOINTS, endpoints_for_version
 from products.warehouse_sources.sources.langfuse.source import LangfuseSource
@@ -90,4 +92,16 @@ class TestLangfuseSource:
         result = driver.run(endpoint, [], api_version="v3")
         assert isinstance(result.raised, ValueError)
         assert result.requests == []
+        assert any(pattern in str(result.raised) for pattern in self.source.get_non_retryable_errors())
+
+    @pytest.mark.parametrize("api_version, endpoint", [("v1", "traces"), ("v2", "sessions")])
+    def test_legacy_endpoint_sunset_is_classified_non_retryable(self, api_version, endpoint):
+        # A source still pinned to v1/v2 reaches the live API instead of the config-time check
+        # above, and gets this 410 on every attempt once Langfuse Cloud retires the route.
+        driver = SourceDriver(
+            self.source,
+            LangfuseSourceConfig(host="https://cloud.langfuse.com", public_key="pk-lf-key", secret_key="sk-lf-key"),
+        )
+        result = driver.run(endpoint, [ScriptedResponse(status=410)], api_version=api_version)
+        assert isinstance(result.raised, requests.HTTPError)
         assert any(pattern in str(result.raised) for pattern in self.source.get_non_retryable_errors())

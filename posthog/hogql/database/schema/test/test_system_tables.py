@@ -1,6 +1,6 @@
 import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import time_machine
@@ -10,6 +10,9 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.schema import HogQLQuery
+
+from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database, _compute_system_table_access_decision, system_table_denials
 from posthog.hogql.database.models import Table
@@ -21,6 +24,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.auth import ProjectSecretAPIKeyUser
 from posthog.constants import AvailableFeature
+from posthog.hogql_queries.access_controlled_resources import queried_access_controlled_resources
 from posthog.models import (
     DataDeletionRequest,
     Group,
@@ -46,7 +50,7 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.models.role import Role
 from products.actions.backend.facade.testing import create_action
-from products.aeo.backend.facade.testing import create_citation_check
+from products.aeo.backend.facade.testing import create_brand, create_citation_check
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
 from products.ai_observability.backend.models.evaluation_directories import EvaluationDirectory
 from products.ai_observability.backend.models.evaluations import Evaluation
@@ -54,7 +58,8 @@ from products.ai_observability.backend.models.review_queues import ReviewQueue, 
 from products.ai_observability.backend.models.score_definitions import ScoreDefinition
 from products.ai_observability.backend.models.trace_reviews import TraceReview, TraceReviewScore
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.annotations.backend.models.annotation import Annotation
+from products.alerts_platform.backend.facade import testing as alerts_platform_testing
+from products.annotations.backend.facade import testing as annotations_testing
 from products.autoresearch.backend.facade import testing as autoresearch_testing
 from products.batch_exports.backend.facade import testing as batch_exports_testing
 from products.batch_exports.backend.facade.enums import (
@@ -141,10 +146,30 @@ from products.workflows.backend.facade.testing import create_workflow_for_test
 # Only directly-queryable tables are team-scoped via a WHERE clause. Namespace nodes such as
 # `information_schema` carry no `table` of their own (just child catalog tables computed per-query),
 # so they have no team_id filter and can't be `SELECT *`-ed directly — skip them here.
-ALL_SYSTEM_TABLE_NAMES = sorted(name for name, node in SystemTables().children.items() if node.table is not None)
+# `integrations` is read through the integrations SDK and inlined as constant rows, so it prints no
+# team_id guard. test_system_integrations.py covers its team scoping.
+SDK_BACKED_SYSTEM_TABLE_NAMES = frozenset({"integrations"})
+ALL_SYSTEM_TABLE_NAMES = sorted(
+    name
+    for name, node in SystemTables().children.items()
+    if node.table is not None and name not in SDK_BACKED_SYSTEM_TABLE_NAMES
+)
 
 # {table_name: "sql_alias.column_name"} for team_id filter assertion
-TEAM_ID_FILTER_PATTERNS = {
+TEAM_ID_FILTER_PATTERNS: dict[str, str | tuple[str, ...]] = {
+    # A union over the rows its own stack evaluates and the alerts the platform holds; each read is guarded
+    "alerts": (
+        "system___insight_alert_rows.team_id",
+        "c.team_id",
+        "system___platform_insight_alert_instances.team_id",
+        "system___platform_insight_alerts.team_id",
+    ),
+    "logs_alerts": (
+        "system___logs_alert_rows.team_id",
+        "c.team_id",
+        "system___platform_logs_alert_instances.team_id",
+        "system___platform_logs_alerts.team_id",
+    ),
     "ingestion_warnings": "ingestion_warnings.team_id",  # ClickHouse-native table, no system__ prefix
     "teams": "system__teams.id",  # team_id is aliased to id column
     # Junction tables without team_id; isolation is enforced via an account_id IN system.accounts predicate
@@ -169,7 +194,7 @@ class TestSystemTablesTeamScoping(BaseTest):
     """Verify every system table's generated SQL includes a team_id WHERE clause."""
 
     @parameterized.expand(ALL_SYSTEM_TABLE_NAMES)
-    def test_system_table_has_team_id_filter(self, table_name):
+    def test_system_table_filters_on_team_id_without_selecting_it(self, table_name):
         if table_name == "data_deletion_requests":
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
@@ -181,10 +206,15 @@ class TestSystemTablesTeamScoping(BaseTest):
             database=db,
         )
         sql = f"SELECT * FROM system.{table_name}"
-        query, _ = prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
+        query, prepared = prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
 
-        pattern = TEAM_ID_FILTER_PATTERNS.get(table_name, f"system__{table_name}.team_id")
-        assert f"equals({pattern}, {self.team.pk})" in query
+        patterns = TEAM_ID_FILTER_PATTERNS.get(table_name, f"system__{table_name}.team_id")
+        for pattern in (patterns,) if isinstance(patterns, str) else patterns:
+            assert f"equals({pattern}, {self.team.pk})" in query
+
+        assert isinstance(prepared, ast.SelectQuery) and prepared.type is not None
+        assert prepared.type.columns
+        assert "team_id" not in prepared.type.columns
 
     def test_all_system_tables_have_isolation_tests(self):
         """Fails when a new system table is added without a corresponding isolation test."""
@@ -213,6 +243,13 @@ class TestSystemTablesTeamScoping(BaseTest):
             # relationships/data_types) computed per-query from the caller's own Database object,
             # so it has no team_id column to isolate; behaviour is covered by TestInformationSchema.
             "information_schema",
+            # Hidden tables backing system.alerts and system.logs_alerts; covered by TestSystemAlertTablesReadPlatform.
+            "_insight_alert_rows",
+            "_platform_insight_alerts",
+            "_platform_insight_alert_instances",
+            "_logs_alert_rows",
+            "_platform_logs_alerts",
+            "_platform_logs_alert_instances",
         }
 
         untested = all_tables - tested_tables - excluded_tables
@@ -336,6 +373,31 @@ def _create_alert(team: Team, label: str) -> AlertConfiguration:
     return AlertConfiguration.objects.create(team=team, insight=insight, name=f"alert_{label}")
 
 
+def _create_native_insight_alert(team: Team, label: str) -> uuid.UUID:
+    insight = Insight.objects.create(team=team, name=f"insight_for_native_alert_{label}")
+    with team_scope(team.pk):
+        return alerts_platform_testing.create_configuration(
+            team_id=team.pk,
+            name=f"native_alert_{label}",
+            source_kind="insight",
+            source_config={"insight_id": insight.id},
+            check_interval_minutes=60,
+            owner="platform",
+        ).id
+
+
+def _create_native_logs_alert(team: Team, label: str) -> uuid.UUID:
+    with team_scope(team.pk):
+        return alerts_platform_testing.create_configuration(
+            team_id=team.pk,
+            name=f"native_logs_alert_{label}",
+            source_kind="logs",
+            source_config={"filters": {}, "condition": {"threshold_count": 5}},
+            check_interval_minutes=5,
+            owner="platform",
+        ).id
+
+
 def _create_activity_log(team: Team, label: str) -> ActivityLog:
     return ActivityLog.objects.create(team_id=team.pk, activity="updated", scope="FeatureFlag", item_id=label)
 
@@ -405,8 +467,8 @@ def _create_cohort(team: Team, label: str) -> Cohort:
     return Cohort.objects.create(team=team, name=f"cohort_{label}")
 
 
-def _create_annotation(team: Team, label: str) -> Annotation:
-    return Annotation.objects.create(team=team, content=f"annotation_{label}")
+def _create_annotation(team: Team, label: str) -> SimpleNamespace:
+    return SimpleNamespace(pk=annotations_testing.create_annotation(team_id=team.pk, content=f"annotation_{label}"))
 
 
 def _create_autoresearch_pipeline(team: Team, label: str) -> SimpleNamespace:
@@ -1107,12 +1169,14 @@ def _create_business_knowledge_chunk(team: Team, label: str):
 
 SYSTEM_TABLE_FACTORIES = [
     ("account_relationship_definitions", _create_account_relationship_definition),
+    ("aeo_brands", create_brand),
     ("aeo_citation_checks", create_citation_check),
     ("account_relationships", _create_account_relationship),
     ("accounts", _create_account),
     ("activity_logs", _create_activity_log),
     ("actions", _create_action),
     ("alerts", _create_alert),
+    ("alerts", _create_native_insight_alert),
     ("annotations", _create_annotation),
     ("autoresearch_iterations", _create_autoresearch_iteration),
     ("autoresearch_models", _create_autoresearch_model),
@@ -1189,6 +1253,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("inbox_reports", _create_inbox_report),
     ("integration_repository_cache", _create_integration_repository_cache_entry),
     ("logs_alerts", _create_logs_alert),
+    ("logs_alerts", _create_native_logs_alert),
     ("property_definitions", _create_property_definition),
     ("replay_scanners", _create_replay_scanner),
     ("revenue_analytics_config", _create_revenue_analytics_config),
@@ -1300,6 +1365,162 @@ class TestSystemTablesTeamIsolation(NonAtomicBaseTest):
         ids = {str(row[0]) for row in response.results}
 
         assert ids == {str(visible.pk)}
+
+
+class TestSystemAlertTablesAccess(BaseTest):
+    @parameterized.expand(
+        [
+            ("alerts", "alert:read", "alert"),
+            ("logs_alerts", "logs:read", "logs"),
+        ]
+    )
+    def test_alert_tables_keep_their_scope_gate(self, table_name: str, scope: str, resource: str) -> None:
+        psak = ProjectSecretAPIKey.objects.create(
+            team=self.team, label=table_name, secure_value="sha256$" + "f" * 64, scopes=["insight:read"]
+        )
+        _, denied = _compute_system_table_access_decision(self.team, ProjectSecretAPIKeyUser(psak))
+        assert table_name in denied
+
+        psak.scopes = [scope]
+        psak.save()
+        _, denied = _compute_system_table_access_decision(self.team, ProjectSecretAPIKeyUser(psak))
+        assert table_name not in denied
+        assert "insights" in denied
+        database = Database.create_for(team=self.team, user=ProjectSecretAPIKeyUser(psak))
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=database)
+        prepare_and_print_ast(parse_select(f"SELECT id FROM system.{table_name}"), context, dialect="clickhouse")
+
+        resources = queried_access_controlled_resources(
+            HogQLQuery(query=f"SELECT id FROM system.{table_name}"), self.team
+        )
+        assert resources is not None and resource in resources
+
+
+class TestSystemAlertTablesReadPlatform(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def _platform_alert(self, **fields) -> uuid.UUID:
+        with team_scope(self.team.pk):
+            return alerts_platform_testing.create_configuration(team_id=self.team.pk, **fields).id
+
+    def _copy(self, legacy_id: uuid.UUID, **fields) -> uuid.UUID:
+        return self._platform_alert(legacy_configuration_id=legacy_id, **fields)
+
+    def _rows(self, sql: str) -> dict[str, tuple]:
+        response = execute_hogql_query(sql, team=self.team, user=self.user)
+        ids = [str(row[0]) for row in response.results]
+        assert len(ids) == len(set(ids)), f"an alert shows more than once: {ids}"
+        return {str(row[0]): tuple(row[1:]) for row in response.results}
+
+    def test_alerts_shows_each_insight_alert_once_with_platform_settings_and_state(self):
+        insight = Insight.objects.create(team=self.team, name="watched")
+        own = AlertConfiguration.objects.create(
+            team=self.team, insight=insight, name="row alert", calculation_interval="daily"
+        )
+        moved = AlertConfiguration.objects.create(
+            team=self.team, insight=insight, name="stale row name", calculation_interval="daily", owner="platform"
+        )
+        source = {
+            "source_kind": "insight",
+            "source_config": {"insight_id": insight.id, "config": {"series_index": 0}},
+        }
+        copy = self._copy(moved.id, name="copy name", check_interval_minutes=60, owner="platform", **source)
+        with team_scope(self.team.pk):
+            alerts_platform_testing.start_firing(copy, team_id=self.team.pk, at=timezone.now())
+        self._copy(own.id, name="shadow copy", check_interval_minutes=60, owner="source", **source)
+        native = self._platform_alert(
+            name="native alert",
+            check_interval_minutes=10080,
+            owner="platform",
+            snooze_until=timezone.now() + timedelta(days=1),
+            **source,
+        )
+
+        hidden = Insight.objects.create(team=self.team, name="denied")
+        AlertConfiguration.objects.create(team=self.team, insight=hidden, name="row on a denied insight")
+        self._platform_alert(
+            name="native on a denied insight",
+            check_interval_minutes=60,
+            owner="platform",
+            source_kind="insight",
+            source_config={"insight_id": hidden.id},
+        )
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="insight",
+            resource_id=str(hidden.id),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+
+        rows = self._rows(
+            "SELECT id, name, insight_id, state, calculation_interval, config.series_index FROM system.alerts"
+        )
+
+        assert rows == {
+            str(own.id): ("row alert", insight.id, "Not firing", "daily", None),
+            str(moved.id): ("copy name", insight.id, "Firing", "hourly", "0"),
+            str(native): ("native alert", insight.id, "Snoozed", "weekly", "0"),
+        }
+
+    def test_alerts_read_instances_only_for_runtime_columns_and_only_their_source(self):
+        insight = Insight.objects.create(team=self.team, name="watched")
+        insight_alert = self._platform_alert(
+            name="insight alert",
+            owner="platform",
+            source_kind="insight",
+            source_config={"insight_id": insight.id},
+            check_interval_minutes=60,
+        )
+        self._platform_alert(
+            name="logs alert",
+            owner="platform",
+            source_kind="logs",
+            source_config={"filters": {}, "condition": {"threshold_count": 1}},
+            check_interval_minutes=5,
+        )
+
+        def printed(sql: str) -> tuple[str, list]:
+            database = Database.create_for(team=self.team, user=self.user)
+            context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=database)
+            query, _ = prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
+            return query, [value for value in context.values.values() if isinstance(value, tuple)]
+
+        metadata_query, _ = printed("SELECT id, name FROM system.alerts")
+        _, pushed_down = printed("SELECT id, state FROM system.alerts")
+
+        assert "system___platform_insight_alert_instances" not in metadata_query
+        assert pushed_down == [(str(insight_alert),)]
+
+    def test_logs_alerts_shows_each_logs_alert_once_with_platform_settings_and_state(self):
+        own = LogsAlertConfiguration.objects.create(team=self.team, name="row alert", threshold_count=10)
+        moved = LogsAlertConfiguration.objects.create(
+            team=self.team, name="stale row name", threshold_count=10, owner="platform"
+        )
+        source = {
+            "source_kind": "logs",
+            "source_config": {"filters": {"severityLevels": ["error"]}, "condition": {"threshold_count": 7}},
+            "check_interval_minutes": 5,
+        }
+        copy = self._copy(moved.id, name="copy name", owner="platform", **source)
+        with team_scope(self.team.pk):
+            alerts_platform_testing.set_check_status(copy, "errored")
+        self._copy(own.id, name="shadow copy", owner="source", **source)
+        native = self._platform_alert(name="native alert", owner="platform", **source)
+
+        rows = self._rows("SELECT id, name, threshold_count, state, enabled FROM system.logs_alerts")
+
+        assert rows == {
+            str(own.id): ("row alert", 10, "not_firing", 1),
+            str(moved.id): ("copy name", 7, "errored", 1),
+            str(native): ("native alert", 7, "not_firing", 1),
+        }
 
 
 class TestDataWarehouseSourcesLiveQueryability(BaseTest):
@@ -1516,6 +1737,32 @@ class TestSystemTablesTaskInternalExclusionIsolation(NonAtomicBaseTest):
 
         assert str(regular_task.pk) in ids
         assert str(internal_task.pk) not in ids
+
+
+class TestSystemTablesFileSystemWorkflowExclusion(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_workflow_files_are_not_listed(self):
+        from posthog.models.file_system.constants import WORKFLOW_FILE_SYSTEM_TYPES
+        from posthog.models.file_system.file_system import FileSystem
+
+        FileSystem.objects.create(team=self.team, path="Reports/Weekly", type="insight", ref="weekly")
+        for file_type in WORKFLOW_FILE_SYSTEM_TYPES:
+            FileSystem.objects.create(team=self.team, path=f"Campaigns/{file_type}", type=file_type, ref=file_type)
+
+        response = execute_hogql_query("SELECT type FROM system.file_system", team=self.team, user=self.user)
+
+        assert {row[0] for row in response.results} == {"insight"}
+
+    def test_team_guard_stays_next_to_the_postgres_read(self):
+        db = Database.create_for(team=self.team, user=self.user)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
+
+        query, _ = prepare_and_print_ast(
+            parse_select("SELECT id FROM system.file_system"), context, dialect="clickhouse"
+        )
+
+        assert f"WHERE team_id = {self.team.pk}) AS system__file_system" in query
 
 
 class TestSystemTablesInboxAccess(BaseTest):

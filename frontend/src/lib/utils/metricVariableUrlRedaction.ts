@@ -1,8 +1,11 @@
 import type { BeforeSendFn } from 'posthog-js'
 
-const MARKERS = ['metricVariables', 'bi_filter']
+// A metric prefill link carries SQL that the team wrote, with its literal values.
+const MARKERS = ['metricVariables', 'bi_filter', 'metric_prefill']
 // The options requests of dashboard variables carry queries and selected values, and return query results.
 const VARIABLE_OPTIONS_PATH = '/metrics/variable_options'
+// The catalog usage responses return the sample SQL and the drafted definitions of the team's queries.
+const CATALOG_USAGE_PATH = /\/data_catalog\/(?:usage|metrics\/[^/?#]+\/usage)\b/
 const NETWORK_PLUGIN = 'rrweb/network@1'
 
 function holdsFilterData(text: string): boolean {
@@ -59,7 +62,8 @@ function holdsVariableData(request: unknown): boolean {
     }
     const { name, requestBody, responseBody } = request as Record<string, unknown>
     return (
-        (typeof name === 'string' && (name.includes(VARIABLE_OPTIONS_PATH) || holdsFilterData(name))) ||
+        (typeof name === 'string' &&
+            (name.includes(VARIABLE_OPTIONS_PATH) || CATALOG_USAGE_PATH.test(name) || holdsFilterData(name))) ||
         [requestBody, responseBody].some((body) => typeof body === 'string' && holdsFilterData(body))
     )
 }

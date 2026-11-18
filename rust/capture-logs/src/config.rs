@@ -26,6 +26,21 @@ pub struct Config {
 
     pub drop_events_by_token: Option<String>, // "<token>,<token>..."
 
+    /// `off`, `shadow` or `reject`. Effectively `off` while `UNKNOWN_TOKEN_REDIS_URL` is unset.
+    #[envconfig(from = "UNKNOWN_TOKEN_MODE", default = "off")]
+    pub unknown_token_mode: String,
+
+    /// Redis holding the sorted set of tokens the consumer found to belong to no team.
+    #[envconfig(from = "UNKNOWN_TOKEN_REDIS_URL")]
+    pub unknown_token_redis_url: Option<String>,
+
+    #[envconfig(from = "UNKNOWN_TOKEN_REFRESH_INTERVAL_SECS", default = "30")]
+    pub unknown_token_refresh_interval_secs: u64,
+
+    /// A snapshot older than this is ignored, so a long Redis outage cannot leave stale tokens blocked.
+    #[envconfig(from = "UNKNOWN_TOKEN_FAIL_OPEN_AFTER_SECS", default = "600")]
+    pub unknown_token_fail_open_after_secs: u64,
+
     #[envconfig(from = "MAX_REQUEST_BODY_SIZE_BYTES", default = "2097152")] // 2MB (Axum default)
     pub max_request_body_size_bytes: usize,
 
@@ -34,11 +49,11 @@ pub struct Config {
     #[envconfig(from = "FIREHOSE_MAX_REQUEST_BODY_SIZE_BYTES", default = "8388608")] // 8 MiB
     pub firehose_max_request_body_size_bytes: usize,
 
+    #[envconfig(from = "MAX_EXPANDED_REQUEST_BYTES", default = "268435456")] // 256 MiB
+    pub max_expanded_request_bytes: usize,
+
     #[envconfig(from = "MAX_BACKFILL_DAYS", default = "0")]
     pub max_backfill_days: u32,
-
-    // Tokens that may use the Vercel drain route, or "*" for all. Unset keeps the route closed.
-    pub vercel_drain_enabled_tokens: Option<String>, // "<token>,<token>..." or "*"
 }
 
 impl Config {
