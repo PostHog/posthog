@@ -46,7 +46,7 @@ import {
     providerLabel,
 } from '../settings/providerKeyStateUtils'
 import { HOG_TAGGER_EXAMPLES } from './hogTaggerExamples'
-import { HogTestResult, TagRun, llmTaggerLogic } from './llmTaggerLogic'
+import { TagRun, llmTaggerLogic } from './llmTaggerLogic'
 import { TaggerCreationRetiredModal } from './TaggerCreationRetiredModal'
 import { TaggersDeprecationBanner } from './TaggersDeprecationBanner'
 import { Tagger, TaggerConditionSet } from './types'
@@ -319,83 +319,6 @@ function TaggerTriggers({ id }: { id: string }): JSX.Element {
     )
 }
 
-function HogTaggerTestSection({ id }: { id: string }): JSX.Element {
-    const { hogTestResults, hogTestLoading } = useValues(llmTaggerLogic({ id }))
-    const { testHogTagger, clearHogTestResults } = useActions(llmTaggerLogic({ id }))
-
-    return (
-        <div className="mt-4 space-y-3">
-            <div className="flex gap-2">
-                <LemonButton type="secondary" size="small" onClick={testHogTagger} loading={hogTestLoading}>
-                    Test on recent generations
-                </LemonButton>
-                {hogTestResults && (
-                    <LemonButton type="tertiary" size="small" onClick={clearHogTestResults}>
-                        Clear
-                    </LemonButton>
-                )}
-            </div>
-
-            {hogTestResults && (
-                <LemonTable
-                    columns={[
-                        {
-                            title: 'Input',
-                            key: 'input',
-                            render: (_, row: HogTestResult) => (
-                                <div className="max-w-xs text-sm truncate">{row.input_preview}</div>
-                            ),
-                        },
-                        {
-                            title: 'Output',
-                            key: 'output',
-                            render: (_, row: HogTestResult) => (
-                                <div className="max-w-xs text-sm truncate">{row.output_preview}</div>
-                            ),
-                        },
-                        {
-                            title: 'Tags',
-                            key: 'tags',
-                            render: (_, row: HogTestResult) =>
-                                row.error ? (
-                                    <LemonTag type="danger">{row.error}</LemonTag>
-                                ) : (
-                                    <div className="flex flex-wrap gap-1">
-                                        {row.tags.length > 0 ? (
-                                            row.tags.map((tag: string) => (
-                                                <LemonTag key={tag} type="highlight">
-                                                    {tag}
-                                                </LemonTag>
-                                            ))
-                                        ) : (
-                                            <span className="text-muted text-sm">No tags</span>
-                                        )}
-                                    </div>
-                                ),
-                        },
-                        {
-                            title: 'Reasoning',
-                            key: 'reasoning',
-                            render: (_, row: HogTestResult) =>
-                                row.reasoning ? (
-                                    <Tooltip title={row.reasoning} placement="top">
-                                        <div className="max-w-xs text-sm truncate cursor-default">{row.reasoning}</div>
-                                    </Tooltip>
-                                ) : (
-                                    <span className="text-muted text-sm">-</span>
-                                ),
-                        },
-                    ]}
-                    dataSource={hogTestResults}
-                    rowKey="event_uuid"
-                    size="small"
-                    emptyState={<span className="text-muted text-sm">No recent generations found</span>}
-                />
-            )}
-        </div>
-    )
-}
-
 function AIObservabilityTaggerForm({ id }: { id: string }): JSX.Element {
     const logic = llmTaggerLogic({ id })
     const { tagger, taggerForm, taggerFormChanged, isTaggerFormSubmitting } = useValues(logic)
@@ -522,7 +445,6 @@ function AIObservabilityTaggerForm({ id }: { id: string }): JSX.Element {
                                     }
                                     height={200}
                                 />
-                                <HogTaggerTestSection id={id} />
                             </div>
                         ) : (
                             <div>

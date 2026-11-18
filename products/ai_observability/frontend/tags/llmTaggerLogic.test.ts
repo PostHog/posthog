@@ -181,43 +181,6 @@ describe('llmTaggerLogic', () => {
 
             await expectLogic(logic).toMatchValues({ activeTab: 'configuration' })
         })
-
-        it('hogTestResults starts as null', () => {
-            expect(logic.values.hogTestResults).toBeNull()
-        })
-
-        it('clearHogTestResults resets to null', async () => {
-            logic.actions.testHogTaggerSuccess([
-                {
-                    event_uuid: 'e1',
-                    input_preview: 'hello',
-                    output_preview: 'world',
-                    tags: ['billing'],
-                    reasoning: 'matched',
-                    error: null,
-                },
-            ])
-
-            await expectLogic(logic).toMatchValues({
-                hogTestResults: expect.arrayContaining([expect.objectContaining({ event_uuid: 'e1' })]),
-            })
-
-            logic.actions.clearHogTestResults()
-
-            await expectLogic(logic).toMatchValues({ hogTestResults: null })
-        })
-
-        it('hogTestLoading tracks test lifecycle', async () => {
-            expect(logic.values.hogTestLoading).toBe(false)
-
-            logic.actions.testHogTagger()
-
-            expect(logic.values.hogTestLoading).toBe(true)
-
-            logic.actions.testHogTaggerSuccess([])
-
-            await expectLogic(logic).toMatchValues({ hogTestLoading: false })
-        })
     })
 
     describe('tag management', () => {

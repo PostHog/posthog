@@ -1,53 +1,33 @@
-import json
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
 from django.core.validators import EMPTY_VALUES
 from django.db import transaction
 from django.db.models import Q, QuerySet
 
-import structlog
 import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiResponse, PolymorphicProxySerializer, extend_schema, extend_schema_field
 from pydantic import ValidationError
 from rest_framework import mixins, serializers, status, viewsets
-from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
-
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.clickhouse.query_tagging import (
-    Feature as QueryFeature,
-    Product,
-    tag_queries,
-)
 from posthog.event_usage import report_user_action
 from posthog.permissions import AccessControlPermission, PostHogFeatureFlagPermission
-from posthog.temporal.ai_observability.run_tagger import run_hog_tagger
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
-from products.ai_observability.backend.logic.evaluations.event_io import extract_event_io
-from products.ai_observability.backend.logic.message_utils import extract_text_from_messages
 
-from ..hog import compile_ai_observability_hog
 from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProviderKey, llm_completion_provider_choices
 from ..models.taggers import Tagger, TaggerType, validate_tagger_config
 from .condition_sets import ConditionSetSerializer
 from .metrics import llma_track_latency
-
-if TYPE_CHECKING:
-    from posthog.models import User
-
-logger = structlog.get_logger(__name__)
 
 
 class TagDefinitionSerializer(serializers.Serializer):
@@ -348,57 +328,6 @@ class TaggerFilter(django_filters.FilterSet):
         return queryset
 
 
-class TestHogTaggerTagSerializer(serializers.Serializer):
-    # Enforce the same {name, description?} shape as TagDefinitionSerializer so a payload
-    # like {"tags": [{}]} is rejected with a 400 instead of blowing up on KeyError downstream.
-    name = serializers.CharField(max_length=100, help_text="Tag identifier to allow in Hog test results.")
-    description = serializers.CharField(
-        max_length=500,
-        required=False,
-        default="",
-        allow_blank=True,
-        help_text="Optional description for the tag.",
-    )
-
-
-class TestHogTaggerRequestSerializer(serializers.Serializer):
-    source = serializers.CharField(
-        required=True,
-        min_length=1,
-        help_text="Hog source code to test. Return a tag name string, a list of tag name strings, or null.",
-    )  # type: ignore[assignment]
-    sample_count = serializers.IntegerField(
-        required=False,
-        default=5,
-        min_value=1,
-        max_value=10,
-        help_text="Number of recent $ai_generation events to test against (1-10, default 5).",
-    )
-    tags = TestHogTaggerTagSerializer(
-        many=True,
-        required=False,
-        default=list,
-        help_text="Optional tag whitelist. Returned tags outside this list are filtered out.",
-    )
-
-
-class TestHogTaggerResultItemSerializer(serializers.Serializer):
-    event_uuid = serializers.CharField(help_text="UUID of the sampled $ai_generation event.")
-    trace_id = serializers.CharField(allow_null=True, required=False, help_text="Trace ID if available.")
-    input_preview = serializers.CharField(help_text="First 200 characters of the generation input.")
-    output_preview = serializers.CharField(help_text="First 200 characters of the generation output.")
-    tags = serializers.ListField(child=serializers.CharField(), help_text="Tag names returned by the Hog code.")
-    reasoning = serializers.CharField(allow_blank=True, help_text="Text written to stdout by the Hog code.")
-    error = serializers.CharField(allow_null=True, required=False, help_text="Error message if the Hog code failed.")
-
-
-class TestHogTaggerResponseSerializer(serializers.Serializer):
-    results = TestHogTaggerResultItemSerializer(many=True, help_text="Per-event Hog tagger test results.")
-    message = serializers.CharField(
-        required=False, help_text="Optional message, for example when no recent AI events were found."
-    )
-
-
 # Taggers are deprecated in favor of categorical evaluations, so the viewset has no create action.
 class TaggerViewSet(
     TeamAndOrgViewSetMixin,
@@ -513,104 +442,3 @@ class TaggerViewSet(
 
         updated_instance = cast(Tagger, serializer.instance)
         return Response(self._serialize_saved_tagger(updated_instance), status=status.HTTP_200_OK)
-
-    @extend_schema(request=TestHogTaggerRequestSerializer, responses=TestHogTaggerResponseSerializer)
-    @action(detail=False, methods=["post"], url_path="test_hog", required_scopes=["tagger:read"])
-    @llma_track_latency("llma_taggers_test_hog")
-    @monitor(feature=Feature.QUERY, endpoint="llma_taggers_test_hog", method="POST")
-    def test_hog(self, request: Request, **kwargs) -> Response:
-        """Test Hog tagger code against sample events without saving."""
-        test_serializer = TestHogTaggerRequestSerializer(data=request.data)
-        if not test_serializer.is_valid():
-            return Response({"error": test_serializer.errors}, status=400)
-
-        source = test_serializer.validated_data["source"]
-        sample_count = test_serializer.validated_data["sample_count"]
-        tags = test_serializer.validated_data.get("tags", [])
-        valid_tag_names = {tag["name"] for tag in tags}
-
-        try:
-            # Use "tagger" kind so we don't expose PRODUCT_ASYNC_FUNCTIONS (fetch, posthogCapture, …) —
-            # taggers should only classify, never perform side effects.
-            bytecode = compile_ai_observability_hog(source, "tagger")
-        except (ValueError, SyntaxError):
-            logger.exception("Compilation error in Hog source")
-            return Response({"error": "Invalid Hog source provided"}, status=400)
-        except Exception:
-            logger.exception("Unexpected error compiling Hog source")
-            return Response({"error": "Compilation failed due to an unexpected error"}, status=400)
-
-        team = self.team
-
-        where_exprs: list[ast.Expr] = [
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.In,
-                left=ast.Field(chain=["event"]),
-                right=ast.Constant(value=["$ai_generation"]),
-            ),
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.Gt,
-                left=ast.Field(chain=["timestamp"]),
-                right=ast.ArithmeticOperation(
-                    op=ast.ArithmeticOperationOp.Sub,
-                    left=ast.Call(name="now", args=[]),
-                    right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=7)]),
-                ),
-            ),
-        ]
-
-        query = ast.SelectQuery(
-            select=[
-                ast.Field(chain=["uuid"]),
-                ast.Field(chain=["event"]),
-                ast.Field(chain=["properties"]),
-                ast.Field(chain=["distinct_id"]),
-            ],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            where=ast.And(exprs=where_exprs),
-            order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
-            limit=ast.Constant(value=sample_count),
-        )
-
-        tag_queries(product=Product.LLM_ANALYTICS, feature=QueryFeature.QUERY)
-        response = execute_hogql_query(query=query, team=team, user=cast("User", request.user), limit_context=None)
-
-        if not response.results:
-            return Response({"results": [], "message": "No recent AI events found in the last 7 days"})
-
-        results = []
-        for row in response.results:
-            event_uuid = str(row[0])
-            event_type = row[1]
-            properties = row[2]
-            distinct_id = row[3]
-
-            if isinstance(properties, str):
-                properties = json.loads(properties)
-
-            event_data = {
-                "uuid": event_uuid,
-                "event": event_type,
-                "properties": properties,
-                "distinct_id": distinct_id or "",
-            }
-
-            result = run_hog_tagger(bytecode, event_data, valid_tag_names)
-
-            io = extract_event_io(event_type, properties)
-            input_preview = extract_text_from_messages(io.input_raw)[:200]
-            output_preview = extract_text_from_messages(io.output_raw)[:200]
-
-            results.append(
-                {
-                    "event_uuid": event_uuid,
-                    "trace_id": properties.get("$ai_trace_id"),
-                    "input_preview": input_preview,
-                    "output_preview": output_preview,
-                    "tags": result["tags"],
-                    "reasoning": result["reasoning"],
-                    "error": result["error"],
-                }
-            )
-
-        return Response({"results": results})

@@ -6494,65 +6494,6 @@ export interface PatchedTaggerUpdateApi {
     deleted?: boolean
 }
 
-export interface TestHogTaggerTagApi {
-    /**
-     * Tag identifier to allow in Hog test results.
-     * @maxLength 100
-     */
-    name: string
-    /**
-     * Optional description for the tag.
-     * @maxLength 500
-     */
-    description?: string
-}
-
-export interface TestHogTaggerRequestApi {
-    /**
-     * Hog source code to test. Return a tag name string, a list of tag name strings, or null.
-     * @minLength 1
-     */
-    source: string
-    /**
-     * Number of recent $ai_generation events to test against (1-10, default 5).
-     * @minimum 1
-     * @maximum 10
-     */
-    sample_count?: number
-    /** Optional tag whitelist. Returned tags outside this list are filtered out. */
-    tags?: TestHogTaggerTagApi[]
-}
-
-export interface TestHogTaggerResultItemApi {
-    /** UUID of the sampled $ai_generation event. */
-    event_uuid: string
-    /**
-     * Trace ID if available.
-     * @nullable
-     */
-    trace_id?: string | null
-    /** First 200 characters of the generation input. */
-    input_preview: string
-    /** First 200 characters of the generation output. */
-    output_preview: string
-    /** Tag names returned by the Hog code. */
-    tags: string[]
-    /** Text written to stdout by the Hog code. */
-    reasoning: string
-    /**
-     * Error message if the Hog code failed.
-     * @nullable
-     */
-    error?: string | null
-}
-
-export interface TestHogTaggerResponseApi {
-    /** Per-event Hog tagger test results. */
-    results: TestHogTaggerResultItemApi[]
-    /** Optional message, for example when no recent AI events were found. */
-    message?: string
-}
-
 export type LlmAnalyticsPersonalSpendListParams = {
     /**
      * When set, additionally return a `by_bucket` breakdown: a time-ascending UTC cost series for the scoped product at this bucket size in minutes, with per-bucket cost split into uncached input / output / cache read / cache creation components plus the matching token sums. Supported bucket sizes: 5, 15, 30, 60. The window may span at most 600 buckets of the chosen size (e.g. 50 hours at 5-minute buckets).

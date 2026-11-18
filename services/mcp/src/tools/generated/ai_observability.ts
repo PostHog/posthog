@@ -3089,35 +3089,6 @@ const llmaTaggerList = (): ToolBase<
     },
 })
 
-const LlmaTaggerTestHogSchema = () => {
-    const TaggersTestHogCreateBody = orvalSchemas.TaggersTestHogCreateBody()
-    return TaggersTestHogCreateBody
-}
-
-const llmaTaggerTestHog = (): ToolBase<ReturnType<typeof LlmaTaggerTestHogSchema>, Schemas.TestHogTaggerResponse> => ({
-    name: 'llma-tagger-test-hog',
-    schema: LlmaTaggerTestHogSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof LlmaTaggerTestHogSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.source !== undefined) {
-            body['source'] = params.source
-        }
-        if (params.sample_count !== undefined) {
-            body['sample_count'] = params.sample_count
-        }
-        if (params.tags !== undefined) {
-            body['tags'] = params.tags
-        }
-        const result = await context.api.request<Schemas.TestHogTaggerResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/taggers/test_hog/`,
-            body,
-        })
-        return result
-    },
-})
-
 const LlmaTraceReviewCreateSchema = () => {
     const LlmAnalyticsTraceReviewsCreateBody = orvalSchemas.LlmAnalyticsTraceReviewsCreateBody()
     return LlmAnalyticsTraceReviewsCreateBody
@@ -3690,7 +3661,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-score-definition-version-list': llmaScoreDefinitionVersionList,
     'llma-summarization-create': llmaSummarizationCreate,
     'llma-tagger-list': llmaTaggerList,
-    'llma-tagger-test-hog': llmaTaggerTestHog,
     'llma-trace-review-create': llmaTraceReviewCreate,
     'llma-trace-review-delete': llmaTraceReviewDelete,
     'llma-trace-review-get': llmaTraceReviewGet,
