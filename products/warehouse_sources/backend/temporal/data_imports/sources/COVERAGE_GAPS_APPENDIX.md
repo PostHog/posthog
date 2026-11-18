@@ -6124,17 +6124,17 @@ Note: The wider HubSpot sweep lives in [COVERAGE_GAPS.md](COVERAGE_GAPS.md). The
 
 ## HuggingFace — **thin**
 
-Today (8): `collections`, `dataset_tags`, `datasets`, `discussions`, `likes`, `model_tags`, `models`, `spaces`
+Today (10): `collections`, `commits`, `dataset_tags`, `datasets`, `discussions`, `likes`, `model_tags`, `models`, `organization_members`, `spaces`
 
 Diffed against: <https://huggingface.co/.well-known/openapi.json>
 
 - [x] `/api/{repoType}/{namespace}/{repo}/discussions` — discussions and pull requests per repo - the main community activity signal on repos we already sync (high)
 - [x] `/api/collections` — curated collections grouping models, datasets and spaces we already sync (high)
 - [x] `/api/models-tags-by-type and /api/datasets-tags-by-type` — lookup tables resolving the tag strings carried on every model and dataset row (high)
-- [ ] `/api/trending` — Hub-wide trending repos - the headline discovery metric (medium)
-- [ ] `/api/models|datasets|spaces/{namespace}/{repo}/commits/{rev}` — commit history per repo, the change/velocity fact table for repos we sync (medium)
-- [ ] `/api/daily_papers and /api/papers` — papers linked to models and datasets, plus daily paper rankings (medium)
-- [ ] `/api/organizations/{name}/members` — org membership roster resolving repo owners (medium)
+- [ ] `/api/trending` — Hub-wide trending repos - the headline discovery metric (medium). Skipped: Hub-wide snapshot capped at 20 rows (`limit` max 20), not scoped to the connected namespace; the repo tables already carry `trendingScore`.
+- [x] `/api/models|datasets|spaces/{namespace}/{repo}/commits/{rev}` — commit history per repo, the change/velocity fact table for repos we sync (medium). Added as `commits`, the `main` history of every model, dataset and Space of the namespace, keyed on `repo_type`, `repo_name` and the commit `id`
+- [ ] `/api/daily_papers and /api/papers` — papers linked to models and datasets, plus daily paper rankings (medium). Skipped: both list the Hub-wide paper catalog, not data of the connected namespace; neither filters by repo owner, and `/api/papers` pages through every paper on the Hub.
+- [x] `/api/organizations/{name}/members` — org membership roster resolving repo owners (medium). Added as `organization_members`; empty when the namespace is a user (the Hub answers 404)
 - [ ] `/api/spaces/{namespace}/{repo}/metrics` — runtime usage metrics for spaces we already sync (medium)
 - [x] `/api/users/{username}/likes` — per-user likes, the engagement edge between users and repos (medium)
 - [ ] `/api/jobs/{namespace} (and /{jobId}/metrics)` — compute job runs and their metrics for cost/usage analysis (low)
