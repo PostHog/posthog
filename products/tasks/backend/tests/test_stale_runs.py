@@ -123,6 +123,7 @@ class TestCollectStaleLiveRuns(TestCase):
         quiet_for: timedelta,
         idle_timeout_seconds: int | None = None,
         awaits_first_message: bool = False,
+        warm_activation_started: bool = False,
     ) -> TaskRun:
         task = Task.objects.create(
             team=self.team,
@@ -142,6 +143,7 @@ class TestCollectStaleLiveRuns(TestCase):
             state={
                 **({"inactivity_timeout_seconds": idle_timeout_seconds} if idle_timeout_seconds else {}),
                 **({"await_user_message": True} if awaits_first_message else {}),
+                **({"warm_activation_started": True} if warm_activation_started else {}),
             },
         )
 
@@ -164,19 +166,26 @@ class TestCollectStaleLiveRuns(TestCase):
 
     @parameterized.expand(
         [
-            ("enforced_quiet_cloud_run", {USER.key: "enforce"}, {}, True),
-            ("shadow_mode", {USER.key: "shadow"}, {}, False),
-            ("profile_not_in_the_payload", {"other": "enforce"}, {}, False),
-            ("no_payload", None, {}, False),
-            ("run_that_showed_life", {USER.key: "enforce"}, {"quiet_for": timedelta(seconds=5)}, False),
-            ("queued_run", {USER.key: "enforce"}, {"status": TaskRun.Status.QUEUED}, False),
-            ("local_run", {USER.key: "enforce"}, {"environment": LOCAL}, False),
-            ("warm_run_waiting_for_its_first_message", {USER.key: "enforce"}, {"awaits_first_message": True}, False),
-            ("task_without_a_profile", {USER.key: "enforce"}, {"profile": None}, False),
+            ("enforced_quiet_cloud_run", {USER.key: "enforce"}, {}, USER.key),
+            ("shadow_mode", {USER.key: "shadow"}, {}, None),
+            ("profile_not_in_the_payload", {"other": "enforce"}, {}, None),
+            ("no_payload", None, {}, None),
+            ("run_that_showed_life", {USER.key: "enforce"}, {"quiet_for": timedelta(seconds=5)}, None),
+            ("queued_run", {USER.key: "enforce"}, {"status": TaskRun.Status.QUEUED}, None),
+            ("local_run", {USER.key: "enforce"}, {"environment": LOCAL}, None),
+            ("warm_run_waiting_for_its_first_message", {USER.key: "enforce"}, {"awaits_first_message": True}, None),
+            (
+                "warm_run_whose_activation_started",
+                {USER.key: "enforce"},
+                {"awaits_first_message": True, "warm_activation_started": True},
+                USER.key,
+            ),
+            ("task_without_a_profile", {USER.key: "enforce"}, {"profile": None}, None),
+            ("task_without_a_profile_when_none_is_enforced", {"none": "enforce"}, {"profile": None}, "none"),
         ]
     )
     def test_sweep_ends_only_quiet_cloud_runs_of_enforced_profiles(
-        self, _name: str, payload: dict[str, str] | None, run_overrides: dict, swept: bool
+        self, _name: str, payload: dict[str, str] | None, run_overrides: dict, swept_profile: str | None
     ) -> None:
         run = self._run(
             **{"profile": USER.key, "quiet_for": timedelta(hours=1), "idle_timeout_seconds": 600, **run_overrides}
@@ -186,8 +195,8 @@ class TestCollectStaleLiveRuns(TestCase):
             rows = tasks_facade.sweep_stale_live_task_runs()
 
         run.refresh_from_db()
-        assert (run.status == TaskRun.Status.FAILED) is swept
-        assert rows == ([SweptRunRow(profile=USER.key, count=1)] if swept else [])
+        assert (run.status == TaskRun.Status.FAILED) is (swept_profile is not None)
+        assert rows == ([SweptRunRow(profile=swept_profile, count=1)] if swept_profile else [])
 
     def test_sweep_leaves_runs_alone_when_the_flag_lookup_fails(self) -> None:
         run = self._run(profile=USER.key, quiet_for=timedelta(hours=1), idle_timeout_seconds=600)

@@ -23,6 +23,7 @@ logger = structlog.get_logger(__name__)
 STALE_RUN_GRACE = timedelta(minutes=15)
 SWEEP_FLAG = "tasks-stale-run-sweep"
 SWEEP_MODE_CACHE_SECONDS = 60
+NO_PROFILE = "none"
 _LIVE_RUN_STATUSES = (TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS)
 _UNRESOLVED_SWEEP_MODE = "unresolved"
 
@@ -93,8 +94,7 @@ def quiet_since_q(cutoff: datetime) -> Q:
 
 
 def sweep_mode(profile_key: str | None, team_id: int) -> SweepMode:
-    if not profile_key:
-        return SweepMode.OFF
+    profile_key = profile_key or NO_PROFILE
     key = f"tasks:stale_sweep_mode:{team_id}:{profile_key}"
     try:
         cached = cache.get(key)
@@ -161,6 +161,7 @@ def _live_runs() -> Iterator[_LiveRun]:
             "status",
             "state__inactivity_timeout_seconds",
             "state__await_user_message",
+            "state__warm_activation_started",
             "last_heartbeat_at",
             "queued_at",
             "created_at",
@@ -177,6 +178,7 @@ def _live_runs() -> Iterator[_LiveRun]:
         status,
         run_timeout_seconds,
         awaits_first_message,
+        warm_activation_started,
         last_heartbeat_at,
         queued_at,
         created_at,
@@ -189,7 +191,7 @@ def _live_runs() -> Iterator[_LiveRun]:
             profile=profile_key,
             environment=environment,
             status=status,
-            awaits_first_message=bool(awaits_first_message),
+            awaits_first_message=bool(awaits_first_message) and not warm_activation_started,
             rules=stale_rules(
                 environment=environment,
                 last_heartbeat_at=last_heartbeat_at,
@@ -216,10 +218,9 @@ def collect_stale_live_runs() -> list[StaleRunCount]:
 
 def runs_to_sweep() -> list[RunToSweep]:
     return [
-        RunToSweep(run_id=run.run_id, profile=run.profile, quiet_since=run.quiet_since)
+        RunToSweep(run_id=run.run_id, profile=run.profile or NO_PROFILE, quiet_since=run.quiet_since)
         for run in _live_runs()
-        if run.profile is not None
-        and StaleRule.HEARTBEAT in run.rules
+        if StaleRule.HEARTBEAT in run.rules
         and run.environment == TaskRun.Environment.CLOUD
         and run.status == TaskRun.Status.IN_PROGRESS
         and not run.awaits_first_message
