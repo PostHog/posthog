@@ -47,6 +47,7 @@ from posthog.hogql.transforms.metrics_time_bucket_bounds import add_metrics_time
 from posthog.hogql.transforms.negated_person_filters import rewrite_negated_person_filters
 from posthog.hogql.transforms.projection_pushdown import pushdown_projections
 from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
+from posthog.hogql.transforms.shallow_property_filters_first import order_shallow_property_filters_first
 from posthog.hogql.transforms.type_aware_simplification import (
     simplify_argmax_over_non_nullable,
     simplify_redundant_type_operations,
@@ -459,6 +460,11 @@ def prepare_ast_for_printing(
         if events_pushdown_enabled(context.modifiers):
             with context.timings.measure("events_predicate_pushdown"):
                 node = apply_events_predicate_pushdown(node, context)
+
+        if context.uses_new_events_schema():
+            # Before property resolution, while a property read is still a PropertyAccess that carries its key path.
+            with context.timings.measure("shallow_property_filters_first"):
+                node = order_shallow_property_filters_first(node, context)
 
         with context.timings.measure("clickhouse_property_resolution"):
             # Deferred to break the module-level cycle cpr → printer.base → printer package init →
