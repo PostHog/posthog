@@ -134,6 +134,13 @@ export function NotebookAppBuilder({
                     )}
                     <LemonMenu
                         items={[
+                            { label: 'Open notebook', to: urls.notebook(shortId) },
+                            ...(published && canEditNotebook && !isTemplate
+                                ? [{ label: 'App builder', to: `${urls.notebook(shortId)}?view=builder` }]
+                                : []),
+                            ...(!published && savedNotebook.app_published
+                                ? [{ label: 'View published app', to: `${urls.notebook(shortId)}?view=app` }]
+                                : []),
                             {
                                 label: 'Copy app link',
                                 disabledReason: !savedNotebook.app_published ? 'Publish a layout first' : undefined,

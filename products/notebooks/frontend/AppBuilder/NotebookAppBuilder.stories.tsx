@@ -1,6 +1,8 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { fireEvent, waitFor, within } from '@testing-library/dom'
+import { router } from 'kea-router'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { notebookTestTemplate } from 'scenes/notebooks/Notebook/__mocks__/notebook-template-for-snapshot'
 import {
@@ -161,6 +163,7 @@ const meta: Meta = {
     },
     parameters: {
         layout: 'fullscreen',
+        featureFlags: [FEATURE_FLAGS.NOTEBOOK_APP_BUILDER],
         mockDate: '2026-10-19',
         pageUrl: `${urls.notebook(SHORT_ID)}?view=builder`,
         testOptions: {
@@ -234,5 +237,31 @@ export const Builder: Story = {
 export const Published: Story = { parameters: { pageUrl: `${urls.notebook(SHORT_ID)}?view=app` } }
 export const Notebook: Story = {
     parameters: { pageUrl: urls.notebook(SHORT_ID), testOptions: { waitForSelector: '.MarkdownNotebook' } },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await waitFor(() => expect(canvas.getByLabelText('Notebook options')).toBeVisible())
+        expect(canvas.queryByText('App builder')).not.toBeInTheDocument()
+        fireEvent.click(canvas.getByLabelText('Notebook options'))
+        const menu = within(document.body)
+        fireEvent.click(await menu.findByText('App builder'))
+        await waitFor(() => expect(canvas.getByLabelText('App components')).toBeVisible())
+        fireEvent.click(canvas.getByLabelText('More app actions'))
+        fireEvent.click(await menu.findByText('Open notebook'))
+        await waitFor(() => expect(canvasElement.querySelector('.MarkdownNotebook')).toBeVisible())
+        expect(canvas.queryByLabelText('App components')).not.toBeInTheDocument()
+    },
+}
+export const FlagDisabled: Story = {
+    parameters: { featureFlags: [], testOptions: { waitForSelector: '.MarkdownNotebook' } },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await waitFor(() => expect(canvasElement.querySelector('.MarkdownNotebook')).toBeVisible())
+        expect(canvasElement.querySelector('[data-attr="notebook-app-builder"]')).not.toBeInTheDocument()
+        fireEvent.click(canvas.getByLabelText('Notebook options'))
+        expect(within(document.body).queryByText('App builder')).not.toBeInTheDocument()
+        router.actions.push(urls.notebook(SHORT_ID), { view: 'app' })
+        await waitFor(() => expect(canvasElement.querySelector('.MarkdownNotebook')).toBeVisible())
+        expect(canvasElement.querySelector('[data-attr="notebook-app-builder"]')).not.toBeInTheDocument()
+    },
 }
 export const Narrow: Story = { parameters: { testOptions: { viewport: { width: 1000, height: 1200 } } } }

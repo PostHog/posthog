@@ -1,21 +1,32 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ReactNode, useEffect } from 'react'
 
-import { LemonTabs } from '@posthog/lemon-ui'
-
 import { parseMarkdownNotebook } from 'lib/components/MarkdownNotebook/markdown'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 
 import { NotebookAppBuilder } from './NotebookAppBuilder'
-import { notebookAppLogic } from './notebookAppLogic'
 
 export function NotebookAppScene({ shortId, children }: { shortId: string; children: ReactNode }): JSX.Element {
-    const { searchParams, hashParams, location } = useValues(router)
-    const { saveNotebookNow } = useActions(notebookLogic({ shortId }))
+    const { featureFlags } = useValues(featureFlagLogic)
+    return featureFlags[FEATURE_FLAGS.NOTEBOOK_APP_BUILDER] ? (
+        <NotebookAppSceneEnabled shortId={shortId}>{children}</NotebookAppSceneEnabled>
+    ) : (
+        <>{children}</>
+    )
+}
+
+function NotebookAppSceneEnabled({ shortId, children }: { shortId: string; children: ReactNode }): JSX.Element {
+    const { searchParams, hashParams } = useValues(router)
     const { canEditNotebook, isTemplate, markdownEditorValue } = useValues(notebookLogic({ shortId }))
-    const { savedNotebook } = useValues(notebookAppLogic({ shortId }))
-    const view = searchParams.view === 'builder' ? 'builder' : searchParams.view === 'app' ? 'app' : 'notebook'
+    const view =
+        searchParams.view === 'builder' && canEditNotebook && !isTemplate
+            ? 'builder'
+            : searchParams.view === 'app'
+              ? 'app'
+              : 'notebook'
     useEffect(() => {
         if (view !== 'notebook' || typeof hashParams.node !== 'string') {
             return
@@ -48,21 +59,6 @@ export function NotebookAppScene({ shortId, children }: { shortId: string; child
     }, [view, hashParams.node, markdownEditorValue])
     return (
         <BindLogic logic={notebookLogic} props={{ shortId }}>
-            <LemonTabs
-                activeKey={view}
-                onChange={(next) => {
-                    saveNotebookNow()
-                    router.actions.replace(location.pathname, {
-                        ...searchParams,
-                        view: next === 'notebook' ? undefined : next,
-                    })
-                }}
-                tabs={[
-                    { key: 'notebook', label: 'Notebook' },
-                    ...(canEditNotebook && !isTemplate ? [{ key: 'builder', label: 'App builder' }] : []),
-                    ...(savedNotebook?.app_published || view === 'app' ? [{ key: 'app', label: 'App' }] : []),
-                ]}
-            />
             {view === 'notebook' ? children : <NotebookAppBuilder shortId={shortId} published={view === 'app'} />}
         </BindLogic>
     )
