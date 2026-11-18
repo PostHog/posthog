@@ -76,6 +76,11 @@ class TestReadSignature(SimpleTestCase):
                 "SELECT count() FROM events",
             ),
             (
+                "union_filter_mapped_by_position",
+                "SELECT count() FROM (SELECT event FROM events UNION ALL SELECT distinct_id FROM events) WHERE event = 'a'",
+                "SELECT count() FROM (SELECT event FROM events WHERE event = 'a' UNION ALL SELECT distinct_id FROM events WHERE distinct_id = 'a')",
+            ),
+            (
                 "unused_cte",
                 "WITH unused AS (SELECT event FROM events WHERE event = 'x') SELECT count() FROM persons",
                 "SELECT count() FROM persons",
@@ -183,6 +188,16 @@ class TestReadSignature(SimpleTestCase):
                 "SELECT count() FROM events AS e INNER JOIN persons AS p ON e.person_id = p.id AND e.event = 'a'",
             ),
             (
+                "union_filter_on_another_column_in_a_later_branch",
+                "SELECT count() FROM (SELECT event FROM events UNION ALL SELECT distinct_id FROM events) WHERE event = 'a'",
+                "SELECT count() FROM (SELECT event FROM events WHERE event = 'a' UNION ALL SELECT distinct_id FROM events WHERE event = 'a')",
+            ),
+            (
+                "subquery_in_an_array_join",
+                "SELECT count() FROM persons ARRAY JOIN (SELECT groupArray(event) FROM events WHERE event = 'a') AS names",
+                "SELECT count() FROM persons ARRAY JOIN (SELECT groupArray(event) FROM events WHERE event = 'b') AS names",
+            ),
+            (
                 "event_condition_narrowed_by_another_filter",
                 "SELECT count() FROM events WHERE event = 'a' OR event = 'b'",
                 "SELECT count() FROM events WHERE event = 'a' OR (event = 'b' AND properties.plan = 'pro')",
@@ -230,6 +245,12 @@ class TestReadSignature(SimpleTestCase):
         )
 
         assert read_signature(parse_select(sql)) is None
+
+    def test_many_sources_times_many_conditions_exceeds_the_work_budget(self):
+        sources = " CROSS JOIN ".join(f"events AS e{i}" for i in range(300))
+        conditions = " AND ".join(f"e0.properties.p{i} = {i}" for i in range(300))
+
+        assert read_signature(parse_select(f"SELECT count() FROM {sources} WHERE {conditions}")) is None
 
     def test_nested_scalar_subqueries_reusing_an_alias_are_read_once(self):
         sql = "SELECT count() FROM events WHERE event = 'x'"

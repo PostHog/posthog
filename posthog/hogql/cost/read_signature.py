@@ -230,8 +230,12 @@ class _ReadCollector:
         initial = node.initial_select_query
         branch_ctes = {**ctes, **(initial.ctes or {})} if isinstance(initial, ast.SelectQuery) else ctes
         self.query(initial, branch_ctes, pushed)
+        # A set query's columns take the first branch's names, so a pushed filter maps to each later branch's
+        # output at the same position.
+        names = _output_names(initial) if pushed else None
         for subsequent in node.subsequent_select_queries:
-            self.query(subsequent.select_query, branch_ctes, pushed)
+            branch = subsequent.select_query
+            self.query(branch, branch_ctes, _map_to_branch(pushed, names, branch, self.budget))
 
     def select(self, node: ast.SelectQuery, outer_ctes: dict[str, ast.CTE], pushed: list[ast.Expr]) -> None:
         if pushed and _blocks_pushed_filters(node):
@@ -267,6 +271,7 @@ class _ReadCollector:
         conjuncts = [(expand.visit(condition), narrows) for condition, narrows in conditions]
 
         for source in sources:
+            self.budget.spend(len(conjuncts))
             applicable = [conjunct for conjunct, narrows in conjuncts if narrows is None or source.alias in narrows]
             if source.table == _EVENTS_TABLE:
                 self.reads.add(self._describe_events_read(source, sources, applicable))
@@ -406,8 +411,52 @@ class _ReadCollector:
             finder.visit(expr)
         if node.having is not None:
             finder.visit(expand.visit(node.having))
+        for expr in node.array_join_list or []:
+            finder.visit(expand.visit(expr))
         for nested in finder.found:
             self.query(nested, ctes, [])
+
+
+def _output_names(node: _Query) -> list[str] | None:
+    """The column names a query outputs, or None when one cannot be named, such as `*`."""
+    if not isinstance(node, ast.SelectQuery):
+        return None
+    names: list[str] = []
+    for selected in node.select:
+        if isinstance(selected, ast.Alias):
+            names.append(selected.alias)
+            continue
+        chain = _field_chain(selected)
+        if chain is None or chain[-1] == "*":
+            return None
+        names.append(chain[-1])
+    return names
+
+
+class _ReplaceColumns(CloningVisitor):
+    def __init__(self, columns: dict[str, ast.Expr], budget: _Budget) -> None:
+        super().__init__(clear_types=True, clear_locations=True)
+        self.columns = columns
+        self.budget = budget
+
+    def visit(self, node: ast.AST | None) -> ast.Expr:
+        self.budget.spend()
+        return super().visit(node)
+
+    def visit_field(self, node: ast.Field) -> ast.Expr:
+        name = node.chain[0] if len(node.chain) == 1 else None
+        if isinstance(name, str) and name in self.columns:
+            return clone_expr(self.columns[name], clear_types=True, clear_locations=True)
+        return super().visit_field(node)
+
+
+def _map_to_branch(pushed: list[ast.Expr], names: list[str] | None, branch: _Query, budget: _Budget) -> list[ast.Expr]:
+    """Rewrite filters on a set query's columns as filters on one branch's outputs, or drop them if unmappable."""
+    if not pushed or names is None or not isinstance(branch, ast.SelectQuery) or len(branch.select) != len(names):
+        return []
+    outputs = [selected.expr if isinstance(selected, ast.Alias) else selected for selected in branch.select]
+    replace = _ReplaceColumns(dict(zip(names, outputs)), budget)
+    return [replace.visit(condition) for condition in pushed]
 
 
 def _join_narrows(join_type: str | None, joined: str | None, preceding: frozenset[str]) -> frozenset[str] | None:
