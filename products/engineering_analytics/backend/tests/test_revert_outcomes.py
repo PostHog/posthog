@@ -52,6 +52,7 @@ class TestRevertOutcomes(_WarehouseMixin, APIBaseTest):
                 _merged(103, "bob"),
                 _merged(104, "dependabot[bot]"),
                 _merged(105, "carol", body="Follow-up to the cache change. Reverts #101 in spirit only."),
+                _merged(106, "erin", body="Quoting the template:\n\n> **Agent:** Claude Code, Fable 5.2\n"),
                 _merged(
                     110,
                     "alice",
@@ -59,7 +60,13 @@ class TestRevertOutcomes(_WarehouseMixin, APIBaseTest):
                     title='Revert "PR 100 (#100)"',
                     body="Reverts PostHog/posthog#100",
                 ),
-                _merged(111, "bob", merged_days_ago=1, title="revert: PR 102", body="Reverts #102\n\nBroke the gate."),
+                _merged(
+                    111,
+                    "bob",
+                    merged_days_ago=1,
+                    title="revert: PR 102",
+                    body="No longer reverts #103\nThis reverts #102.\n\nBroke the gate.",
+                ),
                 _merged(112, "bob", merged_days_ago=1, title='Revert "PR 103"', body="Reverts other-org/other#103"),
             ],
         )
@@ -80,17 +87,17 @@ class TestRevertOutcomes(_WarehouseMixin, APIBaseTest):
 
         outcomes = self._get()
 
-        assert (outcomes["merged_pr_count"], outcomes["reverted_pr_count"]) == (6, 2)
-        assert outcomes["reverted_share"] == 2 / 6
+        assert (outcomes["merged_pr_count"], outcomes["reverted_pr_count"]) == (7, 2)
+        assert outcomes["reverted_share"] == 2 / 7
         assert _counts(outcomes["by_authorship"], "authorship") == {
             "bot": (1, 0),
             "agent_context": (2, 1),
-            "no_agent_context": (3, 1),
+            "no_agent_context": (4, 1),
         }
         assert _counts(outcomes["by_approval"], "approval") == {
             "human": (3, 1),
             "automated_only": (1, 1),
-            "none": (2, 0),
+            "none": (3, 0),
         }
         assert [
             (pr["number"], pr["reverting_pr_number"], pr["authorship"], pr["approval"], pr["merge_to_revert_seconds"])

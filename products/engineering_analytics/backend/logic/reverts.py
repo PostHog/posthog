@@ -12,7 +12,9 @@ def revert_title_expr(title_column: str) -> str:
     return f"match(ifNull({title_column}, ''), '{_REVERT_TITLE_PATTERN}')"
 
 
-_REVERTED_REFERENCE_PATTERN = "(?i)reverts[[:space:]]+(?:([a-z0-9_.-]+/[a-z0-9_.-]+))?#([0-9]+)"
+_REVERTED_REFERENCE_PATTERN = (
+    "(?im)^[[:blank:]]*(?:this[[:blank:]]+)?reverts[[:blank:]]+(?:([a-z0-9_.-]+/[a-z0-9_.-]+))?#([0-9]+)"
+)
 
 
 def reverted_pr_number_expr(*, title_column: str, body_column: str, repo_full_name_column: str) -> str:

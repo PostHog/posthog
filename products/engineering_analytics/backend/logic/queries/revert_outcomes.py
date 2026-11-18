@@ -23,6 +23,15 @@ _APPROVAL_FROM_REVIEWS = f"""multiIf(
                 '{PullRequestApproval.NONE.value}'
             )"""
 
+_APPROVALS_JOIN = f"""LEFT JOIN (
+            SELECT pr_number, state, submitted_at, reviewer_is_bot
+            FROM __REVIEWS_SOURCE__
+            WHERE state = '{APPROVED_STATE}' AND pr_number IN (
+                SELECT number FROM __PR_SOURCE__
+                WHERE merged_at IS NOT NULL AND merged_at >= {{date_from}} __DATE_TO__ AND NOT is_revert
+            )
+        ) AS r ON r.pr_number = pr.number"""
+
 _OUTCOMES_CTES = f"""
     WITH reverted AS (
         SELECT
@@ -46,7 +55,7 @@ _OUTCOMES_CTES = f"""
             __APPROVAL__ AS approval
         FROM __PR_SOURCE__ AS pr
         __REVIEWS_JOIN__
-        WHERE pr.merged_at IS NOT NULL AND pr.merged_at >= {{date_from}} __DATE_TO__ AND NOT pr.is_revert
+        WHERE pr.merged_at IS NOT NULL AND pr.merged_at >= {{date_from}} __PR_DATE_TO__ AND NOT pr.is_revert
         GROUP BY pr.number, pr.title, pr.merged_at, pr.is_bot, pr.has_agent_context
     )
 """
@@ -85,10 +94,11 @@ def query_revert_outcomes(
     if date_to is not None:
         placeholders["date_to"] = ast.Constant(value=date_to)
     ctes = (
-        _OUTCOMES_CTES.replace("__PR_SOURCE__", curated.pr_source())
-        .replace("__APPROVAL__", _APPROVAL_FROM_REVIEWS if reviews else "''")
-        .replace("__REVIEWS_JOIN__", f"LEFT JOIN {reviews} AS r ON r.pr_number = pr.number" if reviews else "")
-        .replace("__DATE_TO__", "AND pr.merged_at <= {date_to}" if date_to is not None else "")
+        _OUTCOMES_CTES.replace("__APPROVAL__", _APPROVAL_FROM_REVIEWS if reviews else "''")
+        .replace("__REVIEWS_JOIN__", _APPROVALS_JOIN.replace("__REVIEWS_SOURCE__", reviews) if reviews else "")
+        .replace("__PR_SOURCE__", curated.pr_source())
+        .replace("__PR_DATE_TO__", "AND pr.merged_at <= {date_to}" if date_to is not None else "")
+        .replace("__DATE_TO__", "AND merged_at <= {date_to}" if date_to is not None else "")
     )
     cohort_response = curated.run(
         ctes + _COHORTS_SELECT,

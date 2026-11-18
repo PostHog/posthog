@@ -1,5 +1,5 @@
-_FILLED_AGENT_LINE_PATTERN = "[*][*]Agent:[*][*][[:blank:]]*[^[:space:]]"
-_TEMPLATE_PLACEHOLDER_PATTERN = "[*][*]Agent:[*][*][[:blank:]]*tool, model"
+_FILLED_AGENT_LINE_PATTERN = "(?m)^[*][*]Agent:[*][*][[:blank:]]*[^[:space:]]"
+_TEMPLATE_PLACEHOLDER_PATTERN = "(?m)^[*][*]Agent:[*][*][[:blank:]]*tool, model"
 
 
 def has_agent_context_expr(body_column: str) -> str:
