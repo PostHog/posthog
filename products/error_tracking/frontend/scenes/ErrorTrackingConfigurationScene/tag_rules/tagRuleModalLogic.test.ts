@@ -1,6 +1,9 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
+import type { MouseEvent } from 'react'
+
+import { LemonDialog } from '@posthog/lemon-ui'
 
 import { useMocks } from '~/mocks/jest'
 import type { MockResolverInfo } from '~/mocks/utils'
@@ -118,6 +121,33 @@ describe('tagRuleModalLogic', () => {
         expect(requests).toEqual([{ method, path, body }])
         expect(logic.values.isOpen).toBe(false)
         expect(list.values.rules).toEqual([persistedRule])
+    })
+
+    // An edit that changes which properties the filters read makes the backend delete every tag the rule applied.
+    it.each([
+        ['saves an edit to a filter value at once', { ...browserFilter, value: ['Chrome'] }, 0],
+        ['asks before an edit to a filter property removes the existing tags', { ...browserFilter, key: '$os' }, 1],
+    ])('%s', async (_, filter, dialogs) => {
+        const confirm = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+        const logic = tagRuleModalLogic()
+        logic.mount()
+        const filters = { type: FilterLogicalOperator.And, values: [filter] }
+
+        logic.actions.openModal(persistedRule)
+        logic.actions.updateRule({ ...persistedRule, filters })
+        await expectLogic(logic, () => logic.actions.saveRule()).toFinishAllListeners()
+
+        expect(requests).toHaveLength(1 - dialogs)
+        confirm.mock.calls.forEach(([dialog]) => dialog.primaryButton?.onClick?.({} as MouseEvent<HTMLButtonElement>))
+        await expectLogic(logic).toFinishAllListeners()
+        expect(requests).toEqual([
+            {
+                method: 'PUT',
+                path: `${TAG_RULES_PATH}${persistedRule.id}/`,
+                body: { label: persistedRule.label, description: persistedRule.description, filters },
+            },
+        ])
+        confirm.mockRestore()
     })
 
     // A rule reads only the first exception of a new issue. A preview that counts every matching exception counts
