@@ -221,6 +221,7 @@ describe('projectTreeDataLogic', () => {
     it.each([
         { type: 'dashboard', path: 'Weekly KPIs', itemName: 'Weekly KPIs' },
         { type: 'person', path: 'ada@example.com', itemName: undefined },
+        { type: 'trace', path: 'GET /users/ada@example.com', itemName: undefined },
     ])('leaves customer record names out of star telemetry ($type)', async ({ type, path, itemName }) => {
         await expectLogic(logic).toFinishAllListeners()
         const star = { id: 'star-1', path, type, href: '/somewhere' }

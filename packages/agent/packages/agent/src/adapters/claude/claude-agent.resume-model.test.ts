@@ -205,6 +205,23 @@ describe("ClaudeAcpAgent session creation", () => {
     return undefined;
   }
 
+  it.each(["newSession", "resumeSession", "loadSession"] as const)(
+    "disables PR attribution before %s returns",
+    async (method) => {
+      const agent = makeAgent();
+      await agent[method]({
+        sessionId: "0197a000-0000-7000-8000-000000000103",
+        cwd: permissionCwd,
+        mcpServers: [],
+        _meta: { taskRunId: "run-pr-attribution" },
+      });
+
+      expect(createdQueries[0].applyFlagSettings).toHaveBeenCalledWith({
+        attribution: { commit: "", pr: "" },
+      });
+    },
+  );
+
   it.each(["new", "resume", "load"] as const)(
     "uses the default PostHog exec permission regex for local %s sessions when metadata omits it",
     async (sessionKind) => {

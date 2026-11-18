@@ -1,3 +1,4 @@
+import copy
 import enum
 import uuid
 from datetime import timedelta
@@ -36,6 +37,7 @@ from posthog.models.utils import (
     hash_key_value,
     mask_key_value,
 )
+from posthog.scopes.catalog import translate_renamed_scopes
 
 if TYPE_CHECKING:
     from posthog.models import Organization, User
@@ -217,8 +219,8 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
 
     @property
     def ceiling_scopes(self) -> list[str]:
-        """The full grantable set: `scopes` plus `optional_scopes`, deduplicated."""
-        return list(dict.fromkeys([*self.scopes, *self.optional_scopes]))
+        """The full grantable set: `scopes` plus `optional_scopes`, deduplicated, renamed scopes translated."""
+        return translate_renamed_scopes([*self.scopes, *self.optional_scopes])
 
     @property
     def required_scopes(self) -> list[str]:
@@ -227,7 +229,7 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         # (MCP / `*` / empty) so nothing is required and the user picks freely. Self-registered
         # (DCR / CIMD) ceilings are already filtered to grantable scopes and shown as locked rows
         # the user can decline by cancelling, so they carry the same required floor as any other app.
-        return list(self.scopes)
+        return translate_renamed_scopes(self.scopes)
 
     # Generation marker for app-wide session revocation. A refresh presenting a token issued
     # before this timestamp is rejected at mint time, so a refresh racing revoke_application_sessions
@@ -409,6 +411,15 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         # Checked per request rather than stored, because a CIMD refresh demotes a partner to public once its
         # metadata drops its key.
         return self.requires_provisioning_signature and not self.uses_private_key_jwt_auth
+
+    def edit_would_break_provisioning_signature(self, **changes: object) -> bool:
+        """Whether applying ``changes`` leaves a partner that has to sign without a key to sign with, so provisioning
+        auth would refuse every request it makes. A partner already in that state, such as a CIMD client whose
+        metadata dropped its key, stays editable, so staff can still change its other settings."""
+        after = copy.copy(self)
+        for name, value in changes.items():
+            setattr(after, name, value)
+        return after.cannot_meet_provisioning_signature and not self.cannot_meet_provisioning_signature
 
     class Meta(AbstractApplication.Meta):
         verbose_name = "OAuth Application"

@@ -26,6 +26,7 @@ from products.business_knowledge.backend.github_repos import (
     search_repositories,
     select_github_repos,
 )
+from products.business_knowledge.backend.key_libraries import readable_library_id
 from products.business_knowledge.backend.libraries import LibraryNotFound, get_library
 
 from .repository_serializers import (
@@ -49,6 +50,7 @@ class BusinessKnowledgeRepositoriesViewSet(TeamAndOrgViewSetMixin, ViewSet):
     # Plain ViewSet: object permissions never run, so resource-level access is checked here.
     requires_resource_level_access = True
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
+    # Every action listed here must apply the key's library limit from `key_libraries`.
     psak_allowed_actions = ["search", "read_file"]
     permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
     posthog_feature_flag = "product-business-knowledge"
@@ -152,7 +154,7 @@ class BusinessKnowledgeRepositoriesViewSet(TeamAndOrgViewSetMixin, ViewSet):
         required_scopes=["business_knowledge:read"],
     )
     def search(self, request: ValidatedRequest, **kwargs: Any) -> Response:
-        library_id = request.validated_query_data.get("library_id")
+        library_id = readable_library_id(request, request.validated_query_data.get("library_id"))
         self._require_library(request, library_id)
         outcome = search_repositories(
             self.team,
@@ -181,7 +183,7 @@ class BusinessKnowledgeRepositoriesViewSet(TeamAndOrgViewSetMixin, ViewSet):
         required_scopes=["business_knowledge:read"],
     )
     def read_file(self, request: ValidatedRequest, **kwargs: Any) -> Response:
-        library_id = request.validated_query_data.get("library_id")
+        library_id = readable_library_id(request, request.validated_query_data.get("library_id"))
         self._require_library(request, library_id)
         loaded = read_repository_file(
             self.team,

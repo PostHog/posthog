@@ -1690,6 +1690,8 @@ export type ActivityLogListParams = {
      * * `DataWarehouseJoin` - DataWarehouseJoin
      * * `Billing` - Billing
      * * `Loop` - Loop
+     * * `SandboxEnvironment` - SandboxEnvironment
+     * * `SandboxCustomImage` - SandboxCustomImage
      * * `StamphogRepoConfig` - StamphogRepoConfig
      * * `ReviewRepository` - ReviewRepository
      * * `ReviewProjectSettings` - ReviewProjectSettings
@@ -1813,6 +1815,8 @@ export const ActivityLogListScope = {
     DataWarehouseJoin: 'DataWarehouseJoin',
     Billing: 'Billing',
     Loop: 'Loop',
+    SandboxEnvironment: 'SandboxEnvironment',
+    SandboxCustomImage: 'SandboxCustomImage',
     StamphogRepoConfig: 'StamphogRepoConfig',
     ReviewRepository: 'ReviewRepository',
     ReviewProjectSettings: 'ReviewProjectSettings',
@@ -1923,6 +1927,8 @@ export const ActivityLogListScope = {
  * * `DataWarehouseJoin` - DataWarehouseJoin
  * * `Billing` - Billing
  * * `Loop` - Loop
+ * * `SandboxEnvironment` - SandboxEnvironment
+ * * `SandboxCustomImage` - SandboxCustomImage
  * * `StamphogRepoConfig` - StamphogRepoConfig
  * * `ReviewRepository` - ReviewRepository
  * * `ReviewProjectSettings` - ReviewProjectSettings
@@ -2034,6 +2040,8 @@ export const ActivityLogListScopesItem = {
     DataWarehouseJoin: 'DataWarehouseJoin',
     Billing: 'Billing',
     Loop: 'Loop',
+    SandboxEnvironment: 'SandboxEnvironment',
+    SandboxCustomImage: 'SandboxCustomImage',
     StamphogRepoConfig: 'StamphogRepoConfig',
     ReviewRepository: 'ReviewRepository',
     ReviewProjectSettings: 'ReviewProjectSettings',

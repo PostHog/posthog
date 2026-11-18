@@ -35,6 +35,7 @@ from rest_framework.views import APIView
 
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.models import Integration, Organization, OrganizationMembership, PersonalAPIKey, Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.scoping import team_scope
@@ -8749,6 +8750,11 @@ class TestTaskRunAPI(BaseTaskAPITest):
     def test_patch_cannot_mutate_protected_credential_state_keys(self, _mock_publish):
         trial_context = {"version": 1, "launch_id": "synthetic-launch"}
         trial_private = {"reports": {"synthetic-report": {"title": "Saved finding"}}}
+        egress_probe = {
+            "execution_id": "synthetic-execution",
+            "sandbox_id": "sb-egress",
+            "workflow_run_id": "wf-egress",
+        }
         credential_target = self.create_organization_user("credential-target")
         task = self.create_task()
         system_prompt = {"type": "preset", "preset": "claude_code", "append": "Server-owned instructions"}
@@ -8782,12 +8788,14 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "claude_subscription_user_id": self.user.id,
                 "pr_authorship_mode": "user",
                 "sandbox_id": "sb-real",
+                "agent_egress_probe": egress_probe,
                 "sandbox_cpu_cores": 2,
                 "sandbox_memory_gb": 8,
                 "sandbox_ttl_seconds": 1800,
                 "inactivity_timeout_seconds": 600,
                 "use_modal_vm_sandbox": False,
                 "sandbox_template": "default_base",
+                "custom_image_id": "img-server",
                 "agent_otel_telemetry_enabled": False,
                 "sandbox_event_ingest_enabled": False,
                 "overlap_clone_boot_enabled": False,
@@ -8862,6 +8870,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "claude_subscription_user_id": self.user.id + 1,
                     "pr_authorship_mode": "bot",
                     "sandbox_id": "sb-attacker",
+                    "agent_egress_probe": {"sandbox_id": "sb-attacker"},
                     "sandbox_cpu_cores": 128,
                     "sandbox_memory_gb": 512,
                     "sandbox_ttl_seconds": 86400,
@@ -8870,6 +8879,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "use_modal_vm_sandbox": True,
                     # a VM template here would boot a Docker-capable box past the VM gate
                     "sandbox_template": "vm_base",
+                    "custom_image_id": "img-caller",
                     "agent_otel_telemetry_enabled": True,
                     "sandbox_event_ingest_enabled": True,
                     "overlap_clone_boot_enabled": True,
@@ -8949,6 +8959,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["pr_authorship_mode"] == "user"
         assert "dev_stack_preview" not in run.state
         assert run.state["sandbox_id"] == "sb-real"
+        assert run.state["agent_egress_probe"] == egress_probe
         assert run.state["sandbox_cpu_cores"] == 2
         assert run.state["sandbox_memory_gb"] == 8
         assert run.state["sandbox_ttl_seconds"] == 1800
@@ -8956,6 +8967,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert "wizard_config" not in run.state  # caller cannot mark a run as a wizard run
         assert run.state["use_modal_vm_sandbox"] is False
         assert run.state["sandbox_template"] == "default_base"
+        assert run.state["custom_image_id"] == "img-server"
         assert run.state["agent_otel_telemetry_enabled"] is False
         assert run.state["sandbox_event_ingest_enabled"] is False
         assert run.state["overlap_clone_boot_enabled"] is False
@@ -9034,7 +9046,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "stream_presence_gated",
                     "stream_thin_tail",
                     "sandbox_id",
+                    "agent_egress_probe",
                     "use_modal_vm_sandbox",
+                    "custom_image_id",
                     "snapshot_external_id",
                     "snapshot_kind",
                     "snapshot_mount_path",
@@ -9086,7 +9100,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["stream_presence_gated"] is True  # protected key survives removal
         assert run.state["stream_thin_tail"] is True  # protected key survives removal
         assert run.state["sandbox_id"] == "sb-real"  # protected key survives removal
+        assert run.state["agent_egress_probe"] == egress_probe
         assert run.state["use_modal_vm_sandbox"] is False  # protected key survives removal
+        assert run.state["custom_image_id"] == "img-server"
         assert run.state["snapshot_external_id"] == "im-real"  # protected key survives removal
         assert run.state["snapshot_kind"] == "directory"  # protected key survives removal
         assert run.state["snapshot_mount_path"] == "/tmp"  # protected key survives removal
@@ -9135,6 +9151,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
             {
                 "state_append": {
+                    "agent_egress_probe": {"sandbox_id": "sb-attacker"},
                     "include_live_context": True,
                     "analytics_query_context": [{"kind": "private"}],
                     "sandbox_oauth_token_ids": ["forged-token-id"],
@@ -9164,6 +9181,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["task_management_ci_wait_checks"] == 10
         assert run.state["pending_external_followups_checkpoint"] == {"generation": 8}
         assert run.state["slack_actor_slack_user_id"] == "U_ORIGINAL_ACTOR"
+        assert run.state["agent_egress_probe"] == egress_probe
 
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")
     def test_update_run_status_to_completed_signals_workflow(self, mock_signal):
@@ -17992,23 +18010,113 @@ class TestSandboxEnvironmentAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("effective_domains", response.json())
 
-    def test_update_environment(self):
-        env = SandboxEnvironment.objects.create(team=self.team, name="Old Name", created_by=self.user)
+    @parameterized.expand([("user_environment", False), ("internal_environment", True)])
+    def test_update_environment(self, _name, internal):
+        env = SandboxEnvironment.objects.create(
+            team=self.team,
+            name="Old Name",
+            created_by=self.user,
+            private=False,
+            internal=internal,
+            environment_variables={"API_TOKEN": "old-tok-1"},
+        )
+        self.client.force_login(self.user)
         response = self.client.patch(
             self.detail_url(env.id),
-            {"name": "New Name", "network_access_level": "custom", "allowed_domains": ["new.example.com"]},
+            {
+                "name": "New Name",
+                "network_access_level": "custom",
+                "allowed_domains": ["new.example.com"],
+                "environment_variables": {"API_TOKEN": "new-tok-2"},
+            },
+            format="json",
+        )
+        env.refresh_from_db()
+        if internal:
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+            self.assertEqual(env.name, "Old Name")
+            self.assertEqual(env.allowed_domains, [])
+        else:
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(env.name, "New Name")
+            self.assertEqual(env.allowed_domains, ["new.example.com"])
+            log = ActivityLog.objects.get(scope="SandboxEnvironment", item_id=str(env.id), activity="updated")
+            self.assertEqual(log.user, self.user)
+            assert log.detail is not None
+            self.assertEqual(log.detail["name"], "New Name")
+            changes = {change["field"]: (change["before"], change["after"]) for change in log.detail["changes"]}
+            self.assertEqual(
+                changes,
+                {
+                    "name": ("Old Name", "New Name"),
+                    "network_access_level": ("full", "custom"),
+                    "allowed_domains": (None, ["new.example.com"]),
+                    "environment_variables": ("masked", "masked"),
+                },
+            )
+            serialized = json.dumps(list(ActivityLog.objects.filter(scope="SandboxEnvironment").values("detail")))
+            self.assertNotIn("old-tok-1", serialized)
+            self.assertNotIn("new-tok-2", serialized)
+
+    @parameterized.expand([("user_environment", False), ("internal_environment", True)])
+    def test_delete_environment(self, _name, internal):
+        env = SandboxEnvironment.objects.create(
+            team=self.team, name="To Delete", created_by=self.user, private=False, internal=internal
+        )
+        response = self.client.delete(self.detail_url(env.id))
+        if internal:
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+            self.assertTrue(SandboxEnvironment.objects.filter(id=env.id).exists())
+        else:
+            self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+            self.assertFalse(SandboxEnvironment.objects.filter(id=env.id).exists())
+            log = ActivityLog.objects.get(scope="SandboxEnvironment", item_id=str(env.id), activity="deleted")
+            assert log.detail is not None
+            self.assertEqual(log.detail["name"], "To Delete")
+
+    @parameterized.expand(
+        [
+            ("shared", False, False, ["created", "updated", "updated", "deleted"], None, []),
+            ("private", True, True, [], None, []),
+            ("shared_to_private", False, True, ["created", "updated"], "Original", ["Renamed", "new.example.com"]),
+            ("private_to_shared", True, False, ["updated", "updated", "deleted"], "Renamed", ["Original"]),
+        ]
+    )
+    def test_environment_activity_skips_private_environments(
+        self, _name, created_private, updated_private, expected_activities, transition_name, hidden_values
+    ):
+        response = self.client.post(
+            self.base_url,
+            {"name": "Original", "network_access_level": "full", "private": created_private},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        env_id = response.json()["id"]
+        response = self.client.patch(
+            self.detail_url(env_id),
+            {
+                "name": "Renamed",
+                "private": updated_private,
+                "network_access_level": "custom",
+                "allowed_domains": ["new.example.com"],
+            },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        env.refresh_from_db()
-        self.assertEqual(env.name, "New Name")
-        self.assertEqual(env.allowed_domains, ["new.example.com"])
+        response = self.client.patch(self.detail_url(env_id), {"name": "Renamed again"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self.client.delete(self.detail_url(env_id)).status_code, status.HTTP_204_NO_CONTENT)
 
-    def test_delete_environment(self):
-        env = SandboxEnvironment.objects.create(team=self.team, name="To Delete", created_by=self.user)
-        response = self.client.delete(self.detail_url(env.id))
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(SandboxEnvironment.objects.filter(id=env.id).exists())
+        logs = list(ActivityLog.objects.filter(scope="SandboxEnvironment", item_id=env_id).order_by("created_at"))
+        self.assertEqual([log.activity for log in logs], expected_activities)
+        if transition_name is not None:
+            transition = next(log for log in logs if log.activity == "updated")
+            assert transition.detail is not None
+            self.assertEqual([change["field"] for change in transition.detail["changes"]], ["private"])
+            self.assertEqual(transition.detail["name"], transition_name)
+            serialized = json.dumps(transition.detail)
+            for hidden in hidden_values:
+                self.assertNotIn(hidden, serialized)
 
     def test_non_uuid_detail_path_returns_404(self):
         # A non-UUID id (e.g. a mistyped nested route matched as a pk) must 404, not 500.
@@ -19278,6 +19386,14 @@ class TestSandboxCustomImageAPI(BaseTaskAPITest):
         self.assertIn("validate its YAML syntax", message)
         self.assertIn("uv run --no-project --with PyYAML", message)
         self.assertIn("install pytorch and flox", message)
+        self.assertEqual(
+            list(
+                ActivityLog.objects.filter(scope="SandboxCustomImage", item_id=data["id"]).values_list(
+                    "activity", flat=True
+                )
+            ),
+            ["created"],
+        )
 
     @parameterized.expand(
         [
@@ -19301,6 +19417,13 @@ class TestSandboxCustomImageAPI(BaseTaskAPITest):
         self.assertEqual(response.json()["name"], "New name")
         image.refresh_from_db()
         self.assertEqual(image.name, "New name")
+        log = ActivityLog.objects.get(scope="SandboxCustomImage", item_id=str(image.id), activity="updated")
+        self.assertEqual(log.user, self.user)
+        assert log.detail is not None
+        self.assertEqual(
+            [(change["field"], change["before"], change["after"]) for change in log.detail["changes"]],
+            [("name", "Old name", "New name")],
+        )
 
     def test_rename_updates_description(self):
         image = _make_custom_image(team=self.team, user=self.user, name="img", description="old")
@@ -19449,9 +19572,26 @@ class TestSandboxCustomImageAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    @parameterized.expand(
+        [
+            ("first_spec", {}, [("spec", "created", None, "masked")]),
+            (
+                "changed_spec",
+                {"version": 1, "apt_packages": ["git"], "run_commands": [], "repo_setup_commands": [], "env": {}},
+                [("spec", "changed", "masked", "masked")],
+            ),
+            (
+                "same_spec",
+                {"version": 1, "apt_packages": ["jq"], "run_commands": [], "repo_setup_commands": [], "env": {}},
+                [],
+            ),
+        ]
+    )
     @patch("products.tasks.backend.temporal.client.execute_build_sandbox_image_workflow")
-    def test_build_with_inline_spec_persists_and_triggers_workflow(self, mock_workflow):
-        image = _make_custom_image(team=self.team, user=self.user, name="img")
+    def test_build_with_inline_spec_persists_and_triggers_workflow(
+        self, _name, initial_spec, expected_changes, mock_workflow
+    ):
+        image = _make_custom_image(team=self.team, user=self.user, name="img", spec=initial_spec)
         response = self.client.post(
             self.detail_url(image.id) + "build/",
             {"spec_yaml": "version: 1\napt_packages: [jq]\n"},
@@ -19462,6 +19602,44 @@ class TestSandboxCustomImageAPI(BaseTaskAPITest):
         image.refresh_from_db()
         self.assertEqual(image.spec["apt_packages"], ["jq"])
         mock_workflow.assert_called_once_with(str(image.id), self.team.id)
+        logged_changes = []
+        for log in ActivityLog.objects.filter(
+            scope="SandboxCustomImage", item_id=str(image.id), activity="updated", user=self.user
+        ):
+            assert log.detail is not None
+            logged_changes += [
+                (change["field"], change["action"], change["before"], change["after"])
+                for change in log.detail["changes"]
+            ]
+        self.assertEqual(logged_changes, expected_changes)
+
+    @parameterized.expand(
+        [
+            ("shared", False, ["created", "updated", "updated", "deleted"]),
+            ("private", True, []),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_build_sandbox_image_workflow")
+    def test_image_activity_skips_private_images(self, _name, private, expected_activities, _mock_workflow):
+        image = _make_custom_image(team=self.team, user=self.user, name="img", private=private)
+        response = self.client.patch(self.detail_url(image.id), {"description": "fresh"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response = self.client.post(
+            self.detail_url(image.id) + "build/",
+            {"spec_yaml": "version: 1\napt_packages: [jq]\n"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self.client.delete(self.detail_url(image.id)).status_code, status.HTTP_204_NO_CONTENT)
+
+        self.assertEqual(
+            list(
+                ActivityLog.objects.filter(scope="SandboxCustomImage", item_id=str(image.id))
+                .order_by("created_at")
+                .values_list("activity", flat=True)
+            ),
+            expected_activities,
+        )
 
     @parameterized.expand(
         [
@@ -19569,6 +19747,9 @@ class TestSandboxCustomImageAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         env.refresh_from_db()
         self.assertIsNone(env.custom_image_id)
+        self.assertTrue(
+            ActivityLog.objects.filter(scope="SandboxCustomImage", item_id=str(image.id), activity="deleted").exists()
+        )
 
     def test_endpoints_forbidden_when_vm_flag_disabled(self):
         image = _make_custom_image(team=self.team, user=self.user, name="img")

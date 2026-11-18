@@ -22,7 +22,7 @@ import { notebookExportLogic } from 'products/notebooks/frontend/notebookExportL
 import { NotebookLogicProps, notebookLogic } from './Notebook/notebookLogic'
 
 export function NotebookMenu({ shortId, inPanel }: NotebookLogicProps & { inPanel?: boolean }): JSX.Element {
-    const { preparePrint } = useActions(notebookExportLogic({ shortId }))
+    const { preparePrint, prepareImage } = useActions(notebookExportLogic({ shortId }))
     const { notebook, showHistory, isLocalOnly } = useValues(notebookLogic({ shortId }))
     const { openShareModal, duplicateNotebook, downloadMarkdown, copyMarkdown, setShowHistory } = useActions(
         notebookLogic({ shortId })
@@ -35,7 +35,7 @@ export function NotebookMenu({ shortId, inPanel }: NotebookLogicProps & { inPane
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
-                <ButtonPrimitive iconOnly>
+                <ButtonPrimitive iconOnly aria-label="Notebook options">
                     <IconEllipsis className="text-tertiary size-3 group-hover:text-primary z-10" />
                 </ButtonPrimitive>
             </DropdownMenuTrigger>
@@ -57,6 +57,12 @@ export function NotebookMenu({ shortId, inPanel }: NotebookLogicProps & { inPane
                         <ButtonPrimitive onClick={() => copyMarkdown()} menuItem>
                             <IconCopy />
                             Copy markdown
+                        </ButtonPrimitive>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                        <ButtonPrimitive onClick={prepareImage} menuItem data-attr="notebook-export-png">
+                            <IconDownload />
+                            Download PNG
                         </ButtonPrimitive>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>

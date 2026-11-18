@@ -964,6 +964,13 @@ def call_llm_judge(
         raise
 
     except Exception as e:
+        status = getattr(e, "status_code", None)
+        if not isinstance(status, int):
+            status = getattr(e, "code", None)
+        # boffin: Leave exhausted provider outages reportable through the worker interceptor.
+        if isinstance(status, int) and 500 <= status < 600 and not is_last_attempt():
+            increment_errors(type(e).__name__, provider=provider)
+            raise TransientJudgeError(str(e)) from e
         rejected_status = _rejected_request_status(e)
         # On a PostHog key a rejection is our bug, so it falls through to error tracking below.
         if rejected_status is not None and is_byok:
