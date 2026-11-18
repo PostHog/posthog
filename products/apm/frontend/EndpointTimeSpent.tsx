@@ -36,12 +36,16 @@ export function EndpointTimeSpent(props: EndpointTimeSpentLogicProps): JSX.Eleme
     return (
         <div className="flex flex-col gap-2 p-2" data-attr="apm-endpoint-time-spent">
             <div className="flex items-baseline gap-2">
-                <span className="font-semibold">Time spent by downstream service</span>
+                <span className="font-semibold">Where time is spent</span>
                 <span className="text-muted text-xs">
                     From {timeSpent.request_count} sampled {timeSpent.request_count === 1 ? 'request' : 'requests'},
                     averaging {formatMs(timeSpent.avg_duration_ms)}
                 </span>
             </div>
+            <span className="text-muted text-xs">
+                Shares of total work across all calls. Parallel calls each count in full, so shares can differ from
+                wall-clock time.
+            </span>
             {timeSpentFailed && (
                 <LemonBanner type="warning">Couldn't refresh this breakdown. It shows the last one loaded.</LemonBanner>
             )}

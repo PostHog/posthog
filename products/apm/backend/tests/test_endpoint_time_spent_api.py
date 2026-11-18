@@ -147,3 +147,17 @@ class TestAttributeTimeSpent(SimpleTestCase):
         self.assertEqual(
             [(c.name, c.total_ms) for c in result.components], [("web", 70.0), ("pg", 20.0), ("worker", 10.0)]
         )
+
+    def test_parallel_calls_each_count_in_full_toward_the_shares(self) -> None:
+        spans = [
+            _span("root", "", "web", 0, 100),
+            _span("a", "root", "payments", 10, 80),
+            _span("b", "root", "inventory", 10, 80),
+        ]
+
+        result = attribute_time_spent(spans, [("t", "root")])
+
+        self.assertEqual(
+            [(c.name, c.total_ms, round(c.share, 3)) for c in result.components],
+            [("inventory", 80.0, 0.444), ("payments", 80.0, 0.444), ("web", 20.0, 0.111)],
+        )
