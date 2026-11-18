@@ -4,7 +4,7 @@ from parameterized import parameterized
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
+from posthog.hogql.database.database import Database, _use_person_properties_from_events
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer.utils import prepare_ast_for_printing
 from posthog.hogql.property_metadata import PropertyMetadata
@@ -36,28 +36,31 @@ class TestFastPropertyFiltersFirst(SimpleTestCase):
         self,
         where: str,
         *,
+        query: str = "SELECT count() FROM events WHERE {where}",
         native: bool = True,
-        table: str = "events",
         property_types: dict[str, str] | None = None,
         placeholders: dict[str, ast.Expr] | None = None,
+        person_properties_on_events: bool = False,
     ) -> list[str]:
         metadata = PropertyMetadata(
             event_properties={name: {"type": property_type} for name, property_type in (property_types or {}).items()}
         )
+        database = Database()
+        if person_properties_on_events:
+            _use_person_properties_from_events(database)
         context = HogQLContext(
             use_new_events_schema=native,
             property_metadata=metadata,
-            database=Database(),
+            database=database,
             apply_events_retention_floor=False,
         )
         context.property_swapper = PropertySwapper("UTC", metadata.event_properties, {}, {}, context, False)
         prepared = prepare_ast_for_printing(
-            parse_select(f"SELECT count() FROM {table} WHERE {where}", placeholders), context, "clickhouse"
+            parse_select(query.format(where=where), placeholders), context, "clickhouse"
         )
-        assert isinstance(prepared, ast.SelectQuery)
-        assert prepared.where is not None
+        assert prepared is not None
         order = _MarkerOrder()
-        order.visit(prepared.where)
+        order.visit(prepared)
         return order.markers
 
     @parameterized.expand(
@@ -117,6 +120,34 @@ class TestFastPropertyFiltersFirst(SimpleTestCase):
     def test_filter_order_on_the_native_table(self, _name: str, where: str, expected: list[str]) -> None:
         assert self._filter_order(where) == expected
 
+    @parameterized.expand(
+        [
+            ("named_in_the_select", "SELECT rowNumberInBlock() AS rn FROM events WHERE {where}"),
+            ("named_in_a_with_clause", "WITH rowNumberInBlock() AS rn SELECT count() FROM events WHERE {where}"),
+            (
+                "named_in_a_with_clause_of_an_outer_query",
+                "WITH rowNumberInBlock() AS rn SELECT e FROM (SELECT event AS e FROM events WHERE {where})",
+            ),
+        ]
+    )
+    def test_nothing_moves_ahead_of_an_alias_of_a_function_that_numbers_rows(self, _name: str, query: str) -> None:
+        order = self._filter_order("rn = length(properties.plan) - 7 AND properties.query_type = 'fast'", query=query)
+        assert order == ["seven", "fast"]
+
+    def test_numbering_the_rows_of_a_subquery_leaves_its_filters_free_to_move(self) -> None:
+        order = self._filter_order(
+            "properties.query.kind = 'deep' AND properties.query_type = 'fast'",
+            query="SELECT e, rowNumberInAllBlocks() AS n FROM (SELECT event AS e FROM events WHERE {where})",
+        )
+        assert order == ["fast", "deep"]
+
+    def test_a_person_property_named_like_a_feature_flag_moves(self) -> None:
+        order = self._filter_order(
+            "properties.query.kind = 'deep' AND person.properties.`$feature/beta` = 'fast'",
+            person_properties_on_events=True,
+        )
+        assert order == ["fast", "deep"]
+
     def test_a_conversion_with_an_argument_that_can_throw_stays(self) -> None:
         order = self._filter_order(
             "properties.query.kind = 'deep' AND transform(properties.plan, {keys}, {values}, event::int) > 7",
@@ -155,6 +186,8 @@ class TestFastPropertyFiltersFirst(SimpleTestCase):
         self, _name: str, native: bool, table: str
     ) -> None:
         order = self._filter_order(
-            "properties.query.kind = 'deep' AND properties.query_type = 'fast'", native=native, table=table
+            "properties.query.kind = 'deep' AND properties.query_type = 'fast'",
+            query=f"SELECT count() FROM {table} WHERE {{where}}",
+            native=native,
         )
         assert order == ["deep", "fast"]

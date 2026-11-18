@@ -17,10 +17,14 @@ filter that can fail on some rows, such as ``properties.plan::int > 0``, and eve
 later conversion therefore still runs before it. The position of a fast filter against filters on other columns
 changes nothing, because ClickHouse orders those by column size.
 
-Two more things keep their written order. A filter on ``$feature_flags``, ``$active_feature_flags`` or
+Two more things keep their written order. A filter on an event's ``$feature_flags``, ``$active_feature_flags`` or
 ``$feature/<key>`` does, because the native table rebuilds each of them from the whole flag map, which is not a small
-read. A whole WHERE does when it calls a function such as ``rowNumberInBlock()``, because that function numbers the rows
-that reach it, and a filter moved ahead of it changes which rows those are.
+read. A whole WHERE does when a function such as ``rowNumberInBlock()`` can run in it. That function numbers the rows
+that reach it, so a filter moved ahead of it changes which rows those are. A WHERE can call the function itself or
+through an alias, and the check does not follow aliases. It keeps the written order when the SELECT list of the same
+query calls the function, and in every WHERE of the query when a WITH alias calls it, because HogQL resolves a WITH
+alias in every SELECT. A nested SELECT is checked on its own, so numbering the rows a subquery returns leaves the
+filters inside it free to move.
 """
 
 from posthog.hogql import ast
@@ -78,13 +82,17 @@ def _is_constant(expr: ast.Expr) -> bool:
 def _reads_a_json_column_path(property_read: ast.PropertyAccess, context: HogQLContext) -> bool:
     # Deferred: clickhouse_property_resolution imports the printer package, which imports this module.
     from posthog.hogql.transforms.clickhouse_property_resolution import (  # noqa: PLC0415
+        _is_events_properties,
         resolve_materialized_property_source,
     )
 
     blob_type = property_read.expr.type
     if not isinstance(blob_type, ast.FieldType):
         return False
-    source = resolve_materialized_property_source(blob_type, str(property_read.keys[0]), context)
+    key = str(property_read.keys[0])
+    if is_virtual_feature_flag_key(key) and _is_events_properties(blob_type, context):
+        return False
+    source = resolve_materialized_property_source(blob_type, key, context)
     return source is not None and source.kind == "json_subcolumn"
 
 
@@ -97,7 +105,6 @@ def _is_fast_property_filter(term: ast.Expr, context: HogQLContext) -> bool:
     return (
         isinstance(property_read, ast.PropertyAccess)
         and len(property_read.keys) == 1
-        and not is_virtual_feature_flag_key(str(property_read.keys[0]))
         and _is_constant(term.right)
         and _reads_a_json_column_path(property_read, context)
     )
@@ -113,10 +120,15 @@ class _OrderSensitiveCallFinder(TraversingVisitor):
             self.found = True
         super().visit_call(node)
 
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        # A nested SELECT numbers its own rows, whatever order the filters around it run in.
+        pass
 
-def _calls_an_order_sensitive_function(expr: ast.Expr) -> bool:
+
+def _calls_an_order_sensitive_function(exprs: list[ast.Expr]) -> bool:
     finder = _OrderSensitiveCallFinder()
-    finder.visit(expr)
+    for expr in exprs:
+        finder.visit(expr)
     return finder.found
 
 
@@ -124,6 +136,13 @@ class _FastPropertyFiltersFirst(TraversingVisitor):
     def __init__(self, context: HogQLContext) -> None:
         super().__init__()
         self.context = context
+        self.reordered: list[tuple[ast.SelectQuery, ast.Expr]] = []
+        self.with_alias_is_order_sensitive = False
+
+    def visit_cte(self, node: ast.CTE) -> None:
+        if _calls_an_order_sensitive_function([node.expr]):
+            self.with_alias_is_order_sensitive = True
+        super().visit_cte(node)
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         super().visit_select_query(node)
@@ -134,16 +153,21 @@ class _FastPropertyFiltersFirst(TraversingVisitor):
         terms = top_level_conjuncts(node.where)
         is_fast = [_is_fast_property_filter(term, self.context) for term in terms]
         first_other = is_fast.index(False) if False in is_fast else len(terms)
-        if True not in is_fast[first_other:] or _calls_an_order_sensitive_function(node.where):
+        if True not in is_fast[first_other:] or _calls_an_order_sensitive_function([node.where, *node.select]):
             return
 
-        node.where = ast.And(
+        reordered = ast.And(
             exprs=[term for term, fast in zip(terms, is_fast) if fast]
             + [term for term, fast in zip(terms, is_fast) if not fast]
         )
+        self.reordered.append((node, reordered))
 
 
 def put_fast_property_filters_first(node: _T_AST, context: HogQLContext) -> _T_AST:
     """Reorder every eligible WHERE in the tree. Mutates in place and returns the node."""
-    _FastPropertyFiltersFirst(context).visit(node)
+    visitor = _FastPropertyFiltersFirst(context)
+    visitor.visit(node)
+    if not visitor.with_alias_is_order_sensitive:
+        for select_query, where in visitor.reordered:
+            select_query.where = where
     return node
