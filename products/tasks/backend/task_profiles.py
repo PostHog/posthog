@@ -150,7 +150,7 @@ WORKFLOW = replace(
     drive=DrivePolicy.AUDIENCE,
     mcp_agent="workflow",
     billing_product="workflows",
-    agent_policy=AgentPolicy(ends_run=EndsRun.ON_REQUEST),
+    agent_policy=AgentPolicy(ends_run=EndsRun.ON_REQUEST, finish_report_required=True),
 )
 
 PROFILES = (
