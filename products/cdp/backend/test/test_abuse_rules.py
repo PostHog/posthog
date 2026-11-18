@@ -146,6 +146,12 @@ class TestAbuseRules(SimpleTestCase):
                 content(inputs={"url": {"value": "http://" + "a" * 1_000_000}}),
                 (Rule.OVERSIZED_INPUT,),
             ),
+            ("very_long_numeric_host", content(hog="fetch('https://" + "1" * 5_000 + "/')"), ()),
+            (
+                "zero_padded_ipv4_part",
+                content(inputs={"url": {"value": "http://0" + "0" * 20 + "177.0.0.1/"}}),
+                (Rule.INTERNAL_HOST,),
+            ),
             ("public_ipv4_as_one_number", content(inputs={"url": {"value": "http://134744072/"}}), ()),
             ("numeric_looking_domain", content(inputs={"url": {"value": "https://1.2.3.4.example.com/"}}), ()),
             ("many_urls", content(hog="https://example.com/" * 50_000, inputs={}), ()),

@@ -51,11 +51,9 @@ _REQUEST_CATCHER_DOMAINS = frozenset(
 )
 
 _SCHEME = re.compile(r"https?://", re.IGNORECASE)
-# Only the authority is read after each scheme. It cannot hold a "/", so the authorities after two schemes never
-# overlap and a megabyte of URLs costs linear time. A URL nested in the query of another URL has its own scheme, so
-# it is read on its own.
+# Only the authority after each scheme is read. It holds no "/", so two authorities never overlap and the scan stays
+# linear. A URL nested in the query of another URL has its own scheme, so it is read on its own.
 _AUTHORITY = re.compile(r"[^\s\"'`<>(){},;/?#\\]+")
-# A Hog string literal as the first argument of `fetch`, with escapes, in either quote style.
 _FETCH_LITERAL = re.compile(r"""\bfetch\s*\(\s*f?(?:'((?:[^'\\]++|\\.)*+)'|"((?:[^"\\]++|\\.)*+)")""", re.DOTALL)
 # A URL can hide inside a query parameter of another URL, encoded once per layer of redirect.
 _MAX_DECODE_PASSES = 3
@@ -180,7 +178,8 @@ def _ipv4_number(part: str) -> int | None:
         base, digits = 8, part[1:]
     else:
         base, digits = 10, part
-    if not _IPV4_PART[base].fullmatch(digits):
+    # An IPv4 part never needs more than 11 significant digits, and `int` refuses strings past its digit limit.
+    if len(digits.lstrip("0")) > 11 or not _IPV4_PART[base].fullmatch(digits):
         return None
     return int(digits, base) if digits else 0
 
