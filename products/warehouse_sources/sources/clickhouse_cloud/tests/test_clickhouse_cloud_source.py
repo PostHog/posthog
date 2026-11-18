@@ -8,7 +8,18 @@ from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, Sou
 
 
 class TestClickhouseCloudSchemas:
-    @parameterized.expand([("organizations",), ("services",), ("api_keys",), ("members",), ("backups",)])
+    @parameterized.expand(
+        [
+            ("organizations",),
+            ("services",),
+            ("api_keys",),
+            ("members",),
+            ("backups",),
+            ("clickpipes",),
+            ("postgres_services",),
+            ("roles",),
+        ]
+    )
     def test_snapshot_endpoints_are_full_refresh_only(self, endpoint: str) -> None:
         # These list endpoints return complete unfiltered arrays — no server-side updated-since
         # filter exists, so they must not advertise incremental.
