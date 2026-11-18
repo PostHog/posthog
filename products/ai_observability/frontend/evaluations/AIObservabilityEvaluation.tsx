@@ -1,9 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { LemonBanner, LemonButton, LemonSkeleton, LemonTabs, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton, LemonTabs, Link } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -58,7 +57,6 @@ export function AIObservabilityEvaluation(): JSX.Element {
         isReportableEvaluation,
         evaluationBackTarget,
         evaluationLoading,
-        evaluationFormSubmitting,
         hasUnsavedChanges,
         formValid,
         isNewEvaluation,
@@ -392,23 +390,6 @@ export function AIObservabilityEvaluation(): JSX.Element {
                         content: (
                             <div className="max-w-6xl mx-auto">
                                 <EvaluationConfigurationForm />
-                                <div className="flex justify-end mt-6">
-                                    <AccessControlAction
-                                        resourceType={AccessControlResourceType.Evaluation}
-                                        minAccessLevel={AccessControlLevel.Editor}
-                                        userAccessLevel={evaluation.user_access_level ?? undefined}
-                                    >
-                                        <LemonButton
-                                            type="primary"
-                                            onClick={handleSave}
-                                            disabledReason={saveButtonDisabledReason}
-                                            loading={evaluationFormSubmitting}
-                                            data-attr="llma-evaluation-save-bottom"
-                                        >
-                                            Save changes
-                                        </LemonButton>
-                                    </AccessControlAction>
-                                </div>
                             </div>
                         ),
                     },

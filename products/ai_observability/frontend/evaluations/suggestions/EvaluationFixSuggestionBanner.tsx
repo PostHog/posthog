@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
@@ -6,6 +6,8 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { evaluationVolumeLogic } from '../evaluationVolumeLogic'
+import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import { evaluationFixSuggestionLogic } from './evaluationFixSuggestionLogic'
 
 export interface EvaluationFixSuggestionBannerProps {
@@ -24,11 +26,17 @@ export function EvaluationFixSuggestionBanner({
     const logic = evaluationFixSuggestionLogic({ suggestionId, evaluationId })
     const { openFix, applying } = useValues(logic)
     const { applyFix } = useActions(logic)
+    const { props } = useMountedLogic(llmEvaluationLogic)
+    const { volume } = useValues(evaluationVolumeLogic(props))
 
     if (!openFix) {
         return null
     }
     const hasPatch = Object.keys(openFix.draft).length > 0
+    // With nothing to apply, the form's live estimate already warns that no traffic matches.
+    if (!hasPatch && volume?.matchingGenerations === 0) {
+        return null
+    }
     return (
         <LemonBanner
             type="warning"
