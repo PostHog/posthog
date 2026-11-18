@@ -56,6 +56,7 @@ import { Hypothesis } from './Hypothesis'
 import { LoadingState } from './LoadingState'
 import { MultiVariantBiasWarning } from './MultiVariantBiasWarning'
 import { PageHeaderCustom } from './PageHeader'
+import { QuillExperimentFeedbackTab } from './QuillExperimentFeedbackTab'
 import { QuillExperimentReplayTab } from './QuillExperimentReplayTab'
 import { type ExperimentTabDefinition, QuillExperimentTabs } from './QuillExperimentTabs'
 import { QuillLoadingState } from './QuillLoadingState'
@@ -260,7 +261,16 @@ export function ExperimentView(): JSX.Element {
                     <ExperimentReplayTab experiment={experiment} />
                 ),
         },
-        { key: 'feedback', label: 'User feedback', content: <ExperimentFeedbackTab experiment={experiment} /> },
+        {
+            key: 'feedback',
+            label: 'User feedback',
+            content:
+                todayRailNav && resultsRedesign ? (
+                    <QuillExperimentFeedbackTab experiment={experiment} />
+                ) : (
+                    <ExperimentFeedbackTab experiment={experiment} />
+                ),
+        },
         {
             key: 'history',
             label: 'History',
