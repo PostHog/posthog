@@ -77,9 +77,9 @@ export function impactSteps(impact: TransactionalEmailImpactApi, event: string |
     const conversions = impact.after_click
     return [
         { key: 'sent', label: 'Sent', value: impact.sent, share: null },
-        { key: 'delivered', label: 'Delivered', value: impact.delivered, share: share(impact.delivered, impact.sent) },
-        { key: 'opened', label: 'Opened', value: impact.opened, share: share(impact.opened, impact.delivered) },
-        clickedStep(impact),
+        { key: 'delivered', label: 'Delivered', value: impact.delivered, share: null },
+        { key: 'opened', label: 'Opened', value: impact.opened, share: null },
+        { key: 'clicked', label: 'Clicked', value: impact.clicked, share: null },
         {
             key: 'session',
             label: 'Started a session',
@@ -98,16 +98,6 @@ export function impactSteps(impact: TransactionalEmailImpactApi, event: string |
               }
             : { key: 'converted', label: 'Converted', value: null, share: null, missing: 'Pick an event' },
     ]
-}
-
-function clickedStep(impact: TransactionalEmailImpactApi): ImpactStep {
-    const step = { key: 'clicked', label: 'Clicked', value: impact.clicked } as const
-    if (impact.clicked <= impact.opened) {
-        return { ...step, share: share(impact.clicked, impact.opened) }
-    }
-    return impact.clicked <= impact.delivered
-        ? { ...step, share: share(impact.clicked, impact.delivered), shareOf: 'delivered' }
-        : { ...step, share: null }
 }
 
 function conversionBase(followed: number, of: number): Pick<ImpactStep, 'shareOf' | 'shareDetail'> {

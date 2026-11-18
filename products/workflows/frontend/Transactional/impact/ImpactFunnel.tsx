@@ -29,6 +29,7 @@ function StepBar({ step, percent }: { step: ImpactStep; percent: number | null }
         <div className="h-28 rounded bg-surface-secondary flex items-end overflow-hidden">
             {percent !== null && percent > 0 && (
                 <div
+                    data-attr={`email-impact-bar-${step.key}`}
                     className={step.key === 'converted' ? 'w-full bg-success' : 'w-full bg-accent'}
                     style={{ height: `${percent}%` }}
                 />

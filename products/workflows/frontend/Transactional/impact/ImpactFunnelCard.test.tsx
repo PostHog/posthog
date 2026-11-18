@@ -72,12 +72,31 @@ describe('ImpactFunnelCard', () => {
         ]
         renderCard()
 
-        const funnel = await screen.findByTestId('email-impact-funnel')
-        const barHeights = Array.from(funnel.querySelectorAll('li'), (step) => {
-            const bar = step.firstElementChild?.firstElementChild as HTMLElement | null
-            return bar?.style.height ?? null
-        })
-        expect(barHeights.slice(0, 4)).toEqual([null, null, '100%', '25%'])
+        expect((await screen.findByTestId('email-impact-bar-opened')).style.height).toBe('100%')
+        expect(screen.getByTestId('email-impact-bar-clicked').style.height).toBe('25%')
+        expect(screen.queryByTestId('email-impact-bar-sent')).not.toBeInTheDocument()
+        expect(screen.queryByTestId('email-impact-bar-delivered')).not.toBeInTheDocument()
+    })
+
+    it('says no click was recorded, and still compares delivered sends, when every click went untracked', async () => {
+        answer = [
+            200,
+            {
+                ...IMPACT,
+                opened: 0,
+                clicked: 0,
+                untracked: 10,
+                after_click: { sends: 0, converted: 0 },
+                without_click: { sends: 9, converted: 3 },
+            },
+        ]
+        renderCard()
+        emailImpactLogic({ workflowId: 'workflow-1' }).actions.setEvent('plan upgraded')
+
+        const lift = (await screen.findByText('No clicks were recorded in this period.')).closest('p')
+        expect(lift).toHaveTextContent(
+            '33.3% of delivered sends with no recorded click were followed by plan upgraded within 7 days of the send.'
+        )
     })
 
     it('shows a failed load once, in the card, and loads the funnel on Try again', async () => {

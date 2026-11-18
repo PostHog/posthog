@@ -74,14 +74,14 @@ describe('impactSteps', () => {
         expect(impactFunnelState(data, loading, error)).toBe(expected)
     })
 
-    it('ends with the conversion event as a share of the clicked sends it could follow', () => {
+    it('shows each step as a count, and only the conversion as a share of the clicked sends it could follow', () => {
         const steps = impactSteps(impact, 'plan upgraded')
 
         expect(steps.map((step) => [step.label, step.value, step.share, step.missing])).toEqual([
             ['Sent', 100, null, undefined],
-            ['Delivered', 90, 0.9, undefined],
-            ['Opened', 60, 60 / 90, undefined],
-            ['Clicked', 20, 20 / 60, undefined],
+            ['Delivered', 90, null, undefined],
+            ['Opened', 60, null, undefined],
+            ['Clicked', 20, null, undefined],
             ['Started a session', null, null, 'Needs link tagging'],
             ['plan upgraded', 4, 0.25, undefined],
         ])
@@ -90,22 +90,6 @@ describe('impactSteps', () => {
             share: 0.2,
             shareOf: 'clicked',
         })
-    })
-
-    it('compares clicks to delivered when they outnumber opens', () => {
-        const steps = impactSteps({ ...impact, opened: 10 }, 'plan upgraded')
-
-        expect(steps[3]).toMatchObject({ value: 20, share: 20 / 90, shareOf: 'delivered' })
-    })
-
-    it.each([
-        ['deliveries still waiting on a webhook', { ...impact, delivered: 15, opened: 10 }],
-        ['sends still queued', { ...impact, sent: 1, delivered: 0, opened: 0, clicked: 2 }],
-    ])('shows clicks without a share when they outnumber %s', (_, data) => {
-        const steps = impactSteps(data, 'plan upgraded')
-
-        expect(steps[3]).toMatchObject({ value: data.clicked, share: null })
-        expect(steps[3].shareOf).toBeUndefined()
     })
 
     it('says nobody was sent when no send went out, tracked or not', () => {

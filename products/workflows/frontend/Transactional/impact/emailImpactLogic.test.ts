@@ -1,6 +1,7 @@
 import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
@@ -54,6 +55,7 @@ describe('emailImpactLogic', () => {
     afterEach(() => logic.unmount())
 
     it('asks the environment the email belongs to, and says which sends it could follow', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
         initKeaTests(true, ENVIRONMENT)
         logic = emailImpactLogic({ workflowId: 'workflow-1' })
         logic.mount()
@@ -62,6 +64,11 @@ describe('emailImpactLogic', () => {
         expect(requestedFrom).toEqual([String(ENVIRONMENT.id)])
         expect(logic.values.impact).toEqual(IMPACT)
         expect(logic.values.followedNote).toMatch(/^Counted over 1 of 2 clicked sends:/)
+        expect(capture).toHaveBeenCalledWith('transactional email impact loaded', {
+            has_event: false,
+            days: 30,
+            has_untracked_sends: false,
+        })
     })
 
     it('loads once the team arrives when the tab mounts first', async () => {
@@ -128,6 +135,7 @@ describe('emailImpactLogic', () => {
         ],
     ])('explains %s, and clears it once a retry answers', async (_, response, message) => {
         answer = response as [number, unknown]
+        const capture = jest.spyOn(posthog, 'capture')
         initKeaTests(true, ENVIRONMENT)
         logic = emailImpactLogic({ workflowId: 'workflow-1' })
         logic.mount()
@@ -135,6 +143,7 @@ describe('emailImpactLogic', () => {
 
         expect(logic.values.impactError).toBe(message)
         expect(logic.values.funnelState).toBe('error')
+        expect(capture).not.toHaveBeenCalledWith('transactional email impact loaded', expect.anything())
 
         answer = [200, IMPACT]
         logic.actions.loadImpact()
