@@ -801,6 +801,26 @@ describe('CI workflow run plans', () => {
         expect(plan.jobs.frontend_tests?.result).toBe('success')
     })
 
+    it.each([
+        ['master push', push(), false, true, false],
+        ['ready PR', pullRequest(), true, true, false],
+        ['fork PR', pullRequest({ fork: true }), true, true, false],
+        ['merge group', { ...push(), event_name: 'merge_group' }, false, false, false],
+        ['cancelled master push', push(), false, false, true],
+    ] as const)(
+        'Desktop checks keep coverage without an empty detector (%s)',
+        (name, github, changes, checkRuns, cancelled) => {
+            for (const check of ['typecheck', 'quality']) {
+                const wf = workflow(`desktop-${check}.yml`)
+                const plan = planWorkflow(wf, { name, github, cancelled, steps: allFiltersChanged(wf) })
+                expect(plan.errors).toEqual([])
+                expect(plan.jobs.changes?.result === 'success', check).toBe(changes)
+                expect(plan.jobs[check]?.result === 'success', check).toBe(checkRuns)
+                expect(plan.jobs[`desktop-${check}-pass`]?.result === 'success', check).toBe(!cancelled)
+            }
+        }
+    )
+
     it.each(['build', 'quality', 'typecheck', 'test'])('Desktop %s shares the fallback detector filters', (name) => {
         const filters = (file: string): Record<string, string[]> =>
             load(

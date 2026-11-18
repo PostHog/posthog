@@ -37,14 +37,7 @@ function isEditOf(draft: string, suggestion: string): boolean {
     )
 }
 
-export function DiscussReportButton({
-    report,
-    reportUrl,
-}: {
-    report: SignalReport
-    reportUrl: string
-}): JSX.Element | null {
-    const hasPostHogAiAccess = useFeatureFlag('PHAI_SANDBOX_MODE')
+export function DiscussReportButton({ report, reportUrl }: { report: SignalReport; reportUrl: string }): JSX.Element {
     const { isDiscussing, isCreatingPr, aiConsentDisabledReason, freeTrialDisabledReason, lastQuickAskFailure } =
         useValues(inboxTaskKickoffLogic)
     const { openReportDiscussion, discussReport } = useActions(inboxTaskKickoffLogic)
@@ -164,10 +157,6 @@ export function DiscussReportButton({
             'data-attr': 'inbox-report-ask-ai-resolve-conflicts',
         },
     ]
-
-    if (!hasPostHogAiAccess) {
-        return null
-    }
 
     return (
         <LemonButton

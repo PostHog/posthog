@@ -6410,6 +6410,11 @@ export interface TaggerApi {
     readonly updated_at: string
     readonly created_by: UserBasicApi
     deleted?: boolean
+    /**
+     * The evaluation that replaced this tagger when it was migrated. Null until then.
+     * @nullable
+     */
+    readonly migrated_to_evaluation_id: string | null
 }
 
 export interface PaginatedTaggerListApi {
@@ -7778,6 +7783,10 @@ export type TaggersListParams = {
      * Number of results to return per page.
      */
     limit?: number
+    /**
+     * Only the tagger that was migrated to this evaluation
+     */
+    migrated_to_evaluation_id?: string
     /**
      * The initial index from which to return the results.
      */
