@@ -872,6 +872,13 @@ CACHES["admin_console_results"] = {
     "LOCATION": REDIS_URL,
 }
 
+# The Distinct ID usage report caches ClickHouse rows that staff reload during incidents. JSON, so a read never
+# unpickles a value someone with Redis write access placed under the key.
+CACHES["distinct_id_usage_report"] = {
+    **CACHES["default"],
+    "OPTIONS": {**CACHES["default"]["OPTIONS"], "SERIALIZER": "django_redis.serializers.json.JSONSerializer"},
+}
+
 # AEO prompt suggestion jobs are polled right after the job is created. A lagging replica would report a new
 # job as unknown, and the client treats that as expired, so read from the writer.
 CACHES["aeo_prompt_suggestions"] = {
@@ -959,6 +966,7 @@ if TEST:
     CACHES["aeo_prompt_suggestions"] = CACHES["default"]
     CACHES["signup_throttle"] = CACHES["default"]
     CACHES["admin_console_results"] = CACHES["default"]
+    CACHES["distinct_id_usage_report"] = CACHES["default"]
     CACHES["current_alias_usage"] = CACHES["default"]
 
 # Cache timeout for materialized columns metadata (in seconds)

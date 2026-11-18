@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from django.conf import settings
-from django.core.cache import cache
+from django.core.cache import caches
 
 import structlog
 
@@ -24,6 +24,8 @@ QUERY_SETTINGS = {"max_execution_time": 30}
 # Four ClickHouse queries of up to 30 seconds each run per report. Staff reload and share these pages
 # during incidents, so the event counts are reused for a few minutes. Restrictions are never cached.
 REPORT_CACHE_SECONDS = 300
+# A cache alias with the JSON serializer, so reading the report never unpickles what sits in Redis.
+REPORT_CACHE_ALIAS = "distinct_id_usage_report"
 
 
 @frozen
@@ -103,6 +105,34 @@ class _EventCounts:
     team_bursts: list[tuple]
     errors: tuple[str, ...]
     computed_at: datetime
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "high_usage": [list(row) for row in self.high_usage],
+            "high_cardinality": [list(row) for row in self.high_cardinality],
+            "distinct_id_bursts": [
+                [team_id, distinct_id, minute.isoformat(), count]
+                for team_id, distinct_id, minute, count in self.distinct_id_bursts
+            ],
+            "team_bursts": [[team_id, minute.isoformat(), count] for team_id, minute, count in self.team_bursts],
+            "computed_at": self.computed_at.isoformat(),
+        }
+
+    @classmethod
+    def from_json(cls, payload: dict[str, Any]) -> "_EventCounts":
+        return cls(
+            high_usage=[tuple(row) for row in payload["high_usage"]],
+            high_cardinality=[tuple(row) for row in payload["high_cardinality"]],
+            distinct_id_bursts=[
+                (team_id, distinct_id, datetime.fromisoformat(minute), count)
+                for team_id, distinct_id, minute, count in payload["distinct_id_bursts"]
+            ],
+            team_bursts=[
+                (team_id, datetime.fromisoformat(minute), count) for team_id, minute, count in payload["team_bursts"]
+            ],
+            errors=(),
+            computed_at=datetime.fromisoformat(payload["computed_at"]),
+        )
 
 
 @frozen
@@ -234,12 +264,11 @@ class DistinctIdUsage:
         cache_key = cls._cache_key(dt_from, dt_to, thresholds)
         # Staff open this report during incidents, so a cache outage costs the speedup, never the report.
         try:
-            cached = cache.get(cache_key)
+            cached = caches[REPORT_CACHE_ALIAS].get(cache_key)
+            if cached is not None:
+                return _EventCounts.from_json(cached)
         except Exception:
             logger.exception("distinct_id_usage_cache_read_failed")
-            cached = None
-        if cached is not None:
-            return cached
 
         errors: list[str] = []
 
@@ -262,7 +291,7 @@ class DistinctIdUsage:
         # A failed query is not cached, so staff can retry without waiting for the cache to expire.
         if not counts.errors:
             try:
-                cache.set(cache_key, counts, timeout=REPORT_CACHE_SECONDS)
+                caches[REPORT_CACHE_ALIAS].set(cache_key, counts.to_json(), timeout=REPORT_CACHE_SECONDS)
             except Exception:
                 logger.exception("distinct_id_usage_cache_write_failed")
         return counts

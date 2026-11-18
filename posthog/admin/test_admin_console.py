@@ -1394,8 +1394,9 @@ class TestAdminConsoleViews(BaseTest):
         caches["default"].clear()
         queries.high_usage.return_value = [(self.team.pk, "heavy-user", 200_000, 300_000, 66.67)]
         queries.high_cardinality.return_value = []
-        queries.distinct_id_bursts.return_value = []
-        queries.team_bursts.return_value = []
+        burst_minute = datetime(2026, 11, 7, 5, 30, tzinfo=UTC)
+        queries.distinct_id_bursts.return_value = [(self.team.pk, "bursty-user", burst_minute, 150_000)]
+        queries.team_bursts.return_value = [(self.team.pk, burst_minute, 600_000)]
         url = (
             "/admin/console/tools/distinct-id-usage/?datetime_from=2026-11-07T04%3A00&datetime_to=2026-11-07T10%3A00"
             "&high_usage_percentage_threshold=30&high_usage_min_events_threshold=10000"
@@ -1413,6 +1414,7 @@ class TestAdminConsoleViews(BaseTest):
 
         assert queries.high_usage.call_count == 1
         assert "Event counts were read at" in second
+        assert "bursty-user" in second and "600,000" in first and "600,000" in second
         assert "Not in list" not in first
         assert "Applied: Skip person processing" in second
 
