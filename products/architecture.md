@@ -373,12 +373,12 @@ Capability submodules (`queries.py`, `temporal.py`, `max_tools.py`, `tasks.py`, 
 - Accept frozen dataclasses as input parameters
 - Call business logic (`logic.py`)
 - Convert Django models → frozen dataclasses before returning
-- Enforce transactions where needed
 - Remain thin and stable
 
 ### Do NOT:
 
 - Implement business logic (use `logic.py`)
+- Change state: no writes, row locks or transactions, and no reads that leave the team scope. The whole operation goes into `logic.py`, and the facade calls it (hoglint's `facade-no-state` rule)
 - Import DRF, HTTP, or serializers
 - Expose Django models or return ORM instances
 
