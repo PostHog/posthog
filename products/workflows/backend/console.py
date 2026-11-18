@@ -4,14 +4,23 @@ from django import forms
 from django.contrib import messages
 from django.db.models import Model
 from django.http import HttpRequest, HttpResponse
+from django.urls import reverse
 
 import structlog
 
 from posthog.admin.console.panels import Fact, Operation, Owner, Panel, ReasonForm, Tone
 from posthog.admin.console.registry import console
+from posthog.admin.console.tools import Cell, ConsoleTool, Notice, Page, Row, Table
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.user import User
 
+from products.workflows.backend.facade.activity import (
+    EMAIL_SENDING_SUSPENDED_ACTIVITY,
+    EMAIL_SENDING_TIER_BACKFILL_JOB_TYPE,
+    EMAIL_SENDING_TIER_SWEEP_JOB_TYPE,
+    EMAIL_SENDING_UNSUSPENDED_ACTIVITY,
+    list_email_sending_history,
+)
 from products.workflows.backend.facade.api import (
     ensure_workflows_config,
     get_email_sending_state,
@@ -22,6 +31,7 @@ from products.workflows.backend.facade.api import (
     suspend_email_sending,
     unsuspend_email_sending,
 )
+from products.workflows.backend.facade.contracts import EmailSendingHistoryEntry
 
 logger = structlog.get_logger(__name__)
 
@@ -67,6 +77,7 @@ def set_tier(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpR
         obj.pk,
         tier=tier,
         pinned=pinned,
+        staff_note=form.cleaned_data["reason"],
         user_id=cast(User, request.user).pk,
         was_impersonated=is_impersonated(request),
     )
@@ -76,11 +87,15 @@ def set_tier(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpR
 
 
 def recompute_tier(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse | None:
+    assert form is not None
     # The sweep skips a team without a config row, and a team that only sent through the API may have none yet.
     ensure_workflows_config(obj.pk)
     try:
         decision = recompute_email_sending_tier(
-            obj.pk, user_id=cast(User, request.user).pk, was_impersonated=is_impersonated(request)
+            obj.pk,
+            staff_note=form.cleaned_data["reason"],
+            user_id=cast(User, request.user).pk,
+            was_impersonated=is_impersonated(request),
         )
     except Exception:
         logger.exception("admin_console_recompute_email_sending_tier_failed", team_id=obj.pk)
@@ -143,6 +158,105 @@ def unsuspend(request: HttpRequest, obj: Model, form: forms.Form | None) -> Http
     return None
 
 
+HISTORY_LIMIT = 200
+
+TIER_CHANGE_REASONS = {
+    "staff_set": "Set by staff",
+    "staff_suspension": "Staff suspended sending",
+    "clean_and_used": "Sent cleanly and used its allowance",
+    "rates_above_threshold": "Bounce or complaint rate over the limit",
+    "workflow_auto_paused": "A workflow was paused automatically",
+    "ses_reputation_high": "AWS flagged the sender reputation",
+    "ses_tenant_paused": "AWS paused sending for this team",
+    "inactive": "No email sent for a long time",
+}
+
+JOB_NAMES = {
+    EMAIL_SENDING_TIER_SWEEP_JOB_TYPE: "Daily tier check",
+    EMAIL_SENDING_TIER_BACKFILL_JOB_TYPE: "Tier backfill",
+}
+
+
+def email_sending_history_url(team_id: int) -> str:
+    return f"{reverse('admin_console_tool', kwargs={'tool_key': EmailSendingHistoryTool.key})}?team={team_id}"
+
+
+def _change_cell(entry: EmailSendingHistoryEntry) -> Cell:
+    if entry.activity == EMAIL_SENDING_SUSPENDED_ACTIVITY:
+        return Cell(text="Suspended sending", tone=Tone.DESTRUCTIVE)
+    if entry.activity == EMAIL_SENDING_UNSUSPENDED_ACTIVITY:
+        return Cell(text="Re-enabled sending", tone=Tone.SUCCESS)
+    parts = []
+    tone = None
+    if entry.tier_before is not None and entry.tier_after is not None:
+        parts.append(f"Tier {entry.tier_before} → {entry.tier_after}")
+        tone = Tone.WARNING if entry.tier_after < entry.tier_before else Tone.SUCCESS
+    if entry.pinned_after is not None:
+        parts.append("Pinned" if entry.pinned_after else "Unpinned")
+    return Cell(text=", ".join(parts) or "No change recorded", tone=tone)
+
+
+def _reason_cell(entry: EmailSendingHistoryEntry) -> Cell:
+    return Cell(text=TIER_CHANGE_REASONS.get(entry.reason, entry.reason) or "-", muted=not entry.reason)
+
+
+def _actor_cell(entry: EmailSendingHistoryEntry) -> Cell:
+    if entry.actor_email is not None:
+        return Cell(text=f"{entry.actor_email}{' (impersonated)' if entry.was_impersonated else ''}")
+    if entry.job_type is not None:
+        return Cell(text=JOB_NAMES.get(entry.job_type, entry.job_type), muted=True)
+    return Cell(text="Automatic", muted=True)
+
+
+def _history_row(entry: EmailSendingHistoryEntry) -> Row:
+    return Row(
+        cells=(
+            Cell(text=entry.changed_at.strftime("%b %-d, %Y %H:%M UTC")),
+            _change_cell(entry),
+            _reason_cell(entry),
+            Cell(text=entry.staff_note) if entry.staff_note else Cell(text="-", muted=True),
+            _actor_cell(entry),
+        )
+    )
+
+
+@console.register_tool
+class EmailSendingHistoryTool(ConsoleTool):
+    key = "email-sending-history"
+    title = "Email sending history"
+    owner = WORKFLOWS
+    group = "Data"
+    description = "Every tier, pin and suspension change for one team, newest first."
+
+    def page(self, request: HttpRequest) -> Page:
+        team_param = request.GET.get("team", "")
+        if not (team_param.isascii() and team_param.isdigit()):
+            return Page(
+                blocks=(
+                    Notice(
+                        text="Open this page from the Email sending panel on a team page to see that team's changes."
+                    ),
+                )
+            )
+        team_id = int(team_param)
+        entries = list_email_sending_history(team_id, limit=HISTORY_LIMIT)
+        limit_note = f" Showing the {HISTORY_LIMIT} most recent." if len(entries) == HISTORY_LIMIT else ""
+        return Page(
+            blocks=(
+                Notice(
+                    text=f"Team {team_id}.{limit_note}",
+                    link_text="Back to the team",
+                    href=reverse("admin_console_team", kwargs={"pk": team_id}),
+                ),
+                Table(
+                    columns=("When", "Change", "Reason", "Staff note", "By"),
+                    rows=tuple(_history_row(entry) for entry in entries),
+                    empty_text="No changes recorded for this team yet.",
+                ),
+            )
+        )
+
+
 @console.register_panel
 class EmailSendingPanel(Panel):
     record = "team"
@@ -181,6 +295,7 @@ class EmailSendingPanel(Panel):
                     value=f"Tier {state.tier} of {max_email_sending_tier()}{', pinned by staff' if state.tier_pinned else ''}",
                 )
             )
+        facts.append(Fact(label="History", value="See every change", href=email_sending_history_url(obj.pk)))
         return facts
 
     def operations(self, obj: Model) -> list[Operation]:

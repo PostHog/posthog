@@ -349,6 +349,27 @@ class EmailSendingState:
 
 
 @frozen
+class EmailSendingHistoryEntry:
+    """One change to a team's email sending controls, read from the activity log."""
+
+    changed_at: datetime
+    # email_sending_tier_changed, email_sending_suspended or email_sending_unsuspended.
+    activity: str
+    tier_before: int | None
+    tier_after: int | None
+    pinned_after: bool | None
+    # The tier decision reason, for example rates_above_threshold, or the suspension reason the team saw.
+    reason: str
+    # What staff typed into the console form. Empty for automatic changes.
+    staff_note: str
+    # Null for a change that no person made, such as the daily sweep.
+    actor_email: str | None
+    was_impersonated: bool
+    # The job that made an automatic change, for example the daily sweep or the backfill.
+    job_type: str | None
+
+
+@frozen
 class EmailSendingSuspensionChange:
     """The outcome of a suspend or unsuspend request.
 

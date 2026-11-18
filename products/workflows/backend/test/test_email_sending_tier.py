@@ -423,7 +423,7 @@ class TestRecomputeEmailSendingTiers(BaseTest):
         entry = ActivityLog.objects.get(scope="Team", team_id=self.team.id, activity="email_sending_tier_changed")
         assert entry.user == (self.user if by_staff else None)
         detail = entry.detail or {}
-        assert detail["context"] == {"reason": "clean_and_used"}
+        assert detail["context"] == {"reason": "clean_and_used", "staff_note": ""}
         assert (detail["trigger"] or {}).get("job_type") == expected_job_type
         assert [(c["field"], c["before"], c["after"]) for c in detail["changes"]] == [("email_sending_tier", 0, 1)]
 

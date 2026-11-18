@@ -371,6 +371,7 @@ def apply_tier_decision(
     decision: TierDecision,
     *,
     trigger: Trigger | None = None,
+    staff_note: str = "",
     user_id: int | None = None,
     was_impersonated: bool = False,
 ) -> bool:
@@ -413,6 +414,7 @@ def apply_tier_decision(
         previous_tier=decision.previous_tier,
         new_tier=decision.new_tier,
         reason=decision.reason,
+        staff_note=staff_note,
         trigger=trigger,
         user_id=user_id,
         was_impersonated=was_impersonated,
@@ -424,6 +426,7 @@ def recompute_email_sending_tiers(
     team_ids: Optional[list[int]] = None,
     *,
     trigger: Trigger | None = None,
+    staff_note: str = "",
     user_id: int | None = None,
     was_impersonated: bool = False,
 ) -> list[TierDecision]:
@@ -500,14 +503,19 @@ def recompute_email_sending_tiers(
             last_rate_demotion_at=config.email_sending_tier_demoted_at,
         )
         if not decision.changed or apply_tier_decision(
-            config, decision, trigger=trigger, user_id=user_id, was_impersonated=was_impersonated
+            config,
+            decision,
+            trigger=trigger,
+            staff_note=staff_note,
+            user_id=user_id,
+            was_impersonated=was_impersonated,
         ):
             decisions.append(decision)
     return decisions
 
 
 def recompute_email_sending_tier_for_team(
-    team_id: int, *, user_id: int | None = None, was_impersonated: bool = False
+    team_id: int, *, staff_note: str = "", user_id: int | None = None, was_impersonated: bool = False
 ) -> Optional[TierDecision]:
     """
     Recompute one team now, so a staff suspension takes its tier down without waiting for the
@@ -515,5 +523,7 @@ def recompute_email_sending_tier_for_team(
     did not move. None means the team was not evaluated at all: it is pinned, it has no config
     row, or its state changed while recomputing.
     """
-    decisions = recompute_email_sending_tiers(team_ids=[team_id], user_id=user_id, was_impersonated=was_impersonated)
+    decisions = recompute_email_sending_tiers(
+        team_ids=[team_id], staff_note=staff_note, user_id=user_id, was_impersonated=was_impersonated
+    )
     return decisions[0] if decisions else None
