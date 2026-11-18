@@ -122,23 +122,23 @@ type SearchMetric = keyof KeywordSearchImpressions
 const SEARCH_COLUMNS: { metric: SearchMetric; title: string; tooltip: string }[] = [
     {
         metric: 'impressions',
-        title: 'GSC impressions',
+        title: 'Impressions',
         tooltip:
-            'How often your site appeared on Google for searches that contain this keyword, in this date range. It comes from Google Search Console (GSC) and counts searches where your site was shown, not every search for the keyword.',
+            'How often your site appeared on Google for searches that contain this keyword, in this date range. It comes from Google Search Console and counts searches where your site was shown, not every search for the keyword.',
     },
     {
         metric: 'clicks',
-        title: 'GSC clicks',
+        title: 'Clicks',
         tooltip: 'Clicks to your site from Google searches that contain this keyword, in this date range.',
     },
     {
         metric: 'searches',
-        title: 'GSC searches',
+        title: 'Searches',
         tooltip: 'Different Google searches that contain this keyword and showed your site, in this date range.',
     },
     {
         metric: 'position',
-        title: 'GSC position',
+        title: 'Search position',
         tooltip:
             'Where your top result ranks on Google for searches that contain this keyword, on average, weighted by impressions. 1 is first.',
     },
