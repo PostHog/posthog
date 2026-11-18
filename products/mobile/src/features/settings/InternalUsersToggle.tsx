@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import { Platform, Switch } from 'react-native'
+import { Platform, StyleSheet, Switch } from 'react-native'
 
 import { track } from '@/lib/analytics'
 import { useColors } from '@/ui/theme'
@@ -25,6 +25,7 @@ export function InternalUsersToggle({ description, testID }: { description?: str
         <SettingsRow
             label={LABEL}
             description={description}
+            style={description ? styles.descriptionRow : undefined}
             accessory={
                 <Switch
                     {...webSwitchProps}
@@ -40,3 +41,7 @@ export function InternalUsersToggle({ description, testID }: { description?: str
         />
     )
 }
+
+const styles = StyleSheet.create({
+    descriptionRow: { paddingVertical: 16 },
+})
