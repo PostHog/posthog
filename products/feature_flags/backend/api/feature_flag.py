@@ -289,7 +289,7 @@ def _mark_filters_bypassed(serializer: serializers.Serializer) -> None:
 def _mark_filters_enforced_rejection(serializer: serializers.Serializer) -> None:
     """Marks a rejection as coming from a switch-gated tier, so the counter can tell it apart
     from the checks that rejected long before enforcement (cohort existence, circular
-    dependencies, regex, size cap, the early_exit gate, the serde guard). Without the split,
+    dependencies, regex, size cap, the serde guard). Without the split,
     the rejected series is dominated by those and says nothing about the flip's impact."""
     root = serializer.root if serializer.root is not None else serializer
     root._filters_enforced_rejection = True  # type: ignore[attr-defined]

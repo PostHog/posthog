@@ -1124,9 +1124,9 @@ export function FeatureFlagReleaseConditionsCollapsible({
                     </div>
                     {releaseFilters.early_exit && (
                         <LemonBanner type="warning" className="mt-1">
-                            Early exit is not applied when a server-side SDK evaluates this flag with local evaluation —
-                            those SDKs evaluate all condition sets. It takes effect when the flag is evaluated through
-                            the <code>/flags</code> endpoint.
+                            The JVM server SDK and older versions of other server SDKs don't apply early exit when they
+                            evaluate this flag with local evaluation. Those SDKs evaluate all condition sets. Early exit
+                            always applies when the flag is evaluated through the <code>/flags</code> endpoint.
                         </LemonBanner>
                     )}
                 </div>
