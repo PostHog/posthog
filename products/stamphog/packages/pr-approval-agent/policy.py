@@ -480,7 +480,7 @@ def _parse_deny(raw: Any, lockfile_names: Iterable[str]) -> dict[str, DenyCatego
     return deny
 
 
-def _parse_workflow_publisher(entry: Mapping[str, Any], context: str) -> tuple[str, str, tuple[str, ...]]:
+def _require_workflow_publisher(entry: Mapping[str, Any], context: str) -> None:
     workflow = entry["workflow"]
     _require(
         isinstance(workflow, str) and _WORKFLOW_PATH_RE.fullmatch(workflow) is not None,
@@ -488,13 +488,11 @@ def _parse_workflow_publisher(entry: Mapping[str, Any], context: str) -> tuple[s
     )
     job = entry.get("job")
     _require(isinstance(job, str) and bool(job), f"{context}.job: must name the publishing job")
-    events = _parse_string_list(entry.get("events"), f"{context}.events", non_empty=True)
-    for event in events:
+    for event in _parse_string_list(entry.get("events"), f"{context}.events", non_empty=True):
         _require(
             event in WORKFLOW_PUBLISHER_EVENTS,
             f"{context}.events: {event!r} does not run the default branch's workflow; use {list(WORKFLOW_PUBLISHER_EVENTS)}",
         )
-    return workflow, job, events
 
 
 def _parse_attestations(raw: Any, deny: Mapping[str, DenyCategory]) -> tuple[Attestation, ...]:
@@ -526,7 +524,8 @@ def _parse_attestations(raw: Any, deny: Mapping[str, DenyCategory]) -> tuple[Att
                 f"{context}.app_id: github-actions cannot attest, pin the publisher App",
             )
         else:
-            workflow, job, events = _parse_workflow_publisher(entry, context)
+            _require_workflow_publisher(entry, context)
+            workflow, job, events = entry["workflow"], entry["job"], tuple(entry["events"])
         lifts = _parse_string_list(entry["lifts"], f"{context}.lifts", non_empty=True)
         for category in lifts:
             _require(category in deny, f"{context}.lifts: unknown deny category {category!r}")
