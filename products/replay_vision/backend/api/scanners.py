@@ -483,39 +483,23 @@ class ScannerExperimentScopeSerializer(serializers.Serializer):
     variants = serializers.ListField(
         child=serializers.CharField(max_length=400, allow_blank=False),
         allow_empty=False,
+        # Not required only while rows exist whose scope the mirror derived from a legacy store
+        # that named no variant. The backfill gives every row an explicit list and makes it
+        # required again.
+        required=False,
         help_text=(
             "Every variant the scanner watches, named explicitly. Read them from the experiment "
-            "first. There is no value that means every variant, so a variant added to the "
-            "experiment later is not watched until it is added here."
+            "first, because a variant added to the experiment later is not watched until it is "
+            "added here. Absent only on a scope carried over from the older targeting shapes, "
+            "which watches every variant."
         ),
     )
     variants_source = serializers.ChoiceField(
         choices=VariantsSource.choices,
         required=False,
-        default=VariantsSource.USER,
         help_text=(
             "Whether `variants` was the experiment's full variant set when the scanner was made, "
             "or a subset someone picked. The launch receiver adds new variants only to the first."
-        ),
-    )
-
-
-class ScannerExperimentScopeReadSerializer(ScannerExperimentScopeSerializer):
-    """What a read of `scope` can actually return, which is wider than what a write accepts.
-
-    A scope the mirror derived from an older store carries no `variants` when that store watched
-    every variant: both older shapes could leave the variant unset, and `as_stored()` drops a None.
-    Writes still require it, so only the response schema is widened; the backfill that gives every
-    row an explicit variant list retires this difference.
-    """
-
-    variants = serializers.ListField(
-        child=serializers.CharField(max_length=400, allow_blank=False),
-        allow_empty=False,
-        required=False,
-        help_text=(
-            "Every variant the scanner watches. Absent only on a scanner still carrying a scope "
-            "derived from the older targeting shapes, which could mean every variant."
         ),
     )
 
@@ -525,7 +509,7 @@ SCOPE_SERIALIZERS: dict[str, type[serializers.Serializer]] = {
 }
 
 
-@extend_schema_field(ScannerExperimentScopeReadSerializer(allow_null=True))
+@extend_schema_field(ScannerExperimentScopeSerializer(allow_null=True))
 class ScannerScopeField(serializers.JSONField):
     """The scope blob, validated whole against the serializer its `kind` names.
 

@@ -80,7 +80,6 @@ from products.replay_vision.backend.queries.scanner_volume_estimate import estim
 from products.replay_vision.backend.quota import BillingPeriod, _current_period_bounds
 from products.replay_vision.backend.scanner_access import recording_viewer_access
 from products.replay_vision.backend.scanner_draft import DraftError, ScannerDraft
-from products.replay_vision.backend.scope.experiment import VariantsSource
 from products.replay_vision.backend.search import ObservationMatch
 from products.replay_vision.backend.semantic_clusters import cluster_status
 from products.replay_vision.backend.semantic_space import SEMANTIC_DIMENSIONS, pack
@@ -1646,28 +1645,35 @@ class TestScannerScopeShape(SimpleTestCase):
             ("missing_experiment", {"kind": "experiment", "variants": ["a"]}, "experiment_id"),
             ("bad_experiment_id", {"kind": "experiment", "experiment_id": 0, "variants": ["a"]}, "experiment_id"),
             ("empty_variants", {"kind": "experiment", "experiment_id": 9, "variants": []}, "variants"),
-            ("missing_variants", {"kind": "experiment", "experiment_id": 9}, "variants"),
             ("blank_variant", {"kind": "experiment", "experiment_id": 9, "variants": [""]}, "variants"),
             ("not_an_object", "nope", None),
         ]
     )
     def test_rejects_a_malformed_scope(self, _name: str, scope: Any, field: str | None) -> None:
-        # `variants` is required and non-empty on purpose: the scope model has no value meaning
-        # "every variant", so a writer that omits it would silently watch nothing.
         with self.assertRaises(DRFValidationError) as caught:
             ScannerScopeField().to_internal_value(scope)
         if field is not None:
             self.assertIn(field, str(caught.exception.detail))
 
-    def test_accepts_a_scope_and_defaults_the_variants_source(self) -> None:
+    def test_accepts_a_scope_whose_legacy_store_named_no_variant(self) -> None:
+        # The mirror derives this shape from a targeting column that watched every variant, so a
+        # read returns it and an editor save sends it back. An empty list stays refused, because
+        # that names no variant rather than leaving the choice unstated.
+        value = ScannerScopeField().to_internal_value({"kind": "experiment", "experiment_id": 9})
+
+        self.assertEqual(value["experiment_id"], 9)
+        self.assertNotIn("variants", value)
+
+    def test_accepts_a_scope_and_adds_no_key_the_caller_left_out(self) -> None:
         value = ScannerScopeField().to_internal_value(
             {"kind": "experiment", "experiment_id": 9, "variants": ["control", "test"]}
         )
 
         self.assertEqual(value["experiment_id"], 9)
         self.assertEqual(value["variants"], ["control", "test"])
-        # Defaults to the narrower meaning, so the launch receiver does not extend a list a person picked.
-        self.assertEqual(value["variants_source"], VariantsSource.USER)
+        # A default here would make a resent scope differ from the stored one, and every guard that
+        # asks whether the scope changed would read an ordinary rename as a new scope write.
+        self.assertNotIn("variants_source", value)
 
 
 class TestScannerScope(_VisionAPITestCase):
