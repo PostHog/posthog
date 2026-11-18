@@ -14360,32 +14360,6 @@ export namespace Schemas {
       users?: number | null;
     }
 
-    /**
-     * * `sum` - sum
-     * * `avg` - avg
-     * * `count` - count
-     * * `min` - min
-     * * `max` - max
-     * * `p95` - p95
-     * * `rate` - rate
-     * * `increase` - increase
-     * * `histogram_quantile` - histogram_quantile
-     */
-    export type AggregationEnum = typeof AggregationEnum[keyof typeof AggregationEnum];
-
-
-    export const AggregationEnum = {
-      Sum: 'sum',
-      Avg: 'avg',
-      Count: 'count',
-      Min: 'min',
-      Max: 'max',
-      P95: 'p95',
-      Rate: 'rate',
-      Increase: 'increase',
-      HistogramQuantile: 'histogram_quantile',
-    } as const;
-
     export interface AhaFeedbackSignalExtra {
       workflow_status: string | null;
       score: string | null;
@@ -45671,7 +45645,7 @@ export namespace Schemas {
       readonly applies: boolean;
       /** Catalog template or adapted check the suggestion comes from. Empty for fix_eval. */
       readonly template_key: string;
-      /** A short, stable name for the issue, such as 'Unrecovered tool or model failures'. For fix_eval, the condition observed on the evaluation. It carries no counts; `observation` does. */
+      /** A short, stable name for the issue, such as 'Tool or model calls that never succeed'. For fix_eval, the condition observed on the evaluation. It carries no counts; `observation` does. */
       readonly headline: string;
       /** One sentence on what the evaluation flags and where it applies, starting with 'Flags'. For fix_eval and fix_prompt, what was observed and the next step. */
       readonly outcome: string;
@@ -61752,6 +61726,8 @@ export namespace Schemas {
       Rate: 'rate',
       Increase: 'increase',
       HistogramQuantile: 'histogram_quantile',
+      CountRate: 'count_rate',
+      CountIncrease: 'count_increase',
     } as const;
 
     export interface MetricsQueryGroupBy {
@@ -61781,6 +61757,8 @@ export namespace Schemas {
     export interface MetricsQueryClause {
       /** Omit to get one line per series (at most 100), without combining them */
       aggregation?: MetricsAggregation | null;
+      /** Apdex threshold T in milliseconds for `posthog.derived.spans.apdex`: a request is satisfied at or under T and tolerating up to 4T. Defaults to 500. */
+      apdexThresholdMs?: number | null;
       filters?: MetricsQueryFilter[] | null;
       groupBy?: MetricsQueryGroupBy[] | null;
       metricName: string;
@@ -73887,6 +73865,36 @@ export namespace Schemas {
     }
 
     /**
+     * * `sum` - sum
+     * * `avg` - avg
+     * * `count` - count
+     * * `min` - min
+     * * `max` - max
+     * * `p95` - p95
+     * * `rate` - rate
+     * * `increase` - increase
+     * * `histogram_quantile` - histogram_quantile
+     * * `count_rate` - count_rate
+     * * `count_increase` - count_increase
+     */
+    export type MetricAnomalyAggregationEnum = typeof MetricAnomalyAggregationEnum[keyof typeof MetricAnomalyAggregationEnum];
+
+
+    export const MetricAnomalyAggregationEnum = {
+      Sum: 'sum',
+      Avg: 'avg',
+      Count: 'count',
+      Min: 'min',
+      Max: 'max',
+      P95: 'p95',
+      Rate: 'rate',
+      Increase: 'increase',
+      HistogramQuantile: 'histogram_quantile',
+      CountRate: 'count_rate',
+      CountIncrease: 'count_increase',
+    } as const;
+
+    /**
      * * `up` - up
      * * `down` - down
      * * `flat` - flat
@@ -73944,6 +73952,8 @@ export namespace Schemas {
      * * `rate` - rate
      * * `increase` - increase
      * * `histogram_quantile` - histogram_quantile
+     * * `count_rate` - count_rate
+     * * `count_increase` - count_increase
      */
     export type MetricQueryAggregationEnum = typeof MetricQueryAggregationEnum[keyof typeof MetricQueryAggregationEnum];
 
@@ -73959,6 +73969,8 @@ export namespace Schemas {
       Rate: 'rate',
       Increase: 'increase',
       HistogramQuantile: 'histogram_quantile',
+      CountRate: 'count_rate',
+      CountIncrease: 'count_increase',
     } as const;
 
     /**
@@ -110189,6 +110201,7 @@ export namespace Schemas {
      * * `get_it_merged` - Get it merged
      * * `make_it_green` - Make it green
      * * `resolve_conflicts` - Resolve conflicts
+     * * `implement` - Implement
      * * `suggested_prompt` - Suggested prompt
      * * `ask` - Ask
      */
@@ -110199,6 +110212,7 @@ export namespace Schemas {
       GetItMerged: 'get_it_merged',
       MakeItGreen: 'make_it_green',
       ResolveConflicts: 'resolve_conflicts',
+      Implement: 'implement',
       SuggestedPrompt: 'suggested_prompt',
       Ask: 'ask',
     } as const;
@@ -117573,11 +117587,12 @@ export namespace Schemas {
      * One report action that starts an agent run, with whether the report offers it now.
      */
     export interface SignalReportTaskAction {
-      /** The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. `make_it_green` fixes failing CI and resolves merge conflicts on the report's open pull request, and stops without merging it. `resolve_conflicts` updates the report's open pull request from its base branch, resolves the conflicts, pushes, and stops without merging it or fixing unrelated CI. `suggested_prompt` sends one of the prompts the report suggests.
+      /** The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. `make_it_green` fixes failing CI and resolves merge conflicts on the report's open pull request, and stops without merging it. `resolve_conflicts` updates the report's open pull request from its base branch, resolves the conflicts, pushes, and stops without merging it or fixing unrelated CI. `implement` starts the run the inbox's Implement button starts: it claims the report, implements the fix, and opens a pull request that is attached to the report. `suggested_prompt` sends one of the prompts the report suggests.
        *
        * * `get_it_merged` - Get it merged
        * * `make_it_green` - Make it green
        * * `resolve_conflicts` - Resolve conflicts
+       * * `implement` - Implement
        * * `suggested_prompt` - Suggested prompt
        * * `ask` - Ask */
       action: ReportTaskActionKindEnum;
@@ -117619,6 +117634,7 @@ export namespace Schemas {
        * * `get_it_merged` - Get it merged
        * * `make_it_green` - Make it green
        * * `resolve_conflicts` - Resolve conflicts
+       * * `implement` - Implement
        * * `suggested_prompt` - Suggested prompt
        * * `ask` - Ask */
       action: ReportTaskActionKindEnum;
@@ -117628,10 +117644,16 @@ export namespace Schemas {
          */
       suggested_prompt_index?: number;
       /**
-         * Your own request for the run. Required for `ask`, where it is the question or the work you want done on the report. Optional for `get_it_merged`, `make_it_green`, and `resolve_conflicts`, where it replaces the action's fixed request and keeps its instructions and gates: pass it when you know something the report does not, such as a merge order, a failure that is already on the base branch, or an expected conflict. Not accepted for `suggested_prompt`.
+         * Your own request for the run. Required for `ask`, where it is the question or the work you want done on the report. Optional for `get_it_merged`, `make_it_green`, and `resolve_conflicts`, where it replaces the action's fixed request and keeps its instructions and gates: pass it when you know something the report does not, such as a merge order, a failure that is already on the base branch, or an expected conflict. Optional for `implement`, where it is added to the prompt as extra instructions. Not accepted for `suggested_prompt`.
          * @maxLength 2000
          */
       message?: string;
+      /**
+         * Only for `implement`: the repository to implement in, in 'owner/repo' format (case-insensitive). It must be connected to the project, and it becomes the report's repo selection. Omit it to use the report's own repository. A report whose repository cannot be resolved returns `report_implementation_repository_unresolved`.
+         * @minLength 1
+         * @maxLength 140
+         */
+      repository?: string;
     }
 
     export interface SignalReportTaskActionRunResponse {
@@ -130371,8 +130393,10 @@ export namespace Schemas {
        * * `p95` - p95
        * * `rate` - rate
        * * `increase` - increase
-       * * `histogram_quantile` - histogram_quantile */
-      aggregation?: AggregationEnum | null;
+       * * `histogram_quantile` - histogram_quantile
+       * * `count_rate` - count_rate
+       * * `count_increase` - count_increase */
+      aggregation?: MetricAnomalyAggregationEnum | null;
       /**
          * Quantile for histogram_quantile. Defaults to 0.95.
          * @minimum 0
@@ -130640,7 +130664,9 @@ export namespace Schemas {
        * * `p95` - p95
        * * `rate` - rate
        * * `increase` - increase
-       * * `histogram_quantile` - histogram_quantile */
+       * * `histogram_quantile` - histogram_quantile
+       * * `count_rate` - count_rate
+       * * `count_increase` - count_increase */
       aggregation?: MetricQueryAggregationEnum;
       /** Counter-aware transform applied to each series before the aggregation: 'rate' (per-second) or 'increase'. Combine with 'none' to get one rate line per series. Do not combine with the 'rate' or 'increase' aggregations.
        *
@@ -130770,7 +130796,7 @@ export namespace Schemas {
        * * `exponential_histogram` - exponential_histogram
        * * `summary` - summary */
       metricType?: OtelMetricTypeEnum | null;
-      /** Defaults to 'sum'. Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.
+      /** Defaults to 'sum'. Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'count_rate' (per-second) and 'count_increase' are 'rate' and 'increase' over a histogram's or summary's observation count instead of its running sum, so they chart requests per second from a latency histogram; they take no 'rangeFunction'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.
        *
        * * `none` - none
        * * `sum` - sum
@@ -130781,7 +130807,9 @@ export namespace Schemas {
        * * `p95` - p95
        * * `rate` - rate
        * * `increase` - increase
-       * * `histogram_quantile` - histogram_quantile */
+       * * `histogram_quantile` - histogram_quantile
+       * * `count_rate` - count_rate
+       * * `count_increase` - count_increase */
       aggregation?: MetricQueryAggregationEnum;
       /** Counter-aware transform applied to each series before the aggregation: 'rate' (per-second) or 'increase'. Combine with 'none' to get one rate line per series. Do not combine with the 'rate' or 'increase' aggregations.
        *

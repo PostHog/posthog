@@ -1964,7 +1964,7 @@ Note: docs.bugherd.com/api is a Scalar shell; the real spec is at /api/openapi.y
 
 ## Bugsnag — gaps
 
-Today (19): `collaborators`, `error_pivot_values`, `error_trend`, `errors`, `event_fields`, `events`, `organizations`, `pivot_values`, `pivots`, `projects`, `release_groups`, `releases`, `saved_searches`, `span_group_spans`, `span_groups`, `stability_trend`, `teams`, `trace_fields`, `trend`
+Today (21): `collaborators`, `error_pivot_values`, `error_trend`, `errors`, `event_fields`, `events`, `organizations`, `page_load_span_groups`, `pivot_values`, `pivots`, `projects`, `release_groups`, `releases`, `saved_searches`, `span_group_spans`, `span_groups`, `stability_trend`, `team_collaborators`, `teams`, `trace_fields`, `trend`
 
 Diffed against: <https://bugsnagapiv2.docs.apiary.io/api-description-document>
 
@@ -1977,10 +1977,10 @@ Diffed against: <https://bugsnagapiv2.docs.apiary.io/api-description-document>
 - [x] `GET /projects/{project_id}/span_groups` — performance monitoring aggregates — an entire product surface with no coverage today (medium)
 - [x] `GET /projects/{project_id}/span_groups/{id}/spans` — individual span records, the event grain under span groups (trace_fields is already synced but has nothing to describe). The endpoint takes no offset or cursor, so the table is a sample of each group's most recent spans (medium)
 - [ ] `GET /projects/{project_id}/traces/{trace_id}/spans` — the same span records addressed by trace; skipped because the API has no endpoint that lists trace ids, so there is nothing to fan out over (medium)
-- [ ] `GET /projects/{project_id}/page_load_span_groups` — web vitals / page load performance breakdown (medium)
-- [ ] `GET /organizations/{organization_id}/teams/{id}/collaborators` — membership join between the teams and collaborators tables already synced (medium)
-- [ ] `GET /organizations/{organization_id}/collaborators/{collaborator_id}/project_accesses` — which projects each collaborator can access — needed to attribute errors to owners (medium)
-- [ ] `GET /projects/{project_id}/errors/{error_id}/events` — events scoped to a specific error, cheaper and more targeted than the project-wide events stream (low)
+- [x] `GET /projects/{project_id}/page_load_span_groups` — web vitals / page load performance breakdown (medium)
+- [x] `GET /organizations/{organization_id}/teams/{id}/collaborators` — membership join between the teams and collaborators tables already synced (medium)
+- [ ] `GET /organizations/{organization_id}/collaborators/{collaborator_id}/project_accesses` — which projects each collaborator can access — needed to attribute errors to owners (medium) Skipped: the documented list items carry no project id, so rows cannot be keyed; the collaborators table already has project_ids and project_roles.
+- [ ] `GET /projects/{project_id}/errors/{error_id}/events` — events scoped to a specific error, cheaper and more targeted than the project-wide events stream (low) Skipped: a subset of the events table, which already carries error_id.
 - [ ] `GET /projects/{project_id}/span_groups/{id}/timeline and /distribution` — latency distribution and timeline breakdown for a span group (low)
 - [ ] `GET /saved_searches/{id}/usage_summary` — usage stats for the saved searches already synced (low)
 
@@ -2693,14 +2693,14 @@ Note: The official Swagger specification was parsed for all GET operations, incl
 
 ## ClickhouseCloud — gaps
 
-Today (7): `activities`, `api_keys`, `backups`, `members`, `organizations`, `services`, `usage_cost`
+Today (10): `activities`, `api_keys`, `backups`, `clickpipes`, `members`, `organizations`, `postgres_services`, `roles`, `services`, `usage_cost`
 
 Diffed against: <https://clickhouse.com/docs/cloud/manage/api/swagger>
 
-- [ ] `/v1/organizations/{organizationId}/services/{serviceId}/clickpipes (and /clickpipes/{id}/state)` — ingestion pipeline inventory and run state, the only pipeline-health object in the API (medium)
-- [ ] `/v1/organizations/{organizationId}/postgres` — managed Postgres services, a service class parallel to the services table we already sync (medium)
-- [ ] `/v1/organizations/{organizationId}/postgres/{postgresId}/slowQueryPatterns` — slow query pattern statistics - genuine performance analytics rather than config (medium)
-- [ ] `/v1/organizations/{organizationId}/roles` — role lookup resolving the role references on organization members (low)
+- [x] `/v1/organizations/{organizationId}/services/{serviceId}/clickpipes (and /clickpipes/{id}/state)` — ingestion pipeline inventory and run state, the only pipeline-health object in the API (medium)
+- [x] `/v1/organizations/{organizationId}/postgres` — managed Postgres services, a service class parallel to the services table we already sync (medium)
+- [ ] `/v1/organizations/{organizationId}/postgres/{postgresId}/slowQueryPatterns` — slow query pattern statistics - genuine performance analytics rather than config (medium) Skipped: aggregates over a caller-chosen time window, with no documented unique row key, row cap or retention.
+- [x] `/v1/organizations/{organizationId}/roles` — role lookup resolving the role references on organization members (low)
 - [ ] `/v1/organizations/{organizationId}/quotas` — per-quota-code limits to contextualize usage cost against ceilings (low)
 
 Note: The remaining ~60 paths are control-plane configuration (scaling, ClickHouse settings, private endpoints, BYOC infra, ClickStack dashboards/alerts/sources, service passwords), which are excluded by the config/plumbing rule. Analytical coverage (usage_cost, activities, backups, members, services) is already close to complete. The spec is served inside the docs page rather than at api.clickhouse.cloud - /v1/swagger.json and /v1/openapi.json both 404.

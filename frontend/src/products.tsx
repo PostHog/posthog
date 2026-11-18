@@ -123,6 +123,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/annotations': ['Annotations', 'annotations'],
     '/data-management/annotations/:id': ['Annotations', 'annotation'],
     '/application-observability': ['ApplicationObservability', 'applicationObservability'],
+    '/application-observability/service': ['ApplicationObservabilityService', 'applicationObservabilityService'],
     '/autoresearch': ['Autoresearch', 'autoresearch'],
     '/autoresearch/new': ['AutoresearchNew', 'autoresearchNew'],
     '/autoresearch/:id': ['AutoresearchPipeline', 'autoresearchPipeline'],
@@ -796,6 +797,14 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         activityScope: 'Tracing',
         description: 'Whether your application is OK, one row per service, from the signals you already send.',
+        iconType: 'tracing',
+    },
+    ApplicationObservabilityService: {
+        name: 'Service',
+        projectBased: true,
+        layout: 'app-container',
+        activityScope: 'Tracing',
+        description: 'Requests, errors, latency and endpoints for one service.',
         iconType: 'tracing',
     },
     Autoresearch: {
@@ -1501,6 +1510,29 @@ export const productUrls = {
     annotations: (): string => '/data-management/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
     applicationObservability: (): string => '/application-observability',
+    applicationObservabilityService: (
+        serviceName: string,
+        params?: {
+            range?: string | null
+            environment?: string | null
+            version?: string | null
+            operation?: string | null
+        }
+    ): string => {
+        const asText = (value: string): string | string[] =>
+            /^(true|false)$/i.test(value) || (value.trim() !== '' && !Number.isNaN(Number(value))) ? [value] : value
+        const query: Record<string, string | string[]> = { service: asText(serviceName) }
+        if (params?.range && params.range !== '-1h') {
+            query.range = params.range
+        }
+        for (const key of ['environment', 'version', 'operation'] as const) {
+            const value = params ? params[key] : null
+            if (value) {
+                query[key] = asText(value)
+            }
+        }
+        return combineUrl('/application-observability/service', query).url
+    },
     autoresearch: (): string => '/autoresearch',
     autoresearchNew: (): string => '/autoresearch/new',
     autoresearchPipeline: (id: string): string => `/autoresearch/${id}`,
@@ -2533,7 +2565,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: '/application-observability',
         flag: FEATURE_FLAGS.APPLICATION_OBSERVABILITY,
         sceneKey: 'ApplicationObservability',
-        sceneKeys: ['ApplicationObservability'],
+        sceneKeys: ['ApplicationObservability', 'ApplicationObservabilityService'],
     },
     {
         path: 'Apps',

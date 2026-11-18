@@ -71,6 +71,12 @@ const LAUNCH_SEND = {
 } as unknown as SendCalendarFlowApi
 
 describe('buildReleaseRow', () => {
+    it('marks a flag without an end date as ongoing', () => {
+        const result = row(false)
+
+        expect(result.spans.find((span) => span.kind === 'flag')?.ongoing).toBe(true)
+    })
+
     it('shows the sends of a linked broadcast and stops suggesting one', () => {
         const release = {
             id: 'release-1',
