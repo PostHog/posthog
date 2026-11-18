@@ -801,6 +801,26 @@ describe('CI workflow run plans', () => {
         expect(plan.jobs.frontend_tests?.result).toBe('success')
     })
 
+    it.each([
+        ['master push', push(), false, true, false],
+        ['ready PR', pullRequest(), true, true, false],
+        ['fork PR', pullRequest({ fork: true }), true, true, false],
+        ['merge group', { ...push(), event_name: 'merge_group' }, false, false, false],
+        ['cancelled master push', push(), false, false, true],
+    ] as const)(
+        'Desktop checks keep coverage without an empty detector (%s)',
+        (name, github, changes, checkRuns, cancelled) => {
+            for (const check of ['typecheck', 'quality']) {
+                const wf = workflow(`desktop-${check}.yml`)
+                const plan = planWorkflow(wf, { name, github, cancelled, steps: allFiltersChanged(wf) })
+                expect(plan.errors).toEqual([])
+                expect(plan.jobs.changes?.result === 'success', check).toBe(changes)
+                expect(plan.jobs[check]?.result === 'success', check).toBe(checkRuns)
+                expect(plan.jobs[`desktop-${check}-pass`]?.result === 'success', check).toBe(!cancelled)
+            }
+        }
+    )
+
     it.each(['build', 'quality', 'typecheck', 'test'])('Desktop %s shares the fallback detector filters', (name) => {
         const filters = (file: string): Record<string, string[]> =>
             load(
@@ -1233,6 +1253,42 @@ describe('CI workflow run plans', () => {
         expect(
             plan.jobs['code-quality']?.steps.find((step) => step.name === 'Check if "schema.py" is up to date')?.runs
         ).toBe(runs)
+    })
+
+    it.each([
+        ['PR without baseline changes', pullRequest(), 'false', true, false],
+        ['PR with baseline changes', pullRequest(), 'true', true, true],
+        ['draft PR with baseline changes', pullRequest({ draft: true }), 'true', true, true],
+        ['fork PR with baseline changes', pullRequest({ fork: true }), 'true', true, true],
+        ['forced full PR', pullRequest({ labels: ['run-ci-frontend'] }), 'true', true, true],
+        ['merge queue', mergeQueue(), 'true', true, true],
+        ['master push', push(), 'true', false, false],
+        ['nightly', schedule(), 'true', false, false],
+    ] as const)('Storybook selection artifacts on %s', (name, github, snapshotsBaseline, graphUpload, indexUpload) => {
+        const plan = planWorkflow(workflow('ci-storybook.yml'), {
+            name,
+            github,
+            jobOutputs: {
+                changes: {
+                    frontend: 'true',
+                    snapshots_baseline: snapshotsBaseline,
+                    merge_queue: name === 'merge queue' ? 'true' : 'false',
+                },
+            },
+            steps: { 'select-stories': { classify: { outputs: { mode: 'selective' } } } },
+        })
+        expect(plan.errors).toEqual([])
+        const steps = plan.jobs['build-storybook']?.steps
+        const uploadsGraph = steps?.find((step) => step.name === 'Upload module-graph artifact')?.runs
+        const uploadsIndex = steps?.find((step) => step.name === 'Upload story index artifact')?.runs
+        expect(uploadsGraph).toBe(graphUpload)
+        expect(uploadsIndex).toBe(indexUpload)
+        if (plan.jobs['select-stories']?.result === 'success') {
+            expect(uploadsGraph).toBe(true)
+        }
+        if (plan.jobs['check-baseline-removals']?.result === 'success') {
+            expect(uploadsIndex).toBe(true)
+        }
     })
 
     it.each([

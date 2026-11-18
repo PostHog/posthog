@@ -41,6 +41,7 @@ import type {
 
 import { type ProductNumberKind, productNumberKind } from './todayPulseProductNumbers'
 
+export const HIGHLIGHTS_FIRST_POLL_MS = 400
 export const HIGHLIGHTS_POLL_MS = 2_000
 export const TODAY_ACCESS_RETRY_MS = 5_000
 export const TODAY_ACCESS_RETRIES = 24
@@ -875,7 +876,7 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
             cache.disposables.add(
                 () => {
                     const timer = window.setTimeout(() => {
-                        if (!load.finished) {
+                        if (!load.finished && !load.wasHidden) {
                             capturePulseLoad('today pulse load slow', load)
                         }
                     }, PULSE_SLOW_MS)
@@ -1174,12 +1175,16 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
             }
             actions.setPulsePlaces(values.pulsePlacement.places)
             if (highlights.status === 'computing') {
+                const polls: number = cache.highlightsPolls ?? 0
+                cache.highlightsPolls = polls + 1
+                const delay = Math.min(HIGHLIGHTS_FIRST_POLL_MS * 2 ** polls, HIGHLIGHTS_POLL_MS)
                 cache.disposables.add(() => {
-                    const poll = window.setTimeout(() => actions.loadHighlights(), HIGHLIGHTS_POLL_MS)
+                    const poll = window.setTimeout(() => actions.loadHighlights(), delay)
                     return () => clearTimeout(poll)
                 }, 'highlightsPoll')
                 return
             }
+            cache.highlightsPolls = 0
             if (cache.highlightsLoadedCaptured) {
                 return
             }

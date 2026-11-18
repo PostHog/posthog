@@ -16,6 +16,7 @@ from posthog.api.oauth.client_assertion import (
     PRIVATE_KEY_REQUIRED_MESSAGE,
     ClientAssertionError,
 )
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.oauth import OAuthApplication
 from posthog.models.oauth_provisioning_review import CIMDProvisioningReview
 from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
@@ -342,16 +343,24 @@ class TestClientRegistration(ProvisioningTestBase):
 
     @parameterized.expand(
         [
-            ("pending", False, "PostHog is reviewing this client", 1),
-            ("needs_human", False, "PostHog staff are reviewing this client", 0),
-            ("rejected", True, "Provisioning is blocked for this client", 0),
+            ("pending", False, False, "PostHog is reviewing this client", 1),
+            ("needs_human", False, False, "PostHog staff are reviewing this client", 0),
+            ("rejected", True, False, "Provisioning is blocked for this client", 0),
+            # Accepted, but staff now require an organization behind every self-registered partner.
+            ("accepted", False, True, "Link this client to a PostHog organization", 0),
         ]
     )
-    def test_partner_under_review_is_told_to_wait(self, review_status, disabled, expected_detail, expected_restarts):
-        app = self._make_partner(_provisioning_config=provisioning_config(active=False, disabled=disabled))
+    def test_partner_under_review_is_told_to_wait(
+        self, review_status, disabled, organization_required, expected_detail, expected_restarts
+    ):
+        active = review_status == "accepted"
+        app = self._make_partner(_provisioning_config=provisioning_config(active=active, disabled=disabled))
         CIMDProvisioningReview.objects.create(application=app, domain="example.com", status=review_status)
 
-        with patch("posthog.api.oauth.provisioning_review.start_review") as mock_start:
+        with (
+            patch("posthog.api.oauth.provisioning_review.start_review") as mock_start,
+            override_instance_config("CIMD_PROVISIONING_REQUIRES_ORGANIZATION", organization_required),
+        ):
             res = self._register({"client_id": CIMD_URL})
 
         assert res.status_code == 400, res.json()

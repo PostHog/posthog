@@ -1,3 +1,4 @@
+import os
 import socket
 import threading
 from contextlib import contextmanager
@@ -201,6 +202,44 @@ class TestCheckPostgresDestination:
             assert seen["contents"] == "CERT-DATA"
         else:
             assert seen["path"] == expected_path
+
+    def test_an_unreadable_home_directory_does_not_stop_the_tls_handshake(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        home = tmp_path / "home"
+        (home / ".postgresql").mkdir(parents=True)
+        (home / ".postgresql").chmod(0)
+        if os.access(home / ".postgresql", os.R_OK):
+            pytest.skip("running as root, so directory permissions are not enforced")
+        monkeypatch.setenv("HOME", str(home))
+
+        server = socket.create_server(("127.0.0.1", 0))
+        server.settimeout(5)
+        received: dict[str, bytes] = {}
+
+        def _accept_ssl_request() -> None:
+            client, _ = server.accept()
+            with client:
+                client.settimeout(5)
+                client.recv(8)
+                client.sendall(b"S")
+                received["after_ssl_accepted"] = client.recv(1)
+
+        thread = threading.Thread(target=_accept_ssl_request, daemon=True)
+        thread.start()
+        try:
+            with (
+                patch(f"{MODULE}.pinned_host_kwargs", return_value={"host": "127.0.0.1"}),
+                pytest.raises(DestinationConnectionCheckError),
+            ):
+                check_postgres_destination(_integration(port=server.getsockname()[1]), None)
+            thread.join(timeout=5)
+        finally:
+            (home / ".postgresql").chmod(0o700)
+            server.close()
+
+        # 0x16 opens a TLS handshake record, so the client sent its ClientHello.
+        assert received.get("after_ssl_accepted") == b"\x16"
 
 
 MOTHERDUCK_WRITER = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.motherduck"

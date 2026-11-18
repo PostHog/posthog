@@ -134,6 +134,45 @@ class TestHogFlowTemplateAPI(APIBaseTest):
         # Verify inputs are preserved - only url was provided in custom_inputs
         assert function_action["config"]["inputs"] == {"url": {"value": "https://custom.example.com"}}
 
+    @parameterized.expand(
+        [
+            ("flat_list", [{"key": "plan", "value": "pro", "operator": "exact", "type": "person"}]),
+            (
+                "filter_groups",
+                {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [{"key": "plan", "value": "pro", "operator": "exact", "type": "person"}],
+                        },
+                        {
+                            "type": "AND",
+                            "values": [{"key": "plan", "value": "enterprise", "operator": "exact", "type": "person"}],
+                        },
+                    ],
+                },
+            ),
+        ]
+    )
+    def test_template_creation_keeps_a_branch_condition(self, _name: str, properties: list | dict) -> None:
+        hog_flow_data = self._create_hog_flow_data()
+        hog_flow_data["actions"].append(
+            {
+                "id": "branch",
+                "name": "Branch",
+                "type": "conditional_branch",
+                "config": {"conditions": [{"filters": {"properties": properties}}]},
+            }
+        )
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data, format="json")
+
+        assert response.status_code == 201, response.json()
+        template = HogFlowTemplate.objects.get(pk=response.json()["id"])
+        branch = next(action for action in template.actions if action["type"] == "conditional_branch")
+        assert branch["config"]["conditions"][0]["filters"]["properties"] == properties
+
     def _template_with_secret_inputs(self, secret: str) -> dict[str, Any]:
         inputs = {"url": {"value": "https://custom.example.com"}, "api_key": {"value": secret}}
         hog_flow_data = self._create_hog_flow_data(custom_inputs=inputs)
