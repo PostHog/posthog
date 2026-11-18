@@ -53,6 +53,8 @@ const ACCOUNT_AGENT_WRITE_TOOLS_BY_NAME = new Map<
     ['accounts-relationships-create', { kind: 'relationships', accountIdParam: 'account_id' }],
     ['accounts-relationships-end-create', { kind: 'relationships', accountIdParam: 'account_id' }],
     ['accounts-notebooks-create', { kind: 'notes', accountIdParam: 'account_id' }],
+    ['accounts-notebooks-partial-update', { kind: 'notes', accountIdParam: 'account_id' }],
+    ['accounts-notebooks-destroy', { kind: 'notes', accountIdParam: 'account_id' }],
 ])
 
 export const ACCOUNT_AGENT_WRITE_TOOLS = [...ACCOUNT_AGENT_WRITE_TOOLS_BY_NAME.keys()]

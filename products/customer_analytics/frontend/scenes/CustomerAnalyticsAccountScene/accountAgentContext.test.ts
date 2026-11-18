@@ -101,6 +101,7 @@ describe('accountAgentContext', () => {
             'relationships',
         ],
         ['accounts-notebooks-create', `{"account_id":"${ACCOUNT_ID}","title":"Call notes"}`, 'notes'],
+        ['accounts-notebooks-destroy', `{"id":"note1","account_id":"${ACCOUNT_ID}"}`, 'notes'],
     ])('reads the changed account from a completed %s call', (toolName, args, kind) => {
         expect(parseAccountAgentWrite(toolEvent(toolName, `call ${toolName} ${args}`))).toEqual({
             kind,
