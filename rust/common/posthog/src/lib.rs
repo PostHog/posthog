@@ -27,11 +27,8 @@ const MAX_CAPTURES_PER_MINUTE: u32 = 10;
 /// cleanly faceted regardless of scrape topology.
 const SDK_DELIVERY_FAILURES: &str = "posthog_sdk_delivery_failures_total";
 
-/// Events a terminal capture failure left unpersisted inside a 2xx, one count per event,
-/// labeled `service`, `result`, `class` and `detail` (see [`capture_outcomes`]).
 const SDK_CAPTURE_UNPERSISTED_EVENTS: &str = "posthog_sdk_capture_unpersisted_events_total";
 
-/// Capture requests that failed for good, labeled `service`, `status` and `error`.
 const SDK_CAPTURE_REQUEST_FAILURES: &str = "posthog_sdk_capture_request_failures_total";
 
 static SERVICE: OnceLock<ServiceContext> = OnceLock::new();

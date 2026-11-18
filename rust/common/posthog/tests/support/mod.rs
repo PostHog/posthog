@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use metrics_util::debugging::{DebugValue, Snapshotter};
 
-/// The labels and value of the one counter named `name`, if it was recorded.
 pub fn counter(snapshotter: &Snapshotter, name: &str) -> Option<(HashMap<String, String>, u64)> {
     snapshotter
         .snapshot()

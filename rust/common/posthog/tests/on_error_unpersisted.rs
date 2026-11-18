@@ -1,6 +1,4 @@
-//! A 2xx whose per-event results drop an event must count that event in
-//! `posthog_sdk_capture_unpersisted_events_total` with its capture detail.
-//! One test per binary: the global client and global recorder (see `on_error_hook.rs`).
+//! One test per binary: the client and the metrics recorder are process-global.
 
 mod support;
 

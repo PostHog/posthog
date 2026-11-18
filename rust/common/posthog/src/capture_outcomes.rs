@@ -1,34 +1,31 @@
-//! Bounded metric labels for capture outcomes: the per-event results in a 2xx
-//! body and the terminal request errors. Every value comes from a fixed list,
-//! so capture adding a new detail or error code cannot grow label cardinality.
+//! Metric labels for capture outcomes, from fixed lists so label cardinality stays bounded.
 
 use posthog::{CaptureErrorResponse, Error, EventResult, EventStatus};
 
-const QUOTA_DETAILS: &[&str] = &[
-    "events_over_quota",
-    "exceptions_over_quota",
-    "llm_events_over_quota",
-    "survey_responses_over_quota",
-    "over_quota",
+const DETAIL_CLASSES: &[(&str, &str)] = &[
+    ("events_over_quota", "quota"),
+    ("exceptions_over_quota", "quota"),
+    ("llm_events_over_quota", "quota"),
+    ("survey_responses_over_quota", "quota"),
+    ("over_quota", "quota"),
+    ("not_persisted", "retry"),
+    ("ai_byte_rate_limited", "retry"),
+    ("event_restriction_drop", "restriction"),
+    ("non_historical_import_drop", "restriction"),
+    ("missing_event_name", "validation"),
+    ("event_name_too_long", "validation"),
+    ("missing_distinct_id", "validation"),
+    ("distinct_id_too_large", "validation"),
+    ("invalid_event_timestamp", "validation"),
+    ("malformed_event_properties", "validation"),
+    ("invalid_options", "validation"),
+    ("dropped_performance_event", "validation"),
+    ("duplicate_event_uuid", "validation"),
+    ("ai_event_too_big", "validation"),
+    ("misrouted_event", "validation"),
+    ("person_processing_disabled", "warning"),
 ];
-const RETRY_DETAILS: &[&str] = &["not_persisted", "ai_byte_rate_limited"];
-const RESTRICTION_DETAILS: &[&str] = &["event_restriction_drop", "non_historical_import_drop"];
-const VALIDATION_DETAILS: &[&str] = &[
-    "missing_event_name",
-    "event_name_too_long",
-    "missing_distinct_id",
-    "distinct_id_too_large",
-    "invalid_event_timestamp",
-    "malformed_event_properties",
-    "invalid_options",
-    "dropped_performance_event",
-    "duplicate_event_uuid",
-    "ai_event_too_big",
-    "misrouted_event",
-];
-const WARNING_DETAILS: &[&str] = &["person_processing_disabled"];
 
-/// Request-level error codes capture v1 returns in its error body (`error`).
 const REQUEST_ERRORS: &[&str] = &[
     "missing_required_headers",
     "invalid_header_value",
@@ -61,26 +58,20 @@ const REQUEST_ERRORS: &[&str] = &[
     "gateway_timeout",
 ];
 
-/// The labels for one per-event result from a 2xx response.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EventOutcome {
-    /// `ok`, `warning`, `drop`, `retry` or `unknown`.
     pub result: &'static str,
-    /// `none`, `quota`, `retry`, `restriction`, `validation`, `warning` or `other`.
     pub class: &'static str,
-    /// The capture detail, `none` when absent, or `other` when not in the known list.
     pub detail: &'static str,
 }
 
 impl EventOutcome {
-    /// An event the SDK submitted that the response did not mention.
     pub const UNACCOUNTED: EventOutcome = EventOutcome {
         result: "unaccounted",
         class: "other",
         detail: "none",
     };
 
-    /// A later copy of a uuid that capture dropped in favor of the first copy.
     pub const DUPLICATE_COPY: EventOutcome = EventOutcome {
         result: "drop",
         class: "validation",
@@ -88,59 +79,49 @@ impl EventOutcome {
     };
 }
 
-/// The labels for one terminal request failure.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RequestOutcome {
-    /// The HTTP status as a string, or `transport`, `timeout` or `serialization`.
     pub status: String,
-    /// The capture error code from the response body, or a class when there is none.
     pub error: &'static str,
 }
 
 pub fn event_outcome(result: &EventResult) -> EventOutcome {
-    let detail = result.details.as_deref();
-    let known = detail.and_then(known_detail);
-    let class = match known {
-        Some(d) if QUOTA_DETAILS.contains(&d) => "quota",
-        Some(d) if RETRY_DETAILS.contains(&d) => "retry",
-        Some(d) if RESTRICTION_DETAILS.contains(&d) => "restriction",
-        Some(d) if VALIDATION_DETAILS.contains(&d) => "validation",
-        Some(_) => "warning",
-        None if detail.is_some() => "other",
-        None => "none",
+    let label = match result.result {
+        EventStatus::Ok => "ok",
+        EventStatus::Warning => "warning",
+        EventStatus::Drop => "drop",
+        EventStatus::Retry => "retry",
+        _ => "unknown",
+    };
+    let (detail, class) = match result.details.as_deref() {
+        None => ("none", "none"),
+        Some(detail) => DETAIL_CLASSES
+            .iter()
+            .find(|(known, _)| *known == detail)
+            .copied()
+            .unwrap_or(("other", "other")),
     };
     EventOutcome {
-        result: status_label(&result.result),
+        result: label,
         class,
-        detail: match (detail, known) {
-            (None, _) => "none",
-            (Some(_), Some(d)) => d,
-            (Some(_), None) => "other",
-        },
+        detail,
     }
 }
 
 pub fn request_outcome(err: &Error) -> RequestOutcome {
-    let (status, error): (String, &'static str) = match err {
-        Error::BillingLimitExceeded(body) => (
-            "402".into(),
-            body_error(body).unwrap_or("billing_limit_exceeded"),
-        ),
+    let (status, error) = match err {
+        Error::BillingLimitExceeded(body) => {
+            ("402".into(), body_error(body, "billing_limit_exceeded"))
+        }
         Error::Unauthorized => ("401".into(), "unauthorized"),
         Error::RateLimit => ("429".into(), "rate_limited"),
-        Error::BadRequest(body) => {
-            let code = body_error(body);
-            let status = if code == Some("payload_too_large") {
-                "413"
-            } else {
-                "400"
-            };
-            (status.into(), code.unwrap_or("bad_request"))
+        Error::BadRequest(body) => match body_error(body, "bad_request") {
+            "payload_too_large" => ("413".into(), "payload_too_large"),
+            code => ("400".into(), code),
+        },
+        Error::ServerError { status, message } => {
+            (status.to_string(), body_error(message, "server_error"))
         }
-        Error::ServerError { status, message } => (
-            status.to_string(),
-            body_error(message).unwrap_or("server_error"),
-        ),
         Error::Connection(message) => connection_outcome(message),
         Error::Serialization(_) => ("serialization".into(), "serialization"),
         _ => ("other".into(), "other"),
@@ -148,49 +129,21 @@ pub fn request_outcome(err: &Error) -> RequestOutcome {
     RequestOutcome { status, error }
 }
 
-fn status_label(status: &EventStatus) -> &'static str {
-    match status {
-        EventStatus::Ok => "ok",
-        EventStatus::Warning => "warning",
-        EventStatus::Drop => "drop",
-        EventStatus::Retry => "retry",
-        _ => "unknown",
-    }
-}
-
-fn known_detail(detail: &str) -> Option<&'static str> {
-    [
-        QUOTA_DETAILS,
-        RETRY_DETAILS,
-        RESTRICTION_DETAILS,
-        VALIDATION_DETAILS,
-        WARNING_DETAILS,
-    ]
-    .iter()
-    .flat_map(|list| list.iter())
-    .find(|known| **known == detail)
-    .copied()
-}
-
-fn body_error(body: &str) -> Option<&'static str> {
-    let parsed: CaptureErrorResponse = serde_json::from_str(body).ok()?;
-    REQUEST_ERRORS
-        .iter()
-        .find(|known| **known == parsed.error)
+fn body_error(body: &str, fallback: &'static str) -> &'static str {
+    serde_json::from_str::<CaptureErrorResponse>(body)
+        .ok()
+        .and_then(|parsed| REQUEST_ERRORS.iter().find(|known| **known == parsed.error))
         .copied()
+        .unwrap_or(fallback)
 }
 
-/// The SDK reports a non-mapped HTTP status as `Unexpected HTTP status <code>: <body>`
-/// and a transport failure with reqwest's message, which says "timed out" on a timeout.
+// The SDK reports an unmapped status as `Unexpected HTTP status <code>: <body>`.
 fn connection_outcome(message: &str) -> (String, &'static str) {
     if let Some(rest) = message.strip_prefix("Unexpected HTTP status ") {
-        let code: String = rest.chars().take_while(char::is_ascii_digit).collect();
-        if code.len() == 3 {
-            let error = rest
-                .split_once(": ")
-                .and_then(|(_, body)| body_error(body))
-                .unwrap_or("unexpected_status");
-            return (code, error);
+        if let Some((code, body)) = rest.split_once(": ") {
+            if code.len() == 3 && code.bytes().all(|b| b.is_ascii_digit()) {
+                return (code.to_string(), body_error(body, "unexpected_status"));
+            }
         }
     }
     if message.contains("timed out") {

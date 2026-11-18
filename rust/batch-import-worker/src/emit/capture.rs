@@ -176,10 +176,7 @@ impl<'a> Transaction<'a> for CaptureTransaction<'a> {
                 Err(e) => e,
             };
             record_request_failure(&e);
-            // The worker is the only place that sees per-event loss attributed to a
-            // reason: capture counts requests, not events, and a failed import sub-batch
-            // can carry thousands of events. `reason` lets alerting exclude expected
-            // quota (402) drops and act on transport/server/bad_request failures.
+            // `reason` lets alerts exclude expected quota (402) failures.
             let reason = failure_reason(&e);
             counter!("capture_batch_events_total", "outcome" => "failure", "reason" => reason)
                 .increment(batch_count as u64);
@@ -219,10 +216,8 @@ fn failure_reason(err: &PosthogError) -> &'static str {
     }
 }
 
-/// One count per event in a 2xx response, labeled `result`, `class` and `detail`.
 const EVENT_RESULTS: &str = "capture_batch_event_results_total";
 
-/// One count per sub-batch request, labeled `outcome`, `status` and `error`.
 const REQUEST_RESULTS: &str = "capture_batch_request_results_total";
 
 fn record_summary(summary: &CaptureSummary) {
