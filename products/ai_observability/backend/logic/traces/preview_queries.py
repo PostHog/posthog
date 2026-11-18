@@ -194,7 +194,7 @@ def _values_query(reads: PreviewReads) -> ast.SelectQuery:
 
 
 def _settings() -> HogQLGlobalSettings:
-    return HogQLGlobalSettings(max_execution_time=_PREVIEW_QUERY_SECONDS)
+    return HogQLGlobalSettings(max_execution_time=_PREVIEW_QUERY_SECONDS, timeout_overflow_mode="throw")
 
 
 def _parsed(raw: Any) -> Value:

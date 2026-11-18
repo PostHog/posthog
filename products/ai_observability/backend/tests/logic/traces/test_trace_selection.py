@@ -29,6 +29,7 @@ from products.ai_observability.backend.logic.traces.trace_selection import (
 
 T0 = datetime(2026, 9, 1, 10, 0, 0, 123456, tzinfo=UTC)
 KOLKATA = ZoneInfo("Asia/Kolkata")
+NEW_YORK = ZoneInfo("America/New_York")
 WINDOW = TraceWindow(start=T0, end=T0 + timedelta(hours=1))
 _PROPERTY_FILTER = TypeAdapter(AnyPropertyFilterDiscriminated)
 
@@ -77,9 +78,23 @@ def test_sort_key_is_the_millisecond_of_the_first_event() -> None:
     assert position.sort_key == int(T0.timestamp()) * 1000 + 123
 
 
-def test_read_bounds_widen_by_the_capture_buffer() -> None:
-    window = TraceWindow(start=T0, end=T0 + timedelta(hours=1))
-    assert window.read_bounds() == TraceWindow(start=T0 - CAPTURE_BUFFER, end=T0 + timedelta(hours=1) + CAPTURE_BUFFER)
+@parameterized.expand(
+    [
+        ("utc", TraceWindow(start=T0, end=T0 + timedelta(hours=1))),
+        (
+            "second pass through a repeated dst hour",
+            TraceWindow(
+                start=datetime(2026, 11, 1, 1, 30, fold=1, tzinfo=NEW_YORK),
+                end=datetime(2026, 11, 1, 1, 50, fold=1, tzinfo=NEW_YORK),
+            ),
+        ),
+    ]
+)
+def test_read_bounds_widen_by_the_capture_buffer(_name: str, window: TraceWindow) -> None:
+    bounds = window.read_bounds()
+
+    assert window.start.astimezone(UTC) - bounds.start.astimezone(UTC) == CAPTURE_BUFFER
+    assert bounds.end.astimezone(UTC) - window.end.astimezone(UTC) == CAPTURE_BUFFER
 
 
 def test_window_defaults_to_the_last_seven_days() -> None:
