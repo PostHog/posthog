@@ -4,7 +4,6 @@ import type { ChangeEvent, ComponentProps } from 'react'
 import { IconSearch } from '@posthog/icons'
 
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
-import { JSONViewer } from 'lib/components/JSONViewer'
 import { InputGroup, InputGroupAddon, InputGroupInput, Label, Switch, TabsContent } from 'lib/ui/quill'
 import { cn } from 'lib/utils/css-classes'
 
@@ -16,9 +15,8 @@ export type PropertiesTabProps = ComponentProps<typeof TabsContent>
 
 export function PropertiesTab({ className, ...props }: PropertiesTabProps): JSX.Element {
     const { properties, additionalProperties } = useValues(errorPropertiesLogic)
-    const { loading, propertyNameFilter, showJSONProperties } = useValues(exceptionCardLogic)
-    const { setPropertyNameFilter, setShowJSONProperties } = useActions(exceptionCardLogic)
-    const filteredProperties = filterPropertiesByName(properties, propertyNameFilter)
+    const { loading, propertyNameFilter, showAllProperties } = useValues(exceptionCardLogic)
+    const { setPropertyNameFilter, setShowAllProperties } = useActions(exceptionCardLogic)
 
     return (
         <TabsContent {...props} className={cn('flex flex-col', className)}>
@@ -39,51 +37,26 @@ export function PropertiesTab({ className, ...props }: PropertiesTabProps): JSX.
                         />
                     </InputGroup>
                 </div>
-                <Label htmlFor="exception-properties-json-switch" className="cursor-pointer">
-                    JSON
+                <Label htmlFor="exception-properties-show-all-switch" className="cursor-pointer">
+                    Show all
                     <Switch
-                        id="exception-properties-json-switch"
-                        checked={showJSONProperties}
-                        onCheckedChange={setShowJSONProperties}
+                        id="exception-properties-show-all-switch"
+                        checked={showAllProperties}
+                        onCheckedChange={setShowAllProperties}
                         size="sm"
-                        data-attr="exception-properties-json-switch"
+                        data-attr="exception-properties-show-all-switch"
                     />
                 </Label>
             </SubHeader>
             <div className="flex-1 min-h-0 overflow-y-auto">
-                {showJSONProperties ? (
-                    <JSONViewer
-                        src={filteredProperties}
-                        name="event"
-                        collapsed={1}
-                        collapseStringsAfterLength={80}
-                        sortKeys
-                    />
-                ) : (
-                    <ContextDisplay
-                        loading={loading}
-                        properties={properties}
-                        additionalProperties={additionalProperties}
-                        propertyNameFilter={propertyNameFilter}
-                    />
-                )}
+                <ContextDisplay
+                    loading={loading}
+                    properties={properties}
+                    additionalProperties={additionalProperties}
+                    propertyNameFilter={propertyNameFilter}
+                    showAllProperties={showAllProperties}
+                />
             </div>
         </TabsContent>
-    )
-}
-
-function filterPropertiesByName(
-    properties: Record<string, unknown> | undefined,
-    propertyNameFilter: string
-): Record<string, unknown> {
-    const normalizedPropertyNameFilter = propertyNameFilter.trim().toLocaleLowerCase()
-    if (!normalizedPropertyNameFilter) {
-        return properties ?? {}
-    }
-
-    return Object.fromEntries(
-        Object.entries(properties ?? {}).filter(([key]) =>
-            key.toLocaleLowerCase().includes(normalizedPropertyNameFilter)
-        )
     )
 }
