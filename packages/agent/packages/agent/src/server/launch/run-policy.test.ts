@@ -1,21 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { type RunPolicy, runPolicyFromOrigin } from "./run-policy";
+import { parseServerRunPolicy, runPolicyFromOrigin } from "./run-policy";
 import policyCases from "./run-policy-cases.json";
 
-function toWire(policy: RunPolicy): Record<string, unknown> {
-  return {
-    finish_tool: policy.finishTool,
-    finish_report_required: policy.finishReportRequired,
-    report_activity_tool: policy.reportActivityTool,
-    expects_system_prompt: policy.expectsSystemPrompt,
-    thread_link: policy.threadLink,
-    default_client_provenance: policy.defaultClientProvenance ?? null,
-  };
-}
+const SERVER_POLICY = policyCases.policy_from_origin[0].expected;
 
-describe("runPolicyFromOrigin", () => {
+describe("run policy", () => {
   it.each(policyCases.policy_from_origin)(
-    "resolves $name",
+    "resolves $name from its origin as the server does",
     ({ origin_product, end_run_when_done, caller_ends_run, expected }) => {
       const policy = runPolicyFromOrigin({
         originProduct: origin_product,
@@ -23,7 +14,7 @@ describe("runPolicyFromOrigin", () => {
         callerEndsRun: caller_ends_run,
       });
 
-      expect(toWire(policy)).toEqual(expected);
+      expect(policy).toEqual(parseServerRunPolicy(JSON.stringify(expected)));
     },
   );
 
@@ -46,4 +37,24 @@ describe("runPolicyFromOrigin", () => {
       ]);
     },
   );
+
+  it("reads a server policy that carries fields it does not know", () => {
+    const policy = parseServerRunPolicy(
+      JSON.stringify({ ...SERVER_POLICY, billing_product: "posthog_code" }),
+    );
+
+    expect(policy?.threadLink).toBe(true);
+  });
+
+  it.each<[string, string]>([
+    ["malformed JSON", "{"],
+    ["a missing field", JSON.stringify({ finish_tool: true })],
+    [
+      "a field of the wrong type",
+      JSON.stringify({ ...SERVER_POLICY, finish_tool: "yes" }),
+    ],
+    ["a value that is not an object", "true"],
+  ])("rejects a server policy with %s", (_, raw) => {
+    expect(parseServerRunPolicy(raw)).toBeUndefined();
+  });
 });
