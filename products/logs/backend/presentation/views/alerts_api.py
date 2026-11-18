@@ -1853,8 +1853,25 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             row.id: row for row in rows.filter(id__in=[alert_id for _, alert_id, native in listed if not native])
         }
         native_ids = [alert_id for _, alert_id, native in listed if native]
+        copies_without_team_rows = [
+            alert_id
+            for _, alert_id, native in listed
+            if not native and alert_id in owned_ids and alert_id not in loaded
+        ]
+        rows_on_other_teams = (
+            set(LogsAlertConfiguration.objects.filter(id__in=copies_without_team_rows).values_list("id", flat=True))
+            if copies_without_team_rows
+            else set()
+        )
+        rowless_copy_ids = [alert_id for alert_id in copies_without_team_rows if alert_id not in rows_on_other_teams]
         for alert in _with_creators(
-            [_platform_alert(view, team_id=self.team_id) for view in native_alert_views(self.team_id, native_ids)]
+            [
+                _platform_alert(view, team_id=self.team_id)
+                for view in (
+                    *native_alert_views(self.team_id, native_ids),
+                    *owned_copy_views(self.team_id, rowless_copy_ids).values(),
+                )
+            ]
         ):
             loaded[alert.id] = alert
         # An alert deleted since its key was read drops out of the page rather than failing it.
