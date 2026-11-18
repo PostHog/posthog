@@ -151,14 +151,12 @@
         "products/experiments/backend/**": ["playwright/e2e/experiments/"],
         "products/surveys/backend/**": ["products/surveys/frontend/e2e/"],
         "products/annotations/backend/**": ["playwright/e2e/annotations.spec.ts"],
-        "products/early_access_features/backend/**": ["playwright/e2e/early-access-management.spec.ts"],
-        "products/messaging/backend/**": ["products/messaging/frontend/e2e/"]
+        "products/early_access_features/backend/**": ["playwright/e2e/early-access-management.spec.ts"]
     },
     "scenes_smoke_only": ["groups", "integrations", "max", "web-analytics"],
     "products": {
         "ai_observability": ["products/ai_observability/frontend/e2e/"],
         "billing": ["products/billing/frontend/e2e/"],
-        "messaging": ["products/messaging/frontend/e2e/"],
         "posthog_ai": ["products/posthog_ai/frontend/e2e/"],
         "replay": ["products/replay/frontend/e2e/"],
         "surveys": ["products/surveys/frontend/e2e/"]
@@ -279,9 +277,7 @@
             "playwright/e2e/workflows-property-filter-category-dropdown.spec.ts",
             "playwright/e2e/webhook-secret-headers.spec.ts"
         ],
-        "frontend/src/toolbar/**": ["playwright/e2e/toolbar.spec.ts"],
-        "products/messaging/backend/templates/message_preferences/**": ["products/messaging/frontend/e2e/"],
-        "frontend/public/message-preferences.css": ["products/messaging/frontend/e2e/"]
+        "frontend/src/toolbar/**": ["playwright/e2e/toolbar.spec.ts"]
     },
     "full_suite_only": [
         "playwright/e2e/oauth-mcp-consent.spec.ts",
