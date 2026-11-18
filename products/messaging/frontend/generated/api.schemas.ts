@@ -386,7 +386,7 @@ export interface MessagePreferencesApi {
     /** Map of category ID to preference status (`OPTED_IN`, `OPTED_OUT` or `NO_PREFERENCE`). The reserved `$all` key covers every marketing message. */
     preferences: unknown
     /**
-     * ID of the workflow whose opt-out step opted the recipient out of all marketing messages. Null when the recipient opted out in another way, for example with an unsubscribe link.
+     * ID of the workflow whose opt-out step opted the recipient out of all marketing messages. Null when the recipient opted out in another way, for example with an unsubscribe link, or when you cannot view that workflow.
      * @nullable
      */
     readonly opt_out_workflow_id: string | null

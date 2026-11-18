@@ -1,5 +1,7 @@
 import re
+from collections.abc import Iterable
 from typing import Any, Literal
+from uuid import UUID
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_field
@@ -26,7 +28,8 @@ from products.messaging.backend.facade.preferences import (
     list_opt_outs,
     remove_opt_out,
 )
-from products.workflows.backend.facade.api import get_workflow_names
+from products.workflows.backend.facade.api import get_workflow_names, get_workflow_view_access
+from products.workflows.backend.facade.contracts import WorkflowViewAccess
 
 MAX_BULK_OPT_OUT_ENTRIES = 1000
 UNSAFE_FILENAME_CHARACTERS = re.compile(r"[^A-Za-z0-9_-]+")
@@ -46,19 +49,29 @@ class MessagePreferencesSerializer(serializers.Serializer):
         help_text="Map of category ID to preference status (`OPTED_IN`, `OPTED_OUT` or `NO_PREFERENCE`). "
         "The reserved `$all` key covers every marketing message."
     )
-    opt_out_workflow_id = serializers.UUIDField(
-        read_only=True,
-        allow_null=True,
+    opt_out_workflow_id = serializers.SerializerMethodField(
         help_text="ID of the workflow whose opt-out step opted the recipient out of all marketing messages. "
-        "Null when the recipient opted out in another way, for example with an unsubscribe link.",
+        "Null when the recipient opted out in another way, for example with an unsubscribe link, "
+        "or when you cannot view that workflow.",
     )
     opt_out_workflow_name = serializers.SerializerMethodField(
         help_text="Name of the workflow in `opt_out_workflow_id`. Null when there is no workflow or it was deleted."
     )
 
+    @extend_schema_field(serializers.UUIDField(allow_null=True))
+    def get_opt_out_workflow_id(self, obj: RecipientPreferences) -> UUID | None:
+        if obj.opt_out_workflow_id is None:
+            return None
+        # Attribution inherits the reader's access to the workflow it names, so a workflow denied by an
+        # object-level rule stays hidden here too. No access in the context fails closed.
+        access: WorkflowViewAccess | None = self.context.get("workflow_access")
+        if access is None or not access.allows(str(obj.opt_out_workflow_id)):
+            return None
+        return obj.opt_out_workflow_id
+
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_opt_out_workflow_name(self, obj: RecipientPreferences) -> str | None:
-        if obj.opt_out_workflow_id is None:
+        if self.get_opt_out_workflow_id(obj) is None:
             return None
         return self.context.get("workflow_names", {}).get(str(obj.opt_out_workflow_id))
 
@@ -202,6 +215,18 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if not self.user_access_control.check_access_level_for_resource("hog_flow", required_level):
             raise PermissionDenied(message)
 
+    def _workflow_attribution_context(self, rows: Iterable[RecipientPreferences]) -> dict[str, Any]:
+        workflow_ids = {str(row.opt_out_workflow_id) for row in rows if row.opt_out_workflow_id is not None}
+        if not workflow_ids:
+            return {}
+        access = get_workflow_view_access(
+            team_id=self.team_id, user_access_control=self.user_access_control, workflow_ids=workflow_ids
+        )
+        return {
+            "workflow_access": access,
+            "workflow_names": get_workflow_names(team_id=self.team_id, workflow_ids=access.viewable_ids),
+        }
+
     @validated_request(
         query_serializer=OptOutsListQuerySerializer,
         parameters=[
@@ -233,13 +258,13 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         # The paginator only needs len() and slicing, which the facade's sequence provides.
         page: list[RecipientPreferences] | None = paginator.paginate_queryset(opt_outs, request)  # type: ignore[arg-type]
         if page is not None:
-            workflow_ids = {str(row.opt_out_workflow_id) for row in page if row.opt_out_workflow_id is not None}
-            workflow_names = get_workflow_names(team_id=self.team_id, workflow_ids=workflow_ids) if workflow_ids else {}
-            serializer = MessagePreferencesSerializer(page, many=True, context={"workflow_names": workflow_names})
+            serializer = MessagePreferencesSerializer(page, many=True, context=self._workflow_attribution_context(page))
             return paginator.get_paginated_response(serializer.data)
 
         # Fallback if pagination fails for some reason
-        serializer = MessagePreferencesSerializer(opt_outs, many=True)
+        serializer = MessagePreferencesSerializer(
+            opt_outs, many=True, context=self._workflow_attribution_context(opt_outs)
+        )
         return Response(serializer.data)
 
     @extend_schema(
@@ -264,7 +289,10 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return Response({"error": "Category not found"}, status=status.HTTP_404_NOT_FOUND)
 
         response_status = status.HTTP_201_CREATED if changed.created else status.HTTP_200_OK
-        return Response(MessagePreferencesSerializer(changed.preferences).data, status=response_status)
+        serializer = MessagePreferencesSerializer(
+            changed.preferences, context=self._workflow_attribution_context([changed.preferences])
+        )
+        return Response(serializer.data, status=response_status)
 
     @extend_schema(
         request=RemoveOptOutRequestSerializer,
@@ -288,7 +316,10 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return Response({"error": "Category not found"}, status=status.HTTP_404_NOT_FOUND)
 
         response_status = status.HTTP_201_CREATED if changed.created else status.HTTP_200_OK
-        return Response(MessagePreferencesSerializer(changed.preferences).data, status=response_status)
+        serializer = MessagePreferencesSerializer(
+            changed.preferences, context=self._workflow_attribution_context([changed.preferences])
+        )
+        return Response(serializer.data, status=response_status)
 
     @extend_schema(
         parameters=[

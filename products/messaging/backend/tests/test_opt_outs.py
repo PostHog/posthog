@@ -6,6 +6,10 @@ from posthog.test.base import APIBaseTest
 
 from django.http import StreamingHttpResponse
 
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership
+
+from products.access_control.backend.facade.testing import create_access_control
 from products.messaging.backend.facade.preferences import add_opt_out, remove_opt_out, set_preferences
 from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.message_preferences import (
@@ -183,6 +187,31 @@ class TestOptOuts(APIBaseTest):
         self.assertEqual(sources["gone@example.com"], (str(workflow.id), "Account deleted"))
         self.assertEqual(sources["deleted-workflow@example.com"][1], None)
         self.assertEqual(sources["manual@example.com"], (None, None))
+
+    def test_the_opt_out_list_hides_a_workflow_the_user_cannot_view(self):
+        visible = HogFlow.objects.create(team=self.team, name="Visible", trigger={"type": "manual"})
+        denied = HogFlow.objects.create(team=self.team, name="Secret", trigger={"type": "manual"})
+        add_opt_out(self.team.id, "visible@example.com", None, None, workflow_id=visible.id)
+        add_opt_out(self.team.id, "denied@example.com", None, None, workflow_id=denied.id)
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        create_access_control(
+            team_id=self.team.id,
+            resource="hog_flow",
+            resource_id=str(denied.id),
+            access_level="none",
+            organization_member_id=self.organization_membership.id,
+        )
+
+        sources = self._opt_out_sources()
+
+        self.assertEqual(sources["visible@example.com"], (str(visible.id), "Visible"))
+        self.assertEqual(sources["denied@example.com"], (None, None))
 
     def test_a_workflow_does_not_take_over_an_opt_out_that_another_route_started(self):
         add_opt_out(self.team.id, "manual@example.com", None, self.user.id)

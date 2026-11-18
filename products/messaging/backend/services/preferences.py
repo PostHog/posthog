@@ -62,19 +62,23 @@ def add_opt_out(
     category = _live_category(team_id, category_key) if category_key else None
     category_id = str(category.id) if category else ALL_MESSAGE_PREFERENCE_CATEGORY_ID
 
-    preference, created = MessageRecipientPreference.objects.get_or_create(
-        team_id=team_id,
-        identifier=identifier,
-        defaults={"created_by_id": created_by_id},
-    )
-    newly_opted_out_of_all = (
-        category is None and preference.preferences.get(category_id) != PreferenceStatus.OPTED_OUT.value
-    )
-    preference.set_preference(category_id, PreferenceStatus.OPTED_OUT)
-    # Only the route that started the `$all` opt-out names its source, so a retry or a second route keeps it.
-    if newly_opted_out_of_all and preference.opt_out_workflow_id != workflow_id:
-        preference.opt_out_workflow_id = workflow_id
-        preference.save(update_fields=["opt_out_workflow_id"])
+    # The row lock serializes overlapping opt-outs, so only one of them reads the pre-opt-out state
+    # and names the source. Without it both would see `$all` as not opted out, and the later source
+    # write would overwrite the workflow that started the opt-out.
+    with transaction.atomic():
+        preference, created = MessageRecipientPreference.objects.select_for_update().get_or_create(
+            team_id=team_id,
+            identifier=identifier,
+            defaults={"created_by_id": created_by_id},
+        )
+        newly_opted_out_of_all = (
+            category is None and preference.preferences.get(category_id) != PreferenceStatus.OPTED_OUT.value
+        )
+        preference.set_preference(category_id, PreferenceStatus.OPTED_OUT)
+        # Only the route that started the `$all` opt-out names its source, so a retry or a second route keeps it.
+        if newly_opted_out_of_all and preference.opt_out_workflow_id != workflow_id:
+            preference.opt_out_workflow_id = workflow_id
+            preference.save(update_fields=["opt_out_workflow_id"])
 
     _sync_after_commit(team_id, identifier)
     return preference, created
