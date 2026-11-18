@@ -58,7 +58,8 @@ The activity chart and breakdown queries stop at the end of the current minute s
 HogQL counts visitors by their first minute in the window and deduplicates across the full window for each breakdown category.
 These jobs return counts to the app.
 
-When **Exclude internal users** is enabled in Settings or Web analytics, Live applies the project's internal user filters to its queries, including the country drill-down and the users online count. The count uses the HogQL read because the live events stats endpoint returns a project-wide total.
+**Exclude internal users** applies the project's filters in Live and its country drill-down. Filtered online counts use HogQL.
+
 The events query selects `toUnixTimestamp64Milli(timestamp)` instead of the web's `toString(timestamp)`, which is wall-clock time in the project's time zone with no offset.
 The `usersPageviews` query leaves out the web's bot column, because Live has no bot cards.
 `paths` sets `breakdown_path_cleaning` when the project has path cleaning rules, as the web does.
