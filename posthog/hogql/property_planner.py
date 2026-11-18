@@ -268,6 +268,19 @@ _PROPERTY_CONVERSION_SEMANTIC_TYPES: dict[str, type[ast.FloatType] | type[ast.Da
     "tostring": ast.StringType,
 }
 
+# A Boolean property is `toBool(transform(toString(property), ...))`.
+_PROPERTY_CONVERSIONS = frozenset({*_PROPERTY_CONVERSION_SEMANTIC_TYPES, "tobool", "transform"})
+
+
+def strip_property_conversions(expr: ast.Expr) -> ast.Expr:
+    """`expr` without the aliases and the conversions that the property type pass wraps around a property read."""
+    while True:
+        expr = _unwrap_alias(expr)
+        if isinstance(expr, ast.Call) and expr.args and expr.name.lower() in _PROPERTY_CONVERSIONS:
+            expr = expr.args[0]
+        else:
+            return expr
+
 
 def _extract_property_access_from_boolean_conversion(
     expr: ast.Expr, context: HogQLContext

@@ -34,6 +34,7 @@ from posthog.hogql.printer.snowflake import SnowflakePrinter
 from posthog.hogql.resolver import ResolverFactory, resolve_types, swapping_flag_calls_in_views
 from posthog.hogql.transforms.events_predicate_pushdown import apply_events_predicate_pushdown, events_pushdown_enabled
 from posthog.hogql.transforms.events_read_in_order import order_events_reads_by_sort_key
+from posthog.hogql.transforms.fast_property_filters_first import put_fast_property_filters_first
 from posthog.hogql.transforms.flag_calls_from_flag_evaluations import resolve_flag_calls_from_flag_evaluations
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.json_property_pushdown import (
@@ -47,7 +48,6 @@ from posthog.hogql.transforms.metrics_time_bucket_bounds import add_metrics_time
 from posthog.hogql.transforms.negated_person_filters import rewrite_negated_person_filters
 from posthog.hogql.transforms.projection_pushdown import pushdown_projections
 from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
-from posthog.hogql.transforms.shallow_property_filters_first import order_shallow_property_filters_first
 from posthog.hogql.transforms.type_aware_simplification import (
     simplify_argmax_over_non_nullable,
     simplify_redundant_type_operations,
@@ -463,8 +463,8 @@ def prepare_ast_for_printing(
 
         if context.uses_new_events_schema():
             # Before property resolution, while a property read is still a PropertyAccess that carries its key path.
-            with context.timings.measure("shallow_property_filters_first"):
-                node = order_shallow_property_filters_first(node, context)
+            with context.timings.measure("fast_property_filters_first"):
+                node = put_fast_property_filters_first(node)
 
         with context.timings.measure("clickhouse_property_resolution"):
             # Deferred to break the module-level cycle cpr → printer.base → printer package init →
