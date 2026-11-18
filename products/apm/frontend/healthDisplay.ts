@@ -44,3 +44,12 @@ export function formatMs(ms: number | null): string {
     }
     return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms)}ms`
 }
+
+export function compareNullable(a: number | null, b: number | null): number {
+    return (a ?? -Infinity) - (b ?? -Infinity) || 0
+}
+
+export function matchesSearch(search: string, ...fields: string[]): boolean {
+    const needle = search.trim().toLowerCase()
+    return !needle || fields.some((field) => field.toLowerCase().includes(needle))
+}

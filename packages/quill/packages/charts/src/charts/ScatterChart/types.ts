@@ -61,8 +61,7 @@ export interface ScatterChartConfig<Meta = unknown> {
     pointRadius?: number
     /** Draws a selection halo without changing point geometry or hit targets. */
     isPointHighlighted?: (point: ScatterPoint<Meta>) => boolean
-    /** Under 1 so a dense cloud reads as denser rather than painting over itself. Markers keep an
-     *  opaque outline either way. */
+    /** Multiplies each point color's alpha for the fill. Outlines keep the point color's alpha. */
     fillOpacity?: number
     showGrid?: boolean
     showAxisLines?: boolean

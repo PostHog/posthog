@@ -93,7 +93,6 @@ from products.conversations.backend.tasks.maintenance import purge_deleted_ticke
 from products.conversations.backend.tasks.slack import sweep_delivery_parts, sweep_inbound_events
 from products.conversations.backend.tasks.teams import poll_teams_shared_channels
 from products.customer_analytics.backend.facade.tasks import schedule_task_digests
-from products.data_catalog.backend.facade.tasks import backfill_metric_embeddings_task
 from products.data_modeling.backend.facade.tasks import (
     cleanup_deleted_saved_query_nodes,
     cleanup_expired_test_saved_queries,
@@ -165,7 +164,6 @@ from products.visual_review.backend.facade.tasks import (
     sweep_visual_review_runs,
 )
 from products.warehouse_sources.backend.facade.tasks import sweep_stalled_schema_schedules, sweep_stopped_schema_syncs
-from products.web_analytics.backend.achievements.tasks import sweep_web_analytics_achievement_team_tracks
 from products.web_analytics.backend.tasks.heatmap_screenshot import (
     reap_stale_prewarm_heatmaps,
     report_stuck_heatmap_screenshots,
@@ -567,13 +565,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         # task survives moderate worker downtime without being dropped.
     )
 
-    add_periodic_task_with_expiry(
-        sender,
-        crontab(minute="*/5"),
-        sweep_web_analytics_achievement_team_tracks.s(),
-        name="web analytics achievements team-track sweep",
-    )
-
     # Update events table partitions twice a week
     sender.add_periodic_task(
         crontab(day_of_week="mon,fri", hour="0", minute="0"),
@@ -876,13 +867,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*/2"),
         sweep_canvas_builds.s(),
         name="recover stuck canvas builds",
-    )
-
-    add_periodic_task_with_expiry(
-        sender,
-        crontab(minute="*/10"),
-        backfill_metric_embeddings_task.s(),
-        name="backfill catalog metric embeddings",
     )
 
     sender.add_periodic_task(
