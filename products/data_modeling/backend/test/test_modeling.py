@@ -266,7 +266,15 @@ class TestQualifyModelReferences(BaseTest):
                 (
                     "models.marts.fees",
                     ["marts.fees", "models.marts.fees", "`marts.fees`", "models.`marts.fees`"],
-                    ["marts.fees", "models.marts.fees", "`marts.fees`", "models.`marts.fees`", "fees"],
+                    [
+                        "marts.fees",
+                        "models.marts.fees",
+                        "`marts.fees`",
+                        "models.`marts.fees`",
+                        "fees",
+                        "marts__fees",
+                        "models__marts__fees",
+                    ],
                 ),
             ]
             for table in tables

@@ -228,6 +228,12 @@ INCREMENTAL_CONFIG_CHANGED_REFUSAL = (
 )
 
 
+RENAME_NEEDS_PLAN_DETAIL = (
+    "Other models read this model. Request its rename plan, then rename it with the rename action, "
+    "so their SQL is updated in the same change."
+)
+
+
 class DataWarehouseSavedQuerySerializer(
     view_state.DataWarehouseSavedQuerySerializerMixin, UserAccessControlSerializerMixin, serializers.ModelSerializer
 ):
@@ -826,6 +832,15 @@ class DataWarehouseSavedQuerySerializer(
             if query_changed:
                 validated_data["query_revision"] = uuid.uuid4()
                 validated_data["query_updated_at"] = timezone.now()
+
+            if (
+                "name" in validated_data
+                and validated_data["name"] != locked_instance.name
+                and is_authored_model(locked_instance)
+                and locked_instance.engine.has_lineage.available
+                and modeling_api.rename_needs_plan(locked_instance.team, locked_instance.id, validated_data["name"])
+            ):
+                raise serializers.ValidationError({"name": RENAME_NEEDS_PLAN_DETAIL})
 
             view: DataWarehouseSavedQuery = super().update(locked_instance, validated_data)
             name_changed = before_update.name != view.name

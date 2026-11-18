@@ -145,6 +145,7 @@ _LAZY = {
     "ModelRenameRewrite": "facade.contracts",
     "apply_model_rename": "logic.model_rename",
     "plan_model_rename": "logic.model_rename",
+    "rename_needs_plan": "logic.model_rename",
     "record_incremental_history": "logic.incremental",
     "set_incremental_state": "logic.incremental",
     "window_start": "logic.incremental",

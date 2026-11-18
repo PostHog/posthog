@@ -3,6 +3,7 @@
 import json
 import uuid
 import hashlib
+from collections.abc import Callable
 
 from posthog.hogql.database.database import Database, is_authored_model
 
@@ -26,7 +27,7 @@ from products.data_modeling.backend.models.datawarehouse_saved_query import Data
 
 def _compute(
     team: Team, saved_query_id: uuid.UUID, new_name: str, *, lock: bool
-) -> tuple[ModelRenamePlan, list[tuple[DataWarehouseSavedQuery, str, str]]]:
+) -> tuple[ModelRenamePlan, DataWarehouseSavedQuery, list[tuple[DataWarehouseSavedQuery, str, str]]]:
     live_queries = DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True)
     if lock:
         # `FOR NO KEY UPDATE`: a concurrent materialization takes `KEY SHARE` on these rows for its job's foreign key.
@@ -59,7 +60,9 @@ def _compute(
             rewrites.append((dependent, before, after))
         fingerprint.append([str(dependent.id), str(dependent.query_revision), before])
 
-    token = hashlib.sha256(json.dumps([str(renamed.id), renamed.name, new_name, fingerprint]).encode()).hexdigest()
+    token = hashlib.sha256(
+        json.dumps([str(renamed.id), renamed.name, str(renamed.query_revision), new_name, fingerprint]).encode()
+    ).hexdigest()
     plan = ModelRenamePlan(
         rewrites=tuple(
             ModelRenameRewrite(saved_query_id=dependent.id, name=dependent.name, before=before, after=after)
@@ -68,12 +71,12 @@ def _compute(
         blocked=tuple(blocked),
         token=token,
     )
-    return plan, rewrites
+    return plan, renamed, rewrites
 
 
 def plan_model_rename(team: Team, saved_query_id: uuid.UUID, new_name: str) -> ModelRenamePlan:
     """What renaming the model to `new_name` changes in the models that read it. Writes nothing."""
-    plan, _ = _compute(team, saved_query_id, new_name, lock=False)
+    plan, _, _ = _compute(team, saved_query_id, new_name, lock=False)
     return plan
 
 
@@ -82,25 +85,47 @@ def _write_rewritten_query(dependent: DataWarehouseSavedQuery, sql: str) -> None
 
     The new revision makes an editor that holds the old text conflict on save. Nothing that marks the
     model as modified is written, and the incremental fingerprint follows the text, so no run rebuilds.
+    A queryset update, so the post-save receivers that react to a changed definition do not run.
     """
     previous_query: dict = dependent.query or {}
     dependent.query = {**previous_query, "query": sql}
-    dependent.query_revision = uuid.uuid4()
     carry_definition_fingerprint(dependent, previous_query)
-    dependent.save(update_fields=["query", "query_revision", "incremental_state"])
+    DataWarehouseSavedQuery.objects.filter(team_id=dependent.team_id, pk=dependent.pk).update(
+        query=dependent.query, query_revision=uuid.uuid4(), incremental_state=dependent.incremental_state
+    )
 
 
-def apply_model_rename(team: Team, saved_query_id: uuid.UUID, new_name: str, plan_token: str) -> ModelRenamePlan:
-    """Rewrites the models that read the model for its rename to `new_name`.
+def apply_model_rename(
+    team: Team,
+    saved_query_id: uuid.UUID,
+    new_name: str,
+    plan_token: str,
+    *,
+    authorize: Callable[[ModelRenamePlan], None],
+) -> ModelRenamePlan:
+    """Renames the model to `new_name` and rewrites the models that read it, or writes nothing.
 
-    Call it in the transaction that renames the model, before the rename. It locks the model and the
-    models that read it, and writes only when the plan is still the one the caller was shown.
+    Call it in a transaction. It locks the model and the models that read it, and writes only when the
+    plan is still the one the caller was shown and `authorize` accepts it without raising.
     """
-    plan, rewrites = _compute(team, saved_query_id, new_name, lock=True)
+    plan, renamed, rewrites = _compute(team, saved_query_id, new_name, lock=True)
     if plan.token != plan_token:
         raise ModelRenamePlanStaleError()
+    authorize(plan)
     if plan.blocked:
         raise ModelRenameBlockedError(plan)
     for dependent, _, sql in rewrites:
         _write_rewritten_query(dependent, sql)
+    renamed.name = new_name
+    renamed.save(update_fields=["name", "updated_at"])
     return plan
+
+
+def rename_needs_plan(team: Team, saved_query_id: uuid.UUID, new_name: str) -> bool:
+    """Whether renaming the model to `new_name` changes or is blocked by a model that reads it.
+
+    Call it in the transaction that renames the model: it locks the same rows as `apply_model_rename`,
+    so a model that starts reading this one cannot commit until the rename has.
+    """
+    plan, _, _ = _compute(team, saved_query_id, new_name, lock=True)
+    return bool(plan.rewrites or plan.blocked)

@@ -86,7 +86,9 @@ The insight picker keeps names readable at narrow widths. Scroll the table horiz
 
 **Fix errors with AI** keeps its pending state and suggestion in the SQL tab that requested the fix. Other open tabs keep their own queries and can request independent fixes.
 
-The data warehouse sidebar lets you rename saved views. The dialog lists references from data model lineage. Renaming does not update SQL references in saved views, materialized views, endpoints, insights, dashboards, notebooks, or external systems. Dragging a model into a folder opens the same dialog with a name that starts with the folder's name, for example `scratch.revenue` for the folder `Scratch`. Dragging it back to the top level proposes its last name segment.
+Renaming an authored model rewrites the models that read it in the same change. `POST /api/projects/{project_id}/warehouse_saved_queries/{id}/rename_plan/` with the new `name` lists each of them with its SQL before and after, any that cannot be rewritten, and a `plan_token`. `POST .../rename/` with the same `name` and `plan_token` applies it. The rename returns 409 when those models changed after the plan was made, 400 when any of them is blocked, and 403 unless you can edit all of them. A plain PATCH of `name` works only for a model no other model reads. Only the references change, so no model is rebuilt. Endpoints, insights, dashboards, notebooks, raw Trino views and external systems are not rewritten.
+
+The data warehouse sidebar lets you rename saved views. The dialog lists references from data model lineage. Dragging a model into a folder opens the same dialog with a name that starts with the folder's name, for example `scratch.revenue` for the folder `Scratch`. Dragging it back to the top level proposes its last name segment.
 
 Saved-query lineage endpoints return only neighboring saved views and warehouse tables the caller can read. PostHog system tables remain visible, denied nodes do not stop the walk, and dependency counts use the same filtered neighbors.
 
