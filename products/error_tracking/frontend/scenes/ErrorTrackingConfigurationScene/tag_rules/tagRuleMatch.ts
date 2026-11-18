@@ -7,10 +7,12 @@ import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { ActivityTab, AnyPropertyFilter, FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 // A rule reads only the first exception of a new issue, so the preview counts the first exception of each issue first
-// seen in the window. dateRange is one of '-7d', '-30d' and '-90d'.
+// seen in the window. An issue is as old as its oldest fingerprint, because a merge keeps each fingerprint's own
+// first_seen. dateRange is one of '-7d', '-30d' and '-90d'.
 export function firstExceptionOfNewIssue(dateRange: string): string {
-    const days = Number(dateRange.slice(1, -1))
-    return `uuid IN (SELECT argMin(uuid, timestamp) FROM events WHERE event = '$exception' AND timestamp >= now() - INTERVAL ${days} DAY AND issue_first_seen >= now() - INTERVAL ${days} DAY GROUP BY issue_id)`
+    const since = `now() - INTERVAL ${Number(dateRange.slice(1, -1))} DAY`
+    const newIssues = `SELECT issue_id FROM posthog.error_tracking_fingerprint_issue_state GROUP BY issue_id HAVING min(first_seen) >= ${since}`
+    return `uuid IN (SELECT argMin(uuid, timestamp) FROM events WHERE event = '$exception' AND timestamp >= ${since} AND issue_id IN (${newIssues}) GROUP BY issue_id)`
 }
 
 // The issue list cannot filter on an issue's first exception, so the preview links only to the exceptions it counted.

@@ -303,10 +303,10 @@ export const rulesLogic = kea<rulesLogicType>([
                 deleteSelectedRules: async () => {
                     if (props.ruleType === ErrorTrackingRuleType.Tag) {
                         // A failed delete must not hide the deletes that succeeded, or a retry hits their 404s.
-                        const results = await Promise.allSettled(values.selectedRuleIds.map((id) => destroyTagRule(id)))
-                        const deletedIds = values.selectedRuleIds.filter(
-                            (_, index) => results[index].status === 'fulfilled'
-                        )
+                        // Cancel clears the selection while the requests run, so reconcile against a copy.
+                        const selectedIds = values.selectedRuleIds
+                        const results = await Promise.allSettled(selectedIds.map((id) => destroyTagRule(id)))
+                        const deletedIds = selectedIds.filter((_, index) => results[index].status === 'fulfilled')
                         const failedCount = results.length - deletedIds.length
                         if (failedCount > 0) {
                             lemonToast.error(`Couldn't delete ${failedCount} of ${results.length} rules. Try again.`)

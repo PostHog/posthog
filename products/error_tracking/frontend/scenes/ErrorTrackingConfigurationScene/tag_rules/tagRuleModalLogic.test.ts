@@ -142,7 +142,11 @@ describe('tagRuleModalLogic', () => {
 
         expect(sentQuery).toMatchObject({
             after: '-30d',
-            where: [expect.stringMatching(/argMin\(uuid, timestamp\).*issue_first_seen >= now\(\) - INTERVAL 30 DAY/)],
+            where: [
+                expect.stringMatching(
+                    /argMin\(uuid, timestamp\).*HAVING min\(first_seen\) >= now\(\) - INTERVAL 30 DAY/
+                ),
+            ],
         })
         expect(logic.values.matchResult).toEqual({ exceptionCount: 2, issueCount: 2 })
     })
@@ -213,5 +217,36 @@ describe('tagRuleModalLogic', () => {
 
         expect(list.values.rules.map((rule) => rule.id)).toEqual([failingRule.id])
         expect(options.values.issueTag).toBeNull()
+    })
+
+    // Cancel clears the selection while the deletes run. Reading the selection after them treats every delete as failed.
+    it('removes deleted rules when the selection is cancelled while the deletes run', async () => {
+        const deletedRule = { ...persistedRule, disabled_data: null }
+        rules = [deletedRule]
+        let releaseDelete: () => void = () => {}
+        const deleteGate = new Promise<void>((resolve) => {
+            releaseDelete = resolve
+        })
+        useMocks({
+            delete: {
+                '/api/projects/:team_id/error_tracking/tag_rules/:id/': async ({ params }) => {
+                    await deleteGate
+                    rules = rules.filter((rule) => rule.id !== params.id)
+                    return [204]
+                },
+            },
+        })
+        tagRuleModalLogic.mount()
+        const list = rulesLogic({ ruleType: ErrorTrackingRuleType.Tag })
+        await expectLogic(list, () => list.actions.loadRules()).toFinishAllListeners()
+
+        list.actions.startSelectingRules()
+        list.actions.setSelectedRuleIds([deletedRule.id])
+        list.actions.deleteSelectedRules()
+        list.actions.cancelSelectingRules()
+        releaseDelete()
+        await expectLogic(list).toFinishAllListeners()
+
+        expect(list.values.rules).toEqual([])
     })
 })
