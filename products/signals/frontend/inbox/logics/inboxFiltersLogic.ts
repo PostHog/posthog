@@ -512,7 +512,7 @@ export interface inboxFiltersLogicMeta {
             priorityFilter: SignalReportPriority[],
             activeCreatedWindow: InboxCreatedWindow | null
         ) => boolean
-        isScopedToMe: (scope: InboxScope, user: UserType | null) => boolean
+        isScopedToMe: (activeScope: InboxScope, user: UserType | null) => boolean
         needsYouScopeAvailable: (featureFlags: FeatureFlagsSet) => boolean
         activeScope: (scope: InboxScope, needsYouScopeAvailable: boolean) => InboxScope
         modelSortAvailable: (featureFlags: FeatureFlagsSet) => boolean
