@@ -84,4 +84,28 @@ describe("buildGatewayEnv", () => {
       expected ? "phe_run" : "oauth-token",
     );
   });
+
+  it.each([
+    { billingProduct: "posthog_ai", expected: "posthog_ai" },
+    { billingProduct: null, expected: "signals" },
+  ])(
+    "falls back to the $expected product for an inbox run billed to $billingProduct",
+    ({ billingProduct, expected }) => {
+      Object.assign(process.env, {
+        LLM_GATEWAY_URL: "https://gateway.example.com",
+        AI_GATEWAY_URL: "https://ai-gateway.example.com/v1",
+        AI_GATEWAY_PRODUCTS: "posthog_ai,signals_inbox",
+      });
+      const gatewayEnv = buildGatewayEnv(
+        config,
+        { originProduct: "signal_report", billingProduct, aiStage: "inbox" },
+        logger(),
+      );
+
+      expect(gatewayEnv.isAiGateway).toBe(false);
+      expect(gatewayEnv.anthropicBaseUrl).toBe(
+        `https://gateway.example.com/${expected}`,
+      );
+    },
+  );
 });

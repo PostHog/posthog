@@ -26,6 +26,7 @@ export interface RunLaunch {
   readonly jsonSchema: Record<string, unknown> | null;
   readonly aiStage: string | null;
   readonly aiAgentName: string | null;
+  readonly billingProduct: string | null;
   readonly sandboxEnvironmentId: string | null;
   readonly snapshotKind: string | null;
   readonly prewarmed: boolean | null;
@@ -62,6 +63,7 @@ export function readRunLaunch(sources: RunLaunchSources): RunLaunch {
     jsonSchema: task?.json_schema ?? null,
     aiStage: runState?.ai_stage ?? null,
     aiAgentName: runState?.ai_agent_name ?? null,
+    billingProduct: runState?.billing_product ?? null,
     sandboxEnvironmentId: runState?.sandbox_environment_id ?? null,
     snapshotKind: taskRun ? (runState?.snapshot_kind ?? "absent") : null,
     prewarmed: taskRun ? runState?.prewarmed === true : null,

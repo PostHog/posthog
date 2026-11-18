@@ -12,13 +12,28 @@ export type GatewayProduct =
   | "onboarding"
   | "review_hog";
 
+// Mirrors POSTHOG_AI_BILLED_SIGNALS_ORIGINS in ai_gateway_token.py.
+const POSTHOG_AI_BILLED_SIGNALS_ORIGINS = new Set([
+  "signal_report",
+  "signals_scout",
+]);
+
 export function resolveGatewayProduct({
   isInternal,
   originProduct,
+  billingProduct,
 }: {
   isInternal?: boolean;
   originProduct?: string | null;
+  billingProduct?: string | null;
 } = {}): GatewayProduct {
+  if (
+    billingProduct === "posthog_ai" &&
+    originProduct &&
+    POSTHOG_AI_BILLED_SIGNALS_ORIGINS.has(originProduct)
+  ) {
+    return "posthog_ai";
+  }
   // Every signals origin belongs here: their tokens are minted under the Signals OAuth
   // application, and no other product authorizes it — an unmapped origin falls through to
   // posthog_code and the gateway rejects the token.
