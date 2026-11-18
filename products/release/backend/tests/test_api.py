@@ -131,6 +131,8 @@ class TestReleaseAPI(APIBaseTest):
             ("update", "patch", "00000000-0000-0000-0000-000000000000/"),
             ("import_all", "post", "import_all/"),
             ("merge", "post", "00000000-0000-0000-0000-000000000000/merge/"),
+            ("retrieve", "get", "00000000-0000-0000-0000-000000000000/"),
+            ("flag_suggestions", "get", "flag_suggestions/?feature_flag_id=1"),
         ]
     )
     def test_every_action_is_closed_without_the_flag(self, _name: str, method: str, suffix: str) -> None:
@@ -335,6 +337,8 @@ class TestReleaseAPI(APIBaseTest):
         flag_id = self._flag("secret-launch")
         self.client.post(self._url("import_all/"))
         release_id = self.client.get(self._url()).json()["results"][0]["id"]
+        visible_id = self._flag("launch-copy")
+        self.client.patch(self._url(f"{release_id}/"), {"feature_flag_ids": [flag_id, visible_id]}, format="json")
         if renamed:
             self.client.patch(self._url(f"{release_id}/"), {"name": "Checkout"}, format="json")
         self._restrict_as_admin(f"feature_flags/{flag_id}")
@@ -348,6 +352,8 @@ class TestReleaseAPI(APIBaseTest):
         assert self.client.get(self._url(f"{release_id}/")).json()["name"] == expected
         assert self.client.get(self._url(f"catalog_releases/?feature_flag_id={flag_id}")).json()["results"] == []
         assert self.client.get(self._url(f"flag_suggestions/?feature_flag_id={flag_id}")).status_code == 404
+        current = self.client.get(self._url(f"flag_suggestions/?feature_flag_id={visible_id}")).json()["current"]
+        assert [release["name"] for release in current if release["id"] == release_id] == [expected]
 
     def test_retrieve_and_catalog_filter_find_a_release_by_its_flag(self) -> None:
         flag_id = self._flag("checkout-button")
@@ -366,7 +372,7 @@ class TestReleaseAPI(APIBaseTest):
     def test_flag_suggestions_rank_related_releases_and_list_the_ones_it_is_in(self) -> None:
         flag_id = self._flag("checkout-redesign-button")
         copy_flag = self._flag("checkout-copy")
-        self.client.post(self._url(), {"name": "Checkout redesign"}, format="json")
+        self.client.post(self._url(), {"name": "Checkout"}, format="json")
         self.client.post(self._url(), {"name": "Payments", "feature_flag_ids": [copy_flag]}, format="json")
         self.client.post(self._url(), {"name": "Pricing page"}, format="json")
         self.client.post(self._url(), {"name": "Button styles", "feature_flag_ids": [flag_id]}, format="json")
@@ -378,7 +384,7 @@ class TestReleaseAPI(APIBaseTest):
         assert [release["name"] for release in body["current"]] == ["Button styles"]
         assert body["auto_release"] is False
         assert [(release["name"], release["matched_terms"]) for release in body["suggestions"]] == [
-            ("Checkout redesign", ["checkout", "redesign"]),
+            ("Checkout", ["checkout"]),
             ("Payments", ["checkout"]),
         ]
 
@@ -386,14 +392,34 @@ class TestReleaseAPI(APIBaseTest):
         flag_id = self._flag("checkout-redesign")
         secret = self._flag("checkout-secret")
         self.client.post(self._url("import_all/"))
-        self.client.post(self._url(), {"name": "Payments", "feature_flag_ids": [secret]}, format="json")
+        self.client.post(self._url(), {"name": "Redesign", "feature_flag_ids": [secret]}, format="json")
         self._restrict_as_admin(f"feature_flags/{secret}")
         self.client.force_login(self._create_user("member@example.com"))
 
         body = self.client.get(self._url(f"flag_suggestions/?feature_flag_id={flag_id}")).json()
 
-        assert [release["name"] for release in body["suggestions"]] == []
-        assert body["auto_release"] is True
+        assert [(release["name"], release["matched_terms"]) for release in body["suggestions"]] == [
+            ("Redesign", ["redesign"])
+        ]
+
+    @parameterized.expand([("active", True, True), ("inactive", False, False)])
+    def test_flag_suggestions_say_whether_the_flag_gets_its_own_release(
+        self, _name: str, active: bool, expected: bool
+    ) -> None:
+        self.client.post(self._url("import_all/"))
+        flag_id = self._flag("checkout-express", active=active)
+
+        body = self.client.get(self._url(f"flag_suggestions/?feature_flag_id={flag_id}")).json()
+
+        assert body["auto_release"] is expected
+
+    def test_flag_suggestions_return_404_for_an_unknown_or_deleted_flag(self) -> None:
+        deleted = self._flag("checkout-old")
+        self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{deleted}/", {"deleted": True}, format="json")
+
+        for flag_id in (999999, deleted):
+            response = self.client.get(self._url(f"flag_suggestions/?feature_flag_id={flag_id}"))
+            assert response.status_code == status.HTTP_404_NOT_FOUND, flag_id
 
     def test_catalog_releases_search_gives_no_hint_of_restricted_generated_names(self) -> None:
         hidden = [self._flag(key) for key in ("secret-launch", "secret-pricing")]

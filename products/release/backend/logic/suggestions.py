@@ -54,6 +54,22 @@ def search_terms(*texts: str) -> set[str]:
     return set(_ordered_terms(texts)[:MAX_SEARCH_TERMS])
 
 
+def rank(
+    candidates: list[Release], words: set[str], linked_terms: dict[int, set[str]]
+) -> list[tuple[Release, list[str]]]:
+    scored: list[tuple[int, Release, list[str]]] = []
+    for release in candidates:
+        own = terms(release.name, release.description) & words
+        via_flags: set[str] = set()
+        for linked_id in release.feature_flag_ids:
+            via_flags |= linked_terms.get(linked_id, set()) & words
+        matched = own | via_flags
+        if matched:
+            scored.append((2 * len(own) + len(via_flags - own), release, sorted(matched)))
+    scored.sort(key=lambda entry: -entry[0])
+    return [(release, matched) for _, release, matched in scored]
+
+
 def releases_with_flag(team_id: int, flag_id: int) -> list[Release]:
     return list(
         Release.objects.filter(team_id=team_id, feature_flag_ids__contains=[flag_id])

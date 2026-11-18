@@ -88,11 +88,15 @@ def _hidden(lookups: LinkLookups, releases: list[Release]) -> _Hidden:
     )
 
 
+def _shows_restricted_name(release: Release, hidden_flags: frozenset[int]) -> bool:
+    return release.auto_named and not hidden_flags.isdisjoint(release.feature_flag_ids)
+
+
 def _to_dto(obj: Release, hidden: _Hidden) -> contracts.ReleaseDTO:
     has_hidden_flags = any(flag_id in hidden.flags for flag_id in obj.feature_flag_ids)
     return contracts.ReleaseDTO(
         id=obj.id,
-        name=RESTRICTED_NAME if obj.auto_named and has_hidden_flags else obj.name,
+        name=RESTRICTED_NAME if _shows_restricted_name(obj, hidden.flags) else obj.name,
         description=obj.description,
         owner=contracts.ReleaseOwnerDTO(id=obj.owner.id, first_name=obj.owner.first_name) if obj.owner else None,
         feature_flag_ids=[flag_id for flag_id in obj.feature_flag_ids if flag_id not in hidden.flags],
@@ -198,7 +202,7 @@ def list_catalog_page(
         position += len(batch)
         hidden = flags(sorted({flag_id for obj in batch if obj.auto_named for flag_id in obj.feature_flag_ids})).hidden
         for obj in batch:
-            restricted = obj.auto_named and bool(hidden & set(obj.feature_flag_ids))
+            restricted = _shows_restricted_name(obj, hidden)
             if restricted and search:
                 continue
             if len(results) == limit:
@@ -235,6 +239,7 @@ def releases_for_flag(
     flags: FlagVisibilityLookup,
     labels: FlagLabelLookup,
     search_flags: FlagSearchLookup,
+    gets_own_release: Callable[[int], bool],
 ) -> contracts.FlagReleasesDTO:
     label = labels([flag_id]).get(flag_id)
     if label is None or flag_id not in flags([flag_id]).visible:
@@ -248,37 +253,26 @@ def releases_for_flag(
         candidates = suggestions.candidate_releases(team_id, flag_id, words, matching_visible, SUGGESTION_CANDIDATES)
     linked = sorted({linked_id for release in [*current, *candidates] for linked_id in release.feature_flag_ids})
     hidden = flags(linked).hidden if linked else frozenset()
-    linked_labels = labels([linked_id for linked_id in linked if linked_id not in hidden])
-
-    def restricted(release: Release) -> bool:
-        return release.auto_named and bool(hidden & set(release.feature_flag_ids))
-
-    scored: list[tuple[int, contracts.ReleaseSuggestionDTO]] = []
-    for release in candidates:
-        if restricted(release):
-            continue
-        own = suggestions.terms(release.name, release.description) & words
-        via_flags: set[str] = set()
-        for linked_id in release.feature_flag_ids:
-            if linked_id in linked_labels:
-                via_flags |= suggestions.terms(linked_labels[linked_id].key, linked_labels[linked_id].name) & words
-        matched = own | via_flags
-        if matched:
-            scored.append(
-                (
-                    2 * len(own) + len(via_flags - own),
-                    contracts.ReleaseSuggestionDTO(id=release.id, name=release.name, matched_terms=sorted(matched)),
-                )
-            )
-    scored.sort(key=lambda pair: -pair[0])
+    linked_terms = {
+        linked_id: suggestions.terms(label.key, label.name)
+        for linked_id, label in labels([linked_id for linked_id in linked if linked_id not in hidden]).items()
+    }
+    ranked = suggestions.rank(
+        [release for release in candidates if not _shows_restricted_name(release, hidden)], words, linked_terms
+    )
     return contracts.FlagReleasesDTO(
         feature_flag_id=flag_id,
-        auto_release=imports.project_imported(team_id),
+        auto_release=not current and imports.project_imported(team_id) and gets_own_release(flag_id),
         current=[
-            contracts.ReleaseRefDTO(id=release.id, name=RESTRICTED_NAME if restricted(release) else release.name)
+            contracts.ReleaseRefDTO(
+                id=release.id, name=RESTRICTED_NAME if _shows_restricted_name(release, hidden) else release.name
+            )
             for release in current
         ],
-        suggestions=[suggestion for _, suggestion in scored[:SUGGESTION_LIMIT]],
+        suggestions=[
+            contracts.ReleaseSuggestionDTO(id=release.id, name=release.name, matched_terms=matched)
+            for release, matched in ranked[:SUGGESTION_LIMIT]
+        ],
     )
 
 

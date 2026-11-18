@@ -212,6 +212,13 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             for flag_id, label in release_flag_labels(team_id=self.team_id, flag_ids=flag_ids).items()
         }
 
+    def _gets_own_release(self, flag_id: int) -> bool:
+        return bool(
+            list_release_import_flags(
+                team_id=self.team_id, project_id=self.team.project_id, access_control=None, flag_ids=[flag_id]
+            )
+        )
+
     def _search_flags(self, terms: list[str]) -> list[int]:
         return release_flag_ids_matching(team_id=self.team_id, terms=terms, limit=api.SUGGESTION_FLAG_MATCHES)
 
@@ -376,7 +383,12 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         flag_id = request.validated_query_data["feature_flag_id"]
         try:
             result = api.releases_for_flag(
-                self.team_id, flag_id, self._flag_visibility, self._flag_labels, self._search_flags
+                self.team_id,
+                flag_id,
+                self._flag_visibility,
+                self._flag_labels,
+                self._search_flags,
+                self._gets_own_release,
             )
         except api.FlagNotFoundError:
             raise NotFound("Feature flag not found.")

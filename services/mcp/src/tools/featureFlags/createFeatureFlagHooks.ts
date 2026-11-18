@@ -1,4 +1,5 @@
 import type { Schemas } from '@/api/generated'
+import { isRecord } from '@/lib/plain-object'
 import type { ToolHooks } from '@/tools/tool-hooks'
 import type { Context } from '@/tools/types'
 
@@ -14,10 +15,6 @@ export const RELEASE_SUGGESTIONS_NOTE =
 export const AUTO_RELEASE_NOTE =
     ' In about a minute PostHog puts this flag in a release of its own, unless it is already in one. If that has ' +
     'happened by the time the user answers, merge that release into the chosen one with `release-merge` instead.'
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
 
 async function fetchFlagReleases(context: Context, flagId: number): Promise<Schemas.FlagReleases> {
     const projectId = await context.stateManager.getProjectId()
