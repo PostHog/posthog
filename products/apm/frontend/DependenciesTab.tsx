@@ -15,19 +15,45 @@ import { DependencyTable } from './DependencyTable'
 
 const NODE_TYPES = { dependency: DependencyNode }
 
+function DependencyMapPlaceholder(): JSX.Element {
+    const { dependencies, dependenciesLoading, dependenciesLoadError, dependencyLayout, dependencyLayoutError, edges } =
+        useValues(dependenciesLogic)
+    const { layoutDependencies } = useActions(dependenciesLogic)
+
+    if (dependencyLayoutError && edges.length > 0) {
+        return (
+            <div className="flex flex-col items-center gap-2">
+                <span>Couldn't draw the dependency map.</span>
+                <LemonButton type="secondary" size="small" onClick={() => layoutDependencies()}>
+                    Try again
+                </LemonButton>
+            </div>
+        )
+    }
+    if ((dependenciesLoading && !dependencies) || (edges.length > 0 && !dependencyLayout)) {
+        return <Spinner />
+    }
+    return (
+        <>
+            {dependenciesLoadError
+                ? "Couldn't load dependencies."
+                : 'No calls between services in this environment and time range.'}
+        </>
+    )
+}
+
 export function DependenciesTab(): JSX.Element {
     const {
         dependencies,
         dependenciesLoading,
         dependenciesLoadError,
         dependencyLayout,
-        dependencyLayoutError,
         dependencyService,
         edges,
         serviceNames,
         split,
     } = useValues(dependenciesLogic)
-    const { setDependencyService, loadDependencies, layoutDependencies } = useActions(dependenciesLogic)
+    const { setDependencyService, loadDependencies } = useActions(dependenciesLogic)
     const { isDarkModeOn } = useValues(themeLogic)
 
     const flowEdges = useMemo(
@@ -42,7 +68,6 @@ export function DependenciesTab(): JSX.Element {
         [dependencyLayout]
     )
     const nodes = dependencyLayout?.nodes ?? []
-    const loadingFirstTime = dependenciesLoading && !dependencies
 
     return (
         <div className="flex flex-col gap-2">
@@ -77,20 +102,7 @@ export function DependenciesTab(): JSX.Element {
             <div className="relative h-[480px] rounded border bg-surface-primary" data-attr="apm-dependencies-map">
                 {nodes.length === 0 ? (
                     <div className="flex h-full items-center justify-center p-4 text-center text-secondary">
-                        {dependencyLayoutError && edges.length > 0 ? (
-                            <div className="flex flex-col items-center gap-2">
-                                <span>Couldn't draw the dependency map.</span>
-                                <LemonButton type="secondary" size="small" onClick={() => layoutDependencies()}>
-                                    Try again
-                                </LemonButton>
-                            </div>
-                        ) : loadingFirstTime || (edges.length > 0 && !dependencyLayout) ? (
-                            <Spinner />
-                        ) : dependenciesLoadError ? (
-                            "Couldn't load dependencies."
-                        ) : (
-                            'No calls between services in this environment and time range.'
-                        )}
+                        <DependencyMapPlaceholder />
                     </div>
                 ) : (
                     <ReactFlowProvider>
