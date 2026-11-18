@@ -460,9 +460,9 @@ class PostHogCallback(InstrumentedCallback):
             host=host,
             sync_mode=True,
             enable_local_evaluation=False,
-            # Multimodal capture implies the AI lane, so one setting governs both.
-            _use_ai_lane=self._ai_lane_capture,
-            _enable_multimodal_capture=self._ai_lane_capture,
+            # AI events always go to /i/v1/ai/events; this only controls whether
+            # content is sent in full or truncated with media redacted.
+            enable_full_ai_capture=self._ai_lane_capture,
         )
         try:
             _capture_ai_event(client, **capture_kwargs)

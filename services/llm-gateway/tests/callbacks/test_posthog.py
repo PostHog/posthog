@@ -95,11 +95,10 @@ class TestPostHogCallback:
                 host="https://test.posthog.com",
                 sync_mode=True,
                 enable_local_evaluation=False,
-                _use_ai_lane=True,
-                _enable_multimodal_capture=True,
+                enable_full_ai_capture=True,
             )
-            mock_client.capture.assert_called_once()
-            call_kwargs = mock_client.capture.call_args.kwargs
+            mock_client.capture_ai.assert_called_once()
+            call_kwargs = mock_client.capture_ai.call_args.kwargs
 
             assert call_kwargs["distinct_id"] == "user-distinct-id-123"
             assert call_kwargs["event"] == "$ai_generation"
@@ -117,14 +116,14 @@ class TestPostHogCallback:
             mock_client.shutdown.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_ai_lane_capture_off_builds_standard_lane_client(
+    async def test_ai_lane_capture_off_turns_off_full_ai_capture(
         self,
         auth_user: AuthenticatedUser,
         standard_logging_object: dict,
         mock_posthog_client: tuple,
     ) -> None:
-        # The local-dev knob: with ai_lane_capture=False the client must drop to the standard
-        # capture lane (and with it multimodal capture), or local stacks keep losing every event.
+        # The local-dev knob: with ai_lane_capture=False the client truncates AI content and
+        # redacts media instead of sending it in full.
         mock_cls, _ = mock_posthog_client
         callback = PostHogCallback(api_key="test-key", host="https://test.posthog.com", ai_lane_capture=False)
         kwargs = {"standard_logging_object": standard_logging_object, "litellm_params": {}}
@@ -135,8 +134,7 @@ class TestPostHogCallback:
         ):
             await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
 
-        assert mock_cls.call_args.kwargs["_use_ai_lane"] is False
-        assert mock_cls.call_args.kwargs["_enable_multimodal_capture"] is False
+        assert mock_cls.call_args.kwargs["enable_full_ai_capture"] is False
 
     @pytest.mark.parametrize(
         "event_method, effort, caller_effort, expected",
@@ -177,7 +175,7 @@ class TestPostHogCallback:
         ):
             await getattr(callback, event_method)(kwargs, None, 0.0, 1.0, end_user_id=None)
 
-        props = mock_client.capture.call_args.kwargs["properties"]
+        props = mock_client.capture_ai.call_args.kwargs["properties"]
         if expected is None:
             assert "$ai_effort" not in props
         else:
@@ -222,8 +220,8 @@ class TestPostHogCallback:
         ):
             await getattr(callback, event_method)(kwargs, None, 0.0, 1.0, end_user_id=None)
 
-        call_kwargs = mock_client.capture.call_args.kwargs
-        props = mock_client.capture.call_args.kwargs["properties"]
+        call_kwargs = mock_client.capture_ai.call_args.kwargs
+        props = mock_client.capture_ai.call_args.kwargs["properties"]
         if expected_team_id is None:
             assert "team_id" not in props
         else:
@@ -252,7 +250,7 @@ class TestPostHogCallback:
         with patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user):
             await getattr(callback, event_method)(kwargs, None, 0.0, 1.0, end_user_id=None)
 
-        assert mock_client.capture.call_args.kwargs["properties"]["llm_gateway_request_id"] == "req-abc-123"
+        assert mock_client.capture_ai.call_args.kwargs["properties"]["llm_gateway_request_id"] == "req-abc-123"
 
     @pytest.mark.asyncio
     async def test_span_id_is_unique_per_event_within_one_request(
@@ -278,7 +276,7 @@ class TestPostHogCallback:
             await callback._on_failure(kwargs, None, 0.0, 1.0, end_user_id=None)
             await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
 
-        captured = [call.kwargs["properties"] for call in mock_client.capture.call_args_list]
+        captured = [call.kwargs["properties"] for call in mock_client.capture_ai.call_args_list]
         assert len(captured) == 2
         assert all(_is_uuid(p["$ai_span_id"]) for p in captured)
         assert captured[0]["$ai_span_id"] != captured[1]["$ai_span_id"]
@@ -309,7 +307,7 @@ class TestPostHogCallback:
         ):
             await getattr(callback, event_method)(kwargs, None, 0.0, 1.0, end_user_id=None)
 
-        properties = mock_client.capture.call_args.kwargs["properties"]
+        properties = mock_client.capture_ai.call_args.kwargs["properties"]
         assert "llm_gateway_request_id" not in properties
         assert _is_uuid(properties["$ai_span_id"])
 
@@ -341,7 +339,7 @@ class TestPostHogCallback:
         ):
             await getattr(callback, event_method)(kwargs, None, 0.0, 1.0, end_user_id=None)
 
-        properties = mock_client.capture.call_args.kwargs["properties"]
+        properties = mock_client.capture_ai.call_args.kwargs["properties"]
         assert properties["llm_gateway_request_id"] == "req-abc-123"
         assert properties["$update_person_last_seen_at"] is False
         assert properties["$ai_span_id"] != "collapsed"
@@ -365,7 +363,7 @@ class TestPostHogCallback:
         ):
             await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
 
-            props = mock_client.capture.call_args.kwargs["properties"]
+            props = mock_client.capture_ai.call_args.kwargs["properties"]
             assert props["team_id"] == 456
             assert isinstance(props["team_id"], int)
 
@@ -386,7 +384,7 @@ class TestPostHogCallback:
         ):
             await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
 
-            props = mock_client.capture.call_args.kwargs["properties"]
+            props = mock_client.capture_ai.call_args.kwargs["properties"]
             assert "team_id" not in props
 
     @pytest.mark.asyncio
@@ -414,7 +412,7 @@ class TestPostHogCallback:
         ):
             await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
 
-            props = mock_client.capture.call_args.kwargs["properties"]
+            props = mock_client.capture_ai.call_args.kwargs["properties"]
             # route-derived product wins over the header value
             assert props["ai_product"] == "posthog_code"
             # config-derived billable flag wins (posthog_code is billable) — a caller
@@ -438,7 +436,7 @@ class TestPostHogCallback:
         ):
             await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
 
-            call_kwargs = mock_client.capture.call_args.kwargs
+            call_kwargs = mock_client.capture_ai.call_args.kwargs
             # distinct_id should be a UUID string since no auth user.
             # The instance group is always set so the destination project can
             # resolve $group_<N> for the region URL filter in the usage report,
@@ -465,7 +463,7 @@ class TestPostHogCallback:
         ):
             await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id="end-user-123")
 
-            call_kwargs = mock_client.capture.call_args.kwargs
+            call_kwargs = mock_client.capture_ai.call_args.kwargs
             assert call_kwargs["distinct_id"] == "end-user-123"
 
             props = call_kwargs["properties"]
@@ -505,7 +503,7 @@ class TestPostHogCallback:
             method = getattr(callback, method_name)
             await method(kwargs, None, 0.0, 1.0, end_user_id="123")
 
-            call_kwargs = mock_client.capture.call_args.kwargs
+            call_kwargs = mock_client.capture_ai.call_args.kwargs
             assert call_kwargs["distinct_id"] == "real-posthog-distinct-id"
 
     @pytest.mark.asyncio
@@ -528,8 +526,8 @@ class TestPostHogCallback:
         ):
             await callback._on_failure(kwargs, None, 0.0, 1.0, end_user_id=None)
 
-            mock_client.capture.assert_called_once()
-            call_kwargs = mock_client.capture.call_args.kwargs
+            mock_client.capture_ai.assert_called_once()
+            call_kwargs = mock_client.capture_ai.call_args.kwargs
 
             assert call_kwargs["distinct_id"] == "user-distinct-id-123"
             assert call_kwargs["event"] == "$ai_generation"
@@ -560,7 +558,7 @@ class TestPostHogCallback:
         ):
             await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
 
-            props = mock_client.capture.call_args.kwargs["properties"]
+            props = mock_client.capture_ai.call_args.kwargs["properties"]
             assert props["$ai_input_tokens"] == 0
             assert props["$ai_output_tokens"] == 0
             assert "$ai_total_cost_usd" not in props
@@ -632,7 +630,7 @@ class TestPostHogCallback:
         ):
             await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
 
-        props = mock_client.capture.call_args.kwargs["properties"]
+        props = mock_client.capture_ai.call_args.kwargs["properties"]
         assert {
             key: props[key]
             for key in ("$ai_cache_read_input_tokens", "$ai_cache_creation_input_tokens")
@@ -671,7 +669,7 @@ class TestPostHogCallback:
         ):
             await getattr(callback, hook)(kwargs, None, 0.0, 1.0, end_user_id=None)
 
-        props = mock_client.capture.call_args.kwargs["properties"]
+        props = mock_client.capture_ai.call_args.kwargs["properties"]
         assert (props["$ai_provider"], props["$ai_model"]) == (expected_provider, expected_model)
 
     @pytest.mark.parametrize(
@@ -728,7 +726,7 @@ class TestPostHogCallback:
         ):
             await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
 
-        props = mock_client.capture.call_args.kwargs["properties"]
+        props = mock_client.capture_ai.call_args.kwargs["properties"]
         # Each LiteLLM cost_breakdown component maps 1:1 to its own PostHog
         # property — disjoint, so the sum reconciles to $ai_total_cost_usd.
         for key, value in expected_props.items():
@@ -754,7 +752,7 @@ class TestPostHogCallback:
         ):
             await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
 
-        props = mock_client.capture.call_args.kwargs["properties"]
+        props = mock_client.capture_ai.call_args.kwargs["properties"]
         assert "$ai_input_cost_usd" not in props
         assert "$ai_output_cost_usd" not in props
         assert "$ai_cache_read_cost_usd" not in props
@@ -786,7 +784,7 @@ class TestPostHogCallback:
         ):
             await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
 
-        props = mock_client.capture.call_args.kwargs["properties"]
+        props = mock_client.capture_ai.call_args.kwargs["properties"]
         assert props["$ai_reasoning_tokens"] == 120
 
     @pytest.mark.asyncio
@@ -806,7 +804,7 @@ class TestPostHogCallback:
         ):
             await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
 
-        props = mock_client.capture.call_args.kwargs["properties"]
+        props = mock_client.capture_ai.call_args.kwargs["properties"]
         assert "$ai_reasoning_tokens" not in props
 
     @pytest.mark.asyncio
@@ -831,7 +829,7 @@ class TestPostHogCallback:
         ):
             await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
 
-            props = mock_client.capture.call_args.kwargs["properties"]
+            props = mock_client.capture_ai.call_args.kwargs["properties"]
             assert props["ai_product"] == product
 
     @pytest.mark.asyncio
@@ -855,7 +853,7 @@ class TestPostHogCallback:
         ):
             await callback._on_failure(kwargs, None, 0.0, 1.0, end_user_id=None)
 
-            props = mock_client.capture.call_args.kwargs["properties"]
+            props = mock_client.capture_ai.call_args.kwargs["properties"]
             assert props["ai_product"] == product
 
     @pytest.mark.asyncio
@@ -877,7 +875,7 @@ class TestPostHogCallback:
         ):
             await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
 
-        props = mock_client.capture.call_args.kwargs["properties"]
+        props = mock_client.capture_ai.call_args.kwargs["properties"]
         assert props["$ai_billable"] is True
 
     @pytest.mark.asyncio
@@ -899,7 +897,7 @@ class TestPostHogCallback:
         ):
             await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
 
-        props = mock_client.capture.call_args.kwargs["properties"]
+        props = mock_client.capture_ai.call_args.kwargs["properties"]
         assert props["$ai_billable"] is False
 
     @pytest.mark.asyncio
@@ -927,7 +925,7 @@ class TestPostHogCallback:
         ):
             await callback._on_failure(kwargs, None, 0.0, 1.0, end_user_id=None)
 
-        props = mock_client.capture.call_args.kwargs["properties"]
+        props = mock_client.capture_ai.call_args.kwargs["properties"]
         assert props["$ai_billable"] is True
 
     @pytest.mark.asyncio
@@ -950,7 +948,7 @@ class TestPostHogCallback:
         ):
             await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id="openai-end-user-456")
 
-            call_kwargs = mock_client.capture.call_args.kwargs
+            call_kwargs = mock_client.capture_ai.call_args.kwargs
             assert call_kwargs["distinct_id"] == "openai-end-user-456"
             assert call_kwargs["groups"] == {"instance": "https://us.posthog.com", "project": 456}
 
@@ -978,7 +976,7 @@ class TestPostHogCallback:
         ):
             await callback._on_failure(kwargs, None, 0.0, 1.0, end_user_id="openai-end-user-789")
 
-            call_kwargs = mock_client.capture.call_args.kwargs
+            call_kwargs = mock_client.capture_ai.call_args.kwargs
             assert call_kwargs["distinct_id"] == "openai-end-user-789"
             assert call_kwargs["properties"]["$ai_trace_id"] == _normalize_trace_id("trace-id-from-metadata")
             assert _is_uuid(call_kwargs["properties"]["$ai_trace_id"])
@@ -1004,7 +1002,7 @@ class TestPostHogCallback:
         ):
             await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
 
-        call_kwargs = mock_client.capture.call_args.kwargs
+        call_kwargs = mock_client.capture_ai.call_args.kwargs
         assert call_kwargs["groups"] == {"instance": "https://eu.posthog.com", "project": 456}
         # $group_1 is stamped explicitly so the usage-report query's hardcoded
         # filter matches regardless of how the destination team registers
@@ -1040,13 +1038,13 @@ class TestPostHogCallback:
             assert primary_call.kwargs["host"] == "https://eu.i.posthog.com"
             assert secondary_call.args == ("us-key",)
             assert secondary_call.kwargs["host"] == "https://us.i.posthog.com"
-            assert mock_client.capture.call_count == 2
+            assert mock_client.capture_ai.call_count == 2
 
             # Both copies carry the EU origin region — via the SDK `groups` arg
             # and via an explicit $group_1 property — so the US-region usage
             # report filter ($group_1 = 'https://us.posthog.com') excludes the
             # mirrored copy and does not double-count.
-            for capture_call in mock_client.capture.call_args_list:
+            for capture_call in mock_client.capture_ai.call_args_list:
                 assert capture_call.kwargs["groups"] == {
                     "instance": "https://eu.posthog.com",
                     "project": 456,
@@ -1071,7 +1069,7 @@ class TestPostHogCallback:
             await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
 
         assert mock_cls.call_count == 1
-        assert mock_client.capture.call_count == 1
+        assert mock_client.capture_ai.call_count == 1
 
     @pytest.mark.asyncio
     async def test_on_failure_mirrors_to_secondary_destination_when_configured(
@@ -1107,9 +1105,9 @@ class TestPostHogCallback:
             assert primary_call.kwargs["host"] == "https://eu.i.posthog.com"
             assert secondary_call.args == ("us-key",)
             assert secondary_call.kwargs["host"] == "https://us.i.posthog.com"
-            assert mock_client.capture.call_count == 2
+            assert mock_client.capture_ai.call_count == 2
 
-            for capture_call in mock_client.capture.call_args_list:
+            for capture_call in mock_client.capture_ai.call_args_list:
                 assert capture_call.kwargs["groups"] == {
                     "instance": "https://eu.posthog.com",
                     "project": 456,
@@ -1438,7 +1436,7 @@ class TestTruncateForCapture:
             mock_asyncio.get_running_loop.return_value = mock_loop
             await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
 
-            props = mock_client.capture.call_args.kwargs["properties"]
+            props = mock_client.capture_ai.call_args.kwargs["properties"]
             assert props["$ai_output_choices"] == _TRUNCATION_MARKER
             assert props["$ai_model"] == "claude-3-opus"
             assert props["$ai_input_tokens"] == 10

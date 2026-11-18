@@ -19,19 +19,16 @@ from posthog.ph_client import (
 )
 
 
-class TestAILaneOptIn(SimpleTestCase):
-    def test_get_client_opts_into_ai_lane(self):
+class TestFullAICaptureOptIn(SimpleTestCase):
+    def test_get_client_opts_into_full_ai_capture(self):
         for region in ("US", "EU"):
             client = get_client(region, send=False, enable_local_evaluation=False)
-            self.assertTrue(client._use_ai_lane)
-            self.assertTrue(client._enable_multimodal_capture)
+            self.assertTrue(client.enable_full_ai_capture)
 
-    def test_module_attribute_opts_default_client_into_ai_lane(self):
-        self.assertTrue(posthoganalytics._use_ai_lane)
-        self.assertTrue(posthoganalytics._enable_multimodal_capture)
+    def test_module_attribute_opts_default_client_into_full_ai_capture(self):
+        self.assertTrue(posthoganalytics.enable_full_ai_capture)
         client = posthoganalytics.setup()
-        self.assertTrue(client._use_ai_lane)
-        self.assertTrue(client._enable_multimodal_capture)
+        self.assertTrue(client.enable_full_ai_capture)
 
 
 class TestPrivateScoutCapture(SimpleTestCase):
