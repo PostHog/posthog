@@ -105,12 +105,13 @@ class TraceEvents:
         minutes: int = 0,
         properties: dict[str, object] | None = None,
         person_id: str | None = None,
+        distinct_id: str = "user-1",
     ) -> None:
         self._events.append(
             {
                 "event": event,
                 "event_uuid": f"00000000-0000-4000-8000-{len(self._events):012d}",
-                "distinct_id": "user-1",
+                "distinct_id": distinct_id,
                 "team": self.team,
                 "timestamp": self.start + timedelta(minutes=minutes),
                 "properties": {"$ai_trace_id": trace_id, "$ai_parent_id": trace_id, **(properties or {})},
@@ -146,6 +147,9 @@ def restrict_property(test: APIBaseTest, name: str) -> None:
 
 def encode_segment(trace_id: str) -> str:
     return base64.urlsafe_b64encode(trace_id.encode()).decode().rstrip("=")
+
+
+PAGE_BOUNDS = {"earliest_created_at": T0.isoformat(), "latest_created_at": T0.isoformat()}
 
 
 def post_page_read(

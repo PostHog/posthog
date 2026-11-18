@@ -73,10 +73,12 @@ from ..logic.traces.git import GitRef
 from ..logic.traces.node import NodeEvent
 from ..logic.traces.node_contents_queries import load_trace_nodes
 from ..logic.traces.parser_verdict import parser_test_result
+from ..logic.traces.person import person_label
 from ..logic.traces.preview_queries import load_preview_sources
 from ..logic.traces.previews import page_turns
 from ..logic.traces.review import HumanReview, QueueAssignment, TraceReviewState
 from ..logic.traces.review_queries import load_trace_review_state, load_trace_review_states
+from ..logic.traces.sentiment_queries import TraceSentimentRow, load_sentiments
 from ..logic.traces.step_content import StepReading, read_step, step_content
 from ..logic.traces.summary import (
     AIDataProcessingNotApprovedError as AIDataProcessingNotApprovedError,
@@ -107,9 +109,12 @@ from ..logic.traces.trace_export import (
 )
 from ..logic.traces.trace_queries import (
     PageTraceRows,
+    PersonRow,
     TraceNodeRow,
     load_available_trace_ids,
+    load_people,
     load_trace,
+    load_trace_distinct_ids,
     load_trace_feedback_rows,
     load_trace_git_rows,
     load_trace_node,
@@ -169,6 +174,14 @@ _NO_METADATA = contracts.TraceNodeMetadata(
 def is_usable_timestamp_hint(timestamp_hint: datetime) -> bool:
     try:
         fallback_window(timestamp_hint)
+    except OverflowError:
+        return False
+    return True
+
+
+def is_usable_page_bounds(earliest: datetime, latest: datetime) -> bool:
+    try:
+        page_window((earliest, latest))
     except OverflowError:
         return False
     return True
@@ -264,6 +277,44 @@ def _to_preview(trace_id: str, turn: Turn | None) -> contracts.TracePreview:
         output=preview(answer),
         input_missing_reason=missing_reason(message),
         output_missing_reason=missing_reason(answer),
+    )
+
+
+def load_trace_people(
+    team: Team, user: User | None, trace_ids: Sequence[str], *, earliest: datetime, latest: datetime
+) -> contracts.TracePeopleList:
+    """The person of each requested trace, in request order. `earliest` and `latest` are the first timestamps of the
+    page's earliest and latest traces, which bound the read of traces missing from `posthog.ai_events`."""
+    requested = list(dict.fromkeys(trace_ids))
+    distinct_ids = load_trace_distinct_ids(team, user, requested, page_window((earliest, latest)))
+    people = load_people(team, user, list(distinct_ids.values()))
+    return contracts.TracePeopleList(
+        items=[
+            contracts.TracePersonItem(
+                trace_id=trace_id,
+                person=_to_person(people[distinct_ids[trace_id]]) if trace_id in distinct_ids else None,
+            )
+            for trace_id in requested
+        ]
+    )
+
+
+def load_trace_sentiments(
+    team: Team, user: User | None, trace_ids: Sequence[str], *, earliest: datetime, latest: datetime
+) -> contracts.TraceSentimentList:
+    """The sentiment of each requested trace, in request order. `earliest` and `latest` are the first timestamps of the
+    page's earliest and latest traces, which bound the read of traces whose results may have aged out of
+    `posthog.ai_events`."""
+    requested = list(dict.fromkeys(trace_ids))
+    sentiments = load_sentiments(team, user, requested, page_window((earliest, latest)), now())
+    return contracts.TraceSentimentList(
+        items=[
+            contracts.TraceSentimentItem(
+                trace_id=trace_id,
+                sentiment=_to_sentiment(sentiments[trace_id]) if trace_id in sentiments else None,
+            )
+            for trace_id in requested
+        ]
     )
 
 
@@ -414,13 +465,17 @@ def _to_list_item(trace: Trace, review: TraceReviewState) -> contracts.TraceList
     )
 
 
+def _to_person(person: PersonRow) -> contracts.TracePerson:
+    return contracts.TracePerson(distinct_id=person.distinct_id, label=person_label(person))
+
+
+def _to_sentiment(sentiment: TraceSentimentRow) -> contracts.TraceSentiment:
+    return contracts.TraceSentiment(label=sentiment.label, score=sentiment.score)
+
+
 def _to_trace(trace: Trace) -> contracts.Trace:
     overview = _to_overview(trace)
-    person = (
-        contracts.TracePerson(distinct_id=trace.person.distinct_id, label=trace.person_label)
-        if trace.person is not None and trace.person_label is not None
-        else None
-    )
+    person = _to_person(trace.person) if trace.person is not None and trace.person_label is not None else None
     root = contracts.TraceNode(
         id=trace.id,
         kind="trace",

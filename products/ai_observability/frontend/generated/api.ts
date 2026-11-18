@@ -192,12 +192,15 @@ import type {
     TraceNodeParserTestRequestApi,
     TraceNodeRawApi,
     TracePageRequestApi,
+    TracePageWithBoundsRequestApi,
+    TracePeopleListApi,
     TracePreviewListApi,
     TracePullRequestLookupApi,
     TraceReviewApi,
     TraceReviewCreateApi,
     TraceReviewStatusApi,
     TraceSearchResultsApi,
+    TraceSentimentListApi,
     TraceSummaryApi,
     TraceSummaryRequestApi,
     TranslateRequestApi,
@@ -1250,6 +1253,26 @@ export const aiObservabilityTracesAvailabilityCreate = async (
     })
 }
 
+export const getAiObservabilityTracesPeopleCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/ai_observability/traces/people/`
+}
+
+/**
+ * The person each trace on a page ran for, labeled by the project's display name properties.
+ */
+export const aiObservabilityTracesPeopleCreate = async (
+    projectId: string,
+    tracePageWithBoundsRequestApi: TracePageWithBoundsRequestApi,
+    options?: RequestInit
+): Promise<TracePeopleListApi> => {
+    return apiMutator<TracePeopleListApi>(getAiObservabilityTracesPeopleCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tracePageWithBoundsRequestApi),
+    })
+}
+
 export const getAiObservabilityTracesPreviewsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/ai_observability/traces/previews/`
 }
@@ -1267,6 +1290,26 @@ export const aiObservabilityTracesPreviewsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(tracePageRequestApi),
+    })
+}
+
+export const getAiObservabilityTracesSentimentCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/ai_observability/traces/sentiment/`
+}
+
+/**
+ * The sentiment of each trace on a page, from its sentiment evaluation results.
+ */
+export const aiObservabilityTracesSentimentCreate = async (
+    projectId: string,
+    tracePageWithBoundsRequestApi: TracePageWithBoundsRequestApi,
+    options?: RequestInit
+): Promise<TraceSentimentListApi> => {
+    return apiMutator<TraceSentimentListApi>(getAiObservabilityTracesSentimentCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tracePageWithBoundsRequestApi),
     })
 }
 
