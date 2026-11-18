@@ -12,6 +12,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
 from products.messaging.backend.facade.contracts import (
@@ -45,6 +46,18 @@ DEFAULT_LIST_DAYS = 7
 _CLOCK_SKEW = timedelta(minutes=5)
 
 
+@frozen
+class _SendKey:
+    invocation_id: str
+    action_id: str
+
+
+@frozen
+class _Window:
+    start: datetime
+    end: datetime
+
+
 def engagement_events_enabled(team: Team) -> bool:
     return team.workflows_config.capture_workflows_engagement_events
 
@@ -59,7 +72,7 @@ def _query(team: Team, user: User | None, query: str, placeholders: dict[str, as
 
 def _follow_ups(
     team: Team, user: User | None, invocation_ids: list[str], start: datetime, end: datetime
-) -> dict[tuple[str, str], set[EmailLogEventKind]]:
+) -> dict[_SendKey, set[EmailLogEventKind]]:
     if not invocation_ids:
         return {}
     # Broadcast engagement names the batch job as its workflow, so follow-ups are matched by run, not workflow.
@@ -82,7 +95,10 @@ def _follow_ups(
         },
         "workflow_email_follow_ups",
     )
-    return {(str(inv), str(act or "")): {FOLLOW_UP_EVENTS[event] for event in events} for inv, act, events in rows}
+    return {
+        _SendKey(invocation_id=str(inv), action_id=str(act or "")): {FOLLOW_UP_EVENTS[event] for event in events}
+        for inv, act, events in rows
+    }
 
 
 def _status(send_kind: EmailLogEventKind, follow_ups: set[EmailLogEventKind]) -> EmailDeliveryStatus:
@@ -169,18 +185,21 @@ def list_workflow_emails(
         else {}
     )
     return WorkflowEmailPage(
-        sends=[_send(row, follow_ups.get((str(row[0]), str(row[1] or "")), set())) for row in shown],
+        sends=[
+            _send(row, follow_ups.get(_SendKey(invocation_id=str(row[0]), action_id=str(row[1] or "")), set()))
+            for row in shown
+        ],
         has_more=len(rows) > limit,
         engagement_events_enabled=engagement_events_enabled(team),
     )
 
 
-def _run_window(invocation_id: UUID, now: datetime) -> tuple[datetime, datetime]:
+def _run_window(invocation_id: UUID, now: datetime) -> _Window:
     # Run ids are UUIDT or UUIDv7, both of which start with the creation time in milliseconds.
     started = datetime.fromtimestamp((invocation_id.int >> 80) / 1000, tz=UTC)
     if not now - timedelta(days=365 * 5) < started < now + _CLOCK_SKEW:
         started = now - timedelta(days=MAX_RUN_DAYS)
-    return started - _CLOCK_SKEW, min(started + timedelta(days=MAX_RUN_DAYS), now + _CLOCK_SKEW)
+    return _Window(start=started - _CLOCK_SKEW, end=min(started + timedelta(days=MAX_RUN_DAYS), now + _CLOCK_SKEW))
 
 
 def get_workflow_email(
@@ -193,7 +212,7 @@ def get_workflow_email(
 ) -> WorkflowEmailDetail | None:
     """One send with its timeline, or None when the project has no such send or the reader can't see its workflow."""
     now = datetime.now(UTC)
-    start, end = _run_window(invocation_id, now)
+    window = _run_window(invocation_id, now)
     placeholders: dict[str, ast.Expr] = {
         "invocation_id": ast.Constant(value=str(invocation_id)),
         "action_id": ast.Constant(value=action_id),
@@ -214,8 +233,8 @@ def get_workflow_email(
         {
             **placeholders,
             "events": ast.Constant(value=list(SEND_EVENTS)),
-            "start": ast.Constant(value=start),
-            "end": ast.Constant(value=end),
+            "start": ast.Constant(value=window.start),
+            "end": ast.Constant(value=window.end),
         },
         "workflow_email_send",
     )
