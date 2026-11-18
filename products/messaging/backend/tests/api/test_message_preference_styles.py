@@ -36,11 +36,13 @@ _SCRIPT_UTILITIES = frozenset(
         "bg-red-500",
         "duration-500",
         "ease-out",
-        "mt-2",
+        "fixed",
         "px-6",
         "py-4",
-        "text-amber-700",
+        "right-4",
+        "text-amber-600",
         "text-white",
+        "top-4",
         "transform",
     }
 )
