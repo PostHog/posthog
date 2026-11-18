@@ -1,4 +1,4 @@
-import { HtmlOpeningTag, findAttribute } from './html-attributes'
+import { HrefAnchor } from './href-anchors'
 
 export const WORKFLOW_RUN_PARAM = 'ph_workflow_run'
 
@@ -13,11 +13,8 @@ export const hasSesNoTrack = (openingTag: string): boolean => SES_NO_TRACK_ATTR_
 export const isNeverClickTracked = (openingTag: string): boolean =>
     hasClickTrackingOptOut(openingTag) || hasSesNoTrack(openingTag)
 
-export const hasClickTrackingOptOutAttribute = (tag: HtmlOpeningTag): boolean =>
-    findAttribute(tag, 'data-ph-no-track') !== undefined ||
-    findAttribute(tag, 'clicktracking')?.value?.toLowerCase() === 'off'
-
-export const hasSesNoTrackAttribute = (tag: HtmlOpeningTag): boolean => findAttribute(tag, 'ses:no-track') !== undefined
+export const hasClickTrackingOptOutAttribute = (anchor: HrefAnchor): boolean =>
+    anchor.attribute('data-ph-no-track') !== undefined || /^off$/i.test(anchor.attribute('clicktracking')?.value ?? '')
 
 const paramName = (param: string): string => {
     const name = param.split('=')[0]

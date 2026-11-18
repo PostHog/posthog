@@ -37,6 +37,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
+import { anchorHrefs } from '~/tests/helpers/html'
 import { pinDate } from '~/tests/helpers/pin-date'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 
@@ -231,7 +232,7 @@ describe('EmailTrackingService', () => {
                 [
                     'an unclosed anchor before a closed one',
                     '<a href="https://example.com/a">a<a href="https://example.com/b">b</a>',
-                    '<a href="https://example.com/a" ses:tags="phl:0">a<a href="https://example.com/b">b</a>',
+                    '<a href="https://example.com/a" ses:tags="phl:0">a<a href="https://example.com/b" ses:tags="phl:1">b</a>',
                 ],
                 [
                     'a named anchor after a link',
@@ -246,7 +247,47 @@ describe('EmailTrackingService', () => {
                 [
                     'an anchor that never closes',
                     '<a href="https://example.com/a">a',
-                    '<a href="https://example.com/a">a',
+                    '<a href="https://example.com/a" ses:tags="phl:0">a',
+                ],
+                [
+                    'an end tag with a space before an opted-out link',
+                    '<a href="https://example.com/a">a</a ><a href="https://example.com/b" data-ph-no-track>b</a>',
+                    '<a href="https://example.com/a" ses:tags="phl:0">a</a ><a href="https://example.com/b" data-ph-no-track ses:no-track>b</a>',
+                ],
+                [
+                    'a quote in a comment before an opted-out link',
+                    '<!-- <a title=" --><a href="https://example.com/" data-ph-no-track>a</a>',
+                    '<!-- <a title=" --><a href="https://example.com/" data-ph-no-track ses:no-track>a</a>',
+                ],
+                [
+                    'a link in an Outlook conditional comment',
+                    '<!--[if mso]><a href="https://example.com/a">a</a><![endif]--><a href="https://example.com/b">b</a>',
+                    '<!--[if mso]><a href="https://example.com/a" ses:tags="phl:0">a</a><![endif]--><a href="https://example.com/b" ses:tags="phl:1">b</a>',
+                ],
+                [
+                    'an empty unquoted last value on an opted-out link',
+                    '<a href="https://example.com/" data-ph-no-track title=>a</a>',
+                    '<a href="https://example.com/" data-ph-no-track title="" ses:no-track>a</a>',
+                ],
+                [
+                    'an empty unquoted last value before a space',
+                    '<a href="https://example.com/" title= >a</a>',
+                    '<a href="https://example.com/" title="" ses:tags="phl:0">a</a>',
+                ],
+                [
+                    'a character reference in clicktracking',
+                    '<a href="https://example.com/" clicktracking="o&#102;f">a</a>',
+                    '<a href="https://example.com/" clicktracking="o&#102;f" ses:no-track>a</a>',
+                ],
+                [
+                    'a Kelvin sign in an author ses:no-track',
+                    '<a href="https://example.com/" data-ph-no-track ses:no-trac\u212a>a</a>',
+                    '<a href="https://example.com/" data-ph-no-track ses:no-trac\u212a ses:no-track>a</a>',
+                ],
+                [
+                    'a Kelvin sign in data-ph-no-track',
+                    '<a href="https://example.com/" data-ph-no-trac\u212a>a</a>',
+                    '<a href="https://example.com/" data-ph-no-trac\u212a ses:tags="phl:0">a</a>',
                 ],
                 [
                     'a tag that only starts with a',
@@ -550,7 +591,7 @@ describe('EmailTrackingService', () => {
                         { functionId: hogFunction.id, id: invocationId, teamId: team.id, state: {} } as any,
                         signer
                     )
-                    const link = new URL(html.match(/href="([^"]+\/public\/m\/redirect[^"]+)"/)![1])
+                    const link = new URL(anchorHrefs(html)[0]!)
 
                     const res = await supertest(app).get(`${link.pathname}${link.search}`)
 

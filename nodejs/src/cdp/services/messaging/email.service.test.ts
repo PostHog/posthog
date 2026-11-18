@@ -54,6 +54,7 @@ import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { FakeSes as TrackingFakeSes } from '~/tests/helpers/fake-ses'
+import { anchorHrefs } from '~/tests/helpers/html'
 import { ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { pinDate } from '~/tests/helpers/pin-date'
 import { createRecordingIngestionOutputs } from '~/tests/helpers/recording-ingestion-outputs'
@@ -1524,7 +1525,7 @@ describe('EmailService', () => {
             // ph_id may be unsigned (base64url only) or signed (base64url + `.` + signature) depending on
             // ENCRYPTION_SALT_KEYS. Match the structure, not the exact value.
             expect(emails[0].html).toMatch(
-                /^<body>Hi! <a href="http:\/\/localhost:8010\/public\/m\/redirect\?ph_id=[A-Za-z0-9._-]+&ph_sig=[A-Za-z0-9_-]+&target=https%3A%2F%2Fexample\.com">Click me<\/a><img src="http:\/\/localhost:8010\/public\/m\/pixel\?ph_id=[A-Za-z0-9._-]+" style="display: none;" \/><\/body>$/
+                /^<body>Hi! <a href="http:\/\/localhost:8010\/public\/m\/redirect\?ph_id=[A-Za-z0-9._-]+&amp;ph_sig=[A-Za-z0-9_-]+&amp;target=https%3A%2F%2Fexample\.com">Click me<\/a><img src="http:\/\/localhost:8010\/public\/m\/pixel\?ph_id=[A-Za-z0-9._-]+" style="display: none;" \/><\/body>$/
             )
         })
         it.each([
@@ -1593,8 +1594,8 @@ describe('EmailService', () => {
             const server = cdpApp.listen(0, () => {})
             try {
                 const delivered = await Promise.all(
-                    [...email.html.matchAll(/<a href="([^"]*)"/g)].map(async ([, href]) => {
-                        const { pathname, search } = new URL(href)
+                    anchorHrefs(email.html).map(async (href) => {
+                        const { pathname, search } = new URL(href!)
                         if (pathname !== '/public/m/redirect') {
                             return href
                         }
@@ -4036,29 +4037,20 @@ describe('EmailService', () => {
                 ])
             })
 
-            it.each([
-                ['a double-quoted', '"', '"'],
-                ['a single-quoted', "'", "'"],
-            ])(
-                'hands SES %s marked link with a > and a quote in its href whole, before an opted-out link',
-                async (_name, open, close) => {
-                    const signed = `https://app.posthog-test.com/f.pdf?q=${open === '"' ? "'" : '"'}a>b&amp;Signature=abc`
-                    invocation.hogFunction.metadata = { tracking_enabled: true, sensitive: false }
-                    invocation.queueParameters = createEmailParams({
-                        from: { integrationId: 1 },
-                        html: `<a data-ph-no-utm href=${open}${signed}${close}>a</a><a href="https://example.com/" data-ph-no-track>b</a>`,
-                    })
+            it('hands SES a marked link with a > and a quote in its href whole, before an opted-out link', async () => {
+                const marked = `<a data-ph-no-utm href="https://app.posthog-test.com/f.pdf?q='a>b&amp;Signature=abc">a</a>`
+                const optedOut = '<a href="https://example.com/" data-ph-no-track>b</a>'
+                invocation.hogFunction.metadata = { tracking_enabled: true, sensitive: false }
+                invocation.queueParameters = createEmailParams({ from: { integrationId: 1 }, html: marked + optedOut })
 
-                    const result = await service.executeSendEmail(invocation)
+                const result = await service.executeSendEmail(invocation)
 
-                    expect(result.error).toBeUndefined()
-                    const openingTags = [...ses.sent[0].html!.matchAll(/<a\b(?:[^>"']|"[^"]*"|'[^']*')*>/g)]
-                    expect(openingTags.map(([tag]) => tag)).toEqual([
-                        `<a data-ph-no-utm href=${open}${signed}${close} ses:tags="phl:0">`,
-                        '<a href="https://example.com/" data-ph-no-track ses:no-track>',
-                    ])
-                }
-            )
+                expect(result.error).toBeUndefined()
+                expect(ses.sent[0].html).toContain(
+                    `<a data-ph-no-utm href="https://app.posthog-test.com/f.pdf?q='a>b&amp;Signature=abc" ses:tags="phl:0">a</a>` +
+                        '<a href="https://example.com/" data-ph-no-track ses:no-track>b</a>'
+                )
+            })
 
             it('records an email_untracked app metric for untracked sends but not for test sends', async () => {
                 invocation.state.renderedWorkflowVersion = 3

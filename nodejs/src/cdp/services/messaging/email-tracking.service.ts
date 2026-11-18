@@ -27,9 +27,8 @@ import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitor
 import { EmailStatusService } from './email-status.service'
 import { EmailSuppressionService } from './email-suppression.service'
 import { escapeHtml } from './helpers/escape-html'
-import { replaceHrefAnchors } from './helpers/href-anchors'
-import { HtmlOpeningTag, findAttribute, withAttribute } from './helpers/html-attributes'
-import { hasClickTrackingOptOutAttribute, hasSesNoTrackAttribute } from './helpers/link-tags'
+import { editHrefAnchors } from './helpers/href-anchors'
+import { hasClickTrackingOptOutAttribute } from './helpers/link-tags'
 import { SES_LINK_INDEX_TAG, SesWebhookHandler } from './helpers/ses'
 import { SnsEnvelope } from './helpers/sns-envelope'
 import { EmailTrackingCodeSigner, trackingCodeFormatCounter } from './helpers/tracking-code'
@@ -48,21 +47,6 @@ export const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAA
  * per-send URL that the Click event then reports verbatim.
  */
 export type EmailTrackingMode = 'redirect' | 'ses'
-
-const withSesLinkIndexTag = (anchor: string, tag: HtmlOpeningTag, linkIndex: number): string => {
-    const linkTag = `${SES_LINK_INDEX_TAG}:${linkIndex}`
-    const existing = findAttribute(tag, 'ses:tags')
-    if (!existing) {
-        return withAttribute(anchor, tag, `ses:tags="${linkTag}"`)
-    }
-    // An HTML parser keeps only the first of two same-named attributes, so emitting a second
-    // `ses:tags` would silently discard whichever set loses. Merge into the author's existing
-    // value instead so both their tags and ours reach SES. SES separates pairs with `;` and
-    // allows only `0-9 A-Z a-z - _` in a value, so any other separator makes one malformed tag.
-    const value = (existing.value ?? '').replaceAll('"', '&quot;')
-    const merged = `ses:tags="${value ? `${value};` : ''}${linkTag}"`
-    return anchor.slice(0, existing.start) + merged + anchor.slice(existing.end)
-}
 
 const trackingEventsCounter = new Counter({
     name: 'email_tracking_events_total',
@@ -227,19 +211,18 @@ export const addTrackingToEmail = (
     // a click-tracking redirect unless the send turns clicks on. Opens and deliveries are still tracked.
     const allLinksOptedOut = !(invocation.state?.send?.tracking.clicks ?? !isSensitiveMessage(invocation))
 
-    html = replaceHrefAnchors(html, ({ html: m, href: rawHref, hrefAttribute, openingTag }) => {
+    html = editHrefAnchors(html, (anchor) => {
         const linkIndex = anchorIndex++
-        const href = decodeHtmlEntitiesInHref(rawHref)
-        // The anchor scan skips literal `javascript:` hrefs, but an attacker could entity-encode
-        // the scheme (e.g. `java&#x73;cript:`) to slip past it; re-check after decoding.
-        if (isJavascriptHref(href)) {
-            return m
+        // The anchor scan skips `javascript:` hrefs, but a browser also strips leading whitespace and control
+        // characters before it reads the scheme.
+        if (isJavascriptHref(anchor.href)) {
+            return null
         }
         // Per-link opt-out. Leaves the href on its own domain so mobile universal links /
         // app deeplinks resolve - routing through our cross-domain redirect breaks them.
         // Read only the attributes of the opening <a> tag so a marker in the link's inner HTML
         // or inside another attribute's value can't silently disable tracking.
-        const optedOut = allLinksOptedOut || hasClickTrackingOptOutAttribute(openingTag)
+        const optedOut = allLinksOptedOut || hasClickTrackingOptOutAttribute(anchor)
 
         if (mode === 'ses') {
             // SES rewrites every http(s) anchor once click tracking is on, and it honors only its
@@ -247,18 +230,21 @@ export const addTrackingToEmail = (
             // keeps a universal link or app deeplink off awstrack.me; leaving the href alone (the
             // `redirect` mode's opt-out) does nothing here.
             if (optedOut) {
-                return hasSesNoTrackAttribute(openingTag) ? m : withAttribute(m, openingTag, 'ses:no-track')
+                return anchor.attribute('ses:no-track') ? null : { name: 'ses:no-track', value: null }
             }
-            return withSesLinkIndexTag(m, openingTag, linkIndex)
+            // An HTML parser keeps only the first of two same-named attributes, so a second `ses:tags` would
+            // silently discard whichever set loses. Merging keeps both the author's tags and ours. SES separates
+            // pairs with `;` and allows only `0-9 A-Z a-z - _` in a value, so any other separator makes one
+            // malformed tag.
+            const linkTag = `${SES_LINK_INDEX_TAG}:${linkIndex}`
+            const authorTags = anchor.attribute('ses:tags')?.value
+            return { name: 'ses:tags', value: authorTags ? `${authorTags};${linkTag}` : linkTag }
         }
 
         if (optedOut) {
-            return m
+            return null
         }
-        const tracked = signer.redirectUrl(trackingInvocation, href, isTest)
-
-        // Replace just the href a browser follows, so every other attribute stays as written.
-        return m.slice(0, hrefAttribute.start) + `href="${tracked}"` + m.slice(hrefAttribute.end)
+        return { name: 'href', value: signer.redirectUrl(trackingInvocation, anchor.href, isTest) }
     })
 
     html = html.replace('</body>', `${openPixelTag(trackingUrl)}</body>`)
