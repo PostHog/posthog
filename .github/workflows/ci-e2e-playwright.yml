@@ -1139,6 +1139,8 @@ jobs:
             # --output and --reporter keep the main run's test-results/, junit file, and html report intact.
             # The quarantine reporter stays so that a `mode: "run"` entry in .test_quarantine.json still applies.
             # With no failed test ids, --last-failed runs the whole suite. The step skips in that case.
+            # Playwright writes .last-run.json at the end of every run. A missing or unreadable file means
+            # that the write failed. The step then fails because it cannot tell which tests to rerun.
             - name: Rerun failures the quarantine masked
               id: quarantine_rerun
               continue-on-error: true
@@ -1147,7 +1149,12 @@ jobs:
               shell: bash
               run: |
                   last_run=playwright/test-results/.last-run.json
-                  if ! jq -e '.failedTests | length > 0' "$last_run" >/dev/null 2>&1; then
+                  failed=$(jq '.failedTests | if type == "array" then length else error("no failedTests array") end' "$last_run") || failed=
+                  if [[ ! "$failed" =~ ^[0-9]+$ ]]; then
+                      echo "::error::Could not read the failed tests from $last_run, so the masked failures cannot be rerun."
+                      exit 1
+                  fi
+                  if [ "$failed" -eq 0 ]; then
                       echo "No failed test in $last_run, so there is nothing to rerun."
                       exit 0
                   fi
