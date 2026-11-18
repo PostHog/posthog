@@ -1,0 +1,63 @@
+import { PropertyFilterType, PropertyOperator } from '~/types'
+
+import { MeasureEnumApi } from 'products/alerts_platform/frontend/generated/api.schemas'
+import { buildTargetPresetForm } from 'products/tracing/frontend/alerting/tracesAlertPresets'
+import { toWritePayload, validateForm } from 'products/tracing/frontend/alerting/tracesAlertUtils'
+
+import { endpointAlertTarget, serviceAlertTarget } from './alertPresets'
+import type { EndpointHealthApi, ServiceHealthApi } from './generated/api.schemas'
+
+const health = { request_rate: 2, error_rate: 0.04, p95_ms: 400, span_count: 1000, error_count: 40 }
+
+const SERVICE_ROW: ServiceHealthApi = {
+    service_name: 'checkout-api',
+    environment: 'production',
+    status: 'warning',
+    health,
+    sparkline: [1, 2],
+}
+
+const ENDPOINT_ROW: EndpointHealthApi = {
+    service_name: 'checkout-api',
+    endpoint: 'POST /cart',
+    environment: 'production',
+    status: 'warning',
+    health,
+}
+
+const ENDPOINT_FILTER = {
+    type: 'AND',
+    values: [
+        {
+            type: 'AND',
+            values: [
+                { type: PropertyFilterType.Span, key: 'name', operator: PropertyOperator.Exact, value: ['POST /cart'] },
+            ],
+        },
+    ],
+}
+
+describe('APM alert presets', () => {
+    it.each([
+        ['service', serviceAlertTarget(SERVICE_ROW), null, 'checkout-api: p95 latency'],
+        ['endpoint', endpointAlertTarget(ENDPOINT_ROW), ENDPOINT_FILTER, 'checkout-api POST /cart: p95 latency'],
+    ])('scopes a %s row alert to that row', (_, target, filterGroup, name) => {
+        const form = buildTargetPresetForm(target, 'p95_latency')
+
+        expect(validateForm(form)).toEqual({})
+        const payload = toWritePayload(form)
+        expect(payload.name).toBe(name)
+        expect(payload.source_config).toEqual({
+            filters: { serviceNames: ['checkout-api'], filterGroup },
+            condition: expect.objectContaining({ measure: MeasureEnumApi.Latency, percentile: 95, threshold: 600 }),
+        })
+    })
+
+    it('sets the error rate threshold from the row error count', () => {
+        const payload = toWritePayload(buildTargetPresetForm(serviceAlertTarget(SERVICE_ROW), 'error_rate'))
+
+        expect(payload.source_config.condition).toEqual(
+            expect.objectContaining({ measure: MeasureEnumApi.ErrorRate, threshold: 0.06 })
+        )
+    })
+})

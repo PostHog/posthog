@@ -4,13 +4,22 @@ import { LemonBanner, LemonInput, LemonSelect, LemonTable, LemonTableColumns, Li
 
 import { urls } from 'scenes/urls'
 
+import type { TracesAlertFormType } from 'products/tracing/frontend/alerting/tracesAlertUtils'
+
+import { AlertOnThisMenu } from './AlertOnThisMenu'
+import { endpointAlertTarget } from './alertPresets'
 import { applicationObservabilityLogic } from './applicationObservabilityLogic'
 import { EndpointTimeSpent } from './EndpointTimeSpent'
 import type { EndpointHealthApi } from './generated/api.schemas'
 import { healthColumns } from './healthColumns'
 import { TelemetryLinks } from './TelemetryLinks'
 
-export function EndpointsTab(): JSX.Element {
+export interface EndpointsTabProps {
+    /** Absent when traces alerts are off, which hides the row menu. */
+    onCreateAlert?: (form: TracesAlertFormType) => void
+}
+
+export function EndpointsTab({ onCreateAlert }: EndpointsTabProps): JSX.Element {
     const {
         endpoints,
         filteredEndpoints,
@@ -59,6 +68,21 @@ export function EndpointsTab(): JSX.Element {
                 </span>
             ),
         },
+        ...(onCreateAlert
+            ? [
+                  {
+                      key: 'actions',
+                      width: 0,
+                      render: (_: unknown, row: EndpointHealthApi) => (
+                          <AlertOnThisMenu
+                              target={endpointAlertTarget(row)}
+                              source="endpoints"
+                              onCreateAlert={onCreateAlert}
+                          />
+                      ),
+                  },
+              ]
+            : []),
     ]
 
     return (
