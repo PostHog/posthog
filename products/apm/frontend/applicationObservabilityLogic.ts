@@ -94,9 +94,9 @@ export interface applicationObservabilityLogicValues {
     filteredEndpoints: EndpointHealthApi[]
     filteredServices: ServiceHealthApi[]
     hasLoadError: boolean
-    search: string
     paused: boolean
     refreshing: boolean
+    search: string
     selectedMapService: ServiceHealthApi | null
     selectedMapServiceName: string | null
     serviceMap: ServiceMapResponseApi | null
@@ -206,11 +206,11 @@ export interface applicationObservabilityLogicActions {
     setEnvironment: (environment: string | null) => {
         environment: string | null
     }
-    setSearch: (search: string) => {
-        search: string
-    }
     setPaused: (paused: boolean) => {
         paused: boolean
+    }
+    setSearch: (search: string) => {
+        search: string
     }
     setSelectedMapService: (service: string | null) => {
         service: string | null
