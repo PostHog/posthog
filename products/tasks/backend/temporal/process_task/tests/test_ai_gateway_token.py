@@ -609,6 +609,7 @@ class TestMintableGate:
             ("autoresearch", True),
             ("business_knowledge", True),
             ("context_layer", True),
+            ("knowledge_writer", True),
             ("task_analysis", True),
             ("image_builder", False),
             ("user_created", False),
@@ -1846,12 +1847,20 @@ class TestPosthogCodeSandboxMint:
             "zai-org/glm-5.2",
             "deepseek-ai/deepseek-v4-flash-0731",
             "moonshotai/kimi-k3",
+            "moonshotai/kimi-k3.1-pro",
             "zai-org/glm-5.3-flash",
         ]
         assert _PRODUCT_ALLOWED_MODELS[FREE_TIER_PIN_KEY] == FREE_TIER_MODELS
 
     @pytest.mark.parametrize(
-        "model", ["@cf/zai-org/glm-5.2", "zai-org/glm-5.2", "zai-org/glm-5.3-flash", "moonshotai/kimi-k3"]
+        "model",
+        [
+            "@cf/zai-org/glm-5.2",
+            "zai-org/glm-5.2",
+            "zai-org/glm-5.3-flash",
+            "moonshotai/kimi-k3",
+            "moonshotai/kimi-k3.1-pro",
+        ],
     )
     def test_free_pin_admits_each_free_tier_spelling(self, model):
         assert model_allowed_by_pin(FREE_TIER_MODELS, model)

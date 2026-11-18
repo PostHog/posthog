@@ -145,6 +145,14 @@ describe('metricsViewerLogic', () => {
         }
     )
 
+    it('drops a histogram count rate when the metric changes to one without buckets', () => {
+        logic.actions.setMetricName('request_duration')
+        logic.actions.setAggregation('count_rate')
+        expect(logic.values.queryPayload?.clauses?.[0]).toMatchObject({ aggregation: 'count_rate' })
+        logic.actions.setMetricName('queue_depth')
+        expect(logic.values.aggregation).toBeNull()
+    })
+
     // The backend rejects a histogram percentile after a range function, so the later pick replaces the earlier one.
     it.each<[string, () => void, string | null, string | null]>([
         [
@@ -157,6 +165,24 @@ describe('metricsViewerLogic', () => {
             'histogram_p99',
         ],
         ['a range function after a histogram percentile', () => logic.actions.setRangeFunction('rate'), 'rate', null],
+        [
+            'a histogram count rate after a range function',
+            () => {
+                logic.actions.setRangeFunction('increase')
+                logic.actions.setAggregation('count_rate')
+            },
+            null,
+            'count_rate',
+        ],
+        [
+            'a range function after a histogram count rate',
+            () => {
+                logic.actions.setAggregation('count_rate')
+                logic.actions.setRangeFunction('rate')
+            },
+            'rate',
+            null,
+        ],
     ])('picking %s drops the other operation', (_name, pick, rangeFunction, aggregation) => {
         logic.actions.setMetricName('request_duration')
         pick()
@@ -188,6 +214,7 @@ describe('metricsViewerLogic', () => {
         ['queue_depth', null, 'sum'],
         ['request_duration', null, 'histogram_p95'],
         ['request_duration', 'rate', 'sum'],
+        ['posthog.derived.spans.apdex', null, 'avg'],
     ])(
         'adds an aggregation when grouping %s with range function %s and no aggregation: %s',
         (metricName, rangeFunction, expected) => {
@@ -1217,6 +1244,7 @@ describe('isBuilderCompatibleQuery', () => {
         ['a scoped filter', queryWith({ filters: [{ key: 'k', op: 'eq', value: 'v', scope: 'resource' }] }), false],
         ['a scoped group-by', queryWith({ groupBy: [{ key: 'k', scope: 'attribute' }] }), false],
         ['auto scopes', queryWith({ filters: [{ key: 'k', op: 'eq', value: 'v', scope: 'auto' }] }), true],
+        ['an Apdex threshold', queryWith({ aggregation: 'avg', apdexThresholdMs: 200 }), false],
     ])('%s', (_name, query, expected) => {
         expect(isBuilderCompatibleQuery(query)).toBe(expected)
     })

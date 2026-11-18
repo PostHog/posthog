@@ -2,6 +2,8 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
+import { urls } from 'scenes/urls'
+
 import { applicationObservabilityLogic } from './applicationObservabilityLogic'
 import type { ServiceEdgeApi } from './generated/api.schemas'
 import { formatMs, formatPercent, formatRate } from './healthDisplay'
@@ -36,7 +38,7 @@ function CallList({
 }
 
 export function ServiceMapDetails(): JSX.Element | null {
-    const { selectedMapServiceName, selectedMapService, serviceMap, timeRange } =
+    const { selectedMapServiceName, selectedMapService, serviceMap, timeRange, environment } =
         useValues(applicationObservabilityLogic)
     const { setSelectedMapService, showServiceEndpoints } = useActions(applicationObservabilityLogic)
 
@@ -85,7 +87,13 @@ export function ServiceMapDetails(): JSX.Element | null {
                 edges={edges.filter((edge) => edge.caller === selectedMapServiceName)}
                 peer="callee"
             />
-            <div className="flex gap-2 text-xs">
+            <div className="flex flex-wrap gap-2 text-xs">
+                <Link
+                    to={urls.applicationObservabilityService(selectedMapServiceName, { range: timeRange, environment })}
+                    data-attr="apm-map-service-page"
+                >
+                    Service page
+                </Link>
                 <Link onClick={() => showServiceEndpoints(selectedMapServiceName)} data-attr="apm-map-endpoints">
                     Endpoints
                 </Link>
