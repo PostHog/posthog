@@ -87,8 +87,9 @@ from products.tasks.backend.metrics import (
 )
 from products.tasks.backend.pr_urls import read_pr_urls
 from products.tasks.backend.redis import dedicated_stream_configured, run_uses_dedicated_stream
+from products.tasks.backend.run_log import TaskRunLog
 from products.tasks.backend.run_options import RunSettings, apply_run_options, run_options_record, validate_run_options
-from products.tasks.backend.storage import append_jsonl_object
+from products.tasks.backend.storage import append_jsonl_object, read_run_log
 from products.tasks.backend.task_sources import apply_task_source, idempotency_key_startswith_q
 
 logger = structlog.get_logger(__name__)
@@ -3251,6 +3252,10 @@ class TaskRun(models.Model):
         """Generate the S3 path for this run's logs."""
         return f"{self.get_task_s3_prefix()}/run_{self.id}.jsonl"
 
+    @property
+    def log(self) -> TaskRunLog:
+        return TaskRunLog(key=self.log_url)
+
     def get_task_s3_prefix(self) -> str:
         """Base prefix for task-scoped objects in S3."""
         tasks_folder = settings.OBJECT_STORAGE_TASKS_FOLDER
@@ -3877,7 +3882,7 @@ class TaskRun(models.Model):
     def _log_tail_is_conversation_cleared(self) -> bool:
         # Reads the whole object because S3 offers no cheap tail read; clears are rare
         # and the subsequent append re-reads it anyway.
-        content = object_storage.read(self.log_url, missing_ok=True) or ""
+        content = read_run_log(self.log)
         last_line = content.strip().rsplit("\n", 1)[-1]
         if not last_line:
             return False

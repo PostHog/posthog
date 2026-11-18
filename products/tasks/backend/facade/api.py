@@ -245,6 +245,7 @@ from products.tasks.backend.run_options import (
     run_options_record as run_options_record,
     validate_run_options as validate_run_options,
 )
+from products.tasks.backend.storage import read_run_log, read_run_log_size
 from products.tasks.backend.task_done import (
     TaskDoneError as TaskDoneError,
     check_wake as check_wake,
@@ -464,7 +465,7 @@ __all__ = [
     "read_task_run_living_artifact_version",
     "sandbox_token_has_open_network",
     "is_html_artifact",
-    "get_task_run_log_urls",
+    "get_task_run_logs",
     "get_task_run_log_size",
     "read_task_run_log_content",
     "read_task_run_conversation_logs",
@@ -5732,10 +5733,10 @@ def report_task_analysis_activity(
 
 def read_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:
     """Concatenated JSONL logs across the run's resume chain (oldest ancestor first)."""
-    log_urls = get_task_run_log_urls(run_id, task_id, team_id)
-    if log_urls is None:
+    logs = get_task_run_logs(run_id, task_id, team_id)
+    if logs is None:
         return None
-    return read_task_run_log_content(log_urls)
+    return read_task_run_log_content(logs)
 
 
 _MARK_WATCHED_REDIS_TIMEOUT_SECONDS = 0.5
@@ -5813,9 +5814,9 @@ def read_task_run_conversation_logs(run_id: str | UUID, task_id: str | UUID, tea
         return None
     chain = run.get_history_chain()
     if len(chain) < 2 or run.task.runtime != Task.Runtime.PI:
-        return read_task_run_log_content([ancestor.log_url for ancestor in chain])
+        return read_task_run_log_content([ancestor.log for ancestor in chain])
 
-    contents = _TASK_LOG_READ_EXECUTOR.map(lambda ancestor: read_task_run_log_content([ancestor.log_url]), chain)
+    contents = _TASK_LOG_READ_EXECUTOR.map(lambda ancestor: read_task_run_log_content([ancestor.log]), chain)
     parts: list[str] = []
     for ancestor, content in zip(chain, contents):
         marker = {
@@ -5832,20 +5833,17 @@ def read_task_run_conversation_logs(run_id: str | UUID, task_id: str | UUID, tea
 _LOG_PART_SUMMARY_CACHE_SECONDS = 24 * 60 * 60
 
 
-def _conversation_log_part_summary(log_url: str, entries: Callable[[], list[str]]) -> LogPartSummary:
+def _conversation_log_part_summary(log: contracts.TaskRunLog, entries: Callable[[], list[str]]) -> LogPartSummary:
     """A run log's summary, cached under one key per log with the object size it was made from. A log only grows,
     so its size identifies its content, and a new size replaces the old summary. The cache is an optimization: a
     cache error counts as a miss, and the summary comes from the log itself."""
     from django.core.cache import cache  # noqa: PLC0415 — keep cache setup off the api import path
 
-    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
-
-    head = object_storage.head_object(log_url)
-    size = int(head.get("ContentLength", 0)) if head else 0
+    size = read_run_log_size(log, strict=False)
     if not size:
         return summarize_log_part(entries())
     # The cache pickles values, so it holds only a JSON string: the object size, then the summary.
-    key = f"tasks:log-part-summary:v5:{hashlib.sha256(log_url.encode()).hexdigest()}"
+    key = f"tasks:log-part-summary:v5:{hashlib.sha256(log.key.encode()).hexdigest()}"
     try:
         cached = cache.get(key)
     except Exception:
@@ -5863,23 +5861,22 @@ def _conversation_log_part_summary(log_url: str, entries: Callable[[], list[str]
     return summary
 
 
-def _conversation_log_parts(log_urls: list[str]) -> list[LogPart]:
+def _conversation_log_parts(logs: list[contracts.TaskRunLog]) -> list[LogPart]:
     """The run logs of a resume chain as slice parts. The summaries load in parallel, and a part's entries load
     only when the slice needs them."""
-    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
 
-    def loader(log_url: str) -> Callable[[], list[str]]:
+    def loader(log: contracts.TaskRunLog) -> Callable[[], list[str]]:
         read: list[list[str]] = []
 
         def entries() -> list[str]:
             if not read:
-                read.append(log_entries(object_storage.read(log_url, missing_ok=True) or ""))
+                read.append(log_entries(read_run_log(log)))
             return read[0]
 
         return entries
 
-    loaders = [loader(log_url) for log_url in log_urls]
-    pairs = list(zip(log_urls, loaders))
+    loaders = [loader(log) for log in logs]
+    pairs = list(zip(logs, loaders))
     if len(pairs) == 1:
         summaries = [_conversation_log_part_summary(*pairs[0])]
     else:
@@ -5911,7 +5908,7 @@ def read_task_run_conversation_log_slice(
             return None
         return contracts.TaskRunLogSliceDTO(content=content, offset=0, count=0, sliced=False)
     chain = run.get_history_chain()
-    parts = _conversation_log_parts([ancestor.log_url for ancestor in chain])
+    parts = _conversation_log_parts([ancestor.log for ancestor in chain])
     if start is not None:
         sliced = slice_log_parts_from(parts, start, tail_bytes)
     else:
@@ -5926,38 +5923,28 @@ def read_task_run_conversation_log_slice(
     )
 
 
-def get_task_run_log_urls(run_id: str | UUID, task_id: str | UUID, team_id: int) -> list[str] | None:
-    """Log URLs across the run's resume chain (oldest ancestor first). ``None`` if the run isn't found."""
+def get_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) -> list[contracts.TaskRunLog] | None:
+    """Logs across the run's resume chain (oldest ancestor first). ``None`` if the run isn't found."""
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
-    return [ancestor.log_url for ancestor in run.get_resume_chain()]
+    return [ancestor.log for ancestor in run.get_resume_chain()]
 
 
-def get_task_run_log_size(log_urls: list[str], *, strict: bool = False) -> int:
-    """Total byte size of the given log objects, without downloading them. Storage-only: safe off the request thread."""
-    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
-
-    def _size(log_url: str) -> int:
-        head = object_storage.head_object_strict(log_url) if strict else object_storage.head_object(log_url)
-        return int(head.get("ContentLength", 0)) if head else 0
-
-    if len(log_urls) == 1:
-        return _size(log_urls[0])
-    return sum(_TASK_LOG_READ_EXECUTOR.map(_size, log_urls))
+def get_task_run_log_size(logs: list[contracts.TaskRunLog], *, strict: bool = False) -> int:
+    """Total byte size of the given logs, without downloading them. Storage-only: safe off the request thread."""
+    if len(logs) == 1:
+        return read_run_log_size(logs[0], strict=strict)
+    return sum(_TASK_LOG_READ_EXECUTOR.map(lambda log: read_run_log_size(log, strict=strict), logs))
 
 
-def read_task_run_log_content(log_urls: list[str]) -> str:
-    """Concatenated JSONL content for the given log URLs. Storage-only: safe off the request thread."""
-    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
-
+def read_task_run_log_content(logs: list[contracts.TaskRunLog]) -> str:
+    """Concatenated JSONL content for the given logs. Storage-only: safe off the request thread."""
     chunks: Iterable[str]
-    if len(log_urls) == 1:
-        chunks = [object_storage.read(log_urls[0], missing_ok=True) or ""]
+    if len(logs) == 1:
+        chunks = [read_run_log(logs[0])]
     else:
-        chunks = _TASK_LOG_READ_EXECUTOR.map(
-            lambda log_url: object_storage.read(log_url, missing_ok=True) or "", log_urls
-        )
+        chunks = _TASK_LOG_READ_EXECUTOR.map(read_run_log, logs)
 
     parts: list[str] = []
     for chunk in chunks:
@@ -6094,7 +6081,7 @@ def read_task_run_history(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return []
-    log_urls = [ancestor.log_url for ancestor in run.get_resume_chain()]
+    logs = [ancestor.log for ancestor in run.get_resume_chain()]
     from products.tasks.backend.logic.stream.redis_stream import (  # noqa: PLC0415 — keep redis off the api import path
         TASK_RUN_STREAM_MAX_LENGTH,
     )
@@ -6106,21 +6093,19 @@ def read_task_run_history(
         and not any(entry.get("event_id") for entry in stream_entries)
         and _holds_user_prompt(stream_entries)
     )
-    if log_urls and get_task_run_log_size(log_urls) > max_bytes:
+    if logs and get_task_run_log_size(logs) > max_bytes:
         return None
     if stream_is_whole_run:
-        earlier_entries = (
-            list(parse_task_run_log_entries(read_task_run_log_content(log_urls[:-1]))) if log_urls[:-1] else []
-        )
+        earlier_entries = list(parse_task_run_log_entries(read_task_run_log_content(logs[:-1]))) if logs[:-1] else []
         # A server notification can reach the log after its live write failed or was skipped for want of a watcher.
         streamed = {_server_notification_key(entry) for entry in stream_entries}
         persisted_only = [
             entry
-            for entry in parse_task_run_log_entries(read_task_run_log_content(log_urls[-1:]))
+            for entry in parse_task_run_log_entries(read_task_run_log_content(logs[-1:]))
             if (key := _server_notification_key(entry)) is not None and key not in streamed
         ]
         return [*earlier_entries, *_merge_by_timestamp(stream_entries, persisted_only)]
-    log_entries = list(parse_task_run_log_entries(read_task_run_log_content(log_urls))) if log_urls else []
+    log_entries = list(parse_task_run_log_entries(read_task_run_log_content(logs))) if logs else []
     if not any(entry.get("event_id") for entry in stream_entries):
         # Without ids the backlog index matches nothing, so the log's catch-up of the stream is cut by position.
         stream_entries = stream_entries[_overlap_with_log_tail(log_entries, stream_entries) :]
