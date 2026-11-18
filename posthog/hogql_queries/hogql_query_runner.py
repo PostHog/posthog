@@ -18,6 +18,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.database.database import Database, remove_product_internal_tables
 from posthog.hogql.database.schema.activity_log_visibility import activity_log_visibility_policy_version
 from posthog.hogql.direct_connection import (
     INVALID_CONNECTION_ID_ERROR,
@@ -33,6 +34,7 @@ from posthog.hogql.parser import CacheOrigin, parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.resolver import resolve_types
+from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.user_query_validator import validate_user_query
 from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import clone_expr
@@ -375,6 +377,11 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             with self.timings.measure("sql_freshness"):
                 self._sql_classification = self._classify_sql_freshness(query)
         return query
+
+    def _create_database(self, *, timings: HogQLTimings | None = None, trigger: str) -> Database:
+        database = super()._create_database(timings=timings, trigger=trigger)
+        remove_product_internal_tables(database)
+        return database
 
     def _calculate(self) -> HogQLQueryResponse:
         tag_contains_user_hogql()

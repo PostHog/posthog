@@ -1,6 +1,5 @@
 from collections.abc import Callable
 from datetime import UTC, date, datetime, time, timedelta
-from uuid import uuid4
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
@@ -11,6 +10,7 @@ from pydantic import ValidationError
 
 from posthog.schema import (
     DateRange,
+    HogQLQuery,
     MCPIntentMapBounds,
     MCPIntentMapQuery,
     MCPIntentTopicsQuery,
@@ -24,6 +24,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
+from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
@@ -41,7 +42,6 @@ from products.mcp_analytics.backend.hogql_queries.intent_topics import (
     MCPToolIntentProfileQueryRunner,
 )
 from products.mcp_analytics.backend.intent_topics.corpus import HourlyCalls
-from products.mcp_analytics.backend.intent_topics.invalidation import freeze_writes
 from products.mcp_analytics.backend.intent_topics.rollups import insert_hourly_calls
 from products.mcp_analytics.backend.models import MCPIntentClusteringRun, MCPIntentTopic
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
@@ -160,20 +160,38 @@ class TestIntentTopicsQuery(_Base):
         assert (topic.previous_share_pct, topic.trend_pp) == (None, None)
 
 
-class TestIntentTopicsCacheFence(_Base):
-    @parameterized.expand([("open", False), ("frozen_by_an_erasure", True)])
-    def test_a_result_is_cached_only_while_intent_writes_are_open(self, _name: str, frozen: bool) -> None:
+class TestIntentResultsAreNeverStored(_Base):
+    @parameterized.expand(
+        [
+            ("blocking", ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE),
+            ("async", ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE),
+            ("forced_async", ExecutionMode.CALCULATE_ASYNC_ALWAYS),
+        ]
+    )
+    def test_every_run_computes_inline_and_caches_nothing(self, _name: str, mode: ExecutionMode) -> None:
         _daily(self.team.pk, TODAY, "query-trends", self.t_insights, 5)
-        if frozen:
-            freeze_writes(self.team, invalidation_id=uuid4())
         query = MCPIntentTopicsQuery(dateRange=WINDOW)
 
-        MCPIntentTopicsQueryRunner(query=query, team=self.team).run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-        second = MCPIntentTopicsQueryRunner(query=query, team=self.team).run(
-            ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
-        )
+        first = MCPIntentTopicsQueryRunner(query=query, team=self.team).run(mode)
+        second = MCPIntentTopicsQueryRunner(query=query, team=self.team).run(mode)
 
-        assert second.is_cached is not frozen
+        # An erasure could not remove a stored copy, so neither run leaves one behind.
+        assert [t.calls for t in first.results] == [5]
+        assert (first.is_cached, second.is_cached) == (False, False)
+
+    @parameterized.expand(
+        [
+            ("assignments", "mcp_intent_assignments"),
+            ("raw_assignments", "raw_mcp_intent_assignments"),
+            ("hourly_rollup", "mcp_intent_calls_hourly"),
+            ("daily_rollup", "mcp_intent_topic_daily"),
+        ]
+    )
+    def test_user_written_hogql_cannot_read_intent_tables(self, _name: str, table: str) -> None:
+        runner = HogQLQueryRunner(query=HogQLQuery(query=f"SELECT count() FROM posthog.{table}"), team=self.team)
+
+        with self.assertRaises(QueryError):
+            runner.calculate()
 
 
 class TestToolIntentProfileQuery(_Base):

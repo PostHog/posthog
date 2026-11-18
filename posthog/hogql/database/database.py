@@ -771,6 +771,20 @@ def _system_table_required_features() -> Mapping[str, str]:
     )
 
 
+# Tables only their own product's query runners and pipelines read. They hold derived copies of
+# event data that an erasure has to remove, so user-written HogQL never sees them.
+PRODUCT_INTERNAL_POSTHOG_TABLES = frozenset(
+    {"raw_mcp_intent_assignments", "mcp_intent_assignments", "mcp_intent_calls_hourly", "mcp_intent_topic_daily"}
+)
+
+
+def remove_product_internal_tables(database: Database) -> None:
+    posthog_node = database.tables.children.get("posthog")
+    if posthog_node is not None:
+        for name in PRODUCT_INTERNAL_POSTHOG_TABLES:
+            posthog_node.children.pop(name, None)
+
+
 def _unentitled_system_tables(team: Team) -> set[str]:
     """System tables the team's organization is not entitled to, hidden from the schema.
 

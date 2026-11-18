@@ -9,7 +9,7 @@ shared property filters.
 
 from collections import defaultdict
 from collections.abc import Iterator
-from contextlib import ExitStack, contextmanager
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import cached_property
@@ -48,7 +48,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.access_control.backend.facade.api import (
@@ -56,12 +56,6 @@ from products.access_control.backend.facade.api import (
     split_restricted_property_names,
 )
 from products.mcp_analytics.backend.hogql_queries.base import mcp_query_date_range, validate_mcp_analytics_access
-from products.mcp_analytics.backend.intent_topics.invalidation import (
-    BarrierSnapshot,
-    IntentWritesFrozen,
-    locked_fill,
-    snapshot_barrier,
-)
 from products.mcp_analytics.backend.intent_topics.labeling import fallback_label
 from products.mcp_analytics.backend.intent_topics.metrics import drift, focus_band, focus_score
 from products.mcp_analytics.backend.intent_topics.persist import latest_refit_started_at, project_team
@@ -224,6 +218,14 @@ LIMIT {limit}
 """
 
 
+_INLINE_EXECUTION_MODES = {
+    ExecutionMode.CALCULATE_ASYNC_ALWAYS: ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+    ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE: ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+    ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS: ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+    ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE: ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+}
+
+
 class _IntentTopicsBase:
     """Shared reads for the runners: per-topic sums for the window and the previous window."""
 
@@ -234,25 +236,19 @@ class _IntentTopicsBase:
     modifiers: Any
     limit_context: Any
 
-    _barrier_snapshot: BarrierSnapshot | None = None
-
     def run(self, *args: Any, **kwargs: Any) -> Any:
-        # Taken before any read, so a result computed before an erasure can never be cached after it.
-        self._barrier_snapshot = snapshot_barrier(self.team)
+        # Intent results are never stored: an async run would persist its result outside the request,
+        # so every run computes inline instead.
+        if args:
+            args = (_INLINE_EXECUTION_MODES.get(args[0], args[0]), *args[1:])
+        elif "execution_mode" in kwargs:
+            kwargs["execution_mode"] = _INLINE_EXECUTION_MODES.get(kwargs["execution_mode"], kwargs["execution_mode"])
         return super().run(*args, **kwargs)  # type: ignore[misc]
 
     @contextmanager
     def _guard_cache_write(self) -> Iterator[bool]:
-        if self._barrier_snapshot is None:
-            yield False
-            return
-        with ExitStack() as stack:
-            try:
-                stack.enter_context(locked_fill(self.team, self._barrier_snapshot))
-            except IntentWritesFrozen:
-                yield False
-                return
-            yield True
+        # A cached result, its S3 copy or an async status could outlive an intent erasure, so none is written.
+        yield False
 
     @cached_property
     def query_date_range(self) -> QueryDateRange:
