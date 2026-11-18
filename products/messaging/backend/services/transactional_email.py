@@ -171,7 +171,7 @@ def _observe_cdp_call(seconds: float) -> None:
 
 
 SANDBOX_FIELDS_UNSUPPORTED = (
-    "This project has no verified sending domain, so this email would go out from PostHog's sandbox sender, which "
+    "This project has no verified sending domain, so this email would go out from the PostHog test sender, which "
     "can't send `cc`, `bcc`, `reply_to`, `attachments` or a custom `from`. Remove those fields, or verify a sending "
     "domain at {setup_url}."
 )
@@ -215,21 +215,21 @@ PIPELINE_REFUSALS: dict[str, tuple[type[TransactionalEmailError], str]] = {
     ),
     "sandbox_recipient_not_member": (
         SandboxRecipientNotMember,
-        "PostHog's sandbox sender only sends to members of your organization until this project verifies a sending "
+        "The PostHog test sender only sends to members of your organization until this project verifies a sending "
         "domain, so this email wasn't sent. Verify a sending domain at {setup_url} to send to anyone.",
     ),
     "sandbox_fields_unsupported": (SandboxFieldsUnsupported, SANDBOX_FIELDS_UNSUPPORTED),
     "sandbox_sender_unavailable": (
         SandboxSenderNotAvailable,
-        "The sandbox sender isn't available for this organization, so this email wasn't sent. Verify a sending "
+        "The PostHog test sender isn't available for this organization, so this email wasn't sent. Verify a sending "
         "domain at {setup_url} to send email.",
     ),
 }
 
 SANDBOX_SENDER_KIND = "email_sandbox"
 SANDBOX_SENDER_WARNING = (
-    "This email went out from PostHog's sandbox sender, because this project has no verified sending domain. The "
-    "sandbox sender only sends to members of your organization. Verify a sending domain to send to anyone from your "
+    "This email went out from the PostHog test sender, because this project has no verified sending domain. The "
+    "PostHog test sender only sends to members of your organization. Verify a sending domain to send to anyone from your "
     "own address."
 )
 
