@@ -1074,17 +1074,34 @@ function textFromHtml(html: string): string {
     while (comments.nextNode()) {
         found.push(comments.currentNode as Comment)
     }
+    // A tag outside <html> sits on the document itself, which can't hold text, so it goes before or after the body text.
+    let before = ''
+    let after = ''
     for (const comment of found) {
         const index = /^ph-liquid-(\d+)$/.exec(comment.data)?.[1]
-        if (index !== undefined) {
-            comment.replaceWith(doc.createTextNode(tags[Number(index)]))
+        if (index === undefined) {
+            continue
+        }
+        const tag = tags[Number(index)]
+        if (comment.parentNode === doc) {
+            const precedesHtml =
+                !!doc.documentElement &&
+                !!(comment.compareDocumentPosition(doc.documentElement) & Node.DOCUMENT_POSITION_FOLLOWING)
+            if (precedesHtml) {
+                before += tag
+            } else {
+                after += tag
+            }
+            comment.remove()
+        } else {
+            comment.replaceWith(doc.createTextNode(tag))
         }
     }
     doc.querySelectorAll('style, script, head, title').forEach((element) => element.remove())
     // textContent runs neighboring blocks together, so each one gets a line of its own first.
     doc.querySelectorAll('br, p, div, tr, li, h1, h2, h3, h4, h5, h6').forEach((element) => element.after('\n'))
     doc.querySelectorAll('td').forEach((element) => element.after(' '))
-    return (doc.body?.textContent ?? '')
+    return (before + (doc.body?.textContent ?? '') + after)
         .replace(/[ \t]+/g, ' ')
         .replace(/ ?\n ?/g, '\n')
         .replace(/\n{2,}/g, '\n')
