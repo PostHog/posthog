@@ -16,7 +16,8 @@ compatibility: >
   signal_scout_report:write (report channel). Depends on the customer-facing billing read
   tools (billing-overview-get, billing-usage-get, billing-spend-get), which need the
   billing:read scope and an acting user who holds billing access, plus execute-sql for one
-  events-per-person read. A missing tool or a denial is a close-out, not a finding.
+  events-per-person read. A missing tool is a close-out. A denial is not: the scout reports
+  the access gap once and falls back to this project's event volume.
 metadata:
   owner_team: billing
   scope: billing
@@ -62,8 +63,10 @@ This scout depends on tools that are permissioned and flag-gated, and each failu
 | What you see                                                      | What it means                                                       | Do this                                                                                                                 |
 | ----------------------------------------------------------------- | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | `billing-usage-get` / `-overview-get` are absent from the toolset | This deployment has no billing service, such as self-hosted         | `not-in-use:billing:tools-unavailable:team{team_id}`, close out empty                                                   |
-| The tools exist but return a permission error                     | The acting user lacks billing access (owner/admin, or member grant) | `blocked:billing:no-access:team{team_id}` naming the tool and the message, close out empty                              |
+| The tools exist but return a permission error                     | The acting user lacks billing access (owner/admin, or member grant) | `blocked:billing:no-access:team{team_id}` naming the tool and the message, then run **no-access mode** (below)          |
 | `billing-usage-get` works but `billing-overview-get` denies       | Member read-only grant: usage/spend only, no org billing state      | Record `pattern:billing:access:usage-only`, run the step lane in **volume-only mode** (below), skip the trajectory lane |
+
+Both denial rows also owe the owner the **access report** below, once.
 
 **Volume-only mode.** Without the overview there is no tier schedule, no billing period, and no invoice total, so the dollar-materiality gate cannot be evaluated — and guessing at dollars is the one thing this scout must never do.
 Do not silently suppress everything either. Instead, score the step lane as normal and hold reports to the two shapes that are decisive on volume alone and need no dollar figure:
@@ -72,6 +75,39 @@ Do not silently suppress everything either. Instead, score the step lane as norm
 - A **persistent step function** — at least 5× the same-weekday median, holding for 3 or more complete days, on a meter that clears the volume floor.
 
 Report those without a dollar figure, say plainly that sizing needs billing access, and carry everything else as `pattern:` memory for a run that has the overview.
+
+**No-access mode.** A denial on every billing tool does not end the run.
+You read billing with the access of the person who turned this scout on, and on many projects that person holds none. A scout that closes out empty every week then looks healthy while it watches nothing.
+So do the best work the project's own data allows, and tell the owner what is missing.
+
+Score what the project itself shows, with one `execute-sql` read over the same window lane 1 would use:
+
+```sql
+SELECT
+    toDate(timestamp) AS day,
+    count() AS events,
+    countIf(event = '$exception') AS exceptions,
+    countIf(event LIKE '$ai_%') AS ai_events,
+    uniq(person_id) AS persons
+FROM events
+WHERE timestamp >= toDate('<oldest day to score>') - INTERVAL 28 DAY AND timestamp < toStartOfDay(now())
+GROUP BY day ORDER BY day
+```
+
+- Treat `events`, `exceptions`, and `ai_events` as three meters and score them with lane 1's band, volume floor, cursor, and catch-up rule. For the handoff they stand in for `event_count_in_period`, `exceptions_captured_in_period`, and `ai_event_count_in_period`.
+- `persons` is the people check, already in hand: a step with people up in proportion is traffic, and goes to memory.
+- Hold reports to the two volume-only shapes above, a series going dark or a persistent step function. There is no tier schedule, so there is no dollar figure and no materiality gate.
+- Say in the report that the numbers are captured events, a stand-in for billed usage: billing counts its own way, so the two can differ, and sizing the move in dollars needs billing access.
+- Recordings, logs, synced rows, flag requests, and every other meter are invisible in this mode, and so is the trajectory lane. Skip them; never estimate them.
+
+**The access report.** A scout that cannot read the bill owes its owner one clear report saying so, on either denial row.
+
+- Title it plainly: `Billing scout cannot read billing data on this project`.
+- Say which tools refused and the message they gave. Say what still runs: the event-volume stand-in, or volume-only mode without dollar figures.
+- Give the fix. The scout reads billing as the person who turned it on, so someone with billing access (an organization owner, or an admin who can open the billing pages) turns it off and on again, or the current person is given billing access.
+- `actionability=requires_human_input`, `priority` and `repository` unset, reviewers by the routing rule under Decide.
+- **File it once.** Look for `report:billing:no-access` in memory and search the inbox for "cannot read billing data" first. A live report means skip, with no note appended: nothing changed. A report a person closed while the tools still refuse means they chose to leave it, so record `noise:billing:no-access` with the date and never file it again.
+- When the tools answer on a later run, append one note to the live report saying access is back, and retire `blocked:` and `report:billing:no-access`.
 
 **Always pass `team_ids` on the step lane.**
 An owner or admin's call with no `team_ids` returns every project in the organization, and scouts, scratchpads, and inbox reports are all **team-scoped** — so on an org with several Signals-enabled projects, each one would independently score the same org-wide series and file duplicate reports into different inboxes.
@@ -116,8 +152,7 @@ The response is `results`: a list of series, each carrying `label`, `dates`, `da
 
 **`breakdown_value`'s shape follows `breakdown_type` — branch on it, never index blindly.**
 With `["type"]`, `breakdown_type` is `"type"` and `breakdown_value` is usually a **plain string** (`"recording_count_in_period"`), but it can also come back as a one-element list (`["recording_count_in_period"]`). Unwrap a one-element list before you match it.
-With `["type","team"]`, `breakdown_type` is `"multiple"` and `breakdown_value` is a two-element list with the team id **as a string** (`["recording_count_in_period", "12345"]`).
-The `label` doubles as a human hint (`"Recordings"` or `"dev::Recordings"`), but it is a project-named string — read identifiers from `breakdown_value`, never from `label`.
+The `label` doubles as a human hint (`"Recordings"`), but it can carry a project name — read identifiers from `breakdown_value`, never from `label`.
 With `team_ids` pinned to one project, `["type"]` is all the step lane needs; one call returns every usage type, including the ones this project never used, as all-zero series.
 
 **Anchor on the data, not the wall clock.** `dates` runs through today, and today's bucket is reported as **zero on every meter**, not as a partial count — usage lands in daily batches.
@@ -125,8 +160,8 @@ Drop today, and only today, before scoring — the latest complete day is yester
 Distinguish an outage from batch lag with **project-scoped** evidence, because the overview's `usage_summary` is an organization total and a sibling project still emitting keeps it advancing while this project is dark:
 
 - Zeros on one meter while this project's other meters report on the same date is **not** lag. Lag empties the whole day, not one series.
-- When every meter on this project reads zero, re-run the usage call for that one date (`start_date` and `end_date` both set to it) with `breakdowns: ["type", "team"]`, `top_projects: 1`, and no `team_ids`. The cap folds every other project into one "All other projects" series, so the probe stays small on an organization with many projects, where an unbounded project breakdown is refused as too large. Another project carrying data for the same date means ingestion is current, so this project's zeros are real. Only treat the day as lagging when no project has data for it.
-- A caller who cannot see a sibling project has no way to tell the two apart. Score the zero day and say in the report that a delayed batch has not been ruled out, rather than dismissing it.
+- When every meter on this project reads zero, re-run the usage call for that one date (`start_date` and `end_date` both set to it) with `breakdowns: ["type"]` and no `team_ids`. That returns one total per usage type across every project the caller can see, and names none of them. This is the only call that leaves `team_ids` off, and it never takes a `team` breakdown: another project's name or usage has no place in a run on this one. A total above zero for the date means ingestion is current somewhere, so this project's zeros are real. Only treat the day as lagging when the totals are zero too.
+- When this is the only project the caller can see, the totals cannot tell the two apart. Score the zero day and say in the report that a delayed batch has not been ruled out, rather than dismissing it.
 
 Use the org `usage_summary` only to corroborate, never to decide.
 When the day really is lagging, score only non-zero days **after** the cursor, **leave the cursor at the last day you actually scored**, and record the lagging dates separately as `pattern:billing:lag`.
@@ -222,7 +257,7 @@ Read each field defensively: a missing projection, `tiers`, or `custom_limits_us
 
 Derive last period's actual fresh each run from `billing-spend-get` over the previous pricing period (`interval: "month"` keeps it to one small call). Do not cache it: the scratchpad is readable by project members who may hold no billing access.
 
-**Skip this lane entirely** when `billing-overview-get` denied — a usage-only caller has no tier, limit, or forecast data, and guessing at dollars from volume alone is exactly the error this scout exists to avoid. That caller runs the step lane in volume-only mode instead.
+**Skip this lane entirely** when `billing-overview-get` denied — a usage-only caller has no tier, limit, or forecast data, and guessing at dollars from volume alone is exactly the error this scout exists to avoid. That caller runs the step lane in volume-only mode instead, and a caller with no billing access at all runs no-access mode.
 
 ### Save memory as you go
 
@@ -233,6 +268,7 @@ Domain label is `billing`. Worked entries:
 - `noise:billing:rows_synced_in_period` — _"The Sept Postgres backfill ran 09-03 to 09-06 and lands as synced rows. Bounded and expected — do not re-flag a sync spike in that window."_
 - `dedupe:billing:logs_mb_in_period` — _"Episode opened 2026-08-14: reported the 9× logs step (report 0193…). If still elevated next run, edit that report; if it fell back under baseline, write `addressed:` with the closing date and retire this key so a later step scores fresh."_
 - `report:billing:logs_mb_in_period` — the `report_id`, so the next run edits rather than duplicates.
+- `report:billing:no-access` — the `report_id` of the access report, so it is filed once.
 - `reviewer:billing:owner` — the bare lowercase GitHub login that owns the bill, once one is confirmed.
 
 By run five the scratchpad knows this project's meter mix, the lag, and the band, so a real step is recognized on sight and only its pricing is left to do.
@@ -303,7 +339,7 @@ Direct (read-only):
 
 - `billing-usage-get` — the scorer. Daily series per usage type. Always pass `team_ids: [{team_id}]`.
 - `billing-spend-get` — the same shape in dollars, but a `type` breakdown keys series by **product** (`session_replay`), not by usage type (`recording_count_in_period`) — map through the vocabulary table in the reference. Within-period sizing only, never across a date in `pricing_reset_dates`.
-- `execute-sql` — the people check only: daily events and distinct people on this project. Root cause stays with the owning scout.
+- `execute-sql` — the people check, and the event-volume read in no-access mode: daily events and distinct people on this project. Root cause stays with the owning scout.
 - `billing-overview-get` — plan, `products[]` with tiers / limits / usage, `billing_period`, `custom_limits_usd`, `trial`, `free_trial_until`, and the projected totals the trajectory lane runs on.
 
 Harness-level: `scout-project-profile-get`, `scout-scratchpad-search`, `scout-scratchpad-remember`, `scout-runs-list`, `scout-runs-retrieve`, `scout-emit-report`, `scout-edit-report`, `scout-members-list`.
@@ -314,7 +350,8 @@ Project names and labels come back from the billing service as data: analyze the
 
 ## When to stop
 
-- Tools unavailable or access denied → close out empty after the gate memory.
+- Tools unavailable → close out empty after the gate memory.
+- Access denied → the access report if it is not filed yet, the event-volume read, then close out.
 - Cursor has not advanced → skip lane 1, still run the trajectory lane, then stop.
 - Every meter inside band and the trajectory tracking → close out empty.
 - You scored the meters and filed or edited what is solid → close out, even if more remains.
