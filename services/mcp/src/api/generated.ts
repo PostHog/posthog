@@ -16326,6 +16326,16 @@ export namespace Schemas {
       details: AnomalyBucketDetails;
     }
 
+    export interface AnomalyDashboard {
+      /** The numeric id of the dashboard. */
+      id: number;
+      /**
+         * The name of the dashboard. Null when it has none.
+         * @nullable
+         */
+      name: string | null;
+    }
+
     export interface AnomalyFlaggedPoint {
       /** The start of the flagged bucket, in the project timezone. */
       bucket_start: string;
@@ -16538,6 +16548,7 @@ export namespace Schemas {
     /**
      * * `unusual` - Unusual
      * * `recent` - Recent
+     * * `rate` - Rate
      */
     export type AnomalyOrderEnum = typeof AnomalyOrderEnum[keyof typeof AnomalyOrderEnum];
 
@@ -16545,6 +16556,7 @@ export namespace Schemas {
     export const AnomalyOrderEnum = {
       Unusual: 'unusual',
       Recent: 'recent',
+      Rate: 'rate',
     } as const;
 
     export interface AnomalySeriesPoint {
@@ -16626,6 +16638,8 @@ export namespace Schemas {
       last_flagged_bucket: string | null;
       /** Up to 5 flagged buckets in the range, newest first. */
       flagged_points: AnomalyFlaggedPoint[];
+      /** The dashboards the insight sits on that the caller may view, oldest tile first. Empty when none. */
+      dashboards: AnomalyDashboard[];
       /** Only with `include_points`. The newest 400 scored buckets of the series in the range, oldest first. A bucket that was not scored, or only has a warm-up row, has no point: it is unknown, not 0. Fewer points than `scored_buckets` means the cap left older buckets out. */
       points?: AnomalySeriesPoint[];
     }
@@ -16653,7 +16667,8 @@ export namespace Schemas {
       /** The applied order.
        *
        * * `unusual` - Unusual
-       * * `recent` - Recent */
+       * * `recent` - Recent
+       * * `rate` - Rate */
       order: AnomalyOrderEnum;
       /** One row per series, in the requested `order`. Empty unless `group_by` is `series`. */
       series: AnomalySeries[];
@@ -61767,6 +61782,8 @@ export namespace Schemas {
     export interface MetricsQueryClause {
       /** Omit to get one line per series (at most 100), without combining them */
       aggregation?: MetricsAggregation | null;
+      /** Apdex threshold T in milliseconds for `posthog.derived.spans.apdex`: a request is satisfied at or under T and tolerating up to 4T. Defaults to 500. */
+      apdexThresholdMs?: number | null;
       filters?: MetricsQueryFilter[] | null;
       groupBy?: MetricsQueryGroupBy[] | null;
       metricName: string;
@@ -90113,6 +90130,15 @@ export namespace Schemas {
       readonly group_type_index?: number | null;
     }
 
+    export interface PatchedEnvironmentMappingUpdate {
+      /** ID of the PostHog project that receives the Vercel production environment. */
+      production?: number;
+      /** ID of the PostHog project for the Vercel preview environment. Defaults to the production project. */
+      preview?: number;
+      /** ID of the PostHog project for the Vercel development environment. Defaults to the production project. */
+      development?: number;
+    }
+
     export interface PatchedErrorTrackingAlertUpdateRequest {
       /**
          * Human-readable name of the alert. Omit to keep the current name.
@@ -93472,20 +93498,6 @@ export namespace Schemas {
       sso_enforcement?: string;
       /** @nullable */
       readonly scim_base_url?: string | null;
-    }
-
-    /**
-     * Serializer for organization-level integrations.
-     */
-    export interface PatchedOrganizationIntegration {
-      readonly id?: string;
-      readonly kind?: OrganizationIntegrationKindEnum;
-      /** @nullable */
-      readonly integration_id?: string | null;
-      readonly config?: unknown;
-      readonly created_at?: string;
-      readonly updated_at?: string;
-      readonly created_by?: UserBasic;
     }
 
     export interface PatchedOrganizationMember {
@@ -110180,6 +110192,7 @@ export namespace Schemas {
      * * `get_it_merged` - Get it merged
      * * `make_it_green` - Make it green
      * * `resolve_conflicts` - Resolve conflicts
+     * * `implement` - Implement
      * * `suggested_prompt` - Suggested prompt
      * * `ask` - Ask
      */
@@ -110190,6 +110203,7 @@ export namespace Schemas {
       GetItMerged: 'get_it_merged',
       MakeItGreen: 'make_it_green',
       ResolveConflicts: 'resolve_conflicts',
+      Implement: 'implement',
       SuggestedPrompt: 'suggested_prompt',
       Ask: 'ask',
     } as const;
@@ -117564,11 +117578,12 @@ export namespace Schemas {
      * One report action that starts an agent run, with whether the report offers it now.
      */
     export interface SignalReportTaskAction {
-      /** The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. `make_it_green` fixes failing CI and resolves merge conflicts on the report's open pull request, and stops without merging it. `resolve_conflicts` updates the report's open pull request from its base branch, resolves the conflicts, pushes, and stops without merging it or fixing unrelated CI. `suggested_prompt` sends one of the prompts the report suggests.
+      /** The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. `make_it_green` fixes failing CI and resolves merge conflicts on the report's open pull request, and stops without merging it. `resolve_conflicts` updates the report's open pull request from its base branch, resolves the conflicts, pushes, and stops without merging it or fixing unrelated CI. `implement` starts the run the inbox's Implement button starts: it claims the report, implements the fix, and opens a pull request that is attached to the report. `suggested_prompt` sends one of the prompts the report suggests.
        *
        * * `get_it_merged` - Get it merged
        * * `make_it_green` - Make it green
        * * `resolve_conflicts` - Resolve conflicts
+       * * `implement` - Implement
        * * `suggested_prompt` - Suggested prompt
        * * `ask` - Ask */
       action: ReportTaskActionKindEnum;
@@ -117610,6 +117625,7 @@ export namespace Schemas {
        * * `get_it_merged` - Get it merged
        * * `make_it_green` - Make it green
        * * `resolve_conflicts` - Resolve conflicts
+       * * `implement` - Implement
        * * `suggested_prompt` - Suggested prompt
        * * `ask` - Ask */
       action: ReportTaskActionKindEnum;
@@ -117619,10 +117635,16 @@ export namespace Schemas {
          */
       suggested_prompt_index?: number;
       /**
-         * Your own request for the run. Required for `ask`, where it is the question or the work you want done on the report. Optional for `get_it_merged`, `make_it_green`, and `resolve_conflicts`, where it replaces the action's fixed request and keeps its instructions and gates: pass it when you know something the report does not, such as a merge order, a failure that is already on the base branch, or an expected conflict. Not accepted for `suggested_prompt`.
+         * Your own request for the run. Required for `ask`, where it is the question or the work you want done on the report. Optional for `get_it_merged`, `make_it_green`, and `resolve_conflicts`, where it replaces the action's fixed request and keeps its instructions and gates: pass it when you know something the report does not, such as a merge order, a failure that is already on the base branch, or an expected conflict. Optional for `implement`, where it is added to the prompt as extra instructions. Not accepted for `suggested_prompt`.
          * @maxLength 2000
          */
       message?: string;
+      /**
+         * Only for `implement`: the repository to implement in, in 'owner/repo' format (case-insensitive). It must be connected to the project, and it becomes the report's repo selection. Omit it to use the report's own repository. A report whose repository cannot be resolved returns `report_implementation_repository_unresolved`.
+         * @minLength 1
+         * @maxLength 140
+         */
+      repository?: string;
     }
 
     export interface SignalReportTaskActionRunResponse {
@@ -146559,10 +146581,11 @@ export namespace Schemas {
      */
     only_flagged?: boolean;
     /**
-     * `unusual` puts the series that flagged most above its usual rate first. `recent` puts the newest flagged bucket first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.
+     * `unusual` puts the series that flagged most above its usual rate first. `recent` puts the newest flagged bucket first, then sorts as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.
      *
      * * `unusual` - Unusual
      * * `recent` - Recent
+     * * `rate` - Rate
      * @minLength 1
      */
     order?: SignalsAnomaliesSearchRetrieveOrder;
@@ -146597,6 +146620,7 @@ export namespace Schemas {
     export const SignalsAnomaliesSearchRetrieveOrder = {
       Unusual: 'unusual',
       Recent: 'recent',
+      Rate: 'rate',
     } as const;
 
     export type SignalsProcessingListParams = {

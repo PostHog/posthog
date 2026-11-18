@@ -304,6 +304,9 @@ const inboxReportActionsRun = (): ToolBase<
         if (params.message !== undefined) {
             body['message'] = params.message
         }
+        if (params.repository !== undefined) {
+            body['repository'] = params.repository
+        }
         const result = await context.api.request<Schemas.SignalReportTaskActionRunResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/actions/run/`,

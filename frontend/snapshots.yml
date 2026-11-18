@@ -14791,9 +14791,9 @@ snapshots:
     scenes-app-mcp-analytics-dashboard-cards--key-metrics-load-error--light:
         hash: v1.k794b7964.0c16e7d3a6b2dfc3ad0a2ad454adda1c5485d1a15ffe66d1db048546560a1a53.zngGmZ8pGVWDcUWf9XCAwgVFJQld84WgzuLviHLNKaQ
     scenes-app-mcp-analytics-dashboard-cards--key-metrics-loading--dark:
-        hash: v1.k794b7964.987b091175eca668719ecd4fb972024fe7fff7e2cea86e02c78d2df69602f9e8.Rq-AiYEUsmyiKBQDtLDXI2LeY_4-WdhaVn9NQzML5qc
+        hash: v1.k794b7964.06f5e5fae4ced97b09efae4c5872daf266badb44ee887a349afb3f00d744c2d9.X7638FPONdFPjYNnHsmAc4j-TCpKIdVkzPaOYKK5CYM
     scenes-app-mcp-analytics-dashboard-cards--key-metrics-loading--light:
-        hash: v1.k794b7964.f13cba0c7e82dab192768ef2695bd8b5316fa4e6997c57ba891e7a7bf5395bc1.66goaulm6AXCoFhZH9KpMniH8cVZeOfcqd2xPT0rln0
+        hash: v1.k794b7964.fd60de7b2b8ae20fc64c38294c2124eddd9bbe5bd15c8c88d1d55f4a5e4823fe.iuxQVOIwaSpL4DaRn9GsCWfZThh8-ocnM-ofBcT9XSU
     scenes-app-mcp-analytics-dashboard-cards--leaderboard-load-error--dark:
         hash: v1.k794b7964.51d106ccd995026f47e9299a70d997c2195870c428c8b3960c2f7d75b7260a5a.tOXU3QtL39YlFCD3mm08ztIhLLiTvkyYB92H1FiPGqg
     scenes-app-mcp-analytics-dashboard-cards--leaderboard-load-error--light:
@@ -16427,9 +16427,9 @@ snapshots:
     scenes-app-settings-organization-member-offboarding--no-resources--light:
         hash: v1.k794b7964.5858a7f6b0058141bee9134870d3438e8564148e3ac5c2ae2879c551a60ea6cf.xFY9ivLhVV1pKN5UWMjkzXHzhaYFapC3vvRtwtsqro4
     scenes-app-settings-organization-member-offboarding--review-resources--dark:
-        hash: v1.k794b7964.50bb969851a42d76c08213d73bafd818dedf3ceee60b7585b9dfb528937872c1.Wol4-lN5gN_e_Rh1jJB4Y1xOR6zq6UOHaoE3TAOKkrE
+        hash: v1.k794b7964.39e86921a8c3d94fa30034881775ae9a7016fc42bafbc5f7293d9cb0d52a066f.DZotcACMcq18JB-vDYacKFDZldLa09dIwCKsSM2A8PE
     scenes-app-settings-organization-member-offboarding--review-resources--light:
-        hash: v1.k794b7964.cda1cc2e98b958fb6272e514adbd5d9931ce274f0749671d2ac44ef91cfbc03e.MtNTKzbSL7vKj77Bg-fyrRVOxUqhDBwRLOeJ0u1ELGY
+        hash: v1.k794b7964.2176d48829e113f7ddeb51b83928ee48deb49f6c50cd3d2f9e966a3f8614a49e.jEMNkaVtjxu-C4ZP1YTzMV3BvArGfuqbQ0KqzS7vm_U
     scenes-app-settings-project--settings-project-access-control--dark:
         hash: v1.k794b7964.5d1ef2441bce805c8d5eedc46f18992b583f2ebd84a613a59689e0eb322c2625.HXeb5-tLBgpU9OhzEx4DSLMAFZtIpNQpf-s92H0WHJs
     scenes-app-settings-project--settings-project-access-control--light:
