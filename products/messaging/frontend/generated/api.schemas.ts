@@ -105,7 +105,7 @@ export interface EmailStatusApi {
      * * `bounced` - Bounced
      * * `complained` - Complained */
     status: EmailSendStatusEnumApi
-    /** When the send was queued. */
+    /** When PostHog accepted the send. */
     created_at: string
     /** When the email reached its current status. */
     status_at: string

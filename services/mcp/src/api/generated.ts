@@ -42227,7 +42227,7 @@ export namespace Schemas {
        * * `bounced` - Bounced
        * * `complained` - Complained */
       status: EmailSendStatusEnum;
-      /** When the send was queued. */
+      /** When PostHog accepted the send. */
       created_at: string;
       /** When the email reached its current status. */
       status_at: string;

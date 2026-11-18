@@ -44,7 +44,7 @@ class EmailStatusSerializer(serializers.Serializer):
         "was not sent, and `reason` says why. A rerun of the send can still move it to `sent`. `delivered` means the "
         "recipient's mail server accepted it. `bounced` and `complained` come later from the recipient's mail provider.",
     )
-    created_at = serializers.DateTimeField(help_text="When the send was queued.")
+    created_at = serializers.DateTimeField(help_text="When PostHog accepted the send.")
     status_at = serializers.DateTimeField(help_text="When the email reached its current status.")
     reason = serializers.CharField(
         allow_null=True,
