@@ -12,7 +12,6 @@ task recomputes the default views more often than that, so those stay current an
 from __future__ import annotations
 
 import uuid
-import pickle
 import hashlib
 from collections.abc import Callable
 from typing import Any, TypeVar
@@ -51,7 +50,8 @@ def _result_key(team_id: int, name: str, params: tuple[Any, ...]) -> str:
         # add() keeps the version another request set in between.
         cache.add(_version_key(team_id), version, VERSION_TTL_SECONDS)
         version = cache.get(_version_key(team_id)) or version
-    digest = hashlib.sha256(pickle.dumps(params)).hexdigest()[:32]
+    # The parameters are strings, numbers, dates and None, so their repr is stable.
+    digest = hashlib.sha256(repr(params).encode()).hexdigest()[:32]
     return f"aeo_result:{team_id}:{version}:{name}:{digest}"
 
 
