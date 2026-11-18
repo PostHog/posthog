@@ -61,6 +61,22 @@ A count that names one more column reads every row in the window in full, and lo
   The plan must show an index-only scan with few buffers.
   A warm local database hides a wide read, because every page is already in memory.
 
+## Stored results
+
+The overview and the rankings are the same for every person who opens the page, and their inputs change a few times a day.
+`stored_results.py` keeps their results, so a read is one cache lookup and no query on the checks.
+
+- **A result is stored under a data version.** Every writer calls `bump_data_version_on_commit` after it changes what a read returns, and a read looks only under the current version, so it never gets a result from before a write.
+- **A saved or deleted prompt, brand or engine setting bumps through signals** (`signals.py`). Checks have no receiver, because a delete receiver makes a team deletion load its whole check history. Every write to the checks is a bulk write, and the code that makes it bumps: the runner, the reconcile, the sentiment scorer and the fact backfill. So do the brand sync and the prompt import. A new bulk write needs its own bump.
+- **The refresh fills old checks first.** When a check has no `prompt_branded` or no fact rows, the refresh task starts the reconcile, which fills both and starts the refresh again. A deploy that adds a stored value therefore needs no manual backfill.
+- **The views the page opens on are always stored.** `refresh_stored_results` computes the default window after every reconcile, and a beat task computes it again every 10 minutes. A filtered view is computed on its first read and stored for the next.
+- **The version lives on the Redis primary**, and a failed bump never fails the write that made it.
+- **A stored result lives 30 minutes.** A writer that forgets to bump can leave an old result in use for that long at most, and for 10 minutes at most on the default views.
+- **A new day in the project's timezone is a new result**, because the window ends today.
+- In a test, a bump waits for a commit that a `TestCase` never makes. Wrap the write in `captureOnCommitCallbacks(execute=True)` when the test reads again after it.
+
+The stored result does not replace fast queries: the refresh runs them every 10 minutes for each project, and a filtered view runs them on its first read.
+
 ## Adding a metric
 
 1. Decide which kind of value it is: a fact about the answer, a value derived from settings, or a classification.
