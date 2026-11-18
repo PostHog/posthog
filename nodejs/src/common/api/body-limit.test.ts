@@ -100,8 +100,12 @@ describe('setupExpressApp request body handling', () => {
         expect(res.body).toEqual({ body: { data: 'x' }, rawBody: '{"data":"x"}' })
     })
 
-    it.each(encodings)('decodes a %s JSON body and keeps its raw text', async (encoding) => {
-        const res = await postEncoded('/echo', encoding, compressors[encoding]('{"data":"x"}'))
+    it.each([
+        ...encodings.map((encoding) => [encoding, 'application/json'] as const),
+        ['gzip', 'Application/JSON'] as const,
+        ['gzip', 'application/json ; charset=utf-8'] as const,
+    ])('decodes a %s body sent as %s and keeps its raw text', async (encoding, contentType) => {
+        const res = await postEncoded('/echo', encoding, compressors[encoding]('{"data":"x"}'), contentType)
 
         expect(res.status).toEqual(200)
         expect(res.body).toEqual({ body: { data: 'x' }, rawBody: '{"data":"x"}' })

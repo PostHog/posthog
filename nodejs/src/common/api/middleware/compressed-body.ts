@@ -43,7 +43,7 @@ function contentEncodingOf(req: Request): string {
 }
 
 function isJsonBody(req: Request): boolean {
-    return (req.headers['content-type'] ?? '').split(';')[0] === 'application/json'
+    return (req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase() === 'application/json'
 }
 
 function tooLarge(): Error {
@@ -79,11 +79,7 @@ export function createCompressedBodyMiddleware(limitBytes: number): RequestHandl
         }
         const text = decoded.toString('utf8')
         ;(req as Request & { rawBody?: string }).rawBody = text
-        try {
-            req.body = text.length === 0 ? {} : parseJSON(text)
-        } catch (error) {
-            return next(error)
-        }
+        req.body = text.length === 0 ? {} : parseJSON(text)
         next()
     }
 
