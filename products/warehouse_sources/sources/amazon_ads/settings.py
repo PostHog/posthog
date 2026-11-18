@@ -54,13 +54,10 @@ class AmazonAdsEndpointConfig:
     # The unified Ads API (`/adsApi/v1/query/...`) serves the Sponsored Brands and Sponsored
     # Display entities. It takes plain JSON, and it reads the client id from its own header.
     ads_api: bool = False
-    # A GET list pages with query parameters rather than a request body.
     method: str = "POST"
     page_size_key: str = "maxResults"
     next_token_key: str = "nextToken"
-    # The response key that holds the token for the next page, when it differs from the request's.
     next_token_response_key: Optional[str] = None
-    # The Change History query, which windows on `fromDate` and fans out per profile.
     history: bool = False
     # `/v2/profiles` query that finds the profiles this table can read. Without one, Amazon lists
     # only the profiles with view-and-edit campaign permission.
@@ -174,8 +171,7 @@ REPORT_INCREMENTAL_FIELDS: list[IncrementalField] = [
 
 
 # Entity list endpoints have no updated-since filter, so every entity stream is a full refresh.
-# Performance metrics come from the async reporting API, which windows on `date`, and change
-# history from the Change History API, which windows on the event `timestamp`.
+# Performance metrics come from the async reporting API, which windows on `date`.
 AMAZON_ADS_ENDPOINTS: dict[str, AmazonAdsEndpointConfig] = {
     "profiles": AmazonAdsEndpointConfig(
         name="profiles",
@@ -279,8 +275,6 @@ AMAZON_ADS_ENDPOINTS: dict[str, AmazonAdsEndpointConfig] = {
     "sd_targets": ads_api_query(
         "sd_targets", "targets", SPONSORED_DISPLAY, "targetId", page_size=ADS_API_TARGET_PAGE_SIZE
     ),
-    # Global advertising accounts sit above the regional profiles. The list is for the user behind
-    # the token, so it is not scoped to a profile.
     "ads_accounts": AmazonAdsEndpointConfig(
         name="ads_accounts",
         path="/adsAccounts/list",

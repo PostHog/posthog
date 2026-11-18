@@ -143,8 +143,7 @@ You need a Login with Amazon (LWA) application with Advertising API access: ente
     ) -> list[SourceSchema]:
         # Entity lists have no updated-since filter, so they are full refresh only. Report tables
         # are windowed on `date`, and Amazon restates recent days as attribution lands, so they
-        # carry a lookback wide enough to re-read what it revises. Change history is windowed on
-        # the event timestamp, and an event never changes once it is recorded.
+        # carry a lookback wide enough to re-read what it revises.
         schemas = [_schema(endpoint, config) for endpoint, config in AMAZON_ADS_ENDPOINTS.items()]
 
         if names is not None:

@@ -427,7 +427,6 @@ class TestAccountAndBillingRows:
         assert result.rows == [{"id": "inv-1", "_profile_id": "1"}, {"id": "inv-2", "_profile_id": "1"}]
         first, second = result.requests[2:]
         assert (first.method, first.path, second.method, second.path) == ("GET", "/invoices", "GET", "/invoices")
-        # Amazon refuses `count` next to `cursor`.
         assert first.query == {"count": ("100",)}
         assert second.query == {"cursor": ("cur",)}
         assert first.headers["amazon-advertising-api-scope"] == "1"
@@ -447,7 +446,6 @@ class TestChangeHistoryRows:
             (True, None, _HISTORY_EARLIEST_MS),
             (True, _NOW_MS - 3_600_000, _NOW_MS - 3_600_000 - HISTORY_LOOKBACK_MS),
             (True, str(_NOW_MS - 3_600_000), _NOW_MS - 3_600_000 - HISTORY_LOOKBACK_MS),
-            # A cursor older than Amazon's retention would be refused, so it is clamped.
             (True, _HISTORY_EARLIEST_MS - 86_400_000, _HISTORY_EARLIEST_MS),
         ],
     )
