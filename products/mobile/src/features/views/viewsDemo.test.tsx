@@ -6,8 +6,9 @@ import type { ReactElement, ReactNode } from 'react'
 import { insightSnapshot } from '@/model/adapters/insightSnapshot'
 import { insightQueryKey } from './items'
 import { useViewsList } from './pinHooks'
+import { rangeOverride } from './rangeOverride'
 import { customRange } from './rangePresets'
-import { useViewCompareStore, useViewRangeStore, viewRangesLoaded } from './rangeStore'
+import { insightRangeKey, useViewCompareStore, useViewRangeStore, viewRangesLoaded } from './rangeStore'
 import { viewsQueue } from './refreshQueue'
 import { useDashboardScreen, useInsightScreen } from './viewHooks'
 import { useWebAnalyticsScreen } from './webAnalytics/hooks'
@@ -82,7 +83,10 @@ describe('views in demo mode', () => {
         expect(result.current.refresh.hint).toBeNull()
     })
 
-    test('turns off a saved insight comparison and loads the single-period result', async () => {
+    test.each([
+        { range: 'saved range', choice: null, dateFrom: '-7d' },
+        { range: 'remembered range', choice: { kind: 'preset', key: '30d' } as const, dateFrom: '-30d' },
+    ])('turns off a saved insight comparison on the $range', async ({ choice, dateFrom }) => {
         const shortId = 'demo-ins-dau'
         const snapshot = insightSnapshot(
             {
@@ -95,7 +99,7 @@ describe('views in demo mode', () => {
                     source: {
                         kind: 'TrendsQuery',
                         series: [{ kind: 'EventsNode', event: '$pageview' }],
-                        dateRange: { date_from: '-7d' },
+                        dateRange: { date_from: dateFrom },
                         compareFilter: { compare: true },
                     },
                 },
@@ -110,16 +114,23 @@ describe('views in demo mode', () => {
             undefined,
             { readAt: Date.now(), serverNow: Date.now() }
         )
-        client.setQueryData(insightQueryKey(null, { shortId, dashboardRef: null, override: null }), snapshot)
+        useViewRangeStore.getState().setRange(insightRangeKey('demo', shortId), choice)
+        client.setQueryData(
+            insightQueryKey(null, { shortId, dashboardRef: null, override: rangeOverride(choice) }),
+            snapshot
+        )
         const { result, unmount } = renderHook(() => useInsightScreen(shortId, { from: 'browse' }), { wrapper })
         expect(result.current.range.compare).toBe(true)
+        expect(result.current.comparing).toBe(true)
 
         act(() => result.current.range.setCompare(false))
         await advance(1000)
 
         expect(result.current.range.compare).toBe(false)
         expect(result.current.comparing).toBe(false)
-        expect(result.current.insight.data?.query).toMatchObject({ source: { compareFilter: { compare: false } } })
+        expect(result.current.insight.data?.query).toMatchObject({
+            source: { dateRange: { date_from: dateFrom }, compareFilter: { compare: false } },
+        })
         expect(result.current.insight.data?.allSeries.length).toBeGreaterThan(0)
         expect(result.current.insight.data?.allSeries.some((series) => series.compare === 'previous')).toBe(false)
         expect(result.current.insight.data?.delta?.basis).not.toBe('compare')

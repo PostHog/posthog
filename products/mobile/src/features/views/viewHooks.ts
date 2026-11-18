@@ -8,6 +8,7 @@ import { stableStringify } from '@/api/query'
 import { serverNow } from '@/api/serverClock'
 import { DEMO_READ_MS, demoActorsResponse } from '@/demo/views'
 import type { NavChrome } from '@/features/tabs/navPinStore'
+import { asRecord } from '@/lib/records'
 import { sleep } from '@/lib/sleep'
 import { ignoresRangeOverride } from '@/model/adapters/insightSnapshot'
 import { actorsFromResponse } from '@/model/adapters/webOverview'
@@ -364,6 +365,12 @@ export interface InsightScreenState {
     itemKey: string | null
 }
 
+function queryCompares(query: unknown): boolean {
+    const node = asRecord(query)
+    const source = asRecord(node?.source) ?? node
+    return asRecord(source?.compareFilter)?.compare === true
+}
+
 /**
  * The insight screen. It paints from the snapshot of the pin or tile it came from (the same cache entry), reads with
  * `blocking` when due, and sends `POST insights/viewed/` once per open. Compare runs `POST query/` with the response's
@@ -378,21 +385,12 @@ export function useInsightScreen(shortId: string, options: InsightScreenOptions)
         ? client.getQueryData<DashboardSnapshot>(dashboardQueryKey(scope, dashboardRef, null))?.view.savedRange
         : undefined
     const saved = dashboardSaved?.dateFrom ? dashboardSaved : (baseSaved?.savedRange ?? NO_RANGE)
-    const savedCompare = Boolean(
-        (baseSaved?.query as { source?: { compareFilter?: { compare?: boolean } } } | undefined)?.source?.compareFilter
-            ?.compare
-    )
     // From a tile the insight shares the dashboard's range, but compare stays its own: dashboards send no compare.
     const rangeScope = useViewRangeScope(context.dataScope)
     const insightKey = insightRangeKey(rangeScope, shortId)
-    const range = useViewRange(
-        dashboardRef ? dashboardRangeKey(rangeScope, dashboardRef) : insightKey,
-        'insight',
-        saved,
-        savedCompare,
-        insightKey
-    )
-    const choiceOverride = rangeOverride(range.choice)
+    const rangeKey = dashboardRef ? dashboardRangeKey(rangeScope, dashboardRef) : insightKey
+    const choice = useViewRangeStore((state) => state.ranges[rangeKey] ?? null)
+    const choiceOverride = rangeOverride(choice)
     // A SQL insight without `{filters}` ignores the range, so it keeps its own cache entry.
     const ignoresOverride = baseSaved ? ignoresRangeOverride(baseSaved.query) : false
     const override = ignoresOverride ? null : choiceOverride
@@ -408,12 +406,14 @@ export function useInsightScreen(shortId: string, options: InsightScreenOptions)
     // saved range takes the source of a saved-range read only, because `compareQuery` keeps that source's dates.
     const identity = `${context.identity}|insight:${shortId}|${dashboardRef ?? ''}`
     const lastBase = useHeldWhileLoading(identity, base, null)
-    const compareSource = base ?? baseSaved ?? (range.choice ? lastBase.value : undefined)
-    // An insight saved with compare answers its saved range with both periods, so the retrieve shows them.
-    const savedCompareShown = savedCompare && range.compare && range.choice === null
+    const compareSource = base ?? baseSaved ?? (choice ? lastBase.value : undefined)
+    const savedCompare = queryCompares((baseSaved ?? compareSource)?.query)
+    const range = useViewRange(rangeKey, 'insight', saved, savedCompare, insightKey)
     const compareSupported = supportsCompare(compareSource?.query)
     const compareAvailable =
         compareSupported && compareAllowed(range.choice ? rangeValues(range.choice).date_from : saved.dateFrom)
+    const savedCompareShown =
+        range.compare && compareAvailable && (choice === null ? savedCompare : queryCompares(base?.query))
     const compareBody =
         compareSource && ((range.compare && compareAvailable && !savedCompareShown) || (savedCompare && !range.compare))
             ? compareQuery(compareSource.query, range.choice, range.compare)
