@@ -353,7 +353,7 @@ def _send_login_code(
         if not code_based_verifier.reserve_idp_challenge(user, identity):
             return False
         recipient = sha256(target_email.strip().lower().encode()).hexdigest()
-        account = consume(f"idp_login_code_account:{user.pk}:{recipient}", Budget(burst=10, per_hour=60))
+        account = consume(f"idp_login_code_account:{user.pk}:{recipient}:{identity}", Budget(burst=2, per_hour=12))
         if not isinstance(account, BucketDecision):
             logger.warning("idp_login_code_account_budget_unavailable", user_id=user.pk)
             return False

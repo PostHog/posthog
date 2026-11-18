@@ -352,6 +352,15 @@ code_based_verification_token_generator = CodeBasedVerificationTokenGenerator()
 NO_EMAIL_HTTP_SERVICE = "no_email_http_service"
 
 
+_RESERVE_CODE_ATTEMPT_LUA = """
+local count = redis.call('INCR', KEYS[1])
+if ARGV[2] == '1' or redis.call('TTL', KEYS[1]) == -1 then
+    redis.call('EXPIRE', KEYS[1], tonumber(ARGV[1]))
+end
+return count
+"""
+
+
 class CodeBasedVerifier:
     def reserve_idp_challenge(self, user: User, identity: str) -> bool:
         """Reserve one account-wide slot for this identity for the code lifetime.
@@ -546,10 +555,15 @@ class CodeBasedVerifier:
             client = get_client()
             budget_identity = self.get_pending_budget_identity(request) or str(user_id)
             key = self._attempts_redis_key(budget_identity)
-            count = int(client.incr(key))
-            if count == 1 or self.get_pending_identity(request) is None:
-                client.expire(key, CODE_TTL_SECONDS)
-            return count
+            return int(
+                client.eval(
+                    _RESERVE_CODE_ATTEMPT_LUA,
+                    1,
+                    key,
+                    CODE_TTL_SECONDS,
+                    int(self.get_pending_identity(request) is None),
+                )
+            )
         except Exception:
             mfa_logger.exception(
                 "Failed to reserve code-based verification attempt",

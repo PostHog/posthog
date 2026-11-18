@@ -624,20 +624,27 @@ class TestOIDCAuthentication(APILicensedTest):
             self.assertEqual(response.status_code, 200, response.content)
             self.assertEqual(self.client.session["_auth_user_id"], str(self.user.pk))
 
+    @parameterized.expand([("new_challenges", 0), ("resend_contention", 4)])
     @pytest.mark.disable_mock_code_based_verifier
-    def test_the_account_identity_ceiling_preserves_existing_challenges(self) -> None:
+    def test_the_account_identity_ceiling_preserves_existing_challenges(self, _name: str, resend_rounds: int) -> None:
         self.user.email = "member@example.com"
         self.user.save()
         self.client.logout()
         with enable_code_sending() as sent, time_machine.travel("2026-01-10T12:00:00Z", tick=False) as clock:
             self._complete_oidc_login(self.user.email, sub="owner-identity")
             owner_client = self.client
+            other_clients = {}
             try:
-                for subject in ["repeated-identity"] * 4 + ["second-identity", "third-identity", "fourth-identity"]:
+                for subject in ["repeated-identity"] * 2 + ["second-identity", "third-identity", "fourth-identity"]:
                     clock.shift(datetime.timedelta(seconds=61))
                     self.client = APIClient()
                     response = self._complete_oidc_login(self.user.email, sub=subject)
                     self.assertIn("code_verification_pending=1", response["Location"])
+                    other_clients[subject] = self.client
+                for _ in range(resend_rounds):
+                    clock.shift(datetime.timedelta(seconds=61))
+                    for client in other_clients.values():
+                        client.post("/api/login/code-based-verification/resend/")
                 count = sent.call_count
                 self.client = APIClient()
                 response = self._complete_oidc_login(self.user.email, sub="over-budget-identity")
