@@ -4,6 +4,8 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import userEvent from '@testing-library/user-event'
 import { BindLogic, Provider } from 'kea'
 
+import { DashboardInsightDisplayOptions } from 'lib/components/Cards/InsightCard/DashboardInsightDisplayOptions'
+import { useDisplayOptions } from 'lib/components/ChartOptions/useDisplayOptions'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -23,9 +25,15 @@ import { initKeaTests } from '~/test/init'
 import { BaseMathType, ChartDisplayType, FunnelVizType, InsightShortId } from '~/types'
 
 import { InsightDisplayConfig } from './InsightDisplayConfig'
+import { insightDisplayOptions } from './insightDisplayOptions'
 
 const Insight123 = '123' as InsightShortId
 const insightProps = { dashboardItemId: Insight123 }
+
+function DashboardDisplayOptions(): JSX.Element {
+    const { tabs } = useDisplayOptions(insightDisplayOptions)
+    return <DashboardInsightDisplayOptions tabs={tabs} visualizationItems={[]} />
+}
 
 const pageviewSeries = [
     {
@@ -133,7 +141,7 @@ describe('InsightDisplayConfig', () => {
         cleanup()
     })
 
-    function setupAndRender(query: InsightQueryNode): void {
+    function setupAndRender(query: InsightQueryNode, dashboard = false): void {
         insightLogic(insightProps).mount()
         insightDataLogic(insightProps).mount()
         const vizDataLogic = insightVizDataLogic(insightProps)
@@ -143,7 +151,7 @@ describe('InsightDisplayConfig', () => {
         render(
             <Provider>
                 <BindLogic logic={insightLogic} props={insightProps}>
-                    <InsightDisplayConfig />
+                    {dashboard ? <DashboardDisplayOptions /> : <InsightDisplayConfig />}
                 </BindLogic>
             </Provider>
         )
@@ -341,12 +349,14 @@ describe('InsightDisplayConfig', () => {
     })
 
     it.each([undefined, false, true])('persists dashboard summary opt-in from %s', async (showSummaryOnDashboards) => {
-        setupAndRender({
-            kind: NodeKind.FunnelsQuery,
-            series: [...pageviewSeries, ...pageviewSeries],
-            funnelsFilter: { showSummaryOnDashboards },
-        })
-        await openOptionsMenu()
+        setupAndRender(
+            {
+                kind: NodeKind.FunnelsQuery,
+                series: [...pageviewSeries, ...pageviewSeries],
+                funnelsFilter: { showSummaryOnDashboards },
+            },
+            true
+        )
         const checkbox = screen.getByLabelText('Show summary on dashboards')
         expect(checkbox).toHaveAttribute('aria-checked', String(showSummaryOnDashboards === true))
 
@@ -361,13 +371,25 @@ describe('InsightDisplayConfig', () => {
         )
     })
 
-    it('omits the dashboard summary option for historical funnel trends', async () => {
+    it.each([undefined, false, true])('hides the dashboard-only summary option in the editor with %s', (enabled) => {
         setupAndRender({
             kind: NodeKind.FunnelsQuery,
             series: [...pageviewSeries, ...pageviewSeries],
-            funnelsFilter: { funnelVizType: FunnelVizType.Trends },
+            funnelsFilter: { showSummaryOnDashboards: enabled },
         })
-        await openOptionsMenu()
+        expect(screen.queryAllByLabelText('Options')).toHaveLength(0)
+        expect(screen.queryByLabelText('Show summary on dashboards')).not.toBeInTheDocument()
+    })
+
+    it('omits the dashboard summary option for historical funnel trends', () => {
+        setupAndRender(
+            {
+                kind: NodeKind.FunnelsQuery,
+                series: [...pageviewSeries, ...pageviewSeries],
+                funnelsFilter: { funnelVizType: FunnelVizType.Trends },
+            },
+            true
+        )
         expect(screen.queryByLabelText('Show summary on dashboards')).not.toBeInTheDocument()
     })
 
