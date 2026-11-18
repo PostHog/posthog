@@ -10213,11 +10213,17 @@ class TestTaskRunAPI(BaseTaskAPITest):
         if run.status == TaskRun.Status.QUEUED:
             self.assertIsNone(run.completed_at)
 
-    def test_heartbeat_does_not_reopen_a_run_of_a_finished_task(self):
+    @parameterized.expand(
+        [
+            ("completed_run_is_not_reopened", TaskRun.Status.COMPLETED),
+            ("live_run_takes_no_heartbeat", TaskRun.Status.QUEUED),
+        ]
+    )
+    def test_heartbeat_is_refused_for_a_run_of_a_finished_task(self, _name, run_status):
         task = self.create_task()
         Task.objects.filter(id=task.id).update(status=Task.Status.DONE, profile="user")
         run = TaskRun.objects.create(
-            task=task, team=self.team, status=TaskRun.Status.COMPLETED, environment=TaskRun.Environment.LOCAL
+            task=task, team=self.team, status=run_status, environment=TaskRun.Environment.LOCAL
         )
 
         with patch(
@@ -10228,7 +10234,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         run.refresh_from_db()
-        self.assertEqual(run.status, TaskRun.Status.COMPLETED)
+        self.assertEqual(run.status, run_status)
         self.assertIsNone(run.last_heartbeat_at)
 
     def test_append_log_empty_entries_fails(self):
