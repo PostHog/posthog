@@ -35,6 +35,19 @@ LOGIN_USERNAME='my@email.address' LOGIN_PASSWORD="the-password" BASE_URL='http:/
 
 You might need to install Playwright first: `pnpm --filter=@posthog/playwright exec playwright install`
 
+### Without a backend
+
+The specs in `playwright/mock-app/` run against the mock app: the production Vite build of the app, with API responses from the mocks that Storybook uses.
+They need no Python, docker or database.
+
+```bash
+pnpm --filter=@posthog/playwright exec playwright test --config mock-app.config.ts
+```
+
+The config builds the app and serves it on port 8239.
+To work on the UI against the same mocks with hot reload, run `pnpm --filter=@posthog/frontend start:mock-app` and open http://localhost:8239.
+An API request that no mock covers gets a 404, and the browser console names it.
+
 ## Writing tests with Claude Code
 
 Use the `/playwright-test` skill to have Claude Code write and validate end-to-end tests for you.

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en" data-boot-theme="light">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>PostHog</title>
+        <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32x32.png" />
+        <style>
+            html,
+            body,
+            #root {
+                height: 100%;
+                margin: 0;
+                padding: 0;
+            }
+            *,
+            :after,
+            :before {
+                box-sizing: border-box;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="root" translate="no"></div>
+        <script type="module" src="/src/mocks/mockApp.ts"></script>
+    </body>
+</html>

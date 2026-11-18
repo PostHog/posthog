@@ -1,8 +1,13 @@
 import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
-import { AppContext } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
-export const getStorybookAppContext = (): AppContext => ({
+// A partial AppContext: stories render with the access levels listed here and with no effective access map.
+export type StorybookAppContext = Omit<AppContext, 'effective_resource_access_control' | 'resource_access_control'> & {
+    resource_access_control: Partial<Record<AccessControlResourceType, `${AccessControlLevel}`>>
+}
+
+export const getStorybookAppContext = (): StorybookAppContext => ({
     anonymous: false,
     // Ideally we wouldn't set `current_team` here, the same way we don't set `current_user`, but unfortunately
     // as of March 2024, a bunch of logics make the assumption that this is set, via `AppConfig`
