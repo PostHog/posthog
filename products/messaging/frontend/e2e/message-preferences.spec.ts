@@ -38,6 +38,13 @@ async function createPreferencesPage(page: Page, playwrightSetup: PlaywrightSetu
         categoryIds.push((await response.json()).id)
     }
 
+    // Recipients see the tracking switch once the workspace asks for their consent
+    const consentResponse = await page.request.patch(`/api/environments/${workspace.team_id}/`, {
+        headers,
+        data: { workflows_config: { email_tracking_consent_mode: 'opt_out' } },
+    })
+    expect(consentResponse.ok()).toBe(true)
+
     // A personal API key can't mint a preferences link, so the workspace user signs in for it
     await playwrightSetup.login(page, workspace)
     const csrfToken = (await page.context().cookies()).find((cookie) => cookie.name === 'posthog_csrftoken')?.value
@@ -392,13 +399,87 @@ test.describe('Message preferences page', () => {
                 answer.open()
                 await expect(refusals).toHaveCount(refusedBefore + 1)
                 await read.opened
-                await expect(eventInvites).not.toBeChecked()
+                await productNews.click()
+                await expect(status(productNewsId)).toHaveText('Not subscribed')
                 readAnswer.open()
                 await expect(status(eventInvitesId)).toHaveText('Not subscribed')
                 await expect(eventInvites).not.toBeChecked()
                 expect(await storedPreferences('event_invites')).toEqual({
                     $all: 'OPTED_IN',
-                    [productNewsId]: 'OPTED_IN',
+                    [productNewsId]: 'OPTED_OUT',
+                    [eventInvitesId]: 'OPTED_OUT',
+                })
+            })
+
+            await test.step('two refused saves both turn back before the next edit', async () => {
+                const answer = responseGate()
+                const read = responseGate()
+                const readAnswer = responseGate()
+                await recipientPage.route(
+                    isPageRead,
+                    async (route) => {
+                        const response = await route.fetch()
+                        read.open()
+                        await readAnswer.opened
+                        await route.fulfill({ response })
+                    },
+                    { times: 1 }
+                )
+                await recipientPage.route(
+                    UPDATE_URL,
+                    async (route) => {
+                        await answer.opened
+                        await route.fulfill({ status: 500, json: { error: 'Something went wrong' } })
+                    },
+                    { times: 2 }
+                )
+                const refusals = recipientPage.getByText('Something went wrong')
+                const refusedBefore = await refusals.count()
+                await eventInvites.click()
+                await productNews.click()
+                answer.open()
+                await expect(refusals).toHaveCount(refusedBefore + 2)
+                await read.opened
+                await allMarketing.click()
+                await expect(status('$all')).toHaveText('Not subscribed')
+                readAnswer.open()
+                expect(await storedPreferences()).toEqual({
+                    $all: 'OPTED_OUT',
+                    [productNewsId]: 'OPTED_OUT',
+                    [eventInvitesId]: 'OPTED_OUT',
+                })
+            })
+
+            await test.step('a refused tracking change turns back though a later save went through', async () => {
+                // The tracking switch has no accessible name of its own
+                const tracking = recipientPage.locator('#email-tracking-toggle')
+                const answer = responseGate()
+                await recipientPage.route(
+                    UPDATE_URL,
+                    async (route) => {
+                        await answer.opened
+                        await route.fulfill({ status: 500, json: { error: 'Something went wrong' } })
+                    },
+                    { times: 1 }
+                )
+                await recipientPage.route(
+                    isPageRead,
+                    (route) => route.fulfill({ status: 200, contentType: 'text/html', body: '<p>Another page</p>' }),
+                    { times: 1 }
+                )
+                const unconfirmed = recipientPage.getByText("Couldn't confirm your preferences.", { exact: false })
+                const [savedBefore, warningsBefore] = [await successToast.count(), await unconfirmed.count()]
+                await expect(tracking).toBeChecked()
+                await tracking.click()
+                await allMarketing.click()
+                await expect(successToast).toHaveCount(savedBefore + 1)
+                answer.open()
+                await expect(unconfirmed).toHaveCount(warningsBefore + 1)
+                await expect(status('$email_tracking')).toHaveText('Tracking allowed')
+                await expect(tracking).toBeChecked()
+                expect(await storedPreferences('product_news')).toEqual({
+                    $all: 'OPTED_IN',
+                    [productNewsId]: 'OPTED_OUT',
                     [eventInvitesId]: 'OPTED_OUT',
                 })
             })

@@ -79,6 +79,9 @@
                     return choices
                 }
                 const wanted = savedChoices(document)
+                // What the server took, each choice from the newest save that carried it
+                const stored = savedChoices(document)
+                const storedBy = {}
                 const saving = new Set()
                 let savesPending = 0
                 let savesStarted = 0
@@ -167,18 +170,23 @@
                             throw new Error(data.error)
                         }
 
+                        Object.entries(choices).forEach(([name, on]) => {
+                            if (!(storedBy[name] > saveNumber)) {
+                                stored[name] = on
+                                storedBy[name] = saveNumber
+                            }
+                        })
                         showToast('Preferences updated successfully', false)
                     } catch (error) {
                         showToast(error.message || 'Failed to update preferences', true)
-                        // A refused change turns back now, so a click before the read-back cannot resend it.
-                        // A later save already sent its own choices, which the read-back will settle.
-                        if (saveNumber === savesStarted) {
-                            wanted[changedToggle.name] = !choices[changedToggle.name]
-                            render()
-                        }
+                        // A refused change turns back now, so a click before the read-back cannot resend it
+                        wanted[changedToggle.name] = stored[changedToggle.name]
+                        render()
                     } finally {
                         savesPending--
                         if (savesPending === 0) {
+                            // Each choice takes the newest value the server accepted, which turns back one only refused saves carried
+                            Object.assign(wanted, stored)
                             const savesBeforeRead = savesStarted
                             // Overlapping saves can answer out of commit order, so read back what the server stored
                             const read = new AbortController()
@@ -190,7 +198,8 @@
                             // A save that started during the read makes it stale, and that save reads back when it ends
                             if (savesStarted === savesBeforeRead) {
                                 if (storedForm) {
-                                    Object.assign(wanted, savedChoices(storedForm))
+                                    Object.assign(stored, savedChoices(storedForm))
+                                    Object.assign(wanted, stored)
                                 } else {
                                     showToast("Couldn't confirm your preferences. Reload the page to check them.", true)
                                 }
