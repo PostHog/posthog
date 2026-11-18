@@ -6,29 +6,18 @@ import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass
 import { LemonButton, LemonDialog, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconKey } from 'lib/lemon-ui/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import type { ConnectedAppApi } from '~/generated/core/api.schemas'
 
 import { ConnectedAppLogo } from './ConnectedAppLogo'
+import { sortScopesWriteFirst } from './connectedAppScopes'
 import { connectedAppsLogic } from './connectedAppsLogic'
+import { QuillConnectedApps } from './QuillConnectedApps'
 
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
-
-function sortScopesWriteFirst(scopes: string[]): string[] {
-    return [...scopes].sort((a, b) => {
-        const aIsWrite = a.endsWith(':write')
-        const bIsWrite = b.endsWith(':write')
-        if (aIsWrite && !bIsWrite) {
-            return -1
-        }
-        if (!aIsWrite && bIsWrite) {
-            return 1
-        }
-        return 0
-    })
-}
 
 function ScopesAccordion({ scopes }: { scopes: string[] }): JSX.Element {
     const [expanded, setExpanded] = useState(false)
@@ -56,6 +45,7 @@ function ScopesAccordion({ scopes }: { scopes: string[] }): JSX.Element {
 export function ConnectedApps({ apps }: { apps?: ConnectedAppApi[] }): JSX.Element {
     const { connectedApps, connectedAppsLoading } = useValues(connectedAppsLogic)
     const { revokeApp } = useActions(connectedAppsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const handleRevoke = (app: ConnectedAppApi): void => {
         // Name is HTML-escaped at ingestion; decode for display (see posthog/api/oauth/client_name.py).
@@ -73,6 +63,12 @@ export function ConnectedApps({ apps }: { apps?: ConnectedAppApi[] }): JSX.Eleme
                 children: 'Cancel',
             },
         })
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillConnectedApps apps={apps ?? connectedApps} loading={connectedAppsLoading} onRevoke={handleRevoke} />
+        )
     }
 
     return (
