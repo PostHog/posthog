@@ -8,12 +8,17 @@ in the window counts on that service's edge, so a call that never arrived still 
 Every edge is measured on the caller's side when the caller has a client or producer span, since
 that is the latency and the errors the caller saw. Without one, the callee span is used.
 
-Unlike the service map, this reads the whole window rather than a trace sample, so the counts add up
-to the spans in the window. Fail-fast settings cap the bytes read and the run time instead.
+A window with up to EXACT_SPAN_LIMIT spans is read whole, so the counts add up to the spans in it.
+A busier window is sampled by time: the join reads evenly spaced slices of the window that add up to
+about EXACT_SPAN_LIMIT spans, and the counts are scaled back up by the share of the window read.
+Slices of time, not of trace ids, because the timestamp index skips the granules outside a slice,
+while a hash of the trace id matches a row in nearly every granule and saves no reads.
+Fail-fast settings still cap the bytes read and the run time.
 """
 
+import math
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
@@ -29,6 +34,14 @@ from products.apm.backend.logic.health.sources import environment_where, window_
 DEPENDENCY_EDGES_LIMIT = 500
 MAX_BYTES_TO_READ = 10_000_000_000
 MAX_EXECUTION_SECONDS = 30
+# The most spans the join reads before it samples. The query scans the window about four times and
+# reads the attributes map in two of those scans, so this keeps a sampled run well under the byte cap.
+EXACT_SPAN_LIMIT = 4_000_000
+SAMPLE_SLICE_SECONDS = 60
+MAX_SAMPLE_SLICES = 30
+# A child span starts after its parent, give or take clock skew between hosts, so the child side reads
+# a little past each slice to find the children of parents that start near its end.
+CHILD_MARGIN = timedelta(seconds=10)
 
 _ENTRY_KINDS = "(2, 5)"
 # A left join leaves the callee columns null for a span with no matching child span.
@@ -77,10 +90,67 @@ _TARGET_KIND = f"""multiIf(
 class DependenciesResult:
     edges: list[DependencyEdge]
     truncated: bool
+    sampled: bool
+    sample_rate: float
+
+
+@dataclass(frozen=True)
+class _Sample:
+    slices: list[tuple[datetime, datetime]]
+    rate: float
+
+
+def _plan_sample(span_count: int, date_from: datetime, date_to: datetime) -> _Sample | None:
+    if span_count <= EXACT_SPAN_LIMIT:
+        return None
+    window_seconds = (date_to - date_from).total_seconds()
+    sampled_seconds = window_seconds * EXACT_SPAN_LIMIT / span_count
+    count = min(MAX_SAMPLE_SLICES, max(1, round(sampled_seconds / SAMPLE_SLICE_SECONDS)))
+    stride = timedelta(seconds=window_seconds / count)
+    width = timedelta(seconds=sampled_seconds / count)
+    slices = [(date_from + stride * i, date_from + stride * i + width) for i in range(count)]
+    return _Sample(slices=slices, rate=sampled_seconds / window_seconds)
+
+
+def _sample_where(
+    date_from: datetime, date_to: datetime, sample: _Sample | None, margin: timedelta = timedelta(0)
+) -> ast.Expr:
+    if sample is None:
+        return window_where(date_from, date_to)
+    ranges = [
+        parse_expr(
+            "timestamp >= {start} AND timestamp < {end}",
+            placeholders={
+                "start": ast.Constant(value=max(date_from, start - margin)),
+                "end": ast.Constant(value=min(date_to, end + margin)),
+            },
+        )
+        for start, end in sample.slices
+    ]
+    return ast.And(exprs=[window_where(date_from, date_to), ast.Or(exprs=ranges)])
+
+
+def _span_count_query(
+    date_from: datetime, date_to: datetime, environment: str | None, service: str | None
+) -> ast.SelectQuery:
+    query = parse_select(
+        "SELECT count() FROM posthog.trace_spans WHERE {where} AND {env_where} AND {trace_where}",
+        placeholders={
+            "where": window_where(date_from, date_to),
+            "env_where": environment_where(environment),
+            "trace_where": _service_traces_where(date_from, date_to, environment, service),
+        },
+    )
+    assert isinstance(query, ast.SelectQuery)
+    return query
 
 
 def _dependencies_query(
-    date_from: datetime, date_to: datetime, environment: str | None, service: str | None
+    date_from: datetime,
+    date_to: datetime,
+    environment: str | None,
+    service: str | None,
+    sample: _Sample | None = None,
 ) -> ast.SelectQuery:
     # The callee side is the right side of the join, so ClickHouse builds its hash table from entry
     # spans only, one per request, not from every span in the window. A client span whose child call
@@ -110,12 +180,12 @@ def _dependencies_query(
                     GROUP BY service_name
                 ) AS target_is_service
             FROM posthog.trace_spans
-            WHERE {{where}} AND {{env_where}} AND {{trace_where}}
+            WHERE {{parent_where}} AND {{env_where}} AND {{trace_where}}
         ) AS p
         LEFT JOIN (
             SELECT trace_id, parent_span_id, service_name, status_code, duration_nano
             FROM posthog.trace_spans
-            WHERE {{where}} AND {{env_where}} AND {{trace_where}}
+            WHERE {{child_where}} AND {{env_where}} AND {{trace_where}}
                 AND kind IN {_ENTRY_KINDS} AND NOT is_root_span
         ) AS c ON p.trace_id = c.trace_id AND p.span_id = c.parent_span_id
         LEFT JOIN (
@@ -127,13 +197,13 @@ def _dependencies_query(
             FROM (
                 SELECT trace_id, span_id, parent_span_id, {_TARGET} AS target, {_TARGET_KIND} AS target_kind
                 FROM posthog.trace_spans
-                WHERE {{where}} AND {{env_where}} AND {{trace_where}}
+                WHERE {{child_where}} AND {{env_where}} AND {{trace_where}}
                     AND kind IN {_CALL_KINDS} AND NOT is_root_span
             ) AS x
             LEFT JOIN (
                 SELECT trace_id, parent_span_id, service_name
                 FROM posthog.trace_spans
-                WHERE {{where}} AND {{env_where}} AND {{trace_where}}
+                WHERE {{child_where}} AND {{env_where}} AND {{trace_where}}
                     AND kind IN {_ENTRY_KINDS} AND NOT is_root_span
             ) AS e ON x.trace_id = e.trace_id AND x.span_id = e.parent_span_id
             GROUP BY x.trace_id, x.parent_span_id
@@ -154,6 +224,8 @@ def _dependencies_query(
         """,
         placeholders={
             "where": window_where(date_from, date_to),
+            "parent_where": _sample_where(date_from, date_to, sample),
+            "child_where": _sample_where(date_from, date_to, sample, CHILD_MARGIN),
             "env_where": environment_where(environment),
             "trace_where": _service_traces_where(date_from, date_to, environment, service),
             "known_services_where": _known_services_where(date_from, date_to, environment, service),
@@ -222,12 +294,10 @@ def _known_services_where(
     )
 
 
-def get_dependencies(
-    *, team: Team, date_from: datetime, date_to: datetime, environment: str | None, service: str | None = None
-) -> DependenciesResult:
-    rows = execute_hogql_query(
-        query_type="ApmDependenciesQuery",
-        query=_dependencies_query(date_from, date_to, environment, service),
+def _run(team: Team, query_type: str, query: ast.SelectQuery) -> list:
+    return execute_hogql_query(
+        query_type=query_type,
+        query=query,
         team=team,
         workload=Workload.LOGS,
         limit_context=LimitContext.QUERY,
@@ -237,16 +307,31 @@ def get_dependencies(
             read_overflow_mode="throw",
         ),
     ).results
+
+
+def _scale(value: int, rate: float) -> int:
+    return value if rate >= 1 else math.floor(value / rate + 0.5)
+
+
+def get_dependencies(
+    *, team: Team, date_from: datetime, date_to: datetime, environment: str | None, service: str | None = None
+) -> DependenciesResult:
+    span_count = _run(team, "ApmDependenciesSpanCount", _span_count_query(date_from, date_to, environment, service))
+    sample = _plan_sample(int(span_count[0][0]), date_from, date_to)
+    rate = sample.rate if sample else 1.0
+    rows = _run(team, "ApmDependenciesQuery", _dependencies_query(date_from, date_to, environment, service, sample))
     edges = [
         DependencyEdge(
             caller=caller,
             callee=callee,
             inferred=bool(inferred),
             kind=DependencyKind(kind),
-            requests=int(requests),
-            error_count=int(error_count),
+            requests=_scale(int(requests), rate),
+            error_count=_scale(int(error_count), rate),
             p95_ms=float(p95_ms) if p95_ms is not None else None,
         )
         for caller, callee, inferred, kind, requests, error_count, p95_ms in rows[:DEPENDENCY_EDGES_LIMIT]
     ]
-    return DependenciesResult(edges=edges, truncated=len(rows) > DEPENDENCY_EDGES_LIMIT)
+    return DependenciesResult(
+        edges=edges, truncated=len(rows) > DEPENDENCY_EDGES_LIMIT, sampled=sample is not None, sample_rate=rate
+    )

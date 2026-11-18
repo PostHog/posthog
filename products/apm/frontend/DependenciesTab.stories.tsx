@@ -83,6 +83,8 @@ const dependencies: DependenciesResponseApi = {
         },
     ],
     truncated: false,
+    sampled: false,
+    sample_rate: 1,
     environment: 'production',
     service: null,
     ...WINDOW,
