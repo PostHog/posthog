@@ -168,24 +168,18 @@ class TestSessionOutcomes(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("judge_says_it_fits", FitVerdict(metric_names=frozenset({"signups"})), False, {SIGNUPS_ID}),
-            ("judge_says_it_does_not_fit", FitVerdict(), False, set()),
-            ("judge_failed", FitVerdict(failed=True), False, {SIGNUPS_ID, REVENUE_ID}),
-            ("no_verdict", None, False, {SIGNUPS_ID, REVENUE_ID}),
-            ("the_run_failed", FitVerdict(metric_names=frozenset({"signups"})), True, set()),
-            ("only_an_adapted_read_fits", FitVerdict(metric_names=frozenset({"cohorts"})), False, set()),
+            ("the_run_worked", False, {SIGNUPS_ID, REVENUE_ID}),
+            ("the_run_failed", True, {REVENUE_ID}),
         ]
     )
-    def test_a_run_counts_as_used_when_it_worked_and_fits(
-        self, _name: str, verdict: FitVerdict | None, failed: bool, expected: set[UUID]
-    ) -> None:
+    def test_a_run_counts_as_used_when_it_worked(self, _name: str, failed: bool, expected: set[UUID]) -> None:
         evidence = build_evidence(
             SessionText(session_id="s1", person="d1", notes=(), tools=frozenset()),
             calls=[
                 _call("data-catalog-metric-run", "signups", failed=failed),
                 _call("data-catalog-metric-run", "revenue"),
             ],
-            verdict=verdict,
+            verdict=None,
             matches=[],
             metric_ids_by_name=IDS,
         )
@@ -195,18 +189,17 @@ class TestSessionOutcomes(SimpleTestCase):
 
     @parameterized.expand(
         [
-            (
-                "names_the_metrics_that_fit",
-                '{"metrics": ["signups"], "description": true}',
-                FitVerdict(metric_names=frozenset({"signups"}), description=True),
-            ),
-            ("a_bare_name_fails", '{"metrics": "signups", "description": false}', FitVerdict(failed=True)),
-            ("a_reply_without_names_fails", '{"metric": true, "description": false}', FitVerdict(failed=True)),
+            ("a_description_fits", '{"description": true}', FitVerdict(description=True)),
+            ("no_description_fits", '{"description": false}', FitVerdict()),
+            ("a_word_fails", '{"description": "yes"}', FitVerdict(failed=True)),
+            ("a_reply_without_the_field_fails", '{"metrics": ["signups"]}', FitVerdict(failed=True)),
         ]
     )
-    def test_the_coverage_judge_names_the_metrics_that_fit(self, _name: str, reply: str, expected: FitVerdict) -> None:
+    def test_the_coverage_judge_decides_whether_a_description_fit(
+        self, _name: str, reply: str, expected: FitVerdict
+    ) -> None:
         client = SimpleNamespace(messages=SimpleNamespace(stream=lambda **_kwargs: _Stream(reply)))
-        lookups = SessionLookups(ran_metric=True, read_descriptions=False, steps=("Ran metric signups",))
+        lookups = SessionLookups(ran_metric=False, read_descriptions=True, steps=("Metadata search",))
 
         assert async_to_sync(judge_fit)(client, "Weekly signups?", lookups) == expected  # type: ignore[arg-type]
 
@@ -434,7 +427,7 @@ class _JudgeMessages:
     def stream(self, *, model: str, max_tokens: int, messages: list[dict[str, str]]) -> "_Stream":
         prompt = messages[0]["content"]
         if "<steps" in prompt:
-            return _Stream("{}" if self.coverage_down else '{"metrics": ["signups"], "description": false}')
+            return _Stream("{}" if self.coverage_down else '{"description": false}')
         if "<pieces>" in prompt:
             if self.stitch_down:
                 return _Stream("{}")
@@ -520,6 +513,7 @@ class TestMeasureTeam(ClickhouseTestMixin, BaseTest):
         *catalog_tools: str,
         tool: str = "execute-sql",
         minutes: int = 0,
+        span_query: str | None = None,
     ) -> None:
         at = self.END - timedelta(hours=6) + timedelta(minutes=minutes)
         shared = {"$mcp_project_uuid": str(self.team.uuid), "$session_id": session, "$ai_trace_id": session}
@@ -545,7 +539,7 @@ class TestMeasureTeam(ClickhouseTestMixin, BaseTest):
                 properties={
                     **shared,
                     "$ai_span_name": tool,
-                    "$ai_input_state": json.dumps({"name": "signups"}),
+                    "$ai_input_state": json.dumps({"name": "signups", **({"query": span_query} if span_query else {})}),
                     "$ai_output_state": "{}",
                 },
             )
@@ -585,6 +579,7 @@ class TestMeasureTeam(ClickhouseTestMixin, BaseTest):
         self._session("ticket", "open the ticket thread", "SELECT uniq(person_id) FROM page_views")
         self._session("saved", "weekly signups", None, tool="insight-query")
         self._session("metadata", "weekly signups", "SELECT name FROM system.information_schema.metrics")
+        self._session("listonly", "weekly signups", None, "metric-list", tool="metric-list")
         # The session starts at the window start, and its catalog listing comes a minute before it.
         self._session("early", "weekly signups", self.SIGNUPS_SQL, "metric-list", minutes=-42 * 60)
         # Its chain reaches into the window, but this conversation ends before the window starts.
@@ -601,7 +596,7 @@ class TestMeasureTeam(ClickhouseTestMixin, BaseTest):
         result = self._measure(_FakeClient())
 
         assert isinstance(result, TeamEffectiveness)
-        assert result.analysis_sessions == 7
+        assert result.analysis_sessions == 8
         assert {row.session_id: (row.outcome, row.client) for row in result.rows if row.is_headline} == {
             "ran": (SessionOutcome.USED, "claude"),
             "read": (SessionOutcome.ADAPTED, "claude"),
@@ -610,20 +605,30 @@ class TestMeasureTeam(ClickhouseTestMixin, BaseTest):
             "silent": (SessionOutcome.DID_NOT_ASK, "claude"),
             "nofit": (SessionOutcome.DID_NOT_ASK, "claude"),
             "asked": (SessionOutcome.ASKED_NO_MATCH, "claude"),
+            "listonly": (SessionOutcome.ASKED_NO_MATCH, "claude"),
         }
         assert next(row for row in result.rows if row.session_id == "early").missed_reason == MissedReason.UNKNOWN
-        assert result.served_share == 2 / 7
+        assert result.served_share == 2 / 8
         silent = next(row for row in result.rows if row.session_id == "silent")
-        assert (silent.metric_name, silent.is_example, silent.reasoning) == ("signups", True, "It counts signups.")
+        assert (silent.metric_name, silent.asset_kind, silent.reasoning) == ("", AssetKind.NONE, "")
         assert silent.question == "weekly signups"
         assert silent.started_at == self.END - timedelta(hours=6)
         assert silent.source == "posthog_ai"
 
-    @parameterized.expand([("joined", True, SessionOutcome.MISSED), ("kept_apart", False, SessionOutcome.DID_NOT_ASK)])
+    @parameterized.expand(
+        [
+            ("joined", True, {"a-listed": SessionOutcome.MISSED}),
+            (
+                "kept_apart",
+                False,
+                {"a-listed": SessionOutcome.ASKED_NO_MATCH, "b-query": SessionOutcome.DID_NOT_ASK},
+            ),
+        ]
+    )
     # One piece per batch, so the call and the query of a joined conversation arrive in different batches.
     @patch("products.data_catalog.backend.logic.effectiveness._LOOKUP_BATCH", 1)
     def test_a_catalog_call_counts_when_the_model_joins_its_piece_to_the_query(
-        self, _name: str, join_pieces: bool, expected: SessionOutcome
+        self, _name: str, join_pieces: bool, expected: dict[str, SessionOutcome]
     ) -> None:
         self._session("a-listed", "weekly signups", None, "metric-list", tool="metric-list", minutes=-5)
         self._session("b-query", "weekly signups", self.SIGNUPS_SQL, minutes=-4)
@@ -634,7 +639,7 @@ class TestMeasureTeam(ClickhouseTestMixin, BaseTest):
         assert isinstance(result, TeamEffectiveness)
         assert result.pieces_read == 2
         headline = {row.session_id: row.outcome for row in result.rows if row.is_headline}
-        assert headline == ({"a-listed": expected} if join_pieces else {"b-query": expected})
+        assert headline == expected
 
     @parameterized.expand(
         [
@@ -648,6 +653,13 @@ class TestMeasureTeam(ClickhouseTestMixin, BaseTest):
         self._session("a-listed", "weekly signups", None, "metric-list", tool="metric-list", minutes=-5)
         self._session("b-query", "weekly signups", self.SIGNUPS_SQL, minutes=-4)
         self._session("ran", "weekly signups", None, "data-catalog-metric-run", tool="data-catalog-metric-run")
+        self._session(
+            "described",
+            "weekly signups",
+            self.SIGNUPS_SQL,
+            "execute-sql",
+            span_query="SELECT table_name, description FROM system.information_schema.tables",
+        )
         flush_persons_and_events()
 
         with self.assertRaises(error):

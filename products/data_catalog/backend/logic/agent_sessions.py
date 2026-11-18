@@ -550,8 +550,10 @@ def fetch_candidate_chains(
     window_end: datetime,
     chain_limit: int,
     lookback: timedelta = timedelta(0),
+    extra_tools: frozenset[str] = frozenset(),
 ) -> list[list[Piece]]:
-    """The chains that reach into the window. With a lookback, a chain also keeps its pieces from just before it."""
+    """The chains that reach into the window. With a lookback, a chain also keeps its pieces from just before it.
+    A tool in ``extra_tools`` makes a chain eligible as a data tool does."""
     with tags_context(product=Product.DATA_CATALOG, feature=Feature.ENRICHMENT, team_id=team.id):
         response = execute_hogql_query(
             query=parse_select(_CHAINS_QUERY),
@@ -561,7 +563,9 @@ def fetch_candidate_chains(
                 "window_start": ast.Constant(value=window_start),
                 "end": ast.Constant(value=window_end),
                 "project": ast.Constant(value=str(team.uuid)),
-                "data_tools": ast.Tuple(exprs=[ast.Constant(value=tool) for tool in DATA_TOOLS]),
+                "data_tools": ast.Tuple(
+                    exprs=[ast.Constant(value=tool) for tool in (*DATA_TOOLS, *sorted(extra_tools))]
+                ),
                 "data_tool_prefix": ast.Constant(value=DATA_TOOL_PREFIX),
                 "max_intent_chars": ast.Constant(value=MAX_INTENT_CHARS),
                 "max_piece_calls": ast.Constant(value=_MAX_PIECE_CALLS),
@@ -628,10 +632,11 @@ class StitchRun:
     skipped_pieces: int
 
 
-def conversation_session(pieces: Sequence[Piece]) -> SessionText | None:
-    """The session text of one joined conversation, or None when it ran no data tool or has no notes."""
+def conversation_session(pieces: Sequence[Piece], extra_tools: frozenset[str] = frozenset()) -> SessionText | None:
+    """The session text of one joined conversation, or None when it ran no data tool or has no notes.
+    A tool in ``extra_tools`` keeps the conversation as a data tool does."""
     calls = sorted((call for piece in pieces for call in piece.calls), key=lambda call: call.at)
-    if not any(is_data_tool(call.tool) for call in calls):
+    if not any(is_data_tool(call.tool) or call.tool in extra_tools for call in calls):
         return None
     notes = [call.note for call in calls if call.note.strip()]
     if not notes:
@@ -651,7 +656,11 @@ def conversation_session(pieces: Sequence[Piece]) -> SessionText | None:
     )
 
 
-def joined_sessions(chains: Sequence[Sequence[Piece]], conversations: Iterable[Sequence[str]]) -> StitchedSessions:
+def joined_sessions(
+    chains: Sequence[Sequence[Piece]],
+    conversations: Iterable[Sequence[str]],
+    extra_tools: frozenset[str] = frozenset(),
+) -> StitchedSessions:
     """The conversations of `chains` under a stored join. A piece that no stored conversation holds stands alone."""
     unit_of = {piece_id: tuple(group) for group in conversations for piece_id in group}
     sessions: list[SessionText] = []
@@ -664,7 +673,7 @@ def joined_sessions(chains: Sequence[Sequence[Piece]], conversations: Iterable[S
                 continue
             group = tuple(piece_id for piece_id in unit_of.get(piece.piece_id, (piece.piece_id,)) if piece_id in by_id)
             seen.update(group)
-            session = conversation_session([by_id[piece_id] for piece_id in group])
+            session = conversation_session([by_id[piece_id] for piece_id in group], extra_tools)
             if session is not None:
                 sessions.append(session)
                 members[session.session_id] = group
