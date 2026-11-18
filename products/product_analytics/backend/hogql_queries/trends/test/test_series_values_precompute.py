@@ -85,22 +85,37 @@ class TestSeriesValuesPrecompute(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("day_utc_query_filter", IntervalType.DAY, "UTC", "-7d", "query"),
-            ("hour_utc_series_filter", IntervalType.HOUR, "UTC", "-3d", "series"),
-            ("day_los_angeles_series_filter", IntervalType.DAY, "America/Los_Angeles", "-7d", "series"),
-            ("hour_los_angeles_query_filter", IntervalType.HOUR, "America/Los_Angeles", "-3d", "query"),
+            ("day_utc_query_filter", IntervalType.DAY, "UTC", "-7d", None, "query"),
+            ("hour_utc_series_filter", IntervalType.HOUR, "UTC", "-3d", None, "series"),
+            ("day_los_angeles_series_filter", IntervalType.DAY, "America/Los_Angeles", "-7d", None, "series"),
+            ("hour_los_angeles_query_filter", IntervalType.HOUR, "America/Los_Angeles", "-3d", None, "query"),
+            (
+                "day_los_angeles_past_range",
+                IntervalType.DAY,
+                "America/Los_Angeles",
+                "2024-01-09",
+                "2024-01-13",
+                "query",
+            ),
+            ("hour_utc_past_relative_range", IntervalType.HOUR, "UTC", "-3d", "-1d", "series"),
         ]
     )
     @time_machine.travel(_NOW, tick=False)
     def test_matches_live_trends(
-        self, _name: str, interval: IntervalType, timezone: str, date_from: str, filter_level: str
+        self,
+        _name: str,
+        interval: IntervalType,
+        timezone: str,
+        date_from: str,
+        date_to: str | None,
+        filter_level: str,
     ) -> None:
         self._set_timezone(timezone)
         self._seed()
         series = EventsNode(event="signed_up", math="total", properties=[_PRO] if filter_level == "series" else None)
         query = _query(
             series=[series],
-            dateRange=DateRange(date_from=date_from),
+            dateRange=DateRange(date_from=date_from, date_to=date_to),
             interval=interval,
             properties=[_PRO] if filter_level == "query" else None,
         )
@@ -181,7 +196,22 @@ class TestSeriesValuesPrecompute(ClickhouseTestMixin, APIBaseTest):
                 {"interval": IntervalType.HOUR, "dateRange": DateRange(date_from="2023-11-04", date_to="2023-11-06")},
                 "America/New_York",
             ),
+            (
+                "dst_transition",
+                {"interval": IntervalType.HOUR, "dateRange": DateRange(date_from="2023-10-01", date_to="2024-04-01")},
+                "America/New_York",
+            ),
             ("nothing_closed", {"dateRange": DateRange(date_from="dStart")}, None),
+            ("unaligned_range", {"dateRange": DateRange(date_from="-24h")}, None),
+            (
+                "unaligned_range",
+                {
+                    "interval": IntervalType.HOUR,
+                    "dateRange": DateRange(date_from="2024-01-10", date_to="2024-01-10T15:20:00"),
+                },
+                None,
+            ),
+            ("date_range_too_long", {"dateRange": DateRange(date_from="2022-01-01", date_to="2024-01-10")}, None),
         ]
     )
     @time_machine.travel(_NOW, tick=False)
