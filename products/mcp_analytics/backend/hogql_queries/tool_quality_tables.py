@@ -77,6 +77,8 @@ _TOOL_SORT_COLUMNS = {
     "sessions",
     "last_seen",
     "trend_score",
+    "retried_pct",
+    "recovered_pct",
 }
 # Smoothing for the trend sort key, (calls - previous) / (previous + k). Without it a tool going
 # from 2 to 40 calls outranks one going from 200 to 5,000. k scales with overall volume so the
@@ -194,6 +196,10 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
 
         current_range = self.query_date_range
 
+        # Retried and recovered look at the next 3 calls of the conversation, because an agent often looks
+        # something up between a failed call and the fix. HogQL takes no placeholder in a window frame, so
+        # the 3 appears in the frame and in the three next_tool and next_is_error terms.
+        # An exec discovery verb describes tools and runs none, so it never counts as the retry.
         query = parse_select(
             """
             SELECT
@@ -217,7 +223,9 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                 if(previous_calls = 0 OR isNaN(previous_p95), NULL, previous_p95) AS previous_p95_duration_ms,
                 previous_sessions,
                 total_sessions,
-                previous_total_sessions
+                previous_total_sessions,
+                if(errors = 0, NULL, round(retried_errors * 100.0 / errors, 1)) AS retried_pct,
+                if(errors = 0, NULL, round(recovered_errors * 100.0 / errors, 1)) AS recovered_pct
             FROM (
                 SELECT
                     tool,
@@ -234,6 +242,8 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                     previous_sessions,
                     first_seen,
                     last_seen,
+                    retried_errors,
+                    recovered_errors,
                     uniqMerge(all_sessions_state) OVER () AS total_sessions,
                     uniqMerge(all_previous_sessions_state) OVER () AS previous_total_sessions
                 FROM (
@@ -252,11 +262,28 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                         uniqIf(session_id, in_previous) AS previous_sessions,
                         minIf(timestamp, in_current) AS first_seen,
                         maxIf(timestamp, in_current) AS last_seen,
+                        countIf(
+                            in_current AND is_error AND session_id IS NOT NULL
+                            AND (next_tool_1 = tool OR next_tool_2 = tool OR next_tool_3 = tool)
+                        ) AS retried_errors,
+                        countIf(
+                            in_current AND is_error AND session_id IS NOT NULL
+                            AND ((next_tool_1 = tool AND NOT next_is_error_1)
+                                OR (next_tool_2 = tool AND NOT next_is_error_2)
+                                OR (next_tool_3 = tool AND NOT next_is_error_3))
+                        ) AS recovered_errors,
                         uniqState(if(is_current, session_id, NULL)) AS all_sessions_state,
                         uniqState(if(is_current, NULL, session_id)) AS all_previous_sessions_state
                     FROM (
                         SELECT
                             {_EFFECTIVE_TOOL} AS tool,
+                            if(
+                                properties.$mcp_tool_name = 'exec'
+                                    AND properties.$mcp_exec_verb IS NOT NULL
+                                    AND properties.$mcp_exec_verb != 'call',
+                                NULL,
+                                tool
+                            ) AS retry_tool,
                             timestamp >= {current_from} AS is_current,
                             is_current AND {matches_table_filters} AS in_current,
                             NOT is_current AND {matches_table_filters} AS in_previous,
@@ -264,9 +291,19 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                             toFloat(properties.$mcp_duration_ms) AS duration_ms,
                             nullIf({conversation_id}, '') AS session_id,
                             distinct_id,
-                            timestamp
+                            timestamp,
+                            leadInFrame(retry_tool, 1) OVER w AS next_tool_1,
+                            leadInFrame(retry_tool, 2) OVER w AS next_tool_2,
+                            leadInFrame(retry_tool, 3) OVER w AS next_tool_3,
+                            leadInFrame(ifNull(is_error, false), 1) OVER w AS next_is_error_1,
+                            leadInFrame(ifNull(is_error, false), 2) OVER w AS next_is_error_2,
+                            leadInFrame(ifNull(is_error, false), 3) OVER w AS next_is_error_3
                         FROM events
                         WHERE {where}
+                        WINDOW w AS (
+                            PARTITION BY session_id ORDER BY timestamp, uuid
+                            ROWS BETWEEN CURRENT ROW AND 3 FOLLOWING
+                        )
                     )
                     GROUP BY tool
                 )
@@ -407,6 +444,8 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                 previous_errors=int(row[14] or 0),
                 previous_p95_duration_ms=None if row[15] is None else float(row[15]),
                 previous_sessions=int(row[16] or 0),
+                retried_pct=None if row[19] is None else float(row[19]),
+                recovered_pct=None if row[20] is None else float(row[20]),
             )
             for row in rows
         ]

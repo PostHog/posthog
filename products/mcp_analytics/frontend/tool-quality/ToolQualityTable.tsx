@@ -38,7 +38,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { formatPercentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 
-import { DESTRUCTIVE_ERROR_RATE_PCT, formatMs, formatNumber } from '../dashboard/formatters'
+import { DESTRUCTIVE_ERROR_RATE_PCT, formatMs, formatNumber, formatPercent } from '../dashboard/formatters'
 import { SkeletonLine } from '../dashboard/SkeletonLine'
 import {
     type SortState,
@@ -77,6 +77,19 @@ const SORTABLE_COLUMNS: ColumnSpec[] = [
         align: 'right',
         tooltip:
             'Percentage of calls marked as failed. An arrow marks a meaningful change versus the previous period, for tools with at least 20 calls in both.',
+    },
+    {
+        key: 'retried_pct',
+        label: 'Retried',
+        align: 'right',
+        tooltip: 'Share of failed calls where the agent called this tool again within its next three calls',
+    },
+    {
+        key: 'recovered_pct',
+        label: 'Recovered',
+        align: 'right',
+        tooltip:
+            'Share of failed calls where the agent called this tool again within its next three calls and that call succeeded',
     },
     {
         key: 'p95_duration_ms',
@@ -226,6 +239,12 @@ function ToolRows(): JSX.Element {
                             <ErrorRateBadge pct={row.error_rate_pct} />
                             <QualityChangeMarker change={errorRateChange(row)} />
                         </span>
+                    </TableCell>
+                    <TableCell align="right" className="tabular-nums">
+                        {formatPercent(row.retried_pct)}
+                    </TableCell>
+                    <TableCell align="right" className="tabular-nums">
+                        {formatPercent(row.recovered_pct)}
                     </TableCell>
                     <TableCell align="right">
                         <span className="inline-flex items-center whitespace-nowrap">

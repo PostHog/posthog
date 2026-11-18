@@ -13,6 +13,10 @@ export function formatNumber(n: number): string {
     return humanFriendlyLargeNumber(n)
 }
 
+export function formatPercent(pct: number | null | undefined): string {
+    return pct === null || pct === undefined ? EMPTY : `${pct.toFixed(1)}%`
+}
+
 export function formatMs(n: number): string {
     if (!isFinite(n) || n === 0) {
         return EMPTY

@@ -169,6 +169,8 @@ const SORT_COLUMNS: Record<ToolQualitySortColumn, true> = {
     sessions: true,
     last_seen: true,
     trend_score: true,
+    retried_pct: true,
+    recovered_pct: true,
 }
 
 function isDefaultSort(sort: SortState): boolean {

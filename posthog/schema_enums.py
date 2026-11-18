@@ -2146,6 +2146,8 @@ class MCPToolQualitySortColumn(StrEnum):
     SESSIONS = "sessions"
     LAST_SEEN = "last_seen"
     TREND_SCORE = "trend_score"
+    RETRIED_PCT = "retried_pct"
+    RECOVERED_PCT = "recovered_pct"
 
 
 class MCPToolQualitySortDirection(StrEnum):

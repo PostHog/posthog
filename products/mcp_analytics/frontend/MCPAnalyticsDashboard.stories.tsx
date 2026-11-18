@@ -899,6 +899,8 @@ const meta: Meta = {
                                 previous_sessions: Math.round(r[8] * 0.9),
                                 errors: r[2],
                                 error_rate_pct: r[3],
+                                retried_pct: r[2] ? 60 : null,
+                                recovered_pct: r[2] ? 40 : null,
                                 p50_duration_ms: r[4],
                                 p95_duration_ms: r[5],
                                 p99_duration_ms: r[6],

@@ -4300,6 +4300,10 @@ export interface MCPToolQualityRowItem {
     previous_p95_duration_ms: number | null
     /** Distinct sessions that called the tool in the previous period. */
     previous_sessions: integer
+    /** Share of the tool's errored calls in the window followed by another call to the same tool within the next three calls of the same conversation. Null when the tool has no errors in the window. */
+    retried_pct: number | null
+    /** Share of the tool's errored calls in the window where one of the next three calls in the conversation is the same tool and succeeded. Null when the tool has no errors in the window. */
+    recovered_pct: number | null
 }
 
 export type MCPToolQualitySortColumn =
@@ -4312,6 +4316,8 @@ export type MCPToolQualitySortColumn =
     | 'sessions'
     | 'last_seen'
     | 'trend_score'
+    | 'retried_pct'
+    | 'recovered_pct'
 
 export type MCPToolQualitySortDirection = 'ASC' | 'DESC'
 

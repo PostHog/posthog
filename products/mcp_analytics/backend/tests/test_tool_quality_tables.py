@@ -35,6 +35,8 @@ from products.mcp_analytics.backend.hogql_queries.tool_quality_tables import (
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 
 NEW_SDK_SOURCE = "posthog_mcp_analytics"
+FAILING = "query_run"
+OTHER = "insight_get"
 
 
 def _emit(
@@ -42,8 +44,9 @@ def _emit(
     *,
     tool_name: str = "query_run",
     exec_tool_name: str | None = None,
+    exec_verb: str | None = None,
     category: str | None = None,
-    is_error: bool = False,
+    is_error: bool | None = False,
     duration_ms: float | None = 100,
     session_id: str = "s1",
     mcp_session_id: str | None = None,
@@ -53,9 +56,10 @@ def _emit(
     properties: dict[str, Any] = {
         "$mcp_tool_name": tool_name,
         "$mcp_source": NEW_SDK_SOURCE,
-        "$mcp_is_error": is_error,
         "$session_id": session_id,
     }
+    if is_error is not None:
+        properties["$mcp_is_error"] = is_error
     if mcp_session_id is not None:
         properties["$mcp_session_id"] = mcp_session_id
     if duration_ms is not None:
@@ -64,6 +68,8 @@ def _emit(
         properties["$mcp_tool_category"] = category
     if exec_tool_name is not None:
         properties["$mcp_exec_tool_call_name"] = exec_tool_name
+    if exec_verb is not None:
+        properties["$mcp_exec_verb"] = exec_verb
     _create_event(
         team=team,
         event="$mcp_tool_call",
@@ -94,6 +100,121 @@ class TestMCPToolQualityRowsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickh
         assert rows[0].total_calls == 3
         assert rows[0].errors == 1
         assert rows[0].error_rate_pct == 33.3
+
+    def _emit_conversation(self, calls: list[tuple[str, bool | None, str]], **extra: Any) -> None:
+        start = datetime.now(tz=UTC) - timedelta(hours=1)
+        for i, (tool_name, is_error, session_id) in enumerate(calls):
+            _emit(
+                self.team,
+                tool_name=tool_name,
+                is_error=is_error,
+                session_id=session_id,
+                timestamp=start + timedelta(minutes=i),
+                **extra,
+            )
+        flush_persons_and_events()
+
+    @parameterized.expand(
+        [
+            ("next_call_succeeds", [(FAILING, True, "s1"), (FAILING, False, "s1")], (100, 100)),
+            (
+                "success_after_another_tool",
+                [(FAILING, True, "s1"), (OTHER, False, "s1"), (FAILING, False, "s1")],
+                (100, 100),
+            ),
+            ("success_without_error_flag", [(FAILING, True, "s1"), (FAILING, None, "s1")], (100, 100)),
+            ("fails_again_and_ends", [(FAILING, True, "s1"), (FAILING, True, "s1")], (50, 0)),
+            (
+                "only_other_tools_follow",
+                [(FAILING, True, "s1"), (OTHER, False, "s1"), (OTHER, False, "s1")],
+                (0, 0),
+            ),
+            (
+                "success_on_the_fourth_following_call",
+                [(FAILING, True, "s1")] + [(OTHER, False, "s1")] * 3 + [(FAILING, False, "s1")],
+                (0, 0),
+            ),
+            ("error_is_the_last_call", [(OTHER, False, "s1"), (FAILING, True, "s1")], (0, 0)),
+            ("no_errors", [(FAILING, False, "s1"), (FAILING, False, "s1")], (None, None)),
+            ("success_in_another_conversation", [(FAILING, True, "s1"), (FAILING, False, "s2")], (0, 0)),
+            ("no_conversation_id", [(FAILING, True, ""), (FAILING, False, "")], (0, 0)),
+        ]
+    )
+    def test_retried_and_recovered_share_of_errored_calls(
+        self,
+        _name: str,
+        calls: list[tuple[str, bool | None, str]],
+        expected: tuple[float | None, float | None],
+    ) -> None:
+        self._emit_conversation(calls)
+
+        row = next(r for r in self._run().results if r.tool == FAILING)
+
+        assert (row.retried_pct, row.recovered_pct) == expected
+
+    @parameterized.expand(
+        [
+            ("no_filter", {}),
+            ("category", {"categories": ["Data"]}),
+            ("search", {"search": FAILING}),
+        ]
+    )
+    def test_table_filters_do_not_hide_other_tools_calls_from_the_lookahead(
+        self, _name: str, table_filters: dict[str, Any]
+    ) -> None:
+        start = datetime.now(tz=UTC) - timedelta(hours=1)
+        calls = [(FAILING, True, "Data")] + [(OTHER, False, "Other")] * 3 + [(FAILING, False, "Data")]
+        for i, (tool_name, is_error, category) in enumerate(calls):
+            _emit(
+                self.team,
+                tool_name=tool_name,
+                is_error=is_error,
+                category=category,
+                timestamp=start + timedelta(minutes=i),
+            )
+        flush_persons_and_events()
+
+        response = MCPToolQualityRowsQueryRunner(
+            query=MCPToolQualityRowsQuery(dateRange=DateRange(date_from="-7d"), **table_filters), team=self.team
+        ).calculate()
+
+        row = next(r for r in response.results if r.tool == FAILING)
+        assert (row.retried_pct, row.recovered_pct) == (0, 0)
+
+    @parameterized.expand(
+        [("descending", "DESC", ["recovers", "stays_broken"]), ("ascending", "ASC", ["stays_broken", "recovers"])]
+    )
+    def test_sorts_by_recovered_pct(self, _name: str, direction: str, expected_order: list[str]) -> None:
+        self._emit_conversation(
+            [("recovers", True, "s1"), ("recovers", False, "s1"), ("stays_broken", True, "s2")],
+        )
+
+        response = MCPToolQualityRowsQueryRunner(
+            query=MCPToolQualityRowsQuery(
+                dateRange=DateRange(date_from="-7d"), sortColumn="recovered_pct", sortDirection=direction
+            ),
+            team=self.team,
+        ).calculate()
+
+        assert [r.tool for r in response.results] == expected_order
+
+    @parameterized.expand(
+        [
+            ("another_call_follows", "call", (100, 100)),
+            ("discovery_verb_follows", "search", (0, 0)),
+        ]
+    )
+    def test_exec_discovery_verb_is_not_a_retry_of_a_failed_exec_call(
+        self, _name: str, next_verb: str, expected: tuple[float, float]
+    ) -> None:
+        start = datetime.now(tz=UTC) - timedelta(hours=1)
+        _emit(self.team, tool_name="exec", exec_verb="call", is_error=True, timestamp=start)
+        _emit(self.team, tool_name="exec", exec_verb=next_verb, timestamp=start + timedelta(minutes=1))
+        flush_persons_and_events()
+
+        row = next(r for r in self._run().results if r.tool == "exec")
+
+        assert (row.retried_pct, row.recovered_pct) == expected
 
     def test_category_filter_narrows_the_rows(self) -> None:
         _emit(self.team, tool_name="query_run", category="Data")
