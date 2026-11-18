@@ -153,8 +153,8 @@ def _goal(goal: contracts.MetricGoalDTO | dict[str, Any]) -> dict[str, Any]:
 
 
 def _checked_goals(
-    submitted: list[Any], metric_ids: list[int], current: list[dict[str, Any]], lookup: InsightVisibilityLookup
-) -> list[dict[str, Any]]:
+    submitted: list[Any], metric_ids: list[int], lookup: InsightVisibilityLookup
+) -> tuple[list[dict[str, Any]], frozenset[int]]:
     hidden = lookup(sorted(set(metric_ids))).hidden
     goals = [_goal(goal) for goal in submitted]
     unknown = sorted(
@@ -162,7 +162,7 @@ def _checked_goals(
     )
     if unknown:
         raise contracts.UnknownLinkedObjectsError("metric_goals", "metrics", unknown)
-    return [*goals, *(goal for goal in current if goal["insight_id"] in hidden)]
+    return goals, frozenset(hidden)
 
 
 _LINKED_FIELDS: tuple[tuple[str, str], ...] = (
@@ -312,7 +312,7 @@ def create(input: contracts.CreateReleaseInput, lookups: LinkLookups) -> contrac
         name=input.name,
         description=input.description,
         owner_id=input.owner_id,
-        metric_goals=_checked_goals(list(input.metric_goals), checked["metric_insight_ids"], [], lookups.insights),
+        metric_goals=_checked_goals(list(input.metric_goals), checked["metric_insight_ids"], lookups.insights)[0],
         **checked,
     )
     return _visible_dto(logic.get_release(input.team_id, obj.id), lookups)
@@ -330,12 +330,12 @@ def update(team_id: int, release_id: UUID, changes: dict[str, Any], lookups: Lin
         if len(changes.get("metric_insight_ids", [])) > contracts.MAX_METRICS:
             raise contracts.TooManyMetricsError()
         if "metric_goals" in changes:
-            changes["metric_goals"] = _checked_goals(
+            changes["metric_goals"], hidden_goals = _checked_goals(
                 list(changes["metric_goals"]),
                 list(changes.get("metric_insight_ids", current.metric_insight_ids)),
-                list(current.metric_goals),
                 lookups.insights,
             )
+            return _visible_dto(logic.update_release(team_id, release_id, changes, hidden_goals), lookups)
     return _visible_dto(logic.update_release(team_id, release_id, changes), lookups)
 
 

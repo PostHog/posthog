@@ -104,11 +104,16 @@ def _goals_for_metrics(goals: list[dict[str, Any]], metric_ids: list[int]) -> li
     return list(kept.values())
 
 
-def update_release(team_id: int, release_id: UUID, changes: dict) -> Release:
+def update_release(
+    team_id: int, release_id: UUID, changes: dict, keep_goals_for: frozenset[int] = frozenset()
+) -> Release:
     with transaction.atomic():
         release = Release.objects.select_for_update().filter(team_id=team_id, id=release_id).first()
         if release is None:
             raise ReleaseNotFoundError(release_id)
+        if "metric_goals" in changes:
+            kept = [goal for goal in release.metric_goals if goal["insight_id"] in keep_goals_for]
+            changes = {**changes, "metric_goals": [*changes["metric_goals"], *kept]}
         _apply_changes(release, changes)
     return get_release(team_id, release_id)
 

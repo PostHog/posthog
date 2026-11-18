@@ -61,7 +61,12 @@ export function ReleaseMetricTileMenu({
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                     variant="destructive"
-                    onClick={() => updateRelease(row.id, { metric_insight_ids: others })}
+                    onClick={() =>
+                        updateRelease(row.id, {
+                            metric_insight_ids: others,
+                            metric_goals: row.metricGoals.filter((goal) => goal.insight_id !== insightId),
+                        })
+                    }
                     data-attr="release-metric-remove"
                 >
                     <IconTrash />
