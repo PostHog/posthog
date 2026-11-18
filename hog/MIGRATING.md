@@ -40,16 +40,27 @@ List what you found before you change anything, so the person can check it.
 
 ## 2. Install hog
 
-On the machine:
+Use the package manager the project already uses. Its lockfile tells you which one:
+
+| Lockfile                  | Add hog to the project | Install hog globally | Run hog once   |
+| ------------------------- | ---------------------- | -------------------- | -------------- |
+| `package-lock.json`       | `npm install -D hog`   | `npm install -g hog` | `npx hog`      |
+| `pnpm-lock.yaml`          | `pnpm add -D hog`      | `pnpm add -g hog`    | `pnpm dlx hog` |
+| `yarn.lock`               | `yarn add -D hog`      | `npm install -g hog` | `yarn dlx hog` |
+| `bun.lock` or `bun.lockb` | `bun add -d hog`       | `bun add -g hog`     | `bunx hog`     |
+
+Yarn 2 and later have no global installs, and Yarn 1 has no `dlx`, so use npm for those.
+
+When the project ran posthog-cli through `@posthog/cli` in `package.json`, remove `@posthog/cli` and add `hog` with that package manager, so the lockfile changes with it.
+When it installed posthog-cli globally in CI, install hog the same way, with the same package manager.
+
+A project without Node, or a machine without a project, can use Homebrew or the install script:
 
 ```bash
-npm install -g hog                                            # or pnpm add -g, bun add -g
-brew install posthog/tap/hog                                  # Homebrew
-curl -fsSL https://releases.posthog.com/hog/install.sh | sh   # macOS and Linux, no Node needed
+brew install posthog/tap/hog
+curl -fsSL https://releases.posthog.com/hog/install.sh | sh   # macOS and Linux
 ```
 
-In CI, install hog the way the job installed posthog-cli: `npm install -g hog` where it ran `npm install -g @posthog/cli`, or the install script where it used posthog-cli's.
-Replace `@posthog/cli` with `hog` in `package.json` when the project ran posthog-cli through a dependency.
 `hog upgrade` replaces `posthog-cli update`.
 
 ## 3. Log in on the machine
