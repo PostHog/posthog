@@ -31,10 +31,17 @@ pub(super) async fn resolve_distinct_ids(
     tables: &IdentityTables,
     keys: &[(i64, String)],
 ) -> StorageResult<HashMap<(i64, String), Person>> {
+    // Postgres plans these statements again on every call, because a cached
+    // generic plan cannot prune the person partitions and so always costs
+    // more than a custom plan. A scalar team plans in a fraction of the time
+    // of the `unnest` join, so only keys from several teams take the join.
     let rows = match keys {
         [] => return Ok(HashMap::new()),
         [(team_id, distinct_id)] => resolve_one(pools, tables, *team_id, distinct_id).await?,
-        _ => resolve_many(pools, tables, keys).await?,
+        [(team_id, _), rest @ ..] if rest.iter().all(|(t, _)| t == team_id) => {
+            resolve_in_team(pools, tables, *team_id, keys).await?
+        }
+        _ => resolve_across_teams(pools, tables, keys).await?,
     };
 
     let mut resolved = HashMap::with_capacity(rows.len());
@@ -59,12 +66,8 @@ pub(super) async fn resolve_distinct_ids(
     Ok(resolved)
 }
 
-/// A lone key gets its own statement. Postgres plans these statements again
-/// on every call, because a cached generic plan cannot prune the person
-/// partitions and so always costs more than a custom plan. Scalar parameters
-/// plan in a fraction of the time of the `unnest` join. The subquery returns
-/// at most one row because `(team_id, distinct_id)` is unique in both distinct
-/// id tables.
+/// The subquery returns at most one row because `(team_id, distinct_id)` is
+/// unique in both distinct id tables.
 async fn resolve_one(
     pools: &IdentityPools,
     tables: &IdentityTables,
@@ -98,7 +101,39 @@ async fn resolve_one(
     Ok(row.into_iter().collect())
 }
 
-async fn resolve_many(
+async fn resolve_in_team(
+    pools: &IdentityPools,
+    tables: &IdentityTables,
+    team_id: i64,
+    keys: &[(i64, String)],
+) -> StorageResult<Vec<ResolvedRow>> {
+    let distinct_ids: Vec<String> = keys.iter().map(|(_, d)| d.clone()).collect();
+
+    let mut conn = pools.acquire(Lane::Fast).await?;
+    let rows = mirrored_query_as!(
+        ResolvedRow,
+        tables.is_validation(),
+        op = "resolve_team_persons",
+        r#"
+        SELECT pdi.team_id AS "key_team_id!", pdi.distinct_id AS "key_distinct_id!",
+               p.id, p.uuid, p.team_id::bigint AS "team_id!", p.created_at, p.version,
+               p.is_identified,
+               CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END AS is_user_id,
+               p.last_seen_at
+        FROM {posthog_persondistinctid|personhog_persondistinctid_tmp} pdi
+        JOIN {posthog_person|personhog_person_tmp} p
+          ON p.team_id = pdi.team_id AND p.id = pdi.person_id
+        WHERE pdi.team_id = $1 AND pdi.distinct_id = ANY($2::text[]) AND pdi.is_deleted = false
+          AND p.team_id = $1 AND p.is_deleted = false
+        "#,
+        team_id as i32,
+        &distinct_ids
+        => fetch_all(&mut *conn)
+    )?;
+    Ok(rows)
+}
+
+async fn resolve_across_teams(
     pools: &IdentityPools,
     tables: &IdentityTables,
     keys: &[(i64, String)],
