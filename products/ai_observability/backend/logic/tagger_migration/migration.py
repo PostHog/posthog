@@ -23,7 +23,7 @@ from products.ai_observability.backend.models.evaluations import EvaluationTarge
 from products.ai_observability.backend.models.taggers import HogTaggerConfig, LLMTaggerConfig, Tagger, TaggerType
 
 from .evaluation_payload import conditions_payload, hog_payload, llm_judge_payload
-from .tag_counts_queries import RECENT_DAYS, load_recent_tag_counts
+from .tag_counts_queries import MAX_SENT_TAG_NAMES, RECENT_DAYS, load_recent_tag_counts, load_sent_tag_names
 
 
 class MigrationAction(StrEnum):
@@ -130,7 +130,28 @@ def _access_rules(team: Team) -> _AccessRules:
     )
 
 
-def _plan(tagger: Tagger, team: Team, recent_tags: int, rules: _AccessRules, move_capped: bool) -> _Planned:
+def _sent_tags(team: Team, taggers: list[Tagger], counts: dict[str, int]) -> dict[str, tuple[str, ...]]:
+    """The tags sent by each Hog tagger that has no tag list, the only taggers whose categories come from them."""
+    return load_sent_tag_names(
+        team,
+        [
+            str(tagger.id)
+            for tagger in taggers
+            if tagger.tagger_type == TaggerType.HOG
+            and not (tagger.tagger_config or {}).get("tags")
+            and counts.get(str(tagger.id))
+        ],
+    )
+
+
+def _plan(
+    tagger: Tagger,
+    team: Team,
+    recent_tags: int,
+    rules: _AccessRules,
+    move_capped: bool,
+    sent_tags: tuple[str, ...] = (),
+) -> _Planned:
     def step(action: MigrationAction, reason: str, keys: tuple[str, ...] = ()) -> TaggerMigrationStep:
         return TaggerMigrationStep(
             tagger_id=str(tagger.id),
@@ -159,12 +180,26 @@ def _plan(tagger: Tagger, team: Team, recent_tags: int, rules: _AccessRules, mov
 
     model_configuration: dict[str, Any] | None = None
     capped = False
+    from_sent_tags = False
     try:
         if tagger.tagger_type == TaggerType.HOG:
             hog_config = HogTaggerConfig.model_validate(tagger.tagger_config)
-            if not hog_config.tags:
-                return _Planned(step=step(MigrationAction.SKIP, "It has no tag list to turn into categories."))
-            payload = hog_payload(hog_config)
+            from_sent_tags = not hog_config.tags
+            if from_sent_tags and not sent_tags:
+                return _Planned(
+                    step=step(
+                        MigrationAction.SKIP,
+                        f"It has no tag list, and sent no tags in the last {RECENT_DAYS} days to use as categories.",
+                    )
+                )
+            if from_sent_tags and len(sent_tags) >= MAX_SENT_TAG_NAMES:
+                return _Planned(
+                    step=step(
+                        MigrationAction.SKIP,
+                        "It has no tag list, and sent more different tags than an evaluation has categories.",
+                    )
+                )
+            payload = hog_payload(hog_config, sent_tags)
         else:
             llm_config = LLMTaggerConfig.model_validate(tagger.tagger_config)
             capped = llm_config.max_tags is not None and 1 < llm_config.max_tags < len(llm_config.tags)
@@ -208,7 +243,14 @@ def _plan(tagger: Tagger, team: Team, recent_tags: int, rules: _AccessRules, mov
     choice = "single choice" if output["selection_mode"] == "single" else "multiple choice"
     na = ", N/A when no tag fits" if output["allows_na"] else ""
     cap = f", the prompt asks for at most {llm_config.max_tags} tags" if capped else ""
-    return _Planned(step=step(MigrationAction.MIGRATE, f"{kind}, {choice}{na}{cap}.", keys), serializer=serializer)
+    sent = (
+        f", the categories are the tags it sent in the last {RECENT_DAYS} days, and a tag it never sent is dropped"
+        if from_sent_tags
+        else ""
+    )
+    return _Planned(
+        step=step(MigrationAction.MIGRATE, f"{kind}, {choice}{na}{cap}{sent}.", keys), serializer=serializer
+    )
 
 
 def plan_tagger_migration(team: Team, *, move_capped: bool = False) -> list[TaggerMigrationStep]:
@@ -216,16 +258,22 @@ def plan_tagger_migration(team: Team, *, move_capped: bool = False) -> list[Tagg
     taggers = _pending_taggers(team)
     counts = load_recent_tag_counts(team, [str(tagger.id) for tagger in taggers])
     rules = _access_rules(team)
-    return [_plan(tagger, team, counts.get(str(tagger.id), 0), rules, move_capped).step for tagger in taggers]
+    sent = _sent_tags(team, taggers, counts)
+    return [
+        _plan(tagger, team, counts.get(str(tagger.id), 0), rules, move_capped, sent.get(str(tagger.id), ())).step
+        for tagger in taggers
+    ]
 
 
 def migrate_taggers(team: Team, *, move_capped: bool = False) -> list[TaggerMigrationStep]:
     """Replaces each switched-on tagger with an enabled categorical evaluation and switches the tagger off, or only
     switches it off when it sent no tags recently. Each tagger moves in its own transaction, so one refusal does not
     undo the others, and a second run skips taggers that already moved. An LLM tagger that caps its tags below its
-    tag count moves only with `move_capped`, because the evaluation can ask for the cap but not enforce it."""
+    tag count moves only with `move_capped`, because the evaluation can ask for the cap but not enforce it. A Hog
+    tagger without a tag list moves with the tags it sent recently as its categories."""
     taggers = _pending_taggers(team)
     counts = load_recent_tag_counts(team, [str(tagger.id) for tagger in taggers])
+    sent = _sent_tags(team, taggers, counts)
     results: list[TaggerMigrationStep] = []
     for pending in taggers:
         recent_tags = counts.get(str(pending.id), 0)
@@ -240,7 +288,9 @@ def migrate_taggers(team: Team, *, move_capped: bool = False) -> list[TaggerMigr
                 if tagger is None:
                     continue
                 # Access rules are read under the lock too, so a restriction added during the run still holds.
-                planned = _plan(tagger, team, recent_tags, _access_rules(team), move_capped)
+                planned = _plan(
+                    tagger, team, recent_tags, _access_rules(team), move_capped, sent.get(str(tagger.id), ())
+                )
                 step = planned.step
                 if step.action == MigrationAction.SKIP:
                     results.append(step)
