@@ -1,8 +1,9 @@
 import { useRouter } from 'expo-router'
-import { type ReactElement, useState } from 'react'
-import { RefreshControl, ScrollView, Text, View } from 'react-native'
+import { type ReactElement, type Ref, useRef, useState } from 'react'
+import { RefreshControl, ScrollView, type ScrollViewInstance, Text, View } from 'react-native'
 
 import { changeNavPin } from '@/features/tabs/navPinActions'
+import { NAV_PINS_ENABLED } from '@/features/tabs/navPinSlot'
 import { type NavChrome, useIsNavPinned } from '@/features/tabs/navPinStore'
 import { TabHeaderPublisher } from '@/features/tabs/TabHeaderPublisher'
 import { TABS_HEADER_BOTTOM } from '@/features/tabs/TabsHeader'
@@ -50,6 +51,7 @@ export function WebAnalyticsScreen({ from, chrome }: { from: ViewEntry; chrome: 
     const tab = chrome === 'tab'
     const visit = useTabVisit(tab)
     const screen = useWebAnalyticsScreen({ from, chrome, visit })
+    const scrollRef = useRef<ScrollViewInstance>(null)
     const scrollTitle = useScrollTitle('Web analytics')
     const back = useViewBack()
     const insets = useScreenInsets()
@@ -64,7 +66,14 @@ export function WebAnalyticsScreen({ from, chrome }: { from: ViewEntry; chrome: 
     let body: ReactElement
     if (allowed) {
         body = (
-            <WebAnalyticsBody chrome={chrome} scrollTitle={scrollTitle} screen={screen} toasts={toasts} onBack={back} />
+            <WebAnalyticsBody
+                scrollRef={scrollRef}
+                chrome={chrome}
+                scrollTitle={scrollTitle}
+                screen={screen}
+                toasts={toasts}
+                onBack={back}
+            />
         )
     } else if (tab) {
         body = (
@@ -93,6 +102,7 @@ export function WebAnalyticsScreen({ from, chrome }: { from: ViewEntry; chrome: 
             {tab ? (
                 <TabHeaderPublisher
                     tab="web_analytics"
+                    scrollToTop={() => scrollRef.current?.scrollTo({ y: 0, animated: true })}
                     status={allowed ? refresh.status.text : null}
                     hint={allowed ? refresh.hint : null}
                     refreshing={allowed && refresh.busy}
@@ -105,10 +115,14 @@ export function WebAnalyticsScreen({ from, chrome }: { from: ViewEntry; chrome: 
                     onClose={() => setMoreOpen(false)}
                     webUrl={viewWebUrl(scope, '/web')}
                     viewType="web_analytics"
-                    navPin={{
-                        pinned,
-                        onToggle: () => changeNavPin('web_analytics', !pinned, 'list_menu', toasts.show),
-                    }}
+                    navPin={
+                        NAV_PINS_ENABLED
+                            ? {
+                                  pinned,
+                                  onToggle: () => changeNavPin('web_analytics', !pinned, 'list_menu', toasts.show),
+                              }
+                            : undefined
+                    }
                 />
             )}
             <ViewsToast toast={toasts.toast} onHide={toasts.hide} bottom={tab ? undefined : TOAST_BOTTOM} />
@@ -117,12 +131,14 @@ export function WebAnalyticsScreen({ from, chrome }: { from: ViewEntry; chrome: 
 }
 
 function WebAnalyticsBody({
+    scrollRef,
     chrome,
     screen,
     toasts,
     onBack,
     scrollTitle,
 }: {
+    scrollRef: Ref<ScrollViewInstance>
     chrome: NavChrome
     screen: WebAnalyticsScreenState
     toasts: Toasts
@@ -186,7 +202,7 @@ function WebAnalyticsBody({
 
     if (!overview) {
         return (
-            <ScrollView contentContainerStyle={[contentStyle, styles.grow]}>
+            <ScrollView ref={scrollRef} contentContainerStyle={[contentStyle, styles.grow]}>
                 {filterChips}
                 {screen.overview.isError && screen.error ? (
                     <ViewErrorState
@@ -206,6 +222,7 @@ function WebAnalyticsBody({
     return (
         <>
             <ScrollView
+                ref={scrollRef}
                 contentContainerStyle={contentStyle}
                 onScroll={(event) => {
                     motion.onScroll()

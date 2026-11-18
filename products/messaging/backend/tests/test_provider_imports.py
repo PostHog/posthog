@@ -295,7 +295,10 @@ class TestProviderImportRuns(BaseTest):
         assert run.status == expected_run_status
         assert [run.progress[step]["status"] for step in run.steps] == expected_step_statuses
         assert run.finished_at is not None
-        assert report.call_count == 1
+        assert [call.args[1] for call in report.call_args_list] == [
+            "messaging provider import finished",
+            "workflows import run",
+        ]
 
     @time_machine.travel("2026-03-02T12:00:00Z", tick=False)
     def test_reading_an_expired_run_fails_it_and_its_unfinished_steps(

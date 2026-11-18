@@ -5,6 +5,7 @@ import type { CSSProperties } from 'react'
 import { IconCheck, IconX } from '@posthog/icons'
 import { Popover, PopoverContent, PopoverTrigger, cn } from '@posthog/quill'
 
+import { AnimatedWizardHog } from 'scenes/onboarding/shared/AnimatedWizardHog'
 import { WizardHog } from 'scenes/onboarding/shared/wizardHog'
 
 import { TodayRailTile } from '~/layout/today/TodayRailTile'
@@ -47,10 +48,16 @@ export function WizardRailButtonView({
                         dataAttr="today-rail-wizard"
                         icon={
                             <>
-                                <WizardHog
-                                    className={cn('size-7', state === 'running' && 'WizardRailButton__hog--working')}
-                                    loading="eager"
-                                />
+                                {state === 'running' || state === 'completed' ? (
+                                    <AnimatedWizardHog
+                                        className="size-7"
+                                        speed={state === 'running' ? 2 : 1}
+                                        idle={state === 'running'}
+                                        castKey={state === 'completed' ? 1 : 0}
+                                    />
+                                ) : (
+                                    <WizardHog className="size-7" loading="eager" />
+                                )}
                                 {state === 'running' && (
                                     <span
                                         aria-hidden

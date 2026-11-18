@@ -13,7 +13,7 @@ from posthog.models import OrganizationMembership
 from products.approvals.backend.exceptions import ApplyFailed, InvalidStateError, PreconditionFailed
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest, ChangeRequestState, ValidationStatus
 from products.approvals.backend.services import ChangeRequestService, apply_change_request
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.encrypted_flag_payloads import (
     REDACTED_PAYLOAD_VALUE,
     FlagPayloadCodec,
@@ -249,7 +249,7 @@ class TestApplyRechecksOwnership(APIBaseTest):
         flag = self._flag()
         change_request = self._change_request(flag, recorded)
         if owned_now:
-            Experiment.objects.create(team=self.team, name="exp", feature_flag=flag)
+            create_experiment(team_id=self.team.id, name="exp", feature_flag_id=flag.id)
 
         if should_apply:
             apply_change_request(change_request)

@@ -9,6 +9,7 @@ from django.contrib.admin.sites import AdminSite
 from django.db import IntegrityError
 
 from parameterized import parameterized
+from requests.exceptions import SSLError
 
 from posthog.models import Team
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED
@@ -91,13 +92,24 @@ class TestCustomOAuth2Integration(BaseTest):
         assert fresh.sensitive_config["refresh_token"] == "refresh-orig"
         assert fresh.sensitive_config["access_token"] == "minted-2"
 
+    @parameterized.expand(
+        [
+            ("token_endpoint_rejection", "response"),
+            # A connection-level failure (TLS reset, refused connection) never reaches a response, so
+            # `auth._obtain_token()` raises the raw requests exception rather than OAuth2AuthRequestError.
+            ("connection_failure", "exception"),
+        ]
+    )
     @patch(f"{AUTH_MODULE}.make_tracked_session")
-    def test_refresh_and_persist_marks_error_and_preserves_token_on_failure(self, mock_session):
+    def test_refresh_and_persist_marks_error_and_preserves_token_on_failure(self, _name, failure_mode, mock_session):
         # A token-endpoint rejection (e.g. an expired refresh token) must surface the broken-token state
         # via errors without clobbering the stored refresh token — re-entry replaces it later.
-        mock_session.return_value.post.return_value = _token_response(
-            status_code=400, payload={"error": "invalid_grant", "error_description": "expired"}
-        )
+        if failure_mode == "response":
+            mock_session.return_value.post.return_value = _token_response(
+                status_code=400, payload={"error": "invalid_grant", "error_description": "expired"}
+            )
+        else:
+            mock_session.return_value.post.side_effect = SSLError("EOF occurred in violation of protocol")
         integration = self._make_integration()
 
         with self.assertRaises(OAuth2AuthRequestError):

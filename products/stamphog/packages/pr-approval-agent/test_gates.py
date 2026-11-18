@@ -86,6 +86,10 @@ from policy import OwnershipSource, bundled_defaults_dir, load_policy, merge_pol
             id="message-routing-test-not-infra",
         ),
         pytest.param(
+            ["rust/capture-apm-metrics/src/k8s_resource_attributes.rs"],
+            id="rust-k8s-source-not-infra",
+        ),
+        pytest.param(
             ["products/web_analytics/backend/temporal/health_checks/authorized_urls.py"],
             id="authorized-urls-domain-config-not-auth",
         ),
@@ -234,6 +238,11 @@ def test_no_false_positive(files: list[str]) -> None:
             [".github/pr-deploy/values.yaml.tmpl"],
             "infra_cicd",
             id="pr-deploy-directory",
+        ),
+        pytest.param(
+            ["rust/capture/k8s/deployment.yaml"],
+            "infra_cicd",
+            id="k8s-manifest-under-rust",
         ),
         pytest.param(
             ["posthog/models/two_factor_auth.py"],

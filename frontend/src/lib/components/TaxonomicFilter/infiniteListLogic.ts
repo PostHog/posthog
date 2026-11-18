@@ -1615,11 +1615,12 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
 
                         return items
                     }
-                    if (group?.options) {
-                        return group.options
-                    }
+                    // A caller's options win over the group's defaults, so one group can serve several contexts.
                     if (props.optionsFromProp && Object.keys(props.optionsFromProp).includes(props.listGroupType)) {
                         return props.optionsFromProp[props.listGroupType]
+                    }
+                    if (group?.options) {
+                        return group.options
                     }
                     return null
                 },

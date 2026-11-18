@@ -7,8 +7,9 @@ import { getToolDefinition } from '@/tools/toolDefinitions'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const schema = z.object({
+    // `integrations-list` returns the id as a number, so accept the value as it comes from there.
     connection_id: z
-        .string()
+        .union([z.string(), z.number().int()])
         .describe(
             'Id of the PostHog connection to run through. List them with `integrations-list` filtered by `kind=posthog`.'
         ),
@@ -110,10 +111,11 @@ export function createConnectionCallTool(
                 )
             }
 
+            const connectionId = String(params.connection_id)
             const localProjectId = await context.stateManager.getProjectId()
-            const connectionTarget = await resolveConnectionTarget(context, localProjectId, params.connection_id)
+            const connectionTarget = await resolveConnectionTarget(context, localProjectId, connectionId)
             const forwarded = buildForwardedContext(context, {
-                connectionId: params.connection_id,
+                connectionId,
                 localProjectId,
                 target: connectionTarget,
             })

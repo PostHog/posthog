@@ -55,6 +55,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_active_hog_transformations_in_period,
     get_teams_with_ai_credits_used_in_period,
     get_teams_with_ai_event_count_in_period,
+    get_teams_with_ai_overage_bytes_in_period,
     get_teams_with_api_queries_metrics,
     get_teams_with_apm_tracing_usage_in_period,
     get_teams_with_billable_enhanced_persons_event_count_in_period,
@@ -305,6 +306,7 @@ QUERIES: list[QuerySpec] = [
             "rust_mcp_events": "teams_with_rust_mcp_events_count_in_period",
             "go_mcp_events": "teams_with_go_mcp_events_count_in_period",
             "ruby_mcp_events": "teams_with_ruby_mcp_events_count_in_period",
+            "web_mcp_events": "teams_with_web_mcp_events_count_in_period",
             "mcp_tool_call_events": "teams_with_mcp_tool_call_events_count_in_period",
             "mcp_missing_capability_events": "teams_with_mcp_missing_capability_events_count_in_period",
             "mcp_initialize_events": "teams_with_mcp_initialize_events_count_in_period",
@@ -522,6 +524,10 @@ QUERIES: list[QuerySpec] = [
     QuerySpec(
         name="teams_with_ai_event_count_in_period",
         fn=get_teams_with_ai_event_count_in_period,
+    ),
+    QuerySpec(
+        name="teams_with_ai_overage_bytes_in_period",
+        fn=get_teams_with_ai_overage_bytes_in_period,
     ),
     QuerySpec(
         name="teams_with_ai_credits_used_in_period",

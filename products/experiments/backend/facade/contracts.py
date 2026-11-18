@@ -11,6 +11,8 @@ from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Literal
 
+from posthog.hogql.property_access_types import RestrictedProperty
+
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 
@@ -384,8 +386,8 @@ class ExperimentHealthCheckStatus(LabeledStrEnum):
 class ExperimentHealthValueKey(LabeledStrEnum):
     # API callers read these keys in a check's `values` and its `rule`. The suffix gives the unit: `_count` is a
     # count, `_percentage` is on the 0-100 scale, `_hours` is hours and `_at` is an ISO 8601 time in UTC. A key without a
-    # unit suffix is a setting or a state, as a string or a boolean. A key means the same thing in every check, so two
-    # values that differ in meaning get two keys.
+    # unit suffix is a setting or a state, as a string or a boolean, and in a row also an object. A key means the same
+    # thing in every check, so two values that differ in meaning get two keys.
     EXPOSED_COUNT = (
         "exposed_count",
         "Users or groups exposed since launch, as the exposure criteria count them, including those exposed to "
@@ -502,9 +504,61 @@ class ExperimentHealthValueKey(LabeledStrEnum):
         "Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when "
         "unknown",
     )
+    CHANGED_SETTING = (
+        "changed_setting",
+        "The flag setting that a change of the bucketing changed, as the flag page names it",
+    )
+    BEFORE = "before", "What a change of the feature flag changed, as it was before the change, in words"
+    AFTER = "after", "What a change of the feature flag changed, as it was after the change, in words"
+    BEFORE_FILTERS = (
+        "before_filters",
+        "The feature flag's release conditions before a change, as the flag stores them: an object with the groups "
+        "and the aggregation_group_type_index of its filters. Null when they don't fit the size limit of the check's "
+        "rows. The flag's history shows them in full",
+    )
+    AFTER_FILTERS = (
+        "after_filters",
+        "The feature flag's release conditions after a change, as the flag stores them, like before_filters",
+    )
+    FLAG_SERVICE_CALL_PERCENTAGE = (
+        "flag_service_call_percentage",
+        "Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service "
+        "evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped "
+        "values count in no condition",
+    )
+    EVENT = "event", "The name of an event that the check looked up"
+    EVENT_RECEIVED = (
+        "event_received",
+        "Whether the project has received the event. Null when PostHog keeps no record of the event name",
+    )
+    INVALID_METRIC_COUNT = "invalid_metric_count", "Metrics whose query doesn't compile, so every calculation fails"
+    UNCHECKED_METRIC_COUNT = (
+        "unchecked_metric_count",
+        "Metrics whose query the check couldn't compile, because they read data that the reader can't query or the "
+        "compile failed for a reason other than the metric",
+    )
+    FLAG_SPLIT = "flag_split", "The feature flag's variants with their rollout percentages, in words"
+    BASELINE_VARIANT = (
+        "baseline_variant",
+        "The key of the variant that the analysis compares the others with, or null when the analysis picks one",
+    )
+    OTHER_RUNNING_EXPERIMENT_COUNT = (
+        "other_running_experiment_count",
+        "Other experiments that run on the same feature flag and are not archived",
+    )
+    ASSIGNED_OUTSIDE_COUNT = (
+        "assigned_outside_count",
+        "Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local "
+        "evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout",
+    )
+    OTHER_DRAFT_EXPERIMENT_COUNT = (
+        "other_draft_experiment_count",
+        "Other draft experiments on the same feature flag that are not archived",
+    )
 
 
 ExperimentHealthValue = str | int | float | bool | None
+ExperimentHealthRowValue = ExperimentHealthValue | Mapping[str, object]
 
 
 class ExperimentHealthRuleSide(LabeledStrEnum):
@@ -549,7 +603,7 @@ class ExperimentHealthCheckResult:
     values: Mapping[ExperimentHealthValueKey, ExperimentHealthValue]
     rule: ExperimentHealthCheckRule | None
     # What the check read per variant, metric or flag change, with the same keys as `values`.
-    rows: tuple[Mapping[ExperimentHealthValueKey, ExperimentHealthValue], ...]
+    rows: tuple[Mapping[ExperimentHealthValueKey, ExperimentHealthRowValue], ...]
 
 
 @frozen
@@ -591,6 +645,8 @@ class ExperimentHealthReaderAccess:
     can_read_flag_history: bool
     can_query_events: bool
     denied_event_properties: frozenset[str]
+    # The reader's property access rules. A query that a check runs without the reader runs under them.
+    restricted_properties: frozenset[RestrictedProperty]
 
 
 class ExperimentValidationError(Exception):

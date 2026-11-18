@@ -1,1 +1,1 @@
-0019_squash_2026_11_02_finalize_fks
+0023_turn_on_realtime_for_processed_teams

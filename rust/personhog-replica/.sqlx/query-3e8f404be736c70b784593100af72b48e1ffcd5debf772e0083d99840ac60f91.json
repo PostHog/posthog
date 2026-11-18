@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-replica', operation='delete_persons_by_ids_delete_cohort_membership' */\n            DELETE FROM posthog_cohortpeople\n            WHERE person_id = ANY($1)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3e8f404be736c70b784593100af72b48e1ffcd5debf772e0083d99840ac60f91"
+}

@@ -12,6 +12,7 @@ from products.ai_observability.backend.api import (
     ClusteringJobViewSet,
     DatasetItemViewSet,
     DatasetViewSet,
+    EvalSuggestionViewSet,
     EvaluationBackfillViewSet,
     EvaluationConfigViewSet,
     EvaluationDirectoryViewSet,
@@ -107,6 +108,9 @@ def register_routes(routers: RouterRegistry) -> None:
         EvaluationBackfillViewSet,
         "project_evaluation_backfills",
         ["team_id", "evaluation_id"],
+    )
+    routers.projects.register(
+        r"evaluation_suggestions", EvalSuggestionViewSet, "project_evaluation_suggestions", ["team_id"]
     )
     routers.projects.register(
         r"evaluation_directories",

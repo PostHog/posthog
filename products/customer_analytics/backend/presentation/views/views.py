@@ -61,7 +61,7 @@ from posthog.permissions import (
     is_service_auth,
 )
 from posthog.rate_limit import RunSavedQueryRateThrottle
-from posthog.scopes import APIScopeObjectOrNotSupported
+from posthog.scopes.catalog import APIScopeObjectOrNotSupported
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import (
@@ -73,7 +73,6 @@ from products.access_control.backend.presentation.access_control import AccessCo
 from products.cdp.backend.presentation.icons import CDPIconsService
 from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.facade.constants import (
-    CUSTOMER_ANALYTICS_ACCOUNT_VIEWS_FLAG,
     CUSTOMER_ANALYTICS_FEATURE_REQUESTS_FLAG,
     CUSTOMER_ANALYTICS_TRACK_RULES_FLAG,
 )
@@ -902,8 +901,7 @@ class AccountViewTemplateViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
     lookup_value_regex = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
     queryset = None
     pagination_class = None
-    permission_classes = [PostHogFeatureFlagPermission, CanonicalTeamAccessPermission]
-    posthog_feature_flag = CUSTOMER_ANALYTICS_ACCOUNT_VIEWS_FLAG
+    permission_classes = [CanonicalTeamAccessPermission]
 
     @cached_property
     def canonical_team(self) -> Team:
@@ -925,7 +923,6 @@ class AccountViewTemplateViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
             APIScopePermission(),
             AccountViewChangePermission(),
             TeamMemberAccessPermission(),
-            PostHogFeatureFlagPermission(),
             CanonicalTeamAccessPermission(),
         ]
 

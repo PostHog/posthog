@@ -1,4 +1,5 @@
 from dataclasses import replace
+from typing import Any
 
 import pytest
 import time_machine
@@ -16,7 +17,12 @@ from posthog.models.integration import GitHubIntegration
 from posthog.models.user import User
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 
-from products.mcp_store.backend.facade.contracts import ActiveInstallation, SandboxInstallations
+from products.mcp_store.backend.facade.contracts import (
+    ActiveInstallation,
+    SandboxInstallations,
+    UnmountedInstallation,
+    UnmountedInstallationReason,
+)
 from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, RESUME_SNAPSHOT_KIND
 from products.tasks.backend.exceptions import CredentialUnavailableError, ProcessTaskFatalError
 from products.tasks.backend.facade.profiles import TaskProfile, get_task_profile
@@ -56,6 +62,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     parse_run_state,
     resolve_user_github_integration_for_task,
     sanitize_mcp_exclude_tools,
+    unmounted_mcp_installations_notice,
     upgrade_run_to_user_authorship,
 )
 
@@ -183,6 +190,25 @@ class TestRunStateSnapshotPaths(SimpleTestCase):
                 },
             ),
             (
+                "agent_memory_locked",
+                {
+                    "snapshot_external_id": "im-dir",
+                    "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR,
+                    "agent_memory_locked": True,
+                },
+                {
+                    "snapshot_external_id": "im-dir",
+                    "snapshot_kind": RESUME_SNAPSHOT_KIND,
+                    "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR,
+                    "agent_memory_locked": True,
+                },
+            ),
+            (
+                "agent_memory_locked_without_snapshot",
+                {"agent_memory_locked": True},
+                {},
+            ),
+            (
                 "legacy_no_mount_path",
                 {"snapshot_external_id": "im-old"},
                 {},
@@ -199,7 +225,7 @@ class TestRunStateSnapshotPaths(SimpleTestCase):
             ("no_snapshot", {}, {}),
         ]
     )
-    def test_resume_snapshot_carry_state(self, _name: str, state: dict[str, str], expected: dict[str, str]) -> None:
+    def test_resume_snapshot_carry_state(self, _name: str, state: dict[str, Any], expected: dict[str, Any]) -> None:
         assert RunState.model_validate(state).resume_snapshot_carry_state() == expected
 
 
@@ -510,6 +536,33 @@ class TestMcpServerConfigToDict(SimpleTestCase):
             "url": "https://mcp.example.com/mcp",
             "headers": [{"name": "Authorization", "value": "Bearer token"}],
         }
+
+
+class TestUnmountedMcpInstallationsNotice(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "needs_reconnect",
+                "1 MCP Store connection was not added to this run: Linear (reconnect it in the MCP Store).",
+            ),
+            (
+                "teammate_needs_reconnect",
+                "1 MCP Store connection was not added to this run: Linear (the teammate who shared it needs to reconnect it).",
+            ),
+            (
+                "not_shared",
+                "1 MCP Store connection was not added to this run: Linear (share it with this agent in the MCP Store).",
+            ),
+            ("not_selected", None),
+            ("replaced_by_personal", None),
+        ]
+    )
+    def test_names_the_fix_for_each_reported_reason(
+        self, reason: UnmountedInstallationReason, expected: str | None
+    ) -> None:
+        unmounted = [UnmountedInstallation(id="srv-1", name="Linear", scope="team", reason=reason)]
+
+        assert unmounted_mcp_installations_notice(unmounted) == expected
 
 
 class TestFetchUserMcpServerConfigs(SimpleTestCase):
@@ -1813,36 +1866,31 @@ class TestBuildSandboxEnvironmentVariablesGateway(SimpleTestCase):
 
     def _build(self):
         ctx, task = _gateway_ctx_task()
-        return build_sandbox_environment_variables(github_token=None, access_token="tok", ctx=ctx, task=task)
+        ctx.state = {"ai_stage": "scout"}
+        task.stored_profile = None
+        with patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token", return_value="phe"):
+            return build_sandbox_environment_variables(github_token=None, access_token="tok", ctx=ctx, task=task)
 
     @override_settings(
+        SANDBOX_LLM_GATEWAY_URL="https://gateway.us.posthog.com",
         SANDBOX_AI_GATEWAY_URL="https://ai-gateway.us.posthog.com",
         SANDBOX_AI_GATEWAY_PRODUCTS="signals_scout,signals_research",
+        SANDBOX_AI_GATEWAY_MINT_KEY="phs_test_mint",
     )
     def test_both_settings_inject_both_vars(self, _api, _jwt):
         env = self._build()
         self.assertEqual(env["AI_GATEWAY_URL"], "https://ai-gateway.us.posthog.com")
         self.assertEqual(env["AI_GATEWAY_PRODUCTS"], "signals_scout,signals_research")
-
-    @override_settings(SANDBOX_AI_GATEWAY_URL="https://ai-gateway.us.posthog.com", SANDBOX_AI_GATEWAY_PRODUCTS=None)
-    def test_url_without_products_injects_neither(self, _api, _jwt):
-        # A URL with no product allowlist would route every sandbox caller, so a
-        # half-config must inject nothing.
-        env = self._build()
-        self.assertNotIn("AI_GATEWAY_URL", env)
-        self.assertNotIn("AI_GATEWAY_PRODUCTS", env)
-
-    @override_settings(SANDBOX_AI_GATEWAY_URL=None, SANDBOX_AI_GATEWAY_PRODUCTS="signals_scout")
-    def test_products_without_url_injects_neither(self, _api, _jwt):
-        env = self._build()
-        self.assertNotIn("AI_GATEWAY_URL", env)
-        self.assertNotIn("AI_GATEWAY_PRODUCTS", env)
+        self.assertEqual(env["AI_GATEWAY_TOKEN"], "phe")
+        self.assertNotIn("LLM_GATEWAY_URL", env)
 
 
 class TestBuildSandboxEnvironmentVariables(SimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
-        self.enterContext(patch("products.tasks.backend.temporal.process_task.utils.record_gateway_routing"))
+        self.enterContext(
+            patch("products.tasks.backend.temporal.process_task.utils.run_gateway_env_vars", return_value={})
+        )
 
     @parameterized.expand([False, True])
     @patch(
@@ -2005,6 +2053,11 @@ class TestUpgradeRunToUserAuthorship(_AuthorshipFixture):
         self.task.profile = "business_knowledge"
         self.task.save(update_fields=["profile"])
 
+    def _gitlab_task(self) -> None:
+        self.connect_personal_github()
+        self.task.repository_integration_id = 5
+        self.task.save(update_fields=["repository_integration_id"])
+
     def _set_state(self, state: dict) -> None:
         self.task_run.state = state
         self.task_run.save(update_fields=["state"])
@@ -2019,6 +2072,7 @@ class TestUpgradeRunToUserAuthorship(_AuthorshipFixture):
             ("signal_report_origin",),
             ("profile_without_user_authorable_prs",),
             ("a_different_actor_than_the_creator",),
+            ("gitlab_task",),
         ]
     )
     def test_nothing_is_promoted(self, case: str) -> None:

@@ -1,5 +1,6 @@
 import { defineCommand } from '@/core/command'
 import type { TypeScriptSdk } from '@/core/config'
+import { EXIT_FAILURE, EXIT_SUCCESS } from '@/core/errors'
 import { absolutePath } from '@/core/paths'
 import { plural } from '@/core/text'
 
@@ -88,7 +89,9 @@ export default defineCommand({
     },
 
     exitCode: (result) =>
-        result.languages.length > 0 && result.languages.every((entry) => entry.status === 'up_to_date') ? 0 : 1,
+        result.languages.length > 0 && result.languages.every((entry) => entry.status === 'up_to_date')
+            ? EXIT_SUCCESS
+            : EXIT_FAILURE,
 
     telemetry: ({ result }) => ({
         languages: result.languages.map((entry) => (isLanguage(entry.language) ? entry.language : 'unknown')),

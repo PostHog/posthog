@@ -105,6 +105,10 @@ The agent inside the sandbox gets:
 
 ### Run system prompts
 
+Pull request footers link to an inbox report when the task has a report.
+Desktop attribution requires recorded `posthog_desktop` client provenance.
+Tasks with missing or unknown client provenance use generic PostHog branding without a Desktop source link.
+
 The run's `state.systemPrompt` is server-owned. Set it through trusted server-side run creation
 or state updates. The run PATCH endpoint silently ignores attempts to replace, remove, or append
 to this key, including requests from the sandbox itself. The run detail endpoint serves the prompt
@@ -176,6 +180,12 @@ Define a `TaskProfile` for your product in `products/your_product/backend/task_p
 with `origin_product="your_product"`.
 `products/autoresearch/backend/task_profiles.py` is a complete example.
 Give each kind of task its own profile key, such as `your_product.report`.
+
+A profile with `billing_product="background_agents"` runs on PostHog-funded inference.
+Its origin must be in `BACKGROUND_AGENTS_ORIGINS` in `products/tasks/backend/temporal/process_task/ai_gateway_token.py`
+and in `Task.SERVER_ONLY_ORIGIN_PRODUCTS`, so API callers cannot set it.
+Without the first entry the tasks worker refuses the run an AI gateway token, with the reason `no_background_agents_provenance`.
+`test_background_agents_profile_can_mint_a_gateway_token` in `products/tasks/backend/tests/test_profile_parity.py` fails until both entries exist.
 
 Register the profiles from your product's `AppConfig.ready()`:
 
@@ -467,6 +477,10 @@ They can:
 - Run tests, linters, and build tools
 - Create git branches and pull requests (commits must be signed — see below)
 - Execute arbitrary shell commands within the container
+
+Claude sessions use `applyFlagSettings()` at startup to set `attribution.pr` to an empty string and disable Claude Code's default footer in pull request descriptions.
+The agent keeps the PostHog attribution footer from its task instructions.
+The same call sets `attribution.commit` to an empty string, consistent with the task instructions that prohibit Claude's default commit trailer.
 
 ### Git commit signing
 
@@ -807,14 +821,17 @@ System One reranks up to 32 returned candidates in one request. Candidate conten
 Source APIs receive bounded natural-language query text and apply their existing query handling. The selector does not maintain a stop-word list.
 Search queries retain the end of the current request and reserve space for recent history within the source APIs' 200-character limit.
 References link to the retrieved sources; skill references fetch the latest published version by name.
+Each reference also carries a `url` the user can open: the fetched page for a URL-backed Business Knowledge document, or the in-app page for a skill or metric. Text and file documents, certifications, and relationships have none.
 At most five references and 8,000 characters survive into a hidden context block, identified by `selection_id`.
+The agent server sends the keys of references already injected in the conversation as `exclude`, and selection skips them, so a follow-up never repeats a reference the agent still holds.
+Compaction and a cleared conversation reset that list, and a resumed run rebuilds it from the logged prompt requests.
 Retrieved content is data to verify through existing tools, rather than instructions or approval.
 Skill references contain descriptions and bounded search excerpts, so the prompt requires `skill-get` with the referenced name before the agent relies on or follows a skill.
 Long catalog records retain their status, proposed status, and drift metadata while verbose content becomes a bounded excerpt.
 A general knowledge search does not replace that fetch. If the fetch fails or access is denied, the agent must not treat the description as a verified definition or instruction.
 This is a prompt requirement, rather than a runtime guarantee that the fetch occurs.
-The agent is instructed to use these references silently, including during progress updates, tool-call explanations, and task summaries.
-It can cite the underlying sources and explain verification failures, but must not mention selection, suggestions, injection, or the hidden block's metadata.
+When a reference informs the answer, the agent is instructed to cite it by title and link its `url` when one exists, as it would any document it read.
+It ignores references that do not apply without commenting on them, and must not mention selection, suggestions, injection, or the hidden block's metadata, including in progress updates, tool-call explanations, and task summaries.
 
 Control skips retrieval. Shadow computes the selected bundle without injecting it. Treatment injects the bundle.
 Selection has an eight-second budget by default, starting before worker submission and run/actor lookups. Expired lookups do not start source or model requests.

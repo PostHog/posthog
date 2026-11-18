@@ -409,11 +409,17 @@ def _validate_ip_or_wildcard(value: str) -> None:
 class AdvancedActivityLogFiltersSerializer(serializers.Serializer):
     start_date = serializers.DateTimeField(
         required=False,
-        help_text="Lower bound on `created_at` (inclusive), ISO-8601.",
+        help_text=(
+            "Lower bound on `created_at` (inclusive), as an ISO 8601 timestamp with a UTC offset, "
+            "such as `2026-01-15T10:30:00Z`."
+        ),
     )
     end_date = serializers.DateTimeField(
         required=False,
-        help_text="Upper bound on `created_at` (inclusive), ISO-8601.",
+        help_text=(
+            "Upper bound on `created_at` (inclusive), as an ISO 8601 timestamp with a UTC offset, "
+            "such as `2026-01-15T11:30:00Z`."
+        ),
     )
     users = JSONTolerantListField(
         child=serializers.UUIDField(),

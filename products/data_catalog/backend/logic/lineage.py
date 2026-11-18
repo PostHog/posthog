@@ -16,6 +16,7 @@ from products.data_modeling.backend.facade.api import delete_metric_node, mark_m
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 
 from ..facade.enums import HOGQL_DEFINITION_KIND, MARKDOWN_DEFINITION_KIND
+from ..metrics import DatabaseBuildTrigger
 from ..models.metric import Metric
 from .validation import definition_nodes, table_names_as_written
 
@@ -87,6 +88,7 @@ def sync_metric_lineage(metric: Metric, database: Database | None = None) -> Lin
                 team=metric.team,
                 bypass_warehouse_access_control=True,
                 allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
+                trigger=DatabaseBuildTrigger.METRIC_LINEAGE,
             )
         with team_scope(metric.team_id), transaction.atomic():
             current = Metric.objects.for_team(metric.team_id).select_for_update().filter(pk=metric.pk).first()
