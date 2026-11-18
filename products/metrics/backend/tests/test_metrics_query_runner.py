@@ -26,6 +26,8 @@ from posthog.schema import (
     QueryStatus,
 )
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.clickhouse.client.execute_async import QueryStatusManager
 from posthog.clickhouse.client.limit import (
     ConcurrencyLimitExceeded,
@@ -194,6 +196,36 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, dashboard_id=dashboard_id)
             else:
                 runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, dashboard_id=dashboard_id)
+
+    @patch("posthog.clickhouse.client.limit.TEST", False)
+    def test_dashboard_v2_tile_resolves_all_range_once_and_keeps_validation_errors(self) -> None:
+        def run(date_from: str) -> None:
+            runner = MetricsQueryRunner(
+                query=MetricsQuery(
+                    clauses=[],
+                    language="sql",
+                    sql="SELECT 1",
+                    dateRange=DateRange(date_from=date_from),
+                ),
+                team=self.team,
+            )
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, dashboard_id=1)
+
+        with (
+            patch(
+                "products.metrics.backend.hogql_queries.metrics_query_runner.posthog_feature_flag_enabled",
+                return_value=True,
+            ),
+            patch("products.metrics.backend.hogql_queries.metrics_query_runner.run_metrics_sql", return_value=[]),
+            patch(
+                "posthog.hogql_queries.utils.timestamp_utils.get_earliest_timestamp_unfiltered",
+                return_value=dt.datetime(2020, 1, 1, tzinfo=dt.UTC),
+            ) as earliest,
+        ):
+            run("all")
+            assert earliest.call_count == 1
+            with pytest.raises(ExposedHogQLError):
+                run("-10000y")
 
     def test_default_date_range_is_last_24_hours(self) -> None:
         query = MetricsQuery(
