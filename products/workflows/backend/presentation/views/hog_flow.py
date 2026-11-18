@@ -1430,6 +1430,11 @@ class BlastRadiusRequestSerializer(serializers.Serializer):
         help_text="The workflow's email sending rate limit. A slow enough rate raises the email audience limit. "
         "The response's rate_limited field says which rates qualify.",
     )
+    refresh = serializers.BooleanField(
+        default=False,
+        help_text="Count the audience now instead of reusing a count from the last few minutes. "
+        "Set it when the count decides whether a send may go ahead.",
+    )
 
 
 class RealtimeCohortStatusSerializer(serializers.Serializer):
@@ -7457,7 +7462,7 @@ class HogFlowViewSet(
             dedupe_key=dedupe_key,
             sends_email=params["sends_email"],
             email_rate_limit=params.get("email_sending_rate_limit"),
-            use_cached_counts=True,
+            use_cached_counts=not params["refresh"],
         )
         # The cohort API denies a scoped token without cohort:read, so this response withholds the
         # cohort's name and build state from it too.
