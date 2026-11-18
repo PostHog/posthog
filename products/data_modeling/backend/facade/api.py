@@ -132,6 +132,7 @@ _LAZY = {
     "compute_enrichment_hash": "logic.enrich_view_semantics",
     "enrichment_gates_pass": "logic.enrich_view_semantics",
     "enrich_view_semantics_sync": "logic.enrich_view_semantics",
+    "view_ready_for_enrichment": "logic.enrich_view_semantics",
     "MAX_LOOKBACK_SECONDS": "logic.incremental",
     "TRINO_INCREMENTAL_SCOPE": "logic.incremental",
     "IncrementalConfig": "facade.contracts",
