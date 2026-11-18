@@ -715,6 +715,9 @@ test.describe('Message preferences page', () => {
             })
 
             await test.step('an older refusal does not undo a newer click on the same switch', async () => {
+                // A subscribed topic shows whether a save while all marketing is off keeps it
+                await eventInvites.click()
+                await expect(status(eventInvitesId)).toHaveText('Subscribed')
                 const refusal = responseGate()
                 const committed = responseGate()
                 const answer = responseGate()
@@ -750,7 +753,7 @@ test.describe('Message preferences page', () => {
                     $all: 'OPTED_OUT',
                     $email_tracking: 'OPTED_OUT',
                     [productNewsId]: 'OPTED_OUT',
-                    [eventInvitesId]: 'OPTED_OUT',
+                    [eventInvitesId]: 'OPTED_IN',
                 })
             })
         } finally {
