@@ -150,6 +150,16 @@ class TestUnresolvedReferences(BaseTest):
                 {"properties": [{"type": "hogql", "key": "properties.$session_id IN <ActorsQuery />"}]},
                 "HogQLX tag",
             ),
+            (
+                "an insight selection",
+                {"properties": [{"type": "hogql", "key": "matchesInsight('{}')"}]},
+                "matchesInsight",
+            ),
+            (
+                "a quoted insight selection",
+                {"properties": [{"type": "hogql", "key": r"`matches\0Insight`('{}')"}]},
+                "matchesInsight",
+            ),
             ("an empty HogQL expression", {"properties": [{"type": "hogql", "key": ""}]}, "doesn't parse"),
         ]
     )

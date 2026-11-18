@@ -15,12 +15,9 @@ import {
 beforeEach(() => initKeaTests())
 
 test('invalidates an unmounted node without letting its old request restore stale results', async () => {
+    const nodeQuery = { kind: NodeKind.HogQLQuery, query: 'SELECT 1' }
     const keyFor = (key: string): string =>
-        responseCacheKey(
-            { key, query: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' }, retainResponseOnUnmount: true },
-            1,
-            1
-        )!
+        responseCacheKey({ key, query: nodeQuery, retainResponseOnUnmount: true }, 1, 1)!
     const key = keyFor('refreshed')
     const otherKey = keyFor('other')
     retainResponse(key, { results: [[1]] })

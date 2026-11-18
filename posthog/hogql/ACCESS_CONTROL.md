@@ -290,10 +290,11 @@ Two things keep cache hit rates high:
 2. **Scoped to queried tables:** `queried_access_controlled_resources()` (`posthog/hogql_queries/access_controlled_resources.py`) parses the query and returns only the access-controlled scopes it actually reads. Tables whose visibility depends on another scoped table add that dependency too. For example, `system.customer_tasks` adds `account` because its row predicate reads `system.accounts`. A plain **events or persons query shares one cache entry across all users**.
 
 Queries containing `matchesInsight` conservatively partition on all access-control scopes.
-Function detection uses parsed HogQL, including quoted function names. Unknown resource sets still partition project keys by their readable scopes.
-Saved action steps reject insight selections because their definitions are absent from the calling query's cache fingerprint.
-Its actor-query payload can reference resources through source filters, actions, or cohorts that the outer table scan does not expand.
+Function detection parses HogQL expression fields, including quoted function names, and ignores literal property values and request metadata.
+Unknown resource sets still partition project keys by their readable scopes and real users by effective permissions, including default denials without explicit access-control rows.
+The actor-query payload can reference resources through source filters, actions, or cohorts that the outer table scan does not expand.
 This applies to raw HogQL and structured insight queries, including actor queries.
+Saved action steps and cohort definitions reject insight selections because their definitions are absent from the calling query's cache fingerprint.
 
 When a run has no user but does read access-controlled resources, the fingerprint uses `restricted_resources: ["*"]` so it can never collide with a real user's cache, and synthetic principals partition on their readable scopes so a narrow token can't reuse a broader token's cached rows.
 
