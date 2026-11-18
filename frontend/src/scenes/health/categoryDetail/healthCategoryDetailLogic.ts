@@ -88,7 +88,7 @@ export interface healthCategoryDetailLogicActions {
         healthIssues: HealthIssuesByKind | null
         payload?: any
     }
-    loadMoreIssues: (kind: string) => any
+    loadMoreIssues: (kind: string) => string
     loadMoreIssuesFailure: (
         error: string,
         errorObject?: any
@@ -98,10 +98,10 @@ export interface healthCategoryDetailLogicActions {
     }
     loadMoreIssuesSuccess: (
         healthIssues: HealthIssuesByKind | null,
-        payload?: any
+        payload?: string
     ) => {
         healthIssues: HealthIssuesByKind | null
-        payload?: any
+        payload?: string
     }
     refreshHealthData: () => {
         value: true
