@@ -580,6 +580,28 @@ const STEP_EXPECTATIONS: StepExpectation[] = [
     ]),
     { file: 'ci-e2e-playwright.yml', job: 'changes', step: 'schema-key', scenario: E2E_DISPATCH, runs: true },
     { file: 'ci-e2e-playwright.yml', job: 'playwright', step: 'schema-cache', scenario: E2E_DISPATCH, runs: true },
+    ...[
+        { name: 'ready PR labeled run-ci-backend', github: pullRequest({ labels: ['run-ci-backend'] }), runs: true },
+        {
+            name: 'draft PR labeled run-ci-backend',
+            github: pullRequest({ draft: true, labels: ['run-ci-backend'] }),
+            runs: true,
+        },
+        { name: 'unlabeled ready PR', github: pullRequest(), runs: false },
+        { name: 'merge queue labeled run-ci-backend', github: mergeQueue({ labels: ['run-ci-backend'] }), runs: false },
+        { name: 'master push', github: push(), runs: false },
+        { name: 'hourly schedule', github: schedule(), runs: false },
+    ].map(({ name, github, runs }) => ({
+        file: DEPOT_BACKEND,
+        job: 'django_tests',
+        step: 'full-run-label-token',
+        scenario: {
+            name,
+            github,
+            steps: { ...allFiltersChanged(workflow(DEPOT_BACKEND)), ...backendSelectors },
+        },
+        runs,
+    })),
 ]
 
 const namedJobs = (file: string): Set<string> =>
@@ -1219,14 +1241,19 @@ describe('CI workflow run plans', () => {
     })
 
     it.each([
-        ['23 */3 * * *', true],
-        ['23 1,2,4,5,7,8,10,11,13,14,16,17,19,20,22,23 * * *', false],
-    ])('the events_json leg follows the scheduled trigger %s', (cron, runs) => {
+        ['3-hourly schedule', { ...schedule(), event: { schedule: '23 */3 * * *' } }, false],
+        [
+            'off-hour schedule',
+            { ...schedule(), event: { schedule: '23 1,2,4,5,7,8,10,11,13,14,16,17,19,20,22,23 * * *' } },
+            true,
+        ],
+        ['schedule without a cron string', { ...schedule(), event: {} }, false],
+        ['manual dispatch', workflowDispatch(), false],
+        ['merge queue', mergeQueue(), false],
+    ] as const)('the core-only scheduled scope on %s', (_name, github, coreOnly) => {
         const depot = workflow(DEPOT_BACKEND)
-        const step = depot.jobs.build_django_matrix?.steps?.find((step) => step.id === 'build')
-        const github = { ...schedule(), event: { schedule: cron } }
         const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
-        expect(evaluateValue(step?.env?.RUN_JSON_TARGETS, { github }, functions)).toBe(runs)
+        expect(evaluateValue(depot.env?.CORE_ONLY_RUN, { github }, functions)).toBe(coreOnly)
     })
 
     it.each([
