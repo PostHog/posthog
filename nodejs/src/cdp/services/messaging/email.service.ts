@@ -64,6 +64,7 @@ import {
     TRACKING_CODE_HEADER_NAME,
 } from './helpers/tracking-code'
 import { transactionalEmailIdentity, transactionalEmailIdentityTags } from './helpers/transactional-email-identity'
+import { WorkflowRunTag } from './helpers/utm'
 import { parseWorkflowEmailPause } from './helpers/workflow-email-pause'
 import { callsSettledBefore, declaredFileBytes, exceedsLargestSend, settledBeforeAbort } from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
@@ -657,13 +658,30 @@ export class EmailService {
             : null
     }
 
-    private tagsLinksWithWorkflowRun(
+    private async workflowRunTagFor(
         invocation: CyclotronJobInvocationHogFunction,
         trackingEnabled: boolean,
-        isTest: boolean
-    ): boolean {
-        const sensitive = isSensitiveMessage(invocation)
-        return trackingEnabled && !isTest && !sensitive && this.workflowRunLinkTagTeams(invocation.teamId)
+        isTest: boolean,
+        senderEmail: string
+    ): Promise<WorkflowRunTag | null> {
+        if (!trackingEnabled || isTest || isSensitiveMessage(invocation)) {
+            return null
+        }
+        if (!this.workflowRunLinkTagTeams(invocation.teamId)) {
+            return null
+        }
+        const untagged = { runId: null, senderEmail, siteUrl: this.siteUrl }
+        try {
+            const enabled = await this.teamWorkflowsConfigService.tagsEmailLinksWithWorkflowRun(invocation.teamId)
+            return enabled ? { ...untagged, runId: invocation.id } : untagged
+        } catch (error) {
+            logger.warn('Workflow run link tag lookup failed - sending without the tag', {
+                teamId: invocation.teamId,
+                functionId: invocation.functionId,
+                error: error instanceof Error ? error.message : String(error),
+            })
+            return untagged
+        }
     }
 
     // Send email. `isTest` flags sends from the editor's "Run test" path so the tracking code
@@ -815,9 +833,7 @@ export class EmailService {
                       html: tagEmailLinks(
                           paramsWithReplyTo.html,
                           this.utmTaggingFor(invocation, addLog),
-                          this.tagsLinksWithWorkflowRun(invocation, trackingEnabled, isTest)
-                              ? { runId: invocation.id, senderEmail: from.email, siteUrl: this.siteUrl }
-                              : null
+                          await this.workflowRunTagFor(invocation, trackingEnabled, isTest, from.email)
                       ),
                   }
                 : paramsWithReplyTo

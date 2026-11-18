@@ -5,6 +5,7 @@ import { create } from 'zustand'
 export type TabKey = 'live' | 'inbox' | 'chats' | 'views' | 'errors' | 'replay' | 'web_analytics'
 
 export interface TabHeaderSlot {
+    scrollToTop?: () => void
     liveAudience?: boolean
     refreshing?: boolean
     /** A short line under the status line, such as why a pull to refresh did nothing. */
@@ -47,6 +48,7 @@ export function useTabHeader(tab: TabKey, slot: TabHeaderSlot): void {
     latest.current = slot
     const callbacks = useMemo(
         () => ({
+            scrollToTop: (): void => latest.current.scrollToTop?.(),
             done: (): void => latest.current.editing?.onDone(),
             editPins: (): void => latest.current.editPins?.onPress(),
             filter: (): void => latest.current.filter?.onPress(),
@@ -64,6 +66,7 @@ export function useTabHeader(tab: TabKey, slot: TabHeaderSlot): void {
         useTabHeaderStore.getState().setSlot(tab, {
             refreshing,
             liveAudience,
+            scrollToTop: callbacks.scrollToTop,
             hint,
             status,
             editing: editingTitle === null ? null : { title: editingTitle, onDone: callbacks.done },

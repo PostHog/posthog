@@ -43,6 +43,7 @@ from ..facade.contracts import (
     UsageSnapshotSummary,
 )
 from ..facade.enums import USAGE_FLAG_KEY, UsageSection, UsageSnapshotStatus
+from ..metrics import DatabaseBuildTrigger
 from ..models import UsageSnapshot
 from .metrics import metrics_visible_to_user
 from .usage_proposed_metrics import MAX_CHART_SOURCES
@@ -129,7 +130,9 @@ def _denied_tables_and_views(team: Team, user: User, user_access_control: UserAc
 
     Stored SQL names a view as written, so a view over a denied table must count as denied too.
     """
-    database = Database.create_for(team=team, user=user, user_access_control=user_access_control)
+    database = Database.create_for(
+        team=team, user=user, user_access_control=user_access_control, trigger=DatabaseBuildTrigger.USAGE_ACCESS
+    )
     denied = set(database._denied_tables)
     if not denied:
         return denied
