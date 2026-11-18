@@ -504,7 +504,7 @@ async fn warm_source(
     partition: u32,
     source: &WarmSource,
     committed_offset: Option<i64>,
-) -> CoordResult<(u64, i64)> {
+) -> CoordResult<(u64, LiveRange)> {
     let partition_i32 = i32::try_from(source.partition).map_err(|_| {
         CoordError::invalid_state(format!("partition {} exceeds i32::MAX", source.partition))
     })?;
@@ -565,7 +565,13 @@ async fn warm_source(
         if let Ok(consumer) = Arc::try_unwrap(consumer) {
             pools.warming.give_back(consumer);
         }
-        return Ok((0, start_offset.min(hwm)));
+        return Ok((
+            0,
+            LiveRange {
+                start: start_offset.min(hwm),
+                end: hwm,
+            },
+        ));
     }
 
     let span_start = Instant::now();
@@ -577,7 +583,7 @@ async fn warm_source(
         partition_i32,
         partition,
         start_offset,
-        hwm,
+        Some(hwm),
         |offset, cached| {
             // An old partition also holds keys that now belong elsewhere.
             if let Some(keep) = &source.keep {
@@ -604,6 +610,7 @@ async fn warm_source(
             );
             cache.warm_put(partition, key, cached);
         },
+        |_| {},
     )
     .await?;
 
@@ -614,10 +621,18 @@ async fn warm_source(
         pools.warming.give_back(consumer);
     }
 
-    Ok((consumed, start_offset))
+    Ok((
+        consumed,
+        LiveRange {
+            start: start_offset,
+            end: hwm,
+        },
+    ))
 }
 
-/// Deliver every record in `[start, end)`, oldest first; `end` must not pass the log's end.
+/// Deliver every record from `start`, oldest first, up to `end`, which must not pass the
+/// log's end. With no end it follows the log until it fails. `on_progress` gets the next
+/// offset to read, which also moves past the control records `on_record` never sees.
 #[allow(clippy::too_many_arguments)]
 async fn consume_range(
     cfg: &WarmingConfig,
@@ -626,8 +641,9 @@ async fn consume_range(
     partition_i32: i32,
     partition: u32,
     start: i64,
-    end: i64,
+    end: Option<i64>,
     mut on_record: impl FnMut(i64, CachedPerson),
+    mut on_progress: impl FnMut(i64),
 ) -> CoordResult<()> {
     let mut assign_tpl = TopicPartitionList::new();
     assign_tpl
@@ -689,7 +705,7 @@ async fn consume_range(
                 if quiet_since.elapsed() >= cfg.recv_timeout {
                     return Err(CoordError::invalid_state(format!(
                         "warm stalled on repeated consumer errors (last: {code:?}); \
-                         consumed {consumed} msgs, last_offset={last_offset}, end={end}",
+                         consumed {consumed} msgs, last_offset={last_offset}, end={end:?}",
                     )));
                 }
                 counter!(
@@ -714,12 +730,23 @@ async fn consume_range(
                 return Err(CoordError::invalid_state(format!("warm recv: {e}")));
             }
             Err(_) => {
-                let position_reached = consumer
+                let position = consumer
                     .position()
                     .map_err(|e| CoordError::invalid_state(format!("warm position: {e}")))?
                     .find_partition(topic, partition_i32)
-                    .is_some_and(|elem| matches!(elem.offset(), Offset::Offset(p) if p >= end));
-                if position_reached {
+                    .and_then(|elem| match elem.offset() {
+                        Offset::Offset(position) => Some(position),
+                        _ => None,
+                    });
+                if let Some(position) = position {
+                    on_progress(position);
+                }
+                let Some(end) = end else {
+                    // A followed log that is quiet is idle, not stalled.
+                    quiet_since = Instant::now();
+                    continue;
+                };
+                if position.is_some_and(|position| position >= end) {
                     break;
                 }
                 if quiet_since.elapsed() >= cfg.recv_timeout {
@@ -734,7 +761,7 @@ async fn consume_range(
 
         let offset = msg.offset();
         // A range whose tail holds no records delivers the one after it.
-        if offset >= end {
+        if end.is_some_and(|end| offset >= end) {
             break;
         }
         last_offset = offset;
@@ -765,8 +792,9 @@ async fn consume_range(
             );
         }
 
+        on_progress(offset + 1);
         // end is exclusive — it's one past the last offset present.
-        if offset + 1 >= end {
+        if end.is_some_and(|end| offset + 1 >= end) {
             break;
         }
         }
@@ -774,6 +802,69 @@ async fn consume_range(
     }
     .await;
     consume_result
+}
+
+/// One past the last record a reader of `source` can see. The clients read committed
+/// transactions only, so this is the last stable offset.
+pub async fn end_offset(
+    cfg: &WarmingConfig,
+    pools: &WarmClientPools,
+    source: &WarmSource,
+) -> CoordResult<i64> {
+    let partition_i32 = i32::try_from(source.partition).map_err(|_| {
+        CoordError::invalid_state(format!("partition {} exceeds i32::MAX", source.partition))
+    })?;
+    let pools = pools.on(source.cluster.as_ref());
+    let consumer = pools.warming.checkout()?;
+    let topic = Arc::clone(&source.topic);
+    let timeout = cfg.fetch_watermarks_timeout;
+    let (consumer, watermarks) = tokio::task::spawn_blocking(move || {
+        let watermarks = consumer
+            .fetch_watermarks(&topic, partition_i32, timeout)
+            .map_err(|e| CoordError::invalid_state(format!("fetch watermarks: {e}")));
+        (consumer, watermarks)
+    })
+    .await
+    .map_err(|e| CoordError::invalid_state(format!("fetch_watermarks join: {e}")))?;
+    let (_, end) = watermarks?;
+    pools.warming.give_back(consumer);
+    Ok(end)
+}
+
+/// The offsets a warm replayed from its live source: a fill reads below `start`, and a
+/// follower continues from `end`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct LiveRange {
+    pub start: i64,
+    pub end: i64,
+}
+
+/// Follow a source from `start` until the read fails; a follower keeps a partition current
+/// with it once the warm has built that partition.
+pub async fn follow_source(
+    cfg: &WarmingConfig,
+    pools: &WarmClientPools,
+    source: &WarmSource,
+    start: i64,
+    on_record: impl FnMut(i64, CachedPerson),
+    on_progress: impl FnMut(i64),
+) -> CoordResult<()> {
+    let partition_i32 = i32::try_from(source.partition).map_err(|_| {
+        CoordError::invalid_state(format!("partition {} exceeds i32::MAX", source.partition))
+    })?;
+    let consumer = pools.on(source.cluster.as_ref()).warming.checkout()?;
+    consume_range(
+        cfg,
+        &consumer,
+        &source.topic,
+        partition_i32,
+        source.partition,
+        start,
+        None,
+        on_record,
+        on_progress,
+    )
+    .await
 }
 
 /// Every source is sealed or fenced, so each replay runs to a known end.
@@ -785,7 +876,7 @@ pub async fn warm_from_sources(
     partition: u32,
     sources: &[WarmSource],
     track_puts: bool,
-) -> CoordResult<i64> {
+) -> CoordResult<LiveRange> {
     let start = Instant::now();
     // Every writer position is read before any replay: a live position read
     // after the writer left an old generation would skip records newer than
@@ -818,13 +909,13 @@ pub async fn warm_from_sources(
         armed: true,
     };
     let mut consumed = 0u64;
-    // The live source is last; its start is where a fill of this build reads up to.
-    let mut live_start = 0;
+    // The live source is last.
+    let mut live = LiveRange::default();
     for (source, committed) in sources.iter().zip(committed) {
-        let (records, start_offset) =
+        let (records, range) =
             warm_source(cfg, pools, cache, dirty_index, partition, source, committed).await?;
         consumed += records;
-        live_start = start_offset;
+        live = range;
     }
 
     let resident_bytes = cache.warm_usage_bytes(partition) as u64;
@@ -844,7 +935,7 @@ pub async fn warm_from_sources(
     );
     histogram!("personhog_leader_warm_duration_ms").record(elapsed.as_secs_f64() * 1000.0);
     counter!("personhog_leader_warmed_messages_total").increment(consumed);
-    Ok(live_start)
+    Ok(live)
 }
 
 /// A fill leaves this much of the budget to the traffic that follows it.
@@ -1005,7 +1096,7 @@ pub async fn fill_source(
             partition_i32,
             source.partition,
             chunk_start,
-            chunk_end,
+            Some(chunk_end),
             |_offset, cached| {
                 stats.records += 1;
                 counter!("personhog_leader_cache_fill_records_total").increment(1);
@@ -1029,6 +1120,7 @@ pub async fn fill_source(
                     overflowed = true;
                 }
             },
+            |_| {},
         )
         .await?;
         pools.warming.give_back(consumer);

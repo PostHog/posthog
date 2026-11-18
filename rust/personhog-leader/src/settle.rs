@@ -36,6 +36,30 @@ pub async fn prune_and_settle_tick(
     offsets_timeout: Duration,
     retired: impl Fn(&str) -> bool,
 ) -> Vec<StreamLag> {
+    prune_and_settle_after(
+        Duration::ZERO,
+        dirty_index,
+        cache,
+        locks,
+        pools,
+        offsets_timeout,
+        retired,
+    )
+    .await
+}
+
+/// The same pass, acting on the writer's offsets only `grace` after reading them. A reader
+/// that loads misses from a Postgres read replica passes more than the replica can lag, so
+/// a person is never unmarked before the replica holds their row.
+pub async fn prune_and_settle_after(
+    grace: Duration,
+    dirty_index: &DirtyIndex,
+    cache: &PartitionedCache,
+    locks: &DashMap<PersonCacheKey, Arc<Mutex<()>>>,
+    pools: &WarmClientPools,
+    offsets_timeout: Duration,
+    retired: impl Fn(&str) -> bool,
+) -> Vec<StreamLag> {
     let targets = dirty_index.streams_with_marks();
     if targets.is_empty() {
         return Vec::new();
@@ -74,6 +98,10 @@ pub async fn prune_and_settle_tick(
                 tracing::warn!(error = %e, topic = %topic, "dirty-index prune offset fetch failed; its marks wait");
             }
         }
+    }
+
+    if !grace.is_zero() {
+        tokio::time::sleep(grace).await;
     }
 
     // Prune chunk by chunk, settling each chunk's death pairs before the

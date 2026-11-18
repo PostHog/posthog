@@ -7,14 +7,21 @@ mod common;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use common::{create_mock_kafka, test_warming_config, CHANGELOG_TOPIC, NUM_PARTITIONS};
-use personhog_coordination::changelog::WarmSource;
-use personhog_leader::cache::{
-    CacheLookup, DirtyIndex, PartitionedCache, PersonCache, PersonCacheKey,
+use common::{
+    create_mock_kafka, test_recovery, test_warming_config, CHANGELOG_TOPIC, NUM_PARTITIONS,
 };
+use personhog_coordination::changelog::{LiveChangelog, WarmSource};
+use personhog_coordination::pod::HandoffHandler;
+use personhog_coordination::types::{ChangelogConfig, Generation};
+use personhog_leader::cache::{
+    CacheLookup, CachedPerson, DirtyIndex, DirtyMark, PartitionedCache, PersonCache,
+    PersonCacheKey, Stream,
+};
+use personhog_leader::follow::handler::FollowerHandler;
+use personhog_leader::follow::{FollowConfig, Follower, ReadRefusal};
 use personhog_leader::warming::{
-    fill_source, lookback_offset, warm_from_sources, FillConfig, FillEnd, FillPace,
-    WarmClientPools, WarmingConfig, MAX_FILL_OFFSETS_PER_SEC,
+    end_offset, fill_source, follow_source, lookback_offset, warm_from_sources, FillConfig,
+    FillEnd, FillPace, WarmClientPools, WarmingConfig, MAX_FILL_OFFSETS_PER_SEC,
 };
 use personhog_proto::personhog::types::v1::Person;
 use prost::Message as ProtoMessage;
@@ -178,11 +185,593 @@ async fn warmed_over_applied_history(
     let dirty_index = DirtyIndex::new(1_000_000);
     let (cfg, pools) = warming_config_for("filler", &cluster);
     let sources = [WarmSource::live(CHANGELOG_TOPIC, None, 0)];
-    let live_start = warm_from_sources(&cfg, &pools, cache, &dirty_index, 0, &sources, true)
+    let live = warm_from_sources(&cfg, &pools, cache, &dirty_index, 0, &sources, true)
         .await
         .expect("warming should succeed");
     assert!(dirty_index.is_empty());
-    (cluster, cfg, pools, live_start)
+    (cluster, cfg, pools, live.start)
+}
+
+const FOLLOW: FollowConfig = FollowConfig {
+    staleness_threshold: Duration::from_millis(300),
+    end_check_interval: Duration::from_millis(20),
+    min_warm: Duration::ZERO,
+};
+
+struct Following {
+    follower: Arc<Follower>,
+    cache: Arc<PartitionedCache>,
+    dirty_index: Arc<DirtyIndex>,
+    config: ChangelogConfig,
+}
+
+fn following(
+    pod: &str,
+    cluster: &MockCluster<'static, DefaultProducerContext>,
+    cfg: FollowConfig,
+) -> Following {
+    following_stalling_after(pod, cluster, cfg, Duration::from_secs(10))
+}
+
+fn following_stalling_after(
+    pod: &str,
+    cluster: &MockCluster<'static, DefaultProducerContext>,
+    cfg: FollowConfig,
+    recv_timeout: Duration,
+) -> Following {
+    let (mut warming, pools) = warming_config_for(pod, cluster);
+    warming.recv_timeout = recv_timeout;
+    let cache = Arc::new(PartitionedCache::new(1 << 20));
+    let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
+    let config = ChangelogConfig {
+        topic: CHANGELOG_TOPIC.to_string(),
+        partitions: NUM_PARTITIONS,
+        cluster: None,
+        epoch: 1,
+        writer_group: warming.writer_consumer_group.clone(),
+        retire_groups: Vec::new(),
+        draining: Vec::new(),
+    };
+    let follower = Arc::new(Follower::new(
+        cfg,
+        warming,
+        Arc::new(pools),
+        Arc::clone(&cache),
+        Arc::clone(&dirty_index),
+        test_recovery(&cluster.bootstrap_servers()),
+    ));
+    Following {
+        follower,
+        cache,
+        dirty_index,
+        config,
+    }
+}
+
+async fn eventually(what: &str, condition: impl Fn() -> bool) {
+    let waited = async {
+        while !condition() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(10), waited)
+        .await
+        .unwrap_or_else(|_| panic!("timed out waiting for {what}"));
+}
+
+#[tokio::test]
+async fn a_follower_holds_what_the_writer_has_not_applied_and_what_is_written_after() {
+    let (cluster, producer) = create_mock_kafka().await;
+    produce_person_to_partition(&producer, 0, &make_person(1, 9)).await;
+    produce_person_to_partition(&producer, 0, &make_person(1, 1)).await;
+    commit_writer_offset_at(&cluster, "personhog-writer", 0, 1);
+    let f = following("holds", &cluster, FOLLOW);
+
+    f.follower.follow(0, &f.config).await.expect("follow");
+
+    // Person 9 is below the writer's offset, so Postgres holds it and the follower does not.
+    assert_eq!(version_of(&f.cache, 0, 9), None);
+    assert_eq!(version_of(&f.cache, 0, 1), Some(1));
+
+    let updated = Person {
+        version: 2,
+        ..make_person(1, 1)
+    };
+    produce_person_to_partition(&producer, 0, &updated).await;
+    produce_person_to_partition(&producer, 0, &make_person(1, 2)).await;
+    eventually("the later records", || {
+        version_of(&f.cache, 0, 1) == Some(2) && version_of(&f.cache, 0, 2) == Some(1)
+    })
+    .await;
+    let key = PersonCacheKey {
+        team_id: 1,
+        person_id: 1,
+    };
+    assert_eq!(f.dirty_index.get(&key).map(|mark| mark.offset), Some(2));
+    eventually("a confirmation past the later records", || {
+        f.follower.is_current(0)
+    })
+    .await;
+
+    f.follower.release(0);
+    assert!(!f.follower.is_current(0));
+    assert!(!f.cache.has_partition(0));
+    assert!(f.dirty_index.is_empty());
+}
+
+#[tokio::test]
+async fn a_follower_that_cannot_read_a_record_stops_being_current() {
+    let (cluster, producer) = create_mock_kafka().await;
+    produce_person_to_partition(&producer, 0, &make_person(1, 1)).await;
+    let f = following("garbage", &cluster, FOLLOW);
+    f.follower.follow(0, &f.config).await.expect("follow");
+
+    produce_garbage_to_partition(&producer, 0).await;
+
+    eventually("the partition to refuse", || !f.follower.is_current(0)).await;
+    tokio::time::sleep(FOLLOW.staleness_threshold).await;
+    assert!(!f.follower.is_current(0));
+    // Person 1 is still in the cache, and must not be served from a partition that is behind.
+    let read = f.follower.read(0, &person_key(1), 1, no_load).await;
+    assert_eq!(read.map(|_| ()), Err(ReadRefusal::NotCurrent));
+}
+
+fn person_key(person_id: i64) -> PersonCacheKey {
+    PersonCacheKey {
+        team_id: 1,
+        person_id,
+    }
+}
+
+fn row(person_id: i64, version: i64) -> CachedPerson {
+    let person = Person {
+        version,
+        ..make_person(1, person_id)
+    };
+    CachedPerson::try_from(person).expect("a valid person")
+}
+
+async fn no_load() -> Result<Option<CachedPerson>, String> {
+    panic!("this read must not load from Postgres")
+}
+
+#[tokio::test]
+async fn a_read_refuses_until_the_partition_is_current() {
+    let (cluster, _producer) = create_mock_kafka().await;
+    let f = following("refuse", &cluster, FOLLOW);
+
+    let read = f.follower.read(0, &person_key(1), 1, no_load).await;
+
+    assert_eq!(read.map(|_| ()), Err(ReadRefusal::NotCurrent));
+}
+
+#[tokio::test]
+async fn a_person_with_unapplied_writes_is_never_loaded_from_postgres() {
+    let (cluster, producer) = create_mock_kafka().await;
+    produce_person_to_partition(&producer, 0, &make_person(1, 1)).await;
+    let f = following("pending", &cluster, FOLLOW);
+    f.follower.follow(0, &f.config).await.expect("follow");
+
+    let hit = f.follower.read(0, &person_key(1), 1, no_load).await;
+    // The cache dropped the entry; the mark still says Postgres does not have it.
+    f.cache.remove(0, &person_key(1));
+    let recovered = f.follower.read(0, &person_key(1), 1, no_load).await;
+
+    let version = |read: Result<Option<CachedPerson>, ReadRefusal>| {
+        read.expect("served").map(|person| person.version)
+    };
+    assert_eq!((version(hit), version(recovered)), (Some(1), Some(1)));
+}
+
+#[tokio::test]
+async fn an_unmarked_person_is_loaded_once_and_then_served_from_the_cache() {
+    let (cluster, _producer) = create_mock_kafka().await;
+    let f = following("load", &cluster, FOLLOW);
+    f.follower.follow(0, &f.config).await.expect("follow");
+
+    let loaded = f
+        .follower
+        .read(0, &person_key(7), 1, || async { Ok(Some(row(7, 4))) })
+        .await;
+    let cached = f.follower.read(0, &person_key(7), 1, no_load).await;
+    let missing = f
+        .follower
+        .read(0, &person_key(8), 1, || async { Ok(None) })
+        .await;
+
+    assert_eq!(loaded.expect("served").map(|p| p.version), Some(4));
+    assert_eq!(cached.expect("served").map(|p| p.version), Some(4));
+    assert!(matches!(missing, Ok(None)));
+}
+
+#[tokio::test]
+async fn a_load_older_than_what_was_applied_meanwhile_is_not_served() {
+    let (cluster, _producer) = create_mock_kafka().await;
+    let f = following("race", &cluster, FOLLOW);
+    f.follower.follow(0, &f.config).await.expect("follow");
+
+    // The newer version lands in the cache while the load is in flight.
+    let cache = Arc::clone(&f.cache);
+    let read = f
+        .follower
+        .read(0, &person_key(7), 1, || async move {
+            cache.put_if_newer(0, person_key(7), row(7, 5));
+            Ok(Some(row(7, 4)))
+        })
+        .await;
+
+    assert_eq!(read.expect("served").map(|p| p.version), Some(5));
+    assert_eq!(version_of(&f.cache, 0, 7), Some(5));
+}
+
+#[tokio::test]
+async fn a_load_is_not_cached_over_a_newer_write_that_was_evicted() {
+    let (cluster, _producer) = create_mock_kafka().await;
+    let f = following("evicted", &cluster, FOLLOW);
+    f.follower.follow(0, &f.config).await.expect("follow");
+
+    // Whether Postgres still has an older row or has none, the answer is a refusal.
+    for (person_id, in_postgres) in [(7, Some(4)), (8, None)] {
+        // The newer version is applied and then evicted while the load is in flight.
+        let (cache, dirty_index) = (Arc::clone(&f.cache), Arc::clone(&f.dirty_index));
+        let read = f
+            .follower
+            .read(0, &person_key(person_id), 1, || async move {
+                dirty_index.mark(
+                    person_key(person_id),
+                    DirtyMark {
+                        version: 5,
+                        offset: 0,
+                        partition: 0,
+                        stream: Stream {
+                            topic: Arc::from(CHANGELOG_TOPIC),
+                            cluster: None,
+                            partition: 0,
+                        },
+                        is_deleted: false,
+                    },
+                );
+                cache.put_if_newer(0, person_key(person_id), row(person_id, 5));
+                cache.remove(0, &person_key(person_id));
+                Ok(in_postgres.map(|version| row(person_id, version)))
+            })
+            .await;
+
+        assert_eq!(
+            read.map(|p| p.map(|p| p.version)),
+            Err(ReadRefusal::NotCurrent)
+        );
+        assert_eq!(version_of(&f.cache, 0, person_id), None);
+    }
+}
+
+#[tokio::test]
+async fn a_person_written_while_postgres_said_absent_is_not_reported_missing() {
+    let (cluster, _producer) = create_mock_kafka().await;
+    let f = following("absent", &cluster, FOLLOW);
+    f.follower.follow(0, &f.config).await.expect("follow");
+
+    // Their first record is applied while the load is in flight.
+    let cache = Arc::clone(&f.cache);
+    let read = f
+        .follower
+        .read(0, &person_key(7), 1, || async move {
+            cache.put_if_newer(0, person_key(7), row(7, 1));
+            Ok(None)
+        })
+        .await;
+
+    assert_eq!(read.expect("served").map(|p| p.version), Some(1));
+}
+
+#[tokio::test]
+async fn a_read_that_spans_a_rebuild_of_its_partition_is_refused() {
+    let (cluster, _producer) = create_mock_kafka().await;
+    let f = following("rebuilt", &cluster, FOLLOW);
+    f.follower.follow(0, &f.config).await.expect("follow");
+
+    // Whether Postgres still has an older row or has none, the answer is a refusal.
+    for in_postgres in [Some(4), None] {
+        let (follower, config) = (Arc::clone(&f.follower), f.config.clone());
+        let read = f
+            .follower
+            .read(0, &person_key(7), 1, || async move {
+                follower.follow(0, &config).await.expect("rebuild");
+                Ok(in_postgres.map(|version| row(7, version)))
+            })
+            .await;
+
+        assert_eq!(
+            read.map(|p| p.map(|p| p.version)),
+            Err(ReadRefusal::NotCurrent)
+        );
+        assert_eq!(version_of(&f.cache, 0, 7), None);
+    }
+}
+
+#[tokio::test]
+async fn a_person_created_again_after_their_death_is_read_from_postgres() {
+    let (cluster, producer) = create_mock_kafka().await;
+    let death = Person {
+        version: 6,
+        is_deleted: true,
+        ..make_person(1, 7)
+    };
+    produce_person_to_partition(&producer, 0, &death).await;
+    let f = following("revived", &cluster, FOLLOW);
+    f.follower.follow(0, &f.config).await.expect("follow");
+
+    // Only a row above the death version is the person created again.
+    for (in_postgres, served) in [(Some(7), Some(7)), (Some(6), None), (None, None)] {
+        let read = f
+            .follower
+            .read(0, &person_key(7), 1, || async move {
+                Ok(in_postgres.map(|version| row(7, version)))
+            })
+            .await;
+
+        assert_eq!(read.expect("answered").map(|p| p.version), served);
+        // The next read finds the death document through its mark, not the cache.
+        f.cache.remove(0, &person_key(7));
+    }
+}
+
+#[tokio::test]
+async fn a_person_written_again_while_their_death_was_checked_is_served() {
+    let (cluster, producer) = create_mock_kafka().await;
+    let death = Person {
+        version: 6,
+        is_deleted: true,
+        ..make_person(1, 7)
+    };
+    produce_person_to_partition(&producer, 0, &death).await;
+    let f = following("rewritten", &cluster, FOLLOW);
+    f.follower.follow(0, &f.config).await.expect("follow");
+
+    // Postgres has no newer row yet, and a newer record is applied during that read.
+    let cache = Arc::clone(&f.cache);
+    let read = f
+        .follower
+        .read(0, &person_key(7), 1, || async move {
+            cache.put_if_newer(0, person_key(7), row(7, 8));
+            Ok(None)
+        })
+        .await;
+
+    assert_eq!(read.expect("served").map(|p| p.version), Some(8));
+}
+
+#[tokio::test]
+async fn a_partition_that_cannot_be_confirmed_current_fails_its_warm() {
+    let (cluster, _producer) = create_mock_kafka().await;
+    let never_current = FollowConfig {
+        staleness_threshold: Duration::ZERO,
+        ..FOLLOW
+    };
+    let f = following_stalling_after(
+        "unconfirmed",
+        &cluster,
+        never_current,
+        Duration::from_millis(200),
+    );
+
+    let followed = tokio::time::timeout(Duration::from_secs(5), f.follower.follow(0, &f.config))
+        .await
+        .expect("the warm must end");
+
+    assert!(followed.is_err());
+    assert!(!f.follower.is_following(0));
+}
+
+#[tokio::test]
+async fn a_handler_serves_through_a_drain_and_rebuilds_on_a_newer_config() {
+    const NEXT_TOPIC: &str = "personhog_updates_next";
+    let (cluster, producer) = create_mock_kafka().await;
+    cluster
+        .create_topic(NEXT_TOPIC, NUM_PARTITIONS as i32, 1)
+        .expect("create the next topic");
+    produce_person_to_partition(&producer, 0, &make_person(1, 1)).await;
+    let f = following("handler", &cluster, FOLLOW);
+    let changelog = LiveChangelog::new(f.config.clone());
+    let handler = FollowerHandler::new(Arc::clone(&f.follower), changelog.clone());
+
+    handler.capture_changelog(0, &f.config).await;
+    handler.warm_partition(0).await.expect("warm");
+    handler.drain_partition_inflight(0).await.expect("drain");
+    assert!(f.follower.is_current(0));
+    assert!(!handler.verify_serving(0).await.expect("verify"));
+
+    let payload = make_person(1, 2).encode_to_vec();
+    producer
+        .send(
+            FutureRecord::to(NEXT_TOPIC)
+                .key("1:2")
+                .partition(0)
+                .payload(&payload),
+            Duration::from_secs(5),
+        )
+        .await
+        .expect("produce to the next topic");
+    let next = ChangelogConfig {
+        topic: NEXT_TOPIC.to_string(),
+        epoch: 2,
+        draining: vec![Generation {
+            topic: CHANGELOG_TOPIC.to_string(),
+            partitions: NUM_PARTITIONS,
+            epoch: 1,
+            cluster: None,
+        }],
+        ..f.config.clone()
+    };
+    changelog.adopt(&next);
+
+    // Built under the old config, the partition has read all of a sealed topic and looks
+    // current. It must refuse until it is rebuilt on the new layout.
+    assert!(f.follower.is_current(0));
+    let stale = f
+        .follower
+        .read(0, &person_key(1), next.epoch, no_load)
+        .await;
+    assert_eq!(stale.map(|_| ()), Err(ReadRefusal::NotCurrent));
+
+    assert!(handler.verify_serving(0).await.expect("rebuild"));
+    assert_eq!(version_of(&f.cache, 0, 2), Some(1));
+    assert!(!handler.verify_serving(0).await.expect("verify"));
+
+    // A shrink to one partition: partition 1 no longer exists, so its assignment is
+    // dropped without an error and not retried.
+    handler.warm_partition(1).await.expect("warm partition 1");
+    let shrunk = ChangelogConfig {
+        partitions: 1,
+        epoch: 3,
+        ..next
+    };
+    changelog.adopt(&shrunk);
+    assert!(handler.verify_serving(1).await.expect("drop"));
+    assert!(!f.cache.has_partition(1));
+    assert!(!handler.verify_serving(1).await.expect("settled"));
+
+    handler.release_partition(0).await.expect("release");
+    assert!(!f.cache.has_partition(0));
+}
+
+#[tokio::test]
+async fn nothing_is_served_before_the_minimum_warm_time_and_an_abandoned_warm_is_released() {
+    let (cluster, producer) = create_mock_kafka().await;
+    produce_person_to_partition(&producer, 0, &make_person(1, 1)).await;
+    let slow = FollowConfig {
+        min_warm: Duration::from_secs(30),
+        ..FOLLOW
+    };
+    let f = following("abandon", &cluster, slow);
+    let (follower, config) = (Arc::clone(&f.follower), f.config.clone());
+    let warming = tokio::spawn(async move { follower.follow(0, &config).await });
+    eventually("the partition to be built", || f.cache.has_partition(0)).await;
+    // Long enough for the partition to have been confirmed at the end of the changelog.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    let early = f.follower.read(0, &person_key(1), 1, no_load).await;
+    warming.abort();
+    let _cancelled = warming.await;
+
+    assert_eq!(early.map(|_| ()), Err(ReadRefusal::NotCurrent));
+    assert!(!f.cache.has_partition(0));
+    assert!(!f.follower.is_following(0));
+}
+
+#[tokio::test]
+async fn a_partition_reports_warm_no_sooner_than_the_minimum() {
+    let (cluster, producer) = create_mock_kafka().await;
+    produce_person_to_partition(&producer, 0, &make_person(1, 1)).await;
+    let min_warm = Duration::from_millis(1500);
+    let f = following("minimum", &cluster, FollowConfig { min_warm, ..FOLLOW });
+
+    let began = std::time::Instant::now();
+    f.follower.follow(0, &f.config).await.expect("follow");
+
+    assert!(began.elapsed() >= min_warm);
+    assert!(f.follower.is_current(0));
+}
+
+#[tokio::test]
+async fn the_end_offset_leaves_out_a_transaction_still_open() {
+    use rdkafka::producer::Producer;
+
+    let topic = common::owned_broker_topic(1).await;
+    let producer: FutureProducer = ClientConfig::new()
+        .set("bootstrap.servers", topic.bootstrap_servers())
+        .set("transactional.id", format!("end-offset-{}", topic.topic))
+        .create()
+        .expect("transactional producer");
+    let blocking = producer.clone();
+    tokio::task::spawn_blocking(move || {
+        blocking
+            .init_transactions(Duration::from_secs(10))
+            .and_then(|()| blocking.begin_transaction())
+    })
+    .await
+    .expect("join")
+    .expect("begin a transaction");
+    let payload = make_person(1, 1).encode_to_vec();
+    producer
+        .send(
+            FutureRecord::to(&topic.topic)
+                .key("1:1")
+                .partition(0)
+                .payload(&payload),
+            Duration::from_secs(5),
+        )
+        .await
+        .expect("produce inside the transaction");
+    let cfg = test_warming_config("end", &topic.bootstrap_servers());
+    let pools = WarmClientPools::new(&cfg.kafka, "end", &cfg.writer_consumer_group);
+    let source = WarmSource::live(&topic.topic, None, 0);
+
+    let while_open = end_offset(&cfg, &pools, &source).await.expect("end");
+    tokio::task::spawn_blocking(move || producer.commit_transaction(Duration::from_secs(10)))
+        .await
+        .expect("join")
+        .expect("commit");
+    let committed = end_offset(&cfg, &pools, &source).await.expect("end");
+
+    // Once committed the end is past the record and the broker's control records.
+    assert_eq!(while_open, 0);
+    assert!(committed >= 2, "end after the commit was {committed}");
+}
+
+#[tokio::test]
+async fn following_delivers_later_records_and_outlasts_a_quiet_log() {
+    let (cluster, producer) = create_mock_kafka().await;
+    produce_person_to_partition(&producer, 0, &make_person(1, 1)).await;
+    let (mut cfg, pools) = warming_config_for("follow", &cluster);
+    // Shorter than the quiet stretch below: a quiet followed log must not count as stalled.
+    cfg.recv_timeout = Duration::from_millis(200);
+    let (records, mut delivered) = tokio::sync::mpsc::unbounded_channel();
+    let (positions, mut progress) = tokio::sync::mpsc::unbounded_channel();
+    let source = WarmSource::live(CHANGELOG_TOPIC, None, 0);
+    let following = tokio::spawn(async move {
+        follow_source(
+            &cfg,
+            &pools,
+            &source,
+            0,
+            |offset, person| records.send((offset, person.id)).unwrap_or(()),
+            |position| positions.send(position).unwrap_or(()),
+        )
+        .await
+    });
+    let within = Duration::from_secs(10);
+
+    let first = tokio::time::timeout(within, delivered.recv()).await;
+    assert_eq!(first.expect("first record in time"), Some((0, 1)));
+
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    produce_person_to_partition(&producer, 0, &make_person(1, 2)).await;
+    let second = tokio::time::timeout(within, delivered.recv()).await;
+    assert_eq!(second.expect("second record in time"), Some((1, 2)));
+
+    let reached_end = async { while progress.recv().await != Some(2) {} };
+    tokio::time::timeout(within, reached_end)
+        .await
+        .expect("position 2 in time");
+
+    // A log that never goes quiet must still report its position, from the records themselves.
+    let busy = tokio::spawn(async move {
+        for person_id in 3..=42 {
+            produce_person_to_partition(&producer, 0, &make_person(1, person_id)).await;
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    });
+    let partway = async { while progress.recv().await.is_some_and(|position| position < 12) {} };
+    tokio::time::timeout(within, partway)
+        .await
+        .expect("position 12 in time");
+    assert!(
+        !busy.is_finished(),
+        "the position arrived only once the log went quiet"
+    );
+    busy.abort();
+    following.abort();
 }
 
 #[tokio::test]

@@ -4,6 +4,7 @@ pub mod coordination;
 pub mod emitted;
 pub mod fence;
 pub mod fencing;
+pub mod follow;
 pub mod inflight;
 pub mod kafka;
 pub mod migration;

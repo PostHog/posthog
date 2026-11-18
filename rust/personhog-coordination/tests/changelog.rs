@@ -12,6 +12,41 @@ use tokio_util::sync::CancellationToken;
 use common::{store_at, test_store, FlakyProxy, ETCD_ENDPOINT, WAIT_TIMEOUT};
 
 #[tokio::test]
+async fn a_store_with_a_config_prefix_reads_the_config_of_that_instance() {
+    use assignment_coordination::store::{EtcdStore, StoreConfig};
+    use personhog_coordination::store::PersonhogStore;
+
+    let (leaders, leader_prefix) = common::test_store_with_prefix("config-owner").await;
+    leaders
+        .seed_changelog_config("leaders_topic", 8, "writers")
+        .await
+        .expect("seed");
+    let inner = EtcdStore::connect(StoreConfig {
+        endpoints: vec![common::ETCD_ENDPOINT.to_string()],
+        prefix: format!("/test-config-reader-{}/", uuid::Uuid::new_v4()),
+    })
+    .await
+    .expect("connect");
+    let followers = PersonhogStore::new(inner).with_config_prefix(&leader_prefix);
+
+    let read = followers.get_changelog_config().await.expect("read");
+    let basis = followers.read_plan_basis().await.expect("plan basis");
+
+    let seen = |config: Option<personhog_coordination::types::ChangelogConfig>| {
+        config.map(|c| (c.topic, c.partitions))
+    };
+    let expected = Some(("leaders_topic".to_string(), 8));
+    assert_eq!(seen(read), expected);
+    assert_eq!(seen(basis.config), expected);
+
+    // A reader of another instance's config must never change it.
+    let seed = followers.seed_changelog_config("followers_topic", 2, "writers");
+    assert!(seed.await.is_err());
+    let after = leaders.get_changelog_config().await.expect("read");
+    assert_eq!(seen(after), expected);
+}
+
+#[tokio::test]
 async fn a_second_seed_is_refused() {
     let store = test_store("changelog-seed").await;
     assert!(store
