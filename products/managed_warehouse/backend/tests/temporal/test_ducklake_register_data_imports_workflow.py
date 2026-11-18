@@ -44,6 +44,7 @@ from products.managed_warehouse.backend.temporal.ducklake_declared_columns impor
 )
 from products.managed_warehouse.backend.temporal.ducklake_register_data_imports_workflow import (
     ENGINE_DUCKGRES,
+    ENGINE_GIGAHOG,
     ENGINE_HOGLAKE,
     ENGINE_TRINO,
     S3_COPY_BATCH_SIZE,
@@ -57,6 +58,7 @@ from products.managed_warehouse.backend.temporal.ducklake_register_data_imports_
     ducklake_register_data_imports_gate_activity,
     prepare_ducklake_data_imports_registration_activity,
 )
+from products.managed_warehouse.backend.temporal.gigahog_client import GigahogError
 from products.managed_warehouse.backend.trino_compiler import TrinoTargetReadiness
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
@@ -93,6 +95,7 @@ def _trino_engine_off(monkeypatch):
     monkeypatch.setattr(registration_module, "data_imports_through_trino", lambda organization_id: False)
     monkeypatch.setattr(registration_module, "data_imports_trino_flag", lambda organization_id: False)
     monkeypatch.setattr(registration_module, "data_imports_register_in_hoglake", lambda organization_id: False)
+    monkeypatch.setattr(registration_module, "data_imports_gigahog_flag", lambda organization_id: False)
 
 
 @pytest.mark.asyncio
@@ -177,9 +180,25 @@ async def test_registration_gate_requires_provisioned_duckgres_server_and_retrie
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-@pytest.mark.parametrize("in_hoglake", [False, True])
-async def test_prepare_registration_pins_the_import_jobs_prepared_generation(ateam, monkeypatch, in_hoglake):
-    monkeypatch.setattr(registration_module, "_registers_in_hoglake", lambda organization_id: in_hoglake)
+@pytest.mark.parametrize("engine", [ENGINE_DUCKGRES, ENGINE_HOGLAKE, ENGINE_GIGAHOG, "gigahog_flag_unanswered"])
+async def test_prepare_registration_pins_the_import_jobs_prepared_generation(ateam, monkeypatch, settings, engine):
+    monkeypatch.setattr(
+        registration_module,
+        "_registers_in_hoglake",
+        lambda organization_id: engine in (ENGINE_HOGLAKE, "gigahog_flag_unanswered"),
+    )
+    if engine == "gigahog_flag_unanswered":
+        monkeypatch.setattr(
+            registration_module, "data_imports_gigahog_flag", backfill_trino_module.data_imports_gigahog_flag
+        )
+        monkeypatch.setattr(
+            "posthoganalytics.get_feature_flag", MagicMock(side_effect=TimeoutError("flags service timed out"))
+        )
+    else:
+        monkeypatch.setattr(
+            registration_module, "data_imports_gigahog_flag", lambda organization_id: engine == ENGINE_GIGAHOG
+        )
+    _configure_gigahog(settings, url="http://gigahog.test")
     monkeypatch.setattr(registration_module, "get_control_plane_data_path", lambda organization_id: "s3://mw/org-1/")
     credential = await database_sync_to_async(DataWarehouseCredential.objects.create)(
         team=ateam,
@@ -215,7 +234,7 @@ async def test_prepare_registration_pins_the_import_jobs_prepared_generation(ate
         table=table,
     )
 
-    metadata = await prepare_ducklake_data_imports_registration_activity(
+    prepare = prepare_ducklake_data_imports_registration_activity(
         DuckLakeRegisterDataImportsInputs(
             team_id=ateam.id,
             job_id="job-123",
@@ -223,11 +242,57 @@ async def test_prepare_registration_pins_the_import_jobs_prepared_generation(ate
             prepared_queryable_folder=prepared_queryable_folder,
         )
     )
+    if engine == "gigahog_flag_unanswered":
+        # The organization also has the hoglake flag, so reading the failed lookup as off would register there.
+        with pytest.raises(ApplicationError, match="gave no answer") as unanswered:
+            await prepare
+        assert unanswered.value.non_retryable is False
+        return
+    metadata = await prepare
 
     assert metadata is not None
     folder_path = await database_sync_to_async(schema.folder_path)()
     assert metadata.prepared_source_uri.endswith(f"/{folder_path}/{prepared_queryable_folder}")
-    if in_hoglake:
+    if engine == ENGINE_GIGAHOG:
+        assert (metadata.engine, metadata.ducklake_schema_name, metadata.ducklake_table_name) == (
+            ENGINE_GIGAHOG,
+            f"team_{ateam.id}",
+            "dev_postgres_customers",
+        )
+        assert metadata.landing_uri == (
+            f"s3://gigahog-bucket/imports/org_id={ateam.organization_id}/team_id={ateam.id}/dev_postgres_customers/"
+            f"{schema.id}/job-123/1234567890_abcdef12"
+        )
+        # A newer import with the same HogQL name would replace this one's rows in Gigahog, so only the newer is refused.
+        newer_table = await database_sync_to_async(DataWarehouseTable.objects.create)(
+            team=ateam,
+            name="DEV_postgres_customers",
+            format="Delta",
+            url_pattern="s3://bucket/other",
+            credential=credential,
+            external_data_source=source,
+            queryable_folder=prepared_queryable_folder,
+        )
+        newer_schema = await database_sync_to_async(ExternalDataSchema.objects.create)(
+            team=ateam, name="customers_copy", source=source, table=newer_table
+        )
+        for prepared_schema, refused in ((schema, False), (newer_schema, True)):
+            prepare_again = prepare_ducklake_data_imports_registration_activity(
+                DuckLakeRegisterDataImportsInputs(
+                    team_id=ateam.id,
+                    job_id="job-123",
+                    schema_id=prepared_schema.id,
+                    prepared_queryable_folder=prepared_queryable_folder,
+                )
+            )
+            if not refused:
+                assert await prepare_again is not None
+                continue
+            with pytest.raises(ApplicationError, match="already holds the name") as raised:
+                await prepare_again
+            assert raised.value.non_retryable is True
+        return
+    if engine == ENGINE_HOGLAKE:
         assert (metadata.engine, metadata.ducklake_schema_name, metadata.ducklake_table_name) == (
             ENGINE_HOGLAKE,
             f"team_{ateam.id}",
@@ -2436,18 +2501,32 @@ def test_trino_copy_activity_copies_under_the_attempt_token_and_reports_stalenes
 
 
 class _FakeS3:
-    def __init__(self, keys: set[str], *, partial_copy_fails: bool = False, rm_mode: str = "works") -> None:
+    def __init__(
+        self,
+        keys: set[str],
+        *,
+        partial_copy_fails: bool = False,
+        rm_mode: str = "works",
+        listing: str = "open",
+    ) -> None:
         self.keys = set(keys)
         self.partial_copy_fails = partial_copy_fails
         self.rm_mode = rm_mode
+        # "prefix_scoped" behaves like s3fs on a session whose ListBucket grant is limited to a prefix: an empty
+        # listing without `prefix` falls back to a HeadObject that S3 answers with 403. "refused" denies every listing.
+        self.listing = listing
         self.copy_destinations: list[str] = []
 
     def invalidate_cache(self, path: str | None = None) -> None:
         pass
 
-    def find(self, prefix: str, detail: bool = False) -> Any:
-        folder = prefix.rstrip("/") + "/"
+    def find(self, path: str, detail: bool = False, prefix: str = "") -> Any:
+        if self.listing == "refused":
+            raise PermissionError("Access Denied")
+        folder = path.rstrip("/") + "/" + prefix
         found = sorted(key for key in self.keys if key.startswith(folder))
+        if not found and not prefix and self.listing == "prefix_scoped":
+            raise PermissionError("Forbidden")
         return {key: {"Size": 10, "type": "file"} for key in found} if detail else found
 
     def copy(self, sources: list[str], destinations: list[str], *, batch_size: int) -> None:
@@ -2462,6 +2541,39 @@ class _FakeS3:
             raise RuntimeError("delete failed")
         if self.rm_mode == "works":
             self.keys.difference_update(paths)
+
+
+@pytest.mark.parametrize("listing", ["prefix_scoped", "refused"])
+def test_an_empty_folder_lists_as_empty_unless_the_listing_itself_is_refused(listing: str) -> None:
+    fake_s3 = _FakeS3(set(), listing=listing)
+    copy = partial(
+        registration_module._copy_prepared_parquet_files,
+        "s3://source/dlt/team_1_stripe/charges",
+        "s3://gigahog-bucket/imports/landing",
+        s3=fake_s3,
+    )
+
+    if listing == "refused":
+        with pytest.raises(PermissionError):
+            copy()
+        return
+    with pytest.raises(ApplicationError, match="No prepared Parquet files") as raised:
+        copy()
+    assert raised.value.non_retryable is True
+    assert registration_module._trino_landing_files("s3://gigahog-bucket/imports/landing/", s3=fake_s3) == []
+
+
+def test_s3fs_lists_a_prefix_without_looking_the_folder_up() -> None:
+    # `_find_under` relies on this: under a prefix-scoped grant, the HeadObject that s3fs sends for an empty listing
+    # without `prefix` is refused.
+    filesystem = s3fs.S3FileSystem(anon=True, skip_instance_cache=True)
+    with (
+        patch.object(filesystem, "_lsdir", AsyncMock(return_value=[])),
+        patch.object(filesystem, "_info", AsyncMock(side_effect=PermissionError("Forbidden"))),
+    ):
+        assert filesystem.find("gigahog-bucket/imports", prefix="landing/") == []
+        with pytest.raises(PermissionError):
+            filesystem.find("gigahog-bucket/imports/landing")
 
 
 @pytest.mark.parametrize(
@@ -3048,3 +3160,161 @@ def test_hoglake_copy_activity_lands_under_the_attempt_and_deletes_unpublished_f
     )
     # An unpublished generation's files are referenced by no table, so they are deleted.
     assert (fake_s3.keys == source_keys) is not published
+
+
+@pytest.mark.parametrize(
+    "flag_on, url, complete, expected",
+    [
+        (False, None, True, False),
+        (True, "http://gigahog.test", True, True),
+        # A flagged organization on a worker without Gigahog fails instead of landing in another catalog.
+        (True, None, True, "refused"),
+        (None, "http://gigahog.test", True, "retried"),
+        # Where Gigahog is not deployed, a flag that is not defined must not stop data imports.
+        (None, None, True, False),
+        # A half-configured worker refuses only the organizations that write to Gigahog.
+        (True, "http://gigahog.test", False, "refused"),
+        (False, "http://gigahog.test", False, False),
+    ],
+)
+def test_registers_in_gigahog_needs_the_flag_and_a_configured_worker(
+    flag_on: bool | None, url: str | None, complete: bool, expected: bool | str, monkeypatch, settings
+) -> None:
+    monkeypatch.setattr(registration_module, "data_imports_gigahog_flag", lambda organization_id: flag_on)
+    _configure_gigahog(settings, url=url)
+    if not complete:
+        settings.GIGAHOG_IMPORTS_CLIENT_SECRET = None
+
+    if expected in ("refused", "retried"):
+        with pytest.raises(ApplicationError) as raised:
+            registration_module._registers_in_gigahog("org")
+        assert raised.value.non_retryable is (expected == "refused")
+    else:
+        assert registration_module._registers_in_gigahog("org") is expected
+
+
+@pytest.mark.asyncio
+async def test_registration_gate_sends_a_gigahog_organization_past_trino_and_duckgres(monkeypatch) -> None:
+    team = MagicMock(organization_id=uuid.UUID(int=9))
+    monkeypatch.setattr(registration_module.Team.objects, "only", lambda *fields: MagicMock(get=lambda id: team))
+    monkeypatch.setattr(registration_module, "feature_enabled_or_false", lambda *args, **kwargs: True)
+    monkeypatch.setattr(
+        "products.managed_warehouse.backend.facade.access.background_loading_configured", lambda organization_id: False
+    )
+    monkeypatch.setattr(registration_module, "_registers_in_gigahog", lambda organization_id: True)
+    monkeypatch.setattr(registration_module, "_registers_in_hoglake", MagicMock(side_effect=AssertionError))
+    monkeypatch.setattr(registration_module, "get_trino_target_readiness", MagicMock(side_effect=AssertionError))
+    monkeypatch.setattr(registration_module, "get_duckgres_server_by_team_org", MagicMock(side_effect=AssertionError))
+
+    assert await ducklake_register_data_imports_gate_activity(DuckLakeRegisterDataImportsGateInputs(team_id=1)) is True
+
+
+@pytest.mark.parametrize(
+    "outcome, files_kept",
+    [
+        ("namespace_missing", False),
+        # One replacement could not carry the generation, so copying it would only make files to delete.
+        ("too_many_files", False),
+        ("published", True),
+        ("stale", False),
+        ("refused", False),
+        # The server may have committed before it failed, so the table may reference the files.
+        ("unknown", True),
+    ],
+)
+def test_gigahog_copy_activity_lands_under_the_attempt_and_deletes_files_no_table_uses(
+    monkeypatch, settings, outcome: str, files_kept: bool
+) -> None:
+    _configure_gigahog(settings, url="http://gigahog.test")
+    base = _activity_inputs()
+    source_prefix = base.metadata.prepared_source_uri.removeprefix("s3://").rstrip("/")
+    source_keys = {f"{source_prefix}/a.parquet"}
+    fake_s3 = _FakeS3(source_keys)
+
+    def register(*, before_commit, **kwargs):
+        if outcome == "stale":
+            return MagicMock(published=False, row_count=0)
+        before_commit()
+        if outcome == "published":
+            return MagicMock(published=True, row_count=3)
+        refusal = (
+            GigahogError(409, "commit_conflict", None)
+            if outcome == "refused"
+            else GigahogError(503, "unavailable", None)
+        )
+        raise ApplicationError(str(refusal), non_retryable=False) from refusal
+
+    def require_namespace(client, *, organization_id, team_id):
+        if outcome == "namespace_missing":
+            raise ApplicationError("Gigahog has no namespace team_1 yet", non_retryable=False)
+
+    monkeypatch.setattr(registration_module, "get_s3_client", MagicMock(side_effect=AssertionError))
+    monkeypatch.setattr(registration_module, "GigahogClient", MagicMock())
+    monkeypatch.setattr(registration_module, "require_gigahog_namespace", require_namespace)
+    session_requests: list[bool] = []
+
+    def team_filesystem(client, *, fresh=False):
+        session_requests.append(fresh)
+        return fake_s3
+
+    monkeypatch.setattr(registration_module, "gigahog_team_filesystem", team_filesystem)
+    monkeypatch.setattr(registration_module, "register_prepared_files_in_gigahog", register)
+    monkeypatch.setattr(
+        registration_module, "register_prepared_files_in_hoglake", MagicMock(side_effect=AssertionError)
+    )
+    monkeypatch.setattr(registration_module, "_get_org_id_for_team", lambda team_id: "org")
+    monkeypatch.setattr(registration_module, "HeartbeaterSync", lambda **kwargs: contextlib.nullcontext())
+    _mock_activity_workload_metrics(monkeypatch)
+    names = registration_module.registration_table_names_from_token("0123456789abcdef0123456789abcdef")
+    landing = "s3://gigahog-bucket/imports/org_id=org/team_id=1/stripe_invoices/schema/job"
+    inputs = dataclasses.replace(
+        base,
+        metadata=dataclasses.replace(
+            base.metadata,
+            engine=ENGINE_GIGAHOG,
+            source_schema_id=str(uuid.UUID(int=5)),
+            landing_uri=landing,
+            ducklake_schema_name="team_1",
+            ducklake_table_name="stripe_invoices",
+        ),
+        registration_table_names=names,
+    )
+
+    if outcome == "too_many_files":
+        monkeypatch.setattr(registration_module, "REPLACEMENT_MAX_FILES", len(source_keys) - 1)
+    if outcome in ("namespace_missing", "too_many_files", "refused", "unknown"):
+        with pytest.raises(ApplicationError):
+            copy_and_register_ducklake_data_imports_activity(inputs)
+    else:
+        assert copy_and_register_ducklake_data_imports_activity(inputs) is (outcome == "published")
+    if outcome in ("namespace_missing", "too_many_files"):
+        assert fake_s3.copy_destinations == []
+        return
+    assert session_requests[0] is True
+
+    [landed] = fake_s3.copy_destinations
+    assert re.fullmatch(
+        rf"{re.escape(landing.removeprefix('s3://'))}/1234567890_abcdef12/0123456789abcdef0123456789abcdef/[0-9a-f]{{16}}/.+\.parquet",
+        landed,
+    )
+    assert (landed in fake_s3.keys) is files_kept
+
+    monkeypatch.setattr(registration_module, "_connect_to_duckgres_for_team", MagicMock(side_effect=AssertionError))
+    registration_module.cleanup_ducklake_registration_tables_activity(
+        registration_module.DuckLakeRegisterCleanupInputs(
+            team_id=1,
+            schema_name="team_1",
+            table_names=[names.shadow_name, names.previous_name],
+            engine=ENGINE_GIGAHOG,
+            table_name="stripe_invoices",
+        )
+    )
+
+
+def _configure_gigahog(settings, *, url: str | None) -> None:
+    settings.GIGAHOG_URL = url
+    settings.GIGAHOG_IMPORTS_CATALOG = "imports-dev"
+    settings.GIGAHOG_IMPORTS_DATA_PATH = "s3://gigahog-bucket/imports"
+    settings.GIGAHOG_IMPORTS_TOKEN_URL = "http://hogtower.test/oauth/token"
+    settings.GIGAHOG_IMPORTS_CLIENT_ID = "hlw_writer"
+    settings.GIGAHOG_IMPORTS_CLIENT_SECRET = "writer-secret"

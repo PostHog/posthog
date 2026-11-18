@@ -65,8 +65,10 @@ from products.alerts_platform.backend.facade.enums import (
 )
 from products.alerts_platform.backend.logic import (
     alert_destinations,
+    alert_routes,
     alert_routing,
     delivery_holds,
+    destination_handoff,
     destination_sends,
     platform_lifecycle,
     platform_reads,
@@ -444,6 +446,13 @@ def runtime_by_public_id(*, team_id: int, public_ids: Collection[UUID]) -> dict[
     return platform_reads.runtime_by_public_id(team_id=team_id, public_ids=public_ids)
 
 
+def legacy_events_emitted_since(*, team_id: int, public_id: UUID, since: datetime) -> bool:
+    """Whether a delivery claimed or emitted the alert's legacy events, the events its HogFunctions
+    hear, at or after `since`. An emitted event waits in a queue for the HogFunctions, so a caller
+    that retires them waits until the alert has been quiet for longer than that queue takes."""
+    return platform_reads.legacy_events_emitted_since(team_id=team_id, public_id=public_id, since=since)
+
+
 def check_page_by_public_id(
     *, team_id: int, public_id: UUID, since: datetime, until: datetime, limit: int, offset: int
 ) -> PlatformCheckPage | None:
@@ -788,8 +797,9 @@ def close_owned_firings_now(*, team_id: int, legacy_configuration_id: UUID) -> N
 def create_alert_destinations(
     *, team_id: int, configuration_id: UUID, destinations: Sequence[NewAlertDestination]
 ) -> tuple[StoredAlertDestination, ...]:
-    """Adds destinations to one alert, all or none. Raises `AlertDestinationValidationError` on a refused one."""
-    return alert_destinations.create_alert_destinations(
+    """Adds destinations to one alert, all or none. Raises `AlertDestinationValidationError` on a refused one.
+    A destination added while the alert fires hears the firing."""
+    return destination_handoff.create_alert_destinations(
         team_id=team_id, configuration_id=configuration_id, destinations=destinations
     )
 
@@ -961,8 +971,12 @@ def redact_destination_data(data: AlertDestinationData) -> AlertDestinationData:
 
 
 def has_incident_destination(*, team_id: int, configuration_id: UUID) -> bool:
-    """Whether an alert whose destinations the platform owns has an enabled incident manager."""
-    return alert_destinations.has_incident_destination(team_id=team_id, configuration_id=configuration_id)
+    """Whether an enabled incident manager may follow the alert: one of its own, when the platform owns
+    its destinations, or any enabled route of the team to an enabled incident receiver. The route check
+    ignores the alert's labels, so it is team-wide, and delivery decides per group."""
+    return alert_destinations.has_incident_destination(
+        team_id=team_id, configuration_id=configuration_id
+    ) or alert_routes.routes_reach_incident_receiver(team_id=team_id)
 
 
 def destination_hears_kind(
@@ -978,8 +992,8 @@ def delete_alert_destinations(
     *, team_id: int, configuration_id: UUID, destination_ids: Collection[UUID]
 ) -> dict[UUID, str]:
     """Deletes the named destinations of one alert, and returns the type of each one it deleted, by id.
-    An id of another alert is left alone."""
-    return alert_destinations.delete_alert_destinations(
+    An id of another alert is left alone. An incident manager deleted while the alert fires hears the resolve."""
+    return destination_handoff.delete_alert_destinations(
         team_id=team_id, configuration_id=configuration_id, destination_ids=destination_ids
     )
 
