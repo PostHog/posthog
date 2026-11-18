@@ -30,7 +30,7 @@ function renderWithStatus(status: ProductSetupStatus): Story['render'] {
                     productKey={ProductKey.TRACING}
                     statusLogic={storyDetectionLogic}
                     dataName="span"
-                    destination={{ label: 'Tracing', url: '/tracing' }}
+                    destination={{ label: 'Go to Tracing', url: '/tracing' }}
                 />
             </div>
         )
@@ -40,3 +40,5 @@ function renderWithStatus(status: ProductSetupStatus): Story['render'] {
 export const Listening: Story = { render: renderWithStatus('needs-setup') }
 
 export const DataReceived: Story = { render: renderWithStatus('has-data') }
+
+export const DetectionUnavailable: Story = { render: renderWithStatus('unknown') }

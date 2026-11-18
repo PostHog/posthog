@@ -1,5 +1,6 @@
-import { Suspense, lazy } from 'react'
+import { Suspense } from 'react'
 
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { MetricsSDKInstructions } from 'scenes/onboarding/sdks/metrics/MetricsSDKInstructions'
 import { OnboardingInstallStep } from 'scenes/onboarding/sdks/OnboardingInstallStep'
 import { type ProductOnboardingProvider } from 'scenes/onboarding/types'
@@ -9,7 +10,7 @@ import { OnboardingStepKey } from '~/types'
 
 // Lazy so the metrics detection logic and the scene logic it reaches stay out of the onboarding
 // chunk that every product's flow loads.
-const MetricsOnboardingListeningIndicator = lazy(() =>
+const MetricsOnboardingListeningIndicator = lazyWithRetry(() =>
     import('./MetricsOnboardingListeningIndicator').then((m) => ({ default: m.MetricsOnboardingListeningIndicator }))
 )
 

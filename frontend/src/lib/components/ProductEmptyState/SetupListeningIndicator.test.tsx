@@ -31,7 +31,7 @@ describe('SetupListeningIndicator', () => {
                 productKey={ProductKey.TRACING}
                 statusLogic={detectionLogic}
                 dataName="span"
-                destination={{ label: 'Tracing', url: '/tracing' }}
+                destination={{ label: 'Go to Tracing', url: '/tracing' }}
             />
         )
         expect(screen.getByText(/Listening for your first span/)).toBeInTheDocument()
@@ -42,6 +42,25 @@ describe('SetupListeningIndicator', () => {
         const link = await screen.findByText('Go to Tracing')
         expect(link.closest('a')).toHaveAttribute('href', expect.stringMatching(/\/tracing$/))
         expect(screen.queryByText(/Listening for your first span/)).not.toBeInTheDocument()
+        statusLogic.unmount()
+    })
+
+    it('does not claim to be listening when detection cannot run', () => {
+        const statusLogic = productSetupStatusLogic({ productKey: ProductKey.METRICS })
+        statusLogic.mount()
+        statusLogic.actions.setDetectedStatus('unknown')
+
+        render(
+            <SetupListeningIndicator
+                productKey={ProductKey.METRICS}
+                statusLogic={detectionLogic}
+                dataName="metric"
+                destination={{ label: 'Go to Metrics', url: '/metrics' }}
+            />
+        )
+        expect(screen.queryByText(/Listening for your first metric/)).not.toBeInTheDocument()
+        expect(screen.getByText(/can't check for incoming metrics/)).toBeInTheDocument()
+        expect(screen.getByText('Go to Metrics')).toBeInTheDocument()
         statusLogic.unmount()
     })
 })

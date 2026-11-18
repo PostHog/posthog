@@ -41,7 +41,7 @@ export const metricsEmptyState: SceneProductEmptyState = {
                 productKey={ProductKey.METRICS}
                 statusLogic={metricsSetupLogic}
                 dataName="metric"
-                destination={{ label: 'Metrics', url: urls.metrics() }}
+                destination={{ label: 'Go to Metrics', url: urls.metrics() }}
             />
         ),
         previewLabel: 'Your metrics, once connected',

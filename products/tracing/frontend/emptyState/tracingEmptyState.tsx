@@ -35,7 +35,7 @@ export const tracingEmptyState: SceneProductEmptyState = {
                 productKey={ProductKey.TRACING}
                 statusLogic={tracingSetupLogic}
                 dataName="span"
-                destination={{ label: 'Tracing', url: urls.tracing() }}
+                destination={{ label: 'Go to Tracing', url: urls.tracing() }}
             />
         ),
         previewLabel: 'Your traces, once connected',
