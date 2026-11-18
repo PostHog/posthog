@@ -43,6 +43,7 @@ from products.metrics.backend.facade.enums import (
     MetricType,
 )
 from products.metrics.backend.metric_query_runner import (
+    _SERVICE_NAME_KEYS,
     AttributeScope,
     _align_to_interval,
     _finite_or_none,
@@ -250,6 +251,24 @@ def _source_field(source: DerivedSource, name: str, *, scope: AttributeScope = "
             },
         )
     return attribute_field(name, scope=scope)
+
+
+def _picker_field(source: DerivedSource, name: str) -> ast.Expr:
+    """`_source_field` for the key and value pickers, reading attributes from the typed maps.
+
+    The span and log `attributes` column aliases a `mapApply` over the whole `attributes_map_str` map, so
+    `arrayElement(attributes, ...)` rebuilds every attribute of every scanned row. A `__str`-suffixed key on
+    the field chain reads `attributes_map_str` directly through its property group.
+    """
+    if name in _COLUMN_KEYS[source] or name in _ENUM_COLUMN_KEYS[source] or name in _SERVICE_NAME_KEYS:
+        return _source_field(source, name)
+    return parse_expr(
+        "if(coalesce({resource}, '') != '', {resource}, coalesce({attribute}, ''))",
+        placeholders={
+            "resource": ast.Field(chain=["resource_attributes", name]),
+            "attribute": ast.Field(chain=["attributes", f"{name}__str"]),
+        },
+    )
 
 
 def is_derived_metric_name(name: str) -> bool:
@@ -538,12 +557,18 @@ class DerivedMetricQueryRunner:
         return query
 
 
-def _autocomplete_window(date_from: dt.datetime | None, date_to: dt.datetime | None) -> tuple[dt.datetime, dt.datetime]:
+@frozen
+class _AutocompleteWindow:
+    date_from: dt.datetime
+    date_to: dt.datetime
+
+
+def _autocomplete_window(date_from: dt.datetime | None, date_to: dt.datetime | None) -> _AutocompleteWindow:
     resolved_to = date_to or timezone.now()
     resolved_from = date_from or resolved_to - _AUTOCOMPLETE_WINDOW
     if resolved_to <= resolved_from:
         raise ValueError("date_to must be after date_from")
-    return resolved_from, resolved_to
+    return _AutocompleteWindow(date_from=resolved_from, date_to=resolved_to)
 
 
 def list_derived_attribute_keys(
@@ -562,17 +587,17 @@ def list_derived_attribute_keys(
     keys = [key for key in _PICKER_KEYS[source] if needle in key.lower()]
     if not keys:
         return []
-    window_from, window_to = _autocomplete_window(date_from, date_to)
+    window = _autocomplete_window(date_from, date_to)
     counts = [
         parse_expr(
-            "uniqIf(toString({field}), toString({field}) != '')", placeholders={"field": _source_field(source, key)}
+            "uniqIf(toString({field}), toString({field}) != '')", placeholders={"field": _picker_field(source, key)}
         )
         for key in keys
     ]
     query = ast.SelectQuery(
         select=counts,
         select_from=ast.JoinExpr(table=ast.Field(chain=_TABLES[source])),
-        where=_window_expr(window_from, window_to),
+        where=_window_expr(window.date_from, window.date_to),
     )
     response = execute_hogql_query(
         query_type="DerivedMetricAttributeKeysQuery",
@@ -582,8 +607,8 @@ def list_derived_attribute_keys(
         settings=_AUTOCOMPLETE_SETTINGS,
     )
     row = response.results[0] if response.results else [0] * len(keys)
-    found = [{"name": key, "value_count": int(count)} for key, count in zip(keys, row) if count]
-    return sorted(found, key=lambda item: -item["value_count"])[:limit]
+    found = sorted(((key, int(count)) for key, count in zip(keys, row) if count), key=lambda pair: -pair[1])
+    return [{"name": key, "value_count": count} for key, count in found[:limit]]
 
 
 def list_derived_attribute_values(
@@ -598,7 +623,7 @@ def list_derived_attribute_values(
 ) -> list[dict]:
     """Observed values of one key for a derived metric, most frequent first, as `{"id", "name", "count"}` dicts."""
     source = get_derived_metric(metric_name).source
-    window_from, window_to = _autocomplete_window(date_from, date_to)
+    window = _autocomplete_window(date_from, date_to)
     table = ".".join(str(part) for part in _TABLES[source])
     query = parse_select(
         f"""
@@ -610,8 +635,8 @@ def list_derived_attribute_values(
             LIMIT {{limit}}
         """,
         placeholders={
-            "field": _source_field(source, key),
-            "window": _window_expr(window_from, window_to),
+            "field": _picker_field(source, key),
+            "window": _window_expr(window.date_from, window.date_to),
             "pattern": ast.Constant(value=ilike_pattern(search.strip())),
             "limit": ast.Constant(value=limit),
         },

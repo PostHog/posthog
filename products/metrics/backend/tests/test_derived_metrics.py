@@ -1,5 +1,6 @@
 import json
 import datetime as dt
+from urllib.parse import parse_qs
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -434,6 +435,8 @@ class TestDerivedMetricsQuery(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == 200, response.json()
         web = next(s for s in response.json()["results"] if s["labels"] == {"service.name": "web"})
         assert web["points"][0]["value"] == 0.5
+        # The viewer has no threshold, so the link must not chart this clause with the default one.
+        assert "clauses" not in parse_qs(response.json().get("url_params", ""))
 
     def test_picker_suggests_span_dimensions_and_their_values(self) -> None:
         window = {"metricName": REQUESTS, "dateFrom": DATE_FROM.isoformat(), "dateTo": DATE_TO.isoformat()}

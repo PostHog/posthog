@@ -675,6 +675,9 @@ def _viewer_clause(clause: dict, name: str) -> dict | None:
         aggregation = _VIEWER_HISTOGRAM_AGGREGATIONS.get(clause.get("quantile") or 0.0)
         if aggregation is None:
             return None
+    # The viewer has no Apdex threshold, so its link would score with the default one.
+    if clause.get("apdexThresholdMs") is not None:
+        return None
     filters = clause.get("filters") or []
     group_by = clause.get("groupBy") or []
     # The viewer reads attributes with scope 'auto' only.
