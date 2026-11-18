@@ -19,8 +19,6 @@ use uuid::Uuid;
 
 use super::{Emitter, Transaction};
 
-/// Client settings for sending import chunks to capture-import. zstd shrinks the
-/// multi-megabyte bodies on the wire at a small CPU cost on both sides.
 pub fn client_options(api_key: String, host: &str) -> Result<ClientOptions, Error> {
     ClientOptionsBuilder::default()
         .api_key(api_key)
@@ -294,9 +292,7 @@ fn get_min_txn_duration(send_rate: u64, count: usize) -> Duration {
     Duration::from_secs_f64(batch_size / max_send_rate)
 }
 
-/// Uncompressed budget for one capture request. Capture v1 accepts 10 MiB compressed and
-/// 50 MiB decompressed; 5 MiB matches the SDK's analytics request target and keeps each
-/// request short, so a slow request stays far from the client timeout.
+/// Uncompressed budget per request (capture v1 allows 10 MiB compressed, 50 MiB decompressed).
 const MAX_BATCH_PAYLOAD_BYTES: usize = 5 * 1024 * 1024;
 
 /// Overhead capture adds per event beyond its own JSON (injected `api_key`, `$lib*`
