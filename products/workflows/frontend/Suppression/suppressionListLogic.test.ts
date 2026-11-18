@@ -156,5 +156,30 @@ describe('suppressionListLogic', () => {
                 confirm_complaints: confirmComplaints,
             })
         })
+
+        it('goes back a page after clearing the last page, when another session already removed one of its rows', async () => {
+            const retrieve = jest.spyOn(messagingApi, 'messagingSuppressionsSuppressionsRetrieve').mockResolvedValue({
+                count: 102,
+                next: null,
+                previous: 'page-1',
+                results: [suppressionRow('a@example.com'), suppressionRow('b@example.com')],
+            })
+            jest.spyOn(messagingApi, 'messagingSuppressionsBulkRemoveSuppressionsCreate').mockResolvedValue({
+                removed: ['a@example.com'],
+                not_found: ['b@example.com'],
+            })
+            const openDialog = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            const logic = suppressionListLogic()
+            logic.mount()
+            await expectLogic(logic, () => logic.actions.loadSuppressions(2)).toDispatchActions([
+                'loadSuppressionsSuccess',
+            ])
+
+            logic.actions.confirmRemove(logic.values.suppressions.results)
+            openDialog.mock.calls[0][0].primaryButton?.onClick?.({} as any)
+            await expectLogic(logic).toDispatchActions(['removeSuppressionsSuccess', 'loadSuppressionsSuccess'])
+
+            expect(retrieve).toHaveBeenLastCalledWith(expect.any(String), { search: undefined, page: 1 })
+        })
     })
 })
