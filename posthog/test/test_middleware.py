@@ -1468,6 +1468,11 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
             assert res.status_code == 302
             assert res.headers["Location"] == f"/admin/posthog/user/{self.other_user.id}/change/"
 
+            res = self.client.get(res.headers["Location"])
+            assert [str(message) for message in res.context["messages"]] == [
+                "You are now logged back in as user1@posthog.com."
+            ]
+
             # Verify we're back to original user
             res = self.client.get("/api/users/@me")
             assert res.status_code == 200

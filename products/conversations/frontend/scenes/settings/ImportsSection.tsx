@@ -1,8 +1,8 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { LemonTab, LemonTabs } from '@posthog/lemon-ui'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@posthog/quill'
+import { LemonTab, LemonTabs, LemonTag } from '@posthog/lemon-ui'
+import { Badge, Tabs, TabsContent, TabsList, TabsTrigger } from '@posthog/quill'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -22,6 +22,15 @@ export function ImportsSection(): JSX.Element {
     const intercomEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_INTERCOM_IMPORT]
     const pylonEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_PYLON_IMPORT]
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const betaTag = todayRailNav ? (
+        <Badge variant="info" className="ml-1">
+            Beta
+        </Badge>
+    ) : (
+        <LemonTag type="highlight" size="small" className="ml-1">
+            Beta
+        </LemonTag>
+    )
 
     const tabs: (LemonTab<ImportTabKey> | false)[] = [
         {
@@ -31,12 +40,22 @@ export function ImportsSection(): JSX.Element {
         },
         intercomEnabled && {
             key: 'intercom',
-            label: 'Intercom',
+            label: (
+                <>
+                    Intercom
+                    {betaTag}
+                </>
+            ),
             content: <IntercomImportSection />,
         },
         pylonEnabled && {
             key: 'pylon',
-            label: 'Pylon',
+            label: (
+                <>
+                    Pylon
+                    {betaTag}
+                </>
+            ),
             content: <PylonImportSection />,
         },
     ]

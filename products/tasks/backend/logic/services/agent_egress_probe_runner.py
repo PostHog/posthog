@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from uuid import uuid4
 
 from django.db import connections
+from django.utils import timezone
 
 from products.tasks.backend.logic.services.agent_egress_lifecycle import AgentEgressLifecycle
 from products.tasks.backend.logic.services.agent_egress_probe import AgentEgressProbeConfig
@@ -44,7 +45,12 @@ class AgentEgressProbeRunner:
 
     def run(self) -> None:
         self.config.eligible_run()
-        lifecycle = AgentEgressLifecycle(self.config, execution_id=uuid4(), workflow_run_id=f"local-{uuid4()}")
+        lifecycle = AgentEgressLifecycle(
+            self.config,
+            execution_id=uuid4(),
+            workflow_run_id=f"local-{uuid4()}",
+            provisioning_deadline=timezone.now().timestamp() + 180,
+        )
         sandbox_id: str | None = None
         reason = "failed"
         try:

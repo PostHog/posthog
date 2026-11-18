@@ -126,10 +126,7 @@ type InputGroupInputProps = Omit<React.ComponentProps<'input'>, 'size' | 'placeh
      * the input an `aria-label` too.
      */
     placeholder?: React.ReactNode
-    /**
-     * Disables the field and says why in a tooltip. The field turns read-only and stays hoverable and
-     * focusable, so the reason is reachable. Takes the place of `disabled` while set.
-     */
+    /** Disables the field and says why in a tooltip. Takes the place of `disabled` while set. */
     disabledReason?: React.ReactNode
 }
 
@@ -161,10 +158,7 @@ const InputGroupInput = React.forwardRef<HTMLInputElement, InputGroupInputProps>
 InputGroupInput.displayName = 'InputGroupInput'
 
 type InputGroupTextareaProps = React.ComponentProps<'textarea'> & {
-    /**
-     * Disables the field and says why in a tooltip. The field turns read-only and stays hoverable and
-     * focusable, so the reason is reachable. Takes the place of `disabled` while set.
-     */
+    /** Disables the field and says why in a tooltip. Takes the place of `disabled` while set. */
     disabledReason?: React.ReactNode
 }
 

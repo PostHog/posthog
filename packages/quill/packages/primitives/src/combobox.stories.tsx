@@ -63,11 +63,11 @@ export const Default: Story = {
     },
 } satisfies Story
 
-function MultipleComboboxInner(): React.ReactElement {
+function MultipleComboboxInner({ disabledReason }: { disabledReason?: React.ReactNode }): React.ReactElement {
     const anchor = useComboboxAnchor()
     return (
         <React.Fragment>
-            <ComboboxChips ref={anchor} className="max-w-xs">
+            <ComboboxChips ref={anchor} className="max-w-xs" disabledReason={disabledReason}>
                 <ComboboxValue>
                     {(values) => (
                         <React.Fragment>
@@ -481,43 +481,11 @@ export const DisabledReason: Story = {
     },
 } satisfies Story
 
-function DisabledReasonChipsInner(): React.ReactElement {
-    const anchor = useComboboxAnchor()
-    return (
-        <React.Fragment>
-            <ComboboxChips ref={anchor} className="max-w-xs" disabledReason="Only admins can change frameworks">
-                <ComboboxValue>
-                    {(values) => (
-                        <React.Fragment>
-                            {values.map((value: string) => (
-                                <ComboboxChip key={value} title={value}>
-                                    {value}
-                                </ComboboxChip>
-                            ))}
-                            <ComboboxChipsInput />
-                        </React.Fragment>
-                    )}
-                </ComboboxValue>
-            </ComboboxChips>
-            <ComboboxContent anchor={anchor} className="w-[218px]">
-                <ComboboxEmpty>No items found</ComboboxEmpty>
-                <ComboboxList>
-                    {(item) => (
-                        <ComboboxItem key={item} value={item}>
-                            {item}
-                        </ComboboxItem>
-                    )}
-                </ComboboxList>
-            </ComboboxContent>
-        </React.Fragment>
-    )
-}
-
 export const DisabledReasonChips: Story = {
     render: () => (
         <div className="max-w-xs">
             <Combobox multiple items={frameworks} defaultValue={[frameworks[0], frameworks[1]]}>
-                <DisabledReasonChipsInner />
+                <MultipleComboboxInner disabledReason="Only admins can change frameworks" />
             </Combobox>
         </div>
     ),

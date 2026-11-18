@@ -1602,6 +1602,7 @@ class Database(BaseModel):
         ]
         return sorted(selected, key=_serialization_order)
 
+    @tracer.start_as_current_span("serialize_hogql_database")
     def serialize(
         self,
         context: HogQLContext,
@@ -1974,6 +1975,7 @@ class Database(BaseModel):
             timings = HogQLTimings()
 
         HOGQL_DATABASE_BUILD_TOTAL.labels(trigger=trigger).inc()
+        trace.get_current_span().set_attribute("trigger", str(trigger))
 
         cache_key = None
         if use_cached_sources and not schema_table_names:

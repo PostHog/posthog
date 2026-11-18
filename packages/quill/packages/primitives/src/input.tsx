@@ -11,10 +11,7 @@ const Input = React.forwardRef<
     Omit<React.ComponentProps<'input'>, 'size'> & {
         /** `sm` matches a default-size Button, for a field that shares a row with buttons. */
         size?: 'default' | 'sm'
-        /**
-         * Disables the field and says why in a tooltip. The field turns read-only and stays hoverable and
-         * focusable, so the reason is reachable. Takes the place of `disabled` while set.
-         */
+        /** Disables the field and says why in a tooltip. Takes the place of `disabled` while set. */
         disabledReason?: React.ReactNode
     }
 >(({ className, type, size = 'default', disabled, disabledReason, ...props }, ref) => {
