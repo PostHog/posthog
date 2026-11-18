@@ -362,6 +362,51 @@ return count
 
 
 class CodeBasedVerifier:
+    def _recent_idp_code_key(self, user: User, target_email: str, identity: str, asserted_email: str) -> str:
+        context = code_based_verification_token_generator._make_hash_value(user, 0, target_email, identity)
+        context = f"{context}\x00{asserted_email}"
+        signature = salted_hmac(
+            "posthog.auth.recent_idp_code",
+            context,
+            secret=code_based_verification_token_generator.secret,
+            algorithm=code_based_verification_token_generator.algorithm,
+        ).hexdigest()
+        return f"idp_login_recent_code:{signature}"
+
+    def reuse_recent_idp_code(
+        self, request: HttpRequest, user: User, target_email: str, identity: str, asserted_email: str
+    ) -> bool:
+        """Fresh callbacks can lose the session while an emailed code is still valid for the same mailbox."""
+        try:
+            issued_at = get_client().get(self._recent_idp_code_key(user, target_email, identity, asserted_email))
+            if issued_at is None:
+                return False
+            issued_at = int(issued_at)
+            if not 0 <= time.time() - issued_at < CODE_TTL_SECONDS:
+                return False
+            if not self.reserve_idp_challenge(user, identity):
+                return False
+            self.clear_pending(request)
+            self._set_pending_code(request, user, issued_at, target_email, identity)
+            return True
+        except Exception:
+            mfa_logger.exception("idp_recent_code_unavailable", user_id=user.pk)
+            return False
+
+    def _remember_recent_idp_code(self, key: str, issued_at: int, user: User) -> None:
+        try:
+            get_client().set(key, issued_at, ex=CODE_TTL_SECONDS)
+        except Exception:
+            mfa_logger.exception("idp_recent_code_unavailable", user_id=user.pk)
+
+    def _set_pending_code(
+        self, request: HttpRequest, user: User, issued_at: int, target_email: str | None, identity: str | None
+    ) -> None:
+        request.session["code_based_verification_pending_user_id"] = user.pk
+        request.session["code_based_verification_issued_at"] = issued_at
+        request.session[CODE_BASED_VERIFICATION_TARGET_SESSION_KEY] = target_email
+        request.session[CODE_BASED_VERIFICATION_IDENTITY_SESSION_KEY] = identity
+
     def reserve_idp_challenge(self, user: User, identity: str) -> bool:
         """Reserve one account-wide slot for this identity for the code lifetime.
 
@@ -444,6 +489,7 @@ class CodeBasedVerifier:
         is_resend: bool = False,
         target_email: str | None = None,
         identity: str | None = None,
+        asserted_email: str | None = None,
     ) -> bool:
         """Raises EmailRecipientUndeliverableError when the address cannot receive the code.
 
@@ -463,14 +509,18 @@ class CodeBasedVerifier:
 
         try:
             issued_at = int(time.time())
+            recent_key = (
+                self._recent_idp_code_key(user, target_email, identity, asserted_email)
+                if target_email is not None and identity is not None and asserted_email is not None
+                else None
+            )
             code = code_based_verification_token_generator.make_code(
                 user, issued_at, target_email or "", identity or ""
             )
             email.send_code_based_verification(user.pk, code, to_email=target_email)
-            request.session["code_based_verification_pending_user_id"] = user.pk
-            request.session["code_based_verification_issued_at"] = issued_at
-            request.session[CODE_BASED_VERIFICATION_TARGET_SESSION_KEY] = target_email
-            request.session[CODE_BASED_VERIFICATION_IDENTITY_SESSION_KEY] = identity
+            self._set_pending_code(request, user, issued_at, target_email, identity)
+            if recent_key is not None:
+                self._remember_recent_idp_code(recent_key, issued_at, user)
             if is_resend and (sso := request.session.get(CODE_BASED_VERIFICATION_SSO_SESSION_KEY)):
                 sso["issued_at"] = issued_at
                 request.session[CODE_BASED_VERIFICATION_SSO_SESSION_KEY] = sso

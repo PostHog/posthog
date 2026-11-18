@@ -263,8 +263,11 @@ class TestOIDCAuthentication(APILicensedTest):
         self.assertEqual(social_auth.uid, f"{self.config.oidc_issuer_url}:example-user")
         self.assertEqual(social_auth.extra_data, {})
 
+    @parameterized.expand([("first_callback", False), ("restart", True)])
     @pytest.mark.disable_mock_code_based_verifier
-    def test_first_login_with_oidc_requires_the_code_emailed_to_the_asserted_address(self) -> None:
+    def test_first_login_with_oidc_requires_the_code_emailed_to_the_asserted_address(
+        self, _name: str, restart: bool
+    ) -> None:
         self.user.email = "member@example.com"
         self.user.save()
         self.client.logout()
@@ -283,6 +286,11 @@ class TestOIDCAuthentication(APILicensedTest):
             self.assertFalse(UserSocialAuth.objects.filter(user=self.user, provider="oidc").exists())
 
             code = mock_send.call_args[0][1]
+            if restart:
+                self.client = APIClient()
+                response = self._complete_oidc_login("member@example.com")
+                self.assertIn("code_verification_pending=1", response["Location"])
+                self.assertEqual(mock_send.call_count, 1)
             response = self.client.post("/api/login/code-based-verification/", {"code": code})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -567,6 +575,12 @@ class TestOIDCAuthentication(APILicensedTest):
             self._complete_oidc_login(self.user.email)
             code = sent.call_args.args[1]
             issued_at = self.client.session["code_based_verification_issued_at"]
+            if fresh_partial:
+                self.client = APIClient()
+                continuation = self._complete_oidc_login(self.user.email)
+                self.assertIn("code_verification_pending=1", continuation["Location"])
+                self.assertEqual(self.client.session["code_based_verification_issued_at"], issued_at)
+                self.assertEqual(sent.call_count, 1)
             wrong = "000000" if code != "000000" else "111111"
             for _ in range(2):
                 self.assertEqual(
@@ -586,7 +600,7 @@ class TestOIDCAuthentication(APILicensedTest):
                 self.assertIn("code_verification_pending=1", continuation["Location"])
             else:
                 self.assertEqual(self.client.post("/api/login/code-based-verification/resend/").status_code, 200)
-            self.assertEqual(sent.call_count, 2)
+            self.assertEqual(sent.call_count, 1 if fresh_partial else 2)
             code = sent.call_args.args[1]
             wrong = "000000" if code != "000000" else "111111"
             for _ in range(3):
@@ -610,7 +624,7 @@ class TestOIDCAuthentication(APILicensedTest):
         self.user.set_password("example-password")
         self.user.save()
         self.client.logout()
-        with enable_code_sending() as sent, time_machine.travel("2026-01-10T12:00:00Z", tick=False) as clock:
+        with enable_code_sending() as sent, time_machine.travel("2026-01-10T12:00:00Z", tick=False):
             if idp:
                 self._complete_oidc_login(self.user.email, sub="owner-identity")
             else:
@@ -620,15 +634,55 @@ class TestOIDCAuthentication(APILicensedTest):
             owner_client = self.client
             try:
                 self.client = APIClient()
-                clock.shift(datetime.timedelta(seconds=61))
                 continuation = self._complete_oidc_login(self.user.email, sub="unproven-identity")
                 self.assertIn("code_verification_pending=1", continuation["Location"])
+                self.assertEqual(sent.call_count, 2)
                 bad_code = "000000" if sent.call_args.args[1] != "000000" else "111111"
                 for _ in range(attempts):
                     self.client.post("/api/login/code-based-verification/", {"code": bad_code})
             finally:
                 self.client = owner_client
             response = self.client.post("/api/login/code-based-verification/", {"code": owner_code})
+            self.assertEqual(response.status_code, 200, response.content)
+            self.assertEqual(self.client.session["_auth_user_id"], str(self.user.pk))
+
+    @parameterized.expand(
+        [("mailbox", "email"), ("password", "password"), ("login", "last_login"), ("assertion", "asserted_email")]
+    )
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_restarted_idp_login_does_not_reuse_a_code_after_context_changes(self, _name: str, field: str) -> None:
+        self.user.email = "member@example.com"
+        self.user.save()
+        UserSocialAuth.objects.create(
+            user=self.user, provider="oidc", uid=f"{self.config.oidc_issuer_url}:example-user"
+        )
+        self.client.logout()
+        with enable_code_sending() as sent, time_machine.travel("2026-01-10T12:00:00Z", tick=False) as clock:
+            self._complete_oidc_login("member@example.com")
+            asserted_email = "member@example.com"
+            if field == "asserted_email":
+                asserted_email = "other@example.com"
+            elif field == "email":
+                self.user.email = "changed@example.net"
+            elif field == "password":
+                self.user.set_password("changed-example-password")
+            else:
+                self.user.last_login = timezone.now()
+            if field != "asserted_email":
+                self.user.save(update_fields=[field])
+            self.client = APIClient()
+            response = self._complete_oidc_login(asserted_email)
+            self.assertEqual(
+                parse_qs(urlparse(response["Location"]).query)["error_code"], ["sso_verification_email_failed"]
+            )
+            self.assertNotIn("code_based_verification_pending_user_id", self.client.session)
+            self.assertEqual(sent.call_count, 1)
+            clock.shift(datetime.timedelta(seconds=61))
+            self.client = APIClient()
+            response = self._complete_oidc_login(asserted_email)
+            self.assertIn("code_verification_pending=1", response["Location"])
+            self.assertEqual(sent.call_args.kwargs["to_email"], self.user.email)
+            response = self.client.post("/api/login/code-based-verification/", {"code": sent.call_args.args[1]})
             self.assertEqual(response.status_code, 200, response.content)
             self.assertEqual(self.client.session["_auth_user_id"], str(self.user.pk))
 
@@ -2161,8 +2215,12 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
 
         self.assertEqual(details["email"], "engineering@posthog.co.uk")
 
-    def test_can_initiate_saml_flow(self):
-        response = self.client.get("/login/saml/?email=hellohello@posthog.com")
+    @parameterized.expand([("email_only", False), ("login_button", True)])
+    def test_can_initiate_saml_flow(self, _name: str, login_button: bool):
+        query = {"email": "hellohello@posthog.com"}
+        if login_button:
+            query["idp"] = "posthog_custom"
+        response = self.client.get("/login/saml/", query)
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
         # Assert user is redirected to the IdP's login page
@@ -2192,9 +2250,9 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
             organization_domain=self.organization_domain, identity_provider_config=duplicate_config
         )
 
-        query = {"email": email}
+        query = {"email": email, "idp": "posthog_custom"}
         if selection:
-            query["idp"] = str(config.saml_relay_state) if selection == "configured" else selection
+            query["idp_config"] = str(config.saml_relay_state) if selection == "configured" else selection
         response = self.client.get("/login/saml/", query)
         if allowed:
             self.assertIn("https://idp.hogflix.io/saml?SAMLRequest=", response["Location"])
@@ -2293,12 +2351,17 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     @parameterized.expand(
-        [("new_identity", False, False), ("legacy_identity", True, False), ("cross_site_post", False, True)]
+        [
+            ("new_identity", False, False, False),
+            ("legacy_identity", True, False, False),
+            ("cross_site_post", False, True, False),
+            ("retry_cross_site", False, True, True),
+        ]
     )
     @pytest.mark.disable_mock_code_based_verifier
     @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)  # Ensures the SAML timestamp validation passes
     def test_first_login_with_saml_requires_the_emailed_code(
-        self, _name: str, legacy_identity: bool, drop_session: bool
+        self, _name: str, legacy_identity: bool, drop_session: bool, restart: bool
     ) -> None:
         user = User.objects.create(email="engineering@posthog.com", distinct_id=str(uuid.uuid4()))
         config = cast(IdentityProviderConfig, self.organization_domain.saml_identity_provider_configs.first())
@@ -2309,7 +2372,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
                 user=user, provider="saml", uid=f"{config.saml_relay_state}:engineering@posthog.com"
             )
 
-        begin = self.client.get("/login/saml/?email=engineering@posthog.com")
+        begin = self.client.get("/login/saml/?email=engineering@posthog.com&idp=posthog_custom")
         relay_state = parse_qs(urlparse(begin["Location"]).query)["RelayState"][0]
         _session = self.client.session
         _session.update({"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6"})
@@ -2336,6 +2399,15 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
             self.assertEqual(mock_send.call_args.kwargs["to_email"], user.email)
             self.assertIn(urlencode({"email": user.email}), response["Location"])
             code = mock_send.call_args[0][1]
+            if restart:
+                issued_at = self.client.session["code_based_verification_issued_at"]
+                begin = self.client.get("/login/saml/?email=engineering@posthog.com&idp=posthog_custom")
+                post_data["RelayState"] = parse_qs(urlparse(begin["Location"]).query)["RelayState"][0]
+                del self.client.cookies[settings.SESSION_COOKIE_NAME]
+                response = self.client.post("/complete/saml/", post_data, format="multipart")
+                self.assertIn("code_verification_pending=1", response["Location"])
+                self.assertEqual(self.client.session["code_based_verification_issued_at"], issued_at)
+                self.assertEqual(mock_send.call_count, 1)
             response = self.client.post("/api/login/code-based-verification/", {"code": code})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)

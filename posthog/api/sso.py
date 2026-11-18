@@ -302,7 +302,8 @@ class MultitenantSAMLAuth(SAMLAuth):
             raise AuthMissingParameter(self, "email")
 
         configs = IdentityProviderConfig.objects.saml_for_email(email)
-        if selected_idp := self.strategy.request_data().get("idp"):
+        # Cached frontend bundles send idp=posthog_custom, so config selection needs its own parameter.
+        if selected_idp := self.strategy.request_data().get("idp_config"):
             try:
                 configs = configs.filter(saml_relay_state=UUID(str(selected_idp)))
             except ValueError:

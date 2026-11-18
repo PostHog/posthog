@@ -338,12 +338,19 @@ def _send_login_code(
     is_resend: bool = False,
     target_email: str | None = None,
     identity: str | None = None,
+    asserted_email: str | None = None,
 ) -> bool:
     if target_email is not None:
         from posthog.token_bucket import BucketDecision, Budget, consume
 
         if not identity:
             return False
+        if (
+            not is_resend
+            and asserted_email is not None
+            and code_based_verifier.reuse_recent_idp_code(request, user, target_email, identity, asserted_email)
+        ):
+            return True
         decision = consume(f"idp_login_code_identity:{identity}", Budget(burst=1, per_hour=60))
         if not isinstance(decision, BucketDecision):
             logger.warning("idp_login_code_rate_limit_unavailable", user_id=user.pk)
@@ -361,7 +368,12 @@ def _send_login_code(
             return False
     try:
         return code_based_verifier.create_and_send_code_based_verification(
-            request, user, is_resend=is_resend, target_email=target_email, identity=identity
+            request,
+            user,
+            is_resend=is_resend,
+            target_email=target_email,
+            identity=identity,
+            asserted_email=asserted_email,
         )
     except EmailRecipientUndeliverableError:
         raise LoginCodeEmailUndeliverable()
@@ -1444,6 +1456,7 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
             is_resend=True,
             target_email=target_email,
             identity=code_based_verifier.get_pending_identity(request),
+            asserted_email=(request.session.get(CODE_BASED_VERIFICATION_SSO_SESSION_KEY) or {}).get("email"),
         ):
             raise serializers.ValidationError(
                 {"detail": "Could not send verification code."},
@@ -1854,7 +1867,7 @@ def social_require_idp_email_verification(
     if not idp_authentication_is_fresh(authenticated_at):
         raise AuthStateForbidden(backend)
     if backend.name == "saml" and kwargs.get("saml_browser_verified") is not True:
-        restart = {"email": email, "idp": str((response or {})["idp_name"])}
+        restart = {"email": email, "idp_config": str((response or {})["idp_name"])}
         if next_url := get_safe_next_url(strategy.session_get("next"), request):
             restart["next"] = next_url
         return redirect(f"{reverse('social:begin', args=['saml'])}?{urlencode(restart)}")
@@ -1882,12 +1895,13 @@ def social_require_idp_email_verification(
             user,
             target_email=target_email,
             identity=idp_identity_key(identity.provider, identity.issuer, identity.subject),
+            asserted_email=email,
         )
     except LoginCodeEmailUndeliverable:
         logger.warning("idp_email_verification_code_undeliverable", user_id=user.pk, backend=backend.name)
         sent = False
     if not sent:
-        return redirect(sso_failure_redirect_url(request, "improperly_configured_sso"))
+        return redirect(sso_failure_redirect_url(request, "sso_verification_email_failed"))
 
     request.session[CODE_BASED_VERIFICATION_SSO_SESSION_KEY] = PendingIdPEmailVerification(
         provider=identity.provider,
