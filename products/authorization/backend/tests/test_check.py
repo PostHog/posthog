@@ -17,7 +17,7 @@ from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
-from posthog.scopes import API_SCOPE_OBJECTS, APIScopeObject
+from posthog.scopes.catalog import API_SCOPE_OBJECTS, APIScopeObject
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.contracts import FallbackParent, ObjectAccessRef

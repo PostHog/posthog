@@ -65,7 +65,7 @@ const COLUMNS: ColumnDef<PlaceholderRow>[] = [
 
 export function ReleaseTimelineSkeleton(): JSX.Element {
     const [container, setContainer] = useState<HTMLDivElement | null>(null)
-    useScrollToToday(container, CALENDAR_SCALE(), true)
+    useScrollToToday(container, CALENDAR_SCALE(), true, true)
     return (
         <div ref={setContainer} aria-busy aria-label="Loading releases">
             <DataTable columns={COLUMNS} data={ROWS} size="sm" getRowId={(row) => row.id} />

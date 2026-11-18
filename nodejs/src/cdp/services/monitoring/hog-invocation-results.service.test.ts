@@ -7,6 +7,7 @@ import { FixtureHogFlowBuilder } from '../../_tests/builders/hogflow.builder'
 import { createExampleInvocation } from '../../_tests/fixtures'
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
 import { CdpOutput } from '../../cdp-services'
+import { HIDDEN_OUTPUT_MESSAGE } from '../../read-guarded-internal-events'
 import {
     HogInvocationResultRow,
     HogInvocationResultsService,
@@ -74,6 +75,19 @@ describe('HogInvocationResultsService', () => {
             expect(rows[0].error_kind).toBe('janitor_poison_pill')
             expect(rows[0].error_message).toContain('poison pill')
             expect(rows[0].invocation_id).toBe(invocation.id)
+        })
+
+        it.each([
+            { event: '$signals_report_ready', hidden: true },
+            { event: '$activity_log_entry_created', hidden: false },
+        ])('hides the error text of a run on $event: $hidden', async ({ event, hidden }) => {
+            // HogQL exposes error_message to anyone with project query access, without the event's read access.
+            const invocation = createExampleInvocation({}, { event: { event } as any })
+            await service.recordTerminalFailureDurably(invocation, { error: 'Request failed: echoed report payload' })
+
+            const message = parseProducedRows(outputs)[0].error_message
+            expect(message.includes('echoed report payload')).toBe(!hidden)
+            expect(message === HIDDEN_OUTPUT_MESSAGE).toBe(hidden)
         })
 
         it('returns false (does not throw) when the produce fails — caller must not delete', async () => {

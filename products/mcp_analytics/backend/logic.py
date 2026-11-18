@@ -34,7 +34,10 @@ from posthog.models.user import User
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.utils import generate_cache_key
 
-from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
+from products.access_control.backend.facade.api import (
+    get_restricted_properties_with_group_type_index_for_team,
+    split_restricted_property_names,
+)
 from products.access_control.backend.facade.property_access import restriction_fingerprint
 from products.mcp_analytics.backend import intent_generation, mcp_harness
 from products.mcp_analytics.backend.constants import MAX_SNAPSHOT_CLUSTERS, MCP_TOOL_CALL_EVENT
@@ -1201,8 +1204,20 @@ def _scope_blob_to_tool(
     return clusters, tools, overlaps
 
 
-def get_intent_cluster_snapshot(team: Team, tool: str | None = None) -> contracts.IntentClusterSnapshot:
-    """Return the current intent cluster snapshot for a team.
+# Event properties the snapshot copies text from. The snapshot is computed once per
+# team and shared, so property access control has to be applied when it is read.
+INTENT_TEXT_PROPERTIES = frozenset({"$mcp_intent"})
+TOOL_DESCRIPTION_PROPERTIES = frozenset({"$mcp_tool_description", "$mcp_exec_tool_call_description"})
+
+
+def get_intent_cluster_snapshot(
+    team: Team, *, user: User | None, tool: str | None = None
+) -> contracts.IntentClusterSnapshot:
+    """Return the current intent cluster snapshot for a team, as ``user`` may read it.
+
+    When ``user`` can't read ``$mcp_intent``, every intent string (cluster labels,
+    samples, long-tail samples, recurring texts) comes back empty and
+    ``intent_text_redacted`` is set. Tool descriptions are blanked the same way.
 
     ``tool`` narrows clusters, pivot, and overlaps to that tool's slice; the
     coverage meta stays whole-snapshot because it describes the run. Surfaces
@@ -1256,7 +1271,11 @@ def get_intent_cluster_snapshot(team: Team, tool: str | None = None) -> contract
     if tool is not None:
         clusters_raw, tools_raw, overlaps_raw = _scope_blob_to_tool(clusters_raw, tools_raw, overlaps_raw, tool)
 
-    return contracts.IntentClusterSnapshot(
+    long_tail_raw = blob.get("long_tail") if isinstance(blob, dict) else None
+    # The recurring list is whole-snapshot automation, not part of any one tool's slice.
+    recurring_raw = blob.get("recurring", []) if isinstance(blob, dict) and tool is None else []
+
+    result = contracts.IntentClusterSnapshot(
         status=snapshot.status,
         error_message=snapshot.error_message,
         last_computed_at=snapshot.last_computed_at,
@@ -1265,6 +1284,51 @@ def get_intent_cluster_snapshot(team: Team, tool: str | None = None) -> contract
         computed_with=_to_meta_dto(meta_raw) if isinstance(meta_raw, dict) else None,
         tools=[_to_tool_pivot_dto(item) for item in tools_raw if isinstance(item, dict)],
         tool_overlaps=[_to_overlap_dto(item) for item in overlaps_raw if isinstance(item, dict)],
+        long_tail=_to_long_tail_dto(long_tail_raw) if isinstance(long_tail_raw, dict) and tool is None else None,
+        recurring=[_to_recurring_dto(item) for item in recurring_raw if isinstance(item, dict)],
+    )
+    return _redact_restricted_snapshot_text(team, user, result)
+
+
+def _redact_restricted_snapshot_text(
+    team: Team, user: User | None, snapshot: contracts.IntentClusterSnapshot
+) -> contracts.IntentClusterSnapshot:
+    restricted = split_restricted_property_names(
+        get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team.pk)
+    ).event
+    if TOOL_DESCRIPTION_PROPERTIES & restricted:
+        snapshot = dataclasses.replace(
+            snapshot, tools=[dataclasses.replace(t, description=None) for t in snapshot.tools]
+        )
+    if not INTENT_TEXT_PROPERTIES & restricted:
+        return snapshot
+    return dataclasses.replace(
+        snapshot,
+        intent_text_redacted=True,
+        clusters=[dataclasses.replace(c, label="", sample_intents=[]) for c in snapshot.clusters],
+        long_tail=dataclasses.replace(snapshot.long_tail, sample_intents=[]) if snapshot.long_tail else None,
+        recurring=[dataclasses.replace(r, intent_text="") for r in snapshot.recurring],
+    )
+
+
+def _to_long_tail_dto(item: dict[str, Any]) -> contracts.IntentClusterLongTail:
+    return contracts.IntentClusterLongTail(
+        intent_count=int(item.get("intent_count", 0)),
+        session_count=int(item.get("session_count", 0)),
+        call_count=int(item.get("call_count", 0)),
+        error_count=int(item.get("error_count", 0)),
+        error_rate_pct=float(item.get("error_rate_pct", 0.0)),
+        sample_intents=[str(s) for s in item.get("sample_intents", []) if isinstance(s, str)],
+    )
+
+
+def _to_recurring_dto(item: dict[str, Any]) -> contracts.RecurringIntentEntry:
+    return contracts.RecurringIntentEntry(
+        intent_text=str(item.get("intent_text", "")),
+        session_count=int(item.get("session_count", 0)),
+        call_count=int(item.get("call_count", 0)),
+        error_count=int(item.get("error_count", 0)),
+        error_rate_pct=float(item.get("error_rate_pct", 0.0)),
     )
 
 

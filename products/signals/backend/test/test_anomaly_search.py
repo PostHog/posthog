@@ -15,7 +15,7 @@ from posthog.models import Team
 
 from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.anomaly_scores.emission import SCORER_DISTINCT_ID
-from products.signals.backend.anomaly_scores.read import SeriesSummary, prior_rate, rank_series, rollup
+from products.signals.backend.anomaly_scores.read import FlaggedPoint, SeriesSummary, prior_rate, rank_series, rollup
 from products.signals.backend.anomaly_scores.search import (
     MAX_INSIGHT_SERIES,
     SCORING_DISABLED_MESSAGE,
@@ -33,7 +33,13 @@ def _day(day: int) -> datetime.datetime:
 
 
 def _summary(
-    key: str, *, scored: int, flagged: int, baseline_scored: int = 0, baseline_flagged: int = 0
+    key: str,
+    *,
+    scored: int,
+    flagged: int,
+    baseline_scored: int = 0,
+    baseline_flagged: int = 0,
+    last_flagged: datetime.datetime | None = None,
 ) -> SeriesSummary:
     return SeriesSummary(
         insight_id=1,
@@ -50,7 +56,7 @@ def _summary(
         baseline_scored_buckets=baseline_scored,
         baseline_flagged_buckets=baseline_flagged,
         scored_through=_day(22),
-        flagged_points=(),
+        flagged_points=(FlaggedPoint(bucket_start=last_flagged, value=1.0, score=0.99),) if last_flagged else (),
     )
 
 
@@ -81,6 +87,22 @@ class TestAnomalyRanking(SimpleTestCase):
         ranked = rank_series(series, prior=prior_rate(series), importance={})
 
         assert [summary.series_key for summary in ranked] == [expected_first.series_key, other.series_key]
+
+    @parameterized.expand(
+        [("unusual", False, ["burst", "blip", "quiet"]), ("recent", True, ["blip", "burst", "quiet"])]
+    )
+    def test_ranks_by_the_newest_flag_only_when_recent_first(
+        self, _name: str, recent_first: bool, expected: list[str]
+    ) -> None:
+        series = [
+            _summary("quiet", scored=10, flagged=0),
+            _summary("blip", scored=10, flagged=1, last_flagged=_day(22)),
+            _summary("burst", scored=10, flagged=4, last_flagged=_day(15)),
+        ]
+
+        ranked = rank_series(series, prior=prior_rate(series), importance={}, recent_first=recent_first)
+
+        assert [summary.series_key for summary in ranked] == expected
 
     def test_rollup_sums_buckets_instead_of_averaging_rates(self) -> None:
         insight = rollup(
@@ -183,6 +205,71 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
         assert (row["anomaly_rate"], row["coverage"], row["baseline_rate"]) == (0.5, 0.5, None)
         assert row["last_flagged_bucket"] == row["first_flagged_bucket"] == "2026-10-22T00:00:00+00:00"
         assert row["flagged_points"] == [{"bucket_start": "2026-10-22T00:00:00+00:00", "value": 10.0, "score": 0.98}]
+        assert "points" not in row
+
+    @parameterized.expand(
+        [
+            ("every_scored_bucket", 400, ["2026-10-19", "2026-10-22"]),
+            ("capped_to_the_newest", 1, ["2026-10-22"]),
+        ]
+    )
+    def test_search_includes_the_scored_points_of_the_series_on_the_page(
+        self, _name: str, cap: int, expected_days: list[str]
+    ) -> None:
+        self._score_history()
+
+        with patch("products.signals.backend.anomaly_scores.read.MAX_SERIES_POINTS", cap):
+            body = self._get("search", date_from="2026-10-19", include_points=True).json()
+
+        [row] = body["series"]
+        # The warm-up bucket on Oct 20 and the unscored Oct 21 have no point. The rescore of Oct 19 wins.
+        assert [(point["bucket_start"][:10], point["flag"]) for point in row["points"]] == [
+            (day, day == "2026-10-22") for day in expected_days
+        ]
+
+    @parameterized.expand(
+        [
+            ("unusual", "unusual", ["burst", "steady", "blip"]),
+            ("recent", "recent", ["blip", "steady", "burst"]),
+        ]
+    )
+    def test_search_pages_through_rows_in_the_requested_order(
+        self, _name: str, order: str, expected: list[str]
+    ) -> None:
+        flagged_days = {"burst": {15, 16, 17}, "steady": {19, 20}, "blip": {22}}
+        for series_key, days in flagged_days.items():
+            for day in range(15, 23):
+                self._score(_day(day), score=0.5, flag=int(day in days), series_key=series_key)
+
+        pages = [
+            self._get("search", date_from="2026-10-15", order=order, limit=2, offset=offset).json() for offset in (0, 2)
+        ]
+
+        assert [row["series_key"] for page in pages for row in page["series"]] == expected
+        assert [(page["order"], page["has_more"], page["message"]) for page in pages] == [
+            (order, True, None),
+            (order, False, None),
+        ]
+
+    @parameterized.expand(
+        [
+            ("saved_name_ignoring_case", "SIGNUP", 1_000, ["signups"]),
+            ("generated_name_only_without_a_saved_name", "pageview", 1_000, ["unnamed"]),
+            ("filtered_after_the_read_when_many_insights_match", "pageview", 0, ["unnamed"]),
+        ]
+    )
+    def test_search_keeps_insights_whose_name_matches(
+        self, _name: str, search: str, max_scoped: int, expected: list[str]
+    ) -> None:
+        named = Insight.objects.create(team=self.team, name="Checkout", derived_name="Pageviews by browser", saved=True)
+        unnamed = Insight.objects.create(team=self.team, name=None, derived_name="Pageviews", saved=True)
+        for series_key, insight in (("signups", self.insight), ("checkout", named), ("unnamed", unnamed)):
+            self._score(_day(22), score=0.99, flag=1, series_key=series_key, insight=insight)
+
+        with patch("products.signals.backend.anomaly_scores.search.MAX_SCOPED_INSIGHTS", max_scoped):
+            body = self._get("search", date_from="2026-10-19", search=search).json()
+
+        assert [row["series_key"] for row in body["series"]] == expected
 
     @parameterized.expand(
         [

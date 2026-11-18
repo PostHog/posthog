@@ -94,9 +94,10 @@ class TestPagination:
         assert len(result.requests) == 1
         assert result.saved_states == []
 
-    def test_paginated_endpoint_follows_next_page_token(self) -> None:
+    @pytest.mark.parametrize("endpoint", ["tasks", "timelogs"])
+    def test_paginated_endpoint_follows_next_page_token(self, endpoint: str) -> None:
         result = _driver().run(
-            "tasks",
+            endpoint,
             [
                 ScriptedResponse(json={"data": [{"id": 1}], "nextPageToken": "tok2"}),
                 ScriptedResponse(json={"data": [{"id": 2}]}),

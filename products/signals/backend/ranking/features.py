@@ -50,6 +50,10 @@ EMBEDDING_INSERTED_AT_COLUMN = "embedding_inserted_at"
 EMBEDDING_DIMENSIONS = 1536
 # Position order, so `emb_i` is the vector's ith component in every matrix an embedding set builds.
 EMBEDDING_FEATURE_NAMES = tuple(f"emb_{index}" for index in range(EMBEDDING_DIMENSIONS))
+# The light form of the report-vector side input: True where the snapshot's vector has
+# `EMBEDDING_DIMENSIONS` values, in place of `EMBEDDING_COLUMN`. `buildable` can read it, so a step
+# that only selects rows does not hold the vectors. `build_matrix` needs the vectors themselves.
+HAS_VECTOR_COLUMN = "has_vector"
 
 # The report-state column that holds the report's latest priority judgment as of the moment, and
 # the levels a set encodes it with.
@@ -284,27 +288,37 @@ class ReportEmbeddingsFeatureSet(FeatureSet):
     def buildable(
         self, rows: pd.DataFrame, extras: Extras = NO_EXTRAS, *, as_of: datetime.datetime | None = None
     ) -> pd.Series:
+        vectors = extras.get(self.extras_keys[0])
+        if vectors is not None and EMBEDDING_COLUMN not in vectors and HAS_VECTOR_COLUMN in vectors:
+            has_vector = vectors[HAS_VECTOR_COLUMN].reindex(rows.index, fill_value=False).astype(bool)
+            if as_of is None:
+                return has_vector
+            return has_vector & self._landed_by(vectors, rows.index, as_of)
         return self._is_vector(self._aligned_vectors(rows, extras, as_of))
 
     def _aligned_vectors(self, rows: pd.DataFrame, extras: Extras, as_of: datetime.datetime | None) -> pd.Series:
         """The vector per row of `rows`: a missing value where the snapshot holds none, and where it
-        holds one that landed after `as_of`.
-
-        A vector with no landing time is dropped rather than trusted, because the check cannot be
-        made for it.
-        """
+        holds one that landed after `as_of`."""
         vectors = extras.get(self.extras_keys[0])
         if vectors is None or EMBEDDING_COLUMN not in vectors:
             return pd.Series(None, index=rows.index, dtype=object)
         aligned = vectors[EMBEDDING_COLUMN].reindex(rows.index)
         if as_of is None:
             return aligned
+        return aligned.where(self._landed_by(vectors, rows.index, as_of))
+
+    def _landed_by(self, vectors: pd.DataFrame, index: pd.Index, as_of: datetime.datetime) -> pd.Series:
+        """True for each report of `index` whose vector landed at or before `as_of`.
+
+        A vector with no landing time is False rather than trusted, because the check cannot be
+        made for it.
+        """
         if EMBEDDING_INSERTED_AT_COLUMN not in vectors:
             raise ValueError(
                 f"the {self.extras_keys[0]} side input needs {EMBEDDING_INSERTED_AT_COLUMN} to be read as of a moment"
             )
-        landed = pd.to_datetime(vectors[EMBEDDING_INSERTED_AT_COLUMN].reindex(rows.index), utc=True)
-        return aligned.where(landed.notna() & (landed <= as_of))
+        landed = pd.to_datetime(vectors[EMBEDDING_INSERTED_AT_COLUMN].reindex(index), utc=True)
+        return landed.notna() & (landed <= as_of)
 
     @staticmethod
     def _is_vector(vectors: pd.Series) -> pd.Series:

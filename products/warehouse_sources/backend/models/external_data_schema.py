@@ -1951,6 +1951,10 @@ def update_should_sync(
         schema.save()
 
     if not schema.source.supports_scheduled_sync:
+        # A direct query source gets no import schedule, but some older ones still carry one. A disable
+        # must pause it, or the schedule keeps running imports for a schema that is turned off.
+        if should_sync is False and external_data_workflow_exists(schema_id):
+            pause_external_data_schedule(schema_id)
         return schema
 
     schedule_exists = external_data_workflow_exists(schema_id)

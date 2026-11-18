@@ -2,11 +2,24 @@ import { LemonTable } from '@posthog/lemon-ui'
 
 import { percentage } from 'lib/utils/numbers'
 
-import type { AEOPromptSetDomainApi } from 'products/web_analytics/frontend/generated/api.schemas'
+import type {
+    AEOPromptSetDomainApi,
+    BrandedSegmentEnumApi,
+} from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
 import { ContentAutopilotSiteLabel } from './ContentAutopilotSiteLabel'
 
-export const ContentAutopilotCitedSitesTable = ({ domains }: { domains: AEOPromptSetDomainApi[] }): JSX.Element => (
+/** The sites the engines cite most. A site opens the answers that cite it. */
+export const ContentAutopilotCitedSitesTable = ({
+    domains,
+    days,
+    branded,
+}: {
+    domains: AEOPromptSetDomainApi[]
+    days: number
+    branded: BrandedSegmentEnumApi
+}): JSX.Element => (
     <LemonTable<AEOPromptSetDomainApi>
         size="small"
         embedded
@@ -18,7 +31,14 @@ export const ContentAutopilotCitedSitesTable = ({ domains }: { domains: AEOPromp
                 title: 'Site',
                 key: 'domain',
                 render: (_, { domain, is_target }) => (
-                    <ContentAutopilotSiteLabel domain={domain} isTarget={is_target} />
+                    <ContentAutopilotSiteLabel domain={domain} isTarget={is_target}>
+                        <ContentAutopilotCitationsLink
+                            lookup={{ kind: 'domain', value: domain, days, branded }}
+                            source="overview-sites"
+                        >
+                            {domain}
+                        </ContentAutopilotCitationsLink>
+                    </ContentAutopilotSiteLabel>
                 ),
             },
             {

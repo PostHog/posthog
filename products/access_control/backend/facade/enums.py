@@ -16,7 +16,7 @@ from typing import Literal, get_args
 
 from posthog.hogql.database.schema.ai_events import AI_PROPERTY_TO_COLUMN
 
-from posthog.scopes import GRANTABLE_API_SCOPE_OBJECTS
+from posthog.scopes.exposure import GRANTABLE_API_SCOPE_OBJECTS
 
 ResolvedAccessSourceValue = Literal[
     "object",

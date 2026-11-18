@@ -310,7 +310,10 @@ NEEDS_REPO_FALSE = (
     "retention, events, persons, cohorts, dashboards, insights, session recordings, feature flag or "
     "experiment state, surveys, errors, logs or LLM traces. Also a question about how PostHog itself works or "
     "how to use it, a request to change a PostHog setting, or a social message. Checking whether an event "
-    "already arrives is a data question."
+    "already arrives is a data question. Setting up or changing a PostHog scout, alert, subscription, workflow, "
+    "survey, dashboard or other PostHog resource is a setting change, not code. A question about a GitHub issue "
+    "or pull request itself, such as who opened it, its status, or when it merged, is answered from GitHub "
+    "without the code."
 )
 
 

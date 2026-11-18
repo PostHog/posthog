@@ -56,6 +56,39 @@ describe('billingSpendLogic chart type', () => {
         logic?.unmount()
     })
 
+    it('places markers on the usage dates assigned to new pricing periods', async () => {
+        const base = mocks()
+        useMocks({
+            ...base,
+            get: {
+                ...base.get,
+                '/api/organizations/@current/billing/spend/timeseries/': () => [
+                    200,
+                    {
+                        count: 0,
+                        next: null,
+                        previous: null,
+                        results: [],
+                        pricing_reset_dates: ['2026-08-23', '2026-09-19'],
+                    },
+                ],
+            },
+        })
+        await mount()
+
+        expect(logic.values.billingPeriodMarkers.map(({ date }) => date.format('YYYY-MM-DD'))).toEqual([
+            '2026-08-23',
+            '2026-09-19',
+        ])
+    })
+
+    it('does not infer pricing resets from renewal dates when an older backend omits metadata', async () => {
+        useMocks(mocks())
+        await mount()
+
+        expect(logic.values.billingPeriodMarkers).toEqual([])
+    })
+
     it('lists the projects with usage beside the live ones, apart from the chart', async () => {
         const base = mocks()
         useMocks({

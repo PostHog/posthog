@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon'
-import { Pool, PoolClient, QueryResult } from 'pg'
+import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg'
 import { Counter, Histogram } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
@@ -17,6 +17,7 @@ import {
     CyclotronV2CancelJobsOptions,
     CyclotronV2CancelJobsResult,
     CyclotronV2CancelUnclaimedResult,
+    CyclotronV2IdempotencyKey,
     CyclotronV2IdempotentClaim,
     CyclotronV2IdempotentJobInit,
     CyclotronV2IdempotentOutcome,
@@ -42,7 +43,11 @@ import {
  */
 export const EMAIL_DEQUEUE_BLOCK_SIZE = BigInt(16_777_216)
 
-export async function allocateEmailDequeueSeqs(pool: Pool | PoolClient, jobTeamIds: number[]): Promise<string[]> {
+export type SqlRunner = {
+    query<R extends QueryResultRow = any>(text: string, values?: unknown[]): Promise<QueryResult<R>>
+}
+
+export async function allocateEmailDequeueSeqs(pool: SqlRunner, jobTeamIds: number[]): Promise<string[]> {
     const indicesByTeam = new Map<number, number[]>()
     jobTeamIds.forEach((teamId, i) => {
         const indices = indicesByTeam.get(teamId)
@@ -320,6 +325,8 @@ export class CyclotronV2Manager {
             connectionString: config.pool.dbUrl,
             max: config.pool.maxConnections ?? 10,
             idleTimeoutMillis: config.pool.idleTimeoutMs ?? 30000,
+            statement_timeout: config.pool.statementTimeoutMs,
+            connectionTimeoutMillis: config.pool.connectionTimeoutMs,
         })
         this.depthLimit = config.depthLimit ?? 1_000_000
         this.depthCheckIntervalMs = config.depthCheckIntervalMs ?? 10_000
@@ -506,10 +513,11 @@ export class CyclotronV2Manager {
 
         // Lowercase to match RETURNING. Sorted so every call locks keys in one order and cannot deadlock.
         const entries = inputs
-            .map(({ job, fingerprint }) => ({
+            .map(({ job, fingerprint, reply }) => ({
                 id: job.id.toLowerCase(),
                 job: CyclotronV2JobInitSchema.parse(job),
                 fingerprint,
+                reply,
             }))
             .sort((a, b) => (a.id < b.id ? -1 : 1))
         if (new Set(entries.map((entry) => entry.id)).size < entries.length) {
@@ -549,11 +557,13 @@ export class CyclotronV2Manager {
 
             // Reclaims an expired key only once its job is gone, because the job id is a primary key.
             const claimed = await client.query<{ id: string }>(
-                `INSERT INTO cyclotron_idempotency_keys (id, team_id, fingerprint, expires_at)
-                 SELECT unnest($1::uuid[]), unnest($2::int[]), unnest($3::text[]), unnest($4::timestamptz[])
+                `INSERT INTO cyclotron_idempotency_keys (id, team_id, fingerprint, expires_at, reply)
+                 SELECT unnest($1::uuid[]), unnest($2::int[]), unnest($3::text[]), unnest($4::timestamptz[]),
+                     unnest($5::jsonb[])
                  ON CONFLICT (id) DO UPDATE SET
                      team_id = EXCLUDED.team_id,
                      fingerprint = EXCLUDED.fingerprint,
+                     reply = EXCLUDED.reply,
                      expires_at = EXCLUDED.expires_at,
                      created_at = NOW()
                  WHERE cyclotron_idempotency_keys.expires_at <= NOW()
@@ -566,6 +576,7 @@ export class CyclotronV2Manager {
                     entries.map(
                         ({ job }) => new Date(Math.max(now, job.scheduled?.getTime() ?? now) + IDEMPOTENCY_KEY_TTL_MS)
                     ),
+                    entries.map((entry) => (entry.reply ? JSON.stringify(entry.reply) : null)),
                 ]
             )
             claimedIds = new Set(claimed.rows.map((row) => row.id))
@@ -642,7 +653,7 @@ export class CyclotronV2Manager {
     }
 
     /** The key's claim under the rule that keeps it from being reclaimed: unexpired, or its job still exists. */
-    async findIdempotencyKey(id: string): Promise<{ fingerprint: string } | null> {
+    async findIdempotencyKey(id: string): Promise<CyclotronV2IdempotencyKey | null> {
         const deadline = Date.now() + this.idempotencyKeyLookupTimeoutMs
         const client = await beforeDeadline(this.lookupPool.connect(), deadline, (late) => late.release())
         let finished = false
@@ -660,7 +671,7 @@ export class CyclotronV2Manager {
         client: PoolClient,
         id: string,
         deadline: number
-    ): Promise<{ fingerprint: string } | null> {
+    ): Promise<CyclotronV2IdempotencyKey | null> {
         const remainingMs = deadline - Date.now()
         if (remainingMs <= 0) {
             throw new Error('Timed out reading an idempotency key')
@@ -668,8 +679,8 @@ export class CyclotronV2Manager {
         // Postgres cancels the statement itself at the timeout, so a lookup stuck on a lock frees the database too.
         await client.query(`BEGIN; SET LOCAL statement_timeout = ${remainingMs}`)
         try {
-            const { rows } = await client.query<{ fingerprint: string }>(
-                `SELECT fingerprint FROM cyclotron_idempotency_keys k
+            const { rows } = await client.query<CyclotronV2IdempotencyKey>(
+                `SELECT fingerprint, reply FROM cyclotron_idempotency_keys k
                  WHERE k.id = $1
                      AND (k.expires_at > NOW() OR EXISTS (SELECT 1 FROM cyclotron_jobs WHERE cyclotron_jobs.id = k.id))`,
                 [id.toLowerCase()]

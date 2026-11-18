@@ -23,6 +23,7 @@ it stay as they are.
 """
 
 import datetime
+import dataclasses
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -40,6 +41,7 @@ from products.signals.dags.inbox_ranking.common import (
     dataset_bucket,
     dataset_unconfigured,
     owner_tags,
+    parquet_file_if_exists,
     partition_object_key,
     read_parquet_if_exists,
     s3_client,
@@ -47,18 +49,34 @@ from products.signals.dags.inbox_ranking.common import (
     write_parquet,
 )
 from products.signals.dags.inbox_ranking.consent import training_consent_team_ids
-from products.signals.dags.inbox_ranking.dataset.dag import EMBEDDINGS_TABLE, LABELS_TABLE, STATE_TABLE
+from products.signals.dags.inbox_ranking.dataset.dag import (
+    EMBEDDINGS_TABLE,
+    LABELS_TABLE,
+    STATE_TABLE,
+    peak_rss_metadata,
+)
 from products.signals.dags.inbox_ranking.dataset.project_vectors import CONTEXT_LABEL_COLUMNS, EMBEDDING_COLUMNS
 from products.signals.dags.inbox_ranking.multihead.inputs import NetworkConfig, NetworkInputs, ProjectContext
-from products.signals.dags.inbox_ranking.multihead.local import report_vectors
+from products.signals.dags.inbox_ranking.multihead.local import report_vector_presence, report_vectors
 from products.signals.dags.inbox_ranking.multihead.prototype import ExampleTable, project_context, report_matrix
 from products.signals.dags.inbox_ranking.nn.examples import (
+    BIRTH_HORIZONS,
     NN_HEADS,
+    NNExamples,
     build_examples,
     examples_arrow,
     examples_from_arrow,
     network_inputs,
     subset,
+)
+from products.signals.dags.inbox_ranking.nn.feature_backfill import (
+    BackfillBatchRows,
+    birth_day,
+    fill_from_backfill,
+    late_group_fit_stats,
+    late_group_sources,
+    read_backfill_batch,
+    readiness_block,
 )
 from products.signals.dags.inbox_ranking.nn.model import (
     HOLDOUT_MODEL_FILE,
@@ -149,6 +167,19 @@ def _day_inputs(
     return DayInputs(extras=report_vectors(embeddings), labels=labels, embeddings=embeddings)
 
 
+def _examples_extras(
+    context: dagster.AssetExecutionContext, client, bucket: str, prefix: str, partition_key: str
+) -> Extras | None:
+    """The dt=D report-vector side input for the examples step; None when the embeddings snapshot is
+    missing. The step builds no project vectors, so it reads no labels snapshot. It only selects rows,
+    so it takes the light form that `buildable` reads and never holds the decoded vectors."""
+    embeddings = parquet_file_if_exists(client, bucket, partition_object_key(prefix, EMBEDDINGS_TABLE, partition_key))
+    if embeddings is None:
+        context.log.warning(f"no {EMBEDDINGS_TABLE} snapshot for dt={partition_key}; nn skips this partition")
+        return None
+    return report_vector_presence(embeddings)
+
+
 @dagster.asset(
     name=NN_EXAMPLES_TABLE,
     deps=[
@@ -165,17 +196,17 @@ def inbox_ranking_nn_examples(context: dagster.AssetExecutionContext) -> None:
     bucket, prefix, client = dataset_bucket(), settings.INBOX_RANKING_DATASET_S3_PREFIX, s3_client()
 
     dates = snapshot_dates(partition_key, settings.INBOX_RANKING_TRAINING_LOOKBACK_DAYS)
-    snapshots = load_snapshots(client, bucket, prefix, dates)
+    snapshots = load_snapshots(client, bucket, prefix, dates, birth_horizons=BIRTH_HORIZONS)
     if dates[-1] not in snapshots:
         context.log.warning(f"no state and labels snapshots for dt={partition_key}; nn skips this partition")
         context.add_output_metadata({"skipped": dagster.MetadataValue.bool(True)})
         return
-    day = _day_inputs(context, client, bucket, prefix, partition_key)
-    if day is None:
+    extras = _examples_extras(context, client, bucket, prefix, partition_key)
+    if extras is None:
         context.add_output_metadata({"skipped": dagster.MetadataValue.bool(True)})
         return
     snapshots, excluded = drop_without_training_consent(snapshots, training_consent_team_ids())
-    examples = build_examples(snapshots, day.extras, holdout_days=settings.INBOX_RANKING_TRAINING_HOLDOUT_DAYS)
+    examples = build_examples(snapshots, extras, holdout_days=settings.INBOX_RANKING_TRAINING_HOLDOUT_DAYS)
     if examples.rows_without_team:
         context.log.warning(f"{examples.rows_without_team} moments have no team and no project vectors; dropped")
 
@@ -185,6 +216,7 @@ def inbox_ranking_nn_examples(context: dagster.AssetExecutionContext) -> None:
     observed = ~np.isnan(table.labels)
     context.add_output_metadata(
         {
+            **peak_rss_metadata(),
             "snapshots": dagster.MetadataValue.int(len(snapshots)),
             "rows": dagster.MetadataValue.int(len(table.rows)),
             "network_train_rows": dagster.MetadataValue.int(len(table.network_train_rows())),
@@ -233,6 +265,50 @@ def _family_extras(
         )
         return None
     return extras
+
+
+@frozen
+class _LateGroupInputs:
+    """The examples a family with late feature groups trains on, and where each row's late values
+    came from. Without a `feature_backfill` selection, the examples are the object's as they are."""
+
+    examples: NNExamples
+    sources: Mapping[str, np.ndarray]
+    batch: BackfillBatchRows | None = None
+    excluded_no_training_consent_rows: int = 0
+
+
+def _late_group_inputs(
+    context: dagster.AssetExecutionContext,
+    client,
+    bucket: str,
+    prefix: str,
+    partition_key: str,
+    family: ModelFamily,
+    examples: NNExamples,
+) -> _LateGroupInputs | None:
+    """None when `family` reads a backfill batch that holds none of the examples' birth days. Its fit
+    would then be the plain late-feature fit under another name, so it keeps the partition as it
+    stands."""
+    groups = tuple(family.feature_set.late_feature_groups)
+    if family.feature_backfill is None:
+        return _LateGroupInputs(examples=examples, sources=late_group_sources(examples.table.rows, groups))
+    days = {birth_day(value) for value in examples.table.rows["snapshot_date"]}
+    batch = read_backfill_batch(client, bucket, prefix, family.feature_backfill, days)
+    if not batch.days_read:
+        context.log.warning(
+            f"feature backfill batch {family.feature_backfill.batch_id} holds none of the {len(days)} birth days "
+            f"of dt={partition_key}; {family.name} keeps this partition as it stands. Write the batch with "
+            "inbox_ranking_feature_backfill_job"
+        )
+        return None
+    backfilled = fill_from_backfill(examples.table, batch, groups, training_consent_team_ids())
+    return _LateGroupInputs(
+        examples=dataclasses.replace(examples, table=backfilled.table),
+        sources=backfilled.sources,
+        batch=batch,
+        excluded_no_training_consent_rows=backfilled.excluded_no_training_consent_rows,
+    )
 
 
 @frozen
@@ -289,6 +365,12 @@ def train_candidate(
         context.log.warning(f"no nn examples for dt={partition_key}; {family.name} keeps this partition as it stands")
         return {"skipped": dagster.MetadataValue.bool(True)}
     examples = examples_from_arrow(arrow)
+    late = None
+    if family.feature_set.late_feature_groups:
+        late = _late_group_inputs(context, client, bucket, prefix, partition_key, family, examples)
+        if late is None:
+            return {"skipped": dagster.MetadataValue.bool(True)}
+        examples = late.examples
     missing = _missing_state_columns(family, examples.table)
     if missing:
         # Zeros in place of the missing column would train a model that never saw the input.
@@ -316,7 +398,19 @@ def train_candidate(
         examples.table, extras, day.labels, day.embeddings, family.feature_set, family.project_vector_kinds
     )
     del day
-    zeroed_groups = zero_unfitted_groups(inputs.reports, examples.table.network_train_rows(), family.feature_set)
+    fit_rows = examples.table.network_train_rows()
+    fit_stats = late_group_fit_stats(inputs.reports, fit_rows, family.feature_set)
+    zeroed_groups = zero_unfitted_groups(inputs.reports, fit_rows, family.feature_set)
+    readiness = None
+    if late is not None:
+        readiness = readiness_block(
+            examples.table,
+            late.sources,
+            fit_stats,
+            zeroed_groups,
+            batch=late.batch,
+            excluded_no_training_consent_rows=late.excluded_no_training_consent_rows,
+        )
     if zeroed_groups:
         context.log.info(
             f"{family.name} reads zeros for {', '.join(zeroed_groups)} on dt={partition_key}: too few training "
@@ -367,9 +461,37 @@ def train_candidate(
                 shuffled_group_scores(networks, inputs, holdout_rows, groups),
             )
     metadata = write_candidate(
-        context, client, bucket, partition_key, family, trained, windows=examples.windows, vs_baseline=vs_baseline
+        context,
+        client,
+        bucket,
+        partition_key,
+        family,
+        trained,
+        windows=examples.windows,
+        vs_baseline=vs_baseline,
+        readiness=readiness,
     )
-    return {**metadata, **history_shares(inputs)}
+    return {**metadata, **history_shares(inputs), **readiness_metadata(readiness)}
+
+
+def readiness_metadata(readiness: Mapping[str, Any] | None) -> dict[str, dagster.MetadataValue]:
+    """The readiness block's headline in the run, so a disabled group shows before anyone opens
+    `metadata.json`."""
+    if readiness is None:
+        return {}
+    groups = readiness["network_fit"]["groups"]
+    return {
+        "enabled_feature_groups": dagster.MetadataValue.text(", ".join(readiness["enabled_feature_groups"]) or "none"),
+        **{
+            f"{group}_fit_carried_share": dagster.MetadataValue.float(stats["carried_share"])
+            for group, stats in groups.items()
+        },
+        **(
+            {"feature_backfill_days_read": dagster.MetadataValue.int(readiness["feature_backfill"]["days_read"])}
+            if readiness["feature_backfill"] is not None
+            else {}
+        ),
+    }
 
 
 def history_shares(inputs: NetworkInputs) -> dict[str, dagster.MetadataValue]:
@@ -395,6 +517,7 @@ def write_candidate(
     windows: Mapping[str, Mapping[str, object]],
     vs_baseline: Mapping[str, Any] | None,
     pair_settings: Mapping[str, Any] | None = None,
+    readiness: Mapping[str, Any] | None = None,
 ) -> dict[str, dagster.MetadataValue]:
     """Write a fitted `family` network's graphs and `metadata.json` under `<model_name>/dt=D/`,
     replacing what a previous run of the partition left, capture its events, and return the asset
@@ -425,6 +548,8 @@ def write_candidate(
     )
     if vs_baseline is not None:
         metadata = {**metadata, "vs_baseline": dict(vs_baseline)}
+    if readiness is not None:
+        metadata = {**metadata, "readiness": dict(readiness)}
     metadata_key = model_object_key(prefix, family.name, partition_key, METADATA_FILE)
     _put_json(client, bucket, metadata_key, metadata)
     written.add(metadata_key)
