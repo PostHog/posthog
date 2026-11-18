@@ -3,6 +3,7 @@ use std::str::from_utf8;
 
 use chrono::{DateTime, TimeZone, Utc};
 use metrics::counter;
+use personhog_common::query_tag;
 use personhog_proto::personhog::types::v1::Person;
 use sqlx::postgres::PgPool;
 use tracing::error;
@@ -51,6 +52,8 @@ impl PgStore {
         // writer does), so assignment would erase real values. last_seen_at
         // takes GREATEST — which ignores NULL — because records may predate
         // the field, and the column's invariant is that it only advances.
+        // uuid stays out of SET because a key column there makes ON CONFLICT
+        // lock FOR UPDATE, which blocks foreign-key checks on the person.
         let upsert_sql = format!(
             "INSERT INTO {table} (
                 id, team_id, uuid, properties, properties_last_updated_at,
@@ -69,7 +72,6 @@ impl PgStore {
                    properties_last_operation, created_at, version, is_identified, last_seen_at,
                    is_deleted)
             ON CONFLICT (team_id, id) DO UPDATE SET
-                uuid = EXCLUDED.uuid,
                 properties = EXCLUDED.properties,
                 properties_last_updated_at =
                     COALESCE(EXCLUDED.properties_last_updated_at, {table}.properties_last_updated_at),
@@ -84,7 +86,10 @@ impl PgStore {
             table = table_name
         );
 
-        Self { pool, upsert_sql }
+        Self {
+            pool,
+            upsert_sql: query_tag!("upsert_persons", upsert_sql),
+        }
     }
 }
 

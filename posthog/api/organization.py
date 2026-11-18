@@ -23,7 +23,6 @@ from posthog.api import project_tags
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import OrgScopedPrimaryKeyRelatedField
 from posthog.api.shared import ProjectBasicSerializer, TeamBasicSerializer
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.caching.organization_serializer_cache import (
     ORG_SERIALIZER_CACHE_TTL_SECONDS,
     _org_serializer_cache_version,
@@ -62,6 +61,7 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     TimeSensitiveActionPermission,
     extract_organization,
+    get_authenticator_scoped_organization_ids,
 )
 from posthog.rate_limit import PostHogAIAccessRequestIPThrottle, PostHogAIAccessRequestUserThrottle
 from posthog.rbac.migrations.rbac_feature_flag_migration import rbac_feature_flag_role_access_migration
@@ -795,12 +795,10 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # The serializer reads `ip_restrictions` for every organization in a list response. Load the
         # config up front so each row does not add its own reverse one-to-one query.
         queryset = user.organizations.all().select_related("ip_restrictions_config")
-        if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication):
-            if scoped_organizations := self.request.successful_authenticator.personal_api_key.scoped_organizations:
-                queryset = queryset.filter(id__in=scoped_organizations)
-        if isinstance(self.request.successful_authenticator, OAuthAccessTokenAuthentication):
-            if scoped_organizations := self.request.successful_authenticator.access_token.scoped_organizations:
-                queryset = queryset.filter(id__in=scoped_organizations)
+        # Organization scopes only: these endpoints refuse a team-scoped credential outright in
+        # `APIScopePermission`, so narrowing by its teams' organizations would only turn that 403 into a 404.
+        if scoped_organizations := get_authenticator_scoped_organization_ids(self.request.successful_authenticator):
+            queryset = queryset.filter(id__in=scoped_organizations)
 
         return annotate_signed_baa(queryset)
 

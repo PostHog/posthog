@@ -1,6 +1,11 @@
 import { defaultConfig } from '~/common/config/config'
 
-import { EmailTrackingCodeSigner, hasEmailSigningKey, trackingCodeMintCounter } from './tracking-code'
+import {
+    EmailTrackingCodeSigner,
+    MESSAGE_CREATED_HEADER_NAME,
+    hasEmailSigningKey,
+    trackingCodeMintCounter,
+} from './tracking-code'
 
 const TRACKING_URL = 'http://localhost:8010'
 
@@ -344,6 +349,35 @@ describe('email tracking code', () => {
             expect(() => unsignedSigner.generate({ functionId: 'fn', id: 'inv', teamId: 1 })).toThrow(
                 /no signing key configured/
             )
+        })
+    })
+
+    describe('message creation time header', () => {
+        const messageId = '7d1f8e2a-1b2c-5d3e-8f4a-0b1c2d3e4f5a'
+        const createdMs = Date.UTC(2026, 0, 2, 3, 4, 5, 678)
+
+        it('verifies the creation time it signed for a message', () => {
+            const value = signer.messageCreatedHeaderValue(messageId, createdMs)
+
+            expect(signer.verifyMessageCreatedHeaderValue(messageId, value)).toEqual(createdMs)
+        })
+
+        it.each([
+            ['a changed time', (value: string) => value.replace(String(createdMs), String(createdMs - 86_400_000))],
+            ['a time signed for another message', () => signer.messageCreatedHeaderValue('another-message', createdMs)],
+            ['no signature', () => String(createdMs)],
+            ['a malformed value', () => 'not-a-time.abc'],
+            ['no header', () => undefined],
+        ])('takes no creation time from %s', (_name, tamper) => {
+            const value = tamper(signer.messageCreatedHeaderValue(messageId, createdMs))
+
+            expect(signer.verifyMessageCreatedHeaderValue(messageId, value)).toBeUndefined()
+        })
+
+        it('stays far inside the SES limit of 996 characters for a header name and value', () => {
+            const value = signer.messageCreatedHeaderValue(messageId, Number.MAX_SAFE_INTEGER)
+
+            expect(MESSAGE_CREATED_HEADER_NAME.length + value.length).toBeLessThanOrEqual(64)
         })
     })
 

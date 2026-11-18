@@ -219,13 +219,15 @@ def experiment_comparison_events(metadata: Mapping[str, Any]) -> list[TrainingEv
     stay in `metadata.json`: an insight cannot chart a JSON array, so the event carries the gaps.
     The non-dogfood macro delta also carries its team interval, and an experiment that reads feature
     groups carries each group's importance as `group_importance_<group>_<read>` and the late groups
-    training zeroed as `zeroed_feature_groups`. A pair experiment's block gives one
-    event per head, scope and slice instead."""
+    training zeroed as `zeroed_feature_groups`. A candidate with a readiness block also carries the
+    late groups training read, the share of fit rows that carry each one, and the backfill batch it
+    read, if any. A pair experiment's block gives one event per head, scope and slice instead."""
     block = metadata.get("vs_baseline") or {}
     context = {key: metadata.get(key) for key in ("model_name", "model_version", "run_id", "recipe_hash")}
     if block.get("grain") == PAIR_GRAIN:
         return _pair_comparison_events(block, context)
     importance = (block.get("group_importance") or {}).get("heads") or {}
+    readiness = _readiness_properties(metadata.get("readiness"))
     return [
         TrainingEvent(
             event=EXPERIMENT_COMPARED_EVENT,
@@ -252,10 +254,25 @@ def experiment_comparison_events(metadata: Mapping[str, Any]) -> list[TrainingEv
                     for group, reads in (importance.get(head) or {}).items()
                     for read, drop in reads.items()
                 },
+                **readiness,
             },
         )
         for head, grade in (block.get("heads") or {}).items()
     ]
+
+
+def _readiness_properties(readiness: Mapping[str, Any] | None) -> dict[str, Any]:
+    if not readiness:
+        return {}
+    backfill = readiness.get("feature_backfill") or {}
+    return {
+        "enabled_feature_groups": readiness.get("enabled_feature_groups"),
+        "feature_backfill_batch_id": backfill.get("batch_id"),
+        **{
+            f"{group}_fit_carried_share": stats.get("carried_share")
+            for group, stats in ((readiness.get("network_fit") or {}).get("groups") or {}).items()
+        },
+    }
 
 
 def model_promoted_event(

@@ -50,6 +50,7 @@ interface McpSharedFiltersProps {
     dataAttrPrefix: string
     className?: string
     children?: ReactNode
+    trailingControls?: ReactNode
     onRefresh: () => void
     refreshing: boolean
 }
@@ -59,6 +60,7 @@ export function McpSharedFilters({
     dataAttrPrefix,
     className,
     children,
+    trailingControls,
     onRefresh,
     refreshing,
 }: McpSharedFiltersProps): JSX.Element {
@@ -94,6 +96,7 @@ export function McpSharedFilters({
                                 </Button>
                             )}
                             <div className="ml-auto flex items-center gap-2">
+                                {trailingControls}
                                 <McpInternalUsersFilter dataAttr={`${dataAttrPrefix}-test-account-filter`} />
                                 <Button
                                     variant="outline"

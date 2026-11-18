@@ -47,7 +47,7 @@ from products.tasks.backend.logic.services.gateway_model_pin import (
     pinned_run_allows_model,
 )
 from products.tasks.backend.logic.services.sandbox_config import MAX_SANDBOX_TTL_SECONDS
-from products.tasks.backend.models import INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN, Task
+from products.tasks.backend.models import INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN, Task, TaskRun
 from products.tasks.backend.temporal.process_task import utils
 from products.tasks.backend.temporal.process_task.ai_gateway_token import (
     _PRODUCT_ALLOWED_MODELS,
@@ -68,8 +68,6 @@ from products.tasks.backend.temporal.process_task.utils import ai_gateway_env_va
 
 if TYPE_CHECKING:
     from pytest_django.fixtures import Settings
-
-    from products.tasks.backend.models import TaskRun
 
 
 class TestResolveSandboxAiProduct:
@@ -611,6 +609,7 @@ class TestMintableGate:
             ("autoresearch", True),
             ("business_knowledge", True),
             ("context_layer", True),
+            ("knowledge_writer", True),
             ("task_analysis", True),
             ("image_builder", False),
             ("user_created", False),
@@ -752,6 +751,7 @@ class TestProvisioningBoundaries:
             assert task.created_by_id is not None
             grant_id = claim_trial(team=task.team, user_id=task.created_by_id)
             model = "deepseek-ai/deepseek-v4.1-flash-1017-fast" if runtime == "pi" else "claude-sonnet-5"
+            task.runs.update(status=TaskRun.Status.COMPLETED)
             run = task.create_run(extra_state={"ai_stage": "scout" if runtime == "pi" else "research", "model": model})
             if runtime == "pi":
                 scout_run = SignalScoutRun.objects.for_team(task.team_id).create(
@@ -1847,12 +1847,20 @@ class TestPosthogCodeSandboxMint:
             "zai-org/glm-5.2",
             "deepseek-ai/deepseek-v4-flash-0731",
             "moonshotai/kimi-k3",
+            "moonshotai/kimi-k3.1-pro",
             "zai-org/glm-5.3-flash",
         ]
         assert _PRODUCT_ALLOWED_MODELS[FREE_TIER_PIN_KEY] == FREE_TIER_MODELS
 
     @pytest.mark.parametrize(
-        "model", ["@cf/zai-org/glm-5.2", "zai-org/glm-5.2", "zai-org/glm-5.3-flash", "moonshotai/kimi-k3"]
+        "model",
+        [
+            "@cf/zai-org/glm-5.2",
+            "zai-org/glm-5.2",
+            "zai-org/glm-5.3-flash",
+            "moonshotai/kimi-k3",
+            "moonshotai/kimi-k3.1-pro",
+        ],
     )
     def test_free_pin_admits_each_free_tier_spelling(self, model):
         assert model_allowed_by_pin(FREE_TIER_MODELS, model)

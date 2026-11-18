@@ -6,6 +6,7 @@ import { CohortMembershipRepository } from '~/cdp/services/cohorts/cohort-member
 import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult, HogFunctionFilters } from '~/cdp/types'
 import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
 
+import { loadMissingPersonProperties, personPropertiesInBytecode } from '../hogflow-person-property-usage'
 import { findContinueAction, findNextAction, isEvaluableCondition } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 import { calculatedScheduledAt } from './delay'
@@ -140,6 +141,14 @@ export class ConditionalBranchHandler implements ActionHandler {
             }
         }
 
+        if (action.type === 'conditional_branch') {
+            await loadMissingPersonProperties(invocation, result, () =>
+                action.config.conditions.flatMap((condition) =>
+                    personPropertiesInBytecode((condition.filters as HogFunctionFilters | null | undefined)?.bytecode)
+                )
+            )
+        }
+
         const conditionalAction: Extract<HogFlowAction, { type: 'conditional_branch' }> =
             action.type === 'conditional_branch'
                 ? action
@@ -184,7 +193,7 @@ export class ConditionalBranchHandler implements ActionHandler {
             if (recheckWoken) {
                 counterHogflowRecheckWake.labels('reparked').inc()
             }
-            return { scheduledAt: conditionResult.scheduledAt, result: { conditionResult } }
+            return { scheduledAt: conditionResult.scheduledAt, result: toStepResult(conditionResult) }
         } else if (conditionResult.nextAction) {
             if (isWait && !rekeyWoken && !anchorWoken && !recheckWoken && matchedAtMaxWait(invocation, action)) {
                 counterHogflowWaitAdvancedAtMaxWait
@@ -197,10 +206,10 @@ export class ConditionalBranchHandler implements ActionHandler {
             if (recheckWoken) {
                 counterHogflowRecheckWake.labels('advanced').inc()
             }
-            return { nextAction: conditionResult.nextAction, result: { conditionResult } }
+            return { nextAction: conditionResult.nextAction, result: toStepResult(conditionResult) }
         }
 
-        return { nextAction: findContinueAction(invocation), result: { conditionResult } }
+        return { nextAction: findContinueAction(invocation), result: toStepResult(conditionResult) }
     }
 
     /**
@@ -297,6 +306,20 @@ function matchedAtMaxWait(
     } catch {
         // An unreadable duration is the timeout path's problem, not this counter's.
         return false
+    }
+}
+
+// The step result reaches the test run's `execResult` and output variables. The next action carries decrypted
+// secret inputs, so the result keeps only its id, at the path that existing output variable mappings read.
+function toStepResult(conditionResult: Awaited<ReturnType<typeof checkConditions>>): {
+    conditionResult: { nextAction?: { id: string }; scheduledAt?: DateTime }
+} {
+    const { nextAction, scheduledAt } = conditionResult
+    return {
+        conditionResult: {
+            nextAction: nextAction ? { id: nextAction.id } : undefined,
+            scheduledAt,
+        },
     }
 }
 

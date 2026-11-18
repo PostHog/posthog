@@ -23,6 +23,7 @@ import {
 } from 'products/signals/frontend/generated/api'
 import type {
     PaginatedSignalReportListListApi,
+    PaginatedSignalReportListListApiPersonalRankingStatus,
     ReviewerRemovalReasonEnumApi,
     SignalReportMetricSnapshotsApi,
 } from 'products/signals/frontend/generated/api.schemas'
@@ -78,7 +79,7 @@ export interface ReportListRequestContext {
 
 /** A list response stamped with the query params and display context that produced it (see the loader). */
 export type ReportListResponse = CountedPaginatedResponse<SignalReport> &
-    Pick<PaginatedSignalReportListListApi, 'count_is_capped' | 'ranking_id'> & {
+    Pick<PaginatedSignalReportListListApi, 'count_is_capped' | 'ranking_id' | 'personal_ranking_status'> & {
         /** The ranker the server used for `sort=recommended` or `sort=personal`. Null for every other sort. */
         ranker?: string | null
         /** Whether the client shows a ranking score pill on each card, for `sort=recommended` or `sort=personal`. Null for every other sort. */
@@ -271,6 +272,7 @@ export interface reportListLogicValues {
     loadedContext: ReportListRequestContext | null
     loadedPersonalFallback: boolean
     loadedPersonalOrder: boolean
+    loadedPersonalRankingStatus: PaginatedSignalReportListListApiPersonalRankingStatus
     loadedQueryKey: string | null
     loadedRanker: string | null
     loadedRankingPill: boolean
@@ -544,6 +546,9 @@ export interface reportListLogicMeta {
         loadedRanker: (reportsResponse: ReportListResponse | null) => string | null
         loadedRankingPill: (reportsResponse: ReportListResponse | null) => boolean
         loadedPersonalOrder: (reportsResponse: ReportListResponse | null) => boolean
+        loadedPersonalRankingStatus: (
+            reportsResponse: ReportListResponse | null
+        ) => PaginatedSignalReportListListApiPersonalRankingStatus
         loadedPersonalFallback: (reportsResponse: ReportListResponse | null) => boolean
     }
 }
@@ -766,6 +771,8 @@ export const reportListLogic = kea<reportListLogicType>([
                     return {
                         ...response,
                         results: [...latest, ...keepRowFieldsWrittenDuringFetch(response.results, current, latest)],
+                        // Only the first page reads the status, so a later page must not blank it.
+                        personal_ranking_status: values.reportsResponse?.personal_ranking_status ?? null,
                         requestParams: params,
                         requestContext,
                     }
@@ -1036,6 +1043,12 @@ export const reportListLogic = kea<reportListLogicType>([
         loadedPersonalOrder: [
             (s) => [s.reportsResponse],
             (reportsResponse: ReportListResponse | null): boolean => reportsResponse?.ranker === 'personal',
+        ],
+        // The user's own stored personal ranking as the first page found it. Null when personal ranking is off.
+        loadedPersonalRankingStatus: [
+            (s) => [s.reportsResponse],
+            (reportsResponse: ReportListResponse | null): PaginatedSignalReportListListApiPersonalRankingStatus =>
+                reportsResponse?.personal_ranking_status ?? null,
         ],
         // The user asked for the Personalized sort, but they have no stored personal ranking, so the
         // server answered with the Recommended order.

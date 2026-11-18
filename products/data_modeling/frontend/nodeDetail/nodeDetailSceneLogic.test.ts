@@ -19,6 +19,8 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, DataModelingNode, DataModelingNodeType, DataWarehouseSavedQuery } from '~/types'
 
+import { suiteRunResultsLogic } from 'products/data_quality/frontend/suiteRunResultsLogic'
+
 import { NodeDetailOverview } from './NodeDetailOverview'
 import { NodeDetailQuery } from './NodeDetailQuery'
 import { NodeDetailSceneTab, nodeDetailQueryEditorTabId, nodeDetailSceneLogic } from './nodeDetailSceneLogic'
@@ -398,6 +400,17 @@ describe('nodeDetailSceneLogic', () => {
         expect(screen.queryByText('column_10')).toBeNull()
         expect(screen.getByText('column_11')).toBeTruthy()
         expect(screen.getByText('11 of 11 columns')).toBeTruthy()
+    })
+
+    it.each([
+        ['opens the data quality tab for its own view', SAVED_QUERY_ID, 'data-quality'],
+        ['stays put for another view', 'other-view', 'query'],
+    ])('when a toast asks to show run results, %s', async (_, subjectId, expectedTab) => {
+        await mountScene(urls.nodeDetail(NODE_ID, 'query'))
+
+        suiteRunResultsLogic.actions.revealSubjectResults({ subjectType: 'view', subjectId })
+
+        expect(logic.values.effectiveTab).toEqual(expectedTab)
     })
 
     it('lists every tab a saved query supports when data quality checks are on', async () => {

@@ -57,7 +57,7 @@ from posthog.models import User
 from products.access_control.backend.facade.api import team_has_property_access_rules
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.actions.backend.facade.api import get_action
-from products.actions.backend.facade.contracts import ActionNotFound
+from products.actions.backend.facade.contracts import Action, ActionNotFound
 from products.web_analytics.backend.hogql_queries.first_pageview_attribution import first_pageview_session_filter_expr
 from products.web_analytics.backend.hogql_queries.first_pageview_flag import (
     evaluate_team_rollout_flag,
@@ -97,6 +97,11 @@ SESSION_ID_SET_MAX_MATCHING_SESSIONS = 10_000_000
 # Expands the env allowlist without a deploy: per-team/percent targeting and the
 # kill switch live in the flag UI. The allowlist stays as the flag-independent base.
 SESSION_ID_SET_FEATURE_FLAG_KEY = "web-analytics-session-id-set"
+
+# Property filter types that resolve only to PostHog's built-in tables: events, sessions, persons,
+# elements and the cohort membership tables. A person property joined in from the warehouse has its
+# own type, `data_warehouse_person_property`, so a plain person filter never reads the warehouse.
+_POSTHOG_TABLE_PROPERTY_TYPES = frozenset({"event", "session", "person", "cohort", "element"})
 
 WebQueryNode = Union[
     WebOverviewQuery,
@@ -567,15 +572,20 @@ WHERE and(
         return property_to_expr(properties, team=self.team, scope="event")
 
     @cached_property
+    def _conversion_goal_action(self) -> Optional[Action]:
+        goal = getattr(self.query, "conversionGoal", None)
+        if not isinstance(goal, ActionConversionGoal):
+            return None
+        try:
+            return get_action(action_id=int(goal.actionId), project_id=self.team.project_id)
+        except ActionNotFound:
+            raise QueryError(f"Conversion goal action with id={goal.actionId} not found in this project.")
+
+    @cached_property
     def conversion_goal_expr(self) -> Optional[ast.Expr]:
         if isinstance(self.query.conversionGoal, ActionConversionGoal):
-            try:
-                action = get_action(action_id=int(self.query.conversionGoal.actionId), project_id=self.team.project_id)
-            except ActionNotFound:
-                raise QueryError(
-                    f"Conversion goal action with id={self.query.conversionGoal.actionId} not found in this project."
-                )
-            goal_expr = action_to_expr(action)
+            assert self._conversion_goal_action is not None
+            goal_expr = action_to_expr(self._conversion_goal_action)
         elif isinstance(self.query.conversionGoal, CustomEventConversionGoal):
             goal_expr = ast.CompareOperation(
                 left=ast.Field(chain=["events", "event"]),
@@ -773,21 +783,27 @@ WHERE and(
 
     @cached_property
     def _reads_only_posthog_tables(self) -> bool:
-        # Building the full HogQL database loads every warehouse table, view and join, which costs
-        # seconds on teams with many warehouse sources. A query with only event and session filters
-        # and no goal or revenue never reads them. Person filters stay on the full database, because
-        # a person property can come from a warehouse join.
-        if getattr(self.query, "conversionGoal", None) is not None or getattr(self.query, "includeRevenue", False):
+        # The full HogQL database loads every warehouse table, view and join, which costs seconds on
+        # teams with many warehouse sources.
+        if getattr(self.query, "includeRevenue", False):
             return False
-        filters = [*(getattr(self.query, "properties", None) or []), *self._test_account_filters]
+        goal = getattr(self.query, "conversionGoal", None)
+        filters = [
+            *(getattr(self.query, "properties", None) or []),
+            *self._test_account_filters,
+            *((goal.properties or []) if goal is not None else []),
+        ]
+        if self._conversion_goal_action is not None:
+            for step in self._conversion_goal_action.steps:
+                filters.extend(step.properties or [])
+        if any(get_property_type(prop) not in _POSTHOG_TABLE_PROPERTY_TYPES for prop in filters):
+            return False
+        # A saved expression can add a custom field to sessions, and only the full database loads it.
         session_fields = self._posthog_tables_database.get_table("sessions").fields
-        for prop in filters:
-            prop_type = get_property_type(prop)
-            if prop_type not in ("event", "session"):
-                return False
-            # A saved expression can add a custom field to sessions, and only the full database loads it.
-            if prop_type == "session" and get_property_key(prop) not in session_fields:
-                return False
+        if any(
+            get_property_type(prop) == "session" and get_property_key(prop) not in session_fields for prop in filters
+        ):
+            return False
         # The built-in-only database carries no per-user access control.
         return not team_has_property_access_rules(team_id=self.team.pk)
 

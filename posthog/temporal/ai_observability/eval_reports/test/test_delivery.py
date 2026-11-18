@@ -354,12 +354,36 @@ class TestMetricsBlockHtml(SimpleTestCase):
         self.assertIn("▼", html)
         self.assertIn("30.00pp", html)
 
-    def test_no_delta_when_previous_is_none(self):
-        metrics = EvalReportMetrics(total_runs=10, result_counts={"pass": 9, "fail": 1, "na": 0})
-        html = _render_metrics_block_html(metrics)
-        self.assertNotIn("▲", html)
-        self.assertNotIn("▼", html)
-        self.assertNotIn("pp vs previous", html)
+    @parameterized.expand(
+        [
+            ("no_previous_report", {"total_runs": 10, "result_counts": {"pass": 9, "fail": 1, "na": 0}}),
+            (
+                "empty_period",
+                {"total_runs": 0, "result_counts": {"pass": 0, "fail": 0, "na": 0}, "previous_pass_rate": 92.0},
+            ),
+            (
+                "empty_sentiment_period",
+                {
+                    "output_type": "sentiment",
+                    "total_runs": 0,
+                    "result_counts": {"positive": 0, "neutral": 0, "negative": 0},
+                    "previous_result_rates": {"positive": 60.0, "neutral": 10.0, "negative": 30.0},
+                },
+            ),
+        ]
+    )
+    def test_no_delta_without_a_comparison(self, _name: str, fields: dict) -> None:
+        metrics = EvalReportMetrics(**fields)
+        for rendered in (_render_metrics_block_html(metrics), _render_metrics_slack_blocks(metrics)[0]["text"]["text"]):
+            self.assertNotIn("▲", rendered)
+            self.assertNotIn("▼", rendered)
+            self.assertNotIn("pp", rendered)
+
+    def test_empty_period_shows_no_pass_rate(self) -> None:
+        metrics = EvalReportMetrics(
+            total_runs=0, result_counts={"pass": 0, "fail": 0, "na": 0}, previous_pass_rate=92.0
+        )
+        self.assertIn("Pass rate: —", _render_metrics_slack_blocks(metrics)[0]["text"]["text"])
 
     def test_unavailable_metrics_render_notice_not_zero_table(self):
         html = _render_metrics_block_html(
@@ -483,8 +507,8 @@ class TestDeliverReport(SimpleTestCase):
     @patch("products.ai_observability.backend.models.evaluation_reports.EvaluationReport.objects")
     def test_deliver_report_partial_failure(self, mock_report_qs, mock_run_qs, mock_slack, mock_email):
         targets = [
-            {"type": "email", "value": "test@example.com"},
-            {"type": "slack", "integration_id": 1, "channel": "#reports"},
+            {"type": "email", "value": "test@example.com, other@example.com"},
+            {"type": "slack", "integration_id": 1, "channel": "C0001|reports"},
         ]
         report = self._make_report(targets)
         run = self._make_report_run()
@@ -497,6 +521,15 @@ class TestDeliverReport(SimpleTestCase):
         deliver_report("report-id", "run-id")
 
         self.assertEqual(run.delivery_status, "partial_failure")
+        self.assertEqual(
+            run.delivery_destinations,
+            [
+                {"type": "email", "name": "test@example.com"},
+                {"type": "email", "name": "other@example.com"},
+                {"type": "slack", "name": "reports"},
+            ],
+        )
+        run.save.assert_called_once_with(update_fields=["delivery_status", "delivery_errors", "delivery_destinations"])
 
     @parameterized.expand([("retryable_raises_for_retry", True), ("config_error_disables_report", False)])
     @patch("posthog.temporal.ai_observability.eval_reports.delivery.disable_undeliverable_report")
@@ -613,6 +646,7 @@ class TestDeliverSlackReport(SimpleTestCase):
             self._make_report_run(sections=sections),
             targets,
             evaluation_name="Test Eval",
+            evaluation_id="eval-1",
             team_id=7,
             project_id=1,
             period_start="2026-03-01T00:00:00+00:00",
@@ -640,6 +674,7 @@ class TestDeliverSlackReport(SimpleTestCase):
             self._make_report_run(),
             targets,
             evaluation_name="Test Eval",
+            evaluation_id="eval-1",
             team_id=7,
             project_id=1,
             period_start="2026-03-01T00:00:00+00:00",
@@ -656,24 +691,29 @@ class TestDeliverSlackReport(SimpleTestCase):
 
     @patch("posthog.models.integration.SlackIntegration")
     @patch("posthog.integrations.IntegrationManager")
-    def test_root_message_carries_the_followup_invite(self, mock_integration, mock_slack_integration):
+    def test_root_message_links_the_report_and_carries_the_followup_invite(
+        self, mock_integration, mock_slack_integration
+    ):
         # The invite goes on the root message only, so a reader meets it once per report rather
         # than under every section. Which of its two variants renders is the shared builder's
         # decision, tested in products/slack_app; here it only has to be attached.
         client = MagicMock()
         client.chat_postMessage.return_value = {"ts": "123.456"}
         mock_slack_integration.return_value.client = client
+        report_run = self._make_report_run(
+            sections=[
+                ReportSection(title="Summary", content="All good."),
+                ReportSection(title="Details", content="More detail."),
+            ]
+        )
+        report_run.id = "run-1"
 
         targets = [{"type": "slack", "integration_id": 1, "channel": "C0B5CHB0JQH|#evals"}]
         errors = deliver_slack_report(
-            self._make_report_run(
-                sections=[
-                    ReportSection(title="Summary", content="All good."),
-                    ReportSection(title="Details", content="More detail."),
-                ]
-            ),
+            report_run,
             targets,
             evaluation_name="Test Eval",
+            evaluation_id="eval-1",
             team_id=1,
             project_id=1,
             period_start="2026-03-01T00:00:00+00:00",
@@ -682,6 +722,7 @@ class TestDeliverSlackReport(SimpleTestCase):
 
         self.assertEqual(errors, [])
         root_blocks = client.chat_postMessage.call_args_list[0].kwargs["blocks"]
+        self.assertIn("/ai-evals/evaluations/eval-1?report_run=run-1|", root_blocks[1]["elements"][0]["text"])
         self.assertIn("@PostHog", root_blocks[-1]["elements"][0]["text"])
         self.assertNotIn("blocks", client.chat_postMessage.call_args_list[1].kwargs)
 
@@ -699,6 +740,7 @@ class TestDeliverSlackReport(SimpleTestCase):
             self._make_report_run(),
             targets,
             evaluation_name="Test Eval",
+            evaluation_id="eval-1",
             team_id=1,
             project_id=1,
             period_start="2026-03-01T00:00:00+00:00",
@@ -741,6 +783,7 @@ class TestDeliverSlackReport(SimpleTestCase):
             self._make_report_run(),
             targets,
             evaluation_name="Test Eval",
+            evaluation_id="eval-1",
             team_id=1,
             project_id=1,
             period_start="2026-03-01T00:00:00+00:00",

@@ -3,7 +3,7 @@ from contextlib import AbstractContextManager, nullcontext
 from datetime import date, datetime, timedelta
 from functools import partial
 from itertools import batched
-from typing import IO, Final
+from typing import IO, Any, Final
 
 from django.utils.timezone import now
 
@@ -33,6 +33,12 @@ from products.surveys.backend.facade.api import (
     get_survey_responses_linked_to,
 )
 
+from ..logic.eval_suggestions import (
+    config as eval_suggestions_config,
+    eligibility as eval_suggestions_eligibility,
+    pipeline as eval_suggestions_pipeline,
+    runs as eval_suggestion_runs,
+)
 from ..logic.evaluations.evaluation_metas import load_evaluation_meta, load_evaluation_metas
 from ..logic.evaluations.judge_preview import (
     MAX_JUDGE_TEST_UNITS as MAX_JUDGE_TEST_UNITS,
@@ -918,3 +924,68 @@ def create_parser_recipe(team: Team, user: User, name: str, source: str) -> str:
     """Saves a parser recipe for the team and returns its id. Raises `RecipeCompileError` when it does not compile."""
     validate_parser_recipe_source(source)
     return save_team_recipe(team.pk, user, name=name, source=source)
+
+
+def eligible_clustering_team_ids(team_ids: list[int] | None = None) -> set[int]:
+    from ..logic.clustering.eligibility import eligible_clustering_team_ids as eligible
+
+    return eligible(team_ids)
+
+
+def is_current_clustering_job(team_id: int, job_id: str, job_scope: str) -> bool:
+    from ..logic.clustering.execution import is_current_job
+
+    return is_current_job(team_id, job_id, job_scope)
+
+
+def validate_clustering_filters(team_id: int, user: User, filters: list[dict[str, Any]]) -> None:
+    from ..logic.clustering.permissions import validate_clustering_filters as validate
+
+    validate(team_id, user, filters)
+
+
+def plan_eval_suggestions() -> contracts.EvalSuggestionsPlan:
+    suggestion_settings = eval_suggestions_config.load_settings()
+    return contracts.EvalSuggestionsPlan(
+        team_ids=eval_suggestions_eligibility.eligible_team_ids(suggestion_settings),
+        max_concurrent_teams=suggestion_settings.max_concurrent_teams,
+    )
+
+
+def start_eval_suggestions_run(team_id: int, trigger: str, batch_id: str, run_id: str) -> str:
+    team = Team.objects.get(id=team_id)
+    return str(eval_suggestion_runs.create_run(team, trigger, batch_id, run_id=run_id).id)
+
+
+def fail_eval_suggestions_run(team_id: int, run_id: str, error: str) -> None:
+    eval_suggestion_runs.fail_run(team_id, run_id, error)
+
+
+def measure_eval_suggestions(team_id: int, run_id: str, *, deadline: float) -> int:
+    return eval_suggestions_pipeline.measure_stage(
+        team_id, run_id, settings=eval_suggestions_config.load_settings(), deadline=deadline
+    )
+
+
+def screen_eval_suggestions(team_id: int, run_id: str, *, include_paid: bool, deadline: float) -> int:
+    return eval_suggestions_pipeline.screen_stage(
+        team_id,
+        run_id,
+        include_paid=include_paid,
+        settings=eval_suggestions_config.load_settings(),
+        deadline=deadline,
+    )
+
+
+def draft_eval_suggestions(team_id: int, run_id: str, *, include_paid: bool, deadline: float) -> int:
+    return eval_suggestions_pipeline.draft_stage(
+        team_id,
+        run_id,
+        include_paid=include_paid,
+        settings=eval_suggestions_config.load_settings(),
+        deadline=deadline,
+    )
+
+
+def publish_eval_suggestions(team_id: int, run_id: str) -> int:
+    return eval_suggestions_pipeline.publish_stage(team_id, run_id)

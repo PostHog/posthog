@@ -3,10 +3,7 @@
 {% block section %}
     <p>A notification from your alert <a href="{{ alert_url }}">{{ alert_name }}</a> was not delivered:</p>
     <p><i>{{ refusal }}</i></p>
-    <p>
-        Every notification sent to this destination will fail until it is fixed. Check the destination's URL and the
-        format it accepts, then update the destination on the alert.
-    </p>
+    <p>Every notification sent to this destination will fail until it is fixed. {{ remedy }}</p>
     <div class="mb mt text-center">
         <a class="button" href="{{ alert_url }}">Go to alert</a>
     </div>

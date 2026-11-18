@@ -7,6 +7,15 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface PatchedEnvironmentMappingUpdateApi {
+    /** ID of the PostHog project that receives the Vercel production environment. */
+    production?: number
+    /** ID of the PostHog project for the Vercel preview environment. Defaults to the production project. */
+    preview?: number
+    /** ID of the PostHog project for the Vercel development environment. Defaults to the production project. */
+    development?: number
+}
+
 /**
  * * `vercel` - Vercel
  */
@@ -72,20 +81,6 @@ export interface UserBasicApi {
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
-}
-
-/**
- * Serializer for organization-level integrations.
- */
-export interface PatchedOrganizationIntegrationApi {
-    readonly id?: string
-    readonly kind?: OrganizationIntegrationKindEnumApi
-    /** @nullable */
-    readonly integration_id?: string | null
-    readonly config?: unknown
-    readonly created_at?: string
-    readonly updated_at?: string
-    readonly created_by?: UserBasicApi
 }
 
 /**
@@ -254,6 +249,7 @@ export interface PaginatedIntegrationConfigListApi {
  * * `linear` - Linear
  * * `linkedin-ads` - Linkedin Ads
  * * `meta-ads` - Meta Ads
+ * * `motherduck` - Motherduck
  * * `pardot` - Pardot
  * * `pinterest-ads` - Pinterest Ads
  * * `postgresql` - Postgresql
@@ -309,6 +305,7 @@ export const IntegrationKindEnumApi = {
     Linear: 'linear',
     LinkedinAds: 'linkedin-ads',
     MetaAds: 'meta-ads',
+    Motherduck: 'motherduck',
     Pardot: 'pardot',
     PinterestAds: 'pinterest-ads',
     Postgresql: 'postgresql',
@@ -369,6 +366,7 @@ export interface IntegrationConfigCreateApi {
      * * `linear` - Linear
      * * `linkedin-ads` - Linkedin Ads
      * * `meta-ads` - Meta Ads
+     * * `motherduck` - Motherduck
      * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
@@ -562,6 +560,7 @@ export interface EmailDomainStatusStepApi {
  * * `mail_from_mx` - MAIL FROM MX
  * * `mail_from_spf` - MAIL FROM SPF
  * * `dmarc` - DMARC
+ * * `organization` - Organization ownership
  */
 export type EmailDomainSetupRecordKindEnumApi =
     (typeof EmailDomainSetupRecordKindEnumApi)[keyof typeof EmailDomainSetupRecordKindEnumApi]
@@ -573,6 +572,7 @@ export const EmailDomainSetupRecordKindEnumApi = {
     MailFromMx: 'mail_from_mx',
     MailFromSpf: 'mail_from_spf',
     Dmarc: 'dmarc',
+    Organization: 'organization',
 } as const
 
 /**
@@ -604,14 +604,15 @@ export const EmailDomainSetupRecordStatusEnumApi = {
 } as const
 
 export interface EmailDomainStatusRecordApi {
-    /** What the record does: verification proves domain ownership, dkim signs email, spf and mail_from_spf list SES as an allowed sender, mail_from_mx routes bounces, dmarc sets the policy for unauthenticated mail.
+    /** What the record does: verification proves domain ownership, dkim signs email, spf and mail_from_spf list SES as an allowed sender, mail_from_mx routes bounces, dmarc sets the policy for unauthenticated mail, organization proves this organization owns a domain another organization also added.
      *
      * * `verification` - Domain ownership
      * * `dkim` - DKIM signing
      * * `spf` - SPF
      * * `mail_from_mx` - MAIL FROM MX
      * * `mail_from_spf` - MAIL FROM SPF
-     * * `dmarc` - DMARC */
+     * * `dmarc` - DMARC
+     * * `organization` - Organization ownership */
     kind: EmailDomainSetupRecordKindEnumApi
     /** Full DNS name to create the record at, including the domain. */
     hostname: string
@@ -829,6 +830,32 @@ export interface GitHubTeamsResponseApi {
     teams: GitHubTeamApi[]
     /** Whether more teams are available beyond this page. */
     has_more: boolean
+}
+
+export interface GitLabProjectApi {
+    /** GitLab numeric project ID. */
+    id: number
+    /** Full project path, including nested groups, such as `acme/platform/api`. Use it as a task repository. */
+    path_with_namespace: string
+    /** Project page on GitLab. */
+    web_url: string
+    /**
+     * Default branch of the project. Null for a project without commits.
+     * @nullable
+     */
+    default_branch: string | null
+}
+
+export interface GitLabProjectsResponseApi {
+    /** The connected project, when the token has the Developer role or higher on it. Empty when it does not, or when it does not match the search. */
+    projects: GitLabProjectApi[]
+    /** Token scopes that coding tasks need and the token does not have. Empty when the token has them, or when GitLab does not report the token's scopes. */
+    missing_scopes: string[]
+    /**
+     * Date when the token expires. Null when it does not expire or GitLab does not report it.
+     * @nullable
+     */
+    token_expires_at: string | null
 }
 
 export interface JiraProjectApi {
@@ -1140,6 +1167,7 @@ export interface IntegrationAccessRequestApi {
      * * `linear` - Linear
      * * `linkedin-ads` - Linkedin Ads
      * * `meta-ads` - Meta Ads
+     * * `motherduck` - Motherduck
      * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
@@ -1307,6 +1335,7 @@ export type IntegrationsListParams = {
      * * `linear` - Linear
      * * `linkedin-ads` - Linkedin Ads
      * * `meta-ads` - Meta Ads
+     * * `motherduck` - Motherduck
      * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
@@ -1373,6 +1402,7 @@ export const IntegrationsListKind = {
     Linear: 'linear',
     LinkedinAds: 'linkedin-ads',
     MetaAds: 'meta-ads',
+    Motherduck: 'motherduck',
     Pardot: 'pardot',
     PinterestAds: 'pinterest-ads',
     Postgresql: 'postgresql',
@@ -1512,6 +1542,13 @@ export type IntegrationsGithubTeamsRetrieveParams = {
 export type IntegrationsGitlabMembersRetrieveParams = {
     /**
      * Optional case-insensitive name search. Leave blank to list the first users.
+     */
+    search?: string
+}
+
+export type IntegrationsGitlabProjectsRetrieveParams = {
+    /**
+     * Optional search on the project name or path. Leave blank to list the most recently active projects.
      */
     search?: string
 }

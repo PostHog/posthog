@@ -39,13 +39,9 @@ from posthog.models import Organization, OrganizationDomain, OrganizationMembers
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.organization_caching import get_cached_organization_membership
-from posthog.scopes import (
-    INTERNAL_API_SCOPE_OBJECTS,
-    MCP_BUILT_IN_AGENT_SCOPE,
-    APIScopeObjectOrNotSupported,
-    scopes_covered_by_legacy_fallback,
-    scopes_not_covered,
-)
+from posthog.scopes.catalog import MCP_BUILT_IN_AGENT_SCOPE, APIScopeObjectOrNotSupported, translate_renamed_scopes
+from posthog.scopes.checks import scopes_covered_by_legacy_fallback, scopes_not_covered
+from posthog.scopes.exposure import INTERNAL_API_SCOPE_OBJECTS
 from posthog.session.reauth import sensitive_action_reference, step_up_required
 from posthog.utils import get_can_create_org
 
@@ -749,11 +745,7 @@ def get_authenticator_user_credential(authenticator: object) -> PersonalAPIKey |
     return None
 
 
-def get_authenticator_scopes(authenticator) -> list[str] | None:
-    """The API scopes carried by a scoped-token authenticator, or None for session and
-    other non-token auth. Single source of truth for the token->scopes mapping, shared by
-    APIScopePermission and cross-resource scope checks so the two cannot drift — if they
-    did, one path could grant access while the other skipped its check."""
+def _stored_authenticator_scopes(authenticator) -> list[str] | None:
     if isinstance(authenticator, PersonalAPIKeyAuthentication):
         return list(authenticator.personal_api_key.scopes or [])
     if isinstance(authenticator, OAuthAccessTokenAuthentication):
@@ -765,6 +757,16 @@ def get_authenticator_scopes(authenticator) -> list[str] | None:
     if isinstance(authenticator, ExportRendererAuthentication):
         return list(authenticator.scopes)
     return None
+
+
+def get_authenticator_scopes(authenticator) -> list[str] | None:
+    """The API scopes carried by a scoped-token authenticator, or None for session and
+    other non-token auth. Single source of truth for the token->scopes mapping, shared by
+    APIScopePermission and cross-resource scope checks so the two cannot drift — if they
+    did, one path could grant access while the other skipped its check. Renamed scopes come
+    back under their new names, so a key or token stored before a rename keeps its access."""
+    scopes = _stored_authenticator_scopes(authenticator)
+    return translate_renamed_scopes(scopes) if scopes is not None else None
 
 
 def legacy_scope_object_used(request: Request, required_scope: str) -> str | None:
@@ -852,6 +854,88 @@ def get_authenticator_scoped_organization_ids(authenticator) -> list[str] | None
         # covers the project the exchange named, so the token is confined to that organization and project.
         return [authenticator.organization_id]
     return None
+
+
+_REACHABLE_ORGANIZATIONS_ATTR = "_credential_reachable_organization_ids"
+
+
+def get_request_reachable_organization_ids(request: Request | None) -> frozenset[str] | None:
+    """The organizations the request's credential may reach, or None when it carries no restriction.
+
+    A credential scoped to teams reaches the organizations of those teams, limited by its organization
+    list when it has one, the same rule `get_organization_ids_in_key_scope` applies to personal API keys.
+    The result is cached on the request, so a team-scoped credential costs one query per request.
+    """
+    if request is None:
+        return None
+    # Read the instance dict, not `getattr`: DRF's Request forwards unknown attributes to the wrapped
+    # HttpRequest, and a test double answers every attribute, so either could fake a cached value.
+    cache = vars(request)
+    if _REACHABLE_ORGANIZATIONS_ATTR in cache:
+        return cache[_REACHABLE_ORGANIZATIONS_ATTR]
+
+    authenticator = getattr(request, "successful_authenticator", None)
+    scoped_organizations = get_authenticator_scoped_organization_ids(authenticator)
+    scoped_teams = get_authenticator_scoped_team_ids(authenticator)
+    reachable: frozenset[str] | None
+    if not scoped_teams:
+        reachable = frozenset(scoped_organizations) if scoped_organizations is not None else None
+    else:
+        team_organizations = {
+            str(organization_id)
+            for organization_id in Team.objects.filter(id__in=scoped_teams).values_list("organization_id", flat=True)
+        }
+        reachable = frozenset(
+            organization_id
+            for organization_id in team_organizations
+            if scoped_organizations is None or organization_id in scoped_organizations
+        )
+    cache[_REACHABLE_ORGANIZATIONS_ATTR] = reachable
+    return reachable
+
+
+def credential_admits_organization(request: Request | None, organization_id: object) -> bool:
+    """Whether the request's credential may reach `organization_id`. Always true for credentials with no
+    restriction, such as session auth."""
+    reachable = get_request_reachable_organization_ids(request)
+    return reachable is None or str(organization_id) in reachable
+
+
+def credential_admits_team(request: Request | None, team_id: int, organization_id: object) -> bool:
+    """Whether the request's credential may reach the team: its organization is reachable, and the team is
+    in the credential's team list when it has one."""
+    if not credential_admits_organization(request, organization_id):
+        return False
+    scoped_teams = get_authenticator_scoped_team_ids(getattr(request, "successful_authenticator", None))
+    return not scoped_teams or team_id in scoped_teams
+
+
+def organization_refuses_personal_api_key(request: Request, organization: Organization) -> bool:
+    """Whether `organization` bars the request's personal API key: it turned off personal API keys for
+    members and the user is not an admin. Credentials other than personal API keys are never barred."""
+    if not isinstance(
+        get_authenticator_user_credential(getattr(request, "successful_authenticator", None)), PersonalAPIKey
+    ):
+        return False
+    if not organization.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS):
+        return False
+    membership = get_cached_organization_membership(organization.id, cast(User, request.user))
+    if membership is None:
+        return False
+    return not organization.members_can_use_personal_api_keys and membership.level < OrganizationMembership.Level.ADMIN
+
+
+def check_team_within_credential_scope(request: Request, team_id: int) -> None:
+    """Refuse a user-scoped route that acts on `team_id` when the credential cannot reach that team.
+
+    `APIScopePermission` skips the tenant check for `scope_object = "user"` routes, so a route that
+    reads or writes data of the user's current team has to make this check itself.
+    """
+    if get_request_reachable_organization_ids(request) is None:
+        return
+    organization_id = Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first()
+    if not credential_admits_team(request, team_id, organization_id):
+        raise PermissionDenied("This token cannot access your current project.")
 
 
 def get_authenticator_scoped_team_ids(authenticator) -> list[int] | None:
@@ -1125,14 +1209,7 @@ class APIScopePermission(ScopeBasePermission):
             # Indicates this is not an organization scoped view
             return
 
-        if not org.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS):
-            return
-
-        membership = get_cached_organization_membership(org.id, cast(User, request.user))
-        if membership is None:
-            return
-
-        if not org.members_can_use_personal_api_keys and membership.level < OrganizationMembership.Level.ADMIN:
+        if organization_refuses_personal_api_key(request, org):
             raise PermissionDenied(
                 f"Organization '{org.name}' does not allow using personal API keys. "
                 f"Contact an admin to enable personal API keys for this organization."

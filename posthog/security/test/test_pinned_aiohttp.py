@@ -17,6 +17,7 @@ from posthog.security.url_validation import ResolvedIPs
 
 PUBLIC_IP = ipaddress.ip_address("93.184.216.34")
 PROXY_URL = "http://proxy.example.com:3128"
+PROXY_URL_WITH_USERINFO = "http://pod-name:x@proxy.example.com:3128"
 
 
 class ConnectionIntercepted(Exception):
@@ -105,6 +106,7 @@ async def test_direct_connections_rotate_validated_addresses(refresh_pins: bool)
         ("http://example.com/", {"HTTP_PROXY": PROXY_URL}, None, True),
         ("https://example.com/", {"HTTPS_PROXY": PROXY_URL, "NO_PROXY": "example.com"}, None, False),
         ("https://example.com/", {}, PROXY_URL, True),
+        ("https://example.com/", {}, PROXY_URL_WITH_USERINFO, True),
     ],
 )
 async def test_proxy_routing(
@@ -147,7 +149,10 @@ async def test_proxy_routing(
 @pytest.mark.asyncio
 @override_settings(SSRF_TRUSTED_PROXY_URLS=[PROXY_URL])
 @pytest.mark.parametrize("pinned", [False, True])
-@pytest.mark.parametrize("proxy", ["http://proxy.example.com:3129", "http://other.example.com:3128"])
+@pytest.mark.parametrize(
+    "proxy",
+    ["http://proxy.example.com:3129", "http://other.example.com:3128", "http://pod-name:x@other.example.com:3128"],
+)
 async def test_untrusted_proxy_is_rejected_before_connecting(proxy: str, pinned: bool) -> None:
     with patch("aiohttp.TCPConnector.connect", side_effect=AssertionError("Unexpected connection")) as connect:
         async with pinned_session({"example.com": {PUBLIC_IP}} if pinned else {}) as client:

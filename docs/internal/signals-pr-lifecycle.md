@@ -277,6 +277,14 @@ A confirmed public source does not restrict destination visibility, so an unavai
 The restricted candidate list governs both the prompt and validation of the agent's result.
 A single permitted repository is selected without running the agent, and re-research reuses a stored non-null repository selection.
 
+A person can change the report's repository with `PUT /api/projects/:id/signals/reports/:report_id/repository/`.
+The repository must be one the project's own GitHub installation reaches and that is not archived.
+The change appends an attributed `repo_selection` artefact, so the work log keeps the earlier selection.
+The new row keeps the earlier row's `research_context`.
+It keeps the earlier `autostart_eligible` only when that row named a repository, and is otherwise not autostart eligible, so it changes where work goes without granting or withdrawing an automatic pull request.
+Selecting the current repository adds no row.
+The report detail response returns each decision (repository, priority, actionability, already addressed) under `decisions`, with the stored reason and who set it.
+
 The shared repository selection prompt also asks the agent to check other sources in the supplied context before choosing a repository.
 For information from a private repository or another explicitly private source, it prefers a relevant private candidate and returns no repository if none is suitable or its visibility cannot be confirmed.
 Each candidate carries a private, public, or unknown label from the cached GitHub repository list, so the agent does not query GitHub for visibility.
@@ -304,7 +312,9 @@ The report remains readable and supports discussion, assignment, resolution, and
 
 Report access checks share pending and recent results by project, installation, and repository for up to 30 seconds. Explicit retries invalidate the project cache. A pending request is canceled when its last report reader leaves or after 30 seconds, allowing stalled checks to be retried; temporary failures are not cached. The backend still checks live access before creating an implementation task.
 
-Client-side repository access probes apply only after the server confirms pilot eligibility. Unknown eligibility, including a pending or failed onboarding request, leaves the existing implementation action available; the backend remains responsible for checking repository access.
+When a report has no selected repository, Implement first lets the backend resolve one. If resolution fails, Implement shows Select repository and opens a repository picker. A retry waits for a selection. The chosen repository is saved in the report's work log before the implementation starts, so the backend keeps responsibility for repository resolution and live access checks. The selection does not enable automatic implementation. This recovery applies to report details and triage, including projects outside the GitHub-optional pilot.
+
+Client-side repository access probes apply only after the server confirms pilot eligibility. Unknown eligibility, including a pending or failed onboarding request, leaves the implementation action available for reports with a selected repository; the backend remains responsible for checking repository access.
 
 Outside the pilot, Implement with PostHog opens the same GitHub connection flow when the project has no GitHub installation, or only installations marked unavailable. Reports reach such projects without onboarding, for example from Replay Vision scanners, scanner scouts, and scout findings, because those sources need no `SignalSourceConfig`. Report tasks push only with the project's own GitHub integration, so without one the backend refuses the task. The check reads only the project's integration list and does not probe repositories.
 
@@ -646,6 +656,7 @@ Triage warns before a verdict closes an open implementation PR.
 New failed reports consume a daily inbox slot when they first become visible.
 Existing failed reports without a visibility timestamp remain historical backlog; they do not consume the rollout day's slots.
 Signal admission checks the daily report limit before billable processing. Accepted signals finish buffering, report generation, and automatic implementation even if the limit is reached meanwhile. This can take the day's count above the configured limit; new work remains blocked. The configured limit, visibility-based count, and project-local day boundary are unchanged.
+Provider 400 errors containing `specified API usage limits` in the signal safety filter skip activity retries. The buffer carries the failed signals into a fresh run and pauses for 15 minutes before trying again, so the pause does not consume the previous run's one-hour timeout. Safe signals in the same batch still proceed to grouping. Before each safety-filter attempt, the buffer drops the entire batch if its oldest signal has waited more than seven days, including newer signals in that batch. Each signal retains its first buffer arrival time across retries and fresh runs; signals from older workflow histories start aging when the buffer first records that time. Expired signals increment `signals_dropped_total` with stage `buffer` and reason `expired`. Other failures keep their existing retry behavior. Processing resumes on the next retry after the provider limit is raised or resets; a lower error count alone does not confirm recovery.
 The desktop eligibility change must ship separately after this backend transition is deployed.
 A suppressed report can resolve if its prior status was `ready`, `pending_input`, `failed`, or `resolved`.
 
@@ -699,6 +710,10 @@ When a report has a linked task run, the View task button opens it in the PostHo
 The button fits its label, including when it appears below the Solution section.
 
 Trial-funded background runs require the PostHog AI gateway.
+The free trial does not add an enabled-scout count limit or pause scouts when it starts.
+Scouts keep the standard project count limit, and setup permits up to five selections.
+Trial spend and report limits still apply.
+Eligible free-trial scout runs use GPT-5.6 Luna on the Flex queue.
 Pi scouts, including the first-report DeepSeek arm, use the scoped gateway path and retain trial spend accounting.
 They cannot start without a scoped gateway token; a transient mint failure retries provisioning without falling back to unaccounted execution.
 Pi runs outside scouts and own-subscription model access are refused before a run is created, with instructions to choose Claude Code or Codex with PostHog model access.

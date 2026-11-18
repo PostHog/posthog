@@ -1,5 +1,6 @@
 import dataclasses
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from contextvars import ContextVar
 from datetime import datetime
 from time import sleep
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Union, cast
@@ -102,7 +103,7 @@ from posthog.errors import (
     ExposedCHQueryError,
 )
 from posthog.exceptions_capture import capture_exception
-from posthog.models.event.new_events_schema import use_new_events_schema
+from posthog.models.event.new_events_schema import events_route_scope, use_new_events_schema
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
@@ -1070,6 +1071,9 @@ class HogQLQueryExecutor:
         if clickhouse_context is None:
             raise ValueError("Cannot execute ClickHouse query: ClickHouse context was not prepared")
         timings_dict = self.timings.to_dict()
+        # The connection host follows the events table the SQL was printed against, which a query modifier can
+        # set differently from the project's switch.
+        printed_events_route = HogQLQueryModifiers(useNewEventsSchema=clickhouse_context.uses_new_events_schema())
         with self.timings.measure("clickhouse_execute"):
             with self.timings.measure("extract_hogql_features"):
                 hogql_features = extract_hogql_features(self.select_query)
@@ -1097,16 +1101,17 @@ class HogQLQueryExecutor:
                 workload = table_workload
 
             def run_clickhouse_query() -> Any:
-                return sync_execute(
-                    self.clickhouse_sql,
-                    clickhouse_context.values,
-                    with_column_types=True,
-                    workload=workload,
-                    team_id=self.team.pk,
-                    readonly=True,
-                    ch_user=self.ch_user,
-                    external_tables=list(clickhouse_context.external_tables.values()) or None,
-                )
+                with events_route_scope(printed_events_route):
+                    return sync_execute(
+                        self.clickhouse_sql,
+                        clickhouse_context.values,
+                        with_column_types=True,
+                        workload=workload,
+                        team_id=self.team.pk,
+                        readonly=True,
+                        ch_user=self.ch_user,
+                        external_tables=list(clickhouse_context.external_tables.values()) or None,
+                    )
 
             stats = query_stats.get_active()
             if stats is not None:
@@ -1148,17 +1153,18 @@ class HogQLQueryExecutor:
 
         if self.debug and self.error is None:
             with self.timings.measure("explain"):
-                # nosemgrep: clickhouse-injection-taint - self.clickhouse_sql is HogQL-compiled from AST, not raw user input; values remain parameterized in clickhouse_context.values
-                explain_results = sync_execute(
-                    f"EXPLAIN {self.clickhouse_sql}",
-                    clickhouse_context.values,
-                    with_column_types=True,
-                    workload=workload,
-                    team_id=self.team.pk,
-                    readonly=True,
-                    ch_user=self.ch_user,
-                    external_tables=list(clickhouse_context.external_tables.values()) or None,
-                )
+                with events_route_scope(printed_events_route):
+                    # nosemgrep: clickhouse-injection-taint - self.clickhouse_sql is HogQL-compiled from AST, not raw user input; values remain parameterized in clickhouse_context.values
+                    explain_results = sync_execute(
+                        f"EXPLAIN {self.clickhouse_sql}",
+                        clickhouse_context.values,
+                        with_column_types=True,
+                        workload=workload,
+                        team_id=self.team.pk,
+                        readonly=True,
+                        ch_user=self.ch_user,
+                        external_tables=list(clickhouse_context.external_tables.values()) or None,
+                    )
                 self.explain = [str(r[0]) for r in explain_results[0]]
             with self.timings.measure("metadata"):
                 from posthog.hogql.metadata import get_hogql_metadata
@@ -1264,6 +1270,20 @@ class HogQLQueryExecutor:
             capture_exception(e, {"team_id": self.team.pk})
             return False
 
+    def _add_view_freshness_warnings(self) -> None:
+        if not self.context or not self.context.materialized_saved_query_ids:
+            return
+        try:
+            warnings = data_modeling_api.view_freshness_warnings(
+                self.team.pk, self.context.materialized_saved_query_ids, now=timezone.now()
+            )
+        except Exception as e:
+            # A freshness lookup must never fail the query whose results it annotates.
+            capture_exception(e, {"team_id": self.team.pk})
+            return
+        for saved_query_id, warning in warnings.items():
+            self.context.add_data_warehouse_sync_warning(saved_query_id, warning)
+
     def _with_fresh_database(
         self, query: Union[str, ast.SelectQuery, ast.SelectSetQuery] | None
     ) -> "HogQLQueryExecutor":
@@ -1299,6 +1319,7 @@ class HogQLQueryExecutor:
             # failure. The warning is often the actual explanation for the query error (e.g. a
             # FAILED warehouse sync left the table unreadable); throwing it away when execution
             # raises would hide the most useful signal.
+            self._add_view_freshness_warnings()
             if self.context and self.context.data_warehouse_sync_warnings:
                 record_warnings(self.context.data_warehouse_sync_warnings.values())
 
@@ -1347,6 +1368,11 @@ class HogQLQueryExecutor:
         ]
 
 
+hogql_execution_override: ContextVar[Callable[[HogQLQueryExecutor], HogQLQueryResponse] | None] = ContextVar(
+    "hogql_execution_override", default=None
+)
+
+
 def _restriction_key(restricted: set[RestrictedProperty] | None) -> tuple[str, ...] | None:
     return tuple(sorted(repr(prop) for prop in restricted)) if restricted is not None else None
 
@@ -1359,4 +1385,6 @@ def _names_a_missing_column(error: Exception) -> bool:
 
 
 def execute_hogql_query(*args, **kwargs) -> HogQLQueryResponse:
-    return HogQLQueryExecutor(*args, **kwargs).execute()
+    executor = HogQLQueryExecutor(*args, **kwargs)
+    override = hogql_execution_override.get()
+    return override(executor) if override is not None else executor.execute()
