@@ -74,7 +74,7 @@ class TestRepoViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/visual_review/repos/{repo.id}/",
-            {"enable_pr_comments": True, "debt_digest_enabled": True},
+            {"enable_pr_comments": True, "debt_digest_enabled": True, "auto_quarantine_mode": "preview"},
             format="json",
         )
 
@@ -82,6 +82,7 @@ class TestRepoViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         data = response.json()
         self.assertTrue(data["enable_pr_comments"])
         self.assertTrue(data["debt_digest_enabled"])
+        self.assertEqual(data["auto_quarantine_mode"], "preview")
 
     def test_retrieve_project_not_found(self):
         import uuid

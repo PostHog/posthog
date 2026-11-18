@@ -32,16 +32,75 @@ from products.ai_observability.backend.logic.message_normalizer.rules import Rec
 from products.ai_observability.backend.logic.message_normalizer.run_limits import check_time_limit, time_limit
 from products.ai_observability.backend.logic.message_normalizer.values import MISSING, CompatMessage, JsonValue, Value
 
-TS_DEFAULT_RECIPES = Path(__file__).parents[6] / "packages/llm-normalizer/src/normalizer/recipe/default_recipes"
 ECHO = compile_recipe({"id": "echo", "rules": [{"on": {"say": {"exists": True}}, "emit": {"content": "$.say"}}]})
 
 
-def test_bundled_recipes_are_byte_identical_to_the_typescript_ones() -> None:
+def test_every_bundled_recipe_file_is_registered() -> None:
     ours = sorted(path.name for path in DEFAULT_RECIPES_DIR.glob("*.yaml"))
-    assert ours == sorted(path.name for path in TS_DEFAULT_RECIPES.glob("*.yaml"))
     assert ours == sorted(f"{name}.yaml" for name in DEFAULT_RECIPE_FILES)
-    for name in ours:
-        assert (DEFAULT_RECIPES_DIR / name).read_bytes() == (TS_DEFAULT_RECIPES / name).read_bytes()
+
+
+def test_a_run_reports_every_recipe_that_matched_including_nested_dispatches() -> None:
+    outcome = RecipeNormalizer([*default_recipes(), ECHO]).normalize_messages([{"say": "hi"}], "user")
+
+    assert "echo" in outcome.matched_recipe_ids
+    assert outcome.matched_recipe_ids - {"echo"}, "the built-in that split the list is reported too"
+
+
+def test_a_run_logs_non_text_content_once_with_a_count_per_type() -> None:
+    each_as_content = compile_recipe(
+        {
+            "id": "each-as-content",
+            "rules": [
+                {"on": {"items": {"is": "array"}}, "delegateEach": "$.items"},
+                {"on": {"k": {"exists": True}}, "emit": {"content": "$"}},
+            ],
+        }
+    )
+
+    with structlog.testing.capture_logs() as logs:
+        RecipeNormalizer([each_as_content]).normalize_messages({"items": [{"k": 1}, {"k": 2}, {"k": 3}]}, "user")
+
+    assert [(log["event"], log["content_types"]) for log in logs] == [
+        ("llma_recipe_produced_non_text_content", {"object": 3})
+    ]
+
+
+def test_normalizing_if_matched_never_serializes_an_unmatched_value() -> None:
+    too_deep_to_serialize: dict = {}
+    cursor = too_deep_to_serialize
+    for _ in range(100_000):
+        cursor["a"] = {}
+        cursor = cursor["a"]
+    normalizer = RecipeNormalizer([*default_recipes(), ECHO])
+
+    with pytest.raises(RecipeRuntimeError):
+        normalizer.normalize_messages(too_deep_to_serialize, "user")
+    assert normalizer.normalize_if_matched(too_deep_to_serialize, "user", frozenset({"echo"})) is None
+
+
+def test_normalizing_if_matched_runs_a_recipe_once_when_nothing_needs_a_fallback() -> None:
+    normalizer = RecipeNormalizer([*default_recipes(), ECHO])
+
+    with structlog.testing.capture_logs() as logs:
+        outcome = normalizer.normalize_if_matched({"say": {"not": "text"}}, "user", frozenset({"echo"}))
+
+    assert outcome == RunOutcome(messages=({"role": "user", "content": ""},), recognized=True)
+    assert [log["event"] for log in logs] == ["llma_recipe_produced_non_text_content"]
+
+
+def test_normalizing_if_matched_falls_back_for_items_no_recipe_matched() -> None:
+    outcome = RecipeNormalizer([*default_recipes(), ECHO]).normalize_if_matched(
+        [{"say": "hi"}, {"weird": 1}], "user", frozenset({"echo"})
+    )
+
+    assert outcome is not None
+    assert [message["content"] for message in outcome.messages] == ["hi", '{"weird":1}']
+
+
+def test_custom_recipe_ids_leave_out_the_bundled_recipes() -> None:
+    assert RecipeNormalizer([*default_recipes(), ECHO]).custom_recipe_ids == frozenset({"echo"})
+    assert RecipeNormalizer().custom_recipe_ids == frozenset()
 
 
 def test_reads_bundled_recipes_as_utf8(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

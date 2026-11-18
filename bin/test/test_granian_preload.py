@@ -13,6 +13,7 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from parameterized import parameterized
+from test_granian_shared_socket import count_listen_sockets
 
 LAUNCHER = Path(__file__).resolve().parents[1] / "granian_preload.py"
 
@@ -61,8 +62,17 @@ def get(port: int) -> str | None:
 
 @unittest.skipUnless(sys.platform == "linux", "hobby runs granian on Linux")
 class TestGranianPreload(unittest.TestCase):
-    @parameterized.expand([("asgi", True), ("wsgi", False)])
-    def test_workers_share_the_parent_import_only_under_asgi(self, interface: str, shared: bool) -> None:
+    @parameterized.expand(
+        [
+            ("asgi", "false", True, 2),
+            ("wsgi", "false", False, 2),
+            ("asgi", "true", True, 1),
+            ("wsgi", "true", False, 1),
+        ]
+    )
+    def test_workers_share_the_parent_import_under_asgi_and_one_socket_on_request(
+        self, interface: str, shared_socket: str, preloaded: bool, listen_sockets: int
+    ) -> None:
         with TemporaryDirectory() as tmp:
             Path(tmp, "app.py").write_text(APP)
             port = free_port()
@@ -74,19 +84,29 @@ class TestGranianPreload(unittest.TestCase):
                 GRANIAN_WORKERS="2",
                 GRANIAN_WORKERS_KILL_TIMEOUT="1",
                 GRANIAN_LOG_LEVEL="error",
+                POSTHOG_GRANIAN_SHARED_SOCKET=shared_socket,
             )
             server = subprocess.Popen(
                 [sys.executable, str(LAUNCHER), f"app:{interface}_app"], cwd=tmp, env=env, start_new_session=True
             )
             try:
                 deadline = time.monotonic() + 30
-                while (body := get(port)) is None:
+                importer_by_worker: dict[int, int] = {}
+                # A worker opens its own listen socket when it starts, so count the sockets only
+                # after both workers have answered.
+                while len(importer_by_worker) < 2:
                     if server.poll() is not None or time.monotonic() > deadline:
-                        self.fail("granian did not start")
-                    time.sleep(0.2)
-                imported_by, served_by = (int(pid) for pid in body.split())
-                self.assertNotEqual(served_by, server.pid)
-                self.assertEqual(imported_by == server.pid, shared)
+                        self.fail("granian did not start both workers")
+                    if (body := get(port)) is None:
+                        time.sleep(0.2)
+                        continue
+                    imported_by, served_by = (int(pid) for pid in body.split())
+                    importer_by_worker[served_by] = imported_by
+                self.assertNotIn(server.pid, importer_by_worker)
+                self.assertEqual(
+                    [imported_by == server.pid for imported_by in importer_by_worker.values()], [preloaded] * 2
+                )
+                self.assertEqual(count_listen_sockets(port), listen_sockets)
             finally:
                 server.terminate()
                 try:

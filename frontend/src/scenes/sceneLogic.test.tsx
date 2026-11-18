@@ -760,50 +760,62 @@ describe('sceneLogic', () => {
     it.each([
         [
             'sends the homepage to the welcome page and keeps the side panel prompt',
+            'connector',
             `${urls.projectHomepage()}#panel=max:hello`,
             urls.onboardingWelcome(),
             { panel: 'max:hello' },
         ],
         [
             'keeps a deep link open',
+            'connector',
             urls.insightView('abc123' as InsightShortId),
             urls.insightView('abc123' as InsightShortId),
             {},
         ],
-    ])('connector signup with no data: %s', async (_name, target, expectedRoute, expectedHashParams) => {
-        const priorAppContext = window.POSTHOG_APP_CONTEXT
-        try {
-            logic.unmount()
-            window.POSTHOG_APP_CONTEXT = {
-                ...priorAppContext,
-                current_user: {
-                    ...MOCK_DEFAULT_USER,
-                    organization: MOCK_DEFAULT_ORGANIZATION,
-                    onboarding_skipped_at: '2026-01-01T00:00:00Z',
-                    onboarding_skipped_reason: 'connector',
-                    onboarding_skipped_organization_id: MOCK_DEFAULT_ORGANIZATION.id,
-                },
-            } as AppContext
-            initKeaTests(true, {
-                ...MOCK_DEFAULT_TEAM,
-                ingested_event: false,
-                completed_snippet_onboarding: false,
-                has_completed_onboarding_for: {},
-            })
-            await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
-            featureFlagLogic.mount()
-            logic = sceneLogic.build({ scenes: testScenes })
-            logic.mount()
+        [
+            'sends a device login signup to the welcome page too',
+            'device_login',
+            urls.projectHomepage(),
+            urls.onboardingWelcome(),
+            {},
+        ],
+    ] as const)(
+        'OAuth signup with no data: %s',
+        async (_name, skippedReason, target, expectedRoute, expectedHashParams) => {
+            const priorAppContext = window.POSTHOG_APP_CONTEXT
+            try {
+                logic.unmount()
+                window.POSTHOG_APP_CONTEXT = {
+                    ...priorAppContext,
+                    current_user: {
+                        ...MOCK_DEFAULT_USER,
+                        organization: MOCK_DEFAULT_ORGANIZATION,
+                        onboarding_skipped_at: '2026-01-01T00:00:00Z',
+                        onboarding_skipped_reason: skippedReason,
+                        onboarding_skipped_organization_id: MOCK_DEFAULT_ORGANIZATION.id,
+                    },
+                } as AppContext
+                initKeaTests(true, {
+                    ...MOCK_DEFAULT_TEAM,
+                    ingested_event: false,
+                    completed_snippet_onboarding: false,
+                    has_completed_onboarding_for: {},
+                })
+                await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
+                featureFlagLogic.mount()
+                logic = sceneLogic.build({ scenes: testScenes })
+                logic.mount()
 
-            router.actions.push(target)
-            await expectLogic(logic).delay(1)
+                router.actions.push(target)
+                await expectLogic(logic).delay(1)
 
-            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedRoute)
-            expect(router.values.hashParams).toEqual(expectedHashParams)
-        } finally {
-            window.POSTHOG_APP_CONTEXT = priorAppContext
+                expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedRoute)
+                expect(router.values.hashParams).toEqual(expectedHashParams)
+            } finally {
+                window.POSTHOG_APP_CONTEXT = priorAppContext
+            }
         }
-    })
+    )
 
     describe('/home honors the configured homepage', () => {
         const dashboardHomepage = {

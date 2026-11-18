@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field
 from typing import Any, TypedDict
 
+from posthog.dataclasses import frozen
 from posthog.temporal.ai_observability.shared_activities import AnalysisLevel  # noqa: F401
 from posthog.temporal.ai_observability.trace_clustering.constants import (
     DEFAULT_LOOKBACK_DAYS,
@@ -58,7 +59,7 @@ class ClusteringWorkflowInputs:
         return {"team_id": self.team_id}
 
 
-@dataclass
+@frozen
 class ClusteringActivityInputs:
     """Input parameters for the clustering activity.
 
@@ -82,6 +83,7 @@ class ClusteringActivityInputs:
     # Optional property filters to scope which traces are included in clustering
     event_filters: list[dict[str, Any]] = field(default_factory=list)
     job_id: str = ""
+    job_scope: str = ""
     job_name: str = ""
 
     @property
@@ -253,7 +255,7 @@ class TraceLabelingMetadata:
     rank: int  # Rank within cluster (1 = closest to centroid)
 
 
-@dataclass
+@frozen
 class GenerateLabelsActivityInputs:
     """Input for the LLM labeling activity.
 
@@ -275,6 +277,7 @@ class GenerateLabelsActivityInputs:
     session_id: str = ""
     clustering_run_id: str = ""
     clustering_job_id: str = ""
+    job_scope: str = ""
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -307,7 +310,7 @@ class ClusteringParams:
     max_samples: int  # Max traces to sample
 
 
-@dataclass
+@frozen
 class EmitEventsActivityInputs:
     """Input for the event emission activity."""
 
@@ -327,6 +330,7 @@ class EmitEventsActivityInputs:
     batch_run_ids: dict[str, str] = field(default_factory=dict)  # item_id -> batch_run_id for linking to summaries
     clustering_params: ClusteringParams | None = None  # Params used for this run
     job_id: str = ""  # empty = no job (legacy/manual run without a job)
+    job_scope: str = ""
     job_name: str = ""
     cluster_metrics: dict[int, ClusterAggregateMetrics] = field(default_factory=dict)
 

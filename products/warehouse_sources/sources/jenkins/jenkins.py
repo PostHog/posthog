@@ -1,6 +1,6 @@
 import threading
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional, cast
 from urllib.parse import urlparse
@@ -51,9 +51,31 @@ JOB_TREE_FIELDS = "name,fullName,url,color,_class,buildable"
 BUILD_TREE_FIELDS = (
     "number,url,result,duration,estimatedDuration,timestamp,id,fullDisplayName,displayName,building,queueId"
 )
+NODE_TREE_FIELDS = (
+    "_class,displayName,description,offline,temporarilyOffline,offlineCauseReason,idle,numExecutors,"
+    "jnlpAgent,launchSupported,manualLaunchAllowed,assignedLabels[name]"
+)
+QUEUE_ITEM_TREE_FIELDS = (
+    "_class,id,inQueueSince,buildableStartMilliseconds,why,blocked,buildable,stuck,url,params,task[name,url]"
+)
+# Freestyle builds expose one `changeSet`; Pipeline builds expose a `changeSets` list. Jenkins ignores
+# the one a build type doesn't have, so we request both.
+CHANGE_ITEM_FIELDS = "_class,commitId,msg,timestamp,authorEmail,author[fullName],affectedPaths"
+BUILD_CHANGES_TREE_FIELDS = (
+    f"number,url,timestamp,changeSet[kind,items[{CHANGE_ITEM_FIELDS}]],changeSets[kind,items[{CHANGE_ITEM_FIELDS}]]"
+)
+# Error details and captured stdout/stderr are left out: they can be very large per test case.
+TEST_REPORT_TREE_FIELDS = (
+    "_class,duration,empty,failCount,passCount,skipCount,"
+    "suites[name,id,duration,timestamp,cases[className,name,status,duration,skipped]]"
+)
 
 
 class JenkinsRetryableError(Exception):
+    pass
+
+
+class JenkinsNotFoundError(Exception):
     pass
 
 
@@ -153,6 +175,8 @@ def _fetch(
     url: str,
     auth: tuple[str, str],
     logger: FilteringBoundLogger,
+    *,
+    allow_not_found: bool = False,
 ) -> requests.Response:
     # Stream so the status/headers arrive before the body, letting us cap the decoded size (see
     # _read_body_capped) rather than letting `requests` buffer an unbounded response up front.
@@ -164,6 +188,10 @@ def _fetch(
     if response.status_code == 429 or response.status_code >= 500:
         response.close()
         raise JenkinsRetryableError(f"Jenkins API error (retryable): status={response.status_code}, url={url}")
+
+    if response.status_code == 404 and allow_not_found:
+        response.close()
+        raise JenkinsNotFoundError(url)
 
     if not response.ok:
         response.close()
@@ -379,6 +407,7 @@ def _iter_job_builds(
     auth: tuple[str, str],
     logger: FilteringBoundLogger,
     watermark_ms: int | None,
+    tree_fields: str = BUILD_TREE_FIELDS,
 ) -> Iterator[dict[str, Any]]:
     """Yield a job's builds newest-first, windowing by index range and stopping at the watermark.
 
@@ -389,7 +418,7 @@ def _iter_job_builds(
     """
     start = 0
     for _page in range(MAX_BUILD_PAGES_PER_JOB):
-        tree = f"builds[{BUILD_TREE_FIELDS}]{{{start},{start + BUILDS_PAGE_SIZE}}}"
+        tree = f"builds[{tree_fields}]{{{start},{start + BUILDS_PAGE_SIZE}}}"
         response = _fetch(session, _api_json_url(job_url, tree), auth, logger)
         body = response.json()
         builds = body.get("builds", []) if isinstance(body, dict) else []
@@ -415,6 +444,111 @@ def _iter_job_builds(
     logger.warning(f"Jenkins: reached the {MAX_BUILD_PAGES_PER_JOB}-page build cap for {job_url}; stopping pagination")
 
 
+# Turns one build from the windowed build walk into the rows of a fan-out table.
+BuildExpander = Callable[
+    [requests.Session, tuple[str, str], FilteringBoundLogger, dict[str, Any]], Iterator[dict[str, Any]]
+]
+
+
+def _build_rows(
+    _session: requests.Session, _auth: tuple[str, str], _logger: FilteringBoundLogger, build: dict[str, Any]
+) -> Iterator[dict[str, Any]]:
+    yield build
+
+
+def _build_reference(build: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "job_url": build["job_url"],
+        "build_url": build.get("url"),
+        "build_number": build.get("number"),
+        "created_at": build.get("created_at"),
+    }
+
+
+def _build_change_rows(
+    _session: requests.Session, _auth: tuple[str, str], _logger: FilteringBoundLogger, build: dict[str, Any]
+) -> Iterator[dict[str, Any]]:
+    """One row per SCM commit attached to a build, from either `changeSet` or `changeSets`."""
+    change_sets = [build.get("changeSet"), *(build.get("changeSets") or [])]
+    reference = _build_reference(build)
+    seen: set[str] = set()
+    for change_set in change_sets:
+        if not isinstance(change_set, dict):
+            continue
+        for item in change_set.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            commit_id = item.get("commitId")
+            # A Pipeline that checks out the same repository twice lists the commit twice; the
+            # primary key is (build_url, commitId), so keep one row per commit.
+            if not isinstance(commit_id, str) or not commit_id or commit_id in seen:
+                continue
+            seen.add(commit_id)
+            yield {**reference, "kind": change_set.get("kind"), **item}
+
+
+def _test_report_rows(
+    session: requests.Session, auth: tuple[str, str], logger: FilteringBoundLogger, build: dict[str, Any]
+) -> Iterator[dict[str, Any]]:
+    """The JUnit test report of a finished build, or nothing when the build published none."""
+    number = build.get("number")
+    if build.get("building") or not isinstance(number, int):
+        return
+    # Built from the pinned job URL rather than the response's build URL, so the request (and the
+    # Basic credentials) always stay on the configured origin.
+    report_url = f"{build['job_url']}{number}/testReport/"
+    try:
+        response = _fetch(
+            session, _api_json_url(report_url, TEST_REPORT_TREE_FIELDS), auth, logger, allow_not_found=True
+        )
+    except JenkinsNotFoundError:
+        return
+    report = response.json()
+    if isinstance(report, dict):
+        yield {**_build_reference(build), **report}
+
+
+BUILD_FAN_OUTS: dict[str, tuple[str, BuildExpander]] = {
+    "builds": (BUILD_TREE_FIELDS, _build_rows),
+    "build_changes": (BUILD_CHANGES_TREE_FIELDS, _build_change_rows),
+    "test_reports": ("number,url,timestamp,building", _test_report_rows),
+}
+
+
+def _get_nodes_rows(
+    session: requests.Session,
+    base_url: str,
+    auth: tuple[str, str],
+    logger: FilteringBoundLogger,
+    batcher: Batcher,
+) -> Iterator[Any]:
+    response = _fetch(session, _api_json_url(f"{base_url}/computer/", f"computer[{NODE_TREE_FIELDS}]"), auth, logger)
+    body = response.json()
+    for node in body.get("computer", []) if isinstance(body, dict) else []:
+        if not isinstance(node, dict) or not node.get("displayName"):
+            continue
+        batcher.batch(node)
+        if batcher.should_yield():
+            yield batcher.get_table()
+
+
+def _get_queue_item_rows(
+    session: requests.Session,
+    base_url: str,
+    auth: tuple[str, str],
+    logger: FilteringBoundLogger,
+    batcher: Batcher,
+) -> Iterator[Any]:
+    response = _fetch(session, _api_json_url(f"{base_url}/queue/", f"items[{QUEUE_ITEM_TREE_FIELDS}]"), auth, logger)
+    body = response.json()
+    for item in body.get("items", []) if isinstance(body, dict) else []:
+        if not isinstance(item, dict) or item.get("id") is None:
+            continue
+        batcher.batch(item)
+        if batcher.should_yield():
+            yield batcher.get_table()
+
+
 def _get_jobs_rows(
     session: requests.Session,
     base_url: str,
@@ -436,7 +570,9 @@ def _get_build_rows(
     batcher: Batcher,
     resumable_source_manager: ResumableSourceManager[JenkinsResumeConfig],
     watermark_ms: int | None,
+    endpoint: str = "builds",
 ) -> Iterator[Any]:
+    tree_fields, expand = BUILD_FAN_OUTS[endpoint]
     job_urls = _iter_buildable_job_urls(session, base_url, auth, logger)
 
     # Resolve the saved bookmark to the slice of jobs still to process. If the bookmarked job no
@@ -449,10 +585,14 @@ def _get_build_rows(
 
     job_checkpoint = BoundaryCheckpoint(batcher, resumable_source_manager)
     for index, job_url in enumerate(remaining):
-        for build in _iter_job_builds(session, job_url, auth, logger, watermark_ms):
-            batcher.batch(build)
-            if batcher.should_yield():
-                yield batcher.get_table()
+        for build in _iter_job_builds(session, job_url, auth, logger, watermark_ms, tree_fields):
+            for row in expand(session, auth, logger, build):
+                batcher.batch(row)
+                if batcher.should_yield():
+                    yield batcher.get_table()
+            # A test report is one request per build, and most builds return no row. The staged
+            # bookmark is at or before this job, so resuming from it re-reads every buffered row.
+            resumable_source_manager.safe_point()
 
         # Bookmark the NEXT job only after the current one is fully yielded, so a crash resumes at an
         # unprocessed job rather than re-emitting one whose rows already landed. The incremental
@@ -481,7 +621,13 @@ def get_rows(
 
     if config.fans_out_over_jobs:
         watermark_ms = _to_epoch_ms(db_incremental_field_last_value) if should_use_incremental_field else None
-        yield from _get_build_rows(session, base_url, auth, logger, batcher, resumable_source_manager, watermark_ms)
+        yield from _get_build_rows(
+            session, base_url, auth, logger, batcher, resumable_source_manager, watermark_ms, endpoint
+        )
+    elif endpoint == "nodes":
+        yield from _get_nodes_rows(session, base_url, auth, logger, batcher)
+    elif endpoint == "queue_items":
+        yield from _get_queue_item_rows(session, base_url, auth, logger, batcher)
     else:
         yield from _get_jobs_rows(session, base_url, auth, logger, batcher)
 
@@ -514,8 +660,8 @@ def jenkins_source(
             db_incremental_field_last_value=db_incremental_field_last_value,
         ),
         primary_keys=endpoint_config.primary_keys,
-        # Builds arrive newest-first and finalize the incremental watermark at job end (see
-        # _get_build_rows); the jobs catalog is a full-refresh pass.
+        # Build fan-outs arrive newest-first and finalize the incremental watermark at job end (see
+        # _get_build_rows); jobs, nodes and queue items are full-refresh passes.
         sort_mode=endpoint_config.sort_mode,
         partition_count=1,
         partition_size=1,

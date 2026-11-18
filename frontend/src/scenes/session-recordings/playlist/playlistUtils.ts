@@ -42,12 +42,6 @@ export function stripSessionIds<T extends Partial<RecordingUniversalFilters> | u
     return rest as T
 }
 
-// The list writes recommended_only false back. A saved filter never holds it.
-export function comparableRecordingFilters<T extends Partial<RecordingUniversalFilters>>(filters: T): T {
-    const { recommended_only, ...rest } = stripSessionIds(filters)
-    return (recommended_only ? { ...rest, recommended_only } : rest) as T
-}
-
 function getOperatorSymbol(operator: PropertyOperator | null): string {
     if (!operator) {
         return '?'

@@ -579,6 +579,7 @@ impl KafkaSink {
         token: &str,
         rows: Vec<KafkaMetricRow>,
         uncompressed_bytes: u64,
+        records_uncompressed_bytes: Option<u64>,
         timestamps_overridden: u64,
     ) -> Result<(), anyhow::Error> {
         if rows.is_empty() {
@@ -589,7 +590,11 @@ impl KafkaSink {
             counter!("capture_metrics_timestamps_overridden").increment(timestamps_overridden);
         }
 
-        let records_uncompressed_bytes = sum_kafka_metric_row_bytes(&rows);
+        // Callers that strip labels before the write (the capture-apm-metrics
+        // series label gate) pass the billable bytes measured beforehand, so
+        // the meter counts every label the customer sent.
+        let records_uncompressed_bytes =
+            records_uncompressed_bytes.unwrap_or_else(|| sum_kafka_metric_row_bytes(&rows));
         counter!("capture_metrics_bytes_uncompressed_payload").increment(uncompressed_bytes);
         counter!("capture_metrics_bytes_uncompressed_records")
             .increment(records_uncompressed_bytes);

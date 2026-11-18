@@ -28,6 +28,8 @@ from products.warehouse_sources.sources.travis_ci.travis_ci import (
 REPOS_URL = f"{TRAVIS_CI_BASE_URL}/repos?limit=100"
 BUILDS_PARAMS = "limit=100&sort_by=id%3Adesc"
 JOBS_PARAMS = "limit=100&sort_by=id%3Adesc&include=build.jobs"
+REQUESTS_PARAMS = "limit=100"
+CRONS_PARAMS = "limit=100"
 
 
 def _page(collection_key: str, items: list[dict[str, Any]], next_path: str | None = None) -> dict[str, Any]:
@@ -76,29 +78,55 @@ class TestRepositories:
 
 
 class TestBuildsFanOut:
-    @parameterized.expand([("int_watermark", 20), ("str_watermark", "20")])
-    def test_incremental_stops_at_watermark(self, _name: str, watermark: Any) -> None:
-        repo1_page2 = f"/repo/1/builds?{BUILDS_PARAMS}&offset=100"
+    @parameterized.expand(
+        [
+            ("builds_int_watermark", "builds", BUILDS_PARAMS, 20),
+            ("builds_str_watermark", "builds", BUILDS_PARAMS, "20"),
+            ("requests", "requests", REQUESTS_PARAMS, 20),
+        ]
+    )
+    def test_incremental_stops_at_watermark(self, _name: str, endpoint: str, params: str, watermark: Any) -> None:
+        repo1_page2 = f"/repo/1/{endpoint}?{params}&offset=100"
         pages = {
             REPOS_URL: _page("repositories", [{"id": 1}, {"id": 2}]),
-            f"{TRAVIS_CI_BASE_URL}/repo/1/builds?{BUILDS_PARAMS}": _page(
-                "builds", [{"id": 30}, {"id": 20}], next_path=repo1_page2
+            f"{TRAVIS_CI_BASE_URL}/repo/1/{endpoint}?{params}": _page(
+                endpoint, [{"id": 30}, {"id": 20}], next_path=repo1_page2
             ),
-            f"{TRAVIS_CI_BASE_URL}/repo/2/builds?{BUILDS_PARAMS}": _page("builds", [{"id": 15}]),
+            f"{TRAVIS_CI_BASE_URL}/repo/2/{endpoint}?{params}": _page(endpoint, [{"id": 15}]),
         }
         result = _collect(
             pages,
-            endpoint="builds",
+            endpoint=endpoint,
             should_use_incremental_field=True,
             db_incremental_field_last_value=watermark,
         )
 
-        # Only builds newer than the watermark are yielded, and repo 1's older second page is
+        # Only rows newer than the watermark are yielded, and repo 1's older second page is
         # never fetched. Repo 2 is still scanned — the watermark is global, so each repo's scan
-        # stops independently once it reaches already-synced builds.
+        # stops independently once it reaches already-synced rows.
         assert [r["id"] for r in result.rows] == [30]
         assert f"{TRAVIS_CI_BASE_URL}{repo1_page2}" not in result.urls
-        assert f"{TRAVIS_CI_BASE_URL}/repo/2/builds?{BUILDS_PARAMS}" in result.urls
+        assert f"{TRAVIS_CI_BASE_URL}/repo/2/{endpoint}?{params}" in result.urls
+
+    @parameterized.expand([("requests", REQUESTS_PARAMS), ("crons", CRONS_PARAMS)])
+    def test_full_refresh_walks_every_page_of_every_repo(self, endpoint: str, params: str) -> None:
+        repo1_page2 = f"/repo/1/{endpoint}?{params}&offset=100"
+        pages = {
+            REPOS_URL: _page("repositories", [{"id": 1}, {"id": 2}]),
+            f"{TRAVIS_CI_BASE_URL}/repo/1/{endpoint}?{params}": _page(
+                endpoint, [{"@type": endpoint[:-1], "id": 30}], next_path=repo1_page2
+            ),
+            f"{TRAVIS_CI_BASE_URL}{repo1_page2}": _page(endpoint, [{"id": 20}]),
+            f"{TRAVIS_CI_BASE_URL}/repo/2/{endpoint}?{params}": _page(endpoint, [{"id": 15}]),
+        }
+        result = _collect(pages, endpoint=endpoint)
+
+        assert result.raised is None
+        assert result.rows == [
+            {"id": 30, "repository_id": 1},
+            {"id": 20, "repository_id": 1},
+            {"id": 15, "repository_id": 2},
+        ]
 
     def test_resumes_from_bookmarked_repository(self) -> None:
         resume_path = f"/repo/2/builds?{BUILDS_PARAMS}&offset=100"
@@ -130,27 +158,32 @@ class TestBuildsFanOut:
         logger.warning.assert_called_once()
 
 
-class TestJobs:
-    def test_incremental_stops_at_build_watermark(self) -> None:
+class TestBuildEmbeddedRows:
+    @parameterized.expand([("jobs", JOBS_PARAMS), ("stages", BUILDS_PARAMS)])
+    def test_incremental_stops_at_build_watermark(self, endpoint: str, params: str) -> None:
         pages = {
             REPOS_URL: _page("repositories", [{"id": 1}]),
-            f"{TRAVIS_CI_BASE_URL}/repo/1/builds?{JOBS_PARAMS}": _page(
+            f"{TRAVIS_CI_BASE_URL}/repo/1/builds?{params}": _page(
                 "builds",
                 [
-                    {"id": 30, "jobs": [{"id": 301}]},
-                    {"id": 20, "jobs": [{"id": 201}]},
+                    {"id": 30, endpoint: [{"@type": endpoint[:-1], "id": 301}, {"id": 302}]},
+                    {"id": 25, endpoint: []},
+                    {"id": 20, endpoint: [{"id": 201}]},
                 ],
-                next_path=f"/repo/1/builds?{JOBS_PARAMS}&offset=100",
+                next_path=f"/repo/1/builds?{params}&offset=100",
             ),
         }
         result = _collect(
             pages,
-            endpoint="jobs",
+            endpoint=endpoint,
             should_use_incremental_field=True,
             db_incremental_field_last_value=20,
         )
 
-        assert [r["id"] for r in result.rows] == [301]
+        assert result.rows == [
+            {"id": 301, "build_id": 30, "repository_id": 1},
+            {"id": 302, "build_id": 30, "repository_id": 1},
+        ]
         assert len(result.urls) == 2  # /repos + first builds page; the older page is never fetched
 
 
@@ -212,6 +245,9 @@ class TestTravisCISourceResponse:
             ("repositories", ["id"], None),
             ("builds", ["id"], None),
             ("jobs", ["id"], "created_at"),
+            ("stages", ["id"], None),
+            ("requests", ["id"], "created_at"),
+            ("crons", ["id"], "created_at"),
             ("branches", ["repository_id", "name"], None),
         ]
     )

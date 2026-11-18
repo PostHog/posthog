@@ -882,7 +882,7 @@ pub async fn export_metrics_http(
     let row_count = rows.len();
     if let Err(e) = service
         .sink
-        .write_metrics(token, rows, body.len() as u64, timestamps_overridden)
+        .write_metrics(token, rows, body.len() as u64, None, timestamps_overridden)
         .await
     {
         error!("Failed to send metrics to Kafka: {}", e);

@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 
-import { IconInfo, IconWarning } from '@posthog/icons'
+import { IconInfo, IconLock, IconWarning } from '@posthog/icons'
 import { LemonSegmentedButton, Tooltip } from '@posthog/lemon-ui'
 
 import type { ScopeAccessLevel, ScopePickerRow } from 'lib/scopes'
@@ -19,6 +19,11 @@ export function ScopeAccessRow({ row, onChange }: ScopeAccessRowProps): JSX.Elem
             <div className="flex items-center justify-between gap-2 min-h-8 group">
                 <div className={clsx('flex items-center gap-1', muted && 'text-muted')}>
                     <b>{label}</b>
+                    {disabledReasons.none ? (
+                        <Tooltip title={disabledReasons.none}>
+                            <IconLock className="text-secondary text-base" />
+                        </Tooltip>
+                    ) : null}
                     {info ? (
                         <Tooltip title={info}>
                             <IconInfo className="text-secondary text-base" />

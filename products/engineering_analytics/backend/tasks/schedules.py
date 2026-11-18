@@ -1,8 +1,4 @@
-"""Celery beat schedules for engineering_analytics.
-
-Not auto-collected: posthog/tasks/scheduled.py imports these constants through the facade
-and registers them explicitly.
-"""
+"""Not auto-collected: posthog/tasks/scheduled.py imports these through the facade and registers them."""
 
 from celery.schedules import crontab
 

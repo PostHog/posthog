@@ -55,6 +55,12 @@ impl CachedPerson {
         }
         serde_json::from_slice(&self.properties)
     }
+
+    /// Identity creates and revives a person with no properties, and the
+    /// first write through the leader sets them.
+    pub fn has_no_properties(&self) -> bool {
+        self.properties.is_empty() || self.properties == b"{}"
+    }
 }
 
 /// Decodes a changelog `Person` record into cache form. The only fallible
@@ -142,18 +148,12 @@ impl PersonCache {
     }
 
     pub fn get(&self, key: &PersonCacheKey) -> Option<CachedPerson> {
-        let person = self.lookup(key);
-        match person {
-            Some(_) => counter!("personhog_leader_cache_hits_total").increment(1),
-            None => counter!("personhog_leader_cache_misses_total").increment(1),
-        }
-        person
+        self.lookup(key)
     }
 
     /// A read for bookkeeping passes such as the death-document settle.
-    /// It skips the hit/miss counters and does not copy or decompress the
-    /// properties. It still promotes the entry's recency, which is
-    /// harmless for those passes.
+    /// It does not copy or decompress the properties. It still promotes
+    /// the entry's recency, which is harmless for those passes.
     pub fn peek(&self, key: &PersonCacheKey) -> Option<CachedVersion> {
         self.inner
             .get(key)
@@ -225,6 +225,21 @@ mod tests {
             cached.parse_properties().unwrap(),
             serde_json::Value::Object(serde_json::Map::new())
         );
+    }
+
+    #[test]
+    fn only_an_empty_document_has_no_properties() {
+        for (properties, expected) in [
+            (&b""[..], true),
+            (&b"{}"[..], true),
+            (&br#"{"email":"test@example.com"}"#[..], false),
+        ] {
+            let person = CachedPerson {
+                properties: properties.to_vec(),
+                ..test_person()
+            };
+            assert_eq!(person.has_no_properties(), expected, "{properties:?}");
+        }
     }
 
     fn test_person() -> CachedPerson {

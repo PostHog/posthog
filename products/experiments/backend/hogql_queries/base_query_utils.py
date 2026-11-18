@@ -33,11 +33,14 @@ from posthog.models.team.team import Team
 from products.actions.backend.facade.api import get_action
 from products.actions.backend.facade.contracts import ActionNotFound
 from products.ai_observability.backend.facade.api import resolve_evaluation_pass_markers
+from products.experiments.backend.hogql_queries.exposure_query_logic import rule_exposure_criteria_error
 from products.experiments.backend.hogql_queries.hogql_aggregation_utils import (
     contains_aggregation,
     extract_aggregation_and_inner_expr,
 )
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.experiment import Experiment, get_experiment_rule
+from products.feature_flags.backend.facade.config import ConfigFormatError
+from products.feature_flags.backend.facade.rules import ExperimentRuleConfig, ExperimentRuleError
 from products.product_analytics.backend.facade.queries import ALLOWED_SESSION_MATH_PROPERTIES
 
 
@@ -297,6 +300,25 @@ def analysis_window(
         date_to=resolved_end.isoformat(),
         explicitDate=True,
     )
+
+
+def rule_for_query(experiment: Experiment) -> Optional[ExperimentRuleConfig]:
+    """The rule that a query of a rule-linked experiment analyses, or None for a legacy experiment.
+
+    A query never falls back to the legacy analysis or to the flag's current config. When the rule cannot
+    be read, or the stored exposure criteria name something the rule analysis cannot count, the query
+    fails with the reason.
+    """
+    if not experiment.is_rule_linked:
+        return None
+    try:
+        rule = get_experiment_rule(experiment)
+    except (ExperimentRuleError, ConfigFormatError) as error:
+        raise ValidationError(f"This experiment's feature flag rule can't be read: {error}") from error
+    criteria_error = rule_exposure_criteria_error(experiment.exposure_criteria)
+    if criteria_error is not None:
+        raise ValidationError(criteria_error)
+    return rule
 
 
 def experiment_window_end(experiment: Experiment, as_of: datetime) -> datetime:

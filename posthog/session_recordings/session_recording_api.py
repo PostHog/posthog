@@ -120,7 +120,6 @@ from posthog.session_recordings.session_recording_v2_service import list_blocks,
 from posthog.session_recordings.utils import (
     clean_prompt_whitespace,
     filter_from_params_to_query,
-    gate_replay_relevance,
     query_as_params_to_dict,
     recordings_query_has_event_filters,
 )
@@ -234,13 +233,16 @@ def _replay_proxy_token_for_player(request, team_id: int) -> str | None:
 
 
 def _replay_blocks_viewer(request) -> str | None:
-    """Who the player is watching as, for the block URLs and the per-viewer rate limit. An export renders as the user
-    who created it. None for any caller that is not the player, which keeps reading blocks through Django. Share links
-    also stay on Django, because a block token cannot see a share being disabled or its password revoked."""
+    """Who the player is watching as, for the block URLs and the per-viewer rate limit. A team's exports share one viewer,
+    so an export cannot use up its creator's rate limit, and creating many exports does not add budget. None for any
+    caller that is not the player, which keeps reading blocks through Django. Share links also stay on Django, because a
+    block token cannot see a share being disabled or its password revoked."""
     authenticator = getattr(request, "successful_authenticator", None)
-    if isinstance(authenticator, (SessionAuthentication, ExportRendererAuthentication)) and isinstance(
-        request.user, User
-    ):
+    if not isinstance(request.user, User):
+        return None
+    if isinstance(authenticator, ExportRendererAuthentication):
+        return f"e{authenticator.team_id}"
+    if isinstance(authenticator, SessionAuthentication):
         return f"u{request.user.pk}"
     return None
 
@@ -502,7 +504,7 @@ class SessionRecordingSnapshotsSourceSerializer(serializers.Serializer):
     blob_key = serializers.CharField(allow_null=True)
     url = serializers.CharField(
         required=False,
-        help_text="Where the player fetches this block directly, sending block_token as a Bearer token. Absent when the block must be read through this endpoint.",
+        help_text="Same-origin path where the player fetches this block directly, sending block_token as a Bearer token. Absent when the block must be read through this endpoint.",
     )
 
 
@@ -1132,8 +1134,6 @@ class SessionRecordingViewSet(
                 allow_event_property_expansion = params.pop("add_events_to_property_queries", "0") == "1"
                 with tracer.start_as_current_span("convert_filters"):
                     query = filter_from_params_to_query(params)
-
-                gate_replay_relevance(query, cast(User, request.user))
 
                 if query.comment_text:
                     with tracer.start_as_current_span("search_comments"):
@@ -1824,7 +1824,8 @@ class SessionRecordingViewSet(
                     "blob_key": str(i),
                 }
                 if access and block.ref:
-                    source["url"] = self.request.build_absolute_uri(access.path_prefix + block.ref)
+                    # Relative, so the URL never takes its host from the request and the player keeps it same-origin.
+                    source["url"] = access.path_prefix + block.ref
                 sources.append(source)
 
             with timer("serialize_data__gather_session_recording_sources"):

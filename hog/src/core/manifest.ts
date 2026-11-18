@@ -19,6 +19,8 @@ export interface ManifestEntry {
     arguments?: { name: string; description: string; required: boolean; variadic: boolean; stdin: boolean }[]
     options?: OptionEntry[]
     scopes?: readonly string[]
+    // Set when the command fails in CI unless an agent runs it.
+    refusesCI?: true
     examples?: readonly string[]
     // The posthog-cli command to run instead, for commands hog doesn't have yet.
     use?: string
@@ -41,7 +43,10 @@ export function describeCommands(tree: CommandTree, prefix = ''): ManifestEntry[
         const path = prefix ? `${prefix} ${name}` : name
         switch (node.kind) {
             case 'group':
-                return describeCommands(node.commands, path)
+                return [
+                    ...(node.guide ? describeCommands({ [name]: node.guide }, prefix) : []),
+                    ...describeCommands(node.commands, path),
+                ]
             case 'legacy':
                 return [{ name: path, description: node.description, available: false, use: node.use }]
             case 'command':
@@ -59,6 +64,7 @@ export function describeCommands(tree: CommandTree, prefix = ''): ManifestEntry[
                         })),
                         options: describeOptions(node.options ?? {}),
                         scopes: node.scopes ?? [],
+                        refusesCI: node.refusesCI ? true : undefined,
                         examples: node.examples ?? [],
                     },
                 ]

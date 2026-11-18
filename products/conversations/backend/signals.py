@@ -21,7 +21,7 @@ from posthog.models.tagged_item import TaggedItem
 from posthog.models.tagged_item_registry import content_type_for
 
 from .ai.human_outcome import maybe_record_human_outcome
-from .cache import invalidate_identity_tickets_cache, invalidate_messages_cache, invalidate_tickets_cache
+from .cache import invalidate_identity_tickets_cache, invalidate_tickets_cache
 from .events import (
     build_ticket_tag_added_event,
     capture_message_received,
@@ -262,11 +262,10 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
         # Emit analytics events and invalidate cache
         try:
             ticket = Ticket.objects.select_related("team").get(id=item_id, team_id=team_id)
-            # Invalidate widget caches so list and messages reflect the new message
+            # Invalidate widget caches so the ticket list reflects the new message
             invalidate_identity_tickets_cache(team_id)
             if ticket.widget_session_id:
                 invalidate_tickets_cache(team_id, ticket.widget_session_id)
-            invalidate_messages_cache(team_id, item_id)
 
             if is_team_message and created_by_id:
                 try:

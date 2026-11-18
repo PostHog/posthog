@@ -10,7 +10,6 @@ import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic
 import { sharedMetricsLogic } from 'scenes/experiments/SharedMetrics/sharedMetricsLogic'
 import { urls } from 'scenes/urls'
 
-import { tagsModel } from '~/models/tagsModel'
 import { Experiment } from '~/types'
 
 import { MetricContext } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
@@ -47,7 +46,6 @@ export function SharedMetricModal({
     } = useActions(sharedMetricModalLogic)
     const { savingTagsMetricId } = useValues(sharedMetricsLogic)
     const { updateSharedMetricTags } = useActions(sharedMetricsLogic)
-    const { tags: allTags } = useValues(tagsModel)
 
     if (!compatibleSharedMetrics) {
         return null
@@ -230,7 +228,6 @@ export function SharedMetricModal({
                                     render: (_: any, metric: SharedMetric) => (
                                         <InlineTagEditor
                                             metric={metric}
-                                            allTags={allTags}
                                             onSave={(newTags) => updateSharedMetricTags(metric.id, newTags)}
                                             saving={savingTagsMetricId === metric.id}
                                         />

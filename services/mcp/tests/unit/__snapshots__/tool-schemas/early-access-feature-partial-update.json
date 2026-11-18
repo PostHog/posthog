@@ -23,6 +23,20 @@
             "description": "A UUID string identifying this early access feature.",
             "type": "string"
         },
+        "image_url": {
+            "anyOf": [
+                {
+                    "format": "uri",
+                    "maxLength": 800,
+                    "type": "string"
+                },
+                {
+                    "maxLength": 0,
+                    "type": "string"
+                }
+            ],
+            "description": "URL of an image that shows the feature, such as a screenshot. Shown to users in the opt-in UI."
+        },
         "name": {
             "description": "The name of the early access feature.",
             "maxLength": 200,

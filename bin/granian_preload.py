@@ -16,9 +16,11 @@ keep the code that the parent imported at start. In both cases the launcher runs
 as `granian` would, and each worker imports the app itself.
 
 bin/docker-server runs this instead of `granian` when POSTHOG_GRANIAN_PRELOAD=true.
-Every GRANIAN_* setting still applies. bin/test/test_granian_preload.py checks on Linux
-that ASGI workers run the app the parent imported and that WSGI workers import their own,
-so a granian upgrade that breaks this fails CI.
+Every GRANIAN_* setting still applies. With POSTHOG_GRANIAN_SHARED_SOCKET=true the workers
+also share one listen socket, see bin/granian_shared_socket.py. bin/test/test_granian_preload.py
+checks on Linux that ASGI workers run the app the parent imported, that WSGI workers import
+their own, and that the shared socket applies in both cases, so a granian upgrade that
+breaks this fails CI.
 """
 
 import os
@@ -27,6 +29,7 @@ import importlib
 import multiprocessing
 
 import granian.cli
+from granian_shared_socket import use_shared_socket
 
 # The values that granian's click options read as true.
 TRUE_VALUES = {"1", "true", "t", "yes", "y", "on"}
@@ -42,6 +45,10 @@ def can_preload() -> bool:
 
 
 def main() -> None:
+    # The same test as bin/docker-server, which accepts only the exact value.
+    if os.environ.get("POSTHOG_GRANIAN_SHARED_SOCKET") == "true":
+        use_shared_socket()
+
     if not can_preload():
         sys.stderr.write("granian_preload: needs GRANIAN_INTERFACE=asgi without reload, so not preloading\n")
         granian.cli.entrypoint()

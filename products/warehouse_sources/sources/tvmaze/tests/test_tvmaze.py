@@ -8,6 +8,7 @@ from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.sources.tvmaze._config import TVMazeSourceConfig
@@ -39,6 +40,93 @@ class TestIndexPagination:
         result = _run("shows", [_json([], status=404)])
 
         assert result.params("page") == ["0"]
+
+
+def _shows_index(*show_ids: int) -> list[ScriptedResponse]:
+    return [_json([{"id": show_id, "name": f"Show {show_id}"} for show_id in show_ids]), _json([], status=404)]
+
+
+class TestShowFanout:
+    @pytest.mark.parametrize(
+        ("endpoint", "child_suffix", "child_row", "expected_specials"),
+        [
+            ("seasons", "seasons", {"id": 10, "number": 1}, None),
+            ("episodes", "episodes", {"id": 20, "season": 1, "number": None, "type": "insignificant_special"}, "1"),
+            ("cast", "cast", {"person": {"id": 30}, "character": {"id": 40}, "self": False, "voice": False}, None),
+        ],
+    )
+    def test_walks_every_show_once_and_tags_rows_with_the_show(
+        self, endpoint: str, child_suffix: str, child_row: dict[str, Any], expected_specials: str | None
+    ) -> None:
+        result = _run(
+            endpoint,
+            route(
+                {
+                    "/shows": _shows_index(1, 2, 3),
+                    f"/shows/1/{child_suffix}": [_json([child_row])],
+                    # A show deleted after the index page was read.
+                    f"/shows/2/{child_suffix}": [_json({"name": "Not Found", "status": 404}, status=404)],
+                    f"/shows/3/{child_suffix}": [_json([child_row, child_row])],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [row["show_id"] for row in result.rows] == [1, 3, 3]
+        assert all("_shows_id" not in row for row in result.rows)
+        # Child lists are unpaginated: one request per show, never a ?page= walk.
+        assert result.paths == [
+            "/shows",
+            f"/shows/1/{child_suffix}",
+            f"/shows/2/{child_suffix}",
+            f"/shows/3/{child_suffix}",
+            "/shows",
+        ]
+        assert result.params("page") == ["0", None, None, None, "1"]
+        assert result.params("specials") == [None] + [expected_specials] * 3 + [None]
+        assert result.response is not None
+        assert result.response.sort_mode is None
+
+    def test_cast_rows_expose_person_and_character_ids(self) -> None:
+        result = _run(
+            "cast",
+            route(
+                {
+                    "/shows": _shows_index(1),
+                    "/shows/1/cast": [
+                        _json(
+                            [
+                                {"person": {"id": 7}, "character": {"id": 70}},
+                                {"person": {"id": 8}, "character": None},
+                            ]
+                        )
+                    ],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [(r["show_id"], r["person_id"], r["character_id"]) for r in result.rows] == [(1, 7, 70), (1, 8, None)]
+
+    def test_resume_skips_finished_shows_and_starts_at_the_saved_index_page(self) -> None:
+        result = _run(
+            "episodes",
+            route(
+                {
+                    "/shows": [_json([{"id": 251}, {"id": 252}]), _json([], status=404)],
+                    "/shows/252/episodes": [_json([{"id": 900}])],
+                }
+            ),
+            resume_state=TVMazeResumeConfig(
+                fanout_state={"parent": {"page": 1}, "completed": ["/shows/251/episodes?specials=1"]}
+            ),
+        )
+
+        assert result.raised is None
+        assert [(r["show_id"], r["id"]) for r in result.rows] == [(252, 900)]
+        assert result.paths == ["/shows", "/shows/252/episodes", "/shows"]
+        assert result.params("page")[0] == "1"
+        assert all(state.page is None and state.fanout_state for state in result.saved_states)
 
 
 class TestUpdatesEndpoints:

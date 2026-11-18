@@ -1,10 +1,21 @@
 import { Reader } from '@maxmind/geoip2-node'
 import fs from 'fs/promises'
+import * as schedule from 'node-schedule'
 
 import { PluginsServerConfig } from '~/types'
 
 import { defaultConfig } from '../config/config'
-import { GeoIPService, GeoIp, MMDB_LOAD_TIMEOUT_MS, MmdbLoadTimeoutError } from './geoip'
+import {
+    GeoIPService,
+    GeoIPServiceComponent,
+    GeoIp,
+    MMDB_LOAD_TIMEOUT_MS,
+    MmdbLoadTimeoutError,
+    MmdbMode,
+    geoipServerDefaultMode,
+    resolveCdpMmdbMode,
+} from './geoip'
+import { logger } from './logger'
 
 describe('GeoIp', () => {
     let service: GeoIPService
@@ -49,6 +60,19 @@ describe('GeoIp', () => {
             commonCheck(res[1])
         })
 
+        it('should not read the MMDB or warn if disabled', async () => {
+            const openSpy = jest.spyOn(Reader, 'open')
+            const warnSpy = jest.spyOn(logger, 'warn')
+            service = new GeoIPService('non-existent-file.mmdb', 'disabled')
+
+            const geoip = await service.get()
+
+            expect(geoip.city('216.160.83.56')).toBeNull()
+            expect(service.mmdbSource).toEqual({ kind: 'disabled' })
+            expect(openSpy).not.toHaveBeenCalled()
+            expect(warnSpy).not.toHaveBeenCalled()
+        })
+
         it('should fail the initial load if reading the MMDB hangs', async () => {
             jest.useFakeTimers()
             jest.spyOn(Reader, 'open').mockReturnValue(new Promise<never>(() => {}))
@@ -57,6 +81,72 @@ describe('GeoIp', () => {
             const assertion = expect(promise).rejects.toThrow(MmdbLoadTimeoutError)
             await jest.advanceTimersByTimeAsync(MMDB_LOAD_TIMEOUT_MS)
             await assertion
+        })
+    })
+
+    describe('component', () => {
+        it.each<{ mode: MmdbMode }>([{ mode: 'required' }, { mode: 'optional' }])(
+            'starts with the mmdb loaded when the mode is $mode',
+            async ({ mode }) => {
+                const started = await new GeoIPServiceComponent(config.MMDB_FILE_LOCATION, mode).start()
+                commonCheck(await started.value.get())
+                await started.stop()
+            }
+        )
+
+        it('fails to start if the MMDB is required and missing', async () => {
+            await expect(new GeoIPServiceComponent('non-existent-file.mmdb', 'required').start()).rejects.toThrow(
+                'GeoIP is required, but the MMDB could not be loaded from non-existent-file.mmdb'
+            )
+        })
+
+        it('cancels the hourly refresh on stop', async () => {
+            const nodeEnv = process.env.NODE_ENV
+            process.env.NODE_ENV = 'dev'
+            const jobsBefore = Object.keys(schedule.scheduledJobs).length
+            try {
+                const started = await new GeoIPServiceComponent(config.MMDB_FILE_LOCATION, 'optional').start()
+                expect(Object.keys(schedule.scheduledJobs)).toHaveLength(jobsBefore + 1)
+
+                await started.stop()
+
+                expect(Object.keys(schedule.scheduledJobs)).toHaveLength(jobsBefore)
+            } finally {
+                process.env.NODE_ENV = nodeEnv
+            }
+        })
+    })
+
+    describe('mode', () => {
+        it.each<{ cdpMmdbEnabled: string; cdpDefault: MmdbMode; expected: MmdbMode }>([
+            { cdpMmdbEnabled: '', cdpDefault: 'optional', expected: 'optional' },
+            { cdpMmdbEnabled: ' ', cdpDefault: 'disabled', expected: 'disabled' },
+            { cdpMmdbEnabled: 'true', cdpDefault: 'disabled', expected: 'required' },
+            { cdpMmdbEnabled: ' true', cdpDefault: 'disabled', expected: 'required' },
+            { cdpMmdbEnabled: '1', cdpDefault: 'optional', expected: 'required' },
+            { cdpMmdbEnabled: 'false', cdpDefault: 'optional', expected: 'disabled' },
+            { cdpMmdbEnabled: 'off ', cdpDefault: 'optional', expected: 'disabled' },
+        ])(
+            'resolves CDP_MMDB_ENABLED="$cdpMmdbEnabled" with default $cdpDefault to $expected',
+            ({ cdpMmdbEnabled, cdpDefault, expected }) => {
+                expect(resolveCdpMmdbMode(cdpMmdbEnabled, cdpDefault)).toBe(expected)
+            }
+        )
+
+        it('rejects a CDP_MMDB_ENABLED value that is not a boolean', () => {
+            expect(() => resolveCdpMmdbMode('ture', 'optional')).toThrow(
+                "CDP_MMDB_ENABLED must be true, false or empty, got 'ture'"
+            )
+        })
+
+        it.each<{ cloudDeployment: string | null; expected: MmdbMode }>([
+            { cloudDeployment: 'US', expected: 'required' },
+            { cloudDeployment: 'EU', expected: 'required' },
+            { cloudDeployment: 'DEV', expected: 'required' },
+            { cloudDeployment: 'E2E', expected: 'optional' },
+            { cloudDeployment: null, expected: 'optional' },
+        ])('defaults a GeoIP server on $cloudDeployment to $expected', ({ cloudDeployment, expected }) => {
+            expect(geoipServerDefaultMode(cloudDeployment)).toBe(expected)
         })
     })
 

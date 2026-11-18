@@ -236,7 +236,7 @@ class TestResolveGitLabProject(SimpleTestCase):
         tokens: list[str | None],
     ) -> None:
         integrations = (
-            [MagicMock(config=integration_config, sensitive_config={"access_token": "glpat-team"})]
+            [MagicMock(kind="gitlab", config=integration_config, sensitive_config={"access_token": "glpat-team"})]
             if integration_config
             else []
         )

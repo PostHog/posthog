@@ -1,0 +1,28 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "suppressions": {
+            "description": "Addresses to suppress, at most 1000 per request.",
+            "items": {
+                "properties": {
+                    "identifier": {
+                        "description": "The email address to suppress. Matched case-insensitively.",
+                        "maxLength": 512,
+                        "type": "string"
+                    },
+                    "reason": {
+                        "default": "manual",
+                        "description": "Why the address is suppressed. `bounce` blocks every email, transactional included, because the address can't receive mail. `complaint` (the recipient reported spam) and `manual` block marketing email only. Defaults to `manual`.\n\n* `bounce` - Bounce\n* `complaint` - Complaint\n* `manual` - Manual",
+                        "enum": ["bounce", "complaint", "manual"],
+                        "type": "string"
+                    }
+                },
+                "required": ["identifier"],
+                "type": "object"
+            },
+            "type": "array"
+        }
+    },
+    "required": ["suppressions"],
+    "type": "object"
+}

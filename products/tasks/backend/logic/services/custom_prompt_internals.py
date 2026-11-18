@@ -18,7 +18,6 @@ from pydantic import JsonValue
 
 from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
-from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import PosthogMcpScopes
 
@@ -31,6 +30,8 @@ from products.tasks.backend.logic.services.startup_failure import (
     read_startup_failure,
 )
 from products.tasks.backend.models import Task, TaskRun, stamp_pending_user_message_id
+from products.tasks.backend.storage import read_run_log
+from products.tasks.backend.task_run_sync import sync_task_statuses_on_commit
 
 if TYPE_CHECKING:
     from temporalio.client import WorkflowHandle
@@ -181,6 +182,7 @@ class CustomPromptSandboxContext:
     """Tool names to omit from the PostHog MCP catalog for this run (``x-posthog-exclude-tools``).
     Used when a scope grant is broader than the tools this caller should advertise, e.g. hiding
     ``docs-search`` from a non-PostHog support draft."""
+    custom_image_id: str | None = None
 
 
 class TurnPollTimeout(RuntimeError):
@@ -375,6 +377,8 @@ async def _create_task_and_trigger(
         extra_run_state["disable_skills"] = True
     if context.disable_repo_hooks:
         extra_run_state["disable_repo_hooks"] = True
+    if context.custom_image_id is not None:
+        extra_run_state["custom_image_id"] = context.custom_image_id
     if analytics_query_context is not None:
         queries = [query for query in analytics_query_context if query is not None]
         if queries:
@@ -1009,7 +1013,9 @@ def _extract_agent_error(log_content: str | None, skip_lines: int = 0) -> AgentE
 
 
 def _update_task_run_error_message(run_id: str, message: str) -> None:
-    TaskRun.objects.filter(id=run_id).update(error_message=message)
+    runs = TaskRun.objects.filter(id=run_id)
+    runs.update(error_message=message)
+    sync_task_statuses_on_commit(runs.values_list("task_id", flat=True))
 
 
 async def _persist_task_run_error_message(run_id: str, message: str) -> None:
@@ -1141,7 +1147,7 @@ def _check_logs(task_run, skip_lines: int = 0) -> TurnLogState:
     `refused` flags a provider refusal (stopReason "refusal") — a terminal turn
     state: without it the poll loop would wait out its whole budget on a turn that already died.
     """
-    log_content = object_storage.read(task_run.log_url, missing_ok=True) or ""
+    log_content = read_run_log(task_run.log)
     if not log_content.strip():
         return TurnLogState(
             agent_finished=False,

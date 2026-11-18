@@ -295,9 +295,9 @@ pub async fn otel_handler(
     // The cost is that the loss cannot be seen in the response, so it is
     // reported twice: on `capture_events_dropped_total` for us, and as a
     // `MessageSizeTooLarge` ingestion warning for whoever owns the project.
+    let max_event_bytes = state.ai_max_event_bytes.for_token(&token);
     let before = processed_events.len();
-    processed_events
-        .retain(|e| !exceeds_max_ai_event_bytes(e.event.data.len(), state.ai_max_event_bytes));
+    processed_events.retain(|e| !exceeds_max_ai_event_bytes(e.event.data.len(), max_event_bytes));
     let dropped = before - processed_events.len();
     if dropped > 0 {
         report_dropped_events("ai_event_too_big", dropped as u64);
@@ -305,7 +305,7 @@ pub async fn otel_handler(
             state.ingestion_warning_emitter.as_deref(),
             &otel_request_context(&token, OTEL_PATH, Some(&request)),
             dropped,
-            state.ai_max_event_bytes,
+            max_event_bytes,
         );
     }
 

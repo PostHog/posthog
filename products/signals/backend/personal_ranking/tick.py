@@ -3,7 +3,8 @@
 The `tick` object of the `personal-inbox-ranking` flag payload holds every lever, and a missing or malformed
 object turns the tick off. A pair is due when it has a ready activity summary, recent activity, and a latest
 list that was built or checked longer ago than `target_interval_minutes`, or no list. The pair activity takes
-the same per-person lock as the `for_me` read, so a tick and a read never build the same list together. It
+the same per-person lock as the `for_me` read, so a tick and a read never build the same list together. Overdue
+pairs, with no list or a list older than `overdue_after_minutes`, go first, so recent activity cannot starve them. It
 compares the input hash first: a match records `checked_at` on the latest row and calls no model. A build that
 calls the model spends the tick's daily limit and then the shared daily limit of the region.
 """
@@ -18,7 +19,7 @@ from typing import Any, Literal
 from django.conf import settings
 from django.core.cache import cache
 from django.db.models import Count, DateTimeField, Exists, F, Min, OuterRef, Q, QuerySet, Subquery, Value, Window
-from django.db.models.functions import Coalesce, RowNumber
+from django.db.models.functions import Coalesce, Least, RowNumber
 from django.utils import timezone
 
 import structlog
@@ -104,8 +105,6 @@ _PAIR_TIMEOUT = datetime.timedelta(minutes=4)
 _PAIR_HEARTBEAT_TIMEOUT = datetime.timedelta(minutes=1)
 # No retry: an attempt can have called the model, and the next tick picks the pair again.
 _PAIR_RETRY_POLICY = RetryPolicy(maximum_attempts=1)
-# The tick starts no pair after this share of its interval, so the last pairs end before the next tick.
-_TIME_BUDGET_SHARE = 0.6
 # Ticks recorded before this marker ran pairs in waves and replay the wave loop.
 _SLIDING_WINDOW_PATCH = "personal-ranking-tick-sliding-window-2026-11"
 _TIMED_STATUSES: tuple[PairStatus, ...] = ("unchanged", "built")
@@ -140,6 +139,8 @@ class TickSelection:
     pairs: list[TickPair]
     due_pairs: int = 0
     due_without_list: int = 0
+    due_overdue: int = 0
+    picked_overdue: int = 0
     # Hours since the oldest list of a due pair was built or checked. Null when no due pair has a list.
     oldest_due_hours: float | None = None
     # Hours since the last activity and since the activity summary of the pair behind `oldest_due_hours`,
@@ -176,6 +177,8 @@ class PersonalRankingTickPlan:
     stop_reason: str | None
     due_pairs: int = 0
     due_without_list: int = 0
+    due_overdue: int = 0
+    picked_overdue: int = 0
     oldest_due_hours: float | None = None
     oldest_due_activity_hours: float | None = None
     oldest_due_summary_hours: float | None = None
@@ -201,6 +204,8 @@ class PersonalRankingTickResult:
     enabled: bool = False
     due_pairs: int = 0
     due_without_list: int = 0
+    due_overdue: int = 0
+    picked_overdue: int = 0
     picked: int = 0
     statuses: dict[str, int] = dataclasses.field(default_factory=dict)
     # Built pairs by changed input part. A pair with two changed parts counts in both.
@@ -373,16 +378,22 @@ def select_pairs(
 ) -> TickSelection:
     """The due pairs of the enrolled teams, cut to `limit`.
 
-    Paying organizations come first, then the most recent activity, then the oldest list. No organization
-    takes more than `max_org_share` of `limit`.
+    Overdue pairs come first: no list, then the oldest list. The other due pairs follow: paying organizations
+    first, then the most recent activity, then the oldest list. No organization takes more than `max_org_share`
+    of `limit`.
     """
     if not team_ids:
         return TickSelection(pairs=[])
     tick = config.tick
     stale_before = now - datetime.timedelta(minutes=tick.target_interval_minutes)
+    overdue_before = now - datetime.timedelta(minutes=tick.overdue_after_minutes)
     eligible = _eligible_pairs(tick, now, team_ids)
     due = eligible.filter(Q(list_at__isnull=True) | Q(list_at__lt=stale_before))
     order = (
+        # Overdue pairs first by list age, and the rest tie. One key, because each `list_at` reference reruns its subquery.
+        Least(
+            Coalesce("list_at", Value(datetime.datetime.min.replace(tzinfo=datetime.UTC))), Value(overdue_before)
+        ).asc(),
         F("paying").desc(),
         F("last_activity_at").desc(nulls_last=True),
         F("list_at").asc(nulls_first=True),
@@ -396,7 +407,10 @@ def select_pairs(
         .values("id", "team_id", "user_id", "list_at")[:limit]
     )
     due_stats = due.aggregate(
-        pairs=Count("id"), without_list=Count("id", filter=Q(list_at__isnull=True)), oldest=Min("list_at")
+        pairs=Count("id"),
+        without_list=Count("id", filter=Q(list_at__isnull=True)),
+        overdue_with_list=Count("id", filter=Q(list_at__lt=overdue_before)),
+        oldest=Min("list_at"),
     )
     eligible_stats = eligible.aggregate(pairs=Count("id"), fresh=Count("id", filter=Q(list_at__gte=stale_before)))
     oldest_pair = (
@@ -412,6 +426,8 @@ def select_pairs(
         pairs=[TickPair(team_id=row["team_id"], user_id=row["user_id"]) for row in rows],
         due_pairs=due_stats["pairs"],
         due_without_list=due_stats["without_list"],
+        due_overdue=due_stats["without_list"] + due_stats["overdue_with_list"],
+        picked_overdue=sum(row["list_at"] is None or row["list_at"] < overdue_before for row in rows),
         oldest_due_hours=_hours_since(now, due_stats["oldest"]),
         oldest_due_activity_hours=_hours_since(now, oldest_pair["last_activity_at"]) if oldest_pair else None,
         oldest_due_summary_hours=_hours_since(now, oldest_pair["generated_at"]) if oldest_pair else None,
@@ -427,7 +443,7 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> PersonalRankingTickP
     tick = config.tick
     enabled = config.enabled and tick.enabled
     interval_seconds = settings.PERSONAL_INBOX_RANKING_TICK_INTERVAL_MINUTES * 60
-    time_budget_seconds = interval_seconds * _TIME_BUDGET_SHARE
+    time_budget_seconds = interval_seconds * tick.time_budget_share
     if enabled and not openai_gateway_configured():
         # Every build would fail on the same missing gateway, so the tick runs none.
         logger.warning("personal_inbox_ranking_tick_gateway_not_configured")
@@ -454,6 +470,8 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> PersonalRankingTickP
         stop_reason=stop_reason,
         due_pairs=selection.due_pairs,
         due_without_list=selection.due_without_list,
+        due_overdue=selection.due_overdue,
+        picked_overdue=selection.picked_overdue,
         oldest_due_hours=selection.oldest_due_hours,
         oldest_due_activity_hours=selection.oldest_due_activity_hours,
         oldest_due_summary_hours=selection.oldest_due_summary_hours,
@@ -510,6 +528,8 @@ def capture_tick(result: PersonalRankingTickResult) -> None:
         "deployment": settings.CLOUD_DEPLOYMENT,
         "due_pairs": result.due_pairs,
         "due_without_list": result.due_without_list,
+        "due_overdue": result.due_overdue,
+        "picked_overdue": result.picked_overdue,
         "picked": result.picked,
         **{status: result.statuses.get(status, 0) for status in PAIR_STATUSES},
         **{
@@ -583,6 +603,9 @@ class PersonalRankingTickWorkflow:
             enabled=True,
             due_pairs=plan.due_pairs,
             due_without_list=plan.due_without_list,
+            due_overdue=plan.due_overdue,
+            # The plan puts its overdue pairs first, so the started pairs hold them first.
+            picked_overdue=min(picked, plan.picked_overdue),
             picked=picked,
             statuses=tally.statuses,
             changed_parts=tally.changed_parts,

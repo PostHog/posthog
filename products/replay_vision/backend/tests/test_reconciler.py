@@ -63,7 +63,7 @@ from products.replay_vision.backend.temporal.reconciler_types import (
 )
 from products.replay_vision.backend.temporal.schedule import (
     compute_schedule_fingerprint,
-    load_enabled_scanner_fingerprints,
+    load_enabled_scanner_schedule_states,
 )
 from products.replay_vision.backend.tests.helpers import create_experiment
 
@@ -95,26 +95,43 @@ def _make_scanner(team: Team, **overrides: Any) -> ReplayScanner:
 
 
 @pytest.mark.django_db(transaction=True)
-def test_load_enabled_scanner_fingerprints_includes_only_enabled(org_team) -> None:
+def test_load_enabled_scanner_schedule_states_includes_only_scanners_that_should_sweep(org_team) -> None:
     _, team = org_team
+    now = dt.datetime.now(dt.UTC)
     enabled = _make_scanner(team)
     _make_scanner(team, name="disabled", enabled=False)
-    fingerprints = load_enabled_scanner_fingerprints()
-    assert set(fingerprints.keys()) == {enabled.id}
-    team_id, fingerprint = fingerprints[enabled.id]
-    assert team_id == team.id
-    assert isinstance(fingerprint, str) and fingerprint
+    pause_over = _make_scanner(team, name="pause-over")
+    paused = _make_scanner(team, name="paused")
+    ReplayScanner.objects.filter(pk=pause_over.pk).update(sweep_paused_until=now - dt.timedelta(minutes=1))
+    ReplayScanner.objects.filter(pk=paused.pk).update(sweep_paused_until=now + dt.timedelta(hours=1))
+
+    assert set(load_enabled_scanner_schedule_states().keys()) == {enabled.id, pause_over.id}
+    assert load_enabled_scanner_schedule_states()[enabled.id].team_id == team.id
+
+    paused.refresh_from_db()
+    paused.save(update_fields=["name"])
+    assert paused.id in load_enabled_scanner_schedule_states()
 
 
 @pytest.mark.django_db(transaction=True)
-def test_load_enabled_scanner_fingerprints_changes_with_config(org_team) -> None:
+@pytest.mark.parametrize("change", ["config", "cadence"])
+def test_load_enabled_scanner_schedule_states_fingerprint_changes_with_config_and_cadence(
+    org_team, change: str
+) -> None:
     _, team = org_team
     scanner = _make_scanner(team, scanner_config={"prompt": "a"})
-    before = load_enabled_scanner_fingerprints()[scanner.id][1]
-    scanner.scanner_config = {"prompt": "b"}
-    scanner.save(update_fields=["scanner_config"])
-    after = load_enabled_scanner_fingerprints()[scanner.id][1]
-    assert before != after
+    long_ago = dt.datetime.now(dt.UTC) - dt.timedelta(days=7)
+    ReplayScanner.objects.filter(pk=scanner.pk).update(created_at=long_ago, updated_at=long_ago)
+    before = load_enabled_scanner_schedule_states()[scanner.id]
+    if change == "config":
+        scanner.scanner_config = {"prompt": "b"}
+        scanner.save(update_fields=["scanner_config"])
+    else:
+        ReplayScanner.objects.filter(pk=scanner.pk).update(last_found_candidates_at=dt.datetime.now(dt.UTC))
+    after = load_enabled_scanner_schedule_states()[scanner.id]
+    assert before.fingerprint != after.fingerprint
+    if change == "cadence":
+        assert (before.interval, after.interval) == (dt.timedelta(minutes=60), dt.timedelta(minutes=5))
 
 
 @pytest.mark.django_db(transaction=True)
@@ -280,6 +297,7 @@ async def _run_reconcile(mocks: _ReconcileMocks):
     with (
         patch("temporalio.workflow.execute_activity", side_effect=mocks.execute_activity),
         patch("temporalio.workflow.logger", fake_logger),
+        patch("temporalio.workflow.patched", return_value=True),
     ):
         return await ReconcileScannerSchedulesWorkflow().run(ReconcileScannerSchedulesInputs())
 

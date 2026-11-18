@@ -17,6 +17,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.events import EVENTS_AVOID_ASTERISK_FIELDS, EventsTable
 from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable, flag_evaluations_coverage_start
+from posthog.hogql.database.schema.util.json_text import is_json_container_text
 from posthog.hogql.database.schema.util.null_sentinels import null_if_sentinels
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr
@@ -36,9 +37,9 @@ EVENTS_WITH_FLAG_CALLS_TABLE = "events_with_flag_calls"
 EVENTS_WITH_FLAG_CALLS_CHAIN: list[str] = ["posthog", EVENTS_WITH_FLAG_CALLS_TABLE]
 
 # Ingestion writes a flag call to flag_evaluations only when `$feature_flag` is a non-empty JSON string. The raw JSON
-# text of a string value starts with a quote, and a number, boolean or object does not. On the native JSON events
-# table the printer converts a typed key before this test reads it, so mode 1 queries there keep reading events. The
-# test reads only the raw JSON text, because a materialized `$feature_flag` column reads an empty string as missing.
+# text of a string value starts with a quote, and a number, boolean or object does not. A query on the native JSON
+# events table reads every flag call from flag_evaluations, so this test never reads that table. The test reads only
+# the raw JSON text, because a materialized `$feature_flag` column reads an empty string as missing.
 _HAS_FLAG_KEY = (
     "startsWith(JSONExtractRaw(events.properties, '$feature_flag'), '\"') "
     "AND JSONExtractRaw(events.properties, '$feature_flag') != '\"\"'"
@@ -142,6 +143,7 @@ class EventsWithFlagCallsTable(LazyTable):
     """
 
     fields: dict[str, FieldOrTable] = {}
+    person_id_pushdown_default: bool = True
 
     def avoid_asterisk_fields(self) -> list[str]:
         return list(EVENTS_AVOID_ASTERISK_FIELDS)
@@ -160,6 +162,8 @@ class EventsWithFlagCallsTable(LazyTable):
         )
 
         assert context.database is not None
+        # An inline cohort renames its own scans during type resolution, so only this method sees every union scan.
+        context.flag_calls_read.add("union")
         # Lazy table resolution drops the scan's SAMPLE, so each branch applies the ratio itself.
         sample = union_scan_sample(node, self)
 
@@ -192,7 +196,7 @@ class EventsWithFlagCallsTable(LazyTable):
             )
 
         columns = FlagEvaluationsColumns(self, context.database.get_table(["posthog", "flag_evaluations"]))
-        only_in_flag_evaluations = context.database.flag_calls_only_in_flag_evaluations
+        only_in_flag_evaluations = context.flag_calls_only_in_flag_evaluations()
         cutoff = ast.Constant(value=flag_evaluations_coverage_start(datetime.now(UTC)))
         # Property type resolution ran before lazy tables, so the metadata holds the type of each property this query
         # reads, `$feature_flag` among them.
@@ -270,7 +274,9 @@ def serialized_like_events(table: Table, chain: list[str | int], read: ast.Field
     the text of a `$feature/<key>` property instead, because it rebuilds that property from `$feature_flags`. It does
     the same for a key that a restriction overlaps, which it reads from the masked document, unless the key is stored
     in `temporary_properties`. Every other read, and every read on the legacy events table, serializes the text.
-    flag_evaluations stores the document as JSON text, so the key's raw text is its JSON value.
+    flag_evaluations stores the document as JSON text, so the key's raw text is its JSON value. Events stores an
+    object or array as a string of its JSON text and reads any string that is a valid JSON object or array as that
+    container, so this does the same.
     """
     # Deferred: restricted_properties imports this module.
     from posthog.hogql.restricted_properties import property_path_overlaps_restriction  # noqa: PLC0415
@@ -294,10 +300,13 @@ def serialized_like_events(table: Table, chain: list[str | int], read: ast.Field
         PERSON_PROPERTIES_JSON_SUBCOLUMNS if isinstance(owner, VirtualTable) else EVENTS_PROPERTIES_JSON_SUBCOLUMNS
     )
     if key in declared_paths:
-        return serialized
-    # Events reads a missing key and an empty object as NULL. An integer key names a key, not a position.
+        return ast.Call(name="if", args=[is_json_container_text(read), clone_expr(read), serialized])
+    # Events reads a missing key as NULL. An integer key names a key, not a position.
     raw = ast.Call(name="JSONExtractRaw", args=[ast.Field(chain=read.chain[:-1]), ast.Constant(value=key)])
-    return null_if_sentinels(raw, ("", "{}", "null"))
+    text = ast.Call(name="JSONExtractString", args=[clone_expr(raw)])
+    return ast.Call(
+        name="if", args=[is_json_container_text(text), clone_expr(text), null_if_sentinels(raw, ("", "null"))]
+    )
 
 
 def union_table_of(table_type: ast.Type | None) -> "EventsWithFlagCallsTable | None":

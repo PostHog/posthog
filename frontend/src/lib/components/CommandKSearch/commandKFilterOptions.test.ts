@@ -145,6 +145,7 @@ describe('viewAllFor', () => {
             '/data-management/transformations',
         ],
         ['endpoint', 'endpoints', 'View all endpoints', '/endpoints'],
+        ['people', 'person', 'View all persons', '/persons'],
     ])('resolves is:%s to its type and names its list page', (typed, value, name, href) => {
         const typedQuery = resolveQuery(`is:${typed}`, [], buildFilterOptions([], null, []))
         expect(typedQuery.filters).toEqual([expect.objectContaining({ key: 'is', value, negated: false })])

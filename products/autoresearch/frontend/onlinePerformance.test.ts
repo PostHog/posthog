@@ -183,6 +183,16 @@ describe('onlinePerformance', () => {
             ],
         },
         {
+            name: 'a near-perfect checked date',
+            overrides: { realized_auc: 0.996, lift_at_10: 9.78, mean_p_y: 0.033 },
+            expected: [
+                ['Strong', 'AUC 0.996, scored on Feb 10'],
+                ['9.8×', 'Near the maximum, scored on Feb 10'],
+                ['3.0%', 'Predicted 3.3%, scored on Feb 10'],
+                ['47,000', '1,410 did it, scored on Feb 10'],
+            ],
+        },
+        {
             name: 'a checked date where no one did it',
             overrides: { realized_auc: null, lift_at_10: 0, mean_p_y: null, n_positive: 0, base_rate: 0 },
             expected: [

@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 16 enabled ops
+ * PostHog API - MCP 19 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -287,6 +287,23 @@ export const IdentityProviderConfigsScimTokenCreateParams = () => zod.object({
         .describe(
             "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
         ),
+})
+
+/**
+ * OAuth applications linked to the organization, with each app's provisioning partner status and
+ * review. Read-only, and only for organization admins, who are the people who run the apps.
+ */
+export const OauthApplicationsListParams = () => zod.object({
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
+        ),
+})
+
+export const OauthApplicationsListQueryParams = () => zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
 /**
@@ -2868,6 +2885,12 @@ export const OrganizationsProjectsCreateBody = () => zod
                     .optional()
                     .describe(
                         'Default UTM values that new email steps and broadcasts copy. An empty value keeps the built-in default for that tag.'
+                    ),
+                email_workflow_run_link_tag_enabled: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Whether tracked links in emails this project sends get a ph_workflow_run parameter with the send's run ID. When the landing page runs posthog-js, the parameter links each click to the session it starts. Links with click tracking turned off never get it. On by default."
                     ),
                 workflow_task_rate_limit_per_day: zod
                     .number()
@@ -5768,6 +5791,12 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .describe(
                         'Default UTM values that new email steps and broadcasts copy. An empty value keeps the built-in default for that tag.'
                     ),
+                email_workflow_run_link_tag_enabled: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Whether tracked links in emails this project sends get a ph_workflow_run parameter with the send's run ID. When the landing page runs posthog-js, the parameter links each click to the session it starts. Links with click tracking turned off never get it. On by default."
+                    ),
                 workflow_task_rate_limit_per_day: zod
                     .number()
                     .min(organizationsProjectsPartialUpdateBodyWorkflowsConfigWorkflowTaskRateLimitPerDayMin)
@@ -6051,6 +6080,71 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
     .describe(
         "A project and its settings, including the settings that live on its passthrough Team.\n\nThis shape is a superset of TeamSerializer's, so a request rewritten from \/api\/environments\/\nonto \/api\/projects\/ never loses a field."
     )
+
+export const FileSystemListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const fileSystemListQueryIncludeContentTypeDefault = false
+export const fileSystemListQueryIncludeTagsDefault = false
+export const fileSystemListQueryLimitMax = 1000
+
+export const FileSystemListQueryParams = () => zod.object({
+    include_content_type: zod
+        .boolean()
+        .default(fileSystemListQueryIncludeContentTypeDefault)
+        .describe('Include meta.content_type for notebooks and insights on this page, without their contents.'),
+    include_tags: zod
+        .boolean()
+        .default(fileSystemListQueryIncludeTagsDefault)
+        .describe('Include meta.tags, the tag names, for dashboards and insights on this page.'),
+    limit: zod.number().max(fileSystemListQueryLimitMax).optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    parent: zod
+        .string()
+        .optional()
+        .describe("Only entries under this folder path, at any depth, such as 'Experiments\/Q4'."),
+    path: zod.string().optional().describe('Only the entry at exactly this path.'),
+    ref: zod
+        .string()
+        .optional()
+        .describe(
+            "Only entries pointing at this item: the insight or notebook short_id, or the dashboard id. Combine with type to find an item's entry in the project tree."
+        ),
+    search: zod.string().optional().describe('A search term.'),
+    tags: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'A JSON array of tag names, such as [\"growth\", \"weekly\"]. Keeps only the dashboards and insights that carry at least one of them.'
+        ),
+    type: zod
+        .string()
+        .optional()
+        .describe("Only entries of this type, such as 'insight', 'dashboard', 'notebook' or 'folder'."),
+})
+
+export const FileSystemMoveCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this file system.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const FileSystemMoveCreateBody = () => zod.object({
+    new_path: zod
+        .string()
+        .describe(
+            "Full new path for the entry, including its own name as the last segment, such as 'Experiments\/Q4\/Weekly signups'. Missing parent folders are created. Escape a '\/' inside a name as '\\\/'."
+        ),
+})
 
 export const ProductEnablementCreateParams = () => zod.object({
     project_id: zod

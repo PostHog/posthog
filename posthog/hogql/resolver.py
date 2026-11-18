@@ -25,6 +25,7 @@ from posthog.hogql.database.schema.duckdb_table_functions import (
 )
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.events_with_flag_calls import EventsWithFlagCallsTable
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
 from posthog.hogql.database.schema.log_entries import (
     BatchExportLogEntriesTable,
     LogEntriesTable,
@@ -76,7 +77,7 @@ from posthog.hogql.resolver_utils import (
     suggested_field_fix,
     zero_argument_function_call,
 )
-from posthog.hogql.transforms.flag_calls_from_flag_evaluations import swap_flag_calls, swaps_flag_calls
+from posthog.hogql.transforms.flag_calls_from_flag_evaluations import FlagCallScope, swap_flag_calls, swaps_flag_calls
 from posthog.hogql.transforms.grouped_clauses import raise_on_whole_document_grouping
 from posthog.hogql.transforms.trino.persons import (
     lower_trino_table,
@@ -143,7 +144,7 @@ def _string_constants(node: ast.Expr) -> list[ast.Constant]:
 # re-executed per shard of a distributed outer scan: sharded tables, and tables on another
 # cluster (log_entries is a Distributed over the aux cluster, so a plain IN makes every shard
 # of the outer query issue its own remote read against aux).
-_GLOBAL_IN_TABLES: tuple[type, ...] = (EventsTable, LogEntriesTable)
+_GLOBAL_IN_TABLES: tuple[type, ...] = (EventsTable, FlagEvaluationsTable, LogEntriesTable)
 _GLOBAL_IN_LAZY_TABLES: tuple[type, ...] = (
     ReplayConsoleLogsLogEntriesTable,
     BatchExportLogEntriesTable,
@@ -1520,7 +1521,7 @@ class Resolver(CloningVisitor):
                 self.join_sources = outer_join_sources
             return resolved
 
-        chosen_body = swap_flag_calls(body, self.context, resolve, view_name=view_name).source
+        chosen_body = swap_flag_calls(body, self.context, resolve, scope=FlagCallScope.view(view_name)).source
         self._flag_call_view_bodies[key] = chosen_body
         return clone_expr(chosen_body)
 
@@ -1657,6 +1658,20 @@ class Resolver(CloningVisitor):
                 assert isinstance(database_table, ast.Table)
                 node_table_type = ast.TableType(table=database_table)
 
+            for scope_alias, scope_type in scope.tables.items():
+                # An unaliased scan of a non-lazy table prints as its bare table name. `FROM posthog.events JOIN
+                # events` would print both scans as `events`. ClickHouse then cannot tell them apart.
+                if (
+                    isinstance(scope_type, ast.TableType)
+                    and scope_type == node_table_type
+                    and scope_alias != table_alias
+                    and database_table.to_printed_clickhouse(self.context) == table_alias
+                ):
+                    raise QueryError(
+                        f'"{self._get_scope_table_names(scope)[scope_alias]}" and "{".".join(table_name_chain)}" '
+                        "read the same table. Give one of them an alias."
+                    )
+
             if isinstance(database_table, HogQLDataWarehouseTable) and database_table.table_id is not None:
                 self._record_warehouse_sync_warnings(database_table.table_id)
 
@@ -1688,7 +1703,14 @@ class Resolver(CloningVisitor):
                 node_type = ast.ColumnAliasedTableType(
                     alias=table_alias, table_type=node_table_type, alias_to_original=alias_to_original
                 )
-            elif table_alias != table_name_alias or isinstance(database_table, FunctionCallTable):
+            elif (
+                table_alias != table_name_alias
+                or isinstance(database_table, FunctionCallTable)
+                # `persons` and `posthog.persons` resolve to the same table, and their types compare equal.
+                # `get_alias_for_table_type` returns the first scope entry with an equal type. Without an alias,
+                # the second scan prints with the first scan's name.
+                or node_table_type in scope.tables.values()
+            ):
                 node_type = ast.TableAliasType(alias=table_alias, table_type=node_table_type)
             else:
                 node_type = node_table_type
@@ -2771,9 +2793,15 @@ class Resolver(CloningVisitor):
                         expression = ast.Call(name="tupleElement", args=[expression, ast.Constant(value=member)])
                     return self.visit(expression)
             if next_chain == "..":  # only support one level of ".."
-                previous_types.pop()
-                previous_types.pop()
-                loop_type = previous_types[-1]
+                del previous_types[-2:]
+                if previous_types:
+                    loop_type = previous_types[-1]
+                elif isinstance(loop_type, ast.VirtualTableType):
+                    loop_type = loop_type.table_type
+                else:
+                    raise QueryError(f"Cannot use '..' after '{'.'.join(str(c) for c in resolved_chain)}'")
+                if not chain_to_parse:
+                    raise QueryError("Expected a field after '..'")
                 next_chain = chain_to_parse.pop(0)
 
             try:
@@ -3182,6 +3210,7 @@ class Resolver(CloningVisitor):
             self._record_saved_query_read(database_table.id, is_user_view=type(database_table) is SavedQuery)
         elif isinstance(database_table, S3Table) and database_table.saved_query_id is not None:
             self._record_saved_query_read(database_table.saved_query_id, is_user_view=True)
+            self.context.materialized_saved_query_ids.add(database_table.saved_query_id)
         elif isinstance(database_table, S3Table) and database_table.table_id is not None:
             self.context.referenced_warehouse_table_ids.add(database_table.table_id)
             self._record_direct_read(database_table.table_id)

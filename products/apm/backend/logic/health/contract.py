@@ -34,7 +34,7 @@ class HealthRow:
 @dataclass(frozen=True)
 class ServiceHealth:
     service_name: str
-    environment: str
+    environment: str | None
     health: HealthRow
     status: HealthStatus = HealthStatus.GOOD
     sparkline: tuple[int, ...] = ()
@@ -46,7 +46,7 @@ class EndpointHealth:
 
     service_name: str
     endpoint: str
-    environment: str
+    environment: str | None
     health: HealthRow
     status: HealthStatus = HealthStatus.GOOD
 
@@ -58,6 +58,26 @@ class ServiceEdge:
     caller: str
     callee: str
     calls: int
+    error_count: int
+    p95_ms: float | None
+
+
+class DependencyKind(LabeledStrEnum):
+    SERVICE = "service"
+    DATABASE = "database"
+    QUEUE = "queue"
+    EXTERNAL = "external"
+
+
+@dataclass(frozen=True)
+class DependencyEdge:
+    """Calls from a service into a dependency: another service, or one inferred from client span attributes."""
+
+    caller: str
+    callee: str
+    inferred: bool
+    kind: DependencyKind
+    requests: int
     error_count: int
     p95_ms: float | None
 

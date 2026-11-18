@@ -1,4 +1,5 @@
 use crate::api::api_key_usage::ApiKeyKind;
+use crate::utils::token_log::loggable_token;
 use crate::{
     api::{
         auth,
@@ -255,7 +256,7 @@ pub async fn flags_definitions(
 ) -> Result<Response, FlagError> {
     info!(
         method = %method,
-        token = ?params.token,
+        token = ?params.token.as_deref().map(loggable_token),
         "Processing flag definitions request"
     );
 
@@ -498,7 +499,7 @@ async fn resolve_team_from_auth(state: &AppState, headers: &HeaderMap) -> Result
         let secret = auth::validate_secret_api_token(state, &token).await?;
         inc(
             FLAG_DEFINITIONS_AUTH_COUNTER,
-            &[("method".to_string(), secret.method_label().to_string())],
+            &[("method".to_string(), "project_secret_api_key".to_string())],
             1,
         );
 
@@ -758,7 +759,7 @@ async fn authenticate_flag_definitions(
         let secret = auth::validate_secret_api_token_for_team(state, &token, team.id).await?;
         inc(
             FLAG_DEFINITIONS_AUTH_COUNTER,
-            &[("method".to_string(), secret.method_label().to_string())],
+            &[("method".to_string(), "project_secret_api_key".to_string())],
             1,
         );
         state

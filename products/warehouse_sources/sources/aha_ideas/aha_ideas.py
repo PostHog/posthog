@@ -74,9 +74,9 @@ def _build_initial_params(
     db_incremental_field_last_value: Any,
 ) -> dict[str, Any]:
     params: dict[str, Any] = {"per_page": config.page_size, **config.params}
-    # Only Aha!'s `updated_since`-capable endpoints filter server-side; everything else is full refresh.
+    # Only endpoints with a server-side timestamp filter run incrementally; everything else is full refresh.
     if config.supports_incremental and should_use_incremental_field and db_incremental_field_last_value:
-        params["updated_since"] = _format_updated_since(db_incremental_field_last_value)
+        params[config.incremental_param] = _format_updated_since(db_incremental_field_last_value)
     return params
 
 

@@ -2,6 +2,7 @@ import json
 from datetime import UTC, date, datetime
 from typing import Any
 
+import pytest
 from unittest.mock import MagicMock
 
 import pyarrow as pa
@@ -135,22 +136,31 @@ class TestCreatedAtCursorEndpoints:
 
 
 class TestPageEndpoints:
-    def test_walks_ascending_pages_until_has_next_page_false(self, monkeypatch: Any) -> None:
+    @pytest.mark.parametrize(
+        "endpoint,path",
+        [
+            ("chats", "/chat"),
+            ("scorecards", "/observability/scorecard"),
+            ("evals", "/eval"),
+            ("eval_runs", "/eval/run"),
+        ],
+    )
+    def test_walks_ascending_pages_until_has_next_page_false(self, monkeypatch: Any, endpoint: str, path: str) -> None:
         pages = {
-            "https://api.vapi.ai/chat?limit=2&page=1&sortOrder=ASC&sortBy=createdAt": {
+            f"https://api.vapi.ai{path}?limit=2&page=1&sortOrder=ASC&sortBy=createdAt": {
                 "results": [
                     {"id": "1", "createdAt": "2026-01-01T00:00:00.000Z"},
                     {"id": "2", "createdAt": "2026-01-02T00:00:00.000Z"},
                 ],
                 "metadata": {"hasNextPage": True},
             },
-            "https://api.vapi.ai/chat?limit=2&page=2&sortOrder=ASC&sortBy=createdAt": {
+            f"https://api.vapi.ai{path}?limit=2&page=2&sortOrder=ASC&sortBy=createdAt": {
                 "results": [{"id": "3", "createdAt": "2026-01-03T00:00:00.000Z"}],
                 "metadata": {"hasNextPage": False},
             },
         }
         fetched = _patch_fetch(monkeypatch, pages)
-        rows = _collect(monkeypatch, _FakeResumableManager(), endpoint="chats")
+        rows = _collect(monkeypatch, _FakeResumableManager(), endpoint=endpoint)
 
         assert [r["id"] for r in rows] == ["1", "2", "3"]
         assert fetched == list(pages)

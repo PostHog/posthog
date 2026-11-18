@@ -42,32 +42,45 @@ class TestDinoTransport(TestCase):
 
     @parameterized.expand(
         [
-            ("test_runs", "test-runs", False, {"limit": ("100",), "sort": ("counter_asc",)}),
-            ("test_runs", "test-runs", True, {"limit": ("100",), "sort": ("counter_asc",)}),
-            (
-                "manual_runs",
-                "manual-runs",
-                False,
-                {"limit": ("200",), "sortBy": ("createdAt",), "sortOrder": ("asc",)},
-            ),
-            (
-                "manual_runs",
-                "manual-runs",
-                True,
-                {"limit": ("200",), "sortBy": ("createdAt",), "sortOrder": ("asc",)},
-            ),
+            (table, path, resume, query, nested)
+            for table, path, query, nested in [
+                ("test_runs", "test-runs", {"limit": ("100",), "sort": ("counter_asc",)}, False),
+                (
+                    "manual_runs",
+                    "manual-runs",
+                    {"limit": ("200",), "sortBy": ("createdAt",), "sortOrder": ("asc",)},
+                    False,
+                ),
+                (
+                    "specs",
+                    "specs",
+                    {"limit": ("100",), "days": ("90",), "sortBy": ("fileName",), "order": ("asc",)},
+                    False,
+                ),
+                (
+                    "test_cases",
+                    "test-case-explorer",
+                    {"limit": ("50",), "days": ("90",), "sortBy": ("suite_file_path",), "order": ("asc",)},
+                    True,
+                ),
+            ]
+            for resume in (False, True)
         ]
     )
-    def test_run_pages_and_resume(self, table: str, path: str, resume: bool, query: dict[str, tuple[str]]) -> None:
+    def test_paged_tables_walk_and_resume(
+        self, table: str, path: str, resume: bool, query: dict[str, tuple[str]], nested: bool
+    ) -> None:
         initial_page = 3 if resume else 1
-        pages = [
-            response({"success": True, "data": [{"id": "run-a"}], "pagination": {"hasNext": True}}),
-            response({"success": True, "data": [{"id": "run-b"}], "pagination": {"hasNext": False}}),
-        ]
+
+        def page(row: dict[str, Any], has_next: bool) -> ScriptedResponse:
+            data: Any = {"testCases": [row]} if nested else [row]
+            return response({"success": True, "data": data, "pagination": {"hasNext": has_next}})
+
+        pages = [page({"id": "row-a"}, True), page({"id": "row-b"}, False)]
         result = self.run_table(table, pages, resume_state=ResumeConfig(page=3) if resume else None)
 
         self.assertIsNone(result.raised)
-        self.assertEqual(result.items, [[{"id": "run-a"}], [{"id": "run-b"}]])
+        self.assertEqual(result.items, [[{"id": "row-a"}], [{"id": "row-b"}]])
         self.assertEqual(result.saved_states, [ResumeConfig(page=initial_page + 1)])
         self.assertEqual(len(result.requests), 2)
         for offset, request in enumerate(result.requests):
