@@ -349,6 +349,7 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
                 <TabHeaderPublisher
                     tab="live"
                     status={feed.status === 'reconnecting' ? 'Reconnecting…' : null}
+                    scrollToTop={() => scroll.current?.scrollTo({ y: 0, animated: true })}
                     refreshing={feed.reading && feed.screenActive}
                     liveAudience
                 />
