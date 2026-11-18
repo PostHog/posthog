@@ -26,10 +26,10 @@ function WrappedTeaser(): JSX.Element | null {
                 <span className="font-mono text-xs font-semibold uppercase tracking-wider opacity-80">
                     MCP Wrapped · {wrapped.year}
                 </span>
-                <h2 className="m-0 text-2xl font-bold leading-tight">Your year on MCP is ready</h2>
+                <h2 className="m-0 text-2xl font-bold leading-tight">Your MCP Wrapped is ready</h2>
                 <p className="m-0 text-sm opacity-90">
-                    {wrapped.cards.tool_calls.total_calls.toLocaleString('en-US')} tool calls, your busiest tools, and
-                    the apps and models behind them. It takes about a minute.
+                    {wrapped.cards.tool_calls.total_calls.toLocaleString('en-US')} tool calls, your most-called tools,
+                    and the AI apps and models behind them. It takes about a minute.
                 </p>
             </div>
             <Hoggie className="w-28 self-end" loading="eager" />

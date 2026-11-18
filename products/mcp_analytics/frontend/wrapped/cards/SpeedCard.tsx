@@ -18,10 +18,10 @@ export function SpeedCard({ card }: { card: MCPWrappedSpeedCardApi }): JSX.Eleme
             <div className="MCPWrapped__pop text-6xl font-bold leading-none">
                 {formatDuration(card.p95_duration_ms)}
             </div>
-            <p className="MCPWrapped__rise m-0 text-base">95% of calls were answered faster than this.</p>
+            <p className="MCPWrapped__rise m-0 text-base">95% of tool calls returned faster than this.</p>
             <div className="MCPWrapped__rise flex flex-col gap-2.5">
-                {card.quickest_busy_tool && <ToolLatency label="Busy and quick" tool={card.quickest_busy_tool} />}
-                {card.slowest_tool && <ToolLatency label="Slowest" tool={card.slowest_tool} />}
+                {card.quickest_busy_tool && <ToolLatency label="Fastest busy tool" tool={card.quickest_busy_tool} />}
+                {card.slowest_tool && <ToolLatency label="Slowest tool" tool={card.slowest_tool} />}
             </div>
         </WrappedCard>
     )

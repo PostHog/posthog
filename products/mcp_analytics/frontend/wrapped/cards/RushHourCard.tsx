@@ -7,10 +7,10 @@ const DAY_LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
 
 export function RushHourCard({ card }: { card: MCPWrappedRushHourCardApi }): JSX.Element {
     const detail = card.night_shift
-        ? 'Most calls came in at night.'
+        ? 'Agents did most of their calling at night.'
         : card.quiet_weekends
-          ? 'Weekends were quiet.'
-          : 'Busiest hour of the week.'
+          ? 'Agents called most at this hour, and weekends were quiet.'
+          : 'Agents called your server most at this hour.'
     return (
         <WrappedCard cardKey="rush_hour" kicker="Rush hour" hoggie={card.night_shift ? NIGHT_SHIFT_HOGGIE : undefined}>
             <h2 className="MCPWrapped__rise m-0 text-4xl font-bold leading-tight">

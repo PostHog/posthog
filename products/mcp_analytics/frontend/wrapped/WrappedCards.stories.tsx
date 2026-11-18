@@ -88,17 +88,17 @@ function AllCards(): JSX.Element {
                 <SharesCard
                     cardKey="apps"
                     card={CARDS.apps}
-                    kicker="Who was calling"
-                    headline={(leader) => `${leader} led the way`}
+                    kicker="The AI apps calling your server"
+                    headline={(leader, share) => `${leader} led with ${share}`}
                 />
             )}
             {CARDS.labs && (
                 <SharesCard
                     cardKey="labs"
                     card={CARDS.labs}
-                    kicker="The labs behind the calls"
-                    headline={(leader, share) => `${share} ${leader}`}
-                    footnote="As the agents reported it."
+                    kicker="The AI labs behind the agents"
+                    headline={(leader, share) => `${leader} models made ${share} of calls`}
+                    footnote="Based on the model each agent reported."
                 />
             )}
             {CARDS.models && <ModelsCard card={CARDS.models} />}

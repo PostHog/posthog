@@ -6,12 +6,12 @@ export function ModelsCard({ card }: { card: MCPWrappedSharesCardApi }): JSX.Ele
     const families = card.shares.filter((share) => share.name !== 'Other')
     const [leader] = families
     return (
-        <WrappedCard cardKey="models" kicker="The models behind the calls">
+        <WrappedCard cardKey="models" kicker="The models doing the calling">
             {leader && (
                 <>
                     <h2 className="MCPWrapped__pop m-0 text-4xl font-bold leading-tight">{leader.name}</h2>
                     <p className="MCPWrapped__rise m-0 text-base">
-                        was the most used model family, in {formatPercent(leader.share)} of calls with a model.
+                        was the top model family, behind {formatPercent(leader.share)} of calls that named a model.
                     </p>
                 </>
             )}
@@ -35,7 +35,9 @@ export function ModelsCard({ card }: { card: MCPWrappedSharesCardApi }): JSX.Ele
                     </li>
                 ))}
             </ol>
-            <p className="MCPWrapped__rise m-0 text-xs opacity-75">Model families, as the agents reported them.</p>
+            <p className="MCPWrapped__rise m-0 text-xs opacity-75">
+                Grouped by model family, as each agent reported it.
+            </p>
         </WrappedCard>
     )
 }

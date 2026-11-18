@@ -85,7 +85,7 @@ export function shareTiles(cards: MCPWrappedCardsApi): ShareTile[] {
     if (topTool) {
         tiles.push({ label: 'Top tool', value: topTool.tool })
     }
-    tiles.push({ label: 'No error', value: formatPercent(cards.reliability.success_rate) })
+    tiles.push({ label: 'Error-free calls', value: formatPercent(cards.reliability.success_rate) })
     const topApp = cards.apps?.shares.find((share) => share.name !== OTHER)
     if (topApp) {
         tiles.push({ label: 'Top app', value: topApp.name })
