@@ -1,3 +1,4 @@
+import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
 import { LemonDialog } from '@posthog/lemon-ui'
@@ -6,7 +7,10 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import * as messagingApi from 'products/messaging/frontend/generated/api'
-import type { PaginatedMessageSuppressionApi } from 'products/messaging/frontend/generated/api.schemas'
+import type {
+    MessageSuppressionApi,
+    PaginatedMessageSuppressionApi,
+} from 'products/messaging/frontend/generated/api.schemas'
 
 import { removalWarning, suppressionListLogic } from './suppressionListLogic'
 
@@ -27,6 +31,10 @@ const suppressionRow = (identifier: string, source = 'MANUAL'): any => ({
 describe('suppressionListLogic', () => {
     beforeEach(() => {
         initKeaTests()
+    })
+
+    afterEach(() => {
+        jest.restoreAllMocks()
     })
 
     describe('page-state failure isolation', () => {
@@ -131,35 +139,87 @@ describe('suppressionListLogic', () => {
         })
     })
     describe('confirmed removal', () => {
-        afterEach(() => {
-            jest.restoreAllMocks()
-        })
+        const pageSize = 2
+
+        // A fake of the suppression API that holds the list, so another session can change it between requests.
+        const useSuppressionListServer = (
+            listed: string[],
+            {
+                sources = {},
+                pastEnd = 'rejected',
+            }: { sources?: Record<string, string>; pastEnd?: 'rejected' | 'empty' } = {}
+        ): { rows: string[]; removalBodies: unknown[] } => {
+            const server = { rows: listed.map((name) => `${name}@example.com`), removalBodies: [] as unknown[] }
+            useMocks({
+                get: {
+                    '/api/projects/:team/messaging_suppressions/suppressions/': ({ request }) => {
+                        const page = Number(new URL(request.url).searchParams.get('page') ?? 1)
+                        const results = server.rows.slice((page - 1) * pageSize, page * pageSize)
+                        if (page > 1 && results.length === 0 && pastEnd === 'rejected') {
+                            return [404, { detail: 'Invalid page.' }]
+                        }
+                        return [
+                            200,
+                            {
+                                count: server.rows.length,
+                                next: null,
+                                previous: null,
+                                results: results.map((id) => suppressionRow(id, sources[id])),
+                            },
+                        ]
+                    },
+                },
+                post: {
+                    '/api/projects/:team/messaging_suppressions/bulk_remove_suppressions/': async ({ request }) => {
+                        const body = (await request.json()) as { identifiers: string[] }
+                        server.removalBodies.push(body)
+                        const removed = body.identifiers.filter((id) => server.rows.includes(id))
+                        server.rows = server.rows.filter((id) => !body.identifiers.includes(id))
+                        return [200, { removed, not_found: body.identifiers.filter((id) => !removed.includes(id)) }]
+                    },
+                },
+            })
+            return server
+        }
+
+        const settled = async (logic: ReturnType<typeof suppressionListLogic.build>): Promise<void> => {
+            await waitFor(() =>
+                expect([logic.values.suppressionsLoading, logic.values.removedSuppressionsLoading]).toEqual([
+                    false,
+                    false,
+                ])
+            )
+        }
+
+        const confirmRemoval = async (
+            logic: ReturnType<typeof suppressionListLogic.build>,
+            entries: MessageSuppressionApi[]
+        ): Promise<void> => {
+            const openDialog = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            logic.actions.confirmRemove(entries)
+            openDialog.mock.calls[0][0].primaryButton?.onClick?.({} as any)
+            openDialog.mockRestore()
+            await settled(logic)
+        }
+
+        const shownRows = (logic: ReturnType<typeof suppressionListLogic.build>): string[] =>
+            logic.values.suppressions.results.map((row) => row.identifier)
 
         it.each([
             ['a bounced address', 'BOUNCE', false],
             ['a spam complaint', 'COMPLAINT', true],
         ])('sends the complaint confirmation only for %s', async (_label, source, confirmComplaints) => {
-            jest.spyOn(messagingApi, 'messagingSuppressionsSuppressionsRetrieve').mockResolvedValue({
-                count: 0,
-                next: null,
-                previous: null,
-                results: [],
-            })
-            const remove = jest
-                .spyOn(messagingApi, 'messagingSuppressionsBulkRemoveSuppressionsCreate')
-                .mockResolvedValue({ removed: ['a@example.com'], not_found: [] })
-            const openDialog = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            const server = useSuppressionListServer(['a', 'b'], { sources: { 'a@example.com': source } })
             const logic = suppressionListLogic()
             logic.mount()
+            await settled(logic)
 
-            logic.actions.confirmRemove([suppressionRow('a@example.com', source)])
-            openDialog.mock.calls[0][0].primaryButton?.onClick?.({} as any)
-            await expectLogic(logic).toDispatchActions(['removeSuppressionsSuccess'])
+            await confirmRemoval(logic, [suppressionRow('a@example.com', source)])
 
-            expect(remove).toHaveBeenCalledWith(expect.any(String), {
-                identifiers: ['a@example.com'],
-                confirm_complaints: confirmComplaints,
-            })
+            expect(server.removalBodies).toEqual([
+                { identifiers: ['a@example.com'], confirm_complaints: confirmComplaints },
+            ])
+            expect(shownRows(logic)).toEqual(['b@example.com'])
         })
 
         it.each([
@@ -168,57 +228,30 @@ describe('suppressionListLogic', () => {
                 ['a', 'b', 'c', 'd', 'e'],
                 'c',
                 ['c', 'd'],
+                'rejected',
                 2,
                 ['e'],
             ],
-            ['goes back from a page that no row is left on', ['a', 'b', 'c', 'd'], 'd', ['c'], 1, ['a', 'b']],
-        ])(
+            ['goes back from a page the API rejects', ['a', 'b', 'c', 'd'], 'd', ['c'], 'rejected', 1, ['a', 'b']],
+            ['goes back from a page the API returns empty', ['a', 'b', 'c', 'd'], 'd', ['c'], 'empty', 1, ['a', 'b']],
+        ] as const)(
             '%s after another session removes a row from it',
-            async (_label, listed, removedElsewhere, selected, expectedPage, expectedRows) => {
-                const pageSize = 2
-                let rows = listed.map((name) => `${name}@example.com`)
-                useMocks({
-                    get: {
-                        '/api/projects/:team/messaging_suppressions/suppressions/': ({ request }) => {
-                            const page = Number(new URL(request.url).searchParams.get('page') ?? 1)
-                            const results = rows.slice((page - 1) * pageSize, page * pageSize)
-                            if (page > 1 && results.length === 0) {
-                                return [404, { detail: 'Invalid page.' }]
-                            }
-                            return [
-                                200,
-                                {
-                                    count: rows.length,
-                                    next: null,
-                                    previous: null,
-                                    results: results.map((id) => suppressionRow(id)),
-                                },
-                            ]
-                        },
-                    },
-                    post: {
-                        '/api/projects/:team/messaging_suppressions/bulk_remove_suppressions/': async ({ request }) => {
-                            const { identifiers } = (await request.json()) as { identifiers: string[] }
-                            const removed = identifiers.filter((id) => rows.includes(id))
-                            rows = rows.filter((id) => !identifiers.includes(id))
-                            return [200, { removed, not_found: identifiers.filter((id) => !removed.includes(id)) }]
-                        },
-                    },
-                })
-                const openDialog = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            async (_label, listed, removedElsewhere, selected, pastEnd, expectedPage, expectedRows) => {
+                const server = useSuppressionListServer([...listed], { pastEnd })
                 const logic = suppressionListLogic()
                 logic.mount()
-                await expectLogic(logic, () => logic.actions.loadSuppressions(2)).toFinishAllListeners()
-                rows = rows.filter((id) => id !== `${removedElsewhere}@example.com`)
+                await settled(logic)
+                logic.actions.loadSuppressions(2)
+                await settled(logic)
+                server.rows = server.rows.filter((id) => id !== `${removedElsewhere}@example.com`)
 
-                logic.actions.confirmRemove(selected.map((name) => suppressionRow(`${name}@example.com`)))
-                openDialog.mock.calls[0][0].primaryButton?.onClick?.({} as any)
-                await expectLogic(logic).toDispatchActions(['removeSuppressionsSuccess', 'loadSuppressionsSuccess'])
+                await confirmRemoval(
+                    logic,
+                    selected.map((name) => suppressionRow(`${name}@example.com`))
+                )
 
                 expect(logic.values.currentPage).toBe(expectedPage)
-                expect(logic.values.suppressions.results.map((row) => row.identifier)).toEqual(
-                    expectedRows.map((name) => `${name}@example.com`)
-                )
+                expect(shownRows(logic)).toEqual(expectedRows.map((name) => `${name}@example.com`))
             }
         )
     })

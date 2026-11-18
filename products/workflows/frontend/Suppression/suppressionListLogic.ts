@@ -140,8 +140,8 @@ const pageAfterRemoval = async (projectId: number | null, page: number, search: 
         return page
     }
     try {
-        await fetchPage(projectId, page, search)
-        return page
+        const { results } = await fetchPage(projectId, page, search)
+        return results.length === 0 ? page - 1 : page
     } catch (e) {
         return (e as { status?: number }).status === 404 ? page - 1 : page
     }
