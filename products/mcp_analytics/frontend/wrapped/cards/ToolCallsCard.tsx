@@ -8,7 +8,7 @@ export function ToolCallsCard({ card }: { card: MCPWrappedToolCallsCardApi }): J
     const busiest = Math.max(...card.months.map((month) => month.calls))
     const busiestMonth = card.months.find((month) => month.calls === busiest)
     return (
-        <WrappedCard cardKey="tool_calls" kicker="Agents called your tools">
+        <WrappedCard cardKey="tool_calls" kicker="AI agents called your tools">
             <div className="MCPWrapped__pop text-6xl font-bold leading-none tabular-nums">
                 {card.total_calls.toLocaleString('en-US')}
             </div>
@@ -35,7 +35,7 @@ export function ToolCallsCard({ card }: { card: MCPWrappedToolCallsCardApi }): J
                 )}
                 {busiestMonth && (
                     <span className="rounded-full bg-white/20 px-2 py-0.5 font-mono text-xs font-semibold">
-                        Busiest: {formatMonth(busiestMonth.month)}
+                        Busiest month: {formatMonth(busiestMonth.month)}
                     </span>
                 )}
             </div>

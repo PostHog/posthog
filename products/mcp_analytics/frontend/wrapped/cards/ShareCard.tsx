@@ -58,7 +58,7 @@ export function ShareCard({
     }
 
     return (
-        <WrappedCard ref={cardRef} cardKey="share" kicker={`${projectName} · ${year}`}>
+        <WrappedCard ref={cardRef} cardKey="share" kicker={`${projectName} · MCP Wrapped ${year}`}>
             <h2 className="MCPWrapped__rise m-0 text-3xl font-bold leading-tight">
                 {ARCHETYPE_NAMES[cards.archetype.archetype]}
             </h2>

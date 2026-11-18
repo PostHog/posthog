@@ -14,12 +14,13 @@ export function TopToolsCard({
     const [top] = card.tools
     const busiest = top?.calls ?? 1
     return (
-        <WrappedCard cardKey="top_tools" kicker="Your #1 tool">
+        <WrappedCard cardKey="top_tools" kicker="Your most-called tool">
             {top && (
                 <>
                     <div className="MCPWrapped__pop break-all font-mono text-3xl font-bold">{top.tool}</div>
                     <p className="MCPWrapped__rise m-0 text-base">
-                        {humanFriendlyNumber(top.calls)} calls, {formatPercent(top.calls / totalCalls)} of all of them.
+                        {humanFriendlyNumber(top.calls)} calls, {formatPercent(top.calls / totalCalls)} of all tool
+                        calls.
                     </p>
                 </>
             )}

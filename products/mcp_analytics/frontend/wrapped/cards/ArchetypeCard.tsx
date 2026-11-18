@@ -7,17 +7,17 @@ function describe(card: MCPWrappedArchetypeCardApi): string {
     const evidence = card.evidence ?? 0
     switch (card.archetype) {
         case 'one_hit_wonder':
-            return `One tool took ${formatPercent(evidence)} of all calls.`
+            return `One tool handled ${formatPercent(evidence)} of all calls.`
         case 'swiss_army_knife':
-            return `No single tool carried you. ${evidence} tools each took more than 5% of calls.`
+            return `Agents spread their calls across ${evidence} tools, each with more than 5%.`
         case 'night_owl':
             return `${formatPercent(evidence)} of calls came in between 10 pm and 6 am.`
         case 'weekend_warrior':
             return `${formatPercent(evidence)} of calls came in on weekends.`
         case 'speed_demon':
-            return `95% of calls were answered in under ${formatDuration(evidence)}.`
+            return `95% of tool calls returned in under ${formatDuration(evidence)}.`
         case 'rocket':
-            return `Calls grew ${evidence}× from your first full month.`
+            return `Calls grew ${evidence}× since your first full month.`
         case 'all_rounder':
             return 'No single pattern stood out. Agents used a bit of everything.'
     }
