@@ -17,6 +17,21 @@ Person state spans two planes:
 
 Races resolve per key, never failing the rest of a batch: a concurrent create conflicts on the deterministic uuid and returns the winner (`created = false`); a distinct id concurrently mapped elsewhere rolls back only that stub and re-resolves. A crash between the stub commit and the leader ack surfaces as a per-key error; the retried key resolves to the stub (`created = false`) and the caller applies properties through the normal update path.
 
+### Coalesced stub transactions
+
+Ingestion sends one entry per get-or-create call, so each new person costs its own transaction and commit.
+With `STUB_CREATE_WORKERS` above 0, a fixed set of worker tasks runs every stub-creation transaction, for get-or-create and for merge targets (`src/storage/coalesce.rs`).
+A worker takes one queued call and every call already queued behind it, up to `STUB_CREATE_MAX_BATCH_DISTINCT_IDS` distinct ids (default 50), into one transaction.
+Calls share a transaction only when they would otherwise wait for a worker, so latency does not change while a worker is free.
+Calls that share a distinct id never share a transaction, so each call gets the outcome its own transaction would give.
+A shared transaction locks the live person rows its inserts conflict with in `(team_id, uuid)` order, while the writer and the merge flip lock in `(team_id, id)` order, so it can deadlock where a one-call transaction cannot.
+When a shared transaction fails with a query error or a timeout, the worker reruns each call in its own transaction, so the failure reaches only the call that caused it.
+A connection error or an exhausted pool fails every call in the batch, and callers retry as they do for any storage error.
+The worker count also caps the heavy connections that stub creation can hold, so keep it well below `HEAVY_MAX_PG_CONNECTIONS`; startup warns when it is not.
+The default, `STUB_CREATE_WORKERS=0`, runs each call in its own transaction on the calling task.
+With workers on, pool and query metrics for stub creation carry `client="batched"` and `method="StubCreateBatch"` in place of the caller's labels.
+`personhog_identity_stub_create_callers_per_batch` shows how many calls share each transaction, `personhog_identity_stub_create_queue_wait_ms` shows how long a call waits for a worker, and `personhog_identity_stub_create_batch_reruns_total` counts shared transactions that fell back to one transaction per call.
+
 ## Layout
 
 - `src/service/` — gRPC surface; `mod.rs` is dispatch-only, each RPC family has its own module (`get_or_create.rs`)

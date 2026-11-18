@@ -162,6 +162,20 @@ pub struct Config {
     #[envconfig(default = "8")]
     pub property_write_concurrency: usize,
 
+    /// Worker tasks that run every stub-creation transaction (see
+    /// `storage::coalesce`), which caps the heavy connections stub creation
+    /// can hold. Keep it well below `heavy_max_pg_connections` so that
+    /// attach, saga steps and GC still get heavy connections. 0 runs each
+    /// call in its own transaction on the calling task.
+    #[envconfig(default = "0")]
+    pub stub_create_workers: usize,
+
+    /// Distinct ids (primaries plus extras) one coalesced transaction writes
+    /// before the remaining queued calls wait for the next one. A larger
+    /// single call runs alone (0 acts as 1).
+    #[envconfig(default = "50")]
+    pub stub_create_max_batch_distinct_ids: usize,
+
     /// Leader calls in flight per lifecycle saga step (0 acts as 1).
     #[envconfig(default = "8")]
     pub lifecycle_leader_call_concurrency: usize,
