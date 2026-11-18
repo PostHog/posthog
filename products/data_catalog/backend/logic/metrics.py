@@ -223,7 +223,7 @@ def _denied_tables(team: Team, user: User, user_access_control: UserAccessContro
     )._denied_tables
 
 
-DENIED_TABLES_CACHE_TTL_SECONDS = 60
+DENIED_TABLES_CACHE_TTL_SECONDS = 10 * 60
 
 DeniedTablesLoader = Callable[[Team, User, UserAccessControl], set[str]]
 
