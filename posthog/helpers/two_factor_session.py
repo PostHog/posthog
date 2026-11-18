@@ -374,7 +374,14 @@ class CodeBasedVerifier:
         return f"idp_login_recent_code:{signature}"
 
     def reuse_recent_idp_code(
-        self, request: HttpRequest, user: User, target_email: str, identity: str, asserted_email: str
+        self,
+        request: HttpRequest,
+        user: User,
+        target_email: str,
+        identity: str,
+        asserted_email: str,
+        *,
+        linked: bool = False,
     ) -> bool:
         """Fresh callbacks can lose the session while an emailed code is still valid for the same mailbox."""
         try:
@@ -384,7 +391,7 @@ class CodeBasedVerifier:
             issued_at = int(issued_at)
             if not 0 <= time.time() - issued_at < CODE_TTL_SECONDS:
                 return False
-            if not self.reserve_idp_challenge(user, identity):
+            if not self.reserve_idp_challenge(user, identity, linked=linked):
                 return False
             self.clear_pending(request)
             self._set_pending_code(request, user, issued_at, target_email, identity)
@@ -407,7 +414,7 @@ class CodeBasedVerifier:
         request.session[CODE_BASED_VERIFICATION_TARGET_SESSION_KEY] = target_email
         request.session[CODE_BASED_VERIFICATION_IDENTITY_SESSION_KEY] = identity
 
-    def reserve_idp_challenge(self, user: User, identity: str) -> bool:
+    def reserve_idp_challenge(self, user: User, identity: str, *, linked: bool = False) -> bool:
         """Reserve one account-wide slot for this identity for the code lifetime.
 
         Replays and resends share the grant so one unproven subject cannot spend the
@@ -426,7 +433,8 @@ class CodeBasedVerifier:
                 return grant in ("granted", b"granted")
             if not client.set(grant_key, "pending", nx=True, ex=10):
                 return False
-            decision = consume(f"idp_login_identity_quota:{user.pk}", Budget(burst=5, per_hour=6))
+            quota_key = f"idp_login_identity_quota:{user.pk}" + (f":linked:{identity}" if linked else "")
+            decision = consume(quota_key, Budget(burst=5, per_hour=6))
             if not isinstance(decision, BucketDecision):
                 mfa_logger.warning("idp_identity_budget_unavailable", user_id=user.pk)
                 return False

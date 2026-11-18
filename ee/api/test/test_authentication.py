@@ -244,6 +244,7 @@ class TestOIDCAuthentication(APILicensedTest):
             token_response.update(
                 {
                     "access_token": "example-access-token",
+                    "refresh_token": "example-refresh-token",
                     "token_type": "Bearer",
                     "id_token": jwt.encode(claims, private_key, algorithm="RS256", headers={"kid": "example-key"}),
                 }
@@ -286,6 +287,9 @@ class TestOIDCAuthentication(APILicensedTest):
             self.assertNotIn("_auth_user_id", self.client.session)
             # The identity is linked only once the code is accepted.
             self.assertFalse(UserSocialAuth.objects.filter(user=self.user, provider="oidc").exists())
+
+            partial = Partial.objects.get(token=self.client.session["partial_pipeline_token"])
+            self.assertFalse({"access_token", "id_token", "refresh_token"} & partial.data["kwargs"]["response"].keys())
 
             code = mock_send.call_args[0][1]
             if restart:
@@ -650,6 +654,8 @@ class TestOIDCAuthentication(APILicensedTest):
         ):
             response = self._complete_oidc_login("signup@example.com", sub="signup-user")
             self.assertEqual(urlparse(response["Location"]).path, "/organization/confirm-creation")
+            partial = Partial.objects.get(token=self.client.session["partial_pipeline_token"])
+            self.assertFalse({"access_token", "id_token", "refresh_token"} & partial.data["kwargs"]["response"].keys())
             response = self.client.post("/api/social_signup/", {"organization_name": "Example", "first_name": "Member"})
             self.assertEqual(response.status_code, 201, response.content)
             user = User.objects.get(email="signup@example.com")
@@ -826,18 +832,28 @@ class TestOIDCAuthentication(APILicensedTest):
             self.assertEqual(response.status_code, 200, response.content)
             self.assertEqual(self.client.session["_auth_user_id"], str(self.user.pk))
 
-    @parameterized.expand([("new_challenges", 0), ("resend_contention", 4)])
+    @parameterized.expand([("new_challenges", 0, False), ("resend_contention", 4, False), ("legacy_linked", 0, True)])
     @pytest.mark.disable_mock_code_based_verifier
-    def test_the_account_identity_ceiling_preserves_existing_challenges(self, _name: str, resend_rounds: int) -> None:
+    def test_the_account_identity_ceiling_preserves_existing_challenges(
+        self, _name: str, resend_rounds: int, linked_owner: bool
+    ) -> None:
         self.user.email = "member@example.com"
         self.user.save()
         self.client.logout()
+        if linked_owner:
+            UserSocialAuth.objects.create(
+                user=self.user, provider="oidc", uid=f"{self.config.oidc_issuer_url}:owner-identity"
+            )
         with enable_code_sending() as sent, time_machine.travel("2026-01-10T12:00:00Z", tick=False) as clock:
-            self._complete_oidc_login(self.user.email, sub="owner-identity")
+            if not linked_owner:
+                self._complete_oidc_login(self.user.email, sub="owner-identity")
             owner_client = self.client
             other_clients = {}
             try:
-                for subject in ["repeated-identity"] * 2 + ["second-identity", "third-identity", "fourth-identity"]:
+                subjects = ["repeated-identity"] * 2 + ["second-identity", "third-identity", "fourth-identity"]
+                if linked_owner:
+                    subjects.append("fifth-identity")
+                for subject in subjects:
                     clock.shift(datetime.timedelta(seconds=61))
                     self.client = APIClient()
                     response = self._complete_oidc_login(self.user.email, sub=subject)
@@ -854,6 +870,10 @@ class TestOIDCAuthentication(APILicensedTest):
                 self.assertEqual(sent.call_count, count)
             finally:
                 self.client = owner_client
+            if linked_owner:
+                response = self._complete_oidc_login(self.user.email, sub="owner-identity")
+                self.assertIn("code_verification_pending=1", response["Location"])
+                clock.shift(datetime.timedelta(seconds=61))
             response = self.client.post("/api/login/code-based-verification/resend/")
             self.assertEqual(response.status_code, 200, response.content)
             response = self.client.post("/api/login/code-based-verification/", {"code": sent.call_args.args[1]})

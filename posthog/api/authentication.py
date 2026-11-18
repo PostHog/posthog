@@ -339,6 +339,7 @@ def _send_login_code(
     target_email: str | None = None,
     identity: str | None = None,
     asserted_email: str | None = None,
+    linked_idp: bool = False,
 ) -> bool:
     if target_email is not None:
         from posthog.token_bucket import BucketDecision, Budget, consume
@@ -348,7 +349,9 @@ def _send_login_code(
         if (
             not is_resend
             and asserted_email is not None
-            and code_based_verifier.reuse_recent_idp_code(request, user, target_email, identity, asserted_email)
+            and code_based_verifier.reuse_recent_idp_code(
+                request, user, target_email, identity, asserted_email, linked=linked_idp
+            )
         ):
             return True
         decision = consume(f"idp_login_code_identity:{identity}", Budget(burst=1, per_hour=60))
@@ -357,7 +360,7 @@ def _send_login_code(
             return False
         if not decision.allowed:
             return False
-        if not code_based_verifier.reserve_idp_challenge(user, identity):
+        if not code_based_verifier.reserve_idp_challenge(user, identity, linked=linked_idp):
             return False
         recipient = sha256(target_email.strip().lower().encode()).hexdigest()
         account = consume(f"idp_login_code_account:{user.pk}:{recipient}:{identity}", Budget(burst=2, per_hour=12))
@@ -1453,13 +1456,16 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
         # A resend must keep mailing the address the pending code authorizes, or the new code would
         # bind to the account address and no longer verify.
         target_email = code_based_verifier.get_pending_code_based_verification_target(request)
+        sso = request.session.get(CODE_BASED_VERIFICATION_SSO_SESSION_KEY) or {}
         if not _send_login_code(
             request,
             user,
             is_resend=True,
             target_email=target_email,
             identity=code_based_verifier.get_pending_identity(request),
-            asserted_email=(request.session.get(CODE_BASED_VERIFICATION_SSO_SESSION_KEY) or {}).get("email"),
+            asserted_email=sso.get("email"),
+            linked_idp=bool(sso)
+            and UserSocialAuth.objects.filter(user=user, provider=sso.get("provider"), uid=sso.get("uid")).exists(),
         ):
             raise serializers.ValidationError(
                 {"detail": "Could not send verification code."},
@@ -1879,6 +1885,7 @@ def social_require_idp_email_verification(
             target_email=target_email,
             identity=idp_identity_key(identity.provider, identity.issuer, identity.subject),
             asserted_email=email,
+            linked_idp=UserSocialAuth.objects.filter(user=user, provider=backend.name, uid=uid).exists(),
         )
     except LoginCodeEmailUndeliverable:
         logger.warning("idp_email_verification_code_undeliverable", user_id=user.pk, backend=backend.name)

@@ -1306,6 +1306,9 @@ def social_create_user(
             validate_email(email or "")
         except ValidationError:
             raise AuthFailed(backend, "The identity provider did not assert a valid email address.")
+        if backend.name == "oidc":
+            # Keep only the subject so paused logins cannot persist provider credentials.
+            kwargs["current_partial"].data["kwargs"]["response"] = {"sub": kwargs.get("response", {}).get("sub")}
         if isinstance(started_at := getattr(backend, "authentication_started_at", None), int):
             from posthog.api.authentication import _identity_provider_identity
 
