@@ -217,8 +217,36 @@ describe("BaseAcpAgent", () => {
     );
   });
 
+  it("keeps a saved session on retired moonshotai/kimi-k3", async () => {
+    vi.mocked(fetchGatewayModels).mockResolvedValue([
+      {
+        id: "claude-opus-4-8",
+        owned_by: "anthropic",
+        context_window: 1_000_000,
+        supports_streaming: true,
+        supports_vision: true,
+        allowed: true,
+      },
+    ]);
+
+    const agent = new TestAcpAgent({} as AgentSideConnection);
+    const result = await agent.getModelConfigOptions(
+      "moonshotai/kimi-k3",
+      "https://gateway.us.posthog.com/posthog_code",
+      "token",
+    );
+
+    expect(result.currentModelId).toBe("moonshotai/kimi-k3");
+    expect(result.options).toContainEqual(
+      expect.objectContaining({
+        value: "moonshotai/kimi-k3",
+        description: "Custom model",
+      }),
+    );
+  });
+
   it.each([
-    "moonshotai/kimi-k3",
+    "moonshotai/kimi-k3.1-pro",
     "deepseek-ai/deepseek-v4-flash-0731",
     "deepseek-ai/deepseek-v4.1-flash-1017-fast",
     "zai-org/glm-5.3",
