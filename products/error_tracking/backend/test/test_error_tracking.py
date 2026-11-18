@@ -18,7 +18,7 @@ from posthog.test.waiting import wait_until
 
 from products.error_tracking.backend.hogql_queries.issue_state_overlay import latest_issue_state_watermark
 from products.error_tracking.backend.logic import team_flags
-from products.error_tracking.backend.logic.issue_tags import writer
+from products.error_tracking.backend.logic.issue_tags import registry, writer
 from products.error_tracking.backend.logic.issue_tags.taggers.base import TagAnswer
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
@@ -535,8 +535,9 @@ class TestErrorTrackingTagWriteDuringMerge(ErrorTrackingIssueTestMixin, NonAtomi
                 writer_pids.append(cursor.fetchone()[0])
             assert merge_locked.wait(timeout=5)
             answer = TagAnswer(value=False, probability=None, model=None, question_version=1, set_by=self.user)
+            cause_in_trace = next(tag for tag in registry.ISSUE_TAG_DEFINITIONS if tag.key == "cause_in_trace")
             return writer.set_issue_tag(
-                self.team.id, issue_id, "cause_in_trace", answer, ErrorTrackingIssueTag.Source.MANUAL
+                self.team.id, issue_id, cause_in_trace, answer, ErrorTrackingIssueTag.Source.MANUAL
             )
         finally:
             close_old_connections()

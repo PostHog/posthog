@@ -1,6 +1,8 @@
 import { TooltipFooter, TooltipSurface, TooltipSwatch } from '@posthog/quill-charts'
 import type { ScatterPointDatum } from '@posthog/quill-charts'
 
+import { formatLLMCost, formatLLMLatency } from '../utils'
+import type { ItemMetrics } from './clusterMetricsLoader'
 import { clusterItemFooter, clusterItemLabel, fallbackItemLabel } from './clusterScatter'
 import type { ClusterScatterMeta } from './clusterScatter'
 import type { Cluster, ClusteringLevel, TraceSummary } from './types'
@@ -10,11 +12,13 @@ function TooltipShell({
     title,
     subtitle,
     footer,
+    metrics,
 }: {
     color: string
     title: string
     subtitle?: string
     footer?: string
+    metrics?: ItemMetrics
 }): JSX.Element {
     return (
         <TooltipSurface>
@@ -23,6 +27,19 @@ function TooltipShell({
                 <span className="truncate">{title}</span>
             </div>
             {subtitle ? <div className="opacity-60">{subtitle}</div> : null}
+            <div className="flex items-center gap-3 text-xs mt-1">
+                <span className="text-muted">Cost {metrics?.cost != null ? formatLLMCost(metrics.cost) : '—'}</span>
+                <span className="text-muted">
+                    Latency {metrics?.latency != null ? formatLLMLatency(metrics.latency) : '—'}
+                </span>
+                <span className={metrics?.errorCount ? 'text-danger' : 'text-muted'}>
+                    {metrics
+                        ? metrics.errorCount
+                            ? `${metrics.errorCount} ${metrics.errorCount === 1 ? 'error' : 'errors'}`
+                            : 'No errors'
+                        : 'Errors —'}
+                </span>
+            </div>
             {footer ? <TooltipFooter>{footer}</TooltipFooter> : null}
         </TooltipSurface>
     )
@@ -51,6 +68,7 @@ export function ClusterDetailTooltip({
                 clusterItemLabel(meta, clusteringLevel, traceSummaries) ?? fallbackItemLabel(meta, clusteringLevel)
             }
             footer={clusterItemFooter(meta, clusteringLevel)}
+            metrics={meta.metrics}
         />
     )
 }
@@ -81,6 +99,7 @@ export function ClusterOverviewTooltip({
             title={point.seriesLabel}
             subtitle={clusterItemLabel(meta, clusteringLevel, traceSummaries)}
             footer={clusterItemFooter(meta, clusteringLevel)}
+            metrics={meta.metrics}
         />
     )
 }

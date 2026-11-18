@@ -1,10 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { RepositoryPageControls } from 'lib/components/RepositoryList/RepositoryPageControls'
 
 import { CodeReviewRepositoryOverviewRetrieveView } from 'products/review_hog/frontend/generated/api.schemas'
 
-import { PANE_LEFT, PANE_ROW } from './paneClasses'
 import { REPOSITORIES_PAGE_SIZE, reviewHogRepositoriesLogic } from './reviewHogRepositoriesLogic'
 
 export function RepositoryListPager(): JSX.Element | null {
@@ -18,37 +17,15 @@ export function RepositoryListPager(): JSX.Element | null {
         return null
     }
     const first = page * REPOSITORIES_PAGE_SIZE + 1
-    const last = Math.min(overview.total, first + overview.results.length - 1)
     return (
-        <div
-            className={`col-span-full flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-xs text-secondary ${PANE_LEFT} ${PANE_ROW}`}
-        >
-            <span>
-                <span translate="no">
-                    {first}-{last} of {overview.total}
-                </span>{' '}
-                repositories
-            </span>
-            <span className="flex gap-1">
-                <LemonButton
-                    size="small"
-                    type="secondary"
-                    onClick={() => setPage(page - 1)}
-                    disabledReason={page === 0 ? 'This is the first page' : overviewLoading ? 'Loading…' : undefined}
-                >
-                    Previous
-                </LemonButton>
-                <LemonButton
-                    size="small"
-                    type="secondary"
-                    onClick={() => setPage(page + 1)}
-                    disabledReason={
-                        page >= pageCount - 1 ? 'This is the last page' : overviewLoading ? 'Loading…' : undefined
-                    }
-                >
-                    Next
-                </LemonButton>
-            </span>
-        </div>
+        <RepositoryPageControls
+            first={first}
+            last={Math.min(overview.total, first + overview.results.length - 1)}
+            total={overview.total}
+            page={page}
+            pageCount={pageCount}
+            loading={overviewLoading}
+            onPageChange={setPage}
+        />
     )
 }
