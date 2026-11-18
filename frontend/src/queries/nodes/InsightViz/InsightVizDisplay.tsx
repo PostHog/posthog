@@ -647,7 +647,7 @@ export function InsightVizDisplay({
                                 isFunnels &&
                                 hasFunnelResults &&
                                 funnelsFilter?.showSummaryOnDashboards === true && (
-                                    <Suspense fallback={null}>
+                                    <Suspense fallback={<Spinner />}>
                                         <FunnelCardSummary />
                                     </Suspense>
                                 )}
