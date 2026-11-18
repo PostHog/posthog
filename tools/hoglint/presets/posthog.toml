@@ -445,6 +445,13 @@ signatures      = true
 allow   = ["class"]
 deny    = ["model", "manager", "queryset"]
 
+# A core package's toolkit: classes and functions with their signatures, never an ORM type. Its
+# doors read this policy, not `contract`: that one reads a class core defines as owned elsewhere and
+# would judge nothing inside a core door's own classes.
+[shapes.toolkit]
+allow   = ["class"]
+deny    = ["model", "manager", "queryset", "command"]
+
 # ── Exports: the only public surface of a product ──────────────
 
 [exports.facade]
@@ -487,6 +494,26 @@ symbols  = [
 ]
 audience = "src.zone == 'api'"
 shape    = "registration"
+
+# Doors of core packages (D112), fitted to how code uses them. Tests may reach past them
+# (public-surface). egress: each vendor's package init, transport and clients, GitHub's pacing, and
+# the shared limiter's policies and outbound facade.
+[exports.egress]
+within   = "posthog/egress"
+paths    = [
+  "*/__init__.py", "*/transport.py", "*/client.py", "*/async_client.py", "github/limiter.py",
+  "limiter/policies.py", "limiter/outbound.py",
+]
+audience = "*"
+shape    = "toolkit"
+
+# ingress: the consumer contracts, the view builder, the signature schemes, each provider and the
+# statement-timeout helper webhook consumers read.
+[exports.ingress]
+within   = "posthog/ingress"
+paths    = ["contracts.py", "views.py", "verify/schemes.py", "*/provider.py", "dispatch/database.py"]
+audience = "*"
+shape    = "toolkit"
 
 # ── Registries: core finds product code by file convention ─────
 
@@ -565,7 +592,7 @@ temporal-file            = ["temporal_subtree", "subject"]
 
 [rules.public-surface]
 primitive     = "entrypoint"
-doc           = "Other packages name a product only through an export whose audience includes them. A later use of an imported name is judged once, at its import. Migrations are frozen history and are not judged; Django settings may name product paths as strings; a core registration point may name a wiring location; core production code may name a declared permanent interface. A test's patch target is wiring-watched's, not this rule's."
+doc           = "Other packages name a product, or a core package with a declared door, only through an export whose audience includes them; tests may reach into a core door package. A later use of an imported name is judged once, at its import. Migrations are frozen history and are not judged; Django settings may name product paths as strings; a core registration point may name a wiring location; core production code may name a declared permanent interface. A test's patch target is wiring-watched's, not this rule's."
 why           = "Code outside a product must use the product only through its facade. A name from inside the product makes a coupling that the owners of the product cannot see."
 ways          = [
   { safety = "safe", text = "If the facade of the product exports the same object, import it from the facade." },
@@ -575,7 +602,7 @@ ways          = [
 example       = { finding = "from products.billing.backend.logic.invoices import charge", fixed = "from products.billing.backend.facade.api import charge" }
 kinds         = ["import", "reference", "dotted-path"]
 contexts      = { exclude = ["migration"] }
-select        = "crosses-package and dst.tier == 'product' and src.history != true and not (edge.kind == 'dotted-path' and 'test' in edge.context)"
+select        = "crosses-package and (dst.tier == 'product' or (dst.door and 'test' not in edge.context)) and src.history != true and not (edge.kind == 'dotted-path' and 'test' in edge.context)"
 endpoint      = "surface"
 uses_at_import = true
 allow         = "dst.exported or (src.settings == true and edge.kind == 'dotted-path') or (src.wiring == 'registration' and dst.wiring == 'location') or (dst.permanent == true and src.tier == 'core' and 'test' not in edge.context)"
