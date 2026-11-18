@@ -37,10 +37,10 @@ export interface oauthAppsLogicActions {
         errorObject?: any
     }
     loadOAuthAppsSuccess: (
-        oauthApps: OrganizationOAuthApplicationApi[] | null,
+        oauthApps: OrganizationOAuthApplicationApi[],
         payload?: any
     ) => {
-        oauthApps: OrganizationOAuthApplicationApi[] | null
+        oauthApps: OrganizationOAuthApplicationApi[]
         payload?: any
     }
 }

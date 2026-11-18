@@ -6148,6 +6148,7 @@ export enum ActivityScope {
     ACTION = 'Action',
     ACCOUNT_VIEW = 'AccountView',
     ALERT_CONFIGURATION = 'AlertConfiguration',
+    SUBSCRIPTION = 'Subscription',
     ANNOTATION = 'Annotation',
     BATCH_EXPORT = 'BatchExport',
     BATCH_IMPORT = 'BatchImport',
