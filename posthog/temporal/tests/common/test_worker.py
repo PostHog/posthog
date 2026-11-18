@@ -19,7 +19,9 @@ from posthog.temporal.common.worker import ManagedWorker, with_declared_histogra
         ("max-ai-task-queue", {"core_latency": [1.0, 2.0], "product_latency": [1.0, 10.0]}),
     ],
 )
-def test_declared_histograms_apply_to_their_queue_and_never_change_core_buckets(task_queue, expected):
+def test_declared_histograms_apply_to_their_queue_and_never_change_core_buckets(
+    task_queue: str, expected: dict[str, list[float]]
+) -> None:
     declared = TemporalRegistration(
         histograms=(
             HistogramSpec(metric_name="core_latency", buckets=(5.0,)),

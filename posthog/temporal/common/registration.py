@@ -147,14 +147,14 @@ def validate_registration(product: str, registration: object) -> None:
 
 
 def _check_unique_histograms(registrations: dict[str, TemporalRegistration]) -> None:
-    # Two products may set buckets for one metric only on different queues, so that no worker takes both.
+    # Two declarations may set buckets for one metric only on different queue settings. Under DEBUG and on a
+    # single-queue stack every setting resolves to one queue, so there the declaration that loads last wins.
     declared: dict[str, list[tuple[str, str | None]]] = {}
     for product, registration in registrations.items():
         for histogram in registration.histograms:
             claims = declared.setdefault(histogram.metric_name, [])
             for other_product, other_queue in claims:
-                same_worker = None in (histogram.queue_setting, other_queue) or histogram.queue_setting == other_queue
-                if other_product != product and same_worker:
+                if None in (histogram.queue_setting, other_queue) or histogram.queue_setting == other_queue:
                     raise TemporalRegistrationError(
                         f"{product} and {other_product} both declare buckets for the metric {histogram.metric_name!r}"
                     )

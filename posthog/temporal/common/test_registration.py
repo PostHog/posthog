@@ -137,12 +137,23 @@ def _histogram(buckets: tuple[float, ...], queue_setting: str | None = None) -> 
             _histogram((5.0,), queue_setting="MAX_AI_TASK_QUEUE"),
             "both declare buckets for the metric 'fixture_latency'",
         ),
+        (
+            TemporalRegistration(
+                histograms=(
+                    HistogramSpec(metric_name="fixture_latency", buckets=(1.0,)),
+                    HistogramSpec(metric_name="fixture_latency", buckets=(5.0,), queue_setting="MAX_AI_TASK_QUEUE"),
+                )
+            ),
+            TemporalRegistration(),
+            "both declare buckets for the metric 'fixture_latency'",
+        ),
         (TemporalRegistration(), None, "other_product: facade.temporal must declare TEMPORAL"),
     ],
     ids=[
         "one workflow name on one queue",
         "one histogram metric",
         "one histogram metric on every queue",
+        "one metric twice in one product",
         "no declaration",
     ],
 )

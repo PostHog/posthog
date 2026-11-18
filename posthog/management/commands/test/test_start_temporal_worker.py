@@ -43,6 +43,7 @@ from products.warehouse_sources.backend.facade.temporal import (
     WAREHOUSE_ALERT_EVALUATION_ACTIVITIES,
     WAREHOUSE_ALERT_EVALUATION_WORKFLOWS,
 )
+from products.web_analytics.backend.facade.temporal import WA_DIGEST_ACTIVITIES, WA_DIGEST_WORKFLOWS
 from products.wizard.backend.facade.temporal import (
     ACTIVITIES as WIZARD_ACTIVITIES,
     WORKFLOWS as WIZARD_WORKFLOWS,
@@ -130,8 +131,8 @@ def test_wa_digests_are_registered_with_the_weekly_digest() -> None:
         for binding in load_registrations()["web_analytics"].queues
         if binding.queue_setting == "WEEKLY_DIGEST_TASK_QUEUE"
     ]
-    assert digests.workflows
-    assert digests.activities
+    assert set(WA_DIGEST_WORKFLOWS) <= set(digests.workflows)
+    assert set(WA_DIGEST_ACTIVITIES) <= set(digests.activities)
 
 
 # CheckAlertWorkflow routes an AI detector's evaluation to the AI queue, because only that worker
