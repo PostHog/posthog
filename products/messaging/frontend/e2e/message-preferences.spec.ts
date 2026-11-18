@@ -655,6 +655,65 @@ test.describe('Message preferences page', () => {
                 })
             })
 
+            await test.step('a late answer from an older save applies once a newer save is refused', async () => {
+                const [refusal, trackingCommitted, trackingAnswer, topicRefusal] = [
+                    responseGate(),
+                    responseGate(),
+                    responseGate(),
+                    responseGate(),
+                ]
+                const [read, readAnswer] = [responseGate(), responseGate()]
+                const [savedBefore, refusedBefore] = [await successToast.count(), await refusals.count()]
+                let saves = 0
+                handleSave = async (route) => {
+                    saves++
+                    if (saves === 1 || saves === 3) {
+                        await (saves === 1 ? refusal : topicRefusal).opened
+                        await refuse(route)
+                    } else if (saves === 2) {
+                        const response = await route.fetch()
+                        trackingCommitted.open()
+                        await trackingAnswer.opened
+                        await route.fulfill({ response })
+                    } else {
+                        await route.continue()
+                    }
+                }
+                await recipientPage.route(
+                    isPageRead,
+                    async (route) => {
+                        const response = await route.fetch()
+                        read.open()
+                        await readAnswer.opened
+                        await route.fulfill({ response })
+                    },
+                    { times: 1 }
+                )
+                await eventInvites.click()
+                await tracking.click()
+                await trackingCommitted.opened
+                refusal.open()
+                await expect(refusals).toHaveCount(refusedBefore + 1)
+                await expect(eventInvites).toBeChecked()
+                await productNews.click()
+                topicRefusal.open()
+                await expect(refusals).toHaveCount(refusedBefore + 2)
+                trackingAnswer.open()
+                await read.opened
+                await expect(eventInvites).not.toBeChecked()
+                await tracking.click()
+                await expect(successToast).toHaveCount(savedBefore + 2)
+                readAnswer.open()
+                await expect(status(eventInvitesId)).toHaveText('Not subscribed')
+                await expect(status(productNewsId)).toHaveText('Not subscribed')
+                expect(await storedPreferences('product_news')).toEqual({
+                    $all: 'OPTED_IN',
+                    $email_tracking: 'OPTED_IN',
+                    [productNewsId]: 'OPTED_OUT',
+                    [eventInvitesId]: 'OPTED_OUT',
+                })
+            })
+
             await test.step('an older refusal does not undo a newer click on the same switch', async () => {
                 const refusal = responseGate()
                 const committed = responseGate()
@@ -691,7 +750,7 @@ test.describe('Message preferences page', () => {
                     $all: 'OPTED_OUT',
                     $email_tracking: 'OPTED_OUT',
                     [productNewsId]: 'OPTED_OUT',
-                    [eventInvitesId]: 'OPTED_IN',
+                    [eventInvitesId]: 'OPTED_OUT',
                 })
             })
         } finally {

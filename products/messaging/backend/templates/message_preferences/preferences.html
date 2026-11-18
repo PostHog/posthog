@@ -85,9 +85,8 @@
                 const acceptedBy = {}
                 const lastClickByToggle = {}
                 // Every marketing save sends every switch, so a save can carry a value the recipient did not click
-                const sentBy = {}
+                const pendingSaves = new Map()
                 const saving = new Set()
-                let savesPending = 0
                 let savesStarted = 0
 
                 function updateStatusLabel(toggle, text, colorClass) {
@@ -144,7 +143,6 @@
                 }
 
                 async function savePreferences(changedToggle) {
-                    savesPending++
                     const saveNumber = ++savesStarted
                     lastClickByToggle[changedToggle.name] = saveNumber
                     const choices = {}
@@ -154,9 +152,9 @@
                         // The backend preserves a stored answer when the key is absent.
                         if (toggle.name !== '$email_tracking' || toggle === changedToggle) {
                             choices[toggle.name] = wanted[toggle.name]
-                            sentBy[toggle.name] = saveNumber
                         }
                     })
+                    pendingSaves.set(saveNumber, choices)
 
                     const formData = new FormData()
                     formData.append('token', document.querySelector('input[name="token"]').value)
@@ -191,13 +189,14 @@
                             wanted[changedToggle.name] = accepted[changedToggle.name]
                         }
                     } finally {
-                        // A switch whose last click was refused takes what the server kept, once no newer save can change it
+                        pendingSaves.delete(saveNumber)
+                        // A switch whose last click was refused takes what the server kept, unless a newer save that sent it has yet to answer
                         Object.keys(choices).forEach((name) => {
-                            if (!lastClickByToggle[name] && sentBy[name] === saveNumber) wanted[name] = accepted[name]
+                            const newerPending = [...pendingSaves].some(([number, sent]) => name in sent && number > (acceptedBy[name] || 0))
+                            if (!lastClickByToggle[name] && !newerPending) wanted[name] = accepted[name]
                         })
-                        savesPending--
                         render()
-                        if (savesPending === 0) {
+                        if (pendingSaves.size === 0) {
                             const savesBeforeRead = savesStarted
                             // Overlapping saves can answer out of commit order, so read back what the server stored
                             const read = new AbortController()
