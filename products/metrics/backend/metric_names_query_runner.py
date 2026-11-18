@@ -68,6 +68,7 @@ class MetricNamesQueryRunner:
         names: Sequence[str] = (),
         match: str = "substring",
         include_first_seen: bool = False,
+        include_series_stats: bool = False,
     ) -> None:
         if match not in MetricNameMatchMode.values:
             raise ValueError(f"match must be one of {', '.join(MetricNameMatchMode.values)}")
@@ -90,6 +91,7 @@ class MetricNamesQueryRunner:
         self.names = tuple(sorted(set(names)))
         self.match = match
         self.include_first_seen = include_first_seen
+        self.include_series_stats = include_series_stats
         if self.search and self.match == "regex":
             try:
                 validate_regex(self.search)
@@ -265,6 +267,7 @@ class MetricNamesQueryRunner:
         names = [row[0] for row in response.results]
         sparklines = self._sparklines(names) if self.include_sparklines else {}
         first_seen = self._first_seen(names) if self.include_first_seen else None
+        series_stats = self._series_stats(names) if self.include_series_stats else None
 
         rows: list[dict[str, Any]] = []
         for name, metric_type, unit, last_seen in response.results:
@@ -277,6 +280,10 @@ class MetricNamesQueryRunner:
             }
             if first_seen is not None:
                 row["first_seen"] = _isoformat(first_seen.get(name))
+            if series_stats is not None:
+                series_count, tag_key_count = series_stats.get(name, (0, 0))
+                row["series_count"] = series_count
+                row["tag_key_count"] = tag_key_count
             rows.append(row)
         return rows
 
@@ -312,6 +319,41 @@ class MetricNamesQueryRunner:
             settings=_SPARKLINE_QUERY_SETTINGS,
         )
         return dict(response.results)
+
+    def _series_stats(self, names: Sequence[str]) -> dict[str, tuple[int, int]]:
+        """Approximate series count and distinct datapoint attribute key count per name, within the lookback."""
+        if not names:
+            return {}
+        # uniq(series_fingerprint) matches how the overview counts active series.
+        query = parse_select(
+            """
+                SELECT
+                    metric_name,
+                    uniq(series_fingerprint) AS series_count,
+                    length(groupUniqArrayArray(mapKeys(attributes))) AS tag_key_count
+                FROM posthog.metric_series
+                WHERE last_seen >= {lookback_start}
+                  AND metric_name IN {names}
+                GROUP BY metric_name
+            """,
+            placeholders={
+                "lookback_start": self._lookback_start(),
+                "names": ast.Tuple(exprs=[ast.Constant(value=name) for name in names]),
+            },
+        )
+        assert isinstance(query, ast.SelectQuery)
+        assert query.where is not None
+        if self.services:
+            query.where = ast.And(exprs=[query.where, self._services_expr()])
+        query.limit = ast.Constant(value=len(names))
+        response = execute_hogql_query(
+            query_type="MetricNamesSeriesStatsQuery",
+            query=query,
+            team=self.team,
+            workload=Workload.METRICS,
+            settings=_QUERY_SETTINGS,
+        )
+        return {name: (int(series), int(tag_keys)) for name, series, tag_keys in response.results}
 
     def _sparklines(self, names: Sequence[str]) -> dict[str, list[float]]:
         if not names:
@@ -440,6 +482,11 @@ def fold_classic_histograms(rows: Sequence[dict[str, Any]]) -> list[dict[str, An
         if "first_seen" in row:
             first_seen = [r["first_seen"] for r in triple_rows if r.get("first_seen")]
             merged["first_seen"] = min(first_seen) if first_seen else None
+        if "series_count" in row:
+            # The `_bucket` row has a series per `le` bucket; `_count` has one per histogram.
+            count_row = by_name[members["count"]]
+            merged["series_count"] = count_row["series_count"]
+            merged["tag_key_count"] = count_row["tag_key_count"]
         result.append(merged)
     return result
 
@@ -453,6 +500,7 @@ def cached_metric_names(
     match: str = "substring",
     include_sparklines: bool = True,
     include_first_seen: bool = False,
+    include_series_stats: bool = False,
 ) -> list[dict[str, Any]]:
     """Metric names for the picker. Only non-empty, unsearched lists are cached."""
     runner = MetricNamesQueryRunner(
@@ -463,13 +511,14 @@ def cached_metric_names(
         match=match,
         include_sparklines=include_sparklines,
         include_first_seen=include_first_seen,
+        include_series_stats=include_series_stats,
     )
     if runner.search:
         return runner.run()
 
     # Hashed: service names can hold characters that a memcached key cannot.
     scope = sha256(repr(runner.services).encode()).hexdigest()[:16] if runner.services else "all"
-    shape = f"{int(include_sparklines)}{int(include_first_seen)}"
+    shape = f"{int(include_sparklines)}{int(include_first_seen)}{int(include_series_stats)}"
     cache_key = f"metrics:{team.id}:metric_names:v4:{limit}:{shape}:{scope}"
     cached = cache.get(cache_key)
     if cached is not None:
