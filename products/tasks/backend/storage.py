@@ -107,5 +107,17 @@ def read_run_log_size(log: TaskRunLog, *, strict: bool) -> int:
     return int(head.get("ContentLength") or 0)
 
 
+def run_log_exists(log: TaskRunLog) -> bool:
+    return object_storage.head_object(log.key) is not None
+
+
 def copy_run_log(log: TaskRunLog, target_key: str) -> None:
     object_storage.copy(log.key, target_key)
+
+
+def run_log_download_url(
+    log: TaskRunLog, *, expiration_seconds: int, content_disposition: str | None = None
+) -> str | None:
+    return object_storage.get_presigned_url(
+        log.key, expiration=expiration_seconds, content_disposition=content_disposition
+    )

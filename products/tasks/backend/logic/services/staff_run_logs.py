@@ -1,10 +1,10 @@
 from uuid import UUID
 
 from posthog.models.user import User
-from posthog.storage import object_storage
 
 from products.tasks.backend.facade.contracts import TaskRunLogLink
 from products.tasks.backend.models import TaskRun
+from products.tasks.backend.storage import run_log_download_url, run_log_exists
 from products.tasks.backend.visibility import task_run_visibility_q
 
 LOG_LINK_EXPIRATION_SECONDS = 300
@@ -24,14 +24,14 @@ def staff_task_run_log_link(run_id: UUID, user: User) -> TaskRunLogLink | None:
     )
     if run is None:
         return None
-    if object_storage.head_object(run.log_url) is None:
+    if not run_log_exists(run.log):
         return TaskRunLogLink(
             url=None,
             unavailable_reason="This run has no logs. They may not be written yet, or object storage is unreachable.",
         )
-    url = object_storage.get_presigned_url(
-        run.log_url,
-        expiration=LOG_LINK_EXPIRATION_SECONDS,
+    url = run_log_download_url(
+        run.log,
+        expiration_seconds=LOG_LINK_EXPIRATION_SECONDS,
         content_disposition=f'attachment; filename="run_{run.id}.jsonl"',
     )
     if not url:

@@ -7,7 +7,6 @@ from pydantic import BaseModel, Field
 
 from posthog.egress.limiter.policies import Priority
 from posthog.integrations import IntegrationManager
-from posthog.storage import object_storage
 
 from products.signals.backend.facade.trial import prepare_task_trial
 
@@ -17,6 +16,7 @@ from .facade import api as tasks_facade
 from .facade.access import analytics_context_reader, get_posthog_ai_access_decision
 from .logic.services.workflow_dispatch import WorkflowDispatchOptions, enqueue_or_start_workflow
 from .models import Task, TaskRun
+from .storage import run_log_download_url
 from .task_profiles import USER
 from .temporal.client import execute_task_processing_workflow_async
 from .visibility import task_control_q, task_visibility_q
@@ -387,7 +387,7 @@ Use this tool when the user wants to:
                 "run_id": str(task_run.id),
                 "status": task_run.status,
                 "status_display": task_run.get_status_display(),
-                "log_url": task_run.log_url,
+                "log": task_run.log,
             }
 
         result = await get_task_and_run()
@@ -405,20 +405,20 @@ Use this tool when the user wants to:
         if result.get("error") == "no_runs":
             return f"Task '{result['task_title']}' has no runs yet", {"error": "no_runs"}
 
-        presigned_url = object_storage.get_presigned_url(result["log_url"], expiration=3600)
+        download_url = run_log_download_url(result["log"], expiration_seconds=3600)
 
-        if not presigned_url:
+        if not download_url:
             return "Unable to generate log download URL", {"error": "presign_failed"}
 
         return (
             f"Logs for task '{result['task_title']}' run {result['run_id']} (status: {result['status_display']}).\n"
-            f"Download logs from: {presigned_url}\n"
+            f"Download logs from: {download_url}\n"
             f"(URL expires in 1 hour)",
             {
                 "task_id": result["task_id"],
                 "run_id": result["run_id"],
                 "status": result["status"],
-                "log_url": presigned_url,
+                "log_url": download_url,
                 "expires_in": 3600,
             },
         )

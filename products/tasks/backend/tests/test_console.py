@@ -11,7 +11,7 @@ from parameterized import parameterized
 from products.tasks.backend.facade.api import accept_desktop_beta_terms, get_desktop_beta_terms_acceptance
 from products.tasks.backend.models import Channel, Task, TaskRun
 
-_STORAGE = "products.tasks.backend.logic.services.staff_run_logs.object_storage"
+_STORAGE = "posthog.storage.object_storage"
 _DOWNLOAD_URL = "/admin/console/tools/task-run-logs/download/"
 
 
