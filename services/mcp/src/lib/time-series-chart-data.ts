@@ -339,11 +339,33 @@ function parseCell(cell: string): string | number | null {
     return NUMBER_CELL.test(cell) ? Number(cell) : cell
 }
 
+const BRACKETED_NOTICE = /^\[.*\]$/
+
+/**
+ * Accepts only the footers that `ee/hogai/context/insight/query_executor.py` writes after the table:
+ * a bracketed preview notice, and the warehouse suggestions, which are a bracketed header followed
+ * by `- ` lines. The formatter does not escape a newline in a cell, so a newline in the last cell of
+ * the last row continues on the next line. That line must not be read as a footer, because the row
+ * would then lose part of its label and join the series of another group.
+ */
+function isFooter(lines: string[]): boolean {
+    let inList = false
+    for (const line of lines) {
+        if (line === '') {
+            inList = false
+        } else if (BRACKETED_NOTICE.test(line)) {
+            inList = true
+        } else if (!(inList && line.startsWith('- '))) {
+            return false
+        }
+    }
+    return true
+}
+
 /**
  * Reads the pipe-delimited table that `execute-sql` returns as text into rows. Notices without a
- * `|` come before the table (taxonomy warnings) and after it (preview and warehouse suggestions).
- * The formatter does not escape a `|` inside a cell, so a table whose lines disagree on their cell
- * count cannot be read safely and is skipped.
+ * `|` come before the table (taxonomy warnings). The formatter does not escape a `|` inside a cell,
+ * so a table whose lines disagree on their cell count cannot be read safely and is skipped.
  */
 function rowsFromPipeTable(text: string): JsonRecord[] | null {
     if (text.length > MAX_TABLE_CHARS) {
@@ -352,7 +374,8 @@ function rowsFromPipeTable(text: string): JsonRecord[] | null {
     if (!/\d{4}-\d{2}-\d{2}/.test(text)) {
         return []
     }
-    const lines = text.split('\n').map((line) => line.split('|'))
+    const textLines = text.split('\n')
+    const lines = textLines.map((line) => line.split('|'))
     const start = lines.findIndex((cells) => cells.length >= 2)
     if (start === -1) {
         return []
@@ -362,7 +385,7 @@ function rowsFromPipeTable(text: string): JsonRecord[] | null {
     while (end < lines.length && lines[end]!.length === width) {
         end++
     }
-    if (lines.slice(end).some((cells) => cells.length >= 2)) {
+    if (!isFooter(textLines.slice(end))) {
         return []
     }
     if (end - start - 1 > MAX_POINTS) {

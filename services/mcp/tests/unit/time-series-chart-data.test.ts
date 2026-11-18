@@ -198,7 +198,8 @@ describe('buildTimeSeriesChartData', () => {
                     '2026-11-10T00:00:00-08:00|10|4',
                     '[SQL result preview: Showing 2 of 9 returned rows.]',
                     '',
-                    'Warehouse suggestions:',
+                    '',
+                    '[Warehouse suggestions for views this query read.]',
                     '- Sync the `orders` table to query revenue.',
                 ].join('\n'),
             },
@@ -395,6 +396,18 @@ describe('buildTimeSeriesChartData', () => {
             ),
         ],
         ['a trends text table with an in-progress row', 'Date|count\n2026-11-10|5\n2026-11-11 (partial)|3'],
+        [
+            'an execute-sql text table whose last cell continues on a new line',
+            {
+                results: [
+                    'day|views|browser',
+                    '2026-11-10|5|Chrome',
+                    '2026-11-11|6|Chrome',
+                    '2026-11-12|7|Chrome',
+                    'Safari',
+                ].join('\n'),
+            },
+        ],
         [
             'an execute-sql text table split by a numeric hour',
             { results: 'day|hour|events\n2026-11-10|0|5\n2026-11-10|1|7\n2026-11-11|0|6\n2026-11-11|1|8' },
