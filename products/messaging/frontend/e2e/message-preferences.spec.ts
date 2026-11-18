@@ -1,6 +1,6 @@
 import { PlaywrightSetup } from '@playwright-utils/playwright-setup'
 import { expect, test } from '@playwright-utils/workspace-test-base'
-import { Page } from '@playwright/test'
+import { Page, Route } from '@playwright/test'
 
 const RECIPIENT = 'reader@example.com'
 const UPDATE_URL = '**/messaging-preferences/update*'
@@ -84,6 +84,7 @@ test.describe('Message preferences page', () => {
         const productNews = recipientPage.getByRole('checkbox', { name: 'Product news' })
         const eventInvites = recipientPage.getByRole('checkbox', { name: 'Event invites' })
         const allMarketing = recipientPage.getByRole('checkbox', { name: 'All marketing communications' })
+        const tracking = recipientPage.getByRole('checkbox', { name: 'Open and click tracking' })
         const successToast = recipientPage.getByText('Preferences updated successfully')
         const isPageRead = (url: URL): boolean => url.pathname === path
         const status = (id: string): ReturnType<Page['getByTestId']> => recipientPage.getByTestId(`status-${id}`)
@@ -451,8 +452,6 @@ test.describe('Message preferences page', () => {
             })
 
             await test.step('a refused tracking change turns back though a later save went through', async () => {
-                // The tracking switch has no accessible name of its own
-                const tracking = recipientPage.locator('#email-tracking-toggle')
                 const answer = responseGate()
                 await recipientPage.route(
                     UPDATE_URL,
@@ -482,6 +481,50 @@ test.describe('Message preferences page', () => {
                     [productNewsId]: 'OPTED_OUT',
                     [eventInvitesId]: 'OPTED_OUT',
                 })
+            })
+
+            await test.step('an older refusal does not undo a newer click on the same switch', async () => {
+                const refusal = responseGate()
+                const committed = responseGate()
+                const answer = responseGate()
+                // One handler takes every save: a single-use route that ends lets the held save through
+                let saves = 0
+                const handleSave = async (route: Route): Promise<void> => {
+                    saves++
+                    if (saves === 1) {
+                        await refusal.opened
+                        await route.fulfill({ status: 500, json: { error: 'Something went wrong' } })
+                    } else if (saves === 3) {
+                        const response = await route.fetch()
+                        committed.open()
+                        await answer.opened
+                        await route.fulfill({ response })
+                    } else {
+                        await route.continue()
+                    }
+                }
+                await recipientPage.route(UPDATE_URL, handleSave)
+                const refusals = recipientPage.getByText('Something went wrong')
+                const [savedBefore, refusedBefore] = [await successToast.count(), await refusals.count()]
+                await allMarketing.click()
+                await allMarketing.click()
+                await expect(successToast).toHaveCount(savedBefore + 1)
+                await allMarketing.click()
+                await committed.opened
+                refusal.open()
+                await expect(refusals).toHaveCount(refusedBefore + 1)
+                await expect(allMarketing).not.toBeChecked()
+                await tracking.click()
+                answer.open()
+                await expect(status('$email_tracking')).toHaveText('Tracking off')
+                await expect(status('$all')).toHaveText('Not subscribed')
+                expect(await storedPreferences()).toEqual({
+                    $all: 'OPTED_OUT',
+                    $email_tracking: 'OPTED_OUT',
+                    [productNewsId]: 'OPTED_OUT',
+                    [eventInvitesId]: 'OPTED_OUT',
+                })
+                await recipientPage.unroute(UPDATE_URL, handleSave)
             })
         } finally {
             await recipientContext.close()

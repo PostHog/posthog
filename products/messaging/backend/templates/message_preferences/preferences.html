@@ -31,7 +31,7 @@
                                 <div class="bg-gray-50 rounded-lg p-6 transition-all duration-200 hover:shadow-md">
                                     <div class="flex items-start justify-between gap-4">
                                         <div class="flex-1 min-w-0">
-                                            <h3 class="text-lg font-medium text-gray-900">Open and click tracking</h3>
+                                            <h3 id="email-tracking-name" class="text-lg font-medium text-gray-900">Open and click tracking</h3>
                                             <p class="text-sm text-gray-500 mt-1">We use an invisible image and measured links to see whether marketing emails are opened and clicked. This never affects which emails you receive.</p>
                                         </div>
                                         <div class="flex flex-col items-end flex-shrink-0 w-40">
@@ -39,6 +39,7 @@
                                                 <input type="checkbox"
                                                        name="$email_tracking"
                                                        id="email-tracking-toggle"
+                                                       aria-labelledby="email-tracking-name"
                                                        data-on-label="Tracking allowed"
                                                        data-off-label="Tracking off"
                                                        {% if email_tracking_allowed %}checked{% endif %}
@@ -79,9 +80,10 @@
                     return choices
                 }
                 const wanted = savedChoices(document)
-                // What the server took, each choice from the newest save that carried it
-                const stored = savedChoices(document)
-                const storedBy = {}
+                // Each choice as the newest accepted save sent it. Saves can commit out of order, so the read-back corrects it.
+                const accepted = savedChoices(document)
+                const acceptedBy = {}
+                const sentBy = {}
                 const saving = new Set()
                 let savesPending = 0
                 let savesStarted = 0
@@ -149,6 +151,7 @@
                         // The backend preserves a stored answer when the key is absent.
                         if (toggle.name !== '$email_tracking' || toggle === changedToggle) {
                             choices[toggle.name] = wanted[toggle.name]
+                            sentBy[toggle.name] = saveNumber
                         }
                     })
 
@@ -171,22 +174,25 @@
                         }
 
                         Object.entries(choices).forEach(([name, on]) => {
-                            if (!(storedBy[name] > saveNumber)) {
-                                stored[name] = on
-                                storedBy[name] = saveNumber
+                            if (!(acceptedBy[name] > saveNumber)) {
+                                accepted[name] = on
+                                acceptedBy[name] = saveNumber
                             }
                         })
                         showToast('Preferences updated successfully', false)
                     } catch (error) {
                         showToast(error.message || 'Failed to update preferences', true)
-                        // A refused change turns back now, so a click before the read-back cannot resend it
-                        wanted[changedToggle.name] = stored[changedToggle.name]
-                        render()
+                        // A refused change turns back now, so a click before the read-back cannot resend it.
+                        // A newer save of the same choice carries a later click, so that one stays.
+                        if (sentBy[changedToggle.name] === saveNumber) {
+                            wanted[changedToggle.name] = accepted[changedToggle.name]
+                            render()
+                        }
                     } finally {
                         savesPending--
                         if (savesPending === 0) {
-                            // Each choice takes the newest value the server accepted, which turns back one only refused saves carried
-                            Object.assign(wanted, stored)
+                            // A choice that only refused saves sent turns back to its newest accepted value
+                            Object.assign(wanted, accepted)
                             const savesBeforeRead = savesStarted
                             // Overlapping saves can answer out of commit order, so read back what the server stored
                             const read = new AbortController()
@@ -198,8 +204,8 @@
                             // A save that started during the read makes it stale, and that save reads back when it ends
                             if (savesStarted === savesBeforeRead) {
                                 if (storedForm) {
-                                    Object.assign(stored, savedChoices(storedForm))
-                                    Object.assign(wanted, stored)
+                                    Object.assign(accepted, savedChoices(storedForm))
+                                    Object.assign(wanted, accepted)
                                 } else {
                                     showToast("Couldn't confirm your preferences. Reload the page to check them.", true)
                                 }
