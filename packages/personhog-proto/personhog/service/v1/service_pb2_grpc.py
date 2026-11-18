@@ -114,6 +114,12 @@ class PersonHogServiceStub:
             response_deserializer=personhog_dot_types_dot_v1_dot_feature__flag__pb2.DeleteHashKeyOverridesByTeamsResponse.FromString,
             _registered_method=True,
         )
+        self.GetFlagContext = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/GetFlagContext",
+            request_serializer=personhog_dot_types_dot_v1_dot_feature__flag__pb2.GetFlagContextRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_feature__flag__pb2.GetFlagContextResponse.FromString,
+            _registered_method=True,
+        )
         self.CheckCohortMembership = channel.unary_unary(
             "/personhog.service.v1.PersonHogService/CheckCohortMembership",
             request_serializer=personhog_dot_types_dot_v1_dot_cohort__pb2.CheckCohortMembershipRequest.SerializeToString,
@@ -459,6 +465,12 @@ class PersonHogServiceServicer:
 
     def DeleteHashKeyOverridesByTeams(self, request, context):
         """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def GetFlagContext(self, request, context):
+        """Everything feature flag evaluation reads about one visitor, with the person served by a changelog follower."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
@@ -818,6 +830,11 @@ def add_PersonHogServiceServicer_to_server(servicer, server):
             servicer.DeleteHashKeyOverridesByTeams,
             request_deserializer=personhog_dot_types_dot_v1_dot_feature__flag__pb2.DeleteHashKeyOverridesByTeamsRequest.FromString,
             response_serializer=personhog_dot_types_dot_v1_dot_feature__flag__pb2.DeleteHashKeyOverridesByTeamsResponse.SerializeToString,
+        ),
+        "GetFlagContext": grpc.unary_unary_rpc_method_handler(
+            servicer.GetFlagContext,
+            request_deserializer=personhog_dot_types_dot_v1_dot_feature__flag__pb2.GetFlagContextRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_feature__flag__pb2.GetFlagContextResponse.SerializeToString,
         ),
         "CheckCohortMembership": grpc.unary_unary_rpc_method_handler(
             servicer.CheckCohortMembership,
@@ -1405,6 +1422,36 @@ class PersonHogService:
             "/personhog.service.v1.PersonHogService/DeleteHashKeyOverridesByTeams",
             personhog_dot_types_dot_v1_dot_feature__flag__pb2.DeleteHashKeyOverridesByTeamsRequest.SerializeToString,
             personhog_dot_types_dot_v1_dot_feature__flag__pb2.DeleteHashKeyOverridesByTeamsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def GetFlagContext(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/GetFlagContext",
+            personhog_dot_types_dot_v1_dot_feature__flag__pb2.GetFlagContextRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_feature__flag__pb2.GetFlagContextResponse.FromString,
             options,
             channel_credentials,
             insecure,

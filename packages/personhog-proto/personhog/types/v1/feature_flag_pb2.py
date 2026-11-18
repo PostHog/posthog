@@ -20,10 +20,15 @@ _runtime_version.ValidateProtobufRuntimeVersion(
 _sym_db = _symbol_database.Default()
 
 
-from personhog.types.v1 import common_pb2 as personhog_dot_types_dot_v1_dot_common__pb2
+from personhog.types.v1 import (
+    cohort_pb2 as personhog_dot_types_dot_v1_dot_cohort__pb2,
+    common_pb2 as personhog_dot_types_dot_v1_dot_common__pb2,
+    group_pb2 as personhog_dot_types_dot_v1_dot_group__pb2,
+    person_pb2 as personhog_dot_types_dot_v1_dot_person__pb2,
+)
 
 DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(
-    b'\n%personhog/types/v1/feature_flag.proto\x12\x12personhog.types.v1\x1a\x1fpersonhog/types/v1/common.proto"=\n\x0fHashKeyOverride\x12\x18\n\x10\x66\x65\x61ture_flag_key\x18\x01 \x01(\t\x12\x10\n\x08hash_key\x18\x02 \x01(\t"\x9c\x01\n\x16HashKeyOverrideContext\x12\x11\n\tperson_id\x18\x01 \x01(\x03\x12\x13\n\x0b\x64istinct_id\x18\x02 \x01(\t\x12\x36\n\toverrides\x18\x03 \x03(\x0b\x32#.personhog.types.v1.HashKeyOverride\x12"\n\x1a\x65xisting_feature_flag_keys\x18\x04 \x03(\t"\x9d\x01\n GetHashKeyOverrideContextRequest\x12\x0f\n\x07team_id\x18\x01 \x01(\x03\x12\x14\n\x0c\x64istinct_ids\x18\x02 \x03(\t\x12\x1b\n\x13\x63heck_person_exists\x18\x03 \x01(\x08\x12\x35\n\x0cread_options\x18\x04 \x01(\x0b\x32\x1f.personhog.types.v1.ReadOptions"`\n!GetHashKeyOverrideContextResponse\x12;\n\x07results\x18\x01 \x03(\x0b\x32*.personhog.types.v1.HashKeyOverrideContext"s\n\x1dUpsertHashKeyOverridesRequest\x12\x0f\n\x07team_id\x18\x01 \x01(\x03\x12\x14\n\x0c\x64istinct_ids\x18\x02 \x03(\t\x12\x10\n\x08hash_key\x18\x03 \x01(\t\x12\x19\n\x11\x66\x65\x61ture_flag_keys\x18\x04 \x03(\t"8\n\x1eUpsertHashKeyOverridesResponse\x12\x16\n\x0einserted_count\x18\x01 \x01(\x03"L\n$DeleteHashKeyOverridesByTeamsRequest\x12\x10\n\x08team_ids\x18\x01 \x03(\x03\x12\x12\n\nbatch_size\x18\x02 \x01(\x03">\n%DeleteHashKeyOverridesByTeamsResponse\x12\x15\n\rdeleted_count\x18\x01 \x01(\x03\x62\x06proto3'
+    b'\n%personhog/types/v1/feature_flag.proto\x12\x12personhog.types.v1\x1a\x1fpersonhog/types/v1/cohort.proto\x1a\x1fpersonhog/types/v1/common.proto\x1a\x1epersonhog/types/v1/group.proto\x1a\x1fpersonhog/types/v1/person.proto"=\n\x0fHashKeyOverride\x12\x18\n\x10\x66\x65\x61ture_flag_key\x18\x01 \x01(\t\x12\x10\n\x08hash_key\x18\x02 \x01(\t"\x9c\x01\n\x16HashKeyOverrideContext\x12\x11\n\tperson_id\x18\x01 \x01(\x03\x12\x13\n\x0b\x64istinct_id\x18\x02 \x01(\t\x12\x36\n\toverrides\x18\x03 \x03(\x0b\x32#.personhog.types.v1.HashKeyOverride\x12"\n\x1a\x65xisting_feature_flag_keys\x18\x04 \x03(\t"\x9d\x01\n GetHashKeyOverrideContextRequest\x12\x0f\n\x07team_id\x18\x01 \x01(\x03\x12\x14\n\x0c\x64istinct_ids\x18\x02 \x03(\t\x12\x1b\n\x13\x63heck_person_exists\x18\x03 \x01(\x08\x12\x35\n\x0cread_options\x18\x04 \x01(\x0b\x32\x1f.personhog.types.v1.ReadOptions"`\n!GetHashKeyOverrideContextResponse\x12;\n\x07results\x18\x01 \x03(\x0b\x32*.personhog.types.v1.HashKeyOverrideContext"s\n\x1dUpsertHashKeyOverridesRequest\x12\x0f\n\x07team_id\x18\x01 \x01(\x03\x12\x14\n\x0c\x64istinct_ids\x18\x02 \x03(\t\x12\x10\n\x08hash_key\x18\x03 \x01(\t\x12\x19\n\x11\x66\x65\x61ture_flag_keys\x18\x04 \x03(\t"8\n\x1eUpsertHashKeyOverridesResponse\x12\x16\n\x0einserted_count\x18\x01 \x01(\x03"L\n$DeleteHashKeyOverridesByTeamsRequest\x12\x10\n\x08team_ids\x18\x01 \x03(\x03\x12\x12\n\nbatch_size\x18\x02 \x01(\x03">\n%DeleteHashKeyOverridesByTeamsResponse\x12\x15\n\rdeleted_count\x18\x01 \x01(\x03"\xc8\x01\n\x15GetFlagContextRequest\x12\x0f\n\x07team_id\x18\x01 \x01(\x03\x12\x16\n\tperson_id\x18\x02 \x01(\x03H\x00\x88\x01\x01\x12\x19\n\x11static_cohort_ids\x18\x03 \x03(\x03\x12>\n\x11group_identifiers\x18\x04 \x03(\x0b\x32#.personhog.types.v1.GroupIdentifier\x12\x1d\n\x15override_distinct_ids\x18\x05 \x03(\tB\x0c\n\n_person_id"\xf9\x01\n\x16GetFlagContextResponse\x12*\n\x06person\x18\x01 \x01(\x0b\x32\x1a.personhog.types.v1.Person\x12@\n\x12\x63ohort_memberships\x18\x02 \x03(\x0b\x32$.personhog.types.v1.CohortMembership\x12)\n\x06groups\x18\x03 \x03(\x0b\x32\x19.personhog.types.v1.Group\x12\x46\n\x12hash_key_overrides\x18\x04 \x03(\x0b\x32*.personhog.types.v1.HashKeyOverrideContextb\x06proto3'
 )
 
 _globals = globals()
@@ -31,20 +36,24 @@ _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, "personhog.types.v1.feature_flag_pb2", _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
     DESCRIPTOR._loaded_options = None
-    _globals["_HASHKEYOVERRIDE"]._serialized_start = 94
-    _globals["_HASHKEYOVERRIDE"]._serialized_end = 155
-    _globals["_HASHKEYOVERRIDECONTEXT"]._serialized_start = 158
-    _globals["_HASHKEYOVERRIDECONTEXT"]._serialized_end = 314
-    _globals["_GETHASHKEYOVERRIDECONTEXTREQUEST"]._serialized_start = 317
-    _globals["_GETHASHKEYOVERRIDECONTEXTREQUEST"]._serialized_end = 474
-    _globals["_GETHASHKEYOVERRIDECONTEXTRESPONSE"]._serialized_start = 476
-    _globals["_GETHASHKEYOVERRIDECONTEXTRESPONSE"]._serialized_end = 572
-    _globals["_UPSERTHASHKEYOVERRIDESREQUEST"]._serialized_start = 574
-    _globals["_UPSERTHASHKEYOVERRIDESREQUEST"]._serialized_end = 689
-    _globals["_UPSERTHASHKEYOVERRIDESRESPONSE"]._serialized_start = 691
-    _globals["_UPSERTHASHKEYOVERRIDESRESPONSE"]._serialized_end = 747
-    _globals["_DELETEHASHKEYOVERRIDESBYTEAMSREQUEST"]._serialized_start = 749
-    _globals["_DELETEHASHKEYOVERRIDESBYTEAMSREQUEST"]._serialized_end = 825
-    _globals["_DELETEHASHKEYOVERRIDESBYTEAMSRESPONSE"]._serialized_start = 827
-    _globals["_DELETEHASHKEYOVERRIDESBYTEAMSRESPONSE"]._serialized_end = 889
+    _globals["_HASHKEYOVERRIDE"]._serialized_start = 192
+    _globals["_HASHKEYOVERRIDE"]._serialized_end = 253
+    _globals["_HASHKEYOVERRIDECONTEXT"]._serialized_start = 256
+    _globals["_HASHKEYOVERRIDECONTEXT"]._serialized_end = 412
+    _globals["_GETHASHKEYOVERRIDECONTEXTREQUEST"]._serialized_start = 415
+    _globals["_GETHASHKEYOVERRIDECONTEXTREQUEST"]._serialized_end = 572
+    _globals["_GETHASHKEYOVERRIDECONTEXTRESPONSE"]._serialized_start = 574
+    _globals["_GETHASHKEYOVERRIDECONTEXTRESPONSE"]._serialized_end = 670
+    _globals["_UPSERTHASHKEYOVERRIDESREQUEST"]._serialized_start = 672
+    _globals["_UPSERTHASHKEYOVERRIDESREQUEST"]._serialized_end = 787
+    _globals["_UPSERTHASHKEYOVERRIDESRESPONSE"]._serialized_start = 789
+    _globals["_UPSERTHASHKEYOVERRIDESRESPONSE"]._serialized_end = 845
+    _globals["_DELETEHASHKEYOVERRIDESBYTEAMSREQUEST"]._serialized_start = 847
+    _globals["_DELETEHASHKEYOVERRIDESBYTEAMSREQUEST"]._serialized_end = 923
+    _globals["_DELETEHASHKEYOVERRIDESBYTEAMSRESPONSE"]._serialized_start = 925
+    _globals["_DELETEHASHKEYOVERRIDESBYTEAMSRESPONSE"]._serialized_end = 987
+    _globals["_GETFLAGCONTEXTREQUEST"]._serialized_start = 990
+    _globals["_GETFLAGCONTEXTREQUEST"]._serialized_end = 1190
+    _globals["_GETFLAGCONTEXTRESPONSE"]._serialized_start = 1193
+    _globals["_GETFLAGCONTEXTRESPONSE"]._serialized_end = 1442
 # @@protoc_insertion_point(module_scope)

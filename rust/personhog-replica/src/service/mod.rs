@@ -1,6 +1,7 @@
 mod consistency;
 mod error;
 pub mod field_mask;
+mod flag_context;
 mod followed;
 mod types;
 
@@ -32,12 +33,13 @@ use personhog_proto::personhog::types::v1::{
     DistinctIdWriteResult as ProtoDistinctIdWriteResult, EnsurePersonVersionFloorsRequest,
     EnsurePersonVersionFloorsResponse, GetDistinctIdRowsRequest, GetDistinctIdRowsResponse,
     GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
-    GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
-    GetGroupResponse, GetGroupTypeMappingByDashboardIdRequest,
-    GetGroupTypeMappingByDashboardIdResponse, GetGroupTypeMappingsByProjectIdRequest,
-    GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
-    GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsBatchResponse,
-    GetGroupsRequest, GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
+    GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetFlagContextRequest,
+    GetFlagContextResponse, GetGroupRequest, GetGroupResponse,
+    GetGroupTypeMappingByDashboardIdRequest, GetGroupTypeMappingByDashboardIdResponse,
+    GetGroupTypeMappingsByProjectIdRequest, GetGroupTypeMappingsByProjectIdsRequest,
+    GetGroupTypeMappingsByTeamIdRequest, GetGroupTypeMappingsByTeamIdsRequest,
+    GetGroupsBatchRequest, GetGroupsBatchResponse, GetGroupsRequest,
+    GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
     GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
     GetPersonTombstonesRequest, GetPersonTombstonesResponse, GetPersonsByDistinctIdsInTeamRequest,
     GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest, GetPersonsRequest, GroupKey,
@@ -733,6 +735,14 @@ impl PersonHogReplica for PersonHogReplicaService {
                 })
                 .collect(),
         }))
+    }
+
+    async fn get_flag_context(
+        &self,
+        request: Request<GetFlagContextRequest>,
+    ) -> Result<Response<GetFlagContextResponse>, Status> {
+        let (metadata, _, req) = request.into_parts();
+        Ok(Response::new(self.flag_context(&metadata, req).await?))
     }
 
     async fn upsert_hash_key_overrides(

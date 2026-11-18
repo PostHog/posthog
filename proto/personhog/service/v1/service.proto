@@ -28,6 +28,8 @@ service PersonHogService {
   rpc GetHashKeyOverrideContext(personhog.types.v1.GetHashKeyOverrideContextRequest) returns (personhog.types.v1.GetHashKeyOverrideContextResponse);
   rpc UpsertHashKeyOverrides(personhog.types.v1.UpsertHashKeyOverridesRequest) returns (personhog.types.v1.UpsertHashKeyOverridesResponse);
   rpc DeleteHashKeyOverridesByTeams(personhog.types.v1.DeleteHashKeyOverridesByTeamsRequest) returns (personhog.types.v1.DeleteHashKeyOverridesByTeamsResponse);
+  // Everything feature flag evaluation reads about one visitor, with the person served by a changelog follower.
+  rpc GetFlagContext(personhog.types.v1.GetFlagContextRequest) returns (personhog.types.v1.GetFlagContextResponse);
 
   // Cohort membership
   rpc CheckCohortMembership(personhog.types.v1.CheckCohortMembershipRequest) returns (personhog.types.v1.CohortMembershipResponse);

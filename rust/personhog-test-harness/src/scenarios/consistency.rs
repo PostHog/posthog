@@ -190,7 +190,7 @@ async fn followed_read_shows(
 ) -> Option<ConsistencyViolation> {
     tokio::time::sleep(within).await;
     let person = client
-        .get_person(team_id, person_id, ConsistencyLevel::Eventual)
+        .followed_person_in_flag_context(team_id, person_id)
         .await
         .ok()?;
     if state.is_merge_pending_or_merged(person_id).await {

@@ -51,6 +51,7 @@ pub const KNOWN_METHODS: &[&str] = &[
     "GetDistinctIdRows",
     "GetDistinctIdsForPerson",
     "GetDistinctIdsForPersons",
+    "GetFlagContext",
     "GetGroup",
     "GetGroupTypeMappingByDashboardId",
     "GetGroupTypeMappingsByProjectId",
@@ -325,6 +326,10 @@ impl RawProxyInner {
             }
             (Target::Service, "GetPersonByUuid") if self.follows(&req) => {
                 self.raw_proxy_to_follower(req, "GetPersonByUuid").await
+            }
+            (Target::Service, "GetFlagContext") if self.follows(&req) => {
+                let (resp, call_ms) = self.raw_proxy_to_follower(req, "GetFlagContext").await;
+                (resp, "follower", call_ms)
             }
             (Target::Service, _) => {
                 let (resp, call_ms) = self.raw_proxy_to_replica(req, method.clone()).await;

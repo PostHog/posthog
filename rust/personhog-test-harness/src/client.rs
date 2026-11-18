@@ -70,6 +70,25 @@ impl HarnessClient {
             .context("GetPerson failed")
     }
 
+    /// The person as a changelog follower has them, read as part of a flag context.
+    pub async fn followed_person_in_flag_context(
+        &self,
+        team_id: i64,
+        person_id: i64,
+    ) -> Result<Option<Person>> {
+        let request = personhog_proto::personhog::types::v1::GetFlagContextRequest {
+            team_id,
+            person_id: Some(person_id),
+            ..Default::default()
+        };
+        let response = self
+            .inner
+            .get_flag_context(request)
+            .await
+            .context("GetFlagContext failed")?;
+        Ok(response.person)
+    }
+
     /// Fence a person for a delete op, returning the sealed version.
     pub async fn fence_person(
         &self,
