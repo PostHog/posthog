@@ -180,6 +180,16 @@ class TestTreeFacts(BaseTest):
                 TreeFacts(),
             ),
             (
+                "a referenced scalar CTE",
+                "WITH (SELECT count() FROM events l CROSS JOIN events r WHERE l.distinct_id = r.distinct_id) AS n SELECT n",
+                TreeFacts(cross_join_equalities=1),
+            ),
+            (
+                "an unreferenced scalar CTE",
+                "WITH (SELECT count() FROM events l CROSS JOIN events r WHERE l.distinct_id = r.distinct_id) AS n SELECT count() FROM events",
+                TreeFacts(),
+            ),
+            (
                 "an equality inside OR",
                 "SELECT count() FROM events l CROSS JOIN events r WHERE l.distinct_id = r.distinct_id OR l.event = 'example'",
                 TreeFacts(),

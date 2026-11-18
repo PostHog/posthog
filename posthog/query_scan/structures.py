@@ -60,11 +60,16 @@ class QueryStructures(TraversingVisitor):
         self.ctes: dict[int, ast.CTE] = {}
         self.references: Counter[int] = Counter()
         self._visited_ctes: set[int] = set()
+        self._scalar_ctes: dict[int, int] = {}
         self.cross_join_equalities = 0
         self.date_arrays_before_breakdown_limit = False
 
     def visit_field(self, node: ast.Field) -> None:
-        pass
+        # A scalar CTE reference carries only the CTE's first column type, so that type object names the CTE.
+        if isinstance(node.type, ast.FieldAliasType):
+            type_id = self._scalar_ctes.get(id(node.type.type))
+            if type_id is not None:
+                self._visit_once(type_id)
 
     def visit_cte(self, node: ast.CTE) -> None:
         # ClickHouse never runs a CTE body that nothing references, so bodies are visited from their references.
@@ -81,7 +86,11 @@ class QueryStructures(TraversingVisitor):
         super().visit_join_expr(node)
 
     def _visit_cte_body(self, type_id: int) -> None:
-        if type_id in self.ctes and self.references[type_id] and type_id not in self._visited_ctes:
+        if type_id in self.ctes and self.references[type_id]:
+            self._visit_once(type_id)
+
+    def _visit_once(self, type_id: int) -> None:
+        if type_id not in self._visited_ctes:
             self._visited_ctes.add(type_id)
             self.visit(self.ctes[type_id].expr)
 
@@ -103,6 +112,10 @@ class QueryStructures(TraversingVisitor):
         for cte in (node.ctes or {}).values():
             if cte.expr.type is not None:
                 self.ctes[id(cte.expr.type)] = cte
+                if cte.cte_type == "column" and isinstance(cte.expr.type, ast.SelectQueryType):
+                    first_column = next(iter(cte.expr.type.columns.values()), None)
+                    if first_column is not None:
+                        self._scalar_ctes[id(first_column)] = id(cte.expr.type)
                 self._visit_cte_body(id(cte.expr.type))
         calls = _LocalCalls()
         for expr in node.select:
