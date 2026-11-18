@@ -17,6 +17,7 @@ import yaml
 from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
 
+from posthog.api.oauth.client_assertion import UnknownSigningKeyError
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 
@@ -1198,6 +1199,35 @@ class WorkflowProofTests(SimpleTestCase):
         client = _WorkflowClient([check_run], jobs)
 
         assert _proofs(client).has_result(_PUBLISHER) is reported
+
+    @parameterized.expand(
+        [
+            # A refresh that failed after a key rotation must not let an older success decide.
+            ("a_newer_failure_behind_an_unreadable_key", "77", "failure", None),
+            # GitHub dropped the key of an old run, and a newer verified result still decides.
+            ("an_older_token_behind_an_unreadable_key", "75", "success", "success"),
+        ]
+    )
+    def test_a_token_whose_key_cannot_be_read_never_lets_an_older_result_decide(
+        self, _name: str, unread_run: str, unread_conclusion: str, expected: str | None
+    ) -> None:
+        verified = _signed_check_run(5, run_id="76", check_run_id="899")
+        unread = _signed_check_run(6, conclusion=unread_conclusion, run_id=unread_run)
+        unread_token = unread["output"]["summary"].rsplit(" ", 2)[-2]
+
+        def signing_key(token: str) -> Any:
+            if token == unread_token:
+                raise UnknownSigningKeyError("Client assertion is signed by an unknown key")
+            return _test_signing_key(token)
+
+        client = _WorkflowClient([verified, unread], {899: {"name": "publish", "run_id": 76}})
+        proofs = WorkflowProofs(
+            cast(StamphogGitHubClient, client), "acme/widgets", pr_number=7, head_sha="sha", signing_key=signing_key
+        )
+
+        proof = proofs.verified_result(_PUBLISHER)
+
+        assert (proof or {}).get("conclusion") == expected
 
     def test_a_background_poll_reads_the_code_on_the_sheddable_lane(self) -> None:
         # Many waiting PRs poll at once, and must not spend the budget a person waiting on a review needs.

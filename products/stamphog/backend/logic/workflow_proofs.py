@@ -45,7 +45,12 @@ import jwt
 import structlog
 from jwt import PyJWK
 
-from posthog.api.oauth.client_assertion import ClientAssertionError, JWKSUnavailableError, select_signing_key
+from posthog.api.oauth.client_assertion import (
+    ClientAssertionError,
+    JWKSUnavailableError,
+    UnknownSigningKeyError,
+    select_signing_key,
+)
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
@@ -91,6 +96,19 @@ def _id_claim(claims: dict, key: str) -> int | None:
     """A numeric id claim, which GitHub sends as a string of digits."""
     value = claims.get(key)
     return int(value) if isinstance(value, str) and _ID_RE.fullmatch(value) else None
+
+
+class _SigningKeyUnavailable(Exception):
+    """GitHub's key for a token could not be read, so the token was neither accepted nor refused."""
+
+
+def _claimed_run(token: str) -> tuple[int, int]:
+    """The run and attempt a token claims, unverified, or (0, 0) when it claims none."""
+    try:
+        claims = jwt.decode(token, options={"verify_signature": False})
+    except jwt.PyJWTError:
+        return (0, 0)
+    return (_id_claim(claims, "run_id") or 0, _id_claim(claims, "run_attempt") or 0)
 
 
 def _github_signing_key(token: str) -> PyJWK:
@@ -193,9 +211,9 @@ class WorkflowProofs:
                 issuer=GITHUB_ACTIONS.issuer,
                 options={"verify_exp": False, "require": ["iss", "aud", "iat", "exp"]},
             )
-        except JWKSUnavailableError:
-            logger.warning("stamphog_workflow_proof_keys_unreachable", repo=self._repo)
-            return None
+        except (JWKSUnavailableError, UnknownSigningKeyError) as error:
+            # The token was never checked, so it may be the newest result. `_publisher_result` decides.
+            raise _SigningKeyUnavailable from error
         except (ClientAssertionError, jwt.PyJWTError):
             return None
         return claims
@@ -247,11 +265,35 @@ class WorkflowProofs:
         job = self._client.get_workflow_job(self._repo, signed.job_id, priority=self._priority)
         return job is not None and job.get("name") == publisher.job and job.get("run_id") == signed.run_id
 
+    def _signed_results(self, publisher: WorkflowPublisher) -> list[SignedResult]:
+        """The verified results, newest run first.
+
+        A token whose key cannot be read is set aside. When its own unchecked claims say it is newer
+        than every verified result, it may be the newest result, so nothing older may decide: the
+        publisher is unreadable. A key GitHub removed after an old run leaves that old token behind a
+        newer verified one, where it changes nothing.
+        """
+        signed: list[SignedResult] = []
+        unchecked_runs: list[tuple[int, int]] = []
+        for candidate in self._candidates(publisher):
+            try:
+                result = self._signed(candidate, publisher)
+            except _SigningKeyUnavailable:
+                unchecked_runs.append(_claimed_run(candidate.token))
+                continue
+            if result is not None:
+                signed.append(result)
+        signed.sort(key=lambda result: (result.run_id, result.run_attempt), reverse=True)
+        newest = (signed[0].run_id, signed[0].run_attempt) if signed else (0, 0)
+        if any(run > newest for run in unchecked_runs):
+            logger.warning("stamphog_workflow_proof_keys_unreachable", repo=self._repo, entry=publisher.name)
+            raise StamphogGitHubError(f"A newer {publisher.check!r} result is signed with a key that cannot be read")
+        return signed
+
     def _publisher_result(self, publisher: WorkflowPublisher) -> SignedResult | None:
         """The newest result that the publishing job signed for this PR and head."""
         try:
-            signed = [result for c in self._candidates(publisher) if (result := self._signed(c, publisher)) is not None]
-            for result in sorted(signed, key=lambda result: (result.run_id, result.run_attempt), reverse=True):
+            for result in self._signed_results(publisher):
                 # A token from another job of the workflow is not the publisher's result, so an older
                 # one from the publishing job may still be.
                 if self._requested_by_publishing_job(result, publisher):

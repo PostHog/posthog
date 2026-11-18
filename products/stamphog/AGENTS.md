@@ -238,7 +238,7 @@ The server's side (`logic/workflow_proofs.py`, with the policy fields read by `l
 Accepted limits:
 
 - The token expires five minutes after the job requests it, and a review often comes later, so the server does not check the expiry. The audience binds the token to one result, so an old token proves only what it signed.
-- A key that GitHub removes from its published set fails every result it signed, and the entry waits until the publisher runs again.
+- A key that GitHub removes from its published set fails every result it signed, and the entry waits until the publisher runs again. A token whose key cannot be read (a failed or rate-limited refresh after a rotation) makes the publisher unreadable when it claims a newer run than every verified result, so an older result never decides in its place.
 - A writer's job can strip the token from a newer result and post an older signed result of the same PR, head and merge base again. Unlike an App's check run, the newer one cannot be protected. The older result proved the same inputs with code that is still current, so this matters only for a publisher that answers differently on the same inputs.
 - Every check run of the name is verified, once per token, because a writer orders the check run ids and copies of an old result would push a newer one out of any window. A listing that reaches the API's page limit, or a commit with more check suites than GitHub lists check runs from (1000), counts as unreadable, so a flood keeps the entry pending and never lifts.
 
