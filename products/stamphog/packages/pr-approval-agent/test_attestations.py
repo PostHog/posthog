@@ -227,7 +227,9 @@ def test_each_attestation_lifts_only_its_own_categories() -> None:
     ],
 )
 def test_pending_when_pr_touches_the_paths_and_no_completed_check(check_runs: list[dict]) -> None:
-    assert pending_attestations([_MIGRATION_RISK, _DEPENDENCY_PROOF], check_runs, [_MIGRATION], _TITLE) == [_MIGRATION_RISK]
+    assert pending_attestations([_MIGRATION_RISK, _DEPENDENCY_PROOF], check_runs, [_MIGRATION], _TITLE) == [
+        _MIGRATION_RISK
+    ]
 
 
 @pytest.mark.parametrize("conclusion", ["success", "failure"])
