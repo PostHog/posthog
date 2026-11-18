@@ -81,7 +81,7 @@ test.describe('Message preferences page', () => {
                 .poll(() => storedPreferences())
                 .toEqual({ $all: 'OPTED_IN', [productNewsId]: 'OPTED_IN', [eventInvitesId]: 'OPTED_OUT' })
 
-            await test.step('all marketing off greys out every topic and keeps the topic choices', async () => {
+            await test.step('all marketing off disables every topic and keeps the topic choices', async () => {
                 await allMarketing.click()
                 await expect(status('$all')).toHaveText('Not subscribed')
                 await expect(offNote).toBeVisible()
@@ -102,8 +102,10 @@ test.describe('Message preferences page', () => {
                 await recipientPage.reload()
                 await expect(allMarketing).not.toBeChecked()
                 await expect(offNote).toBeVisible()
-                await expect(productNews).not.toBeChecked()
-                await expect(productNews).toBeDisabled()
+                for (const topic of [productNews, eventInvites]) {
+                    await expect(topic).not.toBeChecked()
+                    await expect(topic).toBeDisabled()
+                }
             })
 
             await test.step('all marketing on restores each topic to its saved choice', async () => {
