@@ -14,6 +14,34 @@ class TestAppsFlyerSource:
         self.team_id = 123
         self.config = AppsFlyerSourceConfig(app_id="id123", api_token="token")
 
+    @pytest.mark.parametrize(
+        "name, expected",
+        [
+            ("daily_report", True),
+            ("geo_report", True),
+            ("partners_report", True),
+            ("installs", False),
+            ("installs_organic", False),
+            ("installs_retargeting", False),
+            ("in_app_events", False),
+            ("in_app_events_organic", False),
+            ("in_app_events_retargeting", False),
+            ("uninstall_events", False),
+            ("ad_revenue", False),
+            ("ad_revenue_organic", False),
+            ("ad_revenue_retargeting", False),
+            ("blocked_installs", False),
+            ("blocked_in_app_events", False),
+            ("post_attribution_installs", False),
+            ("master_report", False),
+        ],
+    )
+    def test_only_aggregate_reports_sync_by_default(self, name, expected):
+        # Raw data, the Master API and Protect360 need AppsFlyer packages most accounts lack.
+        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
+
+        assert schemas[name].should_sync_default is expected
+
     def test_connection_host_fields_includes_app_id(self):
         # Changing app_id retargets the stored token, so editing it must require re-entering secrets.
         assert self.source.connection_host_fields == ["app_id"]
