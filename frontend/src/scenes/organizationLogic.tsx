@@ -11,6 +11,7 @@ import { isUserLoggedIn } from 'lib/utils/getAppContext'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 
+import { globalModalsLogic } from '~/layout/globalModalsLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { AvailableFeature, OrganizationType } from '~/types'
 
@@ -406,6 +407,8 @@ export const organizationLogic = kea<organizationLogicType>([
         },
         createOrganizationSuccess: () => {
             sidePanelStateLogic.findMounted()?.actions.closeSidePanel()
+            // Drops ?modal=create-organization from the current entry, so Back from onboarding can't reopen the dialog
+            globalModalsLogic.findMounted()?.actions.hideCreateOrganizationModal()
             window.location.href = urls.onboarding()
         },
         updateOrganizationSuccess: ({ currentOrganization, payload }) => {
