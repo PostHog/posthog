@@ -120,6 +120,19 @@ function impactErrorMessage(error: { status?: number; detail?: string | null } |
 // its answer or closes. A newer change, or a reopened tab, waits for the running query instead of running beside it.
 const runningQueries = new Map<string, Promise<unknown>>()
 
+// A response that never arrives would otherwise hold the tab on its loading state until a page reload.
+// After this limit the tab runs its query beside the unanswered one.
+export const RUNNING_QUERY_WAIT_LIMIT_MS = 60_000
+
+async function settledOrTimedOut(query: Promise<unknown>, ms: number): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+        await Promise.race([query.catch(() => null), new Promise((resolve) => (timer = setTimeout(resolve, ms)))])
+    } finally {
+        clearTimeout(timer)
+    }
+}
+
 export const emailImpactLogic = kea<emailImpactLogicType>([
     props({} as EmailImpactLogicProps),
     key((props) => props.workflowId),
@@ -153,8 +166,13 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
                         return null
                     }
                     await breakpoint(100)
-                    while (runningQueries.has(props.workflowId)) {
-                        await runningQueries.get(props.workflowId)?.catch(() => null)
+                    const waitUntil = Date.now() + RUNNING_QUERY_WAIT_LIMIT_MS
+                    for (
+                        let running = runningQueries.get(props.workflowId);
+                        running && Date.now() < waitUntil;
+                        running = runningQueries.get(props.workflowId)
+                    ) {
+                        await settledOrTimedOut(running, waitUntil - Date.now())
                         breakpoint()
                     }
                     const query = transactionalEmailLogImpactRetrieve(String(values.currentTeamId), {
@@ -168,7 +186,10 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
                     try {
                         return await query
                     } finally {
-                        runningQueries.delete(props.workflowId)
+                        // A query that answers after the wait limit must not drop the entry of the one that replaced it.
+                        if (runningQueries.get(props.workflowId) === query) {
+                            runningQueries.delete(props.workflowId)
+                        }
                         breakpoint()
                     }
                 },

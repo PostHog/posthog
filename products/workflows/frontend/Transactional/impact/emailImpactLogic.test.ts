@@ -13,7 +13,7 @@ import { TeamType } from '~/types'
 
 import type { TransactionalEmailImpactApi } from 'products/messaging/frontend/generated/api.schemas'
 
-import { emailImpactLogic } from './emailImpactLogic'
+import { RUNNING_QUERY_WAIT_LIMIT_MS, emailImpactLogic } from './emailImpactLogic'
 
 const ENVIRONMENT: TeamType = { ...MOCK_DEFAULT_TEAM, id: MOCK_TEAM_ID + 5, project_id: MOCK_TEAM_ID }
 
@@ -36,9 +36,15 @@ describe('emailImpactLogic', () => {
     let requestedParams: URLSearchParams[]
     let answer: [number, unknown] | Promise<[number, unknown]>
     let onRequest: () => void
+    // Running queries are shared across mounts by workflow, so each test gets its own workflow.
+    let testCount = 0
+    let workflowId: string
+    let heldAnswers: ((answer: [number, unknown]) => void)[]
 
     beforeEach(() => {
         localStorage.clear()
+        workflowId = `workflow-${++testCount}`
+        heldAnswers = []
         requestedFrom = []
         requestedParams = []
         answer = [200, WITHOUT_EVENT]
@@ -55,12 +61,15 @@ describe('emailImpactLogic', () => {
         })
     })
 
-    afterEach(() => logic.unmount())
+    afterEach(() => {
+        logic.unmount()
+        heldAnswers.forEach((finish) => finish([200, WITHOUT_EVENT]))
+    })
 
     it('asks the environment the email belongs to, and says which sends it could follow once an event is picked', async () => {
         const capture = jest.spyOn(posthog, 'capture')
         initKeaTests(true, ENVIRONMENT)
-        logic = emailImpactLogic({ workflowId: 'workflow-1' })
+        logic = emailImpactLogic({ workflowId })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
@@ -82,7 +91,7 @@ describe('emailImpactLogic', () => {
 
     it('loads once the team arrives when the tab mounts first', async () => {
         initKeaTests(true, null as unknown as TeamType)
-        logic = emailImpactLogic({ workflowId: 'workflow-1' })
+        logic = emailImpactLogic({ workflowId })
         const requested = new Promise<void>((resolve) => (onRequest = resolve))
         logic.mount()
         await requested
@@ -97,7 +106,7 @@ describe('emailImpactLogic', () => {
         ['event', (): void => logic.actions.setEvent('plan upgraded'), 'plan upgraded', 30],
     ])('shows the funnel as pending until a new %s answers', async (_, change, event, days) => {
         initKeaTests(true, ENVIRONMENT)
-        logic = emailImpactLogic({ workflowId: 'workflow-1' })
+        logic = emailImpactLogic({ workflowId })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         let answerNewSends: () => void = () => {}
@@ -112,7 +121,7 @@ describe('emailImpactLogic', () => {
 
         expect(logic.values.funnelState).toBe('loading')
         const params = requestedParams[requestedParams.length - 1]
-        expect(params.get('workflow_id')).toBe('workflow-1')
+        expect(params.get('workflow_id')).toBe(workflowId)
         expect(params.get('event')).toBe(event)
         expect(dayjs().diff(dayjs(params.get('date_from')), 'day')).toBe(days)
         answerNewSends()
@@ -121,9 +130,15 @@ describe('emailImpactLogic', () => {
         expect(logic.values.impact?.sent).toBe(4)
     })
 
-    const holdNextQuery = async (): Promise<(answer: [number, unknown]) => void> => {
+    const holdAnswer = (): ((answer: [number, unknown]) => void) => {
         let finish: (answer: [number, unknown]) => void = () => {}
         answer = new Promise((resolve) => (finish = resolve))
+        heldAnswers.push(finish)
+        return finish
+    }
+
+    const holdNextQuery = async (): Promise<(answer: [number, unknown]) => void> => {
+        const finish = holdAnswer()
         const requested = new Promise<void>((resolve) => (onRequest = resolve))
         logic.actions.setDays(7)
         await requested
@@ -131,13 +146,13 @@ describe('emailImpactLogic', () => {
     }
 
     it.each([
-        ['answers', [200, WITHOUT_EVENT]],
+        ['answers', [200, { ...WITHOUT_EVENT, sent: 9 }]],
         ['fails', [500, { detail: 'Server error' }]],
     ])(
         'waits for a running query that %s, then asks once for the latest period and event',
         async (_, runningAnswer) => {
             initKeaTests(true, ENVIRONMENT)
-            logic = emailImpactLogic({ workflowId: 'workflow-1' })
+            logic = emailImpactLogic({ workflowId })
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
             const finishRunningQuery = await holdNextQuery()
@@ -150,8 +165,14 @@ describe('emailImpactLogic', () => {
                 await jest.advanceTimersByTimeAsync(500)
                 expect(requestedParams).toHaveLength(2)
 
-                answer = [200, { ...IMPACT, sent: 4 }]
+                const answerReplacement = holdAnswer()
                 finishRunningQuery(runningAnswer as [number, unknown])
+                await jest.advanceTimersByTimeAsync(500)
+                expect(requestedParams).toHaveLength(3)
+                expect(logic.values.funnelState).toBe('loading')
+                expect(logic.values.impact?.sent).toBe(WITHOUT_EVENT.sent)
+
+                answerReplacement([200, { ...IMPACT, sent: 4 }])
                 await jest.advanceTimersByTimeAsync(500)
             } finally {
                 jest.useRealTimers()
@@ -168,13 +189,13 @@ describe('emailImpactLogic', () => {
 
     it('waits for the query a closed tab left running when the tab opens again', async () => {
         initKeaTests(true, ENVIRONMENT)
-        logic = emailImpactLogic({ workflowId: 'workflow-1' })
+        logic = emailImpactLogic({ workflowId })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         const finishRunningQuery = await holdNextQuery()
 
         logic.unmount()
-        logic = emailImpactLogic({ workflowId: 'workflow-1' })
+        logic = emailImpactLogic({ workflowId })
         jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick', 'setImmediate'] })
         try {
             logic.mount()
@@ -190,6 +211,41 @@ describe('emailImpactLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(requestedParams).toHaveLength(3)
+        expect(logic.values.impact?.sent).toBe(4)
+    })
+
+    it('stops waiting for a query that never answers, and still waits for the query that replaced it', async () => {
+        initKeaTests(true, ENVIRONMENT)
+        logic = emailImpactLogic({ workflowId })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const finishStalledQuery = await holdNextQuery()
+
+        jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick', 'setImmediate'] })
+        try {
+            const finishReplacement = holdAnswer()
+            logic.actions.setDays(1)
+            await jest.advanceTimersByTimeAsync(RUNNING_QUERY_WAIT_LIMIT_MS - 1000)
+            expect(requestedParams).toHaveLength(2)
+            await jest.advanceTimersByTimeAsync(2000)
+            expect(requestedParams).toHaveLength(3)
+
+            finishStalledQuery([200, { ...WITHOUT_EVENT, sent: 9 }])
+            await jest.advanceTimersByTimeAsync(500)
+            logic.actions.setEvent('plan upgraded')
+            await jest.advanceTimersByTimeAsync(500)
+            expect(requestedParams).toHaveLength(3)
+
+            answer = [200, { ...IMPACT, sent: 4 }]
+            finishReplacement([200, { ...WITHOUT_EVENT, sent: 3 }])
+            await jest.advanceTimersByTimeAsync(500)
+        } finally {
+            jest.useRealTimers()
+        }
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(requestedParams).toHaveLength(4)
+        expect(requestedParams[3].get('event')).toBe('plan upgraded')
         expect(logic.values.impact?.sent).toBe(4)
     })
 
@@ -212,7 +268,7 @@ describe('emailImpactLogic', () => {
         })
         try {
             initKeaTests(true, ENVIRONMENT)
-            logic = emailImpactLogic({ workflowId: 'workflow-1' })
+            logic = emailImpactLogic({ workflowId })
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
             logic.actions.setDays(1)
@@ -250,7 +306,7 @@ describe('emailImpactLogic', () => {
         answer = response as [number, unknown]
         const capture = jest.spyOn(posthog, 'capture')
         initKeaTests(true, ENVIRONMENT)
-        logic = emailImpactLogic({ workflowId: 'workflow-1' })
+        logic = emailImpactLogic({ workflowId })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
