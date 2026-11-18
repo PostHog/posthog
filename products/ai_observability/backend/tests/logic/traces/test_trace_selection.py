@@ -183,6 +183,7 @@ def test_test_account_filtering_follows_the_project_unless_set(
 def test_a_selection_accepts_every_filter_type_traces_support_up_to_the_limit() -> None:
     supported: list[dict[str, Any]] = [
         {"type": "event", "key": "tier", "value": "gold", "operator": "exact"},
+        {"type": "event", "key": "$ai_model", "value": "gpt-4o", "operator": "exact"},
         {"type": "event_metadata", "key": "distinct_id", "value": "user-1", "operator": "exact"},
         {"type": "person", "key": "email", "value": "user@example.com", "operator": "exact"},
         {"type": "session", "key": "$session_duration", "value": 1, "operator": "gt"},
@@ -212,6 +213,10 @@ def test_a_selection_accepts_every_filter_type_traces_support_up_to_the_limit() 
         (
             "a group filter without a group type",
             [{"type": "group", "key": "plan", "value": "pro", "operator": "exact"}],
+        ),
+        (
+            "an event filter on an AI property the shared events table does not store",
+            [{"type": "event", "key": "$ai_input", "operator": "is_set"}],
         ),
     ]
 )
