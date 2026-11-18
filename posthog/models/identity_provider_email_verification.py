@@ -4,13 +4,11 @@ from posthog.models.utils import UUIDModel
 
 
 class IdentityProviderEmailVerification(UUIDModel):
-    """The user entered a code mailed to the address an identity provider asserted for one identity.
+    """Mailbox approval for an identity provider's issuer, subject, and asserted address.
 
-    Keyed by the provider's issuer and its subject (OIDC `sub`, SAML name ID) rather than by
-    `IdentityProviderConfig` or by user: two configs can front the same IdP, but a second identity
-    at that IdP has proved nothing. SAML includes its signing certificate fingerprint in the issuer
-    so replacing the signing key requires a new proof. `email` is the address the code was mailed to, so a
-    changed assertion needs a new code.
+    A linked identity can survive a provider replacement or account email change, so its new
+    proof must come from the account mailbox. SAML includes the signing certificate fingerprint
+    in the issuer so a replacement provider cannot reuse an earlier approval.
     """
 
     objects: models.Manager["IdentityProviderEmailVerification"]
@@ -37,11 +35,11 @@ class IdentityProviderEmailVerification(UUIDModel):
     )
     email = models.EmailField(
         max_length=254,
-        help_text="The asserted address the code was mailed to. A different address needs a new code.",
+        help_text="The asserted address approved by the mailbox owner. A different address needs a new code.",
     )
     verified_at = models.DateTimeField(
         auto_now_add=True,
-        help_text="When the user entered the code emailed to the address the identity provider asserted.",
+        help_text="When the mailbox owner approved this identity by entering an emailed code.",
     )
 
     class Meta:

@@ -27,6 +27,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
 from requests import Response
 from rest_framework import status
+from rest_framework.test import APIClient
 from social_core.exceptions import AuthConnectionError, AuthFailed, AuthMissingParameter, AuthTokenError
 from social_django.models import UserSocialAuth
 from social_django.utils import load_strategy
@@ -372,20 +373,19 @@ class TestOIDCAuthentication(APILicensedTest):
         self.assertNotIn("_auth_user_id", self.client.session)
 
     @pytest.mark.disable_mock_code_based_verifier
-    def test_the_code_goes_to_the_address_the_provider_asserts(self) -> None:
-        # A linked identity resolves by uid, so the account address can differ from the one the
-        # provider asserts. The code has to prove the asserted address, not the account one.
+    def test_a_linked_identity_requires_the_account_mailbox_when_its_assertion_differs(self) -> None:
         UserSocialAuth.objects.create(
             user=self.user, provider="oidc", uid=f"{self.config.oidc_issuer_url}:example-user"
         )
-        self.user.email = "owner@example.com"
+        self.user.email = "owner@example.net"
         self.user.is_email_verified = False
         self.user.save()
         self.client.logout()
 
         with enable_code_sending() as mock_send:
             response = self._complete_oidc_login("member@example.com")
-            self.assertEqual(mock_send.call_args.kwargs["to_email"], "member@example.com")
+            self.assertEqual(mock_send.call_args.kwargs["to_email"], "owner@example.net")
+            self.assertIn("email=owner%40example.net", response["Location"])
             code = mock_send.call_args[0][1]
             response = self.client.post("/api/login/code-based-verification/", {"code": code})
 
@@ -396,7 +396,7 @@ class TestOIDCAuthentication(APILicensedTest):
             "member@example.com",
         )
         self.user.refresh_from_db()
-        self.assertFalse(self.user.is_email_verified)
+        self.assertTrue(self.user.is_email_verified)
 
     @pytest.mark.disable_mock_code_based_verifier
     def test_a_gated_login_leaves_the_account_alone_until_the_code_is_accepted(self) -> None:
@@ -496,7 +496,12 @@ class TestOIDCAuthentication(APILicensedTest):
         self.assertFalse(IdentityProviderEmailVerification.objects.filter(user=self.user).exists())
 
     @parameterized.expand(
-        [("user", "user_id", -1), ("email", "email", "other@example.com"), ("issuance", "issued_at", 1)]
+        [
+            ("user", "user_id", -1),
+            ("email", "email", "other@example.com"),
+            ("target", "target_email", "other@example.com"),
+            ("issuance", "issued_at", 1),
+        ]
     )
     @pytest.mark.disable_mock_code_based_verifier
     def test_idp_code_rejects_mismatched_pending_state(self, _name: str, field: str, value: Any) -> None:
@@ -592,27 +597,94 @@ class TestOIDCAuthentication(APILicensedTest):
             login_from_new_device_notification(*queued.call_args.args)
         self.assertTrue(any(message.subject == "A new device logged into your account" for message in mail.outbox))
 
+    @parameterized.expand([("google", "google-oauth2"), ("github_connect", "github")])
     @pytest.mark.disable_mock_code_based_verifier
-    def test_starting_google_login_discards_an_unproven_idp_signup(self) -> None:
+    def test_starting_another_login_discards_an_unproven_idp_signup(self, _name: str, backend: str) -> None:
         self.client.logout()
         with override_settings(DEBUG=True):
             response = self._complete_oidc_login("signup@example.com", sub="signup-user")
             self.assertEqual(urlparse(response["Location"]).path, "/organization/confirm-creation")
-            with self.settings(**GOOGLE_MOCK_SETTINGS), patch("social_core.backends.base.BaseAuth.request") as provider:
-                self.client.get("/login/google-oauth2/?invite_id=00000000-0000-0000-0000-000000000000")
-                state = self.client.session["google-oauth2_state"]
-                provider.return_value.json.return_value = {
-                    "access_token": "example-token",
-                    "email": "other@example.net",
-                    "sub": "example-google-subject",
-                    "email_verified": True,
-                }
-                response = self.client.get(f"/complete/google-oauth2/?code=example-code&state={state}")
+            if backend == "google-oauth2":
+                with (
+                    self.settings(**GOOGLE_MOCK_SETTINGS),
+                    patch("social_core.backends.base.BaseAuth.request") as provider,
+                ):
+                    self.client.get("/login/google-oauth2/?invite_id=00000000-0000-0000-0000-000000000000")
+                    state = self.client.session["google-oauth2_state"]
+                    provider.return_value.json.return_value = {
+                        "access_token": "example-token",
+                        "email": "other@example.net",
+                        "sub": "example-google-subject",
+                        "email_verified": True,
+                    }
+                    response = self.client.get(f"/complete/google-oauth2/?code=example-code&state={state}")
+            else:
+                with self.settings(**GITHUB_MOCK_SETTINGS), responses.RequestsMock() as provider:
+                    provider.add(
+                        responses.POST,
+                        "https://github.com/login/oauth/access_token",
+                        json={"access_token": "example-token"},
+                    )
+                    provider.add(
+                        responses.GET,
+                        "https://api.github.com/user",
+                        json={
+                            "id": 4242,
+                            "login": "example-member",
+                            "name": "Example Member",
+                            "email": "other@example.net",
+                        },
+                    )
+                    provider.add(
+                        responses.GET,
+                        "https://api.github.com/user/emails",
+                        json=[{"email": "other@example.net", "primary": True, "verified": True}],
+                    )
+                    self.client.get(
+                        "/login/github/?connect_from=posthog_code&invite_id=00000000-0000-0000-0000-000000000000"
+                    )
+                    state = self.client.session["github_state"]
+                    response = self.client.get(f"/complete/github/?code=example-code&state={state}")
             self.assertIn("invalid_invite", response["Location"])
             response = self.client.post("/api/social_signup/", {"organization_name": "Example", "first_name": "Member"})
         self.assertEqual(response.status_code, 400, response.content)
         self.assertFalse(User.objects.filter(email="signup@example.com").exists())
         self.assertNotIn("_auth_user_id", self.client.session)
+
+    @parameterized.expand([("query", True), ("body", False)])
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_code_verification_resumes_its_bound_partial_despite_request_parameters(
+        self, _name: str, query: bool
+    ) -> None:
+        self.user.email = "member@example.com"
+        self.user.save()
+        self.client.logout()
+        with enable_code_sending() as sent:
+            self._complete_oidc_login(self.user.email)
+            code = sent.call_args.args[1]
+            original_client = self.client
+            other = User.objects.create_user(
+                email="other@example.com", first_name="Other", password=None, is_email_verified=True
+            )
+            try:
+                self.client = APIClient()
+                self._complete_oidc_login(other.email, sub="other-user")
+                other_token = self.client.session["partial_pipeline_token"]
+            finally:
+                self.client = original_client
+            IdentityProviderEmailVerification.objects.create(
+                user=other, provider="oidc", issuer=self.config.oidc_issuer_url, subject="other-user", email=other.email
+            )
+            url = "/api/login/code-based-verification/" + (f"?partial_token={other_token}" if query else "")
+            data = {"code": code, **({"partial_token": other_token} if not query else {})}
+            response = self.client.post(url, data, format="multipart")
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(self.client.session["_auth_user_id"], str(self.user.pk))
+        self.assertTrue(
+            UserSocialAuth.objects.filter(
+                user=self.user, provider="oidc", uid=f"{self.config.oidc_issuer_url}:example-user"
+            ).exists()
+        )
 
     @pytest.mark.disable_mock_code_based_verifier
     def test_idp_signup_without_email_delivery_does_not_create_an_account(self) -> None:
@@ -1970,6 +2042,8 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
             self.assertEqual(UserSocialAuth.objects.filter(user=user, provider="saml").exists(), legacy_identity)
 
             config = cast(IdentityProviderConfig, self.organization_domain.saml_identity_provider_configs.first())
+            self.assertEqual(mock_send.call_args.kwargs["to_email"], user.email)
+            self.assertIn(urlencode({"email": user.email}), response["Location"])
             code = mock_send.call_args[0][1]
             response = self.client.post("/api/login/code-based-verification/", {"code": code})
 
@@ -1996,6 +2070,34 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
             self.client.post("/complete/saml/", post_data, follow=True, format="multipart")
             self.assertFalse(mock_send.called)
         self.assertEqual(self.client.session["_auth_user_id"], str(user.pk))
+
+    @parameterized.expand(
+        [("domain_only", "posthog.com"), ("missing_local_part", "@posthog.com"), ("multiple_at", "member@@posthog.com")]
+    )
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_saml_rejects_malformed_email_before_jit_provisioning(self, _name: str, email: str) -> None:
+        from posthog.api.signup import social_create_user
+
+        self._grant_saml()
+        request = RequestFactory().get("/complete/saml/")
+        request.session = self.client.session
+        strategy = load_strategy(request)
+        backend = MultitenantSAMLAuth(strategy, "/complete/saml/")
+        config = self.organization_domain.saml_identity_provider_configs.get()
+        with self.assertRaises(AuthFailed):
+            backend.get_user_details({"idp_name": str(config.saml_relay_state), "attributes": {"email": [email]}})
+        with self.assertRaises(AuthFailed):
+            social_create_user(
+                strategy=strategy,
+                backend=backend,
+                pipeline_index=0,
+                request=request,
+                details={"email": email, "fullname": "Example Member"},
+                uid="example-subject",
+            )
+        self.assertFalse(User.objects.filter(email=email).exists())
+        self.assertFalse(UserSocialAuth.objects.filter(uid="example-subject").exists())
+        self.assertNotIn("_auth_user_id", request.session)
 
     @parameterized.expand([("missing_cookie", False), ("other_browser", True)])
     @pytest.mark.disable_mock_code_based_verifier
@@ -2026,27 +2128,33 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
     @parameterized.expand([("short_entity_id", False), ("maximum_entity_id", True)])
     @pytest.mark.disable_mock_code_based_verifier
     def test_saml_certificate_change_requires_a_new_mailbox_proof(self, _name: str, maximum_entity_id: bool) -> None:
-        user = User.objects.create_user(email="engineering@posthog.com", first_name="Member", password=None)
+        user = User.objects.create_user(email="owner@example.net", first_name="Member", password=None)
         config = self.organization_domain.saml_identity_provider_configs.get()
         if maximum_entity_id:
             config.saml_entity_id = "urn:" + "x" * 508
             config.save(update_fields=["saml_entity_id"])
+        asserted_email = "engineering@posthog.com"
+        UserSocialAuth.objects.create(user=user, provider="saml", uid=f"{config.saml_relay_state}:{asserted_email}")
         request = RequestFactory().get("/complete/saml/")
         request.session = self.client.session
         strategy = load_strategy(request)
         backend = MultitenantSAMLAuth(strategy, "/complete/saml/")
-        response = {"idp_name": str(config.saml_relay_state), "attributes": {"name_id": [user.email]}}
-        identity = _identity_provider_identity(backend, {"email": user.email}, response)
+        response = {"idp_name": str(config.saml_relay_state), "attributes": {"name_id": [asserted_email]}}
+        identity = _identity_provider_identity(backend, {"email": asserted_email}, response)
         assert identity is not None
         IdentityProviderEmailVerification.objects.create(
-            user=user, provider=identity.provider, issuer=identity.issuer, subject=identity.subject, email=user.email
+            user=user,
+            provider=identity.provider,
+            issuer=identity.issuer,
+            subject=identity.subject,
+            email=asserted_email,
         )
         arguments = {
             "strategy": strategy,
             "backend": backend,
-            "uid": f"{config.saml_relay_state}:{user.email}",
+            "uid": f"{config.saml_relay_state}:{asserted_email}",
             "user": user,
-            "details": {"email": user.email},
+            "details": {"email": asserted_email},
             "response": response,
             "current_partial": SimpleNamespace(token="example-partial"),
         }
@@ -2054,10 +2162,12 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         strategy.session_set("saml_browser_verified", True)
         config.saml_x509_cert = "another-signing-certificate"
         config.save(update_fields=["saml_x509_cert"])
-        with enable_code_sending():
+        with enable_code_sending() as sent:
             result = social_require_idp_email_verification(**arguments)
         assert result is not None
         self.assertIn("code_verification_pending=1", result["Location"])
+        self.assertEqual(sent.call_args.kwargs["to_email"], user.email)
+        self.assertIn(urlencode({"email": user.email}), result["Location"])
         self.assertNotEqual(request.session[CODE_BASED_VERIFICATION_SSO_SESSION_KEY]["issuer"], identity.issuer)
 
     @parameterized.expand(

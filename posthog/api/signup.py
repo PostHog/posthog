@@ -9,6 +9,7 @@ from django.conf import settings
 from django.contrib.auth import login, password_validation
 from django.contrib.sessions.backends.base import SessionBase, UpdateError
 from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
 from django.db import IntegrityError, transaction
 from django.shortcuts import redirect
 from django.urls.base import reverse
@@ -295,7 +296,7 @@ class SignupSerializer(serializers.Serializer):
 
     def is_email_auto_verified(self):
         if self.is_social_signup:
-            return self.context["request"].session.get("backend") not in IDP_SSO_BACKENDS
+            return self.context["social_backend"] not in IDP_SSO_BACKENDS
         domain = self.validated_data.get("email", "").split("@")[-1].lower()
         return domain in settings.EMAIL_VERIFICATION_SKIP_FOR_DOMAINS
 
@@ -445,7 +446,7 @@ class SignupSerializer(serializers.Serializer):
             ip_address=get_trusted_client_ip(request),
         )
 
-        if not (self.is_social_signup and request.session.get("backend") in IDP_SSO_BACKENDS):
+        if not (self.is_social_signup and self.context["social_backend"] in IDP_SSO_BACKENDS):
             inbox_lookup = InboxProviderLookup.start(user.email)
             if verify_email_or_login(request, user):
                 self._inbox_provider = inbox_lookup.result()
@@ -952,20 +953,19 @@ class SocialSignupSerializer(serializers.Serializer):
                 "Inactive social login session. Go to /login and log in before continuing."
             )
 
-        partial = None
-        if request.session["backend"] in IDP_SSO_BACKENDS:
-            from social_django.models import Partial
+        from social_django.models import Partial
 
-            partial = Partial.objects.filter(token=request.session.get("partial_pipeline_token")).first()
-            if (
-                partial is None
-                or partial.backend != request.session["backend"]
-                or partial.data["kwargs"]["details"].get("email") != request.session.get("email")
-                or not is_email_available(with_absolute_urls=True)
-            ):
-                raise serializers.ValidationError("Please log in again to verify your email.")
+        partial = Partial.objects.filter(token=request.session.get("partial_pipeline_token")).first()
+        email = partial.data.get("kwargs", {}).get("details", {}).get("email") if partial else None
+        if (
+            partial is None
+            or not email
+            or partial.backend != request.session["backend"]
+            or email != request.session.get("email")
+            or (partial.backend in IDP_SSO_BACKENDS and not is_email_available(with_absolute_urls=True))
+        ):
+            raise serializers.ValidationError("Please log in again to verify your email.")
 
-        email = request.session.get("email")
         organization_name = validated_data["organization_name"]
         role_at_organization = validated_data["role_at_organization"]
         referral_source = validated_data.get("referral_source", "")
@@ -984,15 +984,14 @@ class SocialSignupSerializer(serializers.Serializer):
                 "referral_source_ai_prompt": referral_source_ai_prompt,
                 "referral_source_influencer": referral_source_influencer,
             },
-            context={"request": request},
+            context={"request": request, "social_backend": partial.backend},
         )
         serializer.is_social_signup = True
 
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
-        if partial is not None:
-            partial.data["kwargs"]["user"] = user.pk
-            partial.save(update_fields=["data"])
+        partial.data["kwargs"]["user"] = user.pk
+        partial.save(update_fields=["data"])
         logger.info(
             f"social_create_user_signup",
             full_name_len=len(first_name),
@@ -1000,7 +999,7 @@ class SocialSignupSerializer(serializers.Serializer):
             user=user.id,
         )
 
-        return {"continue_url": reverse("social:complete", args=[request.session["backend"]])}
+        return {"continue_url": reverse("social:complete", args=[partial.backend])}
 
     def to_representation(self, instance: Any) -> Any:
         return self.instance
@@ -1291,6 +1290,11 @@ def social_create_user(
     invite_id = strategy.session_get("invite_id")
     backend_processor = "social_create_user"
     email = details["email"][0] if isinstance(details["email"], list | tuple) else details["email"]
+    if backend.name in IDP_SSO_BACKENDS:
+        try:
+            validate_email(email or "")
+        except ValidationError:
+            raise AuthFailed(backend, "The identity provider did not assert a valid email address.")
     full_name = (
         details.get("fullname")
         or f"{details.get('first_name') or ''} {details.get('last_name') or ''}".strip()

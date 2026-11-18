@@ -155,6 +155,7 @@ class PendingIdPEmailVerification(TypedDict):
     subject: str
     uid: str
     email: str
+    target_email: str
     user_id: int
     issued_at: int
     partial_token: str
@@ -241,6 +242,8 @@ def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
     # The one known `connect_from` value is "posthog_code" - what PH Code uses when linking GH profile to PostHog user
     connect_from = (request.GET.get("connect_from") or "").strip()
     if connect_from and backend == "github":
+        if not request.user.is_authenticated:
+            request.session.flush()
         # For linking GitHub, keep the session and set the next URL to /account-connected/github-login
         # (see frontend AccountConnected). QueryDict must be copied before mutation (GET is often immutable).
         query_dict = request.GET.copy()
@@ -1233,6 +1236,12 @@ class TwoFactorPasskeyViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         return Response(json.loads(options_to_json(options)))
 
 
+def _idp_verification_target(user: User, provider: str, uid: str, asserted_email: str) -> str:
+    if UserSocialAuth.objects.filter(user=user, provider=provider, uid=uid).exists():
+        return user.email.strip().lower()
+    return asserted_email
+
+
 def _complete_idp_login(request: Request, user: User, pending: PendingIdPEmailVerification) -> None:
     if _sso_access_refused(request, user):
         raise exceptions.PermissionDenied(ACCOUNT_BLOCKED_DETAIL, code=SECURITY_REFUSAL_CODE)
@@ -1243,7 +1252,10 @@ def _complete_idp_login(request: Request, user: User, pending: PendingIdPEmailVe
         or partial.kwargs.get("user") != user
         or partial.backend != pending["provider"]
         or str(partial.kwargs.get("uid")) != pending["uid"]
+        or (partial.kwargs.get("details", {}).get("email") or "").strip().lower() != pending["email"]
         or request.session.get("partial_pipeline_token") != pending["partial_token"]
+        or _idp_verification_target(user, pending["provider"], pending["uid"], pending["email"])
+        != pending["target_email"]
     ):
         raise serializers.ValidationError({"detail": "Please log in again."}, code="no_pending_verification")
     backend = load_backend(strategy, pending["provider"], reverse("social:complete", args=[pending["provider"]]))
@@ -1261,9 +1273,9 @@ def _complete_idp_login(request: Request, user: User, pending: PendingIdPEmailVe
         subject=pending["subject"],
         defaults={"user": user, "email": pending["email"]},
     )
-    if pending["email"] == user.email.strip().lower():
+    if pending["target_email"] == user.email.strip().lower():
         _clear_unverified_local_credentials(user)
-    do_complete(backend, _do_login, request=request._request)
+    do_complete(backend, _do_login, request=request._request, partial_token=pending["partial_token"])
     if request.session.get("_auth_user_id") != str(user.pk):
         raise serializers.ValidationError({"detail": "Please log in again."}, code="no_pending_verification")
 
@@ -1343,7 +1355,7 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
         sso: PendingIdPEmailVerification | None = request.session.get(CODE_BASED_VERIFICATION_SSO_SESSION_KEY)
         if sso and (
             sso.get("user_id") != user.pk
-            or sso.get("email") != code_based_verifier.get_pending_code_based_verification_target(request)
+            or sso.get("target_email") != code_based_verifier.get_pending_code_based_verification_target(request)
             or sso.get("issued_at") != code_based_verifier.get_pending_code_based_verification_issued_at(request)
         ):
             code_based_verifier.clear_pending(request)
@@ -1768,8 +1780,7 @@ def social_require_idp_email_verification(
     response: dict[str, Any] | None = None,
     **kwargs: Any,
 ) -> HttpResponse | None:
-    """Hold a login through an identity provider until the user enters a code mailed to the address
-    that provider asserted for this identity.
+    """Hold a login until mailbox approval, using the account address for an already-linked identity.
 
     Runs before `associate_user`, so an unproven identity is never linked to the account, and a
     response from a pipeline step makes `do_complete` return it instead of starting a session.
@@ -1797,6 +1808,7 @@ def social_require_idp_email_verification(
         return redirect(sso_failure_redirect_url(request, "oauth_state_invalid"))
 
     pending = request.session.get(CODE_BASED_VERIFICATION_SSO_SESSION_KEY)
+    target_email = _idp_verification_target(user, identity.provider, str(uid), email)
     issued_at = code_based_verifier.get_pending_code_based_verification_issued_at(request)
     reuse_code = (
         pending is not None
@@ -1806,14 +1818,15 @@ def social_require_idp_email_verification(
         and pending.get("uid") == str(uid)
         and pending.get("user_id") == user.pk
         and pending.get("email") == email
+        and pending.get("target_email") == target_email
         and code_based_verifier.get_pending_code_based_verification_user_id(request) == user.pk
-        and code_based_verifier.get_pending_code_based_verification_target(request) == email
+        and code_based_verifier.get_pending_code_based_verification_target(request) == target_email
         and pending.get("issued_at") == issued_at
         and issued_at is not None
         and 0 <= time.time() - issued_at < CODE_TTL_SECONDS
     )
     try:
-        sent = reuse_code or _send_login_code(request, user, target_email=email)
+        sent = reuse_code or _send_login_code(request, user, target_email=target_email)
     except LoginCodeEmailUndeliverable:
         logger.warning("idp_email_verification_code_undeliverable", user_id=user.pk, backend=backend.name)
         sent = False
@@ -1826,11 +1839,12 @@ def social_require_idp_email_verification(
         subject=identity.subject,
         uid=str(uid),
         email=email,
+        target_email=target_email,
         user_id=user.pk,
         issued_at=cast(int, code_based_verifier.get_pending_code_based_verification_issued_at(request)),
         partial_token=kwargs["current_partial"].token,
     )
-    query = {"code_verification_pending": "1", "email": email}
+    query = {"code_verification_pending": "1", "email": target_email}
     next_url = strategy.session_get("next") or ""
     if next_url:
         query["next"] = next_url

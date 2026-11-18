@@ -33,7 +33,7 @@ class Migration(migrations.Migration):
                 (
                     "issuer",
                     models.CharField(
-                        help_text="OIDC issuer URL or SAML entity ID of the identity provider that asserted the address.",
+                        help_text="OIDC issuer URL, or fingerprint of the SAML entity ID and signing certificate.",
                         max_length=512,
                     ),
                 ),
@@ -47,7 +47,7 @@ class Migration(migrations.Migration):
                 (
                     "email",
                     models.EmailField(
-                        help_text="The asserted address the code was mailed to. A different address needs a new code.",
+                        help_text="The asserted address approved by the mailbox owner. A different address needs a new code.",
                         max_length=254,
                     ),
                 ),
@@ -55,7 +55,7 @@ class Migration(migrations.Migration):
                     "verified_at",
                     models.DateTimeField(
                         auto_now_add=True,
-                        help_text="When the user entered the code emailed to the address the identity provider asserted.",
+                        help_text="When the mailbox owner approved this identity by entering an emailed code.",
                     ),
                 ),
                 (

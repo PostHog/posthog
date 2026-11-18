@@ -5,6 +5,7 @@ from typing import Any, cast
 from uuid import UUID, uuid4
 
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import validate_email
 from django.http.response import HttpResponse
 from django.urls.base import reverse
 from django.utils.crypto import constant_time_compare, get_random_string
@@ -398,6 +399,11 @@ class MultitenantSAMLAuth(SAMLAuth):
         Ensures the email domain from the SAML assertion is consistent with
         the OrganizationDomain that owns this IdP configuration.
         """
+        try:
+            validate_email(email)
+        except DjangoValidationError:
+            raise AuthFailed(self, "The identity provider did not assert a valid email address.")
+
         idp_name = response.get("idp_name")
         if not idp_name:
             saml_logger.warning(

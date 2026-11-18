@@ -288,8 +288,7 @@ def is_backup_code_attempt(token: object) -> bool:
 # (INCR) rather than via a raceable session read-modify-write, which parallel guesses could sidestep.
 CODE_ATTEMPTS_REDIS_KEY_PREFIX = "code_based_verification_attempts"
 
-# The address a code is bound to when it is not the account address: an IdP login mails the code
-# to the address that provider asserted, so only that address verifies it.
+# IdP approvals bind the code to the chosen mailbox in addition to the account.
 CODE_BASED_VERIFICATION_TARGET_SESSION_KEY = "code_based_verification_target"
 
 # Set when a login through an identity provider stopped here. The verification endpoint reads it to
@@ -400,9 +399,8 @@ class CodeBasedVerifier:
     ) -> bool:
         """Raises EmailRecipientUndeliverableError when the address cannot receive the code.
 
-        `target_email` mails the code to the address it authorizes instead of the account address.
-        An identity provider login passes the address the provider asserted, so the code proves the
-        user receives mail there, and it verifies only that address.
+        `target_email` identifies the mailbox authorizing an IdP login. Existing links use the
+        account mailbox; new identities use the asserted address.
         """
         from posthog.tasks import email
 
