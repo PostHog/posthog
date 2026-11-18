@@ -244,6 +244,39 @@ class PackageJsonScriptsCheck(ProductCheck):
         return result
 
 
+class ContractCheckTaskCheck(ProductCheck):
+    """A product claims hoglint's Isolated level with `isolated: true` in product.yaml, and test
+    selection reads its watched files from `hoglint watched`. A backend:contract-check task left in
+    turbo.json or package.json, from a branch scaffolded before that, is read by nothing."""
+
+    label = "contract-check task"
+
+    def run(self, ctx: CheckContext) -> CheckResult:
+        leftovers = []
+        package_json = ctx.product_dir / "package.json"
+        if package_json.exists():
+            try:
+                scripts = json.loads(package_json.read_text()).get("scripts", {})
+            except json.JSONDecodeError:
+                scripts = {}  # PackageJsonScriptsCheck reports the parse error.
+            if "backend:contract-check" in scripts:
+                leftovers.append("package.json")
+        # turbo.json allows comments, so this reads the key as text.
+        turbo_json = ctx.product_dir / "turbo.json"
+        if turbo_json.exists() and '"backend:contract-check"' in turbo_json.read_text():
+            leftovers.append("turbo.json")
+        if not leftovers:
+            return CheckResult(lines=["✓ ok"])
+        issues = [
+            f"{name} defines 'backend:contract-check', which nothing reads: remove it. "
+            "To make the product isolated, set 'isolated: true' in product.yaml"
+            for name in leftovers
+        ]
+        return CheckResult(
+            lines=[f"✗ {issue}" for issue in issues], issues=issues, file=f"products/{ctx.name}/{leftovers[0]}"
+        )
+
+
 class MisplacedFilesCheck(ProductCheck):
     label = "misplaced backend files"
     for_lenient = False
@@ -708,6 +741,7 @@ CHECKS: list[ProductCheck] = [
     RequiredRootFilesCheck(),
     BackendPackageMarkerCheck(),
     PackageJsonScriptsCheck(),
+    ContractCheckTaskCheck(),
     MisplacedFilesCheck(),
     FileFolderConflictsCheck(),
     OrphanedTestFilesCheck(),

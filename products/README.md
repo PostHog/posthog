@@ -169,6 +169,7 @@ The lint command validates:
   - No `|| true` or `|| exit 0` — these swallow test failures in CI
   - No no-op scripts (e.g., `echo 'No backend tests'`) when `backend/` contains actual test files
   - Pytest paths referenced in the command must exist on disk and contain discoverable tests
+- **No `backend:contract-check`** in `package.json` or `turbo.json`: nothing reads it, and a product claims isolation with `isolated: true` in `product.yaml`
 
 The lint does not check the boundaries between products.
 hoglint checks them: run `hoglint check`.

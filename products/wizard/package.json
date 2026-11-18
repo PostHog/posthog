@@ -1,8 +1,7 @@
 {
     "name": "@posthog/products-wizard",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short",
-        "backend:contract-check": "echo 'Contract files unchanged'"
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short"
     },
     "dependencies": {
         "@pierre/diffs": "1.2.11",

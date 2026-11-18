@@ -84,7 +84,7 @@ def lint_all_products() -> None:
     click.echo(f"Linting {len(product_dirs)} products ({len(strict)} strict, {len(lenient)} lenient)")
     click.echo(
         "Checks: product.yaml, required root files, backend package marker, package.json scripts, "
-        "misplaced files (strict), file/folder conflicts, test file coverage, system checks\n"
+        "contract-check task, misplaced files (strict), file/folder conflicts, test file coverage, system checks\n"
     )
 
     structure = load_structure()

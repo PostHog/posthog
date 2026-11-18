@@ -10,30 +10,6 @@
                 "../../uv.lock",
                 "../../common/**/*.py"
             ]
-        },
-        "backend:contract-check": {
-            "inputs": [
-                "backend/facade/**",
-                "backend/presentation/**",
-                "backend/temporal/**",
-                "backend/tasks/**",
-                "backend/models.py",
-                "backend/migrations/**",
-                "backend/signals.py",
-                "backend/apps.py",
-                "backend/console.py",
-                "backend/common.py",
-                "backend/duckgres_availability.py",
-                "backend/logic/sql_editor.py",
-                "backend/logic/sql_editor_credentials.py",
-                "backend/metrics.py",
-                "backend/service_credentials.py",
-                "dags/groups_backfill.py",
-                "dags/trino_conversion.py",
-                "backend/admin/**"
-            ],
-            "outputs": [],
-            "cache": true
         }
     }
 }
