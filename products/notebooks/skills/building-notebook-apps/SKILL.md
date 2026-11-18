@@ -20,11 +20,14 @@ Reuse useful source cells before creating new ones. Every app cell must referenc
 
 - **Data and analysis:** use `posthog:notebooks-add-cell` and `posthog:notebooks-update-cell` for SQL, Python, and component cells. Use `posthog:notebooks-run-cell` in dependency order and poll `posthog:notebooks-run-cell-result` when a run is still running. Check errors and actual results before presenting an output as ready.
 - **Charts and tables:** use existing notebook outputs or add the appropriate component from the catalog. Reuse saved insights when they already answer the question. The app references the cell; it does not duplicate its query or data.
+- **Calculated values:** derive totals, rates, and other metrics in notebook cells. Use a SQL cell's big-number visualization for a metric card. Do not copy a result into static app text and present it as a live value.
 - **Custom interactive widgets:** add a Widget component, run its source dataframes, then call `posthog:notebooks-widget-generate` and poll `posthog:notebooks-widget-status`. Alternatively, discover a reusable widget and attach it with `posthog:notebooks-widget-attach`. Respect the generation tool's consent and preview approval requirements. A pending generation is not a finished widget.
 - **Inputs:** inspect existing variables and use `posthog:notebooks-set-variables` when needed, preserving unrelated variables. Bind each input block's `variable` to its exact name. Use `auto` for the variable's native editor, `select` with string options for a choice, or `slider` with finite min/max/positive step for a numeric range. Choose defaults consistent with the analysis.
 - **Prose:** use app text blocks for headings, explanatory markdown, and instructions. Do not bind to text-derived markdown cell IDs, which change when the prose changes. Dividers separate sections.
 
 Inputs change shared notebook variables. They do not automatically rerun downstream cells. Explain the run action where needed, and do not promise isolated viewer state or automatic reactivity. Use the stale-cell list returned by variable updates to rerun affected analysis before claiming results reflect the new values.
+
+Each input must also be used by the source calculation: a SQL variable placeholder such as `{region}`, or the corresponding Python variable. Verify a different input value changes the intended output after a run, then restore the chosen defaults. A control that only saves a variable is not a working filter.
 
 ## Compose and save
 

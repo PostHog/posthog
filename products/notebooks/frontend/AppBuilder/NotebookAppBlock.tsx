@@ -17,12 +17,14 @@ export function NotebookAppBlock({
     variables,
     canInteract,
     onInput,
+    onCellOutput,
 }: {
     block: NotebookAppBlockApi
     cell?: NotebookBlockNode
     variables: NotebookVariable[]
     canInteract: boolean
     onInput: (name: string, value: NotebookVariableValue) => void
+    onCellOutput: (nodeId: string, markdown: string) => void
 }): JSX.Element {
     if (block.kind === 'divider') {
         return <hr aria-label={block.title || undefined} />
@@ -65,6 +67,7 @@ export function NotebookAppBlock({
             {block.display !== 'source' && (
                 <MarkdownNotebook
                     value={appCellMarkdown(cell)}
+                    onChange={canInteract ? (markdown) => onCellOutput(cell.id, markdown) : undefined}
                     registry={NOTEBOOK_MARKDOWN_REGISTRY}
                     mode="view"
                     className="NotebookAppBuilder__cell"

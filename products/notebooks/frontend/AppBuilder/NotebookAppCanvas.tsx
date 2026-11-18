@@ -26,6 +26,7 @@ export function NotebookAppCanvas({
     onRemove,
     onSource,
     onInput,
+    onCellOutput,
 }: {
     layout: NotebookAppLayoutApi
     activeTab: string
@@ -41,6 +42,7 @@ export function NotebookAppCanvas({
     onRemove: (id: string) => void
     onSource: (id: string) => void
     onInput: (name: string, value: NotebookVariableValue) => void
+    onCellOutput: (nodeId: string, markdown: string) => void
 }): JSX.Element {
     const blocks = layout.blocks.filter((block) => block.tab_id === activeTab)
     return (
@@ -143,6 +145,7 @@ export function NotebookAppCanvas({
                             variables={variables}
                             canInteract={canInteract}
                             onInput={onInput}
+                            onCellOutput={onCellOutput}
                         />
                     </LemonCard>
                 </div>

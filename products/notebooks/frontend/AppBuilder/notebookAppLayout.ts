@@ -98,3 +98,28 @@ export function appCellMarkdown(node: NotebookBlockNode): string {
         },
     })
 }
+
+export function mergeAppCellOutput(markdown: string, nodeId: string, outputMarkdown: string): string {
+    const output = appSourceCells(outputMarkdown).find((node) => node.id === nodeId)
+    const document = parseMarkdownNotebook(markdown)
+    const source = document.nodes.find((node) => node.type === 'component' && node.props.nodeId === nodeId)
+    if (
+        !source ||
+        source.type !== 'component' ||
+        output?.type !== 'component' ||
+        source.props.code !== output.props.code
+    ) {
+        return markdown
+    }
+    const execution = Object.fromEntries(
+        ['runId', 'result', 'runStatus'].filter((key) => key in output.props).map((key) => [key, output.props[key]])
+    )
+    if (
+        Object.entries(execution).every(([key, value]) => JSON.stringify(source.props[key]) === JSON.stringify(value))
+    ) {
+        return markdown
+    }
+    source.props = { ...source.props, ...execution }
+    source.raw = undefined
+    return serializeMarkdownNotebook(document)
+}

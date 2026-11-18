@@ -9,150 +9,44 @@ import {
     buildMarkdownNotebookContent,
     serializeMarkdownNotebookComponent,
 } from 'scenes/notebooks/Notebook/markdownNotebookV2'
+import type { NotebookVariable } from 'scenes/notebooks/Notebook/notebookVariables'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
 import { expect } from 'storybook/test'
 
-import type { NotebookAppLayoutApi } from '../generated/api.schemas'
+import {
+    appBuilderDemoCells,
+    appBuilderDemoLayout as layout,
+    appBuilderDemoResults,
+    appBuilderDemoVariables,
+} from './notebookAppBuilderFixtures'
 
 const SHORT_ID = 'app-builder-demo'
-const result = {
-    columns: ['week', 'signups', 'activated'],
-    types: [
-        ['week', 'Date'],
-        ['signups', 'UInt64'],
-        ['activated', 'UInt64'],
-    ],
-    row_count: 6,
-    first_page: [
-        ['2026-09-07', 120, 84],
-        ['2026-09-14', 160, 112],
-        ['2026-09-21', 145, 104],
-        ['2026-09-28', 210, 157],
-        ['2026-10-05', 250, 190],
-        ['2026-10-12', 285, 223],
-    ],
-}
-const markdown = [
-    '# Product weekly review',
-    serializeMarkdownNotebookComponent('SQLV2', {
-        nodeId: 'weekly-signups',
-        title: 'Signups and activation',
-        code: 'select week, signups, activated from weekly_growth',
-        returnVariable: 'weekly_growth',
-        outputTab: 'visualization',
-        runId: 'demo-run',
-        result,
-        vizQuery: {
-            kind: 'DataVisualizationNode',
-            display: 'ActionsLineGraph',
-            chartSettings: { xAxis: { column: 'week' }, yAxis: [{ column: 'signups' }, { column: 'activated' }] },
-        },
-    }),
-    serializeMarkdownNotebookComponent('SQLV2', {
-        nodeId: 'growth-table',
-        title: 'Weekly breakdown',
-        code: 'select * from weekly_growth',
-        returnVariable: 'growth_table',
-        outputTab: 'results',
-        result,
-    }),
-    serializeMarkdownNotebookComponent('PythonV2', {
-        nodeId: 'total-signups',
-        title: 'Signups this week',
-        code: 'weekly_growth.signups.iloc[-1]',
-        result: { columns: [], row_count: 0, result_text: '285' },
-    }),
-].join('\n\n')
-const layout: NotebookAppLayoutApi = {
-    title: 'Product weekly review',
-    description: 'Explore acquisition and activation. Adjust the inputs, then run the notebook to refresh the results.',
-    full_width: true,
-    tabs: [
-        { id: 'overview', title: 'Overview' },
-        { id: 'details', title: 'Data and methodology' },
-    ],
-    blocks: [
-        {
-            id: 'region',
-            kind: 'input',
-            tab_id: 'overview',
-            width: 4,
-            variable: 'region',
-            title: 'Region',
-            input_kind: 'select',
-            options: ['All regions', 'North America', 'Europe'],
-        },
-        {
-            id: 'window',
-            kind: 'input',
-            tab_id: 'overview',
-            width: 4,
-            variable: 'weeks',
-            title: 'Lookback (weeks)',
-            input_kind: 'slider',
-            min: 1,
-            max: 12,
-            step: 1,
-        },
-        {
-            id: 'include',
-            kind: 'input',
-            tab_id: 'overview',
-            width: 4,
-            variable: 'include_trials',
-            title: 'Include trial accounts',
-            input_kind: 'auto',
-        },
-        {
-            id: 'trend',
-            kind: 'cell',
-            tab_id: 'overview',
-            width: 8,
-            node_id: 'weekly-signups',
-            title: 'Acquisition and activation',
-            display: 'output',
-        },
-        {
-            id: 'context',
-            kind: 'text',
-            tab_id: 'overview',
-            width: 4,
-            text: '## This week\n\n**285** new signups\n\n**78%** activation rate\n\nActivation means completing the first project setup.\n\n### What to explore\n\n- Compare regions with the input above\n- Extend the lookback to spot trends\n- Open the data tab for the full breakdown',
-        },
-        {
-            id: 'table',
-            kind: 'cell',
-            tab_id: 'details',
-            width: 12,
-            node_id: 'growth-table',
-            title: 'Weekly breakdown',
-            display: 'both',
-        },
-        {
-            id: 'methodology',
-            kind: 'text',
-            tab_id: 'details',
-            width: 12,
-            text: '## Methodology\n\nWeeks start on Monday. Trial accounts are included by default. Queries and definitions live in the source notebook.',
-        },
-    ],
-}
+const buildContent = (variables: NotebookVariable[]): ReturnType<typeof buildMarkdownNotebookContent> =>
+    buildMarkdownNotebookContent(
+        [
+            '# Product weekly review',
+            ...appBuilderDemoCells.map((cell) =>
+                serializeMarkdownNotebookComponent('SQLV2', {
+                    ...cell,
+                    result: appBuilderDemoResults(variables)[cell.nodeId],
+                })
+            ),
+        ].join('\n\n')
+    )
 const notebook = {
     ...notebookTestTemplate('Product weekly review', []),
     short_id: SHORT_ID,
-    content: buildMarkdownNotebookContent(markdown),
+    content: buildContent(appBuilderDemoVariables),
     app_revision: 1,
     app_draft: layout,
     app_published: layout,
-    variables: [
-        { name: 'region', type: 'string', value: 'All regions' },
-        { name: 'weeks', type: 'number', value: 6 },
-        { name: 'include_trials', type: 'boolean', value: true },
-    ],
+    variables: appBuilderDemoVariables,
 }
+let runNumber = 0
+let results = appBuilderDemoResults(appBuilderDemoVariables)
 let saved = structuredClone(notebook)
 
 const meta: Meta = {
@@ -160,6 +54,8 @@ const meta: Meta = {
     title: 'Scenes-App/Notebooks/App builder',
     beforeEach: () => {
         saved = structuredClone(notebook)
+        runNumber = 0
+        results = appBuilderDemoResults(appBuilderDemoVariables)
     },
     parameters: {
         layout: 'fullscreen',
@@ -192,11 +88,29 @@ const meta: Meta = {
                     status: 'stopped',
                     frames: [],
                 },
-                '/api/projects/:team_id/notebooks/app-builder-demo/sql_v2/runs/:run_id': {
-                    status: 'done',
-                    result,
-                    error: null,
-                },
+                '/api/projects/:team_id/notebooks/app-builder-demo/sql_v2/runs/:run_id': ({ params }) => [
+                    200,
+                    {
+                        status: 'done',
+                        result: results[String(params.run_id).replace(/^\d+-/, '')],
+                        error: null,
+                    },
+                ],
+                '/api/projects/:team_id/notebooks/app-builder-demo/runs/:run_id': () => [
+                    200,
+                    {
+                        run_id: String(runNumber),
+                        status: 'done',
+                        cell_count: appBuilderDemoCells.length,
+                        current_index: appBuilderDemoCells.length,
+                        cells: appBuilderDemoCells.map((cell) => ({
+                            node_id: cell.nodeId,
+                            run_id: runNumber + '-' + cell.nodeId,
+                            status: 'done',
+                            dataframe_name: cell.returnVariable,
+                        })),
+                    },
+                ],
             },
             patch: {
                 '/api/projects/:team_id/notebooks/app-builder-demo': async ({ request }) => {
@@ -206,10 +120,24 @@ const meta: Meta = {
                 },
             },
             post: {
+                '/api/projects/:team_id/notebooks/app-builder-demo/runs': async ({ request }) => {
+                    const body = (await request.json()) as { variables: NotebookVariable[] }
+                    saved = { ...saved, variables: body.variables, content: buildContent(body.variables) }
+                    results = appBuilderDemoResults(body.variables)
+                    runNumber++
+                    return [
+                        200,
+                        { run_id: String(runNumber), cell_count: appBuilderDemoCells.length, starts_sandbox: false },
+                    ]
+                },
                 '/api/projects/:team_id/file_system/home_folder': { id: 'home-folder', path: 'Home' },
                 '/api/projects/:team_id/notebooks/app-builder-demo/collab/markdown_save': async ({ request }) => {
-                    const body = (await request.json()) as Partial<typeof notebook>
-                    saved = { ...saved, ...body, version: saved.version + 1 }
+                    const body = (await request.json()) as { markdown: string }
+                    saved = {
+                        ...saved,
+                        content: buildMarkdownNotebookContent(body.markdown),
+                        version: saved.version + 1,
+                    }
                     return [200, saved]
                 },
             },
@@ -237,7 +165,44 @@ export const Builder: Story = {
     },
 }
 
-export const Published: Story = { parameters: { pageUrl: `${urls.notebook(SHORT_ID)}?view=app` } }
+export const Published: Story = {
+    parameters: { pageUrl: `${urls.notebook(SHORT_ID)}?view=app` },
+    play: async ({ canvasElement }) => {
+        await waitFor(() => expect(canvasElement.querySelector('[data-attr="notebook-app-builder"]')).not.toBeNull(), {
+            timeout: 60000,
+        })
+        const appElement = canvasElement.querySelector('[data-attr="notebook-app-builder"]') as HTMLElement
+        const app = within(appElement)
+        const metric = (value: string): Element | undefined =>
+            [...appElement.querySelectorAll('.BoldNumber__value')].find((element) => element.textContent === value)
+        await waitFor(() => expect(metric('1485')).toBeVisible(), {
+            timeout: 60000,
+        })
+        fireEvent.click(app.getByLabelText('Region', { exact: true }))
+        fireEvent.click(await within(document.body).findByText('Europe', { exact: true }))
+        fireEvent.change(app.getByRole('slider', { name: 'Lookback (weeks)' }), { target: { value: '2' } })
+        await waitFor(() =>
+            expect(app.getByText('Inputs changed. Run all to update the charts and calculated values.')).toBeVisible()
+        )
+        fireEvent.click(appElement.querySelector('[data-attr="notebook-run-all"]') as HTMLElement)
+        await waitFor(() => expect(metric('222')).toBeVisible(), {
+            timeout: 60000,
+        })
+        await waitFor(() => expect(metric('64.9%')).toBeVisible())
+        await waitFor(() => expect(appElement.querySelector('[data-attr="notebook-app-results-status"]')).toBeNull())
+        await waitFor(() =>
+            expect(saved.content).toEqual(
+                expect.objectContaining({
+                    content: expect.arrayContaining([
+                        expect.objectContaining({
+                            attrs: expect.objectContaining({ markdown: expect.stringContaining('1-growth-table') }),
+                        }),
+                    ]),
+                })
+            )
+        )
+    },
+}
 export const Notebook: Story = {
     parameters: { pageUrl: urls.notebook(SHORT_ID), testOptions: { waitForSelector: '.MarkdownNotebook' } },
     play: async ({ canvasElement }) => {

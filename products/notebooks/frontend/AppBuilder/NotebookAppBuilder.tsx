@@ -8,7 +8,9 @@ import { LemonBanner, LemonButton, LemonDialog, LemonInput, LemonMenu, LemonTabs
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
+import { notebookNodeStalenessLogic } from 'scenes/notebooks/Notebook/notebookNodeStalenessLogic'
 import { NotebookRunAllButton } from 'scenes/notebooks/Notebook/NotebookRunAllButton'
+import { notebookRunLogic } from 'scenes/notebooks/Notebook/notebookRunLogic'
 import { urls } from 'scenes/urls'
 
 import { aiShellLogic } from '~/layout/ai/aiShellLogic'
@@ -29,6 +31,8 @@ export function NotebookAppBuilder({
     published?: boolean
 }): JSX.Element {
     const logic = notebookAppLogic({ shortId })
+    const { staleCount } = useValues(notebookNodeStalenessLogic({ shortId }))
+    const { isRunning, progressLabel } = useValues(notebookRunLogic({ shortId }))
     const { isPhaiSandboxFlagOn } = useValues(aiShellLogic)
     const { setPhaiViewMode } = useActions(aiShellLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
@@ -71,6 +75,7 @@ export function NotebookAppBuilder({
         undo,
         redo,
         setInputValue,
+        updateCellOutput,
         openSource,
         saveApp,
         loadApp,
@@ -227,6 +232,17 @@ export function NotebookAppBuilder({
                     {error}
                 </LemonBanner>
             )}
+            {(staleCount > 0 || isRunning) && (
+                <LemonBanner
+                    type={isRunning ? 'info' : 'warning'}
+                    className="mb-4"
+                    data-attr="notebook-app-results-status"
+                >
+                    {isRunning
+                        ? progressLabel || 'Updating notebook results…'
+                        : 'Inputs changed. Run all to update the charts and calculated values.'}
+                </LemonBanner>
+            )}
             {agentUpdatePending && (
                 <LemonBanner
                     type="info"
@@ -328,6 +344,7 @@ export function NotebookAppBuilder({
                             onRemove={removeBlock}
                             onSource={openSource}
                             onInput={setInputValue}
+                            onCellOutput={updateCellOutput}
                         />
                     </main>
                     {editing && (

@@ -1,6 +1,6 @@
 import { parseMarkdownNotebook } from 'lib/components/MarkdownNotebook/markdown'
 
-import { appSourceCells, emptyAppLayout, moveAppBlock, pinAppCell } from './notebookAppLayout'
+import { appSourceCells, emptyAppLayout, mergeAppCellOutput, moveAppBlock, pinAppCell } from './notebookAppLayout'
 
 it('keeps an app source attached to a text cell after its content changes', () => {
     const markdown = '## Original title\n\nSome context'
@@ -17,6 +17,32 @@ it('preserves executable cell identifiers and code when linking a source', () =>
     expect(appSourceCells(markdown)[0].id).toBe('query-1')
     expect(appSourceCells(markdown.replace('select 1', 'select 2'))[0].id).toBe('query-1')
     expect(pinAppCell(markdown, 'query-1')).toEqual({ markdown, nodeId: 'query-1' })
+})
+
+it.each(['select 1', 'select 2'])('merges app execution output without overwriting source edits: %s', (code) => {
+    const source = `# Keep this text\n\n<SQLV2 nodeId="query-1" code="${code}" height={600} hideInput={false} />\n\n<SQLV2 nodeId="query-2" code="select 3" />`
+    const output =
+        '<SQLV2 nodeId="query-1" code="select 1" height={220} hideInput={true} runId="run-2" runStatus="done" result={{"columns":["value"],"first_page":[[42]]}} />'
+    const merged = mergeAppCellOutput(source, 'query-1', output)
+    if (code === 'select 2') {
+        expect(merged).toBe(source)
+    } else {
+        const cells = appSourceCells(merged)
+        expect(cells).toHaveLength(3)
+        expect(cells[1]).toMatchObject({
+            props: {
+                code,
+                height: 600,
+                hideInput: false,
+                runId: 'run-2',
+                runStatus: 'done',
+                result: { first_page: [[42]] },
+            },
+        })
+        expect(cells[2]).toMatchObject({ props: { nodeId: 'query-2', code: 'select 3' } })
+        expect(merged).toContain('Keep this text')
+        expect(mergeAppCellOutput(merged, 'query-1', output)).toBe(merged)
+    }
 })
 
 it('moves only the requested component and keeps components on their target tab', () => {
