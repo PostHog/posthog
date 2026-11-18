@@ -137,3 +137,19 @@ class TestOAuthApplicationsTool(BaseTest):
             content = self.client.get(f"{TOOL_URL}?{query}").content.decode()
 
         assert "Waiting Partner" in content
+
+    @parameterized.expand(
+        [
+            ("waiting_for_a_link", False, "Off until it links a PostHog organization"),
+            ("blocked", True, "Blocked"),
+        ]
+    )
+    def test_an_unlinked_partner_reads_as_blocked_when_it_is(self, _name, disabled, label) -> None:
+        self.app._provisioning_config = ProvisioningConfig(active=True, disabled=disabled).model_dump(mode="json")
+        self.app.save()
+
+        with override_instance_config("CIMD_PROVISIONING_REQUIRES_ORGANIZATION", True):
+            content = self.client.get(f"/admin/console/oauth-applications/{self.app.pk}/").content.decode()
+
+        assert label in content
+        assert ("Off until it links a PostHog organization" in content) == (not disabled)
