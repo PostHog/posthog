@@ -12,7 +12,15 @@ import { FeatureFlagFilters, FeatureFlagGroupType } from '~/types'
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
 
-export function ReleaseConditionsModal(): JSX.Element {
+export function useReleaseConditionsModal(): {
+    isOpen: boolean
+    close: () => void
+    save: () => Promise<void>
+    flagId: number | null
+    filters: FeatureFlagFilters
+    nonEmptyVariants: ReturnType<typeof featureFlagLogic.build>['values']['nonEmptyVariants']
+    setFeatureFlagFilters: (filters: FeatureFlagFilters, errors?: any) => void
+} {
     const { experiment } = useValues(experimentLogic)
     const { setExperiment } = useActions(experimentLogic)
     const { closeReleaseConditionsModal } = useActions(modalsLogic)
@@ -22,37 +30,71 @@ export function ReleaseConditionsModal(): JSX.Element {
     const { featureFlag, nonEmptyVariants } = useValues(_featureFlagLogic)
     const { setFeatureFlagFilters, saveSidebarExperimentFeatureFlag } = useActions(_featureFlagLogic)
 
+    return {
+        isOpen: isReleaseConditionsModalOpen,
+        close: closeReleaseConditionsModal,
+        save: async () => {
+            await saveSidebarExperimentFeatureFlag(featureFlag)
+
+            const currentFlag = experiment.feature_flag
+            if (currentFlag && featureFlag) {
+                setExperiment({
+                    feature_flag: {
+                        ...currentFlag,
+                        ...featureFlag,
+                        id: currentFlag.id, // keep existing non-null id
+                        team_id: currentFlag.team_id,
+                    },
+                })
+            }
+
+            closeReleaseConditionsModal()
+        },
+        flagId: experiment.feature_flag?.id ?? null,
+        // An experiment's flag is always v1: experiments create their own flags and cannot adopt another config version.
+        filters: (featureFlag?.filters as FeatureFlagFilters | undefined) ?? { groups: [] },
+        nonEmptyVariants,
+        setFeatureFlagFilters,
+    }
+}
+
+/** The flag's release conditions editor, shared by the Lemon and quill modals. */
+export function ReleaseConditionsEditor({
+    flagId,
+    filters,
+    nonEmptyVariants,
+    setFeatureFlagFilters,
+}: Pick<
+    ReturnType<typeof useReleaseConditionsModal>,
+    'flagId' | 'filters' | 'nonEmptyVariants' | 'setFeatureFlagFilters'
+>): JSX.Element {
+    return (
+        <BindLogic logic={featureFlagLogic} props={{ id: flagId }}>
+            <FeatureFlagReleaseConditions
+                id={`${flagId}`}
+                filters={filters}
+                onChange={setFeatureFlagFilters}
+                nonEmptyFeatureFlagVariants={nonEmptyVariants}
+            />
+        </BindLogic>
+    )
+}
+
+export function ReleaseConditionsModal(): JSX.Element {
+    const model = useReleaseConditionsModal()
+
     return (
         <LemonModal
-            isOpen={isReleaseConditionsModalOpen}
-            onClose={closeReleaseConditionsModal}
+            isOpen={model.isOpen}
+            onClose={model.close}
             width={600}
             title="Change release conditions"
             footer={
                 <div className="flex items-center gap-2">
-                    <LemonButton type="secondary" onClick={closeReleaseConditionsModal}>
+                    <LemonButton type="secondary" onClick={model.close}>
                         Cancel
                     </LemonButton>
-                    <LemonButton
-                        onClick={async () => {
-                            await saveSidebarExperimentFeatureFlag(featureFlag)
-
-                            const currentFlag = experiment.feature_flag
-                            if (currentFlag && featureFlag) {
-                                setExperiment({
-                                    feature_flag: {
-                                        ...currentFlag,
-                                        ...featureFlag,
-                                        id: currentFlag.id, // keep existing non-null id
-                                        team_id: currentFlag.team_id,
-                                    },
-                                })
-                            }
-
-                            closeReleaseConditionsModal()
-                        }}
-                        type="primary"
-                    >
+                    <LemonButton onClick={() => void model.save()} type="primary">
                         Save
                     </LemonButton>
                 </div>
@@ -61,15 +103,7 @@ export function ReleaseConditionsModal(): JSX.Element {
             <div className="deprecated-space-y-4">
                 <LemonBanner type="info">{RELEASE_CONDITIONS_WARNING}</LemonBanner>
 
-                <BindLogic logic={featureFlagLogic} props={{ id: experiment.feature_flag?.id ?? null }}>
-                    <FeatureFlagReleaseConditions
-                        id={`${experiment.feature_flag?.id}`}
-                        // An experiment's flag is always v1: experiments create their own flags and cannot adopt another config version.
-                        filters={(featureFlag?.filters as FeatureFlagFilters | undefined) ?? { groups: [] }}
-                        onChange={setFeatureFlagFilters}
-                        nonEmptyFeatureFlagVariants={nonEmptyVariants}
-                    />
-                </BindLogic>
+                <ReleaseConditionsEditor {...model} />
             </div>
         </LemonModal>
     )

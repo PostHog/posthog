@@ -54,6 +54,7 @@ import { MultiVariantBiasWarning } from './MultiVariantBiasWarning'
 import { PageHeaderCustom } from './PageHeader'
 import { type ExperimentTabDefinition, QuillExperimentTabs } from './QuillExperimentTabs'
 import { QuillLoadingState } from './QuillLoadingState'
+import { QuillDistributionModal, QuillReleaseConditionsModal } from './QuillVariantsModals'
 import { QuillVariantsTab } from './QuillVariantsTab'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
 import { SettingsTab } from './SettingsTab'
@@ -357,8 +358,17 @@ export function ExperimentView(): JSX.Element {
                             updateExposureCriteria()
                         }}
                     />
-                    <DistributionModal />
-                    <ReleaseConditionsModal />
+                    {todayRailNav && resultsRedesign ? (
+                        <>
+                            <QuillDistributionModal />
+                            <QuillReleaseConditionsModal />
+                        </>
+                    ) : (
+                        <>
+                            <DistributionModal />
+                            <ReleaseConditionsModal />
+                        </>
+                    )}
 
                     <EditConclusionModal />
                 </>
