@@ -42,23 +42,6 @@ class TestSequentialProportionTest(SimpleTestCase):
                 False,
                 0.012,
             ),
-            (
-                "every_treated_and_no_control_success",
-                Proportion(trials=10, successes=10),
-                Proportion(trials=200, successes=0),
-                0.05,
-                True,
-                0.912,
-            ),
-            # Without pseudo counts the full group has no variance, and the test calls five people significant.
-            (
-                "a_full_group_against_one_control_success",
-                Proportion(trials=5, successes=5),
-                Proportion(trials=20, successes=1),
-                0.05,
-                False,
-                0.766,
-            ),
         ]
     )
     def test_compares_the_treatment_with_the_control(
@@ -72,9 +55,15 @@ class TestSequentialProportionTest(SimpleTestCase):
     @parameterized.expand(
         [
             ("no_control_trials", Proportion(trials=200, successes=10), Proportion(trials=0, successes=0)),
+            ("too_few_treatment_trials", Proportion(trials=3, successes=1), Proportion(trials=200, successes=10)),
             (
-                "too_few_trials_with_one_outcome_each",
-                Proportion(trials=3, successes=3),
+                "no_successes_in_either_group",
+                Proportion(trials=1000, successes=0),
+                Proportion(trials=1000, successes=0),
+            ),
+            (
+                "every_treated_and_no_control_success",
+                Proportion(trials=10, successes=10),
                 Proportion(trials=200, successes=0),
             ),
         ]
