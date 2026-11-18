@@ -1792,6 +1792,10 @@ snapshots:
         hash: v1.k794b7964.56c30b942a282f104cfdb14cfafe76862bd1252b14ed96a60c62cff368ee4d6f.-TIBE9N0EqlTjZQoJNID_We0ityhC7uwZKS0u5UnqDo
     components-hogcharts-valuelabels--hidden-on-auxiliary-series--light:
         hash: v1.k794b7964.68556b5c84dfd98ef14c22cd12084e1199b3b74f67483c4aae81f586668b35ea.YwuCqJq5AJoRkGc2zz3XXMhAme8tlLRZE_6FhmPCpnQ
+    components-hogcharts-valuelabels--independent-colors--dark:
+        hash: v1.k794b7964.1fbd3907cf3c3d18f2ffd25375f375cb8742730d2e92bf820bbc172ecebb200c.G9-ltOHqsLY9U3k90Fd90HDKGqi_9R-vdM93yQPLTvs
+    components-hogcharts-valuelabels--independent-colors--light:
+        hash: v1.k794b7964.a482c262adbc741fc6c5f2f7f57044b90a0b1a1bad0c505f2866ab5ba1ee4e92.YBGt8AdOBp2Hv81NMBuRvxwPeiyI99wKefe-vvh1sRA
     components-hogcharts-valuelabels--multi-series-collision--dark:
         hash: v1.k794b7964.c8f4058a880ade96db4c3a6a99fe996611f17dc25855ac3218eb52c3a850aa10.S-J1LDxs3c31REssmtSGdmGbOE_8SyfqyBo4sD-FUAQ
     components-hogcharts-valuelabels--multi-series-collision--light:
@@ -16275,9 +16279,9 @@ snapshots:
     scenes-app-settings-environment--settings-environment-error-tracking--light:
         hash: v1.k794b7964.adb6fd411ffdc03ea8e1b9a29f01536d41a5af4b6224c37881d7ad6b06630f84.WGucFxYafyt1RqQ5e0M6MzvBxP4nGZseNtgVciGxRWc
     scenes-app-settings-environment--settings-environment-error-tracking-configuration--dark:
-        hash: v1.k794b7964.e9a7443b0bbbd373325979f331d2bc887694fc466a6847a6ae2e9e1f3b78e318.znbMQLqTRYyUh2lniG9VEYiNyIB4Lmf4J2fieqEO32o
+        hash: v1.k794b7964.9a973966774a565f6d7fa25b6a9791593b3cb15007fad3f07b08a296abadc58d.xinsnrFisyycA0SyV4hEdrz49X2ry2WGcsDvCh01fVI
     scenes-app-settings-environment--settings-environment-error-tracking-configuration--light:
-        hash: v1.k794b7964.b5c3b3582a561c43c065c4c26def8c2dbf7e40eef472cdba972868d18dcadbb9.uxeo59GdN2MjGiSKFjbb2bZjY2idkPXPAPGzPiTt5vc
+        hash: v1.k794b7964.d9e86db589a16acb03fb5ba1147667ead6c5f842ef949ef2dc19972fe3d1d776.QCqPRI2Jv6REVOrkrTjm2f1hB6dkhrVqpxMpu8XxK6c
     scenes-app-settings-environment--settings-environment-experiments--dark:
         hash: v1.k794b7964.97267477544077ef369227235fde9b1c9380237167be329954cf2f4ce360283e.NgTCKnQHKhLyLWyje5QLi6KyJlx3k5fnuF9ODDZ9BFY
     scenes-app-settings-environment--settings-environment-experiments--light:

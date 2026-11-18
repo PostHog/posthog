@@ -1661,14 +1661,14 @@ def get_pull_requests_for_tasks(
 ) -> dict[str, list[contracts.TaskPullRequest]]:
     result: dict[str, list[contracts.TaskPullRequest]] = {}
     seen: set[tuple[str, str]] = set()
-    for task_id, output in (
+    for task_id, run_id, output in (
         TaskRun.objects.filter(
             *conditions,
             team_id=team_id,
             task_id__in=task_ids,
         )
         .order_by("-created_at", "-id")
-        .values_list("task_id", "output")
+        .values_list("task_id", "id", "output")
     ):
         if not isinstance(output, dict):
             continue
@@ -1678,7 +1678,9 @@ def get_pull_requests_for_tasks(
                 continue
             seen.add(key)
             state = _pull_request_state(output) if url == output.get("pr_url") else "unknown"
-            result.setdefault(str(task_id), []).append(contracts.TaskPullRequest(url=url, state=state))
+            result.setdefault(str(task_id), []).append(
+                contracts.TaskPullRequest(url=url, state=state, run_id=str(run_id))
+            )
     return result
 
 
@@ -3724,9 +3726,9 @@ def signal_workflow_completion(
         logger.warning("Failed to signal workflow completion for task run %s: %s", run.id, e)
 
 
-def _post_slack_update_for_pr(run: TaskRun) -> None:
-    pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
-    if not pr_url:
+def _post_slack_update_for_pr(run: TaskRun, *, pr_url: str | None = None, report_threads_only: bool = False) -> None:
+    pr_urls = [pr_url] if pr_url else read_pr_urls(run.output)
+    if not pr_urls:
         return
 
     from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off the api import path
@@ -3738,6 +3740,11 @@ def _post_slack_update_for_pr(run: TaskRun) -> None:
     )
 
     try:
+        from products.signals.backend.facade.api import (  # noqa: PLC0415 - avoids the signals/tasks facade cycle
+            notify_implementation_prs_opened,
+        )
+
+        notify_implementation_prs_opened(run.team_id, str(run.task_id), pr_urls, run_id=str(run.id))
         mapping = (
             SlackThreadTaskMapping.objects.filter(task_run=run)
             .order_by("-updated_at")
@@ -3745,6 +3752,8 @@ def _post_slack_update_for_pr(run: TaskRun) -> None:
             .first()
         )
         if not mapping:
+            return
+        if report_threads_only:
             return
         post_slack_update(
             PostSlackUpdateInput(
@@ -3784,6 +3793,37 @@ def _is_github_pull_request_url_for_repository(pr_url: str, repository: str | No
         and path_parts[1].lower() == repository_parts[1].lower()
         and path_parts[2] == "pull"
         and path_parts[3].isdigit()
+    )
+
+
+def _is_pull_request_url_for_task(pr_url: str, task: Task) -> bool:
+    if task.repository_integration_id is None:
+        return any(
+            _is_github_pull_request_url_for_repository(pr_url, repository)
+            for repository in [task.repository, *(task.repositories or [])]
+        )
+    integration = IntegrationManager.gitlab.any.get_many(task.team_id, [task.repository_integration_id]).get(
+        task.repository_integration_id
+    )
+    if integration is None:
+        return False
+    hostname = integration.config.get("hostname", "")
+    repository = integration.config.get("path_with_namespace", "")
+    if (
+        not isinstance(hostname, str)
+        or not hostname.startswith("https://")
+        or not repository
+        or not isinstance(repository, str)
+        or repository.lower() != (task.repository or "").lower()
+    ):
+        return False
+    return (
+        re.fullmatch(
+            re.escape(f"{hostname.rstrip('/')}/{repository}") + r"/-/merge_requests/[1-9][0-9]*/?",
+            pr_url,
+            re.IGNORECASE,
+        )
+        is not None
     )
 
 
@@ -3997,6 +4037,7 @@ def update_task_run(
         old_output = run.output
         old_branch = run.branch
         old_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
+        old_pr_urls = set(read_pr_urls(run.output))
         old_commit_head = _commit_push_head_sha(run.output)
 
         for key, value in validated_data.items():
@@ -4127,9 +4168,10 @@ def update_task_run(
 
             notify_task_run_cancelled(run)
     new_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
+    if set(read_pr_urls(run.output)) - old_pr_urls or (new_pr_url and new_pr_url != old_pr_url):
+        _post_slack_update_for_pr(run)
     if new_pr_url and new_pr_url != old_pr_url:
         _refresh_self_driving_quota_for_pr(run, old_pr_url)
-        _post_slack_update_for_pr(run)
         _send_wizard_pr_ready_email_for_pr(run)
         post_pr_created_thread_update(run, new_pr_url)
         # Surface the PR in the run's progress timeline the moment the agent reports it, so the install
