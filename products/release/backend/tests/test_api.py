@@ -280,6 +280,50 @@ class TestReleaseAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert "metric_insight_ids" in response.json()["attr"]
 
+    def test_metric_goals_follow_their_metrics_and_a_hidden_metric_s_goal_survives(self) -> None:
+        primary, _ = self._linked_object("insight", "Weekly checkouts")
+        secondary, _ = self._linked_object("insight", "Checkout errors")
+        hidden, hidden_path = self._linked_object("insight", "Revenue")
+        release_id = self.client.post(
+            self._url(),
+            {
+                "name": "Checkout",
+                "metric_insight_ids": [primary, secondary, hidden],
+                "metric_goals": [
+                    {"insight_id": primary, "direction": "at_least", "value": 100},
+                    {"insight_id": hidden, "direction": "at_least", "value": 5000},
+                ],
+            },
+            format="json",
+        ).json()["id"]
+        self._restrict_as_admin(hidden_path)
+        self.client.force_login(self._create_user("member@example.com"))
+
+        member_view = self.client.get(self._url()).json()["results"][0]
+        updated = self.client.patch(
+            self._url(f"{release_id}/"),
+            {"metric_goals": [{"insight_id": secondary, "direction": "at_most", "value": 2.5}]},
+            format="json",
+        ).json()
+        not_a_metric = self.client.patch(
+            self._url(f"{release_id}/"),
+            {"metric_goals": [{"insight_id": 999999, "direction": "at_least", "value": 1}]},
+            format="json",
+        )
+        on_hidden = self.client.patch(
+            self._url(f"{release_id}/"),
+            {"metric_goals": [{"insight_id": hidden, "direction": "at_least", "value": 1}]},
+            format="json",
+        )
+        self.client.patch(self._url(f"{release_id}/"), {"metric_insight_ids": [primary]}, format="json")
+        stored = Release.objects.unscoped().get(id=release_id).metric_goals
+
+        assert member_view["metric_goals"] == [{"insight_id": primary, "direction": "at_least", "value": 100}]
+        assert updated["metric_goals"] == [{"insight_id": secondary, "direction": "at_most", "value": 2.5}]
+        assert not_a_metric.status_code == on_hidden.status_code == status.HTTP_400_BAD_REQUEST
+        assert "metric_goals" in on_hidden.json()["attr"]
+        assert stored == [{"insight_id": hidden, "direction": "at_least", "value": 5000}]
+
     def test_merge_keeps_the_kept_release_s_primary_metric_and_caps_the_list(self) -> None:
         ids = [self._linked_object("insight", f"Metric {index}")[0] for index in range(6)]
         kept = self.client.post(self._url(), {"name": "Checkout", "metric_insight_ids": ids[:3]}, format="json").json()[

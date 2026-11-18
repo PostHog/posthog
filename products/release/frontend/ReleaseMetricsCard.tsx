@@ -1,9 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconEllipsis, IconStar, IconStarFilled, IconTrash } from '@posthog/icons'
 import {
-    Button,
     Card,
     CardContent,
     CardDescription,
@@ -15,132 +13,17 @@ import {
     ComboboxInput,
     ComboboxItem,
     ComboboxList,
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-    Skeleton,
     Spinner,
     Text,
 } from '@posthog/quill'
 
-import { LinkPrimitive } from 'lib/lemon-ui/Link'
-import { humanFriendlyNumber } from 'lib/utils/numbers'
-import { urls } from 'scenes/urls'
-
-import { InsightShortId } from '~/types'
-
 import { releaseLogic } from './releaseLogic'
 import { releaseMetricsLogic } from './releaseMetricsLogic'
-import { ReleaseMetricSparkline } from './ReleaseMetricSparkline'
+import { ReleaseMetricTile } from './ReleaseMetricTile'
 import { releaseRelatedLogic } from './releaseRelatedLogic'
 import { ReleaseRow } from './releaseUtils'
 
 const MAX_METRICS = 5
-
-function MetricCard({
-    row,
-    insightId,
-    primary,
-}: {
-    row: ReleaseRow
-    insightId: number
-    primary: boolean
-}): JSX.Element {
-    const { metrics } = useValues(releaseMetricsLogic)
-    const { canEditReleases } = useValues(releaseLogic)
-    const { updateRelease } = useActions(releaseLogic)
-    const metric = metrics[insightId]
-    const ids = row.metricInsightIds
-    const setIds = (next: number[]): void => updateRelease(row.id, { metric_insight_ids: next })
-
-    return (
-        <div
-            className="flex min-w-0 flex-col overflow-hidden rounded-md border border-border"
-            data-attr="release-metric"
-        >
-            <div className="flex min-w-0 flex-col gap-1 px-3 pt-2.5">
-                <div className="flex min-w-0 items-center justify-between gap-2">
-                    {metric?.status === 'ready' ? (
-                        <LinkPrimitive
-                            to={urls.insightView(metric.shortId as InsightShortId)}
-                            className="truncate text-xs font-medium text-foreground hover:underline"
-                        >
-                            {metric.name}
-                        </LinkPrimitive>
-                    ) : metric?.status === 'failed' ? (
-                        <Text size="xs" variant="muted">
-                            This metric could not load.
-                        </Text>
-                    ) : (
-                        <Skeleton className="h-3 w-32" />
-                    )}
-                    <div className="flex shrink-0 items-center gap-1">
-                        {primary && (
-                            <Text size="xxs" variant="muted" className="flex items-center gap-1">
-                                <IconStarFilled className="size-3" />
-                                Primary
-                            </Text>
-                        )}
-                        {canEditReleases && (
-                            <DropdownMenu>
-                                <DropdownMenuTrigger
-                                    render={
-                                        <Button
-                                            size="icon-xs"
-                                            variant="default"
-                                            aria-label="Metric actions"
-                                            data-attr="release-metric-menu"
-                                        />
-                                    }
-                                >
-                                    <IconEllipsis />
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                    {!primary && (
-                                        <DropdownMenuItem
-                                            onClick={() => setIds([insightId, ...ids.filter((id) => id !== insightId)])}
-                                            data-attr="release-metric-make-primary"
-                                        >
-                                            <IconStar />
-                                            Make primary
-                                        </DropdownMenuItem>
-                                    )}
-                                    <DropdownMenuItem
-                                        variant="destructive"
-                                        onClick={() => setIds(ids.filter((id) => id !== insightId))}
-                                        data-attr="release-metric-remove"
-                                    >
-                                        <IconTrash />
-                                        Remove metric
-                                    </DropdownMenuItem>
-                                </DropdownMenuContent>
-                            </DropdownMenu>
-                        )}
-                    </div>
-                </div>
-                <Text size="lg" weight="semibold" className="text-2xl tabular-nums">
-                    {metric?.status === 'ready' ? (
-                        metric.value === null ? (
-                            '–'
-                        ) : (
-                            humanFriendlyNumber(metric.value)
-                        )
-                    ) : metric?.status === 'failed' ? (
-                        '–'
-                    ) : (
-                        <Skeleton className="h-6 w-16" />
-                    )}
-                </Text>
-            </div>
-            <div className="h-14">
-                {metric?.status === 'ready' && metric.values.length > 1 && (
-                    <ReleaseMetricSparkline values={metric.values} labels={metric.labels} />
-                )}
-            </div>
-        </div>
-    )
-}
 
 function AddMetricCombobox({ row }: { row: ReleaseRow }): JSX.Element {
     const { relatedSearch, relatedSearchLoading } = useValues(releaseRelatedLogic)
@@ -205,15 +88,15 @@ export function ReleaseMetricsCard({ row }: { row: ReleaseRow }): JSX.Element | 
                 <CardTitle>Metrics</CardTitle>
                 <CardDescription>
                     {ids.length
-                        ? 'How this release is doing. The primary metric shows in the releases table.'
-                        : 'Pick the saved insights that tell you whether this release works.'}
+                        ? 'How this release is doing against its goals. The primary metric shows in the releases table.'
+                        : 'Pick the saved insights that tell you whether this release works, then set a goal for each.'}
                 </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
                 {ids.length > 0 && (
-                    <div className="grid grid-cols-[repeat(auto-fill,minmax(14rem,1fr))] gap-3">
+                    <div className="grid grid-cols-[repeat(auto-fill,minmax(12rem,1fr))] gap-x-8 gap-y-4">
                         {ids.map((insightId, index) => (
-                            <MetricCard key={insightId} row={row} insightId={insightId} primary={index === 0} />
+                            <ReleaseMetricTile key={insightId} row={row} insightId={insightId} primary={index === 0} />
                         ))}
                     </div>
                 )}

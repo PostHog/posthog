@@ -21,7 +21,7 @@ import {
 import type { SendCalendarFlowApi } from 'products/workflows/frontend/generated/api.schemas'
 import { scheduleSendTimes } from 'products/workflows/frontend/SendCalendar/sendCalendarUtils'
 
-import type { LinkedBroadcastDTOApi, LinkedSendDTOApi, ReleaseDTOApi } from './generated/api.schemas'
+import type { LinkedBroadcastDTOApi, LinkedSendDTOApi, MetricGoalApi, ReleaseDTOApi } from './generated/api.schemas'
 
 export type ReleaseStage = 'planned' | 'flag' | 'experiment' | 'early_access' | 'released' | 'ended'
 
@@ -95,6 +95,7 @@ export interface ReleaseRow {
     createdAt: string
     owner: ReleaseDTOApi['owner']
     metricInsightIds: number[]
+    metricGoals: MetricGoalApi[]
     missingFlagIds: number[]
     headline: string
     detail: string
@@ -1182,6 +1183,7 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
         createdAt: release.created_at,
         owner: release.owner,
         metricInsightIds: [...(release.metric_insight_ids ?? [])],
+        metricGoals: [...(release.metric_goals ?? [])],
         missingFlagIds: facts.missingFlagIds,
         ...releaseCopy(facts),
         lifecycle: releaseLifecycle(release, facts, stage),

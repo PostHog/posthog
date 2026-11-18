@@ -47,6 +47,7 @@ const release = (id: string, name: string): Record<string, unknown> => ({
     surveys: [],
     insight_ids: [],
     metric_insight_ids: [],
+    metric_goals: [],
     insights: [],
     has_hidden_flags: false,
     created_at: '2026-11-01T00:00:00Z',

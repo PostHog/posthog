@@ -11,6 +11,8 @@ from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
+from posthog.enums import LabeledStrEnum
+
 MAX_LINKED = 100
 MAX_METRICS = 5
 
@@ -131,6 +133,18 @@ class ReleaseSummary:
     updated_at: datetime
 
 
+class ReleaseGoalDirection(LabeledStrEnum):
+    AT_LEAST = "at_least", "At least the target"
+    AT_MOST = "at_most", "At most the target"
+
+
+@dataclass(frozen=True)
+class MetricGoalDTO:
+    insight_id: int
+    direction: ReleaseGoalDirection
+    value: float
+
+
 @dataclass(frozen=True)
 class ReleaseDTO:
     id: UUID
@@ -146,6 +160,7 @@ class ReleaseDTO:
     insight_ids: list[int]
     insights: list[LinkedInsightDTO]
     metric_insight_ids: list[int]
+    metric_goals: list[MetricGoalDTO]
     created_at: datetime
 
 
@@ -177,6 +192,7 @@ class CreateReleaseInput:
     survey_ids: tuple[UUID, ...] = ()
     insight_ids: tuple[int, ...] = ()
     metric_insight_ids: tuple[int, ...] = ()
+    metric_goals: tuple[MetricGoalDTO, ...] = ()
 
 
 @dataclass(frozen=True)

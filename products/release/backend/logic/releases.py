@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from django.db import transaction
@@ -76,6 +77,7 @@ def create_release(
     survey_ids: list[UUID],
     insight_ids: list[int],
     metric_insight_ids: list[int],
+    metric_goals: list[dict[str, Any]],
 ) -> Release:
     return Release.objects.create(
         team_id=team_id,
@@ -87,13 +89,30 @@ def create_release(
         survey_ids=survey_ids,
         insight_ids=insight_ids,
         metric_insight_ids=metric_insight_ids,
+        metric_goals=metric_goals,
     )
+
+
+def _goals_for_metrics(goals: list[dict[str, Any]], metric_ids: list[int]) -> list[dict[str, Any]]:
+    kept: dict[int, dict[str, Any]] = {}
+    for goal in goals:
+        if goal["insight_id"] in metric_ids:
+            kept.setdefault(goal["insight_id"], goal)
+    return list(kept.values())
 
 
 def update_release(team_id: int, release_id: UUID, changes: dict) -> Release:
     release = get_release(team_id, release_id)
     if "name" in changes:
         changes = {**changes, "auto_named": False}
+    if "metric_insight_ids" in changes or "metric_goals" in changes:
+        changes = {
+            **changes,
+            "metric_goals": _goals_for_metrics(
+                changes.get("metric_goals", release.metric_goals),
+                changes.get("metric_insight_ids", release.metric_insight_ids),
+            ),
+        }
     for field, value in changes.items():
         setattr(release, field, value)
     release.save(update_fields=[*changes.keys(), "updated_at"])
@@ -146,6 +165,10 @@ def merge_releases(
                 [*target.metric_insight_ids, *(item for source in sources for item in source.metric_insight_ids)]
             )
         )[:MAX_METRICS]
+        target.metric_goals = _goals_for_metrics(
+            [*target.metric_goals, *(goal for source in sources for goal in source.metric_goals)],
+            target.metric_insight_ids,
+        )
         target.owner_id = target.owner_id or next((source.owner_id for source in sources if source.owner_id), None)
         target.description = target.description or next(
             (source.description for source in sources if source.description), ""
@@ -158,6 +181,7 @@ def merge_releases(
             update_fields=[
                 *LINKED_FIELDS,
                 "metric_insight_ids",
+                "metric_goals",
                 "owner",
                 "description",
                 *(["name", "auto_named"] if renamed else []),
