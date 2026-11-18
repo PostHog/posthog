@@ -41,7 +41,8 @@
         ".github/workflows/**",
         "common/storybook/**",
         "products/messaging/backend/tests/**",
-        "products/messaging/backend/**/test_*.py"
+        "products/messaging/backend/**/test_*.py",
+        "products/messaging/backend/test_*.py"
     ],
     "force_full": [
         "playwright/utils/**",
