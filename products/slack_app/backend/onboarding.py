@@ -251,7 +251,7 @@ def run_install_onboarding(integration: WorkspaceIntegration) -> None:
     if channel is not None:
         invite_user_to_inbox(integration, channel[0], installer)
     # The DM setup thread takes over the installer's setup, so it starts here in place of the old DM.
-    if is_slack_app_onboarding_enabled(integration):
+    if is_slack_app_onboarding_enabled(integration, installer):
         request_onboarding(integration, installer, may_start=True)
         return
     send_onboarding_dm(integration, installer)

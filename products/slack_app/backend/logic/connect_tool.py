@@ -53,7 +53,7 @@ def offer_tool_connections(
     workflow_id: str,
 ) -> bool:
     """Returns whether the offer went out, so the workflow knows to wait."""
-    if not is_slack_app_connect_tool_from_chat_enabled(integration):
+    if not is_slack_app_connect_tool_from_chat_enabled(integration, slack_user_id):
         return False
     # One tool at a time: the first connection resumes the task, and its sandbox mounts its tools when it starts.
     tool = next(

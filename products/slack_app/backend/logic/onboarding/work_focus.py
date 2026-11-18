@@ -211,7 +211,7 @@ def find_and_send_daily_focus(
     """One workday's work focus, from the messages sent after ``since``, for the run the sweep claimed at ``run_at``.
     A quiet day sends nothing. The free checks come first, so a run that cannot send spends no queries, Slack calls
     or credits."""
-    if not is_slack_app_daily_work_focus_enabled(integration):
+    if not is_slack_app_daily_work_focus_enabled(integration, slack_user_id):
         return "flag_off"
     daily = resolve_daily_focus(integration.integration_id, slack_user_id)
     if not daily.enabled:
@@ -291,7 +291,7 @@ def _ready_to_send(integration: WorkspaceIntegration, slack_user_id: str) -> Non
 def _daily_focus_footer(integration: WorkspaceIntegration, slack_user_id: str) -> dict | None:
     """The onboarding turns the daily work focus on, unless the person already chose. The footer shows while it is
     on."""
-    if not is_slack_app_daily_work_focus_enabled(integration):
+    if not is_slack_app_daily_work_focus_enabled(integration, slack_user_id):
         return None
     daily = resolve_daily_focus(integration.integration_id, slack_user_id)
     if daily.enabled is None:

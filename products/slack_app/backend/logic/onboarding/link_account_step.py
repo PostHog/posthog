@@ -31,15 +31,17 @@ class LinkAccountStep(OnboardingStep):
             thread_ts=None,
         )
         text = "*Link your PostHog account*\nPostHog answers you in Slack from your projects, with the access you have in PostHog."
-        if is_slack_app_link_search_scopes_enabled(ctx.integration):
-            if is_slack_app_daily_work_focus_enabled(ctx.integration):
+        if is_slack_app_link_search_scopes_enabled(ctx.integration, ctx.slack_user_id, user=ctx.posthog_user):
+            if is_slack_app_daily_work_focus_enabled(ctx.integration, ctx.slack_user_id, user=ctx.posthog_user):
                 text += (
                     "\nAfter you link, I read your recent Slack messages and suggest what I can help with, then do it "
                     "again each workday morning. You can turn that off in the Home tab. "
                 )
             else:
                 text += "\nAfter you link, I read your recent Slack messages once to suggest what I can help with. "
-            connects_slack_mcp = is_slack_app_slack_mcp_enabled(ctx.integration) and bool(
+            connects_slack_mcp = is_slack_app_slack_mcp_enabled(
+                ctx.integration, ctx.slack_user_id, user=ctx.posthog_user
+            ) and bool(
                 slack_mcp_user_scopes(ctx.integration.team_id, ctx.posthog_user.id if ctx.posthog_user else None)
             )
             if connects_slack_mcp:

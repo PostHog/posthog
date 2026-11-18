@@ -3770,7 +3770,7 @@ def _route_team_join(
     if integration is None:
         return ROUTE_HANDLED_LOCALLY
 
-    if is_slack_app_onboarding_enabled(integration):
+    if is_slack_app_onboarding_enabled(integration, slack_user_id):
         # The onboarding thread opens with the same welcome, and its stored state replaces the dedupe below.
         request_onboarding(integration, slack_user_id, may_start=True, spread_burst=True)
         return ROUTE_HANDLED_LOCALLY
