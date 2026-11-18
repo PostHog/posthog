@@ -24,6 +24,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.hogql_queries.execution_class import ExecutionClass
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.permissions import posthog_feature_flag_enabled
 from posthog.shared_link_user import SharedLinkUser
@@ -79,6 +80,7 @@ def _round_keeping_total(values: list[float]) -> list[int]:
 
 class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResponse]):
     query: MetricsHistogramQuery
+    execution_class = ExecutionClass.METRICS
     cached_response: CachedMetricsHistogramQueryResponse
 
     def validate_query_runner_access(self, user: "User") -> bool:

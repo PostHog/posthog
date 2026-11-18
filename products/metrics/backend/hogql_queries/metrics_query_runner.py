@@ -29,6 +29,7 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.api.snuffle_proxy import SNUFFLE_API_FEATURE_FLAG
 from posthog.clickhouse.query_tagging import get_query_tag_value
+from posthog.hogql_queries.execution_class import ExecutionClass
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.permissions import posthog_feature_flag_enabled
 from posthog.shared_link_user import SharedLinkUser
@@ -80,6 +81,7 @@ if TYPE_CHECKING:
 
 class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
     query: MetricsQuery
+    execution_class = ExecutionClass.METRICS
     cached_response: CachedMetricsQueryResponse
     _loaded_variables: dict[str, Variable] | None = None
 

@@ -5,10 +5,12 @@ from typing import Any, cast
 from posthog.schema import DateRange, FilterLogicalOperator, LogsQuery, PropertyGroupFilter
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.hogql_queries.execution_class import TELEMETRY_CONCURRENCY_KEY_FLAG, team_flag_enabled_locally
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.team import Team
 from posthog.models.user import User
 
-from products.dashboards.backend.constants import LOGS_LIST_MAX_LIMIT
+from products.dashboards.backend.constants import LOGS_LIST_MAX_BYTES_TO_READ, LOGS_LIST_MAX_LIMIT
 from products.dashboards.backend.widget_specs.configs import LOGS_LIST_WIDGET_TYPE
 from products.dashboards.backend.widget_specs.registry import validate_widget_config
 from products.dashboards.backend.widgets.list_widget import ListWidgetPage, run_list_widget
@@ -62,9 +64,19 @@ def _build_logs_query(team: Team, config: ValidatedLogsListWidgetConfig, limit: 
     )
 
 
+# Matches the client cache age of a widget, so a reload within it reuses one shared result.
+LOGS_LIST_CACHE_AGE_SECONDS = 300
+
+
 def _run_logs_query(team: Team, query: LogsQuery) -> dict[str, Any]:
     with tags_context(product=Product.LOGS, feature=Feature.QUERY, team_id=team.pk):
-        return LogsQueryRunner(team=team, query=query).calculate().model_dump(mode="json")
+        if not team_flag_enabled_locally(team, TELEMETRY_CONCURRENCY_KEY_FLAG):
+            return LogsQueryRunner(team=team, query=query).calculate().model_dump(mode="json")
+        response = LogsQueryRunner(team=team, query=query, max_bytes_to_read=LOGS_LIST_MAX_BYTES_TO_READ).run(
+            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            cache_age_seconds=LOGS_LIST_CACHE_AGE_SECONDS,
+        )
+        return response.model_dump(mode="json")
 
 
 def _transform_row(row: dict[str, Any]) -> dict[str, Any]:

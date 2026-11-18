@@ -19,6 +19,8 @@ ACTIVITY_EVENTS_MAX_PROPERTY_VALUE_LENGTH = 4000
 # Logs list allows the largest page — log rows are cheap and users scan many at once.
 LOGS_LIST_MAX_LIMIT = 100
 LOGS_LIST_DEFAULT_LIMIT = 50
+# Widget logs queries read through the shared cache under the telemetry slot, so they get a read cap.
+LOGS_LIST_MAX_BYTES_TO_READ = 10_000_000_000
 
 # Metrics table: one metrics query clause per column, and one row per value of the group-by label.
 # The metrics query keeps at most 100 series per clause, so the row limit cannot go higher.

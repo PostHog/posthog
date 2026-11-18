@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 # Default concurrency limits
 DEFAULT_APP_ORG_CONCURRENT_QUERIES = 20
 DEFAULT_APP_DASHBOARD_CONCURRENT_QUERIES = 6
+DEFAULT_APP_TELEMETRY_CONCURRENT_QUERIES = 8
 
 CONCURRENT_QUERY_LIMIT_EXCEEDED_COUNTER = Counter(
     "posthog_clickhouse_query_concurrency_limit_exceeded",
@@ -255,6 +256,7 @@ __MATERIALIZED_ENDPOINTS_CONCURRENT_QUERY_PER_TEAM: Optional[RateLimit] = None
 __EVENTS_LIST_CONCURRENT_QUERY_PER_TEAM: Optional[RateLimit] = None
 __LOGS_API_CONCURRENT_QUERY_PER_TEAM: Optional[RateLimit] = None
 __LLM_ANALYTICS_CONCURRENT_QUERIES: Optional[RateLimit] = None
+__APP_CONCURRENT_TELEMETRY_QUERIES_PER_ORG_CLUSTER: Optional[RateLimit] = None
 
 
 def get_api_team_rate_limiter():
@@ -344,6 +346,37 @@ def get_app_dashboard_queries_rate_limiter():
             ttl=600,
         )
     return __APP_CONCURRENT_DASHBOARD_QUERIES_PER_ORG
+
+
+def get_app_telemetry_queries_rate_limiter() -> RateLimit:
+    """
+    Limits the number of concurrent telemetry queries (metrics, logs, traces) per organization and cluster.
+    Telemetry runs on its own ClickHouse clusters, so it does not take the organization's analytics slots.
+    """
+    global __APP_CONCURRENT_TELEMETRY_QUERIES_PER_ORG_CLUSTER
+    if __APP_CONCURRENT_TELEMETRY_QUERIES_PER_ORG_CLUSTER is None:
+        __APP_CONCURRENT_TELEMETRY_QUERIES_PER_ORG_CLUSTER = RateLimit(
+            max_concurrency=DEFAULT_APP_TELEMETRY_CONCURRENT_QUERIES,
+            applicable=lambda *args, **kwargs: (
+                not TEST
+                and kwargs.get("org_id")
+                and not kwargs.get("is_api")
+                # celery tasks and temporal activities have their own concurrency controls
+                and not current_task
+                and not _is_in_temporal()
+            ),
+            limit_name="app_telemetry_queries_per_org",
+            get_task_name=lambda *args, **kwargs: (
+                f"app:telemetry_query:per-org:{kwargs.get('org_id')}:{kwargs.get('cluster')}"
+            ),
+            get_task_id=lambda *args, **kwargs: kwargs.get("task_id") or generate_short_id(),
+            ttl=300,
+            retry=0.134,
+            retry_jitter=True,
+            # A live dashboard refreshes again within seconds, so a short wait beats a long queue on a web worker.
+            retry_timeout=1.0,
+        )
+    return __APP_CONCURRENT_TELEMETRY_QUERIES_PER_ORG_CLUSTER
 
 
 def get_materialized_endpoints_rate_limiter():

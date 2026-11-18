@@ -5,16 +5,19 @@ from typing import Any, cast
 
 import pytest
 import time_machine
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
 from parameterized import parameterized
 
 from posthog.schema import (
+    CachedMetricsQueryResponse,
     DashboardFilter,
     DateRange,
     EventPropertyFilter,
     GoalLine,
+    HogQLQuery,
+    HogQLQueryResponse,
     MetricsDashboardVariable,
     MetricsDashboardVariableSelection,
     MetricsDisplaySettings,
@@ -22,13 +25,23 @@ from posthog.schema import (
     MetricsQueryClause,
     MetricsQueryFilter,
     MetricsQueryGroupBy,
+    MetricsQueryResponse,
     MetricsYAxisSettings,
     QueryStatus,
 )
 
+from posthog.clickhouse.client.execute import KillSwitchLevel
 from posthog.clickhouse.client.execute_async import QueryStatusManager
+from posthog.clickhouse.client.limit import (
+    ConcurrencyLimitExceeded,
+    ConcurrencySlot,
+    RateLimit,
+    get_app_dashboard_queries_rate_limiter,
+    get_app_org_rate_limiter,
+)
 from posthog.constants import AvailableFeature
-from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner
 from posthog.models import User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -40,6 +53,7 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricAggregation, MetricType
 from products.metrics.backend.hogql_queries.metrics_query_runner import MetricsQueryRunner
 from products.metrics.backend.tests._seeder import seed_metric
+from products.product_analytics.backend.facade.models import Insight
 
 
 class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -283,6 +297,67 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert runner.calculate().results is not None
 
+    @parameterized.expand([("cold_cache", False), ("warm_cache", True)])
+    def test_shared_link_run_without_telemetry_opt_in_is_denied(self, _name: str, warm_cache: bool) -> None:
+        sharing_config = SharingConfiguration.objects.create(team=self.team, enabled=True)
+        query = MetricsQuery(clauses=[MetricsQueryClause(name="a", metricName="queue_depth", aggregation="sum")])
+        if warm_cache:
+            MetricsQueryRunner(query=query, team=self.team).run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        runner = MetricsQueryRunner(query=query, team=self.team)
+
+        with pytest.raises(UserAccessControlError):
+            runner.run(
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                user=cast(User, SharedLinkUser(sharing_config)),
+            )
+
+    def test_shared_link_run_with_telemetry_opt_in_returns_results(self) -> None:
+        sharing_config = SharingConfiguration.objects.create(
+            team=self.team, enabled=True, settings={"allowTelemetry": True}
+        )
+        query = MetricsQuery(clauses=[MetricsQueryClause(name="a", metricName="queue_depth", aggregation="sum")])
+        runner = MetricsQueryRunner(query=query, team=self.team)
+
+        response = runner.run(
+            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            user=cast(User, SharedLinkUser(sharing_config)),
+        )
+
+        assert isinstance(response, MetricsQueryResponse | CachedMetricsQueryResponse)
+        assert response.results is not None
+
+    @parameterized.expand([("without_opt_in", None, False), ("with_opt_in", {"allowTelemetry": True}, True)])
+    @time_machine.travel("2026-09-19T12:00:00Z", tick=False)
+    def test_shared_link_refresh_returns_metrics_only_with_the_telemetry_opt_in(
+        self, _name: str, sharing_settings: dict | None, expect_results: bool
+    ) -> None:
+        seed_metric(
+            team_id=self.team.pk,
+            metric_name="queue_depth",
+            metric_type="gauge",
+            points=[(dt.datetime(2026, 9, 19, 11, 30, tzinfo=dt.UTC), 5.0)],
+        )
+        insight = Insight.objects.create(
+            team=self.team,
+            created_by=self.user,
+            query=MetricsQuery(
+                clauses=[MetricsQueryClause(name="a", metricName="queue_depth", aggregation="sum")],
+                dateRange=DateRange(date_from="2026-09-19T11:00:00Z", date_to="2026-09-19T12:00:00Z"),
+            ).model_dump(exclude_none=True),
+        )
+        sharing_config = SharingConfiguration.objects.create(
+            team=self.team, insight=insight, enabled=True, settings=sharing_settings
+        )
+        self.client.logout()
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/insights/{insight.id}/",
+            {"sharing_access_token": sharing_config.access_token, "refresh": "blocking"},
+        )
+
+        assert response.status_code == 200, response.content
+        assert bool(response.json().get("result")) is expect_results, response.json()
+
     def test_validate_query_runner_access_denied_without_resource_access(self) -> None:
         AccessControl.objects.create(team=self.team, resource="metrics", access_level="none")
         self.organization.available_product_features = [
@@ -423,3 +498,61 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_query_semantics_still_change_the_cache_key(self) -> None:
         assert self._cache_key_for(dateRange=DateRange(date_from="-7d")) != self._cache_key_for()
+
+
+class TestTelemetryConcurrencyKey(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.enterContext(patch("posthog.clickhouse.client.limit.TEST", False))
+        self.enterContext(
+            patch("posthog.clickhouse.client.execute.get_kill_switch_level", return_value=KillSwitchLevel.OFF)
+        )
+        self.enterContext(patch("posthog.rate_limit.team_is_allowed_to_bypass_throttle", return_value=False))
+        held: list[tuple[RateLimit, ConcurrencySlot]] = []
+        org_id = self.team.organization_id
+        for i in range(20):
+            org_limiter = get_app_org_rate_limiter()
+            org_slot = org_limiter.use(org_id=org_id, team_id=self.team.pk, task_id=f"held-org-{i}")
+            assert org_slot is not None
+            held.append((org_limiter, org_slot))
+        for i in range(6):
+            dashboard_limiter = get_app_dashboard_queries_rate_limiter()
+            dashboard_slot = dashboard_limiter.use(
+                org_id=org_id, dashboard_id=1, team_id=self.team.pk, task_id=f"held-dashboard-{i}"
+            )
+            assert dashboard_slot is not None
+            held.append((dashboard_limiter, dashboard_slot))
+        for limiter, slot in held:
+            self.addCleanup(limiter.release, slot)
+
+    def _run(self, runner: QueryRunner, response: Any, *, flag_on: bool) -> None:
+        with (
+            patch.object(
+                QueryRunner,
+                "_team_flag_enabled_locally",
+                side_effect=lambda key: flag_on and key == "telemetry-concurrency-key",
+            ),
+            patch.object(type(runner), "calculate", return_value=response),
+        ):
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, dashboard_id=1)
+
+    def test_metrics_query_runs_while_the_org_dashboard_slots_are_full_when_flag_is_on(self) -> None:
+        runner = MetricsQueryRunner(query=MetricsQuery(clauses=[]), team=self.team)
+
+        self._run(runner, MetricsQueryResponse(results=[]), flag_on=True)
+
+    @parameterized.expand([("metrics_flag_off", "metrics", False), ("analytics_flag_on", "hogql", True)])
+    def test_query_is_rejected_while_the_org_dashboard_slots_are_full(
+        self, _name: str, kind: str, flag_on: bool
+    ) -> None:
+        runner: QueryRunner
+        response: Any
+        if kind == "metrics":
+            runner = MetricsQueryRunner(query=MetricsQuery(clauses=[]), team=self.team)
+            response = MetricsQueryResponse(results=[])
+        else:
+            runner = HogQLQueryRunner(query=HogQLQuery(query="SELECT 1"), team=self.team)
+            response = HogQLQueryResponse(results=[])
+
+        with pytest.raises(ConcurrencyLimitExceeded):
+            self._run(runner, response, flag_on=flag_on)

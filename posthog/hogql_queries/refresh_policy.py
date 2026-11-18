@@ -10,8 +10,14 @@ rule that an explicit client `?refresh=` always wins.
 """
 
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+from posthog.hogql_queries.execution_class import (
+    LIVE_CACHE_AGE_SECONDS,
+    LIVE_TELEMETRY_FLAG,
+    execution_class_for_query,
+    team_flag_enabled_locally,
+)
 from posthog.hogql_queries.query_runner import (
     ExecutionMode,
     SharedExecutionSettings,
@@ -22,6 +28,8 @@ from posthog.utils import refresh_requested_by_client
 
 if TYPE_CHECKING:
     from rest_framework.request import Request
+
+    from posthog.models.team import Team
 
 
 class ComputeSurface(StrEnum):
@@ -69,7 +77,12 @@ def _refresh_param_present(request: "Request") -> bool:
 
 
 def resolve_execution_mode(
-    request: "Request", *, surface: ComputeSurface, is_shared: bool = False
+    request: "Request",
+    *,
+    surface: ComputeSurface,
+    is_shared: bool = False,
+    query: Any = None,
+    team: "Team | None" = None,
 ) -> SharedExecutionSettings:
     """Resolve the execution mode (and shared staleness window) for one insight computation.
 
@@ -83,8 +96,21 @@ def resolve_execution_mode(
     # execution_mode_from_refresh, matching historical behavior — so a client that opts out of
     # refreshing still gets CACHE_ONLY even after a surface default is flipped off cache-only.
     # The surface default applies only when no refresh param is present at all.
-    if _refresh_param_present(request):
-        execution_mode = execution_mode_from_refresh(refresh_requested_by_client(request))
+    refresh_requested = refresh_requested_by_client(request) if _refresh_param_present(request) else None
+    # `refresh=live` is a live dashboard tick: one shared result per tile, recomputed only when older than the
+    # tile's class cache age, never forced. Shared links keep the clamp below, so anonymous demand never computes.
+    if (
+        refresh_requested == "live"
+        and not is_shared
+        and team is not None
+        and team_flag_enabled_locally(team, LIVE_TELEMETRY_FLAG)
+    ):
+        return SharedExecutionSettings(
+            ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            LIVE_CACHE_AGE_SECONDS.get(execution_class_for_query(query)),
+        )
+    if refresh_requested is not None:
+        execution_mode = execution_mode_from_refresh(refresh_requested)
     else:
         execution_mode = SURFACE_DEFAULT_EXECUTION_MODE[surface]
 

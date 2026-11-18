@@ -2047,6 +2047,7 @@ def refresh_requested_by_client(request: Request) -> bool | str:
             "force_blocking",
             "force_cache",
             "lazy_async",
+            "live",
         ],
     )
 

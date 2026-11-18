@@ -11,6 +11,7 @@ from time import perf_counter
 from types import UnionType
 from typing import (
     Any,
+    ClassVar,
     Generic,
     Literal,
     NamedTuple,
@@ -171,6 +172,7 @@ from posthog.clickhouse.client.limit import (
     app_org_concurrency_slot,
     get_api_team_rate_limiter,
     get_app_dashboard_queries_rate_limiter,
+    get_app_telemetry_queries_rate_limiter,
     get_materialized_endpoints_rate_limiter,
 )
 from posthog.clickhouse.query_tagging import (
@@ -189,6 +191,13 @@ from posthog.exceptions import APIQueriesBudgetExceeded, QueryRanConcurrently
 from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_commit_short
 from posthog.hogql_queries.access_controlled_resources import queried_access_controlled_resources
+from posthog.hogql_queries.execution_class import (
+    TELEMETRY_CONCURRENCY_KEY_FLAG,
+    TELEMETRY_RESOURCE,
+    TELEMETRY_WORKLOAD,
+    ExecutionClass,
+    team_flag_enabled_locally,
+)
 from posthog.hogql_queries.phase_times import compute_phase_times
 from posthog.hogql_queries.query_failure_handling import (
     budget_for_limit_context,
@@ -2038,6 +2047,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     limit_context: LimitContext
     # query service means programmatic access and /query endpoint
     is_query_service: bool = False
+    execution_class: ClassVar[ExecutionClass] = ExecutionClass.ANALYTICS
     workload: Workload
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT
     # Opt-in (set by process_query_model): on a cache hit, keep the results segment of the
@@ -2472,27 +2482,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return self._team_flag_enabled_locally(PROPERTY_USAGE_TRACKING_FLAG)
 
     def _team_flag_enabled_locally(self, flag_key: str) -> bool:
-        # only_evaluate_locally keeps this flag check off the network - this runs on the query
-        # hot path, so an inconclusive local evaluation must mean "off", never an HTTP call.
-        try:
-            return bool(
-                posthoganalytics.feature_enabled(
-                    flag_key,
-                    str(self.team.uuid),
-                    groups={
-                        "organization": str(self.team.organization_id),
-                        "project": str(self.team.pk),
-                    },
-                    group_properties={
-                        "organization": {"id": str(self.team.organization_id)},
-                        "project": {"id": str(self.team.pk)},
-                    },
-                    only_evaluate_locally=True,
-                    send_feature_flag_events=False,
-                )
-            )
-        except Exception:
-            return False
+        return team_flag_enabled_locally(self.team, flag_key)
 
     def _scan_replay_visible(self, failure: QueryFailureRecord, user: Optional[User]) -> bool:
         """Whether a replay may carry the first failure's scan pointer. The reader gate is the fresh
@@ -2552,16 +2542,29 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         limit=concurrency_limit,
                     )
                 )
-                limiter_stack.enter_context(app_org_concurrency_slot(self.team, task_id=self.query_id))
-                limiter_stack.enter_context(
-                    get_app_dashboard_queries_rate_limiter().run(
-                        org_id=self.team.organization_id,
-                        dashboard_id=dashboard_id,
-                        task_id=self.query_id,
-                        team_id=self.team.id,
-                        is_api=is_api_key_access,
+                if self.execution_class != ExecutionClass.ANALYTICS and self._team_flag_enabled_locally(
+                    TELEMETRY_CONCURRENCY_KEY_FLAG
+                ):
+                    limiter_stack.enter_context(
+                        get_app_telemetry_queries_rate_limiter().run(
+                            org_id=self.team.organization_id,
+                            cluster=TELEMETRY_WORKLOAD[self.execution_class],
+                            task_id=self.query_id,
+                            team_id=self.team.id,
+                            is_api=is_api_key_access,
+                        )
                     )
-                )
+                else:
+                    limiter_stack.enter_context(app_org_concurrency_slot(self.team, task_id=self.query_id))
+                    limiter_stack.enter_context(
+                        get_app_dashboard_queries_rate_limiter().run(
+                            org_id=self.team.organization_id,
+                            dashboard_id=dashboard_id,
+                            task_id=self.query_id,
+                            team_id=self.team.id,
+                            is_api=is_api_key_access,
+                        )
+                    )
             self._phase = RunPhase(name="calculate", stats=get_active_query_stats())
             query_start_time = perf_counter()
             query_result = self.calculate()
@@ -2712,6 +2715,15 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                             )
 
                             raise
+
+                    principal = cast("Optional[User | SyntheticUser | SharedLinkUser]", user)
+                    if (
+                        self.execution_class != ExecutionClass.ANALYTICS
+                        and isinstance(principal, SharedLinkUser)
+                        and (principal.sharing_configuration.settings or {}).get("allowTelemetry") is not True
+                    ):
+                        # Checked before the cache read, so a cached entry cannot reach a link that did not opt in.
+                        raise UserAccessControlError(TELEMETRY_RESOURCE[self.execution_class], "viewer")
 
                     cache_manager = QueryCache(
                         failure_cache=(

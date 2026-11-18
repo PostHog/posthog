@@ -2,7 +2,7 @@ import json
 import base64
 import datetime as dt
 from functools import cached_property
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 from zoneinfo import ZoneInfo
 
 from posthog.schema import (
@@ -31,6 +31,7 @@ from posthog.hogql.property import (
 )
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.hogql_queries.execution_class import ExecutionClass
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -762,8 +763,13 @@ _FIXED_COLUMN_COUNT = 15
 
 class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMixin):
     query: LogsQuery
+    execution_class = ExecutionClass.LOGS
     cached_response: CachedLogsQueryResponse
     paginator: HogQLHasMorePaginator
+
+    def __init__(self, *args: Any, max_bytes_to_read: int | None = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._max_bytes_to_read = max_bytes_to_read
 
     def validate_query_runner_access(self, user: "User") -> bool:
         # LogsQuery is registered in get_query_runner solely for server-side CSV export.
@@ -902,6 +908,6 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
             allow_experimental_object_type=False,
             allow_experimental_join_condition=False,
             transform_null_in=False,
-            max_bytes_to_read=None,
+            max_bytes_to_read=self._max_bytes_to_read,
             read_overflow_mode=None,
         )

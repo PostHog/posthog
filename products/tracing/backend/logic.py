@@ -43,6 +43,7 @@ from posthog.hogql.visitor import clone_expr
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.dataclasses import frozen
+from posthog.hogql_queries.execution_class import ExecutionClass
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode, QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -569,6 +570,7 @@ class TraceSpansScalarQueryRunnerMixin(TraceSpansQueryRunnerMixin):
 
 class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[TraceSpansQueryResponse]):
     query: TraceSpansQuery
+    execution_class = ExecutionClass.TRACES
     cached_response: CachedTraceSpansQueryResponse
     paginator: HogQLHasMorePaginator
 

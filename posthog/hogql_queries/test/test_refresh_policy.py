@@ -8,6 +8,8 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework.request import Request
 
+from posthog.schema import EventsNode, InsightVizNode, MetricsQuery, TrendsQuery
+
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.refresh_policy import ComputeSurface, resolve_execution_mode
 
@@ -75,3 +77,43 @@ class TestResolveExecutionMode(SimpleTestCase):
         )
         assert shared_mode == ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
         assert shared_cache_age is not None and shared_cache_age > 0
+
+    @parameterized.expand(
+        [
+            ("metrics", MetricsQuery(clauses=[]).model_dump(), 30),
+            ("logs", {"kind": "LogsQuery"}, 5),
+            (
+                "analytics",
+                InsightVizNode(source=TrendsQuery(series=[EventsNode(event="$pageview")])).model_dump(),
+                None,
+            ),
+        ]
+    )
+    def test_live_refresh_uses_the_class_cache_age(
+        self, _name: str, query: dict, expected_cache_age: int | None
+    ) -> None:
+        with mock.patch("posthog.hogql_queries.refresh_policy.team_flag_enabled_locally", return_value=True):
+            mode, cache_age = resolve_execution_mode(
+                _request("live"), surface=ComputeSurface.DASHBOARD_TILE, query=query, team=mock.Mock()
+            )
+
+        assert mode == ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+        assert cache_age == expected_cache_age
+
+    @parameterized.expand([("flag_off", False, False), ("shared_link", True, True)])
+    def test_live_refresh_never_computes_without_the_flag_or_on_a_shared_link(
+        self, _name: str, flag_on: bool, is_shared: bool
+    ) -> None:
+        with mock.patch("posthog.hogql_queries.refresh_policy.team_flag_enabled_locally", return_value=flag_on):
+            mode, _ = resolve_execution_mode(
+                _request("live"),
+                surface=ComputeSurface.DASHBOARD_TILE,
+                is_shared=is_shared,
+                query=MetricsQuery(clauses=[]).model_dump(),
+                team=mock.Mock(),
+            )
+
+        assert mode not in (
+            ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+        )

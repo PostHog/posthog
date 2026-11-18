@@ -10,7 +10,7 @@ from django.test.utils import override_settings
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.schema import RecordingOrder, RecordingOrderDirection
+from posthog.schema import LogsQueryResponse, RecordingOrder, RecordingOrderDirection
 
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.clickhouse.client.execute import UntaggedQueryError
@@ -58,6 +58,7 @@ from products.dashboards.backend.widgets.error_tracking_list import run_error_tr
 from products.dashboards.backend.widgets.logs_list import run_logs_list_widget
 from products.dashboards.backend.widgets.session_replay_list import run_session_replay_list_widget
 from products.error_tracking.backend.facade.query_utils import ERROR_TRACKING_LISTING_VOLUME_RESOLUTION
+from products.logs.backend.facade.queries import LogsQueryRunner
 from products.logs.backend.models import LogsView
 
 
@@ -540,6 +541,35 @@ class TestDashboardRunWidgets(APIBaseTest):
         # Widget still owns sort + page size.
         self.assertEqual(query.orderBy, "earliest")
         self.assertEqual(query.limit, 20)
+
+    @parameterized.expand([("flag_on", True), ("flag_off", False)])
+    def test_logs_widget_reads_the_shared_cache_only_when_the_telemetry_key_flag_is_on(
+        self, _name: str, flag_on: bool
+    ) -> None:
+        calculated_with_bytes_cap: list[int | None] = []
+
+        def calculate(runner: LogsQueryRunner) -> LogsQueryResponse:
+            calculated_with_bytes_cap.append(runner.settings.max_bytes_to_read)
+            return LogsQueryResponse(results=[], hasMore=False)
+
+        config = {"limit": 10, "orderBy": "latest", "severityLevels": ["error"], "serviceNames": ["api"]}
+        with (
+            patch(
+                "products.dashboards.backend.widgets.logs_list.team_flag_enabled_locally",
+                side_effect=lambda team, key: flag_on and key == "telemetry-concurrency-key",
+            ),
+            patch.object(LogsQueryRunner, "calculate", autospec=True, side_effect=calculate),
+        ):
+            run_logs_list_widget(self.team, config, user=self.user)
+            calculations_after_first_run = len(calculated_with_bytes_cap)
+            run_logs_list_widget(self.team, config, user=self.user)
+
+        if flag_on:
+            assert len(calculated_with_bytes_cap) == calculations_after_first_run
+            assert calculated_with_bytes_cap == [10_000_000_000] * calculations_after_first_run
+        else:
+            assert len(calculated_with_bytes_cap) == 2 * calculations_after_first_run
+            assert set(calculated_with_bytes_cap) == {None}
 
     @patch("products.dashboards.backend.widgets.logs_list.LogsQueryRunner")
     def test_runs_logs_widget_falls_back_when_saved_view_missing(self, mock_runner_cls: MagicMock) -> None:
