@@ -48,7 +48,6 @@ describe('<RunLinkTagHint />', () => {
             opened: 'a middle-click',
             open: (link: HTMLElement) => fireEvent(link, new MouseEvent('auxclick', { bubbles: true, button: 1 })),
         },
-        { opened: 'a context menu', open: (link: HTMLElement) => fireEvent.contextMenu(link) },
     ])('shows the new setting after returning from settings opened with $opened', async ({ open }) => {
         useMocks({
             get: {

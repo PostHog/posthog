@@ -47,10 +47,9 @@ export function RunLinkTagHint(): JSX.Element | null {
             <Link
                 to={urls.settings('environment-workflows', 'workflows-email-run-link-tag')}
                 target="_blank"
-                // Capture also sees Cmd/Ctrl-clicks, middle-clicks only fire auxclick, and "Open in new tab" from a context menu fires neither.
+                // Capture also sees Cmd/Ctrl-clicks, and middle-clicks only fire auxclick.
                 onClickCapture={refreshOnReturn}
                 onAuxClick={refreshOnReturn}
-                onContextMenu={refreshOnReturn}
                 data-attr="workflows-run-link-tag-settings-link"
             >
                 {enabled ? 'Turn it off in settings' : 'Turn it on in settings'}
