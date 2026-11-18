@@ -53,7 +53,9 @@ The commands above read the same evidence.
 
 ### The lane on Depot CI
 
-`Backend CI (scheduled)` is the hourly full test matrix.
+`Backend CI (scheduled)` is the hourly test run.
+It runs the full matrix every 3 hours (00:23, 03:23, … UTC) and only the default-variant Core shards in the hours between.
+A failure in products, Temporal, compat, persons-on-events off or the events_json rows shows only on the 3-hourly runs.
 `Backend CI` without the suffix is the master push run.
 Depot stores both types of runs and their logs; GitHub receives job checks.
 The alert includes a Depot run ID, such as `b1c2d3f4g5`, and a depot.dev URL.
