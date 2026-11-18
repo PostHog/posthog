@@ -515,17 +515,24 @@ def remove_reviewer_from_slack(
     return "removed" if removed else "not_reviewer"
 
 
-def notify_implementation_pr_opened(team_id: int, task_id: str, pr_url: str) -> None:
+def notify_implementation_prs_opened(team_id: int, task_id: str, pr_urls: list[str]) -> None:
     from products.signals.backend.implementation_pr_notification_tasks import (  # noqa: PLC0415 - avoids the signals/tasks facade cycle
         deliver_implementation_pr_notifications,
     )
+    from products.signals.backend.slack_report_threads import eligible_implementation_pr_urls  # noqa: PLC0415
 
     try:
-        transaction.on_commit(
-            lambda: deliver_implementation_pr_notifications.delay(team_id=team_id, task_id=task_id, pr_url=pr_url)
-        )
+        urls = eligible_implementation_pr_urls(team_id=team_id, task_id=task_id, pr_urls=pr_urls)
+        if urls:
+            transaction.on_commit(
+                lambda: deliver_implementation_pr_notifications.delay(team_id=team_id, task_id=task_id, pr_urls=urls)
+            )
     except Exception:
         logger.exception("signals_inbox_pr_notification_failed", team_id=team_id, task_id=task_id)
+
+
+def notify_implementation_pr_opened(team_id: int, task_id: str, pr_url: str) -> None:
+    notify_implementation_prs_opened(team_id, task_id, [pr_url])
 
 
 def report_id_for_slack_thread(*, team_id: int, slack_workspace_id: str, channel: str, thread_ts: str) -> str | None:

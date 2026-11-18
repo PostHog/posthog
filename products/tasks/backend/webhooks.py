@@ -360,7 +360,7 @@ def handle_pull_request_event(payload: dict) -> None:
     if task_run is not None and is_internal_branch:
         _record_run_pr_url(task_run, pr_url)
         if action == "opened":
-            transaction.on_commit(lambda: _post_slack_update_for_pr(task_run, pr_url=pr_url))
+            transaction.on_commit(lambda: _post_slack_update_for_pr(task_run, pr_url=pr_url, report_threads_only=True))
 
     # After the backstop on purpose: a just-backfilled pr_url means the run now
     # claims this PR. Gated on the run's *primary* PR — output.pr_state describes

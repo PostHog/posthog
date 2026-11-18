@@ -12,11 +12,12 @@ from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.integration import Integration
 from posthog.models.user_integration import UserIntegration
 
-from products.signals.backend.facade.api import notify_implementation_pr_opened
+from products.signals.backend.facade.api import notify_implementation_pr_opened, notify_implementation_prs_opened
 from products.signals.backend.implementation_pr_notification_tasks import deliver_implementation_pr_notifications
-from products.signals.backend.models import SignalReport, SignalReportSlackThread
+from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportSlackThread
 from products.signals.backend.slack_report_threads import record_report_slack_thread, report_id_for_slack_thread
 from products.signals.backend.task_run_artefacts import record_implementation_task
+from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.tasks.backend.facade.api import accept_github_pull_request, set_task_run_output, update_task_run
 from products.tasks.backend.models import Task, TaskRun
 
@@ -261,7 +262,7 @@ def test_pr_notification_retries_failed_threads_and_remembers_each_pr(team, fail
                 status_code=429,
             ),
         )
-    job_args = {"team_id": team.id, "task_id": str(task.id), "pr_url": pr_url}
+    job_args = {"team_id": team.id, "task_id": str(task.id), "pr_urls": [pr_url]}
 
     with patch("products.signals.backend.slack_report_threads.SlackIntegration") as slack_cls:
         client = slack_cls.return_value.client
@@ -275,14 +276,15 @@ def test_pr_notification_retries_failed_threads_and_remembers_each_pr(team, fail
         client.chat_postMessage.assert_called_once_with(**failed.kwargs)
         assert failed.kwargs["channel"] != sent.kwargs["channel"]
 
-        deliver_implementation_pr_notifications.apply(kwargs={**job_args, "pr_url": other_pr_url}, throw=True)
+        deliver_implementation_pr_notifications.apply(kwargs={**job_args, "pr_urls": [other_pr_url]}, throw=True)
         deliver_implementation_pr_notifications.apply(kwargs=job_args, throw=True)
         assert client.chat_postMessage.call_count == 3
 
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "boundary", ["team", "integration", "workspace", "disconnected", "unsafe_url", "repository", "host", "http"]
+    "boundary",
+    ["team", "integration", "workspace", "disconnected", "unsafe_url", "repository", "host", "http", "sibling", "gate"],
 )
 def test_pr_notification_does_not_reach_an_invalid_target(team, boundary: str) -> None:
     report = _report(team)
@@ -291,7 +293,11 @@ def test_pr_notification_does_not_reach_an_invalid_target(team, boundary: str) -
         team=team, title="Implement report", description="Fix the issue", repository="example/repo"
     )
     record_implementation_task(team_id=team.id, report_id=str(report.id), task_id=str(task.id))
-    other_team = Team.objects.create(organization=team.organization, name="Other team")
+    other_team = Team.objects.create(
+        organization=team.organization,
+        name="Other team",
+        **({"project": team.project} if boundary == "sibling" else {}),
+    )
     record_report_slack_thread(
         team_id=other_team.id if boundary == "team" else team.id,
         report_id=str(report.id),
@@ -301,9 +307,11 @@ def test_pr_notification_does_not_reach_an_invalid_target(team, boundary: str) -
         thread_ts="1700000000.000100",
         kind=SignalReportSlackThread.Kind.INBOX_NOTIFICATION,
     )
-    if boundary == "integration":
+    if boundary in {"integration", "sibling"}:
         integration.team = other_team
         integration.save(update_fields=["team"])
+    if boundary == "gate":
+        SignalReportArtefact.objects.create(team=team, report=report, type="reviewer_corrections", content="{}")
     pr_url = "https://github.com/example/repo/pull/42"
     if boundary == "unsafe_url":
         pr_url += "|unsafe>"
@@ -313,24 +321,28 @@ def test_pr_notification_does_not_reach_an_invalid_target(team, boundary: str) -
         pr_url = "https://example.com/login"
     elif boundary == "http":
         pr_url = "http://github.com/example/repo/pull/42"
-    with patch("products.signals.backend.slack_report_threads.SlackIntegration") as slack_cls:
+    with (
+        patch("products.signals.backend.slack_report_threads.SlackIntegration") as slack_cls,
+        patch("posthoganalytics.feature_enabled", return_value=False),
+    ):
         for team_id in [team.id, other_team.id]:
             deliver_implementation_pr_notifications.apply(
-                kwargs={"team_id": team_id, "task_id": str(task.id), "pr_url": pr_url}, throw=True
+                kwargs={"team_id": team_id, "task_id": str(task.id), "pr_urls": [pr_url]}, throw=True
             )
-        slack_cls.assert_not_called()
+        assert slack_cls.return_value.client.chat_postMessage.call_count == (1 if boundary == "sibling" else 0)
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("recipient", ["active", "removed", "guest", "unknown"])
+@pytest.mark.parametrize("recipient", ["active", "saved", "removed", "guest", "unknown", "changed_email"])
 def test_pr_notification_rechecks_dm_recipient(team, recipient: str) -> None:
     report = _report(team)
     integration = _integration(team)
     user = User.objects.create(email="reviewer@example.com")
     membership = OrganizationMembership.objects.create(user=user, organization=team.organization)
-    UserIntegration.objects.create(
-        user=user, kind="slack", integration_id="UREVIEWER", config={"slack_team_id": "T123"}
-    )
+    if recipient != "saved":
+        UserIntegration.objects.create(
+            user=user, kind="slack", integration_id="UREVIEWER", config={"slack_team_id": "T123"}
+        )
     task = Task.objects.create(
         team=team, title="Implement report", description="Fix the issue", repository="example/repo"
     )
@@ -344,14 +356,82 @@ def test_pr_notification_rechecks_dm_recipient(team, recipient: str) -> None:
         thread_ts="1700000000.000100",
         kind=SignalReportSlackThread.Kind.INBOX_NOTIFICATION,
         target=None if recipient == "unknown" else "UREVIEWER",
+        recipient_user_id=user.id if recipient == "saved" else None,
     )
-    if recipient == "removed":
+    if recipient in {"removed", "changed_email"}:
         membership.delete()
+    if recipient == "changed_email":
+        other_user = User.objects.create(email="active@example.com")
+        OrganizationMembership.objects.create(user=other_user, organization=team.organization)
     with patch("products.signals.backend.slack_report_threads.SlackIntegration") as slack_cls:
         slack = slack_cls.return_value
-        slack.get_user_by_id.return_value = None if recipient == "guest" else {"id": "UREVIEWER"}
+        slack.get_user_by_id.return_value = (
+            None if recipient == "guest" else {"id": "UREVIEWER", "profile": {"email": "active@example.com"}}
+        )
         deliver_implementation_pr_notifications.apply(
-            kwargs={"team_id": team.id, "task_id": str(task.id), "pr_url": "https://github.com/example/repo/pull/42"},
+            kwargs={
+                "team_id": team.id,
+                "task_id": str(task.id),
+                "pr_urls": ["https://github.com/example/repo/pull/42"],
+            },
             throw=True,
         )
-        assert slack.client.chat_postMessage.call_count == (1 if recipient == "active" else 0)
+        assert slack.client.chat_postMessage.call_count == (1 if recipient in {"active", "saved"} else 0)
+
+
+@pytest.mark.django_db
+def test_pr_notifications_queue_one_bounded_batch(team, django_capture_on_commit_callbacks) -> None:
+    report = _report(team)
+    task = Task.objects.create(team=team, title="Implement report", repository="example/repo")
+    record_implementation_task(team_id=team.id, report_id=str(report.id), task_id=str(task.id))
+    urls = [f"invalid-{index}" for index in range(10000)]
+    urls.extend(f"https://github.com/example/repo/pull/{index}" for index in range(1, 102))
+    with patch.object(deliver_implementation_pr_notifications, "delay") as queued:
+        with django_capture_on_commit_callbacks(execute=True):
+            notify_implementation_prs_opened(team.id, str(task.id), urls)
+        assert len(queued.call_args_list) == 1
+        assert queued.call_args.kwargs["pr_urls"] == urls[10000:10050]
+
+
+@pytest.mark.django_db
+def test_opened_webhook_does_not_announce_in_mapped_task_thread(team, django_capture_on_commit_callbacks) -> None:
+    task = Task.objects.create(team=team, title="Implement report", repository="example/repo")
+    run = TaskRun.objects.create(
+        task=task, team=team, state={"self_driving_head_branch": "fix-report"}, status=TaskRun.Status.IN_PROGRESS
+    )
+    SlackThreadTaskMapping.objects.create(
+        team=team,
+        integration=_integration(team),
+        slack_workspace_id="T123",
+        channel="CTEAM",
+        thread_ts="1700000000.000100",
+        task=task,
+        task_run=run,
+        mentioning_slack_user_id="UREVIEWER",
+    )
+    Integration.objects.create(team=team, kind="github", integration_id="12345", config={})
+    with (
+        patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_pr_opened") as delivered,
+        patch("celery.app.task.Task.apply_async"),
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        accept_github_pull_request(
+            WebhookDelivery(
+                provider="github",
+                app="posthog",
+                delivery_id="mapped-pr",
+                event_type="pull_request",
+                payload={
+                    "action": "opened",
+                    "installation": {"id": 12345},
+                    "repository": {"full_name": "example/repo"},
+                    "pull_request": {
+                        "html_url": "https://github.com/example/repo/pull/42",
+                        "head": {"ref": "fix-report", "repo": {"full_name": "example/repo"}},
+                    },
+                },
+                received_at=timezone.now(),
+                context={},
+            )
+        )
+    delivered.assert_not_called()

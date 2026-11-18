@@ -20,16 +20,18 @@ from django.db.models import Func, Q, Value
 from slack_sdk.errors import SlackApiError
 
 from posthog.dataclasses import frozen
-from posthog.integrations import IntegrationManager
+from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models import Team
 from posthog.models.integration import SlackIntegration
 from posthog.models.user_integration import UserIntegration
 
 from products.signals.backend.artefact_schemas import TASK_RUN_TYPE_IMPLEMENTATION
+from products.signals.backend.assignment_flags import assignment_side_effects_allowed
 from products.signals.backend.models import SignalReportSlackThread, SignalReportTask
 from products.signals.backend.slack_notification_targets import is_slack_member_target
 
 logger = logging.getLogger(__name__)
+MAX_IMPLEMENTATION_PR_NOTIFICATIONS = 50
 
 
 class ImplementationPRNotificationRetry(Exception):
@@ -66,20 +68,51 @@ def _thread_recipient_can_receive_pr(slack: SlackIntegration, thread: SignalRepo
         integration_id=target,
         config__slack_team_id=thread.slack_workspace_id,
     ).values("user_id")
-    identity = Q(id__in=linked_users)
-    if email := (member.get("profile") or {}).get("email"):
-        identity |= Q(email__iexact=email)
+    identity = Q(id=thread.recipient_user_id) if thread.recipient_user_id is not None else Q(id__in=linked_users)
     team = Team.objects.get(id=thread.team_id)
     return team.all_users_with_access().filter(is_active=True).filter(identity).exists()
 
 
-def dispatch_implementation_pr_notifications(*, team_id: int, task_id: str, pr_url: str) -> int:
+def _pr_repository(pr_url: str) -> str | None:
     if len(pr_url) > 2000:
+        return None
+    parsed = re.fullmatch(r"https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/[1-9][0-9]*/?", pr_url)
+    return parsed[1].lower() if parsed else None
+
+
+def eligible_implementation_pr_urls(*, team_id: int, task_id: str, pr_urls: Sequence[str]) -> list[str]:
+    task = (
+        SignalReportTask.objects.filter(
+            team_id=team_id, task_id=task_id, task__team_id=team_id, relationship=TASK_RUN_TYPE_IMPLEMENTATION
+        )
+        .values_list("task__repository", "task__repositories")
+        .first()
+    )
+    if task is None:
+        return []
+    repository, repositories = task
+    allowed = {value.lower() for value in [repository, *(repositories or [])] if value}
+    urls: list[str] = []
+    for url in dict.fromkeys(pr_urls):
+        if _pr_repository(url) in allowed:
+            urls.append(url)
+            if len(urls) == MAX_IMPLEMENTATION_PR_NOTIFICATIONS:
+                break
+    return urls
+
+
+def _report_thread_integrations(team_id: int, integration_ids: set[int]) -> dict[int, IntegrationRecord]:
+    team = Team.objects.get(id=team_id)
+    integrations: dict[int, IntegrationRecord] = {}
+    for environment_id in Team.objects.filter(project_id=team.project_id).values_list("id", flat=True):
+        integrations.update(IntegrationManager.slack.any.get_many(environment_id, integration_ids))
+    return integrations
+
+
+def dispatch_implementation_pr_notifications(*, team_id: int, task_id: str, pr_url: str) -> int:
+    repository = _pr_repository(pr_url)
+    if repository is None:
         return 0
-    parsed_pr = re.fullmatch(r"https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/[1-9][0-9]*/?", pr_url)
-    if parsed_pr is None:
-        return 0
-    repository = parsed_pr[1].lower()
     report_ids = (
         SignalReportTask.objects.filter(
             team_id=team_id, task_id=task_id, task__team_id=team_id, relationship=TASK_RUN_TYPE_IMPLEMENTATION
@@ -94,9 +127,8 @@ def dispatch_implementation_pr_notifications(*, team_id: int, task_id: str, pr_u
     )
     if not threads:
         return 0
-    integrations = IntegrationManager.slack.any.get_many(
-        team_id, {thread.integration_id for thread in threads if thread.integration_id is not None}
-    )
+    integration_ids = {thread.integration_id for thread in threads if thread.integration_id is not None}
+    integrations = _report_thread_integrations(team_id, integration_ids)
     sent = 0
     retry_after: int | None = None
     for thread in threads:
@@ -104,6 +136,8 @@ def dispatch_implementation_pr_notifications(*, team_id: int, task_id: str, pr_u
         if integration is None or integration.integration_id != thread.slack_workspace_id:
             continue
         try:
+            if not assignment_side_effects_allowed(team_id=team_id, report_id=str(thread.report_id)):
+                continue
             slack = SlackIntegration(integration, source="signals_inbox", timeout_seconds=10)
             if not _thread_recipient_can_receive_pr(slack, thread):
                 continue
@@ -135,6 +169,17 @@ def dispatch_implementation_pr_notifications(*, team_id: int, task_id: str, pr_u
     return sent
 
 
+def dispatch_implementation_pr_notification_batch(*, team_id: int, task_id: str, pr_urls: list[str]) -> None:
+    retry_after: int | None = None
+    for url in pr_urls[:MAX_IMPLEMENTATION_PR_NOTIFICATIONS]:
+        try:
+            dispatch_implementation_pr_notifications(team_id=team_id, task_id=task_id, pr_url=url)
+        except ImplementationPRNotificationRetry as error:
+            retry_after = max(retry_after or 0, error.retry_after)
+    if retry_after is not None:
+        raise ImplementationPRNotificationRetry(retry_after)
+
+
 @frozen
 class ScoutReportSlackMessage:
     """A scout report message already in Slack, which a later delivery updates in place."""
@@ -154,6 +199,7 @@ def record_report_slack_thread(
     thread_ts: str,
     kind: SignalReportSlackThread.Kind,
     target: str | None = None,
+    recipient_user_id: int | None = None,
 ) -> None:
     """Record that `thread_ts` in `channel` is a notification thread for this report."""
     try:
@@ -167,6 +213,7 @@ def record_report_slack_thread(
                 "integration_id": integration_id,
                 "kind": kind,
                 "target": target,
+                "recipient_user_id": recipient_user_id,
             },
         )
     except IntegrityError:

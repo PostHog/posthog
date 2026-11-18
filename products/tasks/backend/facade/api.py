@@ -3750,7 +3750,7 @@ def signal_workflow_completion(
         logger.warning("Failed to signal workflow completion for task run %s: %s", run.id, e)
 
 
-def _post_slack_update_for_pr(run: TaskRun, *, pr_url: str | None = None) -> None:
+def _post_slack_update_for_pr(run: TaskRun, *, pr_url: str | None = None, report_threads_only: bool = False) -> None:
     pr_urls = [pr_url] if pr_url else read_pr_urls(run.output)
     if not pr_urls:
         return
@@ -3772,11 +3772,12 @@ def _post_slack_update_for_pr(run: TaskRun, *, pr_url: str | None = None) -> Non
         )
         if not mapping:
             from products.signals.backend.facade.api import (  # noqa: PLC0415 - avoids the signals/tasks facade cycle
-                notify_implementation_pr_opened,
+                notify_implementation_prs_opened,
             )
 
-            for url in pr_urls:
-                notify_implementation_pr_opened(run.team_id, str(run.task_id), url)
+            notify_implementation_prs_opened(run.team_id, str(run.task_id), pr_urls)
+            return
+        if report_threads_only:
             return
         post_slack_update(
             PostSlackUpdateInput(

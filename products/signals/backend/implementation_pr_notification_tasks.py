@@ -4,7 +4,7 @@ from posthog.models.scoping import with_team_scope
 
 from products.signals.backend.slack_report_threads import (
     ImplementationPRNotificationRetry,
-    dispatch_implementation_pr_notifications,
+    dispatch_implementation_pr_notification_batch,
 )
 
 
@@ -18,10 +18,12 @@ from products.signals.backend.slack_report_threads import (
     max_retries=5,
     soft_time_limit=210,
     time_limit=240,
+    acks_late=True,
+    reject_on_worker_lost=True,
 )
 @with_team_scope()
-def deliver_implementation_pr_notifications(self: Task, team_id: int, task_id: str, pr_url: str) -> None:
+def deliver_implementation_pr_notifications(self: Task, team_id: int, task_id: str, pr_urls: list[str]) -> None:
     try:
-        dispatch_implementation_pr_notifications(team_id=team_id, task_id=task_id, pr_url=pr_url)
+        dispatch_implementation_pr_notification_batch(team_id=team_id, task_id=task_id, pr_urls=pr_urls)
     except ImplementationPRNotificationRetry as error:
         raise self.retry(exc=error, countdown=max(min(60 * 2**self.request.retries, 3600), error.retry_after))

@@ -12,6 +12,11 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="signalreportslackthread",
+            name="recipient_user_id",
+            field=models.IntegerField(blank=True, null=True),
+        ),
+        migrations.AddField(
+            model_name="signalreportslackthread",
             name="notified_pr_urls",
             field=django.contrib.postgres.fields.ArrayField(
                 base_field=models.URLField(max_length=2000), blank=True, null=True

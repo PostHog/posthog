@@ -701,6 +701,9 @@ def test_dispatch_records_the_notification_thread_for_the_report(org_and_team, t
     ) == str(report.id)
 
     assert report.slack_threads.get(thread_ts="1700000000.000100").target == target.split("|", 1)[0]
+    assert report.slack_threads.get(thread_ts="1700000000.000100").recipient_user_id == (
+        reviewer.id if target.startswith("U") else None
+    )
 
 
 @pytest.mark.django_db
