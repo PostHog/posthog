@@ -539,7 +539,7 @@ Note: Parsed every GET operation in the vendor's published OpenAPI spec, includi
 
 ## Amplitude — gaps
 
-Today (7): `annotations`, `cohorts`, `event_categories`, `event_properties`, `event_types`, `events`, `user_properties`
+Today (11): `annotations`, `cohorts`, `composition`, `event_categories`, `event_properties`, `event_types`, `events`, `group_properties`, `retention`, `revenue_ltv`, `user_properties`
 
 Diffed against: <https://amplitude.com/docs/apis>
 
@@ -551,16 +551,16 @@ Diffed against: <https://amplitude.com/docs/apis>
 - ~~`GET /api/2/release` — release markers to join against event timestamps, the sibling of the annotations table already synced (medium)~~ — skipped: the Releases API documents only `POST`, so there is no list call
 - ~~`GET /api/2/audit-logs/{ORG_ID}` — org-level change history for charts, cohorts and permissions (medium)~~ — skipped: the call is a `POST` that needs organization keys issued by Amplitude Support, not the project keys this source uses
 - ~~`GET /api/3/chart/{chart_id}/query` — results of saved charts, so warehouse numbers match what teams see in Amplitude (medium)~~ — skipped: it needs a chart ID from the web app URL (no list call), and the response shape changes with the chart type
-- [ ] `GET /api/2/funnels` — funnel conversion results as Amplitude computes them (medium)
-- [ ] `GET /api/2/retention` — retention curves as Amplitude computes them (medium)
-- [ ] `GET /api/2/composition` — user composition breakdown by property value (low)
-- [ ] `GET /api/2/revenue/ltv` — revenue LTV cohorts (low)
+- ~~`GET /api/2/funnels` — funnel conversion results as Amplitude computes them (medium)~~ — skipped: the call needs the funnel steps (one `e` event per step), which are specific to each project, and there is no default funnel to sync
+- [x] `GET /api/2/retention` — retention curves as Amplitude computes them (medium). Added as `retention`: the default chart (new users, returning with any event), daily N-day, one row per cohort date and day over the last 90 days
+- [x] `GET /api/2/composition` — user composition breakdown by property value (low). Added as `composition`: one request per documented built-in property, over the last 90 days
+- [x] `GET /api/2/revenue/ltv` — revenue LTV cohorts (low). Added as `revenue_ltv`: daily cohorts for each of the four `m` metrics, over the last 90 days
 
 Note: Endpoint paths confirmed by reading https://amplitude.com/docs/apis/analytics/taxonomy, /dashboard-rest, /releases and /audit-logs. Raw events are already synced via the Export API, so the aggregate Dashboard REST endpoints are partly derivable in the warehouse - the Taxonomy lookup tables are the higher-value gap.
 
 ## Anthropic — gaps
 
-Today (20): `analytics_connector_usage`, `analytics_plugin_usage`, `analytics_skill_usage`, `analytics_summaries`, `analytics_user_activity`, `analytics_user_cost`, `analytics_user_usage`, `api_keys`, `claude_code_analytics`, `claude_code_model_breakdown`, `cost_report`, `invites`, `rbac_group_members`, `rbac_groups`, `rbac_role_permissions`, `rbac_roles`, `usage_report`, `users`, `workspace_members`, `workspaces`
+Today (23): `analytics_artifact_activity`, `analytics_chat_project_usage`, `analytics_connector_usage`, `analytics_plugin_usage`, `analytics_skill_usage`, `analytics_summaries`, `analytics_user_activity`, `analytics_user_cost`, `analytics_user_usage`, `api_keys`, `claude_code_analytics`, `claude_code_model_breakdown`, `cost_report`, `invites`, `organization`, `rbac_group_members`, `rbac_groups`, `rbac_role_permissions`, `rbac_roles`, `usage_report`, `users`, `workspace_members`, `workspaces`
 
 Diffed against: <https://platform.claude.com/llms.txt>
 
@@ -573,11 +573,11 @@ Diffed against: <https://platform.claude.com/llms.txt>
 - [x] `GET /v1/organizations/analytics/summaries (Get Activity Summaries)` — rolled-up org activity as the vendor reports it (medium)
 - [x] `GET /v1/organizations/analytics/connectors, /plugins, /skills` — adoption breakdown by connector, plugin and skill (medium)
 - ~~`GET /v1/organizations/service_accounts/{id}/workspaces and /workspaces/{id}/service_accounts`~~ — not reachable: Anthropic serves the service-account endpoints only to an `org:admin` OAuth token, which this source never holds
-- [ ] `GET /v1/messages/batches` — batch job history with request counts and status, for batch spend analysis (medium)
-- [ ] `GET /v1/organizations/analytics/chat_projects and /analytics/artifacts` — Claude project and artifact usage breakdown (low)
-- [ ] `GET /v1/organizations/me` — organization lookup row to anchor the org-scoped tables (low)
+- ~~`GET /v1/messages/batches`~~ — not reachable: Message Batches is a workspace-scoped Claude API endpoint outside the Admin section, so the Admin API key this source collects cannot call it. Wiring it would mean also storing a regular API key, which can spend money on the Messages API, and fanning out over workspaces
+- [x] `GET /v1/organizations/analytics/chat_projects and /analytics/artifacts` — Claude project and artifact usage breakdown (low) → `analytics_chat_project_usage` (`/analytics/apps/chat/projects`) and `analytics_artifact_activity`, incremental per day
+- [x] `GET /v1/organizations/me` — organization lookup row to anchor the org-scoped tables (low) → `organization` (full refresh, one row)
 
-Note: Admin API coverage of the identity objects is good. The /v1/organizations/analytics/\* family is covered except for chat projects and artifacts. Those endpoints need a Claude Enterprise key carrying the `read:analytics` scope, which is a different key from the Claude Console Admin API key, so they stay off by default and `get_endpoint_permissions` reports whether the configured key can reach them. The group and custom-role reads are Claude Enterprise only too, and take their own `read:rbac_groups` and `read:members` scopes, so they are off by default and separately probed. There is still no model lookup for the model IDs carried in usage_report/cost_report. The Compliance API (chats, projects, code artifacts, organization users) is a separate auth-gated surface for Enterprise plans and would need its own credential.
+Note: Admin API coverage of the identity objects is good. The /v1/organizations/analytics/\* family is covered. Those endpoints need a Claude Enterprise key carrying the `read:analytics` scope, which is a different key from the Claude Console Admin API key, so they stay off by default and `get_endpoint_permissions` reports whether the configured key can reach them. The group and custom-role reads are Claude Enterprise only too, and take their own `read:rbac_groups` and `read:members` scopes, so they are off by default and separately probed. There is still no model lookup for the model IDs carried in usage_report/cost_report. The Compliance API (chats, projects, code artifacts, organization users) is a separate auth-gated surface for Enterprise plans and would need its own credential.
 
 ## Anvil — gaps
 
@@ -11745,7 +11745,7 @@ Today (11): `contact_groups`, `heartbeat_tests`, `maintenance_windows`, `pagespe
 
 Diffed against: <https://developers.statuscake.com/api/>
 
-- [ ] `list-pagespeed-monitoring-locations (GET /pagespeed/locations)` — lookup table resolving the monitoring location codes carried on pagespeed_history rows; uptime_locations is already synced but its pagespeed twin is not (medium)
+- [x] `list-pagespeed-monitoring-locations (GET /pagespeed/locations)` — lookup table resolving the monitoring location codes carried on pagespeed_history rows; uptime_locations is already synced but its pagespeed twin is not (medium)
 
 Note: Enumerated every operationId from the vendor's Redoc page (36 operations across contact-groups, heartbeat, locations, maintenance-windows, pagespeed, ssl, uptime). PostHog covers every list operation except the pagespeed locations lookup; no machine-readable spec is published (openapi.yaml / statuscake-go repo paths 404).
 
