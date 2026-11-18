@@ -1210,21 +1210,23 @@ export const SignalsReportsPartialUpdateBody = /* @__PURE__ */ zod
     )
 
 /**
- * Create a task linked to the report and start its first run in the background, with the instructions the inbox uses for the same action. `ask` sends your own message with the framing of the inbox's Ask AI. The run shows in the report's runs and counts toward the report's task limit. Nobody can answer questions in a background run, so the agent writes a note to the report's work log when it needs a decision.
+ * Create a task linked to the report and start its first run in the background, with the instructions the inbox uses for the same action. `ask` sends your own message with the framing of the inbox's Ask AI. `implement` starts the run the inbox's Implement button starts: it claims the report, and the pull request it opens is attached to the report. The run shows in the report's runs and counts toward the report's task limit. Nobody can answer questions in a background run, so the agent writes a note to the report's work log when it needs a decision.
  * @summary Start a report action as a background agent run
  */
 export const signalsReportsActionsRunCreateBodySuggestedPromptIndexMin = 0
 
 export const signalsReportsActionsRunCreateBodyMessageMax = 2000
 
+export const signalsReportsActionsRunCreateBodyRepositoryMax = 140
+
 export const SignalsReportsActionsRunCreateBody = /* @__PURE__ */ zod.object({
     action: zod
-        .enum(['get_it_merged', 'make_it_green', 'resolve_conflicts', 'suggested_prompt', 'ask'])
+        .enum(['get_it_merged', 'make_it_green', 'resolve_conflicts', 'implement', 'suggested_prompt', 'ask'])
         .describe(
-            '\* `get_it_merged` - Get it merged\n\* `make_it_green` - Make it green\n\* `resolve_conflicts` - Resolve conflicts\n\* `suggested_prompt` - Suggested prompt\n\* `ask` - Ask'
+            '\* `get_it_merged` - Get it merged\n\* `make_it_green` - Make it green\n\* `resolve_conflicts` - Resolve conflicts\n\* `implement` - Implement\n\* `suggested_prompt` - Suggested prompt\n\* `ask` - Ask'
         )
         .describe(
-            'The action to run. Use a value from the actions list, or `ask` to send your own `message`.\n\n\* `get_it_merged` - Get it merged\n\* `make_it_green` - Make it green\n\* `resolve_conflicts` - Resolve conflicts\n\* `suggested_prompt` - Suggested prompt\n\* `ask` - Ask'
+            'The action to run. Use a value from the actions list, or `ask` to send your own `message`.\n\n\* `get_it_merged` - Get it merged\n\* `make_it_green` - Make it green\n\* `resolve_conflicts` - Resolve conflicts\n\* `implement` - Implement\n\* `suggested_prompt` - Suggested prompt\n\* `ask` - Ask'
         ),
     suggested_prompt_index: zod
         .number()
@@ -1236,7 +1238,15 @@ export const SignalsReportsActionsRunCreateBody = /* @__PURE__ */ zod.object({
         .max(signalsReportsActionsRunCreateBodyMessageMax)
         .optional()
         .describe(
-            "Your own request for the run. Required for `ask`, where it is the question or the work you want done on the report. Optional for `get_it_merged`, `make_it_green`, and `resolve_conflicts`, where it replaces the action's fixed request and keeps its instructions and gates: pass it when you know something the report does not, such as a merge order, a failure that is already on the base branch, or an expected conflict. Not accepted for `suggested_prompt`."
+            "Your own request for the run. Required for `ask`, where it is the question or the work you want done on the report. Optional for `get_it_merged`, `make_it_green`, and `resolve_conflicts`, where it replaces the action's fixed request and keeps its instructions and gates: pass it when you know something the report does not, such as a merge order, a failure that is already on the base branch, or an expected conflict. Optional for `implement`, where it is added to the prompt as extra instructions. Not accepted for `suggested_prompt`."
+        ),
+    repository: zod
+        .string()
+        .min(1)
+        .max(signalsReportsActionsRunCreateBodyRepositoryMax)
+        .optional()
+        .describe(
+            "Only for `implement`: the repository to implement in, in 'owner\/repo' format (case-insensitive). It must be connected to the project, and it becomes the report's repo selection. Omit it to use the report's own repository. A report whose repository cannot be resolved returns `report_implementation_repository_unresolved`."
         ),
 })
 
@@ -5282,6 +5292,33 @@ export const SignalsSourceConfigsAlertPatternPreviewCreateBody = /* @__PURE__ */
         .max(signalsSourceConfigsAlertPatternPreviewCreateBodyAlertBlockPatternsMax)
         .optional()
         .describe('Block patterns to try, as they would be saved in `config.alert_block_patterns`.'),
+})
+
+/**
+ * Check a filter expression before saving it, and see what it does to the source's records created in the last 7 days: how many pass and how many it excludes, with the newest of each. Reads the records emission would read, with the source's saved team allowlist, and runs with your own warehouse access. Records that pass can still be skipped later by guidance or deduplication. Saves nothing and calls no AI.
+ * @summary Preview a source filter
+ */
+export const signalsSourceConfigsFilterPreviewCreateBodySourceProductMax = 100
+
+export const signalsSourceConfigsFilterPreviewCreateBodySourceTypeMax = 100
+
+export const signalsSourceConfigsFilterPreviewCreateBodyExpressionMax = 16384
+
+export const SignalsSourceConfigsFilterPreviewCreateBody = /* @__PURE__ */ zod.object({
+    source_product: zod
+        .string()
+        .max(signalsSourceConfigsFilterPreviewCreateBodySourceProductMax)
+        .describe('Source product of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.'),
+    source_type: zod
+        .string()
+        .max(signalsSourceConfigsFilterPreviewCreateBodySourceTypeMax)
+        .describe('Source type of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.'),
+    expression: zod
+        .string()
+        .max(signalsSourceConfigsFilterPreviewCreateBodyExpressionMax)
+        .describe(
+            "Filter expression to try, as it would be saved in `config.hogql_filter`: a boolean expression over the fields `inbox-source-filter-catalogs-list` returns, for example `project_name = 'Core' AND assignee_id IS NULL`. An empty expression lets every record through."
+        ),
 })
 
 /**
