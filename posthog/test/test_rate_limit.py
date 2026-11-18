@@ -3,11 +3,10 @@ from datetime import timedelta
 from urllib.parse import quote
 
 import time_machine
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import ANY, Mock, call, patch
 
 from django.core.cache import cache
-from django.http import HttpRequest
 from django.test import SimpleTestCase
 from django.utils.timezone import now
 
@@ -17,7 +16,7 @@ from redis.exceptions import RedisError
 from rest_framework import exceptions, status
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
-from rest_framework.views import exception_handler
+from rest_framework.views import APIView, exception_handler
 
 from posthog import models, rate_limit
 from posthog.api.test.test_team import create_team
@@ -26,7 +25,8 @@ from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.models import Team
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.personal_api_key import PersonalAPIKey
-from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+from posthog.models.utils import generate_random_token_personal, generate_random_token_secret, hash_key_value
 from posthog.rate_limit import (
     AIBurstRateThrottle,
     AIResearchBurstRateThrottle,
@@ -1060,44 +1060,78 @@ class TestProjectSecretApiKeyTeamRateThrottle(SimpleTestCase):
         self.assertIn("psak-team:7", _PSAKTeamThrottleForTest().get_cache_key(self._psak_request(team_id=7), Mock()))
 
 
-class _AuthenticatedProjectSecretKey(ProjectSecretAPIKeyAuthentication):
-    def __init__(self, key_id: int, team_id: int) -> None:
-        self.project_secret_api_key = Mock(id=key_id, team_id=team_id)
-
-    def authenticate(self, request: HttpRequest | Request) -> tuple[Mock, None]:
-        return Mock(is_authenticated=True), None
+_SendThrottle = rate_limit.PersonalOrProjectSecretApiKeyRateThrottle | rate_limit.ProjectSecretApiKeyTeamRateThrottle
 
 
-@patch("posthog.rate_limit.team_is_allowed_to_bypass_throttle", return_value=False)
-@patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
-class TestReserveUnits(SimpleTestCase):
+class _TeamView(APIView):
+    def __init__(self, team_id: int) -> None:
+        super().__init__()
+        self.team_id = team_id
+
+
+class TestReserveUnits(BaseTest):
     def setUp(self) -> None:
-        cache.clear()
+        super().setUp()
+        self.enterContext(override_instance_config("RATE_LIMIT_ENABLED", True))
+        self._clear_policy_caches()
+        self.token = generate_random_token_secret()
+        ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="batch sends",
+            secure_value=hash_key_value(self.token, mode="sha256"),
+            scopes=["transactional_email:write"],
+        )
+        self.view = _TeamView(self.team.pk)
 
     def tearDown(self) -> None:
         cache.clear()
+        self._clear_policy_caches()
+        super().tearDown()
 
-    def _request(self, key_id: int = 1) -> Request:
-        http_request = APIRequestFactory().post("/api/messaging/send/email_batch/")
-        return Request(http_request, authenticators=[_AuthenticatedProjectSecretKey(key_id=key_id, team_id=7)])
+    def _clear_policy_caches(self) -> None:
+        cache.clear()
+        rate_limit.is_rate_limit_enabled.cache_clear()
+        rate_limit.get_team_allow_list.cache_clear()
 
-    def _singles_allowed(self, throttle_class: type[rate_limit.PersonalApiKeyRateThrottle], count: int) -> list[bool]:
-        return [throttle_class().allow_request(self._request(), Mock(team_id=7)) for _ in range(count)]
+    def _request(self) -> Request:
+        http_request = APIRequestFactory().post(
+            "/api/messaging/send/email_batch/", headers={"authorization": f"Bearer {self.token}"}
+        )
+        return Request(http_request, authenticators=[ProjectSecretAPIKeyAuthentication()])
 
-    def _reserve(self, throttle_classes: list[type[rate_limit.PersonalApiKeyRateThrottle]], units: int) -> None:
+    def _singles_allowed(self, throttle_class: type[_SendThrottle], count: int) -> list[bool]:
+        return [throttle_class().allow_request(self._request(), self.view) for _ in range(count)]
+
+    def _reserve(self, throttle_classes: list[type[_SendThrottle]], units: int) -> None:
         rate_limit.reserve_units(
-            [throttle_class() for throttle_class in throttle_classes], self._request(), Mock(team_id=7), units
+            [throttle_class() for throttle_class in throttle_classes], self._request(), self.view, units
         )
 
+    def _send(self, throttle_classes: list[type[_SendThrottle]], recipients: int) -> str | None:
+        request = self._request()
+        try:
+            for throttle_class in throttle_classes:
+                throttle = throttle_class()
+                if not throttle.allow_request(request, self.view):
+                    raise exceptions.Throttled(wait=throttle.wait())
+            rate_limit.reserve_units(
+                [throttle_class() for throttle_class in throttle_classes], request, self.view, recipients - 1
+            )
+        except exceptions.Throttled as refusal:
+            response = exception_handler(refusal, {})
+            assert response is not None
+            return response.headers["Retry-After"]
+        return None
+
     @parameterized.expand([("per_key", _PSAKThrottleForTest), ("per_team", _PSAKTeamThrottleForTest)])
-    def test_units_and_single_requests_spend_one_budget(self, _enabled, _bypass, _name, throttle_class):
+    def test_units_and_single_requests_spend_one_budget(self, _name, throttle_class):
         with patch.object(throttle_class, "rate", "5/minute"):
             self._reserve([throttle_class], 3)
             self.assertEqual(self._singles_allowed(throttle_class, 3), [True, True, False])
             with self.assertRaises(exceptions.Throttled):
                 self._reserve([throttle_class], 1)
 
-    def test_a_refused_reservation_charges_none_of_the_throttles(self, _enabled, _bypass):
+    def test_a_refused_reservation_charges_none_of_the_throttles(self):
         with (
             patch.object(_PSAKTeamThrottleForTest, "rate", "4/minute"),
             patch.object(_PSAKThrottleForTest, "rate", "5/minute"),
@@ -1108,28 +1142,35 @@ class TestReserveUnits(SimpleTestCase):
 
             self.assertEqual(self._singles_allowed(_PSAKTeamThrottleForTest, 5), [True, True, True, True, False])
 
-    def test_a_refused_reservation_waits_for_the_slowest_throttle(self, _enabled, _bypass):
+    @parameterized.expand(
+        [
+            ("the_refusing_scope_needs_room_for_the_retry_unit", "3/minute", "4/minute", [0, 20], 30, "50"),
+            ("an_admitting_scope_has_no_room_for_the_retry", "2/minute", "4/hour", [0, 100], 130, "3470"),
+        ]
+    )
+    def test_a_retry_at_the_advertised_wait_fits(self, _name, key_rate, team_rate, singles_at, batch_at, retry_after):
         with (
-            patch.object(_PSAKThrottleForTest, "rate", "3/minute"),
-            patch.object(_PSAKTeamThrottleForTest, "rate", "3/hour"),
+            patch.object(_PSAKThrottleForTest, "rate", key_rate),
+            patch.object(_PSAKTeamThrottleForTest, "rate", team_rate),
             time_machine.travel("2026-01-01T00:00:00Z", tick=False) as clock,
         ):
-            for _ in range(3):
-                self._singles_allowed(_PSAKTeamThrottleForTest, 1)
-                clock.shift(100)
-            self._singles_allowed(_PSAKThrottleForTest, 2)
-            clock.shift(10)
+            throttle_classes: list[type[_SendThrottle]] = [
+                _PSAKThrottleForTest,
+                _PSAKTeamThrottleForTest,
+            ]
+            elapsed = 0
+            for second in [*singles_at, batch_at]:
+                clock.shift(second - elapsed)
+                elapsed = second
+                outcome = self._send(throttle_classes, 2 if second == batch_at else 1)
 
-            with self.assertRaises(exceptions.Throttled) as refusal:
-                self._reserve([_PSAKThrottleForTest, _PSAKTeamThrottleForTest], 2)
+            self.assertEqual(outcome, retry_after)
+            clock.shift(int(retry_after))
+            self.assertIsNone(self._send(throttle_classes, 2))
 
-        response = exception_handler(refusal.exception, {})
-        assert response is not None
-        self.assertEqual(response.headers["Retry-After"], "3390")
-
-    def test_a_refusal_is_counted_per_refusing_scope(self, _enabled, _bypass):
+    def test_a_refusal_is_counted(self):
         route = rate_limit.get_route_from_path("/api/messaging/send/email_batch/")
-        labels = {"team_id": "7", "scope": _PSAKThrottleForTest.scope, "path": route, "route": route}
+        labels = {"team_id": str(self.team.pk), "scope": _PSAKThrottleForTest.scope, "path": route, "route": route}
         before = REGISTRY.get_sample_value("rate_limit_exceeded_total", labels) or 0
 
         with patch.object(_PSAKThrottleForTest, "rate", "3/minute"), self.assertRaises(exceptions.Throttled):
@@ -1139,19 +1180,25 @@ class TestReserveUnits(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("rate_limiting_off", "posthog.rate_limit.is_rate_limit_enabled", {"return_value": False}),
-            (
-                "team_on_the_bypass_list",
-                "posthog.rate_limit.team_is_allowed_to_bypass_throttle",
-                {"return_value": True},
-            ),
-            ("cache_unreachable", "django.core.cache.cache.get", {"side_effect": RedisError("down")}),
+            ("rate_limiting_off", "RATE_LIMIT_ENABLED", False),
+            ("team_on_the_bypass_list", "RATE_LIMITING_ALLOW_LIST_TEAMS", "team"),
         ]
     )
-    def test_an_over_budget_reservation_passes_when_throttling_must_not_refuse(
-        self, _enabled, _bypass, _name, target, behaviour
-    ):
-        with patch.object(_PSAKThrottleForTest, "rate", "3/minute"), patch(target, **behaviour):
+    def test_an_over_budget_reservation_passes_when_the_settings_say_not_to_refuse(self, _name, setting, value):
+        with override_instance_config(setting, str(self.team.pk) if value == "team" else value):
+            self._clear_policy_caches()
+            with patch.object(_PSAKThrottleForTest, "rate", "3/minute"):
+                self._reserve([_PSAKThrottleForTest], 4)
+
+        self._clear_policy_caches()
+        with patch.object(_PSAKThrottleForTest, "rate", "3/minute"):
+            self.assertEqual(self._singles_allowed(_PSAKThrottleForTest, 4), [True, True, True, False])
+
+    def test_an_over_budget_reservation_passes_when_the_cache_is_unreachable(self):
+        with (
+            patch.object(_PSAKThrottleForTest, "rate", "3/minute"),
+            patch("django.core.cache.cache.get", side_effect=RedisError("down")),
+        ):
             self._reserve([_PSAKThrottleForTest], 4)
 
         with patch.object(_PSAKThrottleForTest, "rate", "3/minute"):
