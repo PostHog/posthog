@@ -50,7 +50,8 @@ function getReviewerOptions(
  */
 export function InboxScopeFilter(): JSX.Element {
     const {
-        scope,
+        activeScope: scope,
+        needsYouScopeAvailable,
         availableReviewers: reviewers,
         availableReviewersLoading,
         knownTeammate,
@@ -96,7 +97,7 @@ export function InboxScopeFilter(): JSX.Element {
             optionsLoading={availableReviewersLoading}
             onSearch={searchAvailableReviewers}
             extraOptions={[
-                { label: 'Needs you', onClick: () => pick(INBOX_SCOPE_NEEDS_YOU) },
+                ...(needsYouScopeAvailable ? [{ label: 'Needs you', onClick: () => pick(INBOX_SCOPE_NEEDS_YOU) }] : []),
                 { label: 'Claimed by you', onClick: () => pick(INBOX_SCOPE_CLAIMED_BY_YOU) },
             ]}
             onChange={() => pick(INBOX_SCOPE_ENTIRE_PROJECT)}
@@ -108,7 +109,11 @@ export function InboxScopeFilter(): JSX.Element {
                 <LemonButton
                     size="small"
                     type="secondary"
-                    tooltip="See the reports suggested to you, the reports waiting on your input or claimed by you, every report in the project, or a teammate's"
+                    tooltip={
+                        needsYouScopeAvailable
+                            ? "See the reports suggested to you, the reports waiting on your input or claimed by you, every report in the project, or a teammate's"
+                            : "See the reports suggested to you, the reports you claimed, every report in the project, or a teammate's"
+                    }
                     // Name the active scope for assistive tech. Without this, LemonButton copies the
                     // string tooltip into aria-label, so a screen reader hears the help text and never
                     // the current scope.

@@ -301,6 +301,9 @@ export interface reportListLogicActions {
     clearFilters: () => {
         value: true
     } // inboxFiltersLogic
+    needsYouScopeAvailabilityChanged: () => {
+        value: true
+    } // inboxFiltersLogic
     resetUnavailableSort: () => {
         value: true
     } // inboxFiltersLogic
@@ -581,7 +584,7 @@ export const reportListLogic = kea<reportListLogicType>([
         values: [
             inboxFiltersLogic,
             [
-                'scope',
+                'activeScope as scope',
                 'isScopedToMe',
                 'hasUserChosenScope',
                 'searchQuery',
@@ -609,6 +612,7 @@ export const reportListLogic = kea<reportListLogicType>([
                 'toggleScout',
                 'setSourceFilter',
                 'sourceFilterAvailabilityChanged',
+                'needsYouScopeAvailabilityChanged',
                 'togglePriority',
                 'setPriorityFilter',
                 'setScope',
@@ -1177,6 +1181,7 @@ export const reportListLogic = kea<reportListLogicType>([
         toggleScout: () => actions.refresh(),
         setSourceFilter: () => actions.refresh(),
         sourceFilterAvailabilityChanged: () => actions.refresh(),
+        needsYouScopeAvailabilityChanged: () => actions.refresh(),
         togglePriority: () => actions.refresh(),
         setPriorityFilter: () => actions.refresh(),
         setScope: () => actions.refresh(),

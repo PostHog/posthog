@@ -137,7 +137,7 @@ function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListStat
         activeSourceProductFilter,
         priorityFilter,
         visibleStateFilter,
-        scope,
+        activeScope: scope,
         isScopedToMe,
         activeSortField,
     } = useValues(inboxFiltersLogic)
@@ -269,8 +269,13 @@ export function ReportsTab(): JSX.Element {
     // The row context menus dispatch to this logic and unmount when a menu closes; pinning it here
     // keeps an in-flight create-PR listener alive past the click that closed the menu.
     useMountedLogic(inboxTaskKickoffLogic)
-    const { hasActiveFilters, visibleStateFilter, scope, activeSortField, activeSortDirection } =
-        useValues(inboxFiltersLogic)
+    const {
+        hasActiveFilters,
+        visibleStateFilter,
+        activeScope: scope,
+        activeSortField,
+        activeSortDirection,
+    } = useValues(inboxFiltersLogic)
     const rankingSortField = isRankingSortField(activeSortField) ? activeSortField : null
     const timestampField = activeSortField === 'created_at' ? 'created_at' : 'updated_at'
     const sections = useSectionStates()
