@@ -34,7 +34,8 @@ import pyarrow as pa
 from posthog import settings
 from posthog.dataclasses import frozen
 
-from products.signals.backend.ranking.features import Extras
+from products.signals.backend.ranking.features import Extras, ReportEmbeddingsPriorityScoredFactsFeatureSet
+from products.signals.backend.ranking.model_contract import ZEROED_FEATURE_GROUPS_KEY, zeroed_feature_groups
 from products.signals.backend.ranking.serving_manifest import ONNX_MODEL_FILE, ONNX_MODEL_KIND
 from products.signals.dags.inbox_ranking.common import (
     S3_BUCKET_ENV,
@@ -70,6 +71,8 @@ from products.signals.dags.inbox_ranking.nn.examples import (
     subset,
 )
 from products.signals.dags.inbox_ranking.nn.feature_backfill import (
+    SCORED_FACTS_SOURCE,
+    SNAPSHOT_SOURCE,
     BackfillBatchRows,
     birth_day,
     fill_from_backfill,
@@ -77,6 +80,8 @@ from products.signals.dags.inbox_ranking.nn.feature_backfill import (
     late_group_sources,
     read_backfill_batch,
     readiness_block,
+    scored_facts_rows,
+    with_scored_facts_sources,
 )
 from products.signals.dags.inbox_ranking.nn.model import (
     HOLDOUT_MODEL_FILE,
@@ -88,6 +93,7 @@ from products.signals.dags.inbox_ranking.nn.model import (
     network_recipe,
     network_vector_kinds,
     vs_baseline_block,
+    zero_groups,
     zero_unfitted_groups,
 )
 from products.signals.dags.inbox_ranking.training.calibration import bucket_rows
@@ -109,7 +115,7 @@ from products.signals.dags.inbox_ranking.training.families import (
     MODEL_FAMILIES,
     NN_FAMILY,
     NN_WITH_PRIO_FAMILY,
-    NN_WITH_PRIO_SOURCES_FAMILY,
+    NN_WITH_PRIO_ML_FEATURES_V2_FAMILY,
     ModelFamily,
 )
 from products.signals.dags.inbox_ranking.training.side_inputs import load_side_inputs
@@ -127,8 +133,8 @@ NN_CANDIDATE_ASSET = "inbox_ranking_nn_model_candidate"
 NN_CHAMPION_ASSET = "inbox_ranking_nn_model_champion"
 NN_WITH_PRIO_CANDIDATE_ASSET = "inbox_ranking_nn_with_prio_model_candidate"
 NN_WITH_PRIO_CHAMPION_ASSET = "inbox_ranking_nn_with_prio_model_champion"
-NN_WITH_PRIO_SOURCES_CANDIDATE_ASSET = "inbox_ranking_nn_with_prio_sources_model_candidate"
-NN_WITH_PRIO_SOURCES_CHAMPION_ASSET = "inbox_ranking_nn_with_prio_sources_model_champion"
+NN_WITH_PRIO_ML_FEATURES_CANDIDATE_ASSET = "inbox_ranking_nn_with_prio_ml_features_model_candidate"
+NN_WITH_PRIO_ML_FEATURES_CHAMPION_ASSET = "inbox_ranking_nn_with_prio_ml_features_model_champion"
 
 # The settings the prototype compared against the champion recipe with.
 NETWORK_CONFIG = NetworkConfig()
@@ -287,21 +293,23 @@ def _late_group_inputs(
     family: ModelFamily,
     examples: NNExamples,
 ) -> _LateGroupInputs | None:
-    """None when `family` reads a backfill batch that holds none of the examples' birth days. Its fit
-    would then be the plain late-feature fit under another name, so it keeps the partition as it
-    stands."""
+    """None when an experiment reads a backfill batch that holds none of the examples' birth days. Its
+    fit would then be the plain late-feature fit under another name, so it keeps the partition as it
+    stands. A serving family trains without the batch, and its readiness block shows the gap."""
     groups = tuple(family.feature_set.late_feature_groups)
     if family.feature_backfill is None:
         return _LateGroupInputs(examples=examples, sources=late_group_sources(examples.table.rows, groups))
     days = {birth_day(value) for value in examples.table.rows["snapshot_date"]}
     batch = read_backfill_batch(client, bucket, prefix, family.feature_backfill, days)
     if not batch.days_read:
+        consequence = "keeps this partition as it stands" if family.experiment else "trains without it"
         context.log.warning(
             f"feature backfill batch {family.feature_backfill.batch_id} holds none of the {len(days)} birth days "
-            f"of dt={partition_key}; {family.name} keeps this partition as it stands. Write the batch with "
+            f"of dt={partition_key}; {family.name} {consequence}. Write the batch with "
             "inbox_ranking_feature_backfill_job"
         )
-        return None
+        if family.experiment:
+            return None
     backfilled = fill_from_backfill(examples.table, batch, groups, training_consent_team_ids())
     return _LateGroupInputs(
         examples=dataclasses.replace(examples, table=backfilled.table),
@@ -394,6 +402,11 @@ def train_candidate(
         if family_extras is None:
             return {"skipped": dagster.MetadataValue.bool(True)}
         extras = family_extras
+    facts_sources = None
+    if late is not None and isinstance(family.feature_set, ReportEmbeddingsPriorityScoredFactsFeatureSet):
+        scored = scored_facts_rows(examples.table.rows, extras, family.feature_set)
+        late = dataclasses.replace(late, sources=with_scored_facts_sources(late.sources, scored))
+        facts_sources = np.where(scored, SCORED_FACTS_SOURCE, SNAPSHOT_SOURCE).astype(object)
     inputs = network_inputs(
         examples.table, extras, day.labels, day.embeddings, family.feature_set, family.project_vector_kinds
     )
@@ -410,6 +423,7 @@ def train_candidate(
             zeroed_groups,
             batch=late.batch,
             excluded_no_training_consent_rows=late.excluded_no_training_consent_rows,
+            facts_sources=facts_sources,
         )
     if zeroed_groups:
         context.log.info(
@@ -549,7 +563,13 @@ def write_candidate(
     if vs_baseline is not None:
         metadata = {**metadata, "vs_baseline": dict(vs_baseline)}
     if readiness is not None:
-        metadata = {**metadata, "readiness": dict(readiness)}
+        # The sweep zeroes the same groups for this version (`zeroed_feature_groups`), so the served
+        # model reads the zeros its weights were fit on.
+        metadata = {
+            **metadata,
+            "readiness": dict(readiness),
+            ZEROED_FEATURE_GROUPS_KEY: list(readiness["zeroed_feature_groups"]),
+        }
     metadata_key = model_object_key(prefix, family.name, partition_key, METADATA_FILE)
     _put_json(client, bucket, metadata_key, metadata)
     written.add(metadata_key)
@@ -620,7 +640,13 @@ def decide_champion(
                 f"the served {family.name} model is compared on its stored AUC"
             )
             return {}
-        table = examples_from_arrow(arrow).table
+        examples = examples_from_arrow(arrow)
+        if family.feature_set.late_feature_groups:
+            late = _late_group_inputs(context, client, bucket, prefix, partition_key, family, examples)
+            if late is None:
+                return {}
+            examples = late.examples
+        table = examples.table
         missing = _missing_state_columns(family, table)
         if missing:
             context.log.warning(
@@ -635,12 +661,9 @@ def decide_champion(
         if extras is None:
             return {}
         holdout = subset(table, np.flatnonzero(table.holdout.any(axis=1)))
-        return champion_grades(
-            champion,
-            holdout_model,
-            holdout,
-            network_inputs(holdout, extras, day.labels, day.embeddings, family.feature_set),
-        )
+        inputs = network_inputs(holdout, extras, day.labels, day.embeddings, family.feature_set)
+        zero_groups(inputs.reports, family.feature_set, zeroed_feature_groups(champion))
+        return champion_grades(champion, holdout_model, holdout, inputs)
 
     return decide_family_champion(context, client, bucket, prefix, partition_key, family, grade_champion=grade_champion)
 
@@ -686,14 +709,14 @@ _NN_WITH_PRIO_ASSETS = family_assets(
 )
 inbox_ranking_nn_with_prio_model_candidate = _NN_WITH_PRIO_ASSETS.candidate
 inbox_ranking_nn_with_prio_model_champion = _NN_WITH_PRIO_ASSETS.champion
-_NN_WITH_PRIO_SOURCES_ASSETS = family_assets(
-    NN_WITH_PRIO_SOURCES_FAMILY,
-    candidate_name=NN_WITH_PRIO_SOURCES_CANDIDATE_ASSET,
-    champion_name=NN_WITH_PRIO_SOURCES_CHAMPION_ASSET,
+_NN_WITH_PRIO_ML_FEATURES_ASSETS = family_assets(
+    NN_WITH_PRIO_ML_FEATURES_V2_FAMILY,
+    candidate_name=NN_WITH_PRIO_ML_FEATURES_CANDIDATE_ASSET,
+    champion_name=NN_WITH_PRIO_ML_FEATURES_CHAMPION_ASSET,
     after=[NN_WITH_PRIO_CHAMPION_ASSET],
 )
-inbox_ranking_nn_with_prio_sources_model_candidate = _NN_WITH_PRIO_SOURCES_ASSETS.candidate
-inbox_ranking_nn_with_prio_sources_model_champion = _NN_WITH_PRIO_SOURCES_ASSETS.champion
+inbox_ranking_nn_with_prio_ml_features_model_candidate = _NN_WITH_PRIO_ML_FEATURES_ASSETS.candidate
+inbox_ranking_nn_with_prio_ml_features_model_champion = _NN_WITH_PRIO_ML_FEATURES_ASSETS.champion
 
 
 inbox_ranking_nn_training_job = dagster.define_asset_job(
@@ -704,8 +727,8 @@ inbox_ranking_nn_training_job = dagster.define_asset_job(
         NN_CHAMPION_ASSET,
         NN_WITH_PRIO_CANDIDATE_ASSET,
         NN_WITH_PRIO_CHAMPION_ASSET,
-        NN_WITH_PRIO_SOURCES_CANDIDATE_ASSET,
-        NN_WITH_PRIO_SOURCES_CHAMPION_ASSET,
+        NN_WITH_PRIO_ML_FEATURES_CANDIDATE_ASSET,
+        NN_WITH_PRIO_ML_FEATURES_CHAMPION_ASSET,
     ],
     tags={
         **owner_tags,

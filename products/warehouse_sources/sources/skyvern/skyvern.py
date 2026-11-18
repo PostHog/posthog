@@ -119,7 +119,7 @@ def _simple_resource(
     job_id: str,
     resumable_source_manager: ResumableSourceManager[SkyvernResumeConfig],
 ) -> Resource:
-    params: dict[str, Any] = {"page_size": PAGE_SIZE, **config.extra_params}
+    params: dict[str, Any] = {**({"page_size": PAGE_SIZE} if config.paginated else {}), **config.extra_params}
 
     rest_config: RESTAPIConfig = {
         "client": client_config,
@@ -135,14 +135,16 @@ def _simple_resource(
                     # tolerant behavior: an unexpected shape yields 0 rows rather than failing loud.
                     "data_selector": config.data_key,
                     # 1-based paging; stop on the first empty page.
-                    "paginator": PageNumberPaginator(base_page=1, page=1, page_param="page"),
+                    "paginator": PageNumberPaginator(base_page=1, page=1, page_param="page")
+                    if config.paginated
+                    else SinglePagePaginator(),
                 },
             }
         ],
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
-    if resumable_source_manager.can_resume():
+    if config.paginated and resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
         if resume is not None and resume.page and resume.page > 1:
             initial_paginator_state = {"page": resume.page}
@@ -227,11 +229,11 @@ def _fan_out_resource(
             "path": config.path,
             "params": {
                 "workflow_permanent_id": {"type": "resolve", "resource": "workflows", "field": "workflow_permanent_id"},
-                **({"page_size": PAGE_SIZE} if config.child_paginated else {}),
+                **({"page_size": PAGE_SIZE} if config.paginated else {}),
             },
             "data_selector": config.data_key,
             "paginator": PageNumberPaginator(base_page=1, page=1, page_param="page")
-            if config.child_paginated
+            if config.paginated
             else SinglePagePaginator(),
         }
 
@@ -292,7 +294,16 @@ def _timeline_rows(entry: dict[str, Any]) -> list[dict[str, Any]]:
     return _flatten_timeline_entry(entry, workflow_run_id)
 
 
-def _run_timeline_resource(
+def _run_child_row(row: dict[str, Any]) -> dict[str, Any]:
+    workflow_run_id = row.pop(_PARENT_WORKFLOW_RUN_ID, None)
+    row["workflow_run_id"] = row.get("workflow_run_id") or workflow_run_id
+    # Signed artifact URLs are short-lived bearer links to the artifact content; they expire long
+    # before the synced row is read, so they are not stored.
+    row.pop("signed_url", None)
+    return row
+
+
+def _run_fan_out_resource(
     config: SkyvernEndpointConfig,
     endpoint: str,
     client_config: ClientConfig,
@@ -301,10 +312,10 @@ def _run_timeline_resource(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
 ) -> Resource:
-    """Fan out workflows -> runs -> /v1/runs/{workflow_run_id}/timeline.
+    """Fan out workflows -> runs -> a per-run endpoint (timeline, tags, artifacts).
 
-    The timeline endpoint has no time filter, so incremental syncs bound the middle runs listing with
-    created_at_start instead, and fetch timelines only for runs created inside that window.
+    The per-run endpoints have no time filter, so incremental syncs bound the middle runs listing with
+    created_at_start instead, and read only the runs created inside that window.
     """
     runs_resource: EndpointResource = {
         "name": "runs",
@@ -313,22 +324,23 @@ def _run_timeline_resource(
             _created_at_start(config, should_use_incremental_field, db_incremental_field_last_value)
         ),
     }
-    timeline_resource: EndpointResource = {
+    child_resource: EndpointResource = {
         "name": endpoint,
         "include_from_parent": ["workflow_run_id"],
         "endpoint": {
             "path": config.path,
             "params": {"workflow_run_id": {"type": "resolve", "resource": "runs", "field": "workflow_run_id"}},
+            "data_selector": config.data_key,
             "paginator": SinglePagePaginator(),
-            # A run purged between the runs listing and this call has no timeline left to read.
+            # A run purged between the runs listing and this call has nothing left to read.
             "response_actions": [{"status_code": 404, "action": "ignore"}],
         },
-        "data_map": _timeline_rows,
+        "data_map": _timeline_rows if endpoint == "run_timeline" else _run_child_row,
     }
     return cast(
         Resource,
         build_chained_resource(
-            resources=[_workflows_parent_resource(), runs_resource, timeline_resource],
+            resources=[_workflows_parent_resource(), runs_resource, child_resource],
             child_name=endpoint,
             parent_name="runs",
             parent_field_renames={},
@@ -372,7 +384,7 @@ def skyvern_source(
     client_config = _client_config(api_key, base_url)
 
     if config.fan_out_over_runs:
-        resource = _run_timeline_resource(
+        resource = _run_fan_out_resource(
             config,
             endpoint,
             client_config,
