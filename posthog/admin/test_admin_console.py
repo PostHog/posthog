@@ -1389,6 +1389,33 @@ class TestAdminConsoleViews(BaseTest):
         assert "The high cardinality query failed: Timeout exceeded" in content
         assert "/admin/console/tools/distinct-id-usage/restrict/?" in content
 
+    @patch("posthog.models.distinct_id_usage.report.DistinctIdUsageQueries")
+    def test_distinct_id_usage_report_reuses_event_counts_but_not_restrictions(self, queries: MagicMock) -> None:
+        caches["default"].clear()
+        queries.high_usage.return_value = [(self.team.pk, "heavy-user", 200_000, 300_000, 66.67)]
+        queries.high_cardinality.return_value = []
+        queries.distinct_id_bursts.return_value = []
+        queries.team_bursts.return_value = []
+        url = (
+            "/admin/console/tools/distinct-id-usage/?datetime_from=2026-11-07T04%3A00&datetime_to=2026-11-07T10%3A00"
+            "&high_usage_percentage_threshold=30&high_usage_min_events_threshold=10000"
+            "&high_usage_distinct_id_min_events=100000&high_cardinality_threshold=1000000"
+            "&burst_distinct_id_threshold=100000&burst_team_threshold=500000"
+        )
+
+        first = self.client.get(url).content.decode()
+        EventIngestionRestrictionConfig.objects.create(
+            token=self.team.api_token,
+            restriction_type=RestrictionType.SKIP_PERSON_PROCESSING,
+            distinct_ids=["heavy-user"],
+        )
+        second = self.client.get(url).content.decode()
+
+        assert queries.high_usage.call_count == 1
+        assert "Event counts were read at" in second
+        assert "Not in list" not in first
+        assert "Applied: Skip person processing" in second
+
     @parameterized.expand(
         [
             ("creates_a_restriction", None, "Spam traffic", 302, ["heavy-user"]),

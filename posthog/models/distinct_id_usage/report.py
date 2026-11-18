@@ -1,8 +1,11 @@
+import hashlib
 from collections.abc import Callable, Iterable
-from datetime import datetime
+from dataclasses import astuple
+from datetime import UTC, datetime
 from typing import Any
 
 from django.conf import settings
+from django.core.cache import cache
 
 import structlog
 
@@ -18,6 +21,9 @@ from posthog.models.team.team import Team
 logger = structlog.get_logger(__name__)
 
 QUERY_SETTINGS = {"max_execution_time": 30}
+# Four ClickHouse queries of up to 30 seconds each run per report. Staff reload and share these pages
+# during incidents, so the event counts are reused for a few minutes. Restrictions are never cached.
+REPORT_CACHE_SECONDS = 300
 
 
 @frozen
@@ -86,6 +92,17 @@ class DistinctIdUsageReport:
     team_bursts: tuple[TeamBurst, ...]
     # One line per query that failed. The other queries still report their rows.
     errors: tuple[str, ...]
+    computed_at: datetime
+
+
+@frozen
+class _EventCounts:
+    high_usage: list[tuple]
+    high_cardinality: list[tuple]
+    distinct_id_bursts: list[tuple]
+    team_bursts: list[tuple]
+    errors: tuple[str, ...]
+    computed_at: datetime
 
 
 @frozen
@@ -207,8 +224,18 @@ class DistinctIdUsage:
             )
         return {token: tuple(restrictions) for token, restrictions in by_token.items()}
 
+    @staticmethod
+    def _cache_key(dt_from: datetime, dt_to: datetime, thresholds: UsageThresholds) -> str:
+        digest = hashlib.sha256(repr((dt_from, dt_to, astuple(thresholds))).encode()).hexdigest()
+        return f"distinct_id_usage_report:{digest}"
+
     @classmethod
-    def report(cls, dt_from: datetime, dt_to: datetime, thresholds: UsageThresholds) -> DistinctIdUsageReport:
+    def _event_counts(cls, dt_from: datetime, dt_to: datetime, thresholds: UsageThresholds) -> _EventCounts:
+        cache_key = cls._cache_key(dt_from, dt_to, thresholds)
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         errors: list[str] = []
 
         def run(name: str, query: Callable[[datetime, datetime, UsageThresholds], list[tuple]]) -> list[tuple]:
@@ -219,10 +246,26 @@ class DistinctIdUsage:
                 errors.append(f"The {name} query failed: {error}")
                 return []
 
-        high_usage = run("high usage", DistinctIdUsageQueries.high_usage)
-        high_cardinality = run("high cardinality", DistinctIdUsageQueries.high_cardinality)
-        distinct_id_bursts = run("burst by distinct ID", DistinctIdUsageQueries.distinct_id_bursts)
-        team_bursts = run("burst by team", DistinctIdUsageQueries.team_bursts)
+        counts = _EventCounts(
+            high_usage=run("high usage", DistinctIdUsageQueries.high_usage),
+            high_cardinality=run("high cardinality", DistinctIdUsageQueries.high_cardinality),
+            distinct_id_bursts=run("burst by distinct ID", DistinctIdUsageQueries.distinct_id_bursts),
+            team_bursts=run("burst by team", DistinctIdUsageQueries.team_bursts),
+            errors=tuple(errors),
+            computed_at=datetime.now(tz=UTC),
+        )
+        # A failed query is not cached, so staff can retry without waiting for the cache to expire.
+        if not counts.errors:
+            cache.set(cache_key, counts, timeout=REPORT_CACHE_SECONDS)
+        return counts
+
+    @classmethod
+    def report(cls, dt_from: datetime, dt_to: datetime, thresholds: UsageThresholds) -> DistinctIdUsageReport:
+        counts = cls._event_counts(dt_from, dt_to, thresholds)
+        high_usage = counts.high_usage
+        high_cardinality = counts.high_cardinality
+        distinct_id_bursts = counts.distinct_id_bursts
+        team_bursts = counts.team_bursts
 
         team_ids = {row[0] for rows in (high_usage, high_cardinality, distinct_id_bursts, team_bursts) for row in rows}
         tokens: dict[int, str] = (
@@ -279,7 +322,8 @@ class DistinctIdUsage:
                 )
                 for team_id, minute, event_count in team_bursts
             ),
-            errors=tuple(errors),
+            errors=counts.errors,
+            computed_at=counts.computed_at,
         )
 
     @staticmethod
