@@ -9,7 +9,9 @@ export function QuillEmailForwardingAddress({ forwardingAddress }: { forwardingA
             <FieldLabel>Forwarding address</FieldLabel>
             <FieldDescription>Forward incoming emails to this address in your email provider.</FieldDescription>
             <div className="flex items-center gap-2">
-                <code className="break-all rounded-sm bg-muted px-2 py-1 text-xs">{forwardingAddress}</code>
+                <code data-quill className="break-all rounded-sm bg-muted px-2 py-1 text-xs">
+                    {forwardingAddress}
+                </code>
                 <Button
                     variant="outline"
                     size="icon"
