@@ -5,7 +5,8 @@ that stores rows attributable to a person. This module is the one list of those 
 that starts carrying person data gets registered here rather than found by an auditor months later.
 
 Every target is swept with predicates built only from columns all of them declare: ``team_id``,
-``person_id``, ``distinct_id``, ``timestamp``, ``uuid``, ``event``.
+``person_id``, ``distinct_id``, ``timestamp``, ``uuid``, ``event``, plus the ingestion-time column
+each target names in ``inserted_at_column``.
 
 The reasoning behind each registration, exclusion and known gap is in
 docs/internal/clickhouse-deletion-coverage.md.
@@ -25,6 +26,10 @@ from clickhouse_driver.errors import ServerException
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.cluster import ClickhouseCluster, Query
+from posthog.models.ai_events.sql import (
+    DATA_TABLE_NAME as AI_EVENTS_DATA_TABLE,
+    TABLE_BASE_NAME as AI_EVENTS_TABLE,
+)
 from posthog.models.event.sql import (
     DISTRIBUTED_EVENTS_JSON_TABLE,
     EVENTS_DATA_TABLE,
@@ -136,6 +141,13 @@ class DeletionTarget:
     # Deletes and person_id rewrites on this table write patch parts instead of mutations; see
     # MutationRunner.patch_parts.
     uses_patch_parts: bool = False
+    # The server-side ingestion time that bounds deletes_job's person and queued-uuid arms. It must be
+    # stamped by ingestion, never taken from the event, or a tenant can backdate rows past the bound.
+    inserted_at_column: str = "inserted_at"
+    # Whether the property-removal presence check can read this table: it keeps every property in
+    # ``properties`` or ``person_properties`` and has both columns. Where it cannot, a property
+    # removal counts every row in the request's window and events instead.
+    property_presence_checkable: bool = True
 
     @property
     def cluster_name(self) -> str:
@@ -240,8 +252,26 @@ FLAG_EVALUATIONS = DeletionTarget(
     ttl_days=FLAG_EVALUATIONS_TTL_DAYS,
 )
 
+# AI observability events with their raw prompts and completions, which the events copy does not
+# keep. Ingestion writes every row here and to events with the same uuid, so the event and queued-uuid
+# sweeps reach it through the events uuids, and it queues none of its own. The two tables shard on
+# different keys and live on different clusters, so a row and its events copy are never on the same
+# shard, and copied_from stays unset. It has no person_properties and no ingestion-time column of its
+# own: _timestamp is the Kafka produce time, which ingestion stamps.
+AI_EVENTS = DeletionTarget(
+    data_table=AI_EVENTS_DATA_TABLE,
+    read_table=AI_EVENTS_TABLE,
+    optional=True,
+    cluster_setting="CLICKHOUSE_AI_EVENTS_CLUSTER",
+    node_role=NodeRole.AI_EVENTS,
+    queue_uuid_candidates=False,
+    inserted_at_column="_timestamp",
+    # HEAVY_AI_PROPERTIES live in their own columns.
+    property_presence_checkable=False,
+)
+
 EVENTS_TARGETS: tuple[DeletionTarget, ...] = (EVENTS, EVENTS_JSON)
-PERSONAL_DATA_TARGETS: tuple[DeletionTarget, ...] = (*EVENTS_TARGETS, FLAG_EVALUATIONS)
+PERSONAL_DATA_TARGETS: tuple[DeletionTarget, ...] = (*EVENTS_TARGETS, FLAG_EVALUATIONS, AI_EVENTS)
 
 # The targets deletes_job sweeps and deletion requests verify by default. Leaving a target out
 # keeps it registered while its rows stay in place; see COVERAGE_DOC.
@@ -256,7 +286,10 @@ SQUASH_TARGETS: tuple[DeletionTarget, ...] = tuple(
 # Targets that carry person_id and are deliberately left out of the squash. An entry is not free:
 # it accepts that a merge strands rows on the absorbed person until the TTL drops them, because the
 # squash deletes the overrides that recorded the mapping right after applying them.
-PERSON_ID_REWRITE_EXEMPT: frozenset[str] = frozenset()
+#
+# sharded_ai_events stays out until the squash has run against the ai_events cluster. Its TTL drops a
+# row within about 61 days, so that is the longest a merge can strand one there.
+PERSON_ID_REWRITE_EXEMPT: frozenset[str] = frozenset({AI_EVENTS_DATA_TABLE})
 
 # Storage tables that carry person properties and are reclaimed by their TTL alone. Each entry is a
 # decision that erasure may lag by the retention window, not an oversight.
