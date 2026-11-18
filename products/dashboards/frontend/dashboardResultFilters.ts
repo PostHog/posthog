@@ -96,19 +96,19 @@ export function getDashboardResultActors(request: CapturedPersonsModal): ActorsQ
     ) {
         return null
     }
-    const breakdown =
-        'funnelStepBreakdown' in query.source
-            ? query.source.funnelStepBreakdown
-            : 'breakdown' in query.source
-              ? query.source.breakdown
-              : undefined
-    if ([breakdown].flat().includes(BREAKDOWN_OTHER_STRING_LABEL)) {
-        return null
-    }
     return normalizeResultActors(withoutResultFilter(query.source) as NonNullable<ActorsQuery['source']>)
 }
 
 function normalizeResultActors(source: NonNullable<ActorsQuery['source']>): ActorsQuery | null {
+    const breakdown =
+        'funnelStepBreakdown' in source
+            ? source.funnelStepBreakdown
+            : 'breakdown' in source
+              ? source.breakdown
+              : undefined
+    if ([breakdown].flat().includes(BREAKDOWN_OTHER_STRING_LABEL)) {
+        return null
+    }
     if (
         source.kind === NodeKind.InsightActorsQuery &&
         source.source.kind === NodeKind.TrendsQuery &&
