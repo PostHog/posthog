@@ -200,8 +200,8 @@ def _normalize_and_compile(team_id: int, filters: dict) -> _CompiledRuleFilters:
     return _CompiledRuleFilters(filters=normalized, bytecode=bytecode)
 
 
-def _read_properties(filters: object) -> set[tuple[str, str]]:
-    """The (filter type, property key) pairs that a filter group reads."""
+def _read_properties(filters: object) -> set[str]:
+    """The event property keys that a filter group reads. A tag rule accepts only event property filters."""
     if isinstance(filters, list):
         return set().union(*(_read_properties(value) for value in filters))
     if not isinstance(filters, dict):
@@ -209,7 +209,7 @@ def _read_properties(filters: object) -> set[tuple[str, str]]:
     if "values" in filters:
         return _read_properties(filters["values"])
     key = filters.get("key")
-    return {(filters.get("type", "event"), key)} if isinstance(key, str) else set()
+    return {key} if isinstance(key, str) else set()
 
 
 def _normalized_group(group: PropertyGroupFilterValue) -> dict:
