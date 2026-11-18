@@ -133,6 +133,20 @@ const fetchPage = async (
     })
 }
 
+// Another session can change the list between loading a page and removing from it, so neither the selection nor the
+// removed count tells whether this page still exists. The API answers 404 for a page past the end.
+const pageAfterRemoval = async (projectId: number | null, page: number, search: string): Promise<number> => {
+    if (page === 1) {
+        return page
+    }
+    try {
+        await fetchPage(projectId, page, search)
+        return page
+    } catch (e) {
+        return (e as { status?: number }).status === 404 ? page - 1 : page
+    }
+}
+
 export function removalWarning(entries: readonly MessageSuppressionApi[]): {
     title: string
     description: string
@@ -268,10 +282,9 @@ export const suppressionListLogic = kea<suppressionListLogicType>([
                               ? `${removed[0]} removed from the suppression list`
                               : `${removed.length} addresses removed from the suppression list`
                     )
-                    // Removing every row on the last page leaves that page empty, and the API rejects an empty page.
-                    // Count the requested addresses: one already removed elsewhere is off the page too.
-                    const pageEmptied = identifiers.length >= (values.suppressions.results?.length ?? 0)
-                    actions.loadSuppressions(pageEmptied ? Math.max(1, values.currentPage - 1) : values.currentPage)
+                    actions.loadSuppressions(
+                        await pageAfterRemoval(values.currentProjectId, values.currentPage, values.searchTerm)
+                    )
                     return removed
                 } catch (e) {
                     lemonToast.error('Failed to remove from the suppression list. Reload the list and try again.')

@@ -2,6 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import * as messagingApi from 'products/messaging/frontend/generated/api'
@@ -130,6 +131,10 @@ describe('suppressionListLogic', () => {
         })
     })
     describe('confirmed removal', () => {
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
         it.each([
             ['a bounced address', 'BOUNCE', false],
             ['a spam complaint', 'COMPLAINT', true],
@@ -157,29 +162,64 @@ describe('suppressionListLogic', () => {
             })
         })
 
-        it('goes back a page after clearing the last page, when another session already removed one of its rows', async () => {
-            const retrieve = jest.spyOn(messagingApi, 'messagingSuppressionsSuppressionsRetrieve').mockResolvedValue({
-                count: 102,
-                next: null,
-                previous: 'page-1',
-                results: [suppressionRow('a@example.com'), suppressionRow('b@example.com')],
-            })
-            jest.spyOn(messagingApi, 'messagingSuppressionsBulkRemoveSuppressionsCreate').mockResolvedValue({
-                removed: ['a@example.com'],
-                not_found: ['b@example.com'],
-            })
-            const openDialog = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
-            const logic = suppressionListLogic()
-            logic.mount()
-            await expectLogic(logic, () => logic.actions.loadSuppressions(2)).toDispatchActions([
-                'loadSuppressionsSuccess',
-            ])
+        it.each([
+            [
+                'stays on a page that rows from the next page refill',
+                ['a', 'b', 'c', 'd', 'e'],
+                'c',
+                ['c', 'd'],
+                2,
+                ['e'],
+            ],
+            ['goes back from a page that no row is left on', ['a', 'b', 'c', 'd'], 'd', ['c'], 1, ['a', 'b']],
+        ])(
+            '%s after another session removes a row from it',
+            async (_label, listed, removedElsewhere, selected, expectedPage, expectedRows) => {
+                const pageSize = 2
+                let rows = listed.map((name) => `${name}@example.com`)
+                useMocks({
+                    get: {
+                        '/api/projects/:team/messaging_suppressions/suppressions/': ({ request }) => {
+                            const page = Number(new URL(request.url).searchParams.get('page') ?? 1)
+                            const results = rows.slice((page - 1) * pageSize, page * pageSize)
+                            if (page > 1 && results.length === 0) {
+                                return [404, { detail: 'Invalid page.' }]
+                            }
+                            return [
+                                200,
+                                {
+                                    count: rows.length,
+                                    next: null,
+                                    previous: null,
+                                    results: results.map((id) => suppressionRow(id)),
+                                },
+                            ]
+                        },
+                    },
+                    post: {
+                        '/api/projects/:team/messaging_suppressions/bulk_remove_suppressions/': async ({ request }) => {
+                            const { identifiers } = (await request.json()) as { identifiers: string[] }
+                            const removed = identifiers.filter((id) => rows.includes(id))
+                            rows = rows.filter((id) => !identifiers.includes(id))
+                            return [200, { removed, not_found: identifiers.filter((id) => !removed.includes(id)) }]
+                        },
+                    },
+                })
+                const openDialog = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+                const logic = suppressionListLogic()
+                logic.mount()
+                await expectLogic(logic, () => logic.actions.loadSuppressions(2)).toFinishAllListeners()
+                rows = rows.filter((id) => id !== `${removedElsewhere}@example.com`)
 
-            logic.actions.confirmRemove(logic.values.suppressions.results)
-            openDialog.mock.calls[0][0].primaryButton?.onClick?.({} as any)
-            await expectLogic(logic).toDispatchActions(['removeSuppressionsSuccess', 'loadSuppressionsSuccess'])
+                logic.actions.confirmRemove(selected.map((name) => suppressionRow(`${name}@example.com`)))
+                openDialog.mock.calls[0][0].primaryButton?.onClick?.({} as any)
+                await expectLogic(logic).toDispatchActions(['removeSuppressionsSuccess', 'loadSuppressionsSuccess'])
 
-            expect(retrieve).toHaveBeenLastCalledWith(expect.any(String), { search: undefined, page: 1 })
-        })
+                expect(logic.values.currentPage).toBe(expectedPage)
+                expect(logic.values.suppressions.results.map((row) => row.identifier)).toEqual(
+                    expectedRows.map((name) => `${name}@example.com`)
+                )
+            }
+        )
     })
 })
