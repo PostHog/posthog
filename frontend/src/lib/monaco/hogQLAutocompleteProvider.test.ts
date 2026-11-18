@@ -72,6 +72,26 @@ describe('hogQLAutocompleteProvider', () => {
         )
     })
 
+    it('passes the filter text through so a namespaced model ranks by its bare name', async () => {
+        jest.mocked(performQuery).mockResolvedValueOnce({
+            suggestions: [
+                {
+                    label: 'models.revenue',
+                    kind: 'Folder',
+                    insertText: 'models.revenue',
+                    filterText: 'revenue models.revenue',
+                },
+            ],
+            incomplete_list: false,
+        })
+        const result = await completeAt(
+            'SELECT * FROM rev',
+            { lineNumber: 1, column: 18 },
+            { word: 'rev', startColumn: 15, endColumn: 18 }
+        )
+        expect(result?.suggestions[0]).toEqual(expect.objectContaining({ filterText: 'revenue models.revenue' }))
+    })
+
     it('returns an empty completion list when the autocomplete query fails', async () => {
         jest.mocked(performQuery).mockRejectedValueOnce(new Error("trailing tokens after expression: 'is'"))
         const provider = hogQLAutocompleteProvider(HogLanguage.hogQL)

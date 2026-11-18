@@ -164,6 +164,7 @@ export const hogQLAutocompleteProvider = (type: HogLanguage): languages.Completi
                 detail: `${item.label}${item.detail ?? ''}`,
                 documentation: item.documentation,
                 insertText: item.insertText,
+                filterText: item.filterText,
                 range: {
                     startLineNumber: position.lineNumber,
                     endLineNumber: position.lineNumber,

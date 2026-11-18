@@ -5429,6 +5429,14 @@ class AutocompleteCompletionItem(BaseModel):
         default=None,
         description="A human-readable string that represents a doc-comment.",
     )
+    filterText: str | None = Field(
+        default=None,
+        description=(
+            "The text the editor matches the typed word against, when it differs from"
+            " the label. Set when the label carries a prefix the user may not type, for"
+            " example a model listed under `models.`."
+        ),
+    )
     insertText: str = Field(
         ...,
         description=("A string or snippet that should be inserted in a document when selecting this completion."),

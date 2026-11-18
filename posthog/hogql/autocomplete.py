@@ -535,6 +535,7 @@ def extend_responses(
     insert_text: Optional[Callable[[str], str]] = None,
     details: Optional[list[str | None]] = None,
     sort_texts: Optional[list[str]] = None,
+    filter_texts: Optional[list[str | None]] = None,
 ) -> None:
     suggestions.extend(
         [
@@ -544,6 +545,7 @@ def extend_responses(
                 kind=kind,
                 detail=details[index] if details is not None else None,
                 sortText=sort_texts[index] if sort_texts is not None else None,
+                filterText=filter_texts[index] if filter_texts is not None else None,
             )
             for index, key in enumerate(keys)
         ]
@@ -975,9 +977,13 @@ def _suggest_table_names(
     stored_names = [
         name for name in candidates if database.has_table(name) and not database.get_table_node(name).hidden
     ]
-    table_names = list(
-        dict.fromkeys(listed for name in stored_names for listed in database.get_listed_table_names_for(name))
-    )
+    # The stored name leads a model's filter text, so typing `rev` ranks `models.revenue` like a prefix match.
+    filter_text_by_name = {
+        listed: (f"{name} {listed}" if listed != name else None)
+        for name in stored_names
+        for listed in database.get_listed_table_names_for(name)
+    }
+    table_names = list(filter_text_by_name)
     posthog_table_names = [name for name in database.get_posthog_table_names() if database.has_table(name)]
 
     if len(node.chain) == 1:
@@ -986,6 +992,7 @@ def _suggest_table_names(
             suggestions=response.suggestions,
             kind=AutocompleteCompletionItemKind.FOLDER,
             details=["Table"] * len(table_names),
+            filter_texts=[filter_text_by_name[name] for name in table_names],
         )
         table_function_names = get_direct_table_function_names(context)
         if table_function_names:
