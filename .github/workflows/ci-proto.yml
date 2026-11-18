@@ -91,6 +91,7 @@ jobs:
                         - 'nodejs/buf.gen.yaml'
                         - 'nodejs/buf.gen.ingestion-worker.yaml'
                         - 'nodejs/package.json'
+                        - 'pnpm-lock.yaml'
                         - '.github/workflows/ci-proto.yml'
                       # A push to master also runs the checks when it matches this wider list,
                       # so a path that the list above misses still gets a full run there.
