@@ -1701,6 +1701,15 @@ jobs:
             - name: Check for test files left with no team owner
               if: github.event_name == 'pull_request'
               run: ./bin/hogli lint:test-owners --against HEAD^1 --committed
+            # A module that gains a schema branch needs its importing tests on the events_json
+            # list. The label runs every backend test on both tables, so it covers them instead.
+            # The merge queue's PR carries no labels, and the PR's own run already checked its diff.
+            - name: Check new events schema branches run on the JSON events table
+              if: >
+                  github.event_name == 'pull_request' &&
+                  !startsWith(github.head_ref, 'trunk-merge/') &&
+                  !contains(github.event.pull_request.labels.*.name, 'test-new-events-schema')
+              run: python .github/scripts/check-new-events-schema-targets.py --against HEAD^1 --committed
             # Deterministic = a static check above failed after setup completed.
             # A retry can't fix it, so this signals the cancellation gate to stop the run.
             - name: Flag deterministic failure
