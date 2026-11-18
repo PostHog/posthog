@@ -7,9 +7,8 @@ from products.warehouse_sources.sources.sdk import IncrementalField, Incremental
 # Baseten's management API returns full arrays for its entity list endpoints (no server-side
 # `updated_since` filter on any of them), so those tables sync as a full refresh. A few endpoints
 # (users, model_apis, audit_logs) use cursor+limit pagination; the rest are single unpaginated
-# requests, and a few are fan-out children fetched once per parent resource. audit_logs is the one
-# endpoint with a server-side time filter (`start_epoch_millis`), so it alone syncs incrementally.
-# billing_usage walks date windows, because the usage summary only answers ranges of 31 days or less.
+# requests, and a few are fan-out children fetched once per parent resource. audit_logs alone has a
+# server-side time filter (`start_epoch_millis`), so it alone syncs incrementally.
 
 # The usage summary rejects ranges that start before this date.
 BILLING_USAGE_EARLIEST_DATE = datetime.date(2026, 1, 1)
@@ -32,11 +31,9 @@ class BasetenEndpointConfig:
     partition_key: Optional[str] = None
     # True for endpoints that page via cursor+limit, returning a `pagination` object.
     paginated: bool = False
-    # The usage modes walk the billing usage summary in date windows. "usage_daily" explodes each
-    # summary into one row per usage type, resource and day. "usage_totals" keeps one row per usage
-    # type and window, because credits apply only at that level.
+    # Credits apply only per usage type and window, so "usage_totals" keeps that grain next to the
+    # daily rows of "usage_daily".
     mode: Literal["list", "usage_daily", "usage_totals"] = "list"
-    # Extra static query params sent on every request.
     params: dict[str, str] = field(default_factory=dict)
     # Field the server can filter on, in epoch milliseconds, for incremental syncs.
     incremental_field: Optional[str] = None
@@ -161,8 +158,7 @@ BASETEN_ENDPOINTS: dict[str, BasetenEndpointConfig] = {
         name="billing_usage",
         path="/v1/billing/usage_summary",
         data_key="",
-        # Dedicated and training rows key on the billable resource id, Model API rows on the team and
-        # model name, so the usage type keeps the two id spaces apart.
+        # The usage type keeps resource ids apart from the team and model names of Model API rows.
         primary_keys=["usage_type", "resource_id", "date"],
         partition_key="date",
         mode="usage_daily",

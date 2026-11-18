@@ -43,7 +43,6 @@ class BasetenResumeConfig:
     parent_id: str | None = None
     # Framework fan-out checkpoint: {"completed": [child_path, ...], "current": ..., "child_state": ...}.
     fanout_state: dict[str, Any] | None = None
-    # Start date (ISO 8601) of the next billing usage window to fetch.
     window_start: str | None = None
 
 
@@ -147,7 +146,6 @@ class BasetenUsageWindowPaginator(BasePaginator):
             self._window_start = resumed
 
 
-# (usage type, summary key) for each product section of the usage summary.
 _USAGE_SECTIONS = (
     ("dedicated", "dedicated_usage"),
     ("training", "training_usage"),

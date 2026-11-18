@@ -128,7 +128,6 @@ def _usage_summary(day: str) -> dict[str, Any]:
                     "billable_resource": {"id": "dep1", "model_name": "whisper", "team_id": "t1", "team_name": "Core"},
                     "daily": [{"date": day, "subtotal": "12.50", "minutes": 30, "inference_requests": 7}],
                 },
-                # A breakdown item with no daily entries yields nothing.
                 {"billable_resource": {"id": "dep2"}, "daily": []},
                 # An item without a resource id cannot be keyed and is dropped.
                 {"billable_resource": {"name": "orphan"}, "daily": [{"date": day, "subtotal": "1"}]},
@@ -153,7 +152,6 @@ def _usage_summary(day: str) -> dict[str, Any]:
                     "team_name": "Labs",
                     "daily": [{"date": day, "subtotal": "0.20"}],
                 },
-                # Single-team organizations send no team.
                 {"model_name": "mistral-example", "daily": [{"date": day, "subtotal": "0.05"}]},
             ],
         },
