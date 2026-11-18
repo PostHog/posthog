@@ -177,6 +177,50 @@ describe('savedInsightsLogic', () => {
         expect(logic.values.paramsFromFilters).toMatchObject({ hide_feature_flag_insights: true })
     })
 
+    describe('notOnAnyDashboard filter', () => {
+        it.each([
+            [undefined, false],
+            [true, true],
+            [false, false],
+        ])('cleanFilters({ notOnAnyDashboard: %s }).notOnAnyDashboard === %s', (input, expected) => {
+            expect(cleanFilters({ notOnAnyDashboard: input as boolean | undefined }).notOnAnyDashboard).toBe(expected)
+        })
+
+        it('sends not_on_any_dashboard=true query param when filter is enabled', async () => {
+            let lastSearchParams: URLSearchParams | null = null
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/insights/': ({ request }) => {
+                        lastSearchParams = new URL(request.url).searchParams
+                        return [200, createSavedInsights('', 0)]
+                    },
+                },
+            })
+
+            logic.actions.setSavedInsightsFilters({ notOnAnyDashboard: true })
+            await expectLogic(logic).toDispatchActions(['loadInsights', 'loadInsightsSuccess'])
+
+            expect(lastSearchParams?.get('not_on_any_dashboard')).toBe('true')
+        })
+
+        it('omits not_on_any_dashboard query param when filter is disabled', async () => {
+            let lastSearchParams: URLSearchParams | null = null
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/insights/': ({ request }) => {
+                        lastSearchParams = new URL(request.url).searchParams
+                        return [200, createSavedInsights('', 0)]
+                    },
+                },
+            })
+
+            logic.actions.setSavedInsightsFilters({ search: 'noop' })
+            await expectLogic(logic).toDispatchActions(['loadInsights', 'loadInsightsSuccess'])
+
+            expect(lastSearchParams?.has('not_on_any_dashboard')).toBe(false)
+        })
+    })
+
     it('can filter the insights', async () => {
         // makes a search query
         logic.actions.setSavedInsightsFilters({ search: 'hello' })
@@ -506,6 +550,7 @@ describe('savedInsightsLogic', () => {
             ['tags', { tags: ['marketing'] }],
             ['created by', { createdBy: [1] }],
             ['favorites', { favorited: true }],
+            ['not on any dashboard', { notOnAnyDashboard: true }],
             ['a date range', { dateFrom: '-7d' }],
             ['a dashboard', { dashboardId: 5 }],
         ])('counts %s as a narrowing filter', (_label, overrides) => {
