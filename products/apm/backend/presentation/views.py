@@ -28,10 +28,12 @@ from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, get_logs_api_team_rate_limiter
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
+from posthog.errors import CHQueryErrorTooManyBytes
 from posthog.models import Team
 from posthog.models.user import User
 
 from products.apm.backend.facade.api import (
+    get_dependencies,
     get_service_map,
     is_apm_enabled,
     list_endpoints_health,
@@ -39,6 +41,8 @@ from products.apm.backend.facade.api import (
     list_services_health,
 )
 from products.apm.backend.presentation.serializers import (
+    DependenciesRequestSerializer,
+    DependenciesResponseSerializer,
     EndpointsHealthRequestSerializer,
     EndpointsHealthResponseSerializer,
     ServiceMapResponseSerializer,
@@ -164,6 +168,40 @@ class ServiceMapViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             "date_to": window.date_to,
         }
         return Response(ServiceMapResponseSerializer(payload).data, status=status.HTTP_200_OK)
+
+
+class DependenciesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    """Caller to callee edges over the whole window, including inferred dependencies. Same gate and window as services."""
+
+    scope_object = "tracing"
+
+    @extend_schema(parameters=[DependenciesRequestSerializer], responses={200: DependenciesResponseSerializer})
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        _check_flag(self.team, cast(User, request.user))
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
+        params = DependenciesRequestSerializer(data=request.query_params)
+        window = _window(params)
+        service = params.validated_data.get("service")
+
+        try:
+            result = get_dependencies(
+                team=self.team,
+                date_from=window.date_from,
+                date_to=window.date_to,
+                environment=window.environment,
+                service=service,
+            )
+        except CHQueryErrorTooManyBytes:
+            raise ValidationError("This window reads too many spans. Pick a shorter window or one service.")
+        payload = {
+            "edges": [{**asdict(edge), "kind": edge.kind.value} for edge in result.edges],
+            "truncated": result.truncated,
+            "environment": window.environment,
+            "service": service,
+            "date_from": window.date_from,
+            "date_to": window.date_to,
+        }
+        return Response(DependenciesResponseSerializer(payload).data, status=status.HTTP_200_OK)
 
 
 class ServiceUsageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
