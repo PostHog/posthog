@@ -54,14 +54,13 @@ jobs:
                   shellcheck .github/scripts/desktop/*.sh
                   .github/scripts/desktop/check-pr-backend-coupling.test.sh
 
-            - name: Check backend deploy wait and deploy requirements scripts
+            - name: Check backend deploy wait scripts
               run: |
                   # An open PR that has not rebased onto this commit does not carry these
                   # scripts, so the step skips rather than failing before its own tests run.
                   [ -d .github/scripts/deploy ] || exit 0
                   shellcheck .github/scripts/deploy/*.sh
                   .github/scripts/deploy/wait-for-backend-deploy.test.sh
-                  .github/scripts/deploy/deploy-requirements.test.sh
 
             - name: Check Rust deploy requirements scripts
               run: |

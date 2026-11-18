@@ -1,4 +1,3 @@
-import os
 import json
 import hashlib
 import tempfile
@@ -14,7 +13,6 @@ REPO_ROOT = HERE.parents[1]
 SCHEMA = json.loads((HERE / "deploy-requirements.v1.schema.json").read_text())
 VALIDATOR = Draft202012Validator(SCHEMA)
 RUST_WRITER = REPO_ROOT / "rust/bin/write-deploy-requirements"
-MCP_WRITER = REPO_ROOT / ".github/scripts/deploy/write-mcp-deploy-requirements.sh"
 
 
 def digest_of(requirements: list[dict]) -> str:
@@ -49,7 +47,6 @@ class TestSchema:
             {"requirements": [{"kind": "sqlx", "database": "persons", "versions": []}]},
             {"requirements": [{"kind": "sqlx", "database": "persons", "versions": ["20250101000001"]}]},
             {"requirements": [{"kind": "sqlx", "database": "unknown", "versions": [1]}]},
-            {"requirements": [{"kind": "django_deploy", "commit": "0123456789ab"}]},
             {"digest": "not-hex"},
             {"extra": True},
         ],
@@ -59,7 +56,6 @@ class TestSchema:
             "no versions",
             "version as string",
             "unknown sqlx database",
-            "short django_deploy commit",
             "bad digest",
             "unknown top-level key",
         ],
@@ -92,27 +88,3 @@ class TestRustWriter:
 
         assert errors_of(manifest) == []
         assert manifest["digest"] == digest_of(manifest["requirements"])
-
-
-def run_mcp_writer(commit: str, tmp: Path) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        ["bash", str(MCP_WRITER), str(tmp / "out.json")],
-        env={"PATH": os.environ["PATH"], "COMMIT_SHA": commit},
-        capture_output=True,
-    )
-
-
-class TestMcpWriter:
-    def test_requires_a_django_deploy_of_the_image_commit(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            assert run_mcp_writer("b" * 40, Path(tmp)).returncode == 0
-            manifest = json.loads((Path(tmp) / "out.json").read_text())
-
-        assert errors_of(manifest) == []
-        assert manifest["digest"] == digest_of(manifest["requirements"])
-        assert manifest["source_commit"] == "b" * 40
-        assert manifest["requirements"] == [{"kind": "django_deploy", "commit": "b" * 40}]
-
-    def test_refuses_a_short_commit(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            assert run_mcp_writer("b" * 12, Path(tmp)).returncode != 0
