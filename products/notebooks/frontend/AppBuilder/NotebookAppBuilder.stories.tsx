@@ -163,7 +163,7 @@ const meta: Meta = {
     },
     parameters: {
         layout: 'fullscreen',
-        featureFlags: [FEATURE_FLAGS.NOTEBOOK_APP_BUILDER],
+        featureFlags: [FEATURE_FLAGS.NOTEBOOK_APP_BUILDER, FEATURE_FLAGS.PHAI_SANDBOX_MODE],
         mockDate: '2026-10-19',
         pageUrl: `${urls.notebook(SHORT_ID)}?view=builder`,
         testOptions: {

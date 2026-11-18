@@ -11,6 +11,7 @@ import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { NotebookRunAllButton } from 'scenes/notebooks/Notebook/NotebookRunAllButton'
 import { urls } from 'scenes/urls'
 
+import { aiShellLogic } from '~/layout/ai/aiShellLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
@@ -28,6 +29,8 @@ export function NotebookAppBuilder({
     published?: boolean
 }): JSX.Element {
     const logic = notebookAppLogic({ shortId })
+    const { isPhaiSandboxFlagOn } = useValues(aiShellLogic)
+    const { setPhaiViewMode } = useActions(aiShellLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { notebookLoading, localContent } = useValues(notebookLogic({ shortId }))
     const sourceSavingReason =
@@ -118,11 +121,17 @@ export function NotebookAppBuilder({
                                 type="secondary"
                                 size="small"
                                 disabledReason={
+                                    (!isPhaiSandboxFlagOn
+                                        ? 'App building requires access to PostHog AI 2.0.'
+                                        : undefined) ||
                                     sourceSavingReason ||
                                     (savedNotebookLoading ? 'Wait for the app to finish saving.' : undefined) ||
                                     (dirty ? 'Save your draft before asking AI to edit it.' : undefined)
                                 }
-                                onClick={() => openSidePanel(SidePanelTab.Max)}
+                                onClick={() => {
+                                    setPhaiViewMode('new')
+                                    openSidePanel(SidePanelTab.Max)
+                                }}
                                 data-attr="notebook-app-ask-ai"
                             >
                                 Ask AI
