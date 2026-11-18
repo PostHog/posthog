@@ -161,8 +161,10 @@ class TestIntentCacheErasure(_FakeCacheStores, SimpleTestCase):
             erasure.purge_intent_caches(source_team_ids=team_ids)
 
 
-# Far above any team a test creates, so rollup rows written by other test modules never match.
-ERASED_TEAM_ID, SIBLING_TEAM_ID, OTHER_TEAM_ID = 2_000_000_091, 2_000_000_092, 2_000_000_093
+def _unused_team_ids() -> tuple[int, int, int]:
+    # The cluster fixture does not clear the rollup tables, so each test takes team ids no earlier run wrote.
+    base = 2_000_000_000 + (uuid4().int % 10**9) * 3
+    return base, base + 1, base + 2
 
 
 def _insert_rollup(table: str, team_id: int) -> None:
@@ -177,6 +179,7 @@ def _insert_rollup(table: str, team_id: int) -> None:
         sync_execute(
             f"INSERT INTO {MCP_INTENT_TOPIC_DAILY_WRITABLE_TABLE} (team_id, day, tool, topic_id, calls, conversation_hashes, outlier_calls, intents, inserted_at) VALUES",
             [(team_id, date(2026, 11, 1), "query-trends", "topic", 1, [1], 0, 1, datetime(2026, 11, 2, tzinfo=UTC))],
+            settings={"insert_distributed_sync": 1},
         )
 
 
@@ -186,34 +189,35 @@ class TestPurgeRollupsAndCaches(_FakeCacheStores, SimpleTestCase):
         super().setUp()
         self._use_fake_cache_stores()
         self.cluster = self.enterContext(isolated_clickhouse_cluster())
+        self.erased, self.sibling, self.other = _unused_team_ids()
         self.erasure = IntentErasure(
-            project_id=ERASED_TEAM_ID, invalidation_id=uuid4(), source_team_ids=(ERASED_TEAM_ID, SIBLING_TEAM_ID)
+            project_id=self.erased, invalidation_id=uuid4(), source_team_ids=(self.erased, self.sibling)
         )
 
     @parameterized.expand(
         [
-            ("hourly_project", "hourly", ERASED_TEAM_ID),
-            ("hourly_sibling_environment", "hourly", SIBLING_TEAM_ID),
-            ("daily_project", "daily", ERASED_TEAM_ID),
+            ("hourly_project", "hourly", "erased"),
+            ("hourly_sibling_environment", "hourly", "sibling"),
+            ("daily_project", "daily", "erased"),
         ]
     )
-    def test_surviving_rollup_rows_keep_the_erasure_pending(self, _name: str, table: str, team_id: int) -> None:
-        _insert_rollup(table, team_id)
+    def test_surviving_rollup_rows_keep_the_erasure_pending(self, _name: str, table: str, team: str) -> None:
+        _insert_rollup(table, getattr(self, team))
 
         with pytest.raises(IntentErasurePending):
             erasure.purge_rollups_and_caches(erasure=self.erasure, cluster=self.cluster)
 
     def test_completes_when_only_other_projects_have_rollup_rows(self) -> None:
-        _insert_rollup("hourly", OTHER_TEAM_ID)
-        _insert_rollup("daily", OTHER_TEAM_ID)
+        _insert_rollup("hourly", self.other)
+        _insert_rollup("daily", self.other)
         self.default_redis.set(
-            caches["default"].make_key(generate_cache_key(ERASED_TEAM_ID, "invented intent corpus")), b"digest"
+            caches["default"].make_key(generate_cache_key(self.erased, "invented intent corpus")), b"digest"
         )
 
         erasure.purge_rollups_and_caches(erasure=self.erasure, cluster=self.cluster)
 
         assert not self.default_redis.exists(
-            caches["default"].make_key(generate_cache_key(ERASED_TEAM_ID, "invented intent corpus"))
+            caches["default"].make_key(generate_cache_key(self.erased, "invented intent corpus"))
         )
 
     def test_an_unproven_cache_purge_keeps_the_erasure_pending(self) -> None:
