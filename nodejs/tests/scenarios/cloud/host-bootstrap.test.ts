@@ -92,6 +92,31 @@ describe('host boot', () => {
         expect(downloads.includes('https://nodejs.org/')).toBe(verified)
     })
 
+    it("maps the stack's service names to this host, which no dev setup ran on", () => {
+        const hosts = path.join(dir, 'hosts')
+        writeFileSync(hosts, '127.0.0.1 localhost\n')
+        tool('apt-get', 'exit 0')
+        tool(
+            'aws',
+            'if [ "$1" = --version ]; then echo "aws-cli/2.22.0 Python/3.12.6 Linux/6.8.0 exe/x86_64"; exit 0; fi\nexit 1'
+        )
+
+        spawnSync('bash', [BOOTSTRAP], { env: { ...env(), SCENARIO_HOSTS_FILE: hosts }, encoding: 'utf8' })
+
+        const addressOf = (name: string): string[] =>
+            readFileSync(hosts, 'utf8')
+                .split('\n')
+                .map((line) => line.split('#')[0].trim().split(/\s+/))
+                .filter(([, ...names]) => names.includes(name))
+                .map(([address]) => address)
+        expect(['db', 'redis7', 'kafka', 'clickhouse'].map(addressOf)).toEqual([
+            ['127.0.0.1'],
+            ['127.0.0.1'],
+            ['127.0.0.1'],
+            ['127.0.0.1'],
+        ])
+    })
+
     it('powers the host off when the checkout of the run commit fails', () => {
         const template = parse(readFileSync(TEMPLATE, 'utf8'))
         const userData: string = template.Resources.Host.Properties.UserData['Fn::Base64']['Fn::Sub']
