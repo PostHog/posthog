@@ -183,8 +183,10 @@ test.describe('Message preferences page', () => {
             await expect(offNote).toBeHidden()
             await expect(productNews).toBeChecked()
             await expect(productNews).toBeEnabled()
+            await expect(status(productNewsId)).toHaveText('Subscribed')
             await expect(eventInvites).not.toBeChecked()
             await expect(eventInvites).toBeEnabled()
+            await expect(status(eventInvitesId)).toHaveText('Not subscribed')
 
             await productNews.click()
             await expect(status(productNewsId)).toHaveText('Not subscribed')

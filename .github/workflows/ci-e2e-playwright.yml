@@ -178,7 +178,7 @@ jobs:
                         # narrows the run from here.
                         - 'products/*/frontend/**'
                         # The hosted message preferences page renders from these templates and views.
-                        # tools/playwright_area_map.json narrows the run to its spec.
+                        # tools/playwright_area_map.json adds its spec to the run.
                         - 'products/messaging/backend/**'
                         - .github/workflows/ci-e2e-playwright.yml
                         - 'ee/**'
