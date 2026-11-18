@@ -1,4 +1,5 @@
 import re
+import string
 import datetime as dt
 import posixpath
 from collections.abc import Mapping
@@ -14,29 +15,46 @@ from products.batch_exports.backend.temporal.errors import MissingRequiredInputs
 
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
-_TEMPLATE_TOKEN = re.compile(r"\{\{|\}\}|\{([^{}]*)\}|[{}]")
+_FORMATTER = string.Formatter()
+# An object key is at most 1024 bytes, so no valid prefix needs a wider width or precision.
+_MAX_FORMAT_NUMBER = 1024
+
+
+def _parse_key_prefix(prefix: str) -> list[tuple[str, str | None, str | None, str | None]] | None:
+    try:
+        return list(_FORMATTER.parse(prefix))
+    except ValueError:
+        return None
+
+
+def key_prefix_template_fields(prefix: str) -> frozenset[str]:
+    """The variable names a key prefix uses. Escaped braces such as `{{table}}` are not fields."""
+    return frozenset(name for _, name, _, _ in _parse_key_prefix(prefix) or () if name)
 
 
 def render_key_prefix_template(prefix: str, variables: Mapping[str, str]) -> str | None:
-    """Fill each `{name}` in a key prefix from `variables`, reading `{{` and `}}` as literal braces.
+    """Fill a key prefix from `variables` the way `str.format` does, minus what makes it unsafe on stored input.
 
     Returns None when the prefix names a variable with no value or is not a valid template.
-    Only an exact `{name}` is replaced. `str.format` also honors format specs and indexing, so a
-    stored `{table:1000000000}` would allocate a gigabyte.
+    Indexing, attribute access and nested fields are refused, and so is any width or precision
+    over 1024: `str.format` would allocate a gigabyte for `{table:1000000000}`.
     """
+    parsed = _parse_key_prefix(prefix)
+    if parsed is None:
+        return None
     rendered: list[str] = []
-    position = 0
-    for token in _TEMPLATE_TOKEN.finditer(prefix):
-        rendered.append(prefix[position : token.start()])
-        position = token.end()
-        name = token.group(1)
-        if token.group(0) in ("{{", "}}"):
-            rendered.append(token.group(0)[0])
-        elif name is not None and name in variables:
-            rendered.append(variables[name])
-        else:
+    for literal, name, spec, conversion in parsed:
+        rendered.append(literal)
+        if name is None:
+            continue
+        spec = spec or ""
+        if name not in variables or "{" in spec or any(int(n) > _MAX_FORMAT_NUMBER for n in re.findall(r"\d+", spec)):
             return None
-    rendered.append(prefix[position:])
+        try:
+            value = _FORMATTER.convert_field(variables[name], conversion)
+            rendered.append(format(value, spec))
+        except ValueError:
+            return None
     return "".join(rendered)
 
 

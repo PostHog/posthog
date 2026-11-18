@@ -286,6 +286,7 @@ def test_get_object_key(inputs, expected):
         ("posthog/{year}-{month}-{day}/{hour}:{minute}:{second}", None, "posthog/2023-01-02/03:04:05"),
         ("{year}-{month}-{day}", BatchExportPersonsModel(), "2023-01-02"),
         ("posthog/{{year}}/{year}", None, "posthog/{year}/2023"),
+        ("date={data_interval_end:.10}/{hour}", None, "date=2023-01-02/03"),
     ],
 )
 def test_get_object_key_fills_prefix_template_variables(prefix, batch_export_model, expected_prefix):

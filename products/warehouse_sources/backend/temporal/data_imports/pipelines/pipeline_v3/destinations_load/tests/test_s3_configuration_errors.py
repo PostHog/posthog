@@ -190,6 +190,7 @@ class TestKeyPrefix:
             ("{year}/{table}/{", STARTED, "{year}/{table}/{/charges/run-a1"),
             ("{year[foo]}/{table}", STARTED, "{year[foo]}/{table}/charges/run-a1"),
             ("{table:1000000000}", STARTED, "{table:1000000000}/charges/run-a1"),
+            ("exports/{{table}}/", STARTED, "exports/{table}/charges/run-a1"),
         ],
         ids=[
             "plain",
@@ -202,6 +203,7 @@ class TestKeyPrefix:
             "stray_brace",
             "indexing",
             "format_spec",
+            "escaped_table",
         ],
     )
     async def test_the_prefix_is_rendered_from_the_run_start(

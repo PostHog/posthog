@@ -64,7 +64,11 @@ from products.batch_exports.backend.facade.destinations.s3 import (
     get_s3_integration,
     s3_client,
 )
-from products.batch_exports.backend.facade.key_prefix import datetime_template_variables, render_key_prefix_template
+from products.batch_exports.backend.facade.key_prefix import (
+    datetime_template_variables,
+    key_prefix_template_fields,
+    render_key_prefix_template,
+)
 from products.batch_exports.backend.facade.pipeline import ParquetStreamTransformer
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
     BatchWriteOutcome,
@@ -315,7 +319,9 @@ class S3DestinationWriter:
         self._prefix: str = (rendered_prefix if rendered_prefix is not None else raw_prefix).strip("/")
         # A prefix that places `{table}` itself already gives each table its own folder.
         self._table_folder: str = (
-            "" if rendered_prefix is not None and "{table}" in raw_prefix else self._ctx.table_name
+            ""
+            if rendered_prefix is not None and "table" in key_prefix_template_fields(raw_prefix)
+            else self._ctx.table_name
         )
         self._use_virtual_style_addressing = bool(config.get("use_virtual_style_addressing"))
         self._compression: ParquetCompression = config.get("compression") or DEFAULT_COMPRESSION
