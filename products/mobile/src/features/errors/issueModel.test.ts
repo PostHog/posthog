@@ -7,6 +7,7 @@ import {
     type IssueRowContext,
     issueFrames,
     issueRowFrom,
+    issueRowLabel,
     sampleSessions,
     trendCaption,
 } from './issueModel'
@@ -56,6 +57,20 @@ describe('issueRowFrom', () => {
         ],
     ])('reads the assignee %j as %j', (assignee, expected) => {
         expect(issueRowFrom(issue({ assignee }), context()).assignee).toEqual(expected)
+    })
+
+    test('labels the card with the full counts, and says when no session was recorded', () => {
+        const row = issueRowFrom(
+            issue({
+                description: 'Connection timed out.',
+                assignee: { type: 'user', id: 7 },
+                aggregations: { users: 1, sessions: 0, occurrences: 1234567 },
+            }),
+            context()
+        )
+        expect(issueRowLabel(row, '7d')).toBe(
+            'TypeError. Connection timed out. 1 user, no sessions recorded, 1,234,567 occurrences in the last 7 days. Assigned to you'
+        )
     })
 })
 
@@ -205,13 +220,13 @@ describe('breakdownRows', () => {
 test.each([
     [
         { direction: 'increasing', change_percent: 45 },
-        { text: 'Up 45%', rising: true },
+        { text: 'Up 45%', short: '45%', arrow: 'up', rising: true },
     ],
     [
         { direction: 'decreasing', change_percent: -30 },
-        { text: 'Down 30%', rising: false },
+        { text: 'Down 30%', short: '30%', arrow: 'down', rising: false },
     ],
-    [{ direction: 'new' }, { text: 'New in this window', rising: true }],
+    [{ direction: 'new' }, { text: 'New in this window', short: 'New in this window', arrow: null, rising: true }],
     [undefined, null],
 ] as const)('trendCaption(%j)', (trend, expected) => {
     expect(trendCaption(trend)).toEqual(expected)
