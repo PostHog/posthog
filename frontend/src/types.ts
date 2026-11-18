@@ -1147,6 +1147,7 @@ export enum SavedInsightsTabs {
     Home = 'home',
     All = 'all',
     Yours = 'yours',
+    Anomalies = 'anomalies',
     History = 'history',
     Alerts = 'alerts',
     Notifications = 'notifications',

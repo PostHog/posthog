@@ -30,6 +30,7 @@ from products.signals.backend.ranking.features import (
     REPORT_EMBEDDINGS_EXTRA,
     REPORT_EMBEDDINGS_FEATURE_SET,
     REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET,
+    REPORT_EMBEDDINGS_PRIORITY_SCORED_FACTS_FEATURE_SET,
     REPORT_GRAIN,
     SCORING_MOMENT_GRAIN,
     Extras,
@@ -1805,6 +1806,16 @@ def _model_metadata(**overrides) -> dict[str, Any]:
     return base
 
 
+def _scored_facts_metadata(**overrides) -> dict[str, Any]:
+    feature_set = REPORT_EMBEDDINGS_PRIORITY_SCORED_FACTS_FEATURE_SET
+    return _model_metadata(
+        feature_set=feature_set.name,
+        feature_schema_version=feature_set.schema_version,
+        feature_names=list(feature_set.feature_names),
+        **overrides,
+    )
+
+
 @pytest.mark.parametrize(
     "metadata,expected",
     [
@@ -1815,6 +1826,10 @@ def _model_metadata(**overrides) -> dict[str, Any]:
         (_model_metadata(feature_set="mmoe_trunk"), "this build can produce"),
         (_model_metadata(feature_schema_version=99), "feature_schema_version 99"),
         (_model_metadata(feature_names=["age_hours"]), "feature_names differ"),
+        # A set with late groups records the groups its fit zeroed, so serving zeroes the same ones.
+        (_scored_facts_metadata(zeroed_feature_groups=["content"]), None),
+        (_scored_facts_metadata(), "zeroed_feature_groups"),
+        (_scored_facts_metadata(zeroed_feature_groups=["sources"]), "zeroed_feature_groups"),
     ],
 )
 def test_model_mismatch_checks_a_model_against_its_own_feature_set(metadata, expected):

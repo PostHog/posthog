@@ -104,6 +104,9 @@ class CatalogReleasesQuerySerializer(serializers.Serializer):
     cursor = serializers.CharField(
         required=False, default="", allow_blank=True, max_length=100, help_text="next_cursor of the previous page."
     )
+    feature_flag_id = serializers.IntegerField(
+        required=False, min_value=1, help_text="Only releases that link this feature flag."
+    )
 
     def validate_owner(self, value: str) -> list[int]:
         return _user_ids(value)
@@ -120,6 +123,36 @@ class CatalogReleasesResponseSerializer(serializers.Serializer):
     results = CatalogReleaseSerializer(many=True, help_text="Releases of the project, in the requested order.")
     next_cursor = serializers.CharField(
         allow_null=True, help_text="Pass as cursor to fetch the next page. Null when no more releases follow."
+    )
+
+
+class FlagReleasesQuerySerializer(serializers.Serializer):
+    feature_flag_id = serializers.IntegerField(min_value=1, help_text="ID of the feature flag to find releases for.")
+
+
+class ReleaseRefSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="ID of the release.")
+    name = serializers.CharField(help_text="Name of the release.")
+
+
+class ReleaseSuggestionSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="ID of the release.")
+    name = serializers.CharField(help_text="Name of the release.")
+    matched_terms = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Words the flag shares with the release's name, description or linked flags.",
+    )
+
+
+class FlagReleasesSerializer(serializers.Serializer):
+    feature_flag_id = serializers.IntegerField(help_text="ID of the feature flag.")
+    auto_release = serializers.BooleanField(
+        help_text="True when this project puts each new flag in a release of its own about a minute after it is created, unless the flag is already in a release."
+    )
+    current = ReleaseRefSerializer(many=True, help_text="Releases that already link this flag.")
+    suggestions = ReleaseSuggestionSerializer(
+        many=True,
+        help_text="Up to 5 existing releases this flag probably belongs to, best match first. Empty when nothing matches.",
     )
 
 
