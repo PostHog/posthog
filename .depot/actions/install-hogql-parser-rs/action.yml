@@ -6,13 +6,18 @@ description: |
     Publishing is a manual step after merge, so master can carry a crate version that the pin
     does not name yet, and that version is installed from source too.
     The wheel is cached by a hash of the crate and its workspace inputs. Depot Cache has no branch
-    isolation, so a pull request can write any key. Trusted runs therefore never restore: they
-    always build and then save. Untrusted runs restore, build only on a miss, and never save.
+    isolation, so a pull request can write any key. Only pull request runs outside the merge queue
+    restore, because their result gates nothing but that pull request. Merge queue and trusted runs
+    always build. Trusted runs save the wheel, and no other run does.
     Callers run this after `uv sync`, which installs the pinned PyPI wheel.
 
 inputs:
     trusted:
         description: 'true on runs with master trust. They build from source, never restore, and save the wheel.'
+        required: false
+        default: 'false'
+    restore:
+        description: 'true on pull request runs outside the merge queue. They restore a cached wheel and build only on a miss.'
         required: false
         default: 'false'
     toolchain:
@@ -45,7 +50,7 @@ runs:
 
         - name: Restore hogql-parser-rs wheel from cache
           id: wheel-cache
-          if: steps.detect.outputs.needed == 'true' && inputs.trusted != 'true'
+          if: steps.detect.outputs.needed == 'true' && inputs.restore == 'true' && inputs.trusted != 'true'
           timeout-minutes: 2
           continue-on-error: true
           uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3

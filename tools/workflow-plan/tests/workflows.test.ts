@@ -1189,25 +1189,34 @@ describe('CI workflow run plans', () => {
     })
 
     it.each([
-        ['pull request', pullRequest(), false],
-        ['merge queue', mergeQueue(), false],
-        ['branch dispatch', workflowDispatch('feat/example'), false],
-        ['depot ci run', { ...workflowDispatch(), event_name: 'api' }, false],
-        ['master push', push(), true],
-        ['master dispatch', workflowDispatch(), true],
-        ['hourly schedule', schedule(), true],
-        ['hourly schedule without a ref', { ...schedule(), ref: '' }, true],
-    ] as const)('a %s installs the Django parser wheel as trusted: %s', (_name, github, trusted) => {
-        const depot = workflow(DEPOT_BACKEND)
-        const install = depot.jobs.django?.steps?.find(
-            (step) => step.uses === './.depot/actions/install-hogql-parser-rs'
-        )
-        const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
-        const isMaster = evaluateValue(depot.env?.IS_MASTER, { github }, functions)
-        expect(evaluateValue(install?.with?.trusted, { github, env: { IS_MASTER: String(isMaster) } }, functions)).toBe(
-            trusted
-        )
-    })
+        ['pull request', false, true, pullRequest()],
+        ['merge queue', false, false, mergeQueue()],
+        ['branch dispatch', false, false, workflowDispatch('feat/example')],
+        ['depot ci run', false, false, { ...workflowDispatch(), event_name: 'api' }],
+        ['master push', true, false, push()],
+        ['master dispatch', true, false, workflowDispatch()],
+        ['hourly schedule', true, false, schedule()],
+        ['hourly schedule without a ref', true, false, { ...schedule(), ref: '' }],
+    ] as const)(
+        'a %s installs the Django parser wheel as trusted: %s, restoring from cache: %s',
+        (_name, trusted, restore, github) => {
+            const depot = workflow(DEPOT_BACKEND)
+            const install = depot.jobs.django?.steps?.find(
+                (step) => step.uses === './.depot/actions/install-hogql-parser-rs'
+            )
+            const functions = planFunctions({
+                dependenciesSucceeded: true,
+                dependenciesFailed: false,
+                cancelled: false,
+            })
+            const isMaster = evaluateValue(depot.env?.IS_MASTER, { github }, functions)
+            const context = { github, env: { IS_MASTER: String(isMaster) } }
+            expect({
+                trusted: evaluateValue(install?.with?.trusted, context, functions),
+                restore: evaluateValue(install?.with?.restore, context, functions),
+            }).toEqual({ trusted, restore })
+        }
+    )
 
     it.each(['refs/heads/master', ''])('the hourly Depot run keeps master coverage with ref %j', (ref) => {
         const depot = workflow(DEPOT_BACKEND)
