@@ -15,6 +15,7 @@ import subprocess
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from pathlib import Path
 
 import yaml
 
@@ -440,11 +441,9 @@ def report(request: ReportRequest) -> int:
                 f"::warning title=Dependency scan::{finding.package.ecosystem} {finding.package.spec} is {finding.label}\n"
             )
     if request.findings_path:
-        with open(request.findings_path, "w") as handle:
-            handle.write(findings_output(findings, skipped))
+        Path(request.findings_path).write_text(findings_output(findings, skipped))
     if request.sarif_path:
-        with open(request.sarif_path, "w") as handle:
-            handle.write(sarif_output(findings, locations))
+        Path(request.sarif_path).write_text(sarif_output(findings, locations))
     return 1 if scanner_is_broken(findings) else 0
 
 
@@ -455,7 +454,7 @@ def gate(request: GateRequest) -> int:
     git("fetch", "--no-tags", "--depth=1", "origin", base, head)
     findings, skipped, _ = scan_additions(base, head, [], request.summary_path)
     clean = is_clean(findings, skipped)
-    with open(request.output_path, "a") as handle:
+    with Path(request.output_path).open("a") as handle:
         handle.write(f"clean={'true' if clean else 'false'}\n")
     # A scanner that fails on every package fails the job, so the outage shows instead of a neutral proof.
     return 1 if scanner_is_broken(findings) else 0
