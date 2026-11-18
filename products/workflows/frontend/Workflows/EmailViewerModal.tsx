@@ -1,10 +1,11 @@
 import { useState } from 'react'
 
 import { IconLetter } from '@posthog/icons'
-import { LemonModal, Link } from '@posthog/lemon-ui'
+import { LemonModal, LemonTabs, Link } from '@posthog/lemon-ui'
 
 import { HogFlow } from './hogflows/types'
 import { getMessageAssetContentUrl } from './messageAssetsApi'
+import { WorkflowEmailActivity } from './WorkflowEmailActivity'
 
 interface EmailViewerModalProps {
     workflowId: HogFlow['id']
@@ -26,13 +27,53 @@ export function EmailViewerModal({
     title = 'Email',
     description,
 }: EmailViewerModalProps): JSX.Element {
+    const [tab, setTab] = useState<'email' | 'activity'>('email')
     return (
-        <LemonModal isOpen={isOpen} onClose={onClose} width={720} title={title} description={description}>
-            <iframe
-                title="Rendered email"
-                sandbox=""
-                src={getMessageAssetContentUrl(workflowId, invocationId, actionId)}
-                className="w-full h-[60vh] bg-white rounded border"
+        <LemonModal
+            isOpen={isOpen}
+            onClose={() => {
+                setTab('email')
+                onClose()
+            }}
+            width={720}
+            title={title}
+            description={description}
+        >
+            <LemonTabs
+                activeKey={tab}
+                onChange={setTab}
+                data-attr="workflow-email-viewer-tabs"
+                tabs={[
+                    {
+                        key: 'email',
+                        label: 'Email',
+                        content: (
+                            <div className="h-[60vh]">
+                                {/* The ids clear while the modal closes, and the content URL refuses empty ones. */}
+                                {invocationId && actionId && (
+                                    <iframe
+                                        title="Rendered email"
+                                        sandbox=""
+                                        src={getMessageAssetContentUrl(workflowId, invocationId, actionId)}
+                                        className="w-full h-full bg-white rounded border"
+                                    />
+                                )}
+                            </div>
+                        ),
+                    },
+                    {
+                        key: 'activity',
+                        label: 'Activity',
+                        tooltip: "The person's events in your product in the week before and after this email",
+                        content: (
+                            <div className="h-[60vh] overflow-y-auto">
+                                {invocationId && actionId && (
+                                    <WorkflowEmailActivity invocationId={invocationId} actionId={actionId} />
+                                )}
+                            </div>
+                        ),
+                    },
+                ]}
             />
         </LemonModal>
     )
