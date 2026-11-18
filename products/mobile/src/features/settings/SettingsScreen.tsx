@@ -97,11 +97,11 @@ export function SettingsScreen(): ReactElement {
                             </Pressable44>
                         </SettingsGroup>
                     ) : null}
-                    <SettingsGroup
-                        title="Analytics"
-                        footer="Uses each project's internal user filters in Web analytics, Live, and Sessions."
-                    >
-                        <InternalUsersToggle testID="settings-exclude-internal-users" />
+                    <SettingsGroup title="Analytics">
+                        <InternalUsersToggle
+                            description="Uses each project's internal user filters in Web analytics, Live, and Sessions."
+                            testID="settings-exclude-internal-users"
+                        />
                     </SettingsGroup>
                     <AppearanceGroup />
                     {__DEV__ ? (

@@ -13,6 +13,7 @@ import {
 } from '@/api/live'
 import { queryClient } from '@/api/queryClient'
 import { deniedRead } from '@/api/readCache'
+import { LIVE_EXCLUDE_INTERNAL_CACHE_SUFFIX } from '@/api/readCacheKeys'
 import { READ_CACHE_TTL_MS } from '@/api/readCacheStore'
 import type { ProjectScope } from '@/api/reports'
 import { addSessionEndTask, useAuthStore } from '@/auth/authStore'
@@ -104,7 +105,7 @@ function projectInfoFrom(project: LiveProjectApi): LiveProjectInfo {
 function liveCacheKeys(scope: ProjectScope): readonly (readonly unknown[])[] {
     return ['all', 'web', 'mobile'].flatMap((preference) => {
         const key = ['views', scope.host, scope.projectId, 'live', preference]
-        return [key, [...key, 'exclude-internal']]
+        return [key, [...key, LIVE_EXCLUDE_INTERNAL_CACHE_SUFFIX]]
     })
 }
 
@@ -485,7 +486,7 @@ export function useLiveFeed(
             mode === 'demo' ? null : (scope?.projectId ?? null),
             'live',
             preference,
-            ...(filterTestAccounts ? ['exclude-internal'] : []),
+            ...(filterTestAccounts ? [LIVE_EXCLUDE_INTERNAL_CACHE_SUFFIX] : []),
         ],
         [mode, scope, preference, filterTestAccounts]
     )
