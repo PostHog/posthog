@@ -239,7 +239,7 @@ export interface SendEmailApi {
     /** Mark the email as sensitive when it carries login links, reset tokens, or codes. Sensitive emails keep their links unchanged unless `tracking` turns clicks on, leave the subject off engagement events, and keep the content out of logs. Defaults to the matched template's setting, or true when no template matches. It can't be false when the matched template is sensitive. */
     sensitive?: boolean
     /**
-     * Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default. A project with no verified sending domain sends from the PostHog test sender, which ignores this field and says so in the response's `warnings`.
+     * Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default. A project with no verified sending domain can send from the PostHog test sender only when PostHog offers that sender to its organization, and then only to members of the organization. That sender ignores this field and says so in the response's `warnings`.
      * @maxLength 1024
      */
     from?: string

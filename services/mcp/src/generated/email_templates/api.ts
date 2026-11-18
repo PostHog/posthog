@@ -186,7 +186,7 @@ export const MessagingSendEmailCreateBody = () => zod.strictObject({
         .max(messagingSendEmailCreateBodyFromMax)
         .optional()
         .describe(
-            "Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default. A project with no verified sending domain sends from the PostHog test sender, which ignores this field and says so in the response's `warnings`."
+            "Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default. A project with no verified sending domain can send from the PostHog test sender only when PostHog offers that sender to its organization, and then only to members of the organization. That sender ignores this field and says so in the response's `warnings`."
         ),
 })
 

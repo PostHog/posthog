@@ -60,11 +60,15 @@ describe('Generated confirmed tools', () => {
         {
             tool: 'workflows-send-email',
             input: confirmedEmail,
+            message: expect.stringContaining(
+                'may send it from the PostHog test sender instead, only to members of your organization, and ignore from and reply_to'
+            ),
             request: { method: 'POST', url: '/api/projects/42/messaging/send/email/', body: confirmedEmail },
         },
         {
             tool: 'workflows-send-email-template',
             input: confirmedTemplateEmail,
+            message: expect.any(String),
             request: {
                 method: 'POST',
                 url: '/api/projects/42/messaging/send/email/',
@@ -74,13 +78,14 @@ describe('Generated confirmed tools', () => {
         {
             tool: 'access-control-default-rule-set',
             input: { resource: 'dashboard', access_level: 'viewer' },
+            message: expect.any(String),
             request: {
                 method: 'PUT',
                 url: '/api/organizations/org-1/projects/42/access_control_default_rules/',
                 body: { resource: 'dashboard', resource_id: null, access_level: 'viewer' },
             },
         },
-    ])('$tool sends the request the user confirmed', async ({ tool, input, request }) => {
+    ])('$tool shows the user what they confirm and sends that request', async ({ tool, input, message, request }) => {
         const received: { method?: string; url?: string; body: unknown }[] = []
         const posthog = createServer((incoming, response) => {
             let body = ''
@@ -106,6 +111,7 @@ describe('Generated confirmed tools', () => {
                 context,
                 prepareTool.schema.parse(input)
             )) as PrepareConfirmedActionResult
+            expect(prepared.message).toEqual(message)
             const result = await GENERATED_TOOL_MAP[`${tool}-execute`]!().handler(context, {
                 confirmation_hash: prepared.confirmation_hash,
                 confirmation: 'confirm',
