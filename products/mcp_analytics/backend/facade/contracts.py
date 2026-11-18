@@ -233,6 +233,8 @@ class RecurringIntentEntry:
     call_count: int
     error_count: int
     error_rate_pct: float
+    variant_count: int = 1
+    sample_variants: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

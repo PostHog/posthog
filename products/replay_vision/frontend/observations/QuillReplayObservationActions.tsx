@@ -5,6 +5,8 @@ import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
+import type { ReplayObservationApi } from '../generated/api.schemas'
+import { ObservationAgentPromptButton } from './ObservationAgentPromptButton'
 import { QuillObservationNotesButton } from './QuillObservationNotesButton'
 import { QuillObservationShareButton } from './QuillObservationShareButton'
 
@@ -13,16 +15,14 @@ export function QuillReplayObservationActions({
     nextUrl,
     neighborsPending,
     neighborsFiltered,
-    observationId,
-    sessionRecordingId,
+    observation,
     playerKey,
 }: {
     previousUrl: string | undefined
     nextUrl: string | undefined
     neighborsPending: boolean
     neighborsFiltered: boolean
-    observationId: string
-    sessionRecordingId: string
+    observation: ReplayObservationApi
     playerKey: string
 }): JSX.Element {
     return (
@@ -77,11 +77,12 @@ export function QuillReplayObservationActions({
             </Button>
             <QuillObservationNotesButton />
             <QuillObservationShareButton
-                observationId={observationId}
-                sessionRecordingId={sessionRecordingId}
+                observationId={observation.id}
+                sessionRecordingId={observation.session_id}
                 playerKey={playerKey}
             />
-            <ReplayVisionFeedbackButton />
+            <ObservationAgentPromptButton observation={observation} appearance="quill" />
+            <ReplayVisionFeedbackButton type="secondary" />
         </>
     )
 }

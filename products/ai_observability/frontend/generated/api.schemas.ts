@@ -2767,7 +2767,7 @@ export interface EvalSuggestionApi {
     readonly applies: boolean
     /** Catalog template or adapted check the suggestion comes from. Empty for fix_eval. */
     readonly template_key: string
-    /** A short, stable name for the issue, such as 'Unrecovered tool or model failures'. For fix_eval, the condition observed on the evaluation. It carries no counts; `observation` does. */
+    /** A short, stable name for the issue, such as 'Tool or model calls that never succeed'. For fix_eval, the condition observed on the evaluation. It carries no counts; `observation` does. */
     readonly headline: string
     /** One sentence on what the evaluation flags and where it applies, starting with 'Flags'. For fix_eval and fix_prompt, what was observed and the next step. */
     readonly outcome: string
