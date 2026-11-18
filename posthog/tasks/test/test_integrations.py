@@ -335,7 +335,7 @@ class TestIntegrationsTasks(APIBaseTest):
                 edges=[],
             )
 
-        def remaining() -> set[str]:
+        def remaining() -> set[str | None]:
             return set(Integration.objects.filter(kind="email").values_list("integration_id", flat=True))
 
         expire_unverified_email_senders()

@@ -200,7 +200,8 @@ def expire_unverified_email_senders() -> None:
     for sender in _unverified_email_senders_oldest_first(after_id):
         # Rows come back in id order, which is creation order, so every later sender is younger too.
         if expired >= EXPIRED_EMAIL_SENDERS_PER_RUN or checked >= CHECKED_EMAIL_SENDERS_PER_RUN:
-            redis_client.set(EMAIL_SENDER_EXPIRY_CURSOR_KEY, after_id, ex=EMAIL_SENDER_EXPIRY_CURSOR_TTL_SECONDS)
+            if after_id is not None:
+                redis_client.set(EMAIL_SENDER_EXPIRY_CURSOR_KEY, after_id, ex=EMAIL_SENDER_EXPIRY_CURSOR_TTL_SECONDS)
             break
         if sender.created_at >= cutoff:
             redis_client.delete(EMAIL_SENDER_EXPIRY_CURSOR_KEY)
