@@ -10,7 +10,8 @@ from django.urls import reverse
 from bs4 import BeautifulSoup
 from parameterized import parameterized
 
-from posthog.admin.admins.data_deletion_request_admin import DataDeletionRequestAdmin, dagster_run_url
+from posthog.admin.admins.data_deletion_request_admin import DataDeletionRequestAdmin
+from posthog.admin.dagster_links import dagster_run_url
 from posthog.models.data_deletion_request import DataDeletionRequest, RequestStatus, RequestType
 
 

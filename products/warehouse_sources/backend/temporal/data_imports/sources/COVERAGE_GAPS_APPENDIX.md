@@ -421,7 +421,8 @@ Diffed against: <https://developer.alegra.com/reference>
 - [x] `Purchase orders (GET /api/v1/purchase-orders)` — measures committed purchases before supplier bills arrive (medium)
 - [x] `Recurring invoices (GET /api/v1/recurring-invoices)` — measures scheduled recurring billing before invoices are generated (medium)
 - [x] `Taxes (GET /api/v1/taxes)` — provides tax definitions and rates for invoice and item tax reports (medium)
-- [ ] `Journal entry balances (GET /api/v1/journals/entries-graph)` — provides accounting balances grouped by day or month for financial reports (medium)
+- ~~`Journal entry balances (GET /api/v1/journals/entries-graph)` — provides accounting balances grouped by day or month for financial reports (medium)~~ — skipped: it returns chart data, not records. Each row is an `in`/`out` total for one day or month, with no ID, and the totals mean something only when `resourceType` and `idResource` select one account or document. The reference also gives two different formats for `fromDate` and does not document the default date range. The journal lines behind these totals come from the journals list below.
+- [ ] `Journals (GET /api/v1/journals)` — journal entries with their account, debit, and credit lines, the row-level data for balance and ledger reports (medium)
 
 Note: Read the official reference index and parsed embedded OpenAPI GET operations from the linked REST reference pages. All listed gaps use the documented v1 REST API. The existing payments table is already split into incoming and outgoing payments. MCP tool operations, payroll APIs, document uploads, and settings were excluded.
 
@@ -448,7 +449,7 @@ Note: Static schema list, no dynamic index discovery. The Analytics API is now c
 
 ## Alguna — gaps
 
-Today (15): `billable_metrics`, `bundles`, `credit_notes`, `customers`, `invoices`, `payments`, `plans`, `products`, `refunds`, `revenue_schedule`, `subscription_revenue`, `subscription_versions`, `subscriptions`, `wallet_grants`, `wallets`
+Today (17): `billable_metrics`, `bundles`, `credit_notes`, `customer_connected_accounts`, `customer_entitlements`, `customers`, `invoices`, `payments`, `plans`, `products`, `refunds`, `revenue_schedule`, `subscription_revenue`, `subscription_versions`, `subscriptions`, `wallet_grants`, `wallets`
 
 Diffed against: <https://alguna.com/docs/api-reference/v2/specs/2026-04-01.json>
 
@@ -457,10 +458,10 @@ Diffed against: <https://alguna.com/docs/api-reference/v2/specs/2026-04-01.json>
 - [x] `GET /wallets and /wallets/{id}/balance` — prepaid wallet balances per customer (high). Added as `wallets`. `/wallets/{id}/balance` skipped: the wallet list row already carries `current_balance`.
 - [x] `GET /wallet-grants and /wallets/{id}/grants` — credit grant ledger - drawdown and expiry analysis (high). Added as `wallet_grants` (the global `/wallet-grants` list). `/wallets/{id}/grants` skipped: it returns the same rows filtered per wallet.
 - [x] `GET /bundles` — product bundle lookup resolving bundle IDs carried on plans and subscription items (medium). Added as `bundles`.
-- [ ] `GET /customers/{id}/entitlements and /subscriptions/{id}/entitlements` — what each customer is currently entitled to, for feature-usage joins (medium). Skipped: rows have no id and a nullable `key`, so there is no table-wide primary key.
+- [x] `GET /customers/{id}/entitlements and /subscriptions/{id}/entitlements` — what each customer is currently entitled to, for feature-usage joins (medium). Added as `customer_entitlements` (fan-out over `customers`, parent id copied to `customer_id`, full refresh so the nullable `key` is never merged on). `/subscriptions/{id}/entitlements` skipped: the customer list already flattens the entitlements of every active subscription and also returns default-profile entitlements.
 - [x] `GET /revenue-schedules (plus /customer/{id}, /subscription/{id}, /legal-entity/{id})` — revenue recognition schedule rows for rev-rec reporting (medium). Added as `revenue_schedule` (organization-wide `entries`, monthly). The per-customer, per-subscription and per-legal-entity variants are skipped: they return the same shape at a narrower scope.
 - [x] `GET /subscriptions/{id}/revenue` — MRR/ARR/ACV per subscription - the vendor's headline metric (medium). Added as `subscription_revenue` (fan-out over `subscriptions`).
-- [ ] `GET /customers/{id}/connected-accounts` — lookup mapping customers to payment-provider account IDs for joins to Stripe-style sources (medium)
+- [x] `GET /customers/{id}/connected-accounts` — lookup mapping customers to payment-provider account IDs for joins to Stripe-style sources (medium). Added as `customer_connected_accounts` (fan-out over `customers`).
 - [ ] `GET /subscriptions/{id}/credits/balance` — monetary credit balance carried on each subscription (low)
 - [ ] `GET /insights/revenue/over-time, /insights/revenue/by-customer, /insights/revenue/by-product` — prebuilt revenue breakdowns; mostly derivable from invoices but cheap to land (low)
 - [ ] `GET /insights/customers and /insights/customers/over-time` — customer count/churn metrics as published by the vendor (low)
@@ -504,7 +505,7 @@ Note: Parsed the official AWS SDK service model and compared read operations wit
 
 ## AmazonAds — **thin**
 
-Today (18): `portfolios`, `profiles`, `sb_ad_groups`, `sb_ads`, `sb_campaigns`, `sb_targets`, `sd_ad_groups`, `sd_ads`, `sd_campaigns`, `sd_targets`, `sp_ad_groups`, `sp_campaign_negative_keywords`, `sp_campaign_reports`, `sp_campaigns`, `sp_keywords`, `sp_negative_keywords`, `sp_product_ads`, `sp_targets`
+Today (23): `ads_accounts`, `change_history`, `invoices`, `portfolios`, `profiles`, `sb_ad_groups`, `sb_ads`, `sb_campaigns`, `sb_targets`, `sd_ad_groups`, `sd_ads`, `sd_campaigns`, `sd_targets`, `sp_ad_groups`, `sp_campaign_negative_keywords`, `sp_campaign_negative_targets`, `sp_campaign_reports`, `sp_campaigns`, `sp_keywords`, `sp_negative_keywords`, `sp_negative_targets`, `sp_product_ads`, `sp_targets`
 
 Diffed against: <https://d1y2lf8k3vrkfu.cloudfront.net/openapi/en-us/dest/SponsoredProducts_prod_3p.json>
 
@@ -516,10 +517,10 @@ Diffed against: <https://d1y2lf8k3vrkfu.cloudfront.net/openapi/en-us/dest/Sponso
 - [x] `POST /adsApi/v1/query/... campaigns, adGroups, ads and targets, filtered to SPONSORED_BRANDS (AmazonAdsAPISBMerged_prod_3p.json)` — Sponsored Brands entities, so spend coverage is no longer partial (high)
 - [x] `POST /adsApi/v1/query/... campaigns, adGroups, ads and targets, filtered to SPONSORED_DISPLAY (AmazonAdsAPISDMerged_prod_3p.json)` — Sponsored Display entities (high)
 - [x] `POST /sp/negativeKeywords/list and /sp/campaignNegativeKeywords/list` — negative keyword coverage, needed to explain traffic exclusions (medium)
-- [ ] `POST /sp/negativeTargets/list and /sp/campaignNegativeTargets/list` — negative product/category targets alongside the positive targets (medium)
-- [ ] `POST /history (Change History API)` — state-transition history of bids, budgets and status changes (medium)
-- [ ] `POST /adsAccounts/list` — advertising account lookup above profiles, for multi-account rollups (medium)
-- [ ] `GET /invoices and POST /invoiceSummaries/list (Advertising Billing API)` — billed spend reconciliation against reported spend (medium)
+- [x] `POST /sp/negativeTargets/list and /sp/campaignNegativeTargets/list` — negative product/category targets alongside the positive targets (medium). Added as `sp_negative_targets` and `sp_campaign_negative_targets`.
+- [x] `POST /history (Change History API)` — state-transition history of bids, budgets and status changes (medium). Added as `change_history`, incremental on `timestamp` (the API filters on `fromDate` and keeps 90 days). Events have no id, so the key is a hash of the event. The `THEME` event type is left out, because it needs the v1.1 response version.
+- [x] `POST /adsAccounts/list` — advertising account lookup above profiles, for multi-account rollups (medium). Added as `ads_accounts`.
+- [x] `GET /invoices and POST /invoiceSummaries/list (Advertising Billing API)` — billed spend reconciliation against reported spend (medium). Added `GET /invoices` as `invoices` (per profile, full refresh: status and remaining amounts change after issue, and the only filter is the invoice date). `POST /invoiceSummaries/list` is skipped: it returns the same invoices at the global-account scope and needs an `Amazon-Ads-AccountId` header, so it would duplicate the `invoices` rows.
 
 Note: the Sponsored Brands and Sponsored Display rows above were audited as `POST /sb/...` and `POST /sd/...`, but neither merged spec serves those paths. Both products' campaigns, ad groups, ads and targets are served by the unified Ads API at `POST /adsApi/v1/query/{entity}`, which selects between them with a required `adProductFilter`. That is the surface implemented. The per-product alternatives are worse: Sponsored Brands v4 has no targets list endpoint at all, and Sponsored Display v3 is a separate offset-paginated GET surface.
 
@@ -6991,8 +6992,8 @@ Diffed against: <https://developers.kommo.com/llms.txt>
 
 - [x] `Entity field groups (GET /api/v4/{entity_type}/custom_fields/groups)` — resolve group_id in existing custom field tables and organize analysis by field group (high). Added as `LeadCustomFieldGroups`, `ContactCustomFieldGroups`, and `CompanyCustomFieldGroups`.
 - [x] `List elements (GET /api/v4/catalogs/{list_id}/elements)` — import product and other catalog records; Catalogs currently contains only list definitions (high). Added as `CatalogElements` (fan-out over `Catalogs`).
-- [ ] `Linked entities (GET /api/v4/{entity}/{entity_id}/links)` — preserve catalog relationships, quantities, and link metadata beyond embedded contact and lead IDs (medium)
-- [ ] `Incoming leads (GET /api/v4/leads/unsorted)` — measure intake and unprocessed leads by source before they enter the sales pipeline (medium)
+- [ ] `Linked entities (GET /api/v4/{entity}/{entity_id}/links)` — preserve catalog relationships, quantities, and link metadata beyond embedded contact and lead IDs (medium). Skipped: per-record endpoint, one request per lead, contact, and company on every sync, with no bulk list or change filter in the Kommo API.
+- [x] `Incoming leads (GET /api/v4/leads/unsorted)` — measure intake and unprocessed leads by source before they enter the sales pipeline (medium). Added as `IncomingLeads` (full refresh).
 - [ ] `Chat history (GET /v2/origin/custom/{scope_id}/chats/{conversation_id}/history)` — analyze message volume, response times, and customer conversations beyond CRM notes (medium); skipped, the Chats API only answers requests signed with a registered chat channel's secret, and only for chats of that channel, so the account's long-lived token cannot read it
 - [x] `Catalog custom fields (GET /api/v4/catalogs/{list_id}/custom_fields)` — interpret custom fields and enum values when importing catalog records (medium). Added as `CatalogCustomFields` (fan-out over `Catalogs`).
 
@@ -7758,12 +7759,12 @@ Diffed against: <https://github.com/maxio-com/ab-python-sdk/tree/main/doc/contro
 
 - [ ] `insights: Read Mrr / List Mrr Movements / List Mrr per Subscription` — MRR and MRR movement is Maxio's headline metric and has no equivalent in the synced tables (high) — all three endpoints are marked deprecated in the vendor SDK docs, so not worth building a table on
 - [x] `subscription-components: List Subscription Components for Site` — Per-subscription component allocations - the line items joining subscriptions to components (high)
-- [ ] `subscription-components: List Usages` — Metered usage records, the basis of consumption billing analysis (high)
-- [ ] `subscription-components: List Allocations` — Quantity change history per component, i.e. seat expansion/contraction over time (high)
+- [x] `subscription-components: List Usages` — Metered usage records, the basis of consumption billing analysis (high)
+- [x] `subscription-components: List Allocations` — Quantity change history per component, i.e. seat expansion/contraction over time (high)
 - [x] `component-price-points: List All Component Price Points` — Lookup table resolving the price_point_id carried on components and subscriptions (high)
 - [x] `product-price-points: List All Product Price Points` — Lookup table resolving the price point on every product and subscription we sync (high)
-- [ ] `invoices: List Invoice Events` — Invoice state transition history (issued, paid, voided, refunded) (medium)
-- [ ] `reason-codes: List Reason Codes` — Lookup table resolving cancellation/churn reason codes on subscriptions (medium)
+- [x] `invoices: List Invoice Events` — Invoice state transition history (issued, paid, voided, refunded) (medium)
+- [x] `reason-codes: List Reason Codes` — Lookup table resolving cancellation/churn reason codes on subscriptions (medium)
 - [ ] `subscription-groups: List Subscription Groups` — Group membership resolving parent/child subscription relationships (medium)
 - [ ] `offers: List Offers` — Offer definitions that subscriptions are created from (medium)
 - [ ] `subscription-invoice-account: List Prepayments / List Service Credits` — Prepayment and service credit ledger, needed to reconcile account balances (medium)
@@ -7816,9 +7817,9 @@ Diffed against: <https://www.membrain.com/developers/api-documentation>
 - [x] `Currencies (GET /API/v2/currencies/)` — resolve ValueCurrencyId and supply exchange rates for comparable pipeline values (high)
 - [x] `Labels (GET /API/v2/labels/)` — resolve LabelIds on companies and contacts for consistent segmentation (high)
 - [x] `Activity types (GET /API/v2/activityTypes/)` — resolve ActivityTypeId and provide the complete activity taxonomy (high)
-- [ ] `Process Container Contacts (GET /API/v2/processContainerContacts/)` — connect contacts to sales processes and their stakeholder roles (medium)
+- [x] `Process Container Contacts (GET /API/v2/processContainerContacts/)` — connect contacts to sales processes and their stakeholder roles (medium)
 - [x] `Opportunity Products (GET /API/v2/opportunityProducts/)` — join products to opportunities for product-level pipeline and revenue analysis (medium)
-- [ ] `Orders and Order Rows (GET /API/v2/orders/; GET /API/v2/orderRows/)` — measure booked sales and item-level amounts against opportunities and products (medium)
+- [x] `Orders and Order Rows (GET /API/v2/orders/; GET /API/v2/orderRows/)` — measure booked sales and item-level amounts against opportunities and products (medium)
 
 Note: Fetched the complete official v2 reference and extracted top-level and nested GET operations. Process endpoints embed stages, steps, and custom fields; these definitions differ from the existing generic custom-fields table. Existing activities already cover notes, calls, emails, and tasks, so duplicate activity tables are excluded. Order rows and contact associations need joins; excluded automation configuration and batch transport.
 
@@ -10754,12 +10755,12 @@ Note: Official API examples and the API overview were fetched with curl and thei
 
 ## Semantic Scholar (Allen Institute for AI) — gaps
 
-Today (3): `citations`, `papers`, `references`
+Today (4): `citations`, `paper_authors`, `papers`, `references`
 
 Diffed against: <https://api.semanticscholar.org/graph/v1/swagger.json>
 
-- [ ] `Paper authors (GET /graph/v1/paper/{paper_id}/authors)` — resolve author IDs to affiliations, publication counts, citation counts, and h-index for research impact analysis (high)
-- [ ] `Author papers (GET /graph/v1/author/{author_id}/papers)` — measure each author's publication history beyond papers that match the configured search query (medium)
+- [x] `Paper authors (GET /graph/v1/paper/{paper_id}/authors)` — resolve author IDs to affiliations, publication counts, citation counts, and h-index for research impact analysis (high)
+- [ ] `Author papers (GET /graph/v1/author/{author_id}/papers)` — measure each author's publication history beyond papers that match the configured search query (medium) Skipped: needs a two-level fan-out and a run-wide dedupe of author IDs with no memory bound; without it, requests and primary keys repeat for each shared author.
 
 Note: Parsed every GET operation in the official Graph Swagger spec. Paper rows contain author IDs and names, but no dedicated author table or author metrics. Both additions require requests for each paper or author. Excluded alternative paper searches, autocomplete, and dataset downloads.
 
@@ -13236,7 +13237,7 @@ Note: The source already discovers CMS collection items dynamically: source.py/s
 
 ## WeightsAndBiases — gaps
 
-Today (10): `artifact_collections`, `artifact_types`, `artifacts`, `members`, `projects`, `reports`, `run_artifacts`, `run_history`, `runs`, `sweeps`
+Today (13): `artifact_collections`, `artifact_types`, `artifacts`, `entities`, `members`, `projects`, `reports`, `run_artifacts`, `run_files`, `run_history`, `run_system_metrics`, `runs`, `sweeps`
 
 Diffed against: <https://api.wandb.ai/graphql>
 
@@ -13244,10 +13245,10 @@ Diffed against: <https://api.wandb.ai/graphql>
 - [x] `Run.outputArtifacts and Run.inputArtifacts` — run-to-artifact lineage join table connecting the two largest tables already synced (high). Added as `run_artifacts`
 - [x] `Entity.members / Project.teamMembers` — lookup resolving the userId carried on every run, sweep and report (high). Added as `members` from `Entity.members`; runs, sweeps and reports carry `user.username`, not a user id, so the join is on username
 - [x] `Project.artifactCollections and Project.artifactTypes` — lookup naming the collection and type each artifact version belongs to; the source already walks these to reach versions but never emits them (high). Added as `artifact_collections` and `artifact_types`
-- [ ] `Run.systemMetrics / Run.events` — GPU, CPU and memory utilization time series per run, the basis for compute-efficiency analysis (medium)
-- [ ] `Run.files` — per-run output file inventory with sizes, useful for storage attribution (medium)
-- [ ] `usage / usageByPeriod (Query root)` — account compute and storage consumption by period, the headline cost metric (medium)
-- [ ] `entities / Entity (Query root)` — the team/entity list itself as a lookup; projects and runs are currently synced for one entity with no entity table (medium)
+- [x] `Run.systemMetrics / Run.events` — GPU, CPU and memory utilization time series per run, the basis for compute-efficiency analysis (medium). Added as `run_system_metrics` from `Run.events(samples:)`, one row per sample keyed on `_timestamp`; `events` takes no range arguments, so a run with more than 5,000 samples is sampled down by the server. `Run.systemMetrics` is the summary already on `runs`
+- [x] `Run.files` — per-run output file inventory with sizes, useful for storage attribution (medium). Added as `run_files`; the signed `url`/`directUrl` fields are not synced
+- [ ] `usage / usageByPeriod (Query root)` — account compute and storage consumption by period, the headline cost metric (medium). Skipped: on wandb.ai the root `usage` query refuses every call with "Unfiltered Usage Query is not currently supported" and takes no entity argument; `usageByPeriod` also takes no entity argument and needs `UsagePeriod`/`ViewType` enum values that no public schema or SDK documents. Entity storage is in the `entities` table.
+- [x] `entities / Entity (Query root)` — the team/entity list itself as a lookup; projects and runs are currently synced for one entity with no entity table (medium). Added as `entities` from `entity(name:)` for the configured entity; the root `entities` connection is not used, because the source syncs one entity
 - [ ] `Project.computeHours and Project.storageBytes` — per-project compute and storage rollups for cost allocation across teams (medium)
 - [ ] `Project.runQueues and launchAgents / QueuedRun` — Launch job queue and agent execution history, a scheduling activity table (low)
 - [ ] `triggers / triggerExecutions (Automations)` — automation run history — which automation fired on which artifact or run (low)
