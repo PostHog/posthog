@@ -263,6 +263,26 @@ describe('renderEmailHtml', () => {
                 })
             )
         ).toEqual('{% if vip %}Private\n{% endif %}All')
+        expect(
+            renderEmailText(
+                doc({
+                    type: 'emailHtml',
+                    attrs: {
+                        html: '{% if vip %}<!DOCTYPE html><html><body><p>Private</p></body></html>{% endif %}',
+                    },
+                })
+            )
+        ).toEqual('{% if vip %}Private\n{% endif %}')
+        expect(
+            renderEmailText(
+                doc({
+                    type: 'emailHtml',
+                    attrs: {
+                        html: '{% if vip %}<html><head><title>A</title></head><body><p>Private</p></body></html>{% else %}<html><body><p>Public</p></body></html>{% endif %}',
+                    },
+                })
+            )
+        ).toEqual('{% if vip %}Private\n{% else %}Public\n{% endif %}')
     })
 
     it('keeps text between Liquid tags in its place, and lets a tag alone on its line sit between rows', () => {

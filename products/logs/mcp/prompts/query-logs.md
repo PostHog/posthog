@@ -96,7 +96,9 @@ Filter by service names. Use `logs-attribute-values-list` with `key: "service.na
 
 ## query.searchTerm
 
-Full-text search across log bodies. Use this when the user is looking for specific text in log messages.
+Search the log body for one substring, ignoring case. Use this when the user is looking for specific text in log messages.
+
+It matches the body only, not service names, attributes or severity, and several words match only in that exact order. For a value held in an attribute, use a `filterGroup` filter.
 
 ## query.orderBy
 
