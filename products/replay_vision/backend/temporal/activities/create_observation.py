@@ -535,9 +535,14 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
             watches_experiment=experiment_id_of(existing_snapshot) is not None,
         )
 
+    # Read off the snapshot this row froze, not the live scanner. A backfill apply runs the frozen
+    # config, so a scanner retargeted or cleared mid-backfill still owes its in-flight observations
+    # the attribution their snapshot describes. Reading the live row would skip it and leave paid
+    # observations unlabeled.
+    frozen_snapshot = ScannerSnapshot.load_for(observation.id, snapshot_dict)
     return CreateObservationOutput(
         observation_id=observation.id,
         was_created=True,
-        scanner_type=scanner.scanner_type,
-        watches_experiment=experiment_id_of(scanner) is not None,
+        scanner_type=frozen_snapshot.scanner_type,
+        watches_experiment=experiment_id_of(frozen_snapshot) is not None,
     )

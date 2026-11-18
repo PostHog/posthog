@@ -13,7 +13,11 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerModel,
     ScannerType,
 )
-from products.replay_vision.backend.scanner_access import can_read_targeted_experiment
+from products.replay_vision.backend.scanner_access import (
+    can_read_observation,
+    can_read_targeted_experiment,
+    snapshot_experiment_scope_q,
+)
 from products.replay_vision.backend.scope import experiment_id_of, scope_for
 from products.replay_vision.backend.temporal.snapshots import ScannerSnapshot
 
@@ -144,6 +148,40 @@ class TestScopeResolution(BaseTest):
             self.assertFalse(can_read_targeted_experiment(Mock(), self.team.id, scanner))
 
         self.assertEqual(accessible.call_args.args[2], 31)
+
+
+class TestSnapshotAccessGate(BaseTest):
+    def test_a_scope_only_snapshot_is_not_readable_by_a_denied_caller(self) -> None:
+        # The observation gate reads the experiment off the frozen snapshot. Reading only the two
+        # older stores makes a scope-only snapshot look like it names no experiment, and the
+        # "names none, so unrestricted" branch then hands its rows to a caller denied that
+        # experiment. The pipeline change is what makes those rows exist: before it, a scope-only
+        # scanner produced no variant labels at all.
+        observation = Mock()
+        observation.scanner_snapshot = {"scope": {"kind": "experiment", "experiment_id": 77}}
+
+        with patch(
+            "products.replay_vision.backend.scanner_access.accessible_experiment_ids",
+            return_value=set(),
+        ) as accessible:
+            self.assertFalse(can_read_observation(Mock(), self.team.id, observation))
+
+        self.assertEqual(accessible.call_args.args[2], {77})
+
+    def test_a_snapshot_naming_no_experiment_anywhere_stays_readable(self) -> None:
+        # Every observation predating the scope column has none of the three stores set, and must
+        # keep reading as unrestricted.
+        observation = Mock()
+        observation.scanner_snapshot = {"scanner_config": {"prompt": "p"}}
+
+        self.assertTrue(can_read_observation(Mock(), self.team.id, observation))
+
+    def test_the_snapshot_filter_reads_all_three_stores(self) -> None:
+        rendered = str(snapshot_experiment_scope_q(unrestricted=True, experiment_ids=[5]))
+
+        self.assertIn("scanner_snapshot__scope__experiment_id", rendered)
+        self.assertIn("scanner_snapshot__experiment_targeting__experiment_id", rendered)
+        self.assertIn("scanner_snapshot__scanner_config__experiment_id", rendered)
 
 
 class TestScopeDualWrite(BaseTest):

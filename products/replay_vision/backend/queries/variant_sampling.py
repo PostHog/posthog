@@ -134,6 +134,12 @@ def variant_sampling_plan_for_scope(
     # `scope_for` has already folded a legacy singular `variant` into a one-item list, so an
     # unset `variants` here means every variant rather than an unread narrowing.
     selected = scope.settings.variants
+    if selected is not None and len(selected) == 1:
+        # Balancing spreads one budget across arms, so one watched arm has nothing to spread and
+        # `plan_variant_sampling` returns None for it regardless. Returning before the count keeps
+        # every sweep and backfill tick of a single-arm scanner off a query that aggregates the
+        # experiment's exposure history and reads the team's identity mapping.
+        return None
     counts = _variant_exposure_counts(
         team, experiment_id=experiment_id, selected=selected, user=user, scanner_id=scanner_id
     )

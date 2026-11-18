@@ -136,13 +136,20 @@ class TestVariantSamplingPlanForScope(BaseTest):
     def _scope(self, **settings) -> ExperimentScope:
         return ExperimentScope(ExperimentScopeSettings(**settings))
 
-    def test_a_scope_watching_one_arm_gets_no_plan(self) -> None:
+    def test_a_scope_watching_one_arm_gets_no_plan_without_counting_exposures(self) -> None:
         # Balancing spreads a budget across arms, so one watched arm has nothing to spread.
         # `scope_for` has already folded a legacy singular `variant` into this one-item list.
+        #
+        # The count is skipped rather than run and discarded: it aggregates the experiment's
+        # exposure history and reads the team's identity mapping, on every sweep and backfill tick
+        # of a scanner whose answer cannot depend on it.
         counts = {"control": 60.0, "test": 40.0}
 
-        one_arm = self._plan(scope=self._scope(experiment_id=42, variants=["test"]), counts=counts)
+        with patch("products.replay_vision.backend.queries.variant_sampling._variant_exposure_counts") as counted:
+            one_arm = self._plan(scope=self._scope(experiment_id=42, variants=["test"]), counts=counts)
+
         assert one_arm is None
+        counted.assert_not_called()
 
         both = self._plan(scope=self._scope(experiment_id=42, variants=["control", "test"]), counts=counts)
         assert both is not None and set(both.rates) == {"control", "test"}

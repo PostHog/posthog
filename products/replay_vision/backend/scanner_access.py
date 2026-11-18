@@ -142,14 +142,18 @@ def snapshot_experiment_scope_q(
         raise ValueError(f"unsupported observation prefix {prefix!r}")
     targeting = f"{prefix}scanner_snapshot__experiment_targeting__experiment_id"
     config = f"{prefix}scanner_snapshot__scanner_config__experiment_id"
+    # A snapshot can name its experiment in any of the three stores, so all three are read here.
+    # Leaving `scope` out would read a scope-only snapshot as naming no experiment, and the
+    # `unrestricted` branch would then hand its rows to a caller denied that experiment.
+    scope = f"{prefix}scanner_snapshot__scope__experiment_id"
     q = Q()
     if unrestricted:
-        # nosemgrep: orm-field-injection (both paths are fixed strings; prefix is allowlisted above)
-        q |= Q(**{f"{targeting}__isnull": True, f"{config}__isnull": True})
+        # nosemgrep: orm-field-injection (all three paths are fixed strings; prefix is allowlisted above)
+        q |= Q(**{f"{targeting}__isnull": True, f"{config}__isnull": True, f"{scope}__isnull": True})
     ids = list(experiment_ids)
     if ids:
-        # nosemgrep: orm-field-injection (both paths are fixed strings; prefix is allowlisted above)
-        q |= Q(**{f"{targeting}__in": ids}) | Q(**{f"{config}__in": ids})
+        # nosemgrep: orm-field-injection (all three paths are fixed strings; prefix is allowlisted above)
+        q |= Q(**{f"{targeting}__in": ids}) | Q(**{f"{config}__in": ids}) | Q(**{f"{scope}__in": ids})
     return q
 
 
@@ -179,7 +183,9 @@ def can_read_observation(access: UserAccessControl, team_id: int, observation: "
     snapshot = observation.scanner_snapshot or {}
     experiment_ids = {
         experiment_id
-        for store in ("experiment_targeting", "scanner_config")
+        # All three stores, for the same reason `snapshot_experiment_scope_q` reads all three: a
+        # scope-only snapshot read through the older two names no experiment and reads as public.
+        for store in ("experiment_targeting", "scanner_config", "scope")
         if (experiment_id := (snapshot.get(store) or {}).get("experiment_id")) is not None
     }
     return not experiment_ids or bool(accessible_experiment_ids(access, team_id, experiment_ids) & experiment_ids)
