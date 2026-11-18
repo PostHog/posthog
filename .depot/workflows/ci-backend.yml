@@ -18,6 +18,8 @@
 #   cadence and the persons-on-events legacy-mode leg in build_django_matrix, events schema
 #   recording and upload, and POSTHOG_PYTEST_HARD_EXIT. Master pushes run per-commit checks and
 #   dump the schema. Test matrices run on pull requests, manual runs, and the hourly schedule.
+#   The full scheduled matrix runs every 3 hours. The hourly runs in between (CORE_ONLY_RUN)
+#   run only the default-variant Core shards.
 # - Master schema dumps go to Depot artifacts and Depot Cache, which GitHub-hosted
 #   runners and fork PRs cannot read. .github/workflows/ci-backend-schema-mirror.yml copies the
 #   newest dump into a GitHub artifact and GitHub Actions cache every ten minutes.
@@ -71,7 +73,8 @@
 # - Compose launches run under `nohup` with stdin, stdout and stderr redirected to
 #   $RUNNER_TEMP/compose-launch.log. Depot ends a step's background processes and closes its
 #   output pipes when the step shell exits, so a plain `&` launch dies before it creates any
-#   container. The wait steps print that log when they fail.
+#   container. The wait steps always print that log, whose lines carry timestamps, and each
+#   container's start time, so a slow launch shows whether pulls or boots took the time.
 # - Baseline checkouts and comparisons use PostHog/posthog directly, so a manual run from a
 #   fork compares against the upstream master branch.
 # - Depot does not resolve env references in the Docker Hub login condition. Read
@@ -89,10 +92,14 @@ on:
         branches:
             - master
     schedule:
-        # Hourly full-matrix run against the newest master state. The merge queue's
-        # trunk-merge/** run already gated every commit before it landed, so this is where
-        # master's matrix coverage, flaky-test baseline, and per-test timing data come from.
-        # Keep the events_json cadence tied to the trigger, even when a job starts late.
+        # Runs against the newest master state. The merge queue's trunk-merge/** run already
+        # gated every commit before it landed, so this is where master's matrix coverage,
+        # flaky-test baseline, and per-test timing data come from. The 3-hourly cron runs the
+        # full matrix. The other hours run only the default-variant Core shards, the cheap slice
+        # that catches the commonest master breaks. CORE_ONLY_RUN matches the second cron string
+        # exactly, so keep the two in sync. Any other trigger runs the full matrix.
+        # .github/scripts/depot_backend_runs.py tells the two apart by start hour for the
+        # master-red alerter and the timing refresh, so change its schedule constants with these.
         - cron: '23 */3 * * *'
         - cron: '23 1,2,4,5,7,8,10,11,13,14,16,17,19,20,22,23 * * *'
     workflow_dispatch:
@@ -153,6 +160,9 @@ env:
     # Scheduled runs test master even when Depot does not populate github.ref. `depot ci run`
     # (event `api`) has the master ref but runs an unreviewed local patch, so it is not master.
     IS_MASTER: ${{ github.event_name == 'schedule' || (github.ref == 'refs/heads/master' && github.event_name != 'api') }}
+    # The off-hour scheduled runs drop the persons-on-events legacy-mode leg, Temporal, compat,
+    # the events_json rows and the product matrix. An exact match keeps every other trigger full.
+    CORE_ONLY_RUN: ${{ github.event_name == 'schedule' && github.event.schedule == '23 1,2,4,5,7,8,10,11,13,14,16,17,19,20,22,23 * * *' }}
     # Depot CI runners expose OTEL_SERVICE_NAME=ci-worker ambient; GitHub Actions test steps do not.
     # Left set, it leaks into settings.OTEL_SERVICE_NAME (personhog metric client_name label) and
     # diverges from test assertions. Blank it to match the GHA environment. Depot also injects
@@ -1075,8 +1085,15 @@ jobs:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   WAIT_FOR_DOCKER_TIMEOUT: 900
               run: |
-                  bin/ci-wait-for-docker wait --only db redis7 clickhouse \
-                    || { echo "::group::compose launch log"; cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true; echo "::endgroup::"; exit 1; }
+                  status=0
+                  bin/ci-wait-for-docker wait --only db redis7 clickhouse || status=$?
+                  echo "::group::Docker launch log and container timeline"
+                  cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true
+                  docker ps -a -q --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME}" \
+                    | xargs -r docker inspect --format '{{.State.StartedAt}} {{.Name}} created={{.Created}}{{if .State.Health}} health={{.State.Health.Status}}{{end}}' \
+                    | sort || true
+                  echo "::endgroup::"
+                  exit "$status"
             - name: Build schema dump
               if: steps.schema-cache.outputs.cache-matched-key == ''
               run: |
@@ -1113,6 +1130,11 @@ jobs:
                   # events_json rows.
                   RUN_NEW_EVENTS_SCHEMA: ${{ contains(github.event.pull_request.labels.*.name, 'test-new-events-schema') }}
               run: |
+                  if [[ "$CORE_ONLY_RUN" == "true" ]]; then
+                      echo "Skipping the product matrix on this core-only hourly run"
+                      echo "include=[]" >> "$GITHUB_OUTPUT"
+                      exit 0
+                  fi
                   if [[ "$RUN_NEW_EVENTS_SCHEMA" == "true" ]]; then
                       schema_modes='[false, true]'
                   else
@@ -1230,8 +1252,15 @@ jobs:
                   CLICKHOUSE_SERVER_IMAGE: ${{ needs.get_clickhouse_versions.outputs.local_image }}
               # objectstorage answers InvalidAccessKeyId until its bootstrap registers identities.
               run: |
-                  bin/ci-wait-for-docker wait objectstorage \
-                    || { echo "::group::compose launch log"; cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true; echo "::endgroup::"; exit 1; }
+                  status=0
+                  bin/ci-wait-for-docker wait objectstorage || status=$?
+                  echo "::group::Docker launch log and container timeline"
+                  cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true
+                  docker ps -a -q --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME}" \
+                    | xargs -r docker inspect --format '{{.State.StartedAt}} {{.Name}} created={{.Created}}{{if .State.Health}} health={{.State.Health.Status}}{{end}}' \
+                    | sort || true
+                  echo "::endgroup::"
+                  exit "$status"
             - name: Restore schema cache from master
               if: ${{ github.event_name == 'pull_request' }}
               timeout-minutes: 4
@@ -1962,8 +1991,15 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
               run: |
-                  bin/ci-wait-for-docker wait --only db redis7 clickhouse \
-                    || { echo "::group::compose launch log"; cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true; echo "::endgroup::"; exit 1; }
+                  status=0
+                  bin/ci-wait-for-docker wait --only db redis7 clickhouse || status=$?
+                  echo "::group::Docker launch log and container timeline"
+                  cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true
+                  docker ps -a -q --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME}" \
+                    | xargs -r docker inspect --format '{{.State.StartedAt}} {{.Name}} created={{.Created}}{{if .State.Health}} health={{.State.Health.Status}}{{end}}' \
+                    | sort || true
+                  echo "::endgroup::"
+                  exit "$status"
             - name: Prime posthog DB from cached schema
               # Leaves "Run migrations up to master" below to apply only the migrations
               # the dump lacks, instead of a full migration run.
@@ -2644,8 +2680,15 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
               run: |
-                  bin/ci-wait-for-docker wait --only db clickhouse \
-                    || { echo "::group::compose launch log"; cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true; echo "::endgroup::"; exit 1; }
+                  status=0
+                  bin/ci-wait-for-docker wait --only db clickhouse || status=$?
+                  echo "::group::Docker launch log and container timeline"
+                  cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true
+                  docker ps -a -q --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME}" \
+                    | xargs -r docker inspect --format '{{.State.StartedAt}} {{.Name}} created={{.Created}}{{if .State.Health}} health={{.State.Health.Status}}{{end}}' \
+                    | sort || true
+                  echo "::endgroup::"
+                  exit "$status"
             - name: Add OpenAPI Problem Matcher
               run: echo "::add-matcher::.github/openapi-problem-matcher.json"
             - name: Check and update OpenAPI types
@@ -2849,7 +2892,6 @@ jobs:
                   # that takes the whole list.
                   JSON_TARGETS_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').json_targets_files }}
                   JSON_TARGETS_SHARDS: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').json_targets_shards }}
-                  RUN_JSON_TARGETS: ${{ github.event_name != 'schedule' || github.event.schedule == '23 */3 * * *' }}
                   # Same rule as the django job's condition: the suite runs for a legacy
                   # edit, for a product change that reaches legacy code, and when discovery
                   # failed, which leaves run_legacy empty. Without it only the events_json
@@ -3163,8 +3205,13 @@ jobs:
                       json_targets_count="${JSON_TARGETS_SHARDS:-0}"
                   fi
 
-                  if [[ "$RUN_JSON_TARGETS" != "true" ]]; then
-                      echo "Skipping the events_json rows on this hourly run"
+                  if [[ "$CORE_ONLY_RUN" == "true" ]]; then
+                      echo "Core-only hourly run: keeping the default-variant Core shards only"
+                      core_persons_on_events="[]"
+                      core_persons_on_events_new_schema="[]"
+                      temporal="[]"
+                      temporal_new_events_schema="[]"
+                      compat="[]"
                       json_targets_count=0
                   fi
 
@@ -3433,8 +3480,15 @@ jobs:
                   COMPOSE_PROFILES: temporal,azure
                   CLICKHOUSE_SERVER_IMAGE: ${{ matrix.clickhouse-server-image || needs.get_clickhouse_versions.outputs.oldest_supported_image }}
               run: |
-                  bin/ci-wait-for-docker wait \
-                    || { echo "::group::compose launch log"; cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true; echo "::endgroup::"; exit 1; }
+                  status=0
+                  bin/ci-wait-for-docker wait || status=$?
+                  echo "::group::Docker launch log and container timeline"
+                  cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true
+                  docker ps -a -q --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME}" \
+                    | xargs -r docker inspect --format '{{.State.StartedAt}} {{.Name}} created={{.Created}}{{if .State.Health}} health={{.State.Health.Status}}{{end}}' \
+                    | sort || true
+                  echo "::endgroup::"
+                  exit "$status"
             - name: Restore schema cache from master
               if: ${{ github.event_name == 'pull_request' }}
               timeout-minutes: 4

@@ -590,12 +590,15 @@ A lane that stops producing runs is invisible to the master-red alerter: it read
 Add every converted workflow to `SCHEDULED_GATING_WORKFLOWS` in `ci-alerts-devex.yml` in the same change, or its failures stop paging altogether.
 
 Backend CI runs on Depot CI from `.depot/workflows/ci-backend.yml` for same-repository pull requests, master pushes, manual runs, and the hourly schedule.
+Its full scheduled matrix runs only on the `23 */3 * * *` cron.
+The other cron sets `CORE_ONLY_RUN`, which keeps the default-variant Core shards and drops products, Temporal, compat, persons-on-events off, and the events_json rows.
+A schedule that matches neither cron string runs the full matrix.
 Depot stores those runs and their original artifacts; GitHub receives check results.
 Use `.github/scripts/depot_backend_runs.py` to read the Depot runs and artifacts.
 The consumers are:
 
-- The alerter lists Backend CI in `DEPOT_WORKFLOWS` and reads master push and scheduled runs from the files that script writes.
-- `ci-backend-update-test-timing.yml` downloads timing artifacts from Depot.
+- The alerter lists Backend CI in `DEPOT_WORKFLOWS` and reads master push and scheduled runs from the files that script writes. `SCHEDULED_FULL_MATRIX_WORKFLOWS` splits the scheduled runs into a Core-only lane and a full-matrix lane, so a green Core-only run cannot reset a red full-matrix streak.
+- `ci-backend-update-test-timing.yml` downloads timing artifacts from Depot, from full-matrix runs only (`--matrix full`).
 - `ci-backend-schema-mirror.yml` copies the newest master schema dump into a GitHub artifact and GitHub Actions cache every ten minutes so GitHub-hosted jobs and fork pull requests can read it.
 - The master run trace reporter reads master push and scheduled runs from Depot. Depot's public API exposes workflow and job timestamps, but no step or job-queue timestamps, so those traces stop at jobs.
 
