@@ -43,6 +43,7 @@ describe('traceExportLogic', () => {
     let statusRequests = 0
     let exportFile: object = EXPORT_FILE
     let contentPurposes: (string | null)[] = []
+    let contentNetworkFailures = 0
     let clipboardText: string | null = null
     const clipboardWrite = jest.fn(async ([item]: FakeClipboardItem[]): Promise<void> => {
         clipboardText = await (await item.items['text/plain']).text()
@@ -54,6 +55,7 @@ describe('traceExportLogic', () => {
         statusRequests = 0
         exportFile = EXPORT_FILE
         contentPurposes = []
+        contentNetworkFailures = 0
         clipboardText = null
         clipboardWrite.mockClear()
         Object.defineProperty(globalThis, 'ClipboardItem', { value: FakeClipboardItem, configurable: true })
@@ -67,6 +69,10 @@ describe('traceExportLogic', () => {
                     return [200, makeTraceExport({ status: 'complete' })]
                 },
                 [EXPORT_CONTENT_URL]: ({ request }) => {
+                    if (contentNetworkFailures > 0) {
+                        contentNetworkFailures -= 1
+                        return Response.error()
+                    }
                     contentPurposes.push(new URL(request.url).searchParams.get('purpose'))
                     return [200, exportFile]
                 },
@@ -82,6 +88,7 @@ describe('traceExportLogic', () => {
         jest.spyOn(lemonToast, 'info').mockImplementation(() => 'toast')
         jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast')
         jest.spyOn(posthog, 'capture')
+        jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
     })
 
     afterEach(() => {
@@ -209,6 +216,17 @@ describe('traceExportLogic', () => {
             button: undefined,
             event: 'export_failed',
         },
+        {
+            name: 'a network failure on the retry too shows an error and is not reported as an exception',
+            setup: (): void => {
+                createdExport = makeTraceExport({ status: 'complete' })
+                contentNetworkFailures = 2
+            },
+            toast: 'error' as const,
+            message: "Couldn't copy this trace. Try again.",
+            button: undefined,
+            event: 'network',
+        },
     ])('$name', async ({ setup, toast, message, button, event }) => {
         setup()
         const logic = await mountForCopy()
@@ -219,9 +237,23 @@ describe('traceExportLogic', () => {
         const options = jest.mocked(lemonToast[toast]).mock.calls[0][1] as { button?: { label: string } } | undefined
         expect(options?.button?.label).toEqual(button)
         expect(posthog.capture).not.toHaveBeenCalledWith('llma trace export copied', expect.anything())
+        expect(posthog.captureException).not.toHaveBeenCalled()
         if (event) {
             expect(posthog.capture).toHaveBeenCalledWith('llma trace export copy failed', { reason: event })
         }
+    })
+
+    test('copyTrace starts again with a new export after one network failure and copies the file', async () => {
+        createdExport = makeTraceExport({ status: 'complete' })
+        contentNetworkFailures = 1
+        const logic = await mountForCopy()
+
+        await expectLogic(logic, () => logic.actions.copyTrace()).toDispatchActions(['copyTraceFinished'])
+
+        expect(exportBodies).toHaveLength(2)
+        expect(clipboardText).toEqual(EXPORT_FILE_TEXT)
+        expect(lemonToast.info).toHaveBeenCalledWith('Copied trace to clipboard')
+        expect(lemonToast.error).not.toHaveBeenCalled()
     })
 
     test('the download button on the oversized toast downloads the export the copy wrote', async () => {

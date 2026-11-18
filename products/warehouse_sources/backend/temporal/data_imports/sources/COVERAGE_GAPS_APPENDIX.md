@@ -539,7 +539,7 @@ Note: Parsed every GET operation in the vendor's published OpenAPI spec, includi
 
 ## Amplitude — gaps
 
-Today (7): `annotations`, `cohorts`, `event_categories`, `event_properties`, `event_types`, `events`, `user_properties`
+Today (11): `annotations`, `cohorts`, `composition`, `event_categories`, `event_properties`, `event_types`, `events`, `group_properties`, `retention`, `revenue_ltv`, `user_properties`
 
 Diffed against: <https://amplitude.com/docs/apis>
 
@@ -551,10 +551,10 @@ Diffed against: <https://amplitude.com/docs/apis>
 - ~~`GET /api/2/release` — release markers to join against event timestamps, the sibling of the annotations table already synced (medium)~~ — skipped: the Releases API documents only `POST`, so there is no list call
 - ~~`GET /api/2/audit-logs/{ORG_ID}` — org-level change history for charts, cohorts and permissions (medium)~~ — skipped: the call is a `POST` that needs organization keys issued by Amplitude Support, not the project keys this source uses
 - ~~`GET /api/3/chart/{chart_id}/query` — results of saved charts, so warehouse numbers match what teams see in Amplitude (medium)~~ — skipped: it needs a chart ID from the web app URL (no list call), and the response shape changes with the chart type
-- [ ] `GET /api/2/funnels` — funnel conversion results as Amplitude computes them (medium)
-- [ ] `GET /api/2/retention` — retention curves as Amplitude computes them (medium)
-- [ ] `GET /api/2/composition` — user composition breakdown by property value (low)
-- [ ] `GET /api/2/revenue/ltv` — revenue LTV cohorts (low)
+- ~~`GET /api/2/funnels` — funnel conversion results as Amplitude computes them (medium)~~ — skipped: the call needs the funnel steps (one `e` event per step), which are specific to each project, and there is no default funnel to sync
+- [x] `GET /api/2/retention` — retention curves as Amplitude computes them (medium). Added as `retention`: the default chart (new users, returning with any event), daily N-day, one row per cohort date and day over the last 90 days
+- [x] `GET /api/2/composition` — user composition breakdown by property value (low). Added as `composition`: one request per documented built-in property, over the last 90 days
+- [x] `GET /api/2/revenue/ltv` — revenue LTV cohorts (low). Added as `revenue_ltv`: daily cohorts for each of the four `m` metrics, over the last 90 days
 
 Note: Endpoint paths confirmed by reading https://amplitude.com/docs/apis/analytics/taxonomy, /dashboard-rest, /releases and /audit-logs. Raw events are already synced via the Export API, so the aggregate Dashboard REST endpoints are partly derivable in the warehouse - the Taxonomy lookup tables are the higher-value gap.
 

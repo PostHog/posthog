@@ -1987,6 +1987,25 @@ class SignalReportArtefact(UUIDModel):
         return cls._parse_as(artefact, model)
 
     @classmethod
+    def latest_person_content(
+        cls, *, team_id: int, report_id: str, model: builtins.type[_ContentT]
+    ) -> _ContentT | None:
+        """The newest artefact of `model`'s type, parsed, when a person wrote it, else None.
+
+        A person is any write with a user principal (`created_by`), from the app or from their own
+        agent. A pipeline, scout, or system write leaves `created_by` null. Agent stages read this to
+        keep a decision a person made instead of writing their own over it.
+        """
+        artefact = (
+            cls._latest_of(team_id=team_id, report_id=report_id, model=model, created_before=None, created_after=None)
+            .only("content", "created_by_id")
+            .first()
+        )
+        if artefact is None or artefact.created_by_id is None:
+            return None
+        return cls._parse_as(artefact, model)
+
+    @classmethod
     def append_finding(
         cls,
         *,

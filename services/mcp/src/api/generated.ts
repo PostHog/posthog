@@ -38323,9 +38323,10 @@ export namespace Schemas {
     }
 
     /**
-     * * `datasets` - datasets
-     * * `dataset_items` - dataset_items
-     * * `dataset_item_versions` - dataset_item_versions
+     * * `datasets` - Datasets
+     * * `dataset_items` - Dataset Items
+     * * `dataset_item_versions` - Dataset Item Versions
+     * * `project_dataset_item_versions` - Project Dataset Item Versions
      */
     export type DatasetConflictResponseResourceEnum = typeof DatasetConflictResponseResourceEnum[keyof typeof DatasetConflictResponseResourceEnum];
 
@@ -38334,6 +38335,7 @@ export namespace Schemas {
       Datasets: 'datasets',
       DatasetItems: 'dataset_items',
       DatasetItemVersions: 'dataset_item_versions',
+      ProjectDatasetItemVersions: 'project_dataset_item_versions',
     } as const;
 
     export interface DatasetConflictResponse {
@@ -38361,9 +38363,10 @@ export namespace Schemas {
       current_item_id?: string | null;
       /** Resource whose configured limit was reached.
        *
-       * * `datasets` - datasets
-       * * `dataset_items` - dataset_items
-       * * `dataset_item_versions` - dataset_item_versions */
+       * * `datasets` - Datasets
+       * * `dataset_items` - Dataset Items
+       * * `dataset_item_versions` - Dataset Item Versions
+       * * `project_dataset_item_versions` - Project Dataset Item Versions */
       resource?: DatasetConflictResponseResourceEnum;
       /** Number of resources that already exist. */
       current_count?: number;
@@ -56053,6 +56056,33 @@ export namespace Schemas {
       Number1: 1,
       Number2: 2,
     } as const;
+
+    export interface ReleaseRef {
+      /** ID of the release. */
+      id: string;
+      /** Name of the release. */
+      name: string;
+    }
+
+    export interface ReleaseSuggestion {
+      /** ID of the release. */
+      id: string;
+      /** Name of the release. */
+      name: string;
+      /** Words the flag shares with the release's name, description or linked flags. */
+      matched_terms: string[];
+    }
+
+    export interface FlagReleases {
+      /** ID of the feature flag. */
+      feature_flag_id: number;
+      /** True when this project puts each new flag in a release of its own about a minute after it is created, unless the flag is already in a release. */
+      auto_release: boolean;
+      /** Releases that already link this flag. */
+      current: ReleaseRef[];
+      /** Up to 5 existing releases this flag probably belongs to, best match first. Empty when nothing matches. */
+      suggestions: ReleaseSuggestion[];
+    }
 
     export interface FlagValueItem {
       name: unknown;
@@ -146192,6 +146222,11 @@ export namespace Schemas {
      */
     cursor?: string;
     /**
+     * Only releases that link this feature flag.
+     * @minimum 1
+     */
+    feature_flag_id?: number;
+    /**
      * How many releases to return, at most 100.
      * @minimum 1
      * @maximum 100
@@ -146215,6 +146250,14 @@ export namespace Schemas {
      * @maxLength 200
      */
     search?: string;
+    };
+
+    export type ReleasesFlagSuggestionsRetrieveParams = {
+    /**
+     * ID of the feature flag to find releases for.
+     * @minimum 1
+     */
+    feature_flag_id: number;
     };
 
     export type SandboxCustomImagesListParams = {

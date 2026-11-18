@@ -38,8 +38,6 @@ from posthog.hogql.database.s3_table import (
     S3Table,
 )
 from posthog.hogql.parser import parse_select
-from posthog.hogql.resolver_utils import extract_select_queries
-from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.clickhouse.client.limit import app_org_concurrency_slot
 from posthog.clickhouse.query_tagging import Feature, Product, tag_contains_user_hogql, tags_context
@@ -63,28 +61,6 @@ logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
 TEST_VIEW_EXPIRY_INTERVAL = timedelta(days=7)
-
-_IN_SUBQUERY_OPS = (
-    ast.CompareOperationOp.In,
-    ast.CompareOperationOp.NotIn,
-    ast.CompareOperationOp.GlobalIn,
-    ast.CompareOperationOp.GlobalNotIn,
-)
-
-
-def _limit_to_zero_rows(select_query: ast.SelectQuery | ast.SelectSetQuery) -> None:
-    for branch in extract_select_queries(select_query):
-        branch.limit = ast.Constant(value=0)
-        branch.offset = None
-
-
-class _InSubqueryZeroRows(TraversingVisitor):
-    # ClickHouse builds the set of an IN subquery before it plans the outer read, so the outer LIMIT 0
-    # does not stop that read. A scalar subquery keeps its rows, because an empty one is a ClickHouse error.
-    def visit_compare_operation(self, node: ast.CompareOperation) -> None:
-        super().visit_compare_operation(node)
-        if node.op in _IN_SUBQUERY_OPS and isinstance(node.right, ast.SelectQuery | ast.SelectSetQuery):
-            _limit_to_zero_rows(node.right)
 
 
 def validate_saved_query_name(value: str) -> None:
@@ -530,14 +506,15 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
     @tracer.start_as_current_span("saved_query.infer_columns")
     def get_columns(
-        self, user: Optional["User"] = None, *, bypass_warehouse_access_control: bool = False
+        self,
+        user: Optional["User"] = None,
+        *,
+        bypass_warehouse_access_control: bool = False,
+        database: Database | None = None,
     ) -> dict[str, dict[str, Any]]:
-        from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415 — keeps the heavy dep off the import path
-
-        # ClickHouse can still evaluate scalar subqueries before it plans the outer LIMIT 0.
-        select_query = parse_select(self.sql)
-        _limit_to_zero_rows(select_query)
-        _InSubqueryZeroRows().visit(select_query)
+        from products.data_modeling.backend.logic.describe_columns import (  # noqa: PLC0415 — keeps the heavy dep off the import path
+            describe_query_columns,
+        )
 
         # Resolve as the acting user so warehouse access control is enforced against them - a userless
         # build fails closed and denies every warehouse table, breaking column inference for all users.
@@ -545,29 +522,22 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             tag_contains_user_hogql()
             # Printing the AST back to HogQL text would drop COLUMNS(...) and table column alias lists.
             with app_org_concurrency_slot(self.team):
-                response = execute_hogql_query(
-                    select_query,
+                described_columns = describe_query_columns(
+                    parse_select(self.sql),
                     team=self.team,
                     user=user,
-                    query_type="HogQLQuery",
-                    refresh_stale_view_columns=False,
                     bypass_warehouse_access_control=bypass_warehouse_access_control,
+                    database=database,
                 )
-        result = response.types
 
-        if result is None:
-            raise Exception("No columns types provided by clickhouse in get_columns")
-
-        columns = {
-            str(item[0]): {
-                "hogql": hogql_type_name_for_clickhouse_type(str(item[1])),
-                "clickhouse": item[1],
+        return {
+            column.name: {
+                "hogql": hogql_type_name_for_clickhouse_type(column.ch_type),
+                "clickhouse": column.ch_type,
                 "valid": True,
             }
-            for item in result
+            for column in described_columns
         }
-
-        return columns
 
     def get_clickhouse_column_type(self, column_name: str) -> Optional[str]:
         columns = self.columns or {}
