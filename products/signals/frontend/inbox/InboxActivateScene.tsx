@@ -6,14 +6,19 @@ import { LemonButton, Spinner } from '@posthog/lemon-ui'
 import { Logo } from 'lib/brand'
 import { AuthSceneBackdrop } from 'scenes/authentication/shared/authScene/AuthSceneBackdrop'
 import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 
+import { MobileInboxReturn } from './components/onboarding/MobileInboxReturn'
 import { inboxAgentActivationLogic } from './logics/inboxAgentActivationLogic'
 import { inboxSetupLogic } from './logics/inboxSetupLogic'
+import { getMobileInboxReturn } from './utils/mobileInboxReturn'
 
 export function InboxActivateScene(): JSX.Element {
     const { view, error, withoutGithub, hasGithubIntegration } = useValues(inboxAgentActivationLogic)
     const { retry, connectGithub } = useActions(inboxAgentActivationLogic)
     const { activateQuickSetup } = useActions(inboxSetupLogic)
+    const { currentTeamId } = useValues(teamLogic)
+    const returningToMobile = !!getMobileInboxReturn(currentTeamId)
 
     return (
         <AuthSceneBackdrop className="flex min-h-screen flex-col items-center justify-center px-4 py-8">
@@ -30,8 +35,11 @@ export function InboxActivateScene(): JSX.Element {
                             <IconCheckCircle className="text-success text-4xl" />
                             <h1 className="m-0 text-xl font-semibold">Self-driving is on</h1>
                             <p className="m-0 text-sm text-secondary">
-                                Go back to your agent to continue. You can close this tab.
+                                {returningToMobile
+                                    ? 'Return to your mobile inbox to follow your first investigation.'
+                                    : 'Go back to your agent to continue. You can close this tab.'}
                             </p>
+                            <MobileInboxReturn />
                         </>
                     ) : view === 'error' ? (
                         <>
