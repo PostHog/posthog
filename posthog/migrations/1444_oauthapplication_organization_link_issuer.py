@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1442_cimd_provisioning_review_partner_message"),
+        ("posthog", "1443_cimd_provisioning_review_slack_thread"),
     ]
 
     operations = [

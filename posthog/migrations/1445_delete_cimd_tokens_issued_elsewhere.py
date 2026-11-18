@@ -12,7 +12,7 @@ def delete_tokens_issued_here(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1443_oauthapplication_organization_link_issuer"),
+        ("posthog", "1444_oauthapplication_organization_link_issuer"),
     ]
 
     operations = [
