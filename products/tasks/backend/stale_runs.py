@@ -1,5 +1,6 @@
 import json
 import time
+import random
 from collections import Counter
 from collections.abc import Iterator
 from datetime import datetime, timedelta
@@ -53,7 +54,9 @@ class StaleRunCount:
 class RunToSweep:
     run_id: UUID
     profile: str
+    rule: StaleRule
     quiet_since: datetime
+    not_written_since: datetime
 
 
 @frozen
@@ -66,6 +69,7 @@ class _LiveRun:
     awaits_first_message: bool
     rules: frozenset[StaleRule]
     quiet_since: datetime
+    not_written_since: datetime
 
 
 def stale_rules(
@@ -205,6 +209,7 @@ def _live_runs(*, sweepable_only: bool = False) -> Iterator[_LiveRun]:
                 now=now,
             ),
             quiet_since=now - idle_timeout - STALE_RUN_GRACE,
+            not_written_since=now - LIVE_RUN_STALE_AFTER,
         )
 
 
@@ -219,24 +224,35 @@ def collect_stale_live_runs() -> list[StaleRunCount]:
     ]
 
 
+def _enforced_pairs(stale: list[_LiveRun]) -> set[tuple[int, str | None]]:
+    teams = Team.objects.only("id", "uuid", "organization_id").in_bulk({run.team_id for run in stale})
+    pairs = list({(run.team_id, run.profile) for run in stale})
+    random.shuffle(pairs)
+    deadline = time.monotonic() + SWEEP_MODE_LOOKUP_BUDGET_SECONDS
+    enforced: set[tuple[int, str | None]] = set()
+    for position, (team_id, profile) in enumerate(pairs):
+        if time.monotonic() > deadline:
+            logger.warning("task_stale_sweep_mode_budget_spent", left_for_next_pass=len(pairs) - position)
+            break
+        team = teams.get(team_id)
+        if team is not None and sweep_mode(profile, team) == SweepMode.ENFORCE:
+            enforced.add((team_id, profile))
+    return enforced
+
+
 def runs_to_sweep() -> list[RunToSweep]:
-    stale = [
-        run
-        for run in _live_runs(sweepable_only=True)
-        if StaleRule.HEARTBEAT in run.rules and not run.awaits_first_message
-    ]
+    stale = [run for run in _live_runs(sweepable_only=True) if run.rules and not run.awaits_first_message]
     if not stale:
         return []
-    teams = Team.objects.only("id", "uuid", "organization_id").in_bulk({run.team_id for run in stale})
-    deadline = time.monotonic() + SWEEP_MODE_LOOKUP_BUDGET_SECONDS
-    to_sweep: list[RunToSweep] = []
-    for position, run in enumerate(stale):
-        if time.monotonic() > deadline:
-            logger.warning("task_stale_sweep_mode_budget_spent", left_for_next_pass=len(stale) - position)
-            break
-        team = teams.get(run.team_id)
-        if team is not None and sweep_mode(run.profile, team) == SweepMode.ENFORCE:
-            to_sweep.append(
-                RunToSweep(run_id=run.run_id, profile=run.profile or NO_PROFILE, quiet_since=run.quiet_since)
-            )
-    return to_sweep
+    enforced = _enforced_pairs(stale)
+    return [
+        RunToSweep(
+            run_id=run.run_id,
+            profile=run.profile or NO_PROFILE,
+            rule=StaleRule.HEARTBEAT if StaleRule.HEARTBEAT in run.rules else StaleRule.NO_WRITES_24H,
+            quiet_since=run.quiet_since,
+            not_written_since=run.not_written_since,
+        )
+        for run in stale
+        if (run.team_id, run.profile) in enforced
+    ]
