@@ -75,7 +75,8 @@ def _deployments_query(
 ) -> ast.SelectQuery:
     # Entry or root spans are chosen per environment, as on the services tab, so a version that
     # only has root spans in one environment keeps those requests when every environment is read.
-    # Rows sort by source first, so the limit keeps the preferred source's newest versions.
+    # Rows sort by source first, so the first row names the preferred source. Within it, versions
+    # with requests come first, so the limit keeps the newest versions that will be shown.
     query = parse_select(
         """
         SELECT
@@ -106,7 +107,7 @@ def _deployments_query(
         )
         GROUP BY version, source_rank
         HAVING version != ''
-        ORDER BY source_rank ASC, first_seen DESC, version DESC
+        ORDER BY source_rank ASC, requests > 0 DESC, first_seen DESC, version DESC
         LIMIT {limit}
         """,
         placeholders={

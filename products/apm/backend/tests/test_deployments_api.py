@@ -51,6 +51,8 @@ class TestDeploymentsAPI(ClickhouseTestMixin, APIBaseTest):
         w.span("bare", env="prod")
         w.span("versioned-internals", env="prod", resource={"k8s.replicaset.name": "versioned-internals-5e6f"})
         w.span("versioned-internals", env="prod", kind=1, parent="root", resource={"service.version": "4.0.0"})
+        w.span("late-internals", env="prod", resource={"service.version": "5.0.0"})
+        w.span("late-internals", env="prod", kind=1, parent="root", resource={"service.version": "5.1.0"})
         w.insert()
 
     def _get(self, **params) -> dict:
@@ -93,10 +95,13 @@ class TestDeploymentsAPI(ClickhouseTestMixin, APIBaseTest):
         (row,) = self._get(service="jobs", environment=None)["results"]
         self.assertEqual((row["version"], row["requests"], row["error_count"]), ("3.0.0", 5, 1))
 
-    def test_limit_keeps_the_newest_versions(self) -> None:
-        with patch("products.apm.backend.logic.health.deployments.DEPLOYMENTS_LIMIT", 1):
-            rows = self._get()["results"]
-        self.assertEqual([(r["version"], r["active"]) for r in rows], [("1.1.0", True)])
+    def test_limit_keeps_the_newest_versions_with_requests(self) -> None:
+        cases = [("api", [("1.1.0", True)]), ("late-internals", [("5.0.0", True)])]
+        for service, expected in cases:
+            with self.subTest(service=service):
+                with patch("products.apm.backend.logic.health.deployments.DEPLOYMENTS_LIMIT", 1):
+                    rows = self._get(service=service)["results"]
+                self.assertEqual([(r["version"], r["active"]) for r in rows], expected)
 
     def test_api_key_is_refused_while_the_team_logs_api_slots_are_full(self) -> None:
         key = self.create_personal_api_key_with_scopes(["tracing:read"])
