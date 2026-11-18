@@ -27,7 +27,7 @@ export function SendFromCodeSetup({ surface }: { surface: SendFromCodeSurface })
             {wizardOffered && isCloudOrDev ? (
                 <>
                     <WizardCommandBlock
-                        subcommand="transactional-email"
+                        subcommand="email"
                         description="The setup agent writes the email in your code, adds your project secret API key to your env file, and adds the first send to your server code."
                     />
                     <h4 className="m-0 text-sm font-semibold">Or use your own coding agent</h4>
