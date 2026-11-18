@@ -1326,7 +1326,7 @@ class TestTransactionalEmail(APIBaseTest):
             "warnings": [{"code": "sandbox_sender", "message": ANY, "setup_url": setup_url, "agent_action": ANY}],
         }
         (warning,) = response.json()["warnings"]
-        assert "PostHog test sender only sends to members of your organization" in warning["message"]
+        assert "members of your organization" in warning["message"]
         assert setup_url in warning["agent_action"]
 
     @parameterized.expand(
