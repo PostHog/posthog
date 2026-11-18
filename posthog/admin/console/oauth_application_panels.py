@@ -282,6 +282,25 @@ class OAuthApplicationOverviewPanel(Panel):
         ]
 
 
+DECISION_OPERATION_KEYS = ("accept", "block")
+
+
+def decision_operation_links(app: OAuthApplication) -> list[tuple[str, str]]:
+    """The accept and block operations the app's page offers right now, as (label, url) pairs."""
+    panel = OAuthApplicationProvisioningPanel()
+    return [
+        (
+            operation.label,
+            reverse(
+                RECORD_TYPES[panel.record].operation_url_name,
+                kwargs={"pk": app.pk, "panel_key": panel.key, "operation_key": operation.key},
+            ),
+        )
+        for operation in panel.operations(app)
+        if operation.key in DECISION_OPERATION_KEYS
+    ]
+
+
 @console.register_panel
 class OAuthApplicationProvisioningPanel(Panel):
     record = "oauth-application"
@@ -297,6 +316,8 @@ class OAuthApplicationProvisioningPanel(Panel):
         if not obj.is_provisioning_partner and review is None:
             return [Fact(label="Provisioning", value="Not a partner")]
         facts = [_provisioning_fact(obj, review)]
+        if partner_provisioning_status(obj, review) == PartnerProvisioningStatus.WAITING_FOR_STAFF:
+            facts.append(Fact(label="Next step", value="Read the review, then accept or block the partner below."))
         if review is not None:
             status = ProvisioningReviewStatus(review.status)
             facts.append(

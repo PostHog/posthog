@@ -48,6 +48,28 @@ class TestOAuthApplicationsTool(BaseTest):
         assert f"cimd-provisioning-review-{self.app.pk}" in content
         assert f"/admin/console/oauth-applications/{self.app.pk}/" in content
 
+    @parameterized.expand(
+        [
+            ("waiting_for_staff", ProvisioningReviewStatus.NEEDS_HUMAN, {}, ["accept", "block"], True),
+            ("accepted", ProvisioningReviewStatus.ACCEPTED, {"active": True}, ["block"], False),
+            ("blocked", ProvisioningReviewStatus.REJECTED, {"disabled": True}, ["accept"], False),
+        ]
+    )
+    def test_both_pages_lead_with_the_decisions_on_offer(self, _name, status, config, offered, waiting) -> None:
+        self.app._provisioning_config = ProvisioningConfig(**config).model_dump(mode="json")
+        self.app.save()
+        review = self._review(status)
+
+        content = self.client.get(f"{TOOL_URL}?review={review.pk}").content.decode()
+
+        for key in ("accept", "block"):
+            assert (f"/admin/console/oauth-applications/{self.app.pk}/provisioning/{key}/" in content) == (
+                key in offered
+            )
+        assert ("is waiting for a staff decision" in content) == waiting
+        app_page = self.client.get(f"/admin/console/oauth-applications/{self.app.pk}/").content.decode()
+        assert ("Read the review, then accept or block the partner below." in app_page) == waiting
+
     def _staff_app(self, name: str, **fields) -> OAuthApplication:
         return OAuthApplication.objects.create(
             name=name,
