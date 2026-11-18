@@ -245,9 +245,15 @@ def describe_query_columns(
     team: Team,
     user: Optional["User"],
     bypass_warehouse_access_control: bool,
+    database: Database | None = None,
 ) -> list[DescribedColumn]:
     """The query's output columns, read without running the query."""
-    context = HogQLContext(team_id=team.pk, user=user, bypass_warehouse_access_control=bypass_warehouse_access_control)
+    context = HogQLContext(
+        team_id=team.pk,
+        user=user,
+        bypass_warehouse_access_control=bypass_warehouse_access_control,
+        database=database,
+    )
     jev_external_tables: list[ClickHouseExternalTable] = []
     if PromptJevFinder.contains(select_query):
         select_query, jev_external_tables = _plan_prompt_jev(select_query, context, team)
