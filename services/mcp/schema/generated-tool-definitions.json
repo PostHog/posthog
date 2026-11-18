@@ -13051,7 +13051,7 @@
         "feature_flag": "posthog-support-agent-tickets"
     },
     "posthog-support-ticket-reply": {
-        "description": "Add a message from the signed-in user to one of their tickets with the PostHog support team, for example the details support asked for. A person on the support team reads it. Show the user the reply text and get their OK before you send it. Never include secrets, API keys or personal data.",
+        "description": "Add a message from the signed-in user to one of their tickets with the PostHog support team, for example the details support asked for. A person on the support team reads it. Show the user the reply text and get their OK before you send it. Never include secrets, API keys or personal data. A reply does not reopen a resolved ticket: when ticket_status is resolved, tell the user that support closed this ticket and may not see the reply, and offer to open a new ticket with posthog-support-ticket-create that mentions this ticket's ID.",
         "category": "PostHog support",
         "feature": "posthog_support",
         "summary": "Reply to a PostHog support ticket",

@@ -39365,6 +39365,198 @@
             "validators": []
         }
     },
+    "posthog-support-ticket-create": {
+        "name": "posthog-support-ticket-create",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/posthog_support/tickets/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "request_type",
+                    "key": "request_type"
+                },
+                {
+                    "param": "subject",
+                    "key": "subject"
+                },
+                {
+                    "param": "description",
+                    "key": "description"
+                },
+                {
+                    "param": "expected",
+                    "key": "expected"
+                },
+                {
+                    "param": "actual",
+                    "key": "actual"
+                },
+                {
+                    "param": "already_tried",
+                    "key": "already_tried"
+                },
+                {
+                    "param": "deletion_query",
+                    "key": "deletion_query"
+                },
+                {
+                    "param": "expected_event_count",
+                    "key": "expected_event_count"
+                },
+                {
+                    "param": "deletion_consent",
+                    "key": "deletion_consent"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "posthog-support-ticket-get": {
+        "name": "posthog-support-ticket-get",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/posthog_support/tickets/{id}/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": [
+                {
+                    "param": "after",
+                    "key": "after",
+                    "csv": false
+                }
+            ],
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "posthog-support-ticket-reply": {
+        "name": "posthog-support-ticket-reply",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/posthog_support/tickets/{id}/reply/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "message",
+                    "key": "message"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "posthog-support-tickets-list": {
+        "name": "posthog-support-tickets-list",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/posthog_support/tickets/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": [
+                {
+                    "param": "limit",
+                    "key": "limit",
+                    "csv": false
+                },
+                {
+                    "param": "offset",
+                    "key": "offset",
+                    "csv": false
+                },
+                {
+                    "param": "status",
+                    "key": "status",
+                    "csv": false
+                }
+            ],
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "pr-lifecycle": {
         "name": "pr-lifecycle",
         "kind": "http",

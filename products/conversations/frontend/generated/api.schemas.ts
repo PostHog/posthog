@@ -1442,29 +1442,6 @@ export interface CreatePostHogSupportTicketApi {
     deletion_consent?: boolean
 }
 
-export interface PostHogSupportReplyApi {
-    /**
-     * The reply in plain text, for example the details support asked for. Do not include secrets, API keys or personal data.
-     * @maxLength 8000
-     */
-    message: string
-}
-
-export interface PostHogSupportReplySentApi {
-    /** ID of the new message. */
-    message_id: string
-    /** Status of the ticket now.
-     *
-     * * `new` - New
-     * * `open` - Open
-     * * `pending` - Pending
-     * * `on_hold` - On hold
-     * * `resolved` - Resolved */
-    ticket_status: TicketStatusEnumApi
-    /** When support received the reply. */
-    created_at: string
-}
-
 export interface PostHogSupportTicketCreatedApi {
     /** ID of the new ticket in PostHog's support inbox. */
     ticket_id: string
@@ -1500,6 +1477,29 @@ export interface PostHogSupportTicketDetailApi {
     messages: PostHogSupportMessageApi[]
     /** True when the ticket has more messages than this response holds. */
     has_more: boolean
+}
+
+export interface PostHogSupportReplyApi {
+    /**
+     * The reply in plain text, for example the details support asked for. Do not include secrets, API keys or personal data.
+     * @maxLength 8000
+     */
+    message: string
+}
+
+export interface PostHogSupportReplySentApi {
+    /** ID of the new message. */
+    message_id: string
+    /** Status of the ticket now.
+     *
+     * * `new` - New
+     * * `open` - Open
+     * * `pending` - Pending
+     * * `on_hold` - On hold
+     * * `resolved` - Resolved */
+    ticket_status: TicketStatusEnumApi
+    /** When support received the reply. */
+    created_at: string
 }
 
 export type ConversationsMacrosListParams = {
