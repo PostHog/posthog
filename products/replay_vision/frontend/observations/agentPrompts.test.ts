@@ -57,8 +57,9 @@ describe('buildObservationContext', () => {
             expect(context).toBeNull()
             return
         }
-        expect(context).toContain('```\n' + result + '\n```')
-        expect(context).toContain('Question: Did the user hit an error?')
+        expect(context).toContain(
+            '```\nScanner: Checkout errors\nQuestion: Did the user hit an error?\n\n' + result + '\n```'
+        )
         expect(context).toContain('/replay-vision/observations/obs-1')
         expect(context).not.toContain('subject@example.com')
     })
@@ -68,6 +69,7 @@ describe('buildObservationContext', () => {
 
         const context = buildObservationContext(makeObservation('monitor', { verdict: 'no', reasoning }))
 
-        expect(context).toContain('````\nVerdict: No\n\nReasoning:\n' + reasoning + '\n````')
+        expect(context).toContain('\n\nVerdict: No\n\nReasoning:\n' + reasoning + '\n````')
+        expect(context).toContain('````\nScanner: Checkout errors')
     })
 })
