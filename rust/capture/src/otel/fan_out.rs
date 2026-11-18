@@ -6,6 +6,7 @@ use serde_json::{Map, Value};
 
 use super::error_status::apply_error_status_properties;
 use super::identity::{extract_distinct_id_for_span, span_fallback_distinct_id};
+use super::mcp::{self, McpSpan};
 use super::providers;
 
 pub struct SpanEvent {
@@ -141,8 +142,18 @@ pub fn expand_into_events(
 
         for ss in &rs.scope_spans {
             for span in &ss.spans {
-                let Some(provider) = providers::get_provider_raw(&span.attributes) else {
-                    continue;
+                let classification = mcp::classify(span);
+                let mcp_event = matches!(classification, McpSpan::Event(_));
+                let (event_name, span_attrs) = match classification {
+                    McpSpan::Event(event_name) => (event_name, attributes_to_map(&span.attributes)),
+                    McpSpan::Dropped => continue,
+                    McpSpan::NotServer => {
+                        let Some(provider) = providers::get_provider_raw(&span.attributes) else {
+                            continue;
+                        };
+                        let span_attrs = attributes_to_map(&span.attributes);
+                        ((provider.classify)(&span_attrs), span_attrs)
+                    }
                 };
 
                 let fallback_distinct_id = span_fallback_distinct_id(
@@ -156,8 +167,6 @@ pub fn expand_into_events(
                     rs.resource.as_ref(),
                     &fallback_distinct_id,
                 );
-                let span_attrs = attributes_to_map(&span.attributes);
-                let event_name = (provider.classify)(&span_attrs);
 
                 let mut properties = resource_attrs.clone();
                 properties.extend(span_attrs);
@@ -197,7 +206,17 @@ pub fn expand_into_events(
                     "$otel_end_time_unix_nano".to_string(),
                     Value::String(span.end_time_unix_nano.to_string()),
                 );
-                apply_error_status_properties(span, &mut properties);
+                if mcp_event {
+                    mcp::apply_status_properties(span, &mut properties);
+                    // Like the MCP SDKs, an anonymous caller gets no person profile.
+                    if distinct_id == fallback_distinct_id {
+                        properties
+                            .entry("$process_person_profile")
+                            .or_insert(Value::Bool(false));
+                    }
+                } else {
+                    apply_error_status_properties(span, &mut properties);
+                }
 
                 let timestamp = nanos_to_datetime(span.start_time_unix_nano);
 
@@ -545,6 +564,62 @@ mod tests {
         };
         let events = expand_into_events(&request, "fallback");
         assert_eq!(events[0].distinct_id, "span-user");
+    }
+
+    #[rstest]
+    #[case::anonymous(None, Some(false))]
+    #[case::integer_user_id(Some(("user.id", any_value::Value::IntValue(42))), Some(false))]
+    #[case::user_id(
+        Some(("user.id", any_value::Value::StringValue("user-1".to_string()))),
+        None
+    )]
+    #[case::vercel_metadata_id(
+        Some((
+            "ai.telemetry.metadata.posthog_distinct_id",
+            any_value::Value::StringValue("user-1".to_string())
+        )),
+        None
+    )]
+    fn test_mcp_events_skip_person_processing_only_for_anonymous_callers(
+        #[case] identity: Option<(&str, any_value::Value)>,
+        #[case] expected: Option<bool>,
+    ) {
+        let mut attributes = vec![make_kv(
+            "mcp.method.name",
+            any_value::Value::StringValue("tools/list".to_string()),
+        )];
+        attributes.extend(identity.map(|(key, value)| make_kv(key, value)));
+        let mut span = make_span(
+            vec![1; 16],
+            vec![1; 8],
+            vec![],
+            1,
+            2,
+            "tools/list",
+            attributes,
+        );
+        span.kind = opentelemetry_proto::tonic::trace::v1::span::SpanKind::Server as i32;
+        let request = ExportTraceServiceRequest {
+            resource_spans: vec![ResourceSpans {
+                resource: None,
+                scope_spans: vec![ScopeSpans {
+                    scope: None,
+                    spans: vec![span],
+                    schema_url: String::new(),
+                }],
+                schema_url: String::new(),
+            }],
+        };
+
+        let events = expand_into_events(&request, "fallback");
+
+        assert_eq!(
+            events[0]
+                .properties
+                .get("$process_person_profile")
+                .and_then(Value::as_bool),
+            expected
+        );
     }
 
     #[test]

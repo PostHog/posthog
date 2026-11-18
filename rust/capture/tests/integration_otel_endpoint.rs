@@ -30,6 +30,7 @@ use limiters::token_dropper::TokenDropper;
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
 use opentelemetry_proto::tonic::common::v1::{any_value, AnyValue, KeyValue};
 use opentelemetry_proto::tonic::resource::v1::Resource;
+use opentelemetry_proto::tonic::trace::v1::span::SpanKind;
 use opentelemetry_proto::tonic::trace::v1::{ResourceSpans, ScopeSpans, Span};
 use prost::Message;
 use serde_json::json;
@@ -1873,4 +1874,121 @@ async fn test_otel_batch_without_overflow_limiter_leaves_reason_none() {
         assert_eq!(event.metadata.overflow_reason, None);
         assert!(!event.metadata.skip_person_processing);
     }
+}
+
+// OTLP/JSON exports recorded from the MCP Python SDK 2.3.0 over Streamable HTTP and from the
+// MCP TypeScript SDK at modelcontextprotocol/typescript-sdk@1e608cae on a stateful session.
+#[rstest::rstest]
+#[case::python_sdk(
+    include_str!("fixtures/otel_mcp_python_sdk.json"),
+    &[
+        "$mcp_initialize", "$mcp_tools_list", "$mcp_tool_call", "$mcp_tool_call", "$mcp_tool_call",
+        "$mcp_prompts_list", "$mcp_prompt_get", "$mcp_resources_list", "$mcp_resource_read",
+    ],
+)]
+#[case::typescript_sdk(
+    include_str!("fixtures/otel_mcp_typescript_sdk.json"),
+    &[
+        "$mcp_initialize", "$mcp_tools_list", "$mcp_tool_call", "$mcp_tool_call", "$mcp_tool_call",
+        "$mcp_tool_call", "$mcp_prompts_list", "$mcp_prompt_get", "$mcp_resources_list",
+        "$mcp_resource_read", "$ai_span", "$ai_span", "$ai_span", "$ai_span", "$ai_span",
+    ],
+)]
+#[tokio::test]
+async fn test_mcp_server_spans_become_mcp_events(
+    #[case] export: &str,
+    #[case] expected_events: &[&str],
+) {
+    let sink = CapturingSink::new();
+    let resp = make_test_client(&sink)
+        .post(ENDPOINT)
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", TOKEN))
+        .body(export.to_string())
+        .send()
+        .await;
+    assert_eq!(resp.status().as_u16(), 200);
+
+    let events = sink.get_events().await;
+    let names: Vec<&str> = events.iter().map(|e| e.event.event.as_str()).collect();
+    assert_eq!(names, expected_events);
+    for event in events.iter().filter(|e| e.event.event.starts_with("$mcp_")) {
+        assert_eq!(
+            parse_event_data(event)["properties"]["$process_person_profile"],
+            false
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_mcp_notification_batch_does_not_warn() {
+    let server_span = |method: &str| Span {
+        kind: SpanKind::Server as i32,
+        ..make_span(
+            vec![9; 16],
+            vec![8; 8],
+            vec![],
+            1_704_067_200_000_000_000,
+            vec![make_kv(
+                "mcp.method.name",
+                any_value::Value::StringValue(method.to_string()),
+            )],
+        )
+    };
+    let request = ExportTraceServiceRequest {
+        resource_spans: vec![ResourceSpans {
+            resource: None,
+            scope_spans: vec![ScopeSpans {
+                scope: None,
+                spans: vec![
+                    server_span("notifications/initialized"),
+                    server_span("ping"),
+                ],
+                schema_url: String::new(),
+            }],
+            schema_url: String::new(),
+        }],
+    };
+    let sink = CapturingSink::new();
+    let (client, emitter) = make_test_client_collecting_warnings(&sink);
+
+    assert_eq!(send_request_with_client(&client, &request).await, 200);
+    assert!(sink.get_events().await.is_empty());
+    assert!(emitter.emitted().is_empty());
+}
+
+#[rstest::rstest]
+#[case::events_quota(QuotaResource::Events, "$ai_span", 5)]
+#[case::llm_quota(QuotaResource::LLMEvents, "$mcp_", 10)]
+#[tokio::test]
+async fn test_quota_drops_only_the_family_over_quota(
+    #[case] limited: QuotaResource,
+    #[case] kept_prefix: &str,
+    #[case] kept: usize,
+) {
+    let key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, limited.as_str());
+    let redis = Arc::new(MockRedisClient::new().zrangebyscore_ret(&key, vec![TOKEN.to_string()]));
+    let sink = CapturingSink::new();
+    let client = make_test_client_with_options(
+        &sink,
+        TestClientOptions {
+            redis: Some(redis),
+            ..Default::default()
+        },
+    );
+
+    let resp = client
+        .post(ENDPOINT)
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", TOKEN))
+        .body(include_str!("fixtures/otel_mcp_typescript_sdk.json"))
+        .send()
+        .await;
+    assert_eq!(resp.status().as_u16(), 200);
+
+    let events = sink.get_events().await;
+    assert_eq!(events.len(), kept);
+    assert!(events
+        .iter()
+        .all(|e| e.event.event.starts_with(kept_prefix)));
 }

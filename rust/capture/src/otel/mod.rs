@@ -4,6 +4,7 @@ mod fan_out;
 mod filtering;
 mod identity;
 mod ingestion;
+mod mcp;
 mod provenance;
 mod providers;
 
@@ -217,11 +218,13 @@ pub async fn otel_handler(
         // above), so the customer sent spans and none of them landed. The OTLP
         // contract has no way to say that in the response, which is why this
         // 200 gets a warning and the mixed-batch case above does not.
-        emit_no_ai_spans_warning(
-            state.ingestion_warning_emitter.as_deref(),
-            &otel_request_context(token, OTEL_PATH, Some(&request)),
-            raw_span_count,
-        );
+        if !mcp::has_server_span(&request) {
+            emit_no_ai_spans_warning(
+                state.ingestion_warning_emitter.as_deref(),
+                &otel_request_context(token, OTEL_PATH, Some(&request)),
+                raw_span_count,
+            );
+        }
         counter!("capture_ai_otel_requests_success").increment(1);
         return Ok(Json(json!({})));
     }
@@ -248,23 +251,23 @@ pub async fn otel_handler(
         .unwrap_or_else(|| "127.0.0.1".to_string());
     let token = token.to_string();
 
-    // All-or-nothing quota check: reject the entire batch if any span is over quota
-    if let Err(outcome) = filtering::check_quota(
+    let span_events = match filtering::check_quota(
         &state.quota_limiter,
         &token,
-        &span_events,
+        span_events,
         gateway_provenance == provenance::Provenance::Verified,
     )
     .await
     {
-        return match outcome {
-            filtering::QuotaOutcome::Dropped => Err(non_retryable_rejection("quota exceeded")),
-            filtering::QuotaOutcome::Error(e) => {
-                report_internal_error_metrics(e.to_metric_tag(), "otel_quota");
-                Err(e.into_response())
-            }
-        };
-    }
+        Ok(span_events) => span_events,
+        Err(filtering::QuotaOutcome::Dropped) => {
+            return Err(non_retryable_rejection("quota exceeded"))
+        }
+        Err(filtering::QuotaOutcome::Error(e)) => {
+            report_internal_error_metrics(e.to_metric_tag(), "otel_quota");
+            return Err(e.into_response());
+        }
+    };
 
     let restrictions = match &state.event_restriction_service {
         Some(service) => {
