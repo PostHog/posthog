@@ -1204,10 +1204,11 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         person_uuids = [person_uuid for _, person_uuid in deduped_pairs]
 
         if insert_in_clickhouse:
-            # An explicit addition undoes an earlier removal, so a repair must not delete these members. A missing
-            # clear only reopens that rare race, so it must not fail the addition.
+            # An explicit addition undoes an earlier removal, so a repair must not delete these members. If the clear
+            # fails, a repair in the next few days deletes them from Postgres again, which is rare enough not to fail
+            # the addition.
             try:
-                clear_static_cohort_member_removals(cohort_id=self.pk, members=deduped_pairs)
+                clear_static_cohort_member_removals(cohort_id=self.pk, person_uuids=person_uuids)
             except SoftTimeLimitExceeded:
                 raise
             except Exception as clear_err:

@@ -17,6 +17,7 @@ from celery.exceptions import MaxRetriesExceededError, Retry, SoftTimeLimitExcee
 from celery.utils.time import get_exponential_backoff_interval
 from dateutil.relativedelta import relativedelta
 from prometheus_client import Counter, Gauge, Histogram
+from redis.exceptions import RedisError
 
 from posthog.hogql.errors import ExposedHogQLError
 
@@ -1522,7 +1523,7 @@ def reconcile_static_cohort_membership(self: Task, team_id: int, cohort_id: int)
     except Exception as err:
         # A retry starts the copy again from the first page. The read-back already waited for replicas, and a run
         # that hit the time limit would hit it again.
-        retryable = _is_transient_population_error(err) and not isinstance(
+        retryable = (_is_transient_population_error(err) or isinstance(err, RedisError)) and not isinstance(
             err, StaticCohortReadBackIncomplete | SoftTimeLimitExceeded
         )
         if not _is_final_attempt(self, retryable):

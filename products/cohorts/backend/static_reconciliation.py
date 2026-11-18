@@ -6,6 +6,7 @@ cohort finishes with an empty Postgres membership, so flags match nobody and the
 The sweep drains the cohorts that broke this way and then keeps running as a safety net for any later gap.
 """
 
+import time
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -53,8 +54,9 @@ RECONCILE_RECHECK_IN_SYNC_AFTER = timedelta(hours=6)
 # A parked cohort is left alone until its ClickHouse count changes or this expires.
 RECONCILE_PARK_FOR = timedelta(days=30)
 
-# Longer than a ClickHouse delete of a removed member takes to apply.
-RECONCILE_REMOVAL_TTL = timedelta(hours=24)
+# Longer than a ClickHouse delete of a removed member takes to apply, and than RECONCILE_RETRY_AFTER, so a repair
+# whose final cleanup failed still finds the mark the next time it runs.
+RECONCILE_REMOVAL_TTL = timedelta(days=7)
 
 # Removals and additions are user actions, so a slow Redis must not hold them up for the default timeout.
 _USER_PATH_REDIS_TIMEOUT_SECONDS = 1.0
@@ -107,14 +109,6 @@ def _removed_members_key(cohort_id: int) -> str:
     return f"static-cohort-reconcile:removed:{cohort_id}"
 
 
-# The removal time only decides when a mark expires, so each mark ages out on its own.
-_REMOVED_AT_FORMAT = "%Y-%m-%d %H:%M:%S"
-
-
-def _removal_field(person_id: int, person_uuid: str) -> str:
-    return f"{person_id}:{person_uuid}"
-
-
 def record_static_cohort_member_removal(*, cohort_id: int, person_id: int, person_uuid: str) -> None:
     """Keep a removed member out of repairs while ClickHouse deletes it asynchronously.
 
@@ -122,34 +116,34 @@ def record_static_cohort_member_removal(*, cohort_id: int, person_id: int, perso
     """
     key = _removed_members_key(cohort_id)
     pipeline = _user_path_redis().pipeline(transaction=False)
-    pipeline.hset(key, _removal_field(person_id, person_uuid), datetime.now().strftime(_REMOVED_AT_FORMAT))
+    # Keyed by UUID, which is all a population's copy knows. The value lets each mark age out on its own.
+    pipeline.hset(key, person_uuid, f"{int(time.time())}:{person_id}")
     pipeline.expire(key, int(RECONCILE_REMOVAL_TTL.total_seconds()))
     pipeline.execute()
 
 
-def clear_static_cohort_member_removals(*, cohort_id: int, members: list[tuple[int, str]]) -> None:
+def clear_static_cohort_member_removals(*, cohort_id: int, person_uuids: list[str]) -> None:
     """Forget the removal of members that were added again, so a repair does not delete them.
 
-    Call it for explicit additions only. The repair's own copy must keep the marks.
+    Call it for additions and populations only. The repair's own copy must keep the marks.
     """
-    if members:
-        _user_path_redis().hdel(
-            _removed_members_key(cohort_id), *(_removal_field(person_id, uuid) for person_id, uuid in members)
-        )
+    if person_uuids:
+        _user_path_redis().hdel(_removed_members_key(cohort_id), *person_uuids)
 
 
 def _delete_recently_removed_members(cohort: StaticCohortToReconcile) -> None:
     """Delete from Postgres every member removed within RECONCILE_REMOVAL_TTL and not added again since."""
     client = get_client()
     key = _removed_members_key(cohort.cohort_id)
-    expired_before = (datetime.now() - RECONCILE_REMOVAL_TTL).strftime(_REMOVED_AT_FORMAT)
+    expired_before = time.time() - RECONCILE_REMOVAL_TTL.total_seconds()
     removed: list[int] = []
     expired: list[bytes] = []
-    for field, removed_at in client.hgetall(key).items():
-        if removed_at.decode() < expired_before:
+    for field, value in client.hgetall(key).items():
+        removed_at, person_id = value.decode().split(":", 1)
+        if int(removed_at) < expired_before:
             expired.append(field)
         else:
-            removed.append(int(field.decode().split(":", 1)[0]))
+            removed.append(int(person_id))
     if expired:
         client.hdel(key, *expired)
     for person_id in removed:

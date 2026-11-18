@@ -13,6 +13,7 @@ from django.utils import timezone
 from celery.exceptions import Retry, SoftTimeLimitExceeded
 from parameterized import parameterized
 from prometheus_client import REGISTRY
+from redis.exceptions import RedisError
 
 from posthog.models.instance_setting import override_instance_config
 from posthog.redis import get_client
@@ -93,6 +94,7 @@ class TestStaticCohortReconciliation(BaseTest):
             ("never_calculated_settled", 0, 3, {"last_calculation": None, "created_at_ago": timedelta(hours=2)}, True),
             ("never_calculated_new", 0, 3, {"last_calculation": None, "created_at_ago": timedelta(minutes=10)}, False),
             ("errored_within_settle_delay", 0, 3, {"last_error_at_ago": timedelta(minutes=10)}, False),
+            ("errored_long_ago", 0, 3, {"last_error_at_ago": timedelta(days=2)}, True),
             ("deleted", 0, 3, {"deleted": True}, False),
             ("last_population_failed", 0, 3, {"errors_calculating": 1}, False),
         ]
@@ -151,6 +153,16 @@ class TestStaticCohortReconciliation(BaseTest):
         cohort = self._static_cohort(clickhouse_members=3, last_calculation=self.now - timedelta(hours=3))
 
         self.assertEqual([self._dispatched_ids(), self._dispatched_ids()], [[cohort.pk], []])
+
+    @patch.object(static_reconciliation, "RECONCILE_PAGE_SIZE", 1)
+    def test_a_held_recent_cohort_does_not_hide_an_older_one(self) -> None:
+        older, newer = (
+            self._static_cohort(clickhouse_members=1, last_calculation=self.now - timedelta(hours=hours))
+            for hours in (4, 3)
+        )
+        static_reconciliation._hold(newer.pk, timedelta(hours=1))
+
+        self.assertEqual(self._dispatched_ids(), [older.pk])
 
     def test_a_failed_dispatch_is_retried_on_the_next_pass(self) -> None:
         cohort = self._static_cohort(clickhouse_members=3)
@@ -287,21 +299,27 @@ class TestStaticCohortReconciliation(BaseTest):
 
         self.assertEqual(count_cohort_members(self.team.pk, cohort.pk), 1)
 
-    def test_a_member_removed_and_added_again_stays_added(self) -> None:
+    @parameterized.expand([("explicit_addition",), ("query_population",)])
+    def test_a_member_removed_and_added_again_stays_added(self, how: str) -> None:
         person, other = (create_person(team=self.team, distinct_ids=[f"member-{i}"]) for i in range(2))
         cohort = self._static_cohort(person_uuids=(person.uuid, other.uuid))
         self.addCleanup(get_client().delete, static_reconciliation._removed_members_key(cohort.pk))
-        # The ClickHouse delete has not applied yet, so the re-add writes no new ClickHouse row.
+        # The ClickHouse delete has not applied yet, so the old row is still there.
         with patch("products.cohorts.backend.models.util.remove_person_from_static_cohort"):
             cohort.remove_user_by_uuid(str(person.uuid), team_id=self.team.pk)
-        cohort.insert_users_list_by_uuid([str(person.uuid)], team_id=self.team.pk, save_state=False)
+        if how == "explicit_addition":
+            cohort.insert_users_list_by_uuid([str(person.uuid)], team_id=self.team.pk, save_state=False)
+        else:
+            written_since = (self.now - timedelta(minutes=1)).strftime("%Y-%m-%d %H:%M:%S")
+            insert_static_cohort([person.uuid], cohort.pk, team_id=self.team.pk)
+            insert_cohort_people_into_pg(cohort, team_id=self.team.pk, min_rows=1, written_since=written_since)
         Cohort.objects.filter(pk=cohort.pk).update(count=0)
 
         reconcile_static_cohort(StaticCohortToReconcile(team_id=self.team.pk, cohort_id=cohort.pk))
 
         self.assertEqual(count_cohort_members(self.team.pk, cohort.pk), 2)
 
-    @parameterized.expand([("recent", timedelta(hours=1), 1), ("expired", timedelta(hours=25), 2)])
+    @parameterized.expand([("recent", timedelta(hours=1), 1), ("expired", timedelta(days=8), 2)])
     def test_a_retry_that_finds_the_cohort_complete_still_deletes_removed_members(
         self, _name: str, removed_ago: timedelta, expected_members: int
     ) -> None:
@@ -316,7 +334,7 @@ class TestStaticCohortReconciliation(BaseTest):
                 cohort_id=cohort.pk, person_id=removed.id, person_uuid=str(removed.uuid)
             )
         # A later removal of someone else renews the key, so only the entry's own age can expire it.
-        with time_machine.travel(self.now - timedelta(hours=2), tick=False):
+        with time_machine.travel(self.now - timedelta(days=2), tick=False):
             static_reconciliation.record_static_cohort_member_removal(
                 cohort_id=cohort.pk, person_id=999_999_999, person_uuid=str(uuid.uuid4())
             )
@@ -325,7 +343,7 @@ class TestStaticCohortReconciliation(BaseTest):
 
         self.assertEqual(count_cohort_members(self.team.pk, cohort.pk), expected_members)
         self.assertEqual(
-            get_client().hexists(static_reconciliation._removed_members_key(cohort.pk), f"{removed.id}:{removed.uuid}"),
+            get_client().hexists(static_reconciliation._removed_members_key(cohort.pk), str(removed.uuid)),
             removed_ago < static_reconciliation.RECONCILE_REMOVAL_TTL,
         )
 
@@ -345,6 +363,7 @@ class TestStaticCohortReconciliation(BaseTest):
     @parameterized.expand(
         [
             ("transient", OperationalError("connection reset"), True),
+            ("redis", RedisError("connection reset"), True),
             ("read_back_incomplete", StaticCohortReadBackIncomplete("read 1 of 2 rows"), False),
             ("soft_time_limit", SoftTimeLimitExceeded(), False),
         ]
@@ -387,3 +406,14 @@ class TestStaticCohortReconciliation(BaseTest):
             self.assertRaises(SoftTimeLimitExceeded),
         ):
             cohort.insert_users_list_by_uuid([str(person.uuid)], team_id=self.team.pk)
+
+    def test_a_redis_error_while_clearing_a_removal_still_adds_the_member(self) -> None:
+        person = create_person(team=self.team, distinct_ids=["member"])
+        cohort = Cohort.objects.create(team=self.team, name="static", is_static=True)
+
+        with patch.object(
+            static_reconciliation, "clear_static_cohort_member_removals", side_effect=ConnectionError("redis down")
+        ):
+            cohort.insert_users_list_by_uuid([str(person.uuid)], team_id=self.team.pk)
+
+        self.assertEqual(count_cohort_members(self.team.pk, cohort.pk), 1)

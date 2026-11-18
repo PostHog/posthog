@@ -125,6 +125,7 @@ class TestRemoveUserByUuid(BaseTest):
 
         assert result is True
         assert (cohort.id, person.id) not in get_active_fake()._cohort_members
+        mock_record.assert_called_once()
 
     @patch("products.cohorts.backend.models.util.remove_person_from_static_cohort")
     @patch("products.cohorts.backend.models.util.get_static_cohort_size", return_value=0)

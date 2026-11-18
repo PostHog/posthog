@@ -14,6 +14,7 @@ from django.db import DEFAULT_DB_ALIAS, InterfaceError, OperationalError, connec
 from django.utils import timezone
 
 import structlog
+from celery.exceptions import SoftTimeLimitExceeded
 from clickhouse_driver.errors import SocketTimeoutError
 from dateutil import parser
 from pydantic import ValidationError as PydanticValidationError
@@ -1476,7 +1477,10 @@ def _copy_static_cohort_rows_to_pg(cohort: Cohort, *, team_id: int, written_sinc
         )
         if not rows:
             return [], cursor
-        new_rows_read += sum(1 for _, is_written_since in rows if is_written_since)
+        written_uuids = [str(person_id) for person_id, is_written_since in rows if is_written_since]
+        new_rows_read += len(written_uuids)
+        if written_since is not None:
+            _clear_removals_of_repopulated_members(cohort.pk, team_id, written_uuids)
         items = [str(r[0]) for r in rows]
         return items, items[-1]
 
@@ -1490,6 +1494,21 @@ def _copy_static_cohort_rows_to_pg(cohort: Cohort, *, team_id: int, written_sinc
         batch_iterator, insert_in_clickhouse=False, team_id=team_id, raise_on_error=True, save_state=False
     )
     return new_rows_read
+
+
+def _clear_removals_of_repopulated_members(cohort_id: int, team_id: int, person_uuids: list[str]) -> None:
+    """A population that writes a removed member again undoes the removal, so a repair must not delete it.
+
+    Only rows the population wrote count: older rows may be removed members whose ClickHouse delete has not applied.
+    """
+    from products.cohorts.backend.static_reconciliation import clear_static_cohort_member_removals
+
+    try:
+        clear_static_cohort_member_removals(cohort_id=cohort_id, person_uuids=person_uuids)
+    except SoftTimeLimitExceeded:
+        raise
+    except Exception as err:
+        capture_exception(err, additional_properties={"cohort_id": cohort_id, "team_id": team_id})
 
 
 # ── Cohort membership operations (Postgres / personhog) ───────────────
