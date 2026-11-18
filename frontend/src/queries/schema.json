@@ -58224,6 +58224,10 @@
                 },
                 "hidden": {
                     "type": "boolean"
+                },
+                "yAxisPosition": {
+                    "enum": ["auto", "left", "right"],
+                    "type": "string"
                 }
             },
             "type": "object"
@@ -58244,6 +58248,10 @@
                 },
                 "hidden": {
                     "type": "boolean"
+                },
+                "yAxisPosition": {
+                    "enum": ["auto", "left", "right"],
+                    "type": "string"
                 }
             },
             "required": ["assignmentBy"],
@@ -58266,6 +58274,10 @@
                     "type": "boolean"
                 },
                 "label": {
+                    "type": "string"
+                },
+                "yAxisPosition": {
+                    "enum": ["auto", "left", "right"],
                     "type": "string"
                 }
             },

@@ -2,13 +2,19 @@ import { CSSProperties } from 'react'
 
 import { useChartLayout } from '@posthog/quill-charts'
 
-export type BIChartAxis = 'x' | 'left' | 'right'
+export type ChartAxis = 'x' | 'left' | 'right'
 
-export function BIChartAxisControls({ onEdit }: { onEdit: (axis: BIChartAxis) => void }): JSX.Element {
+export function ChartAxisControls({
+    onEdit,
+    axes = ['x', 'left', 'right'],
+}: {
+    onEdit: (axis: ChartAxis) => void
+    axes?: readonly ChartAxis[]
+}): JSX.Element {
     const { dimensions, axis, yGutters } = useChartLayout()
     const { plotLeft, plotTop, plotWidth, plotHeight, width, height } = dimensions
     const horizontal = axis.orientation === 'horizontal'
-    const targets: { axis: BIChartAxis; label: string; style: CSSProperties }[] = [
+    const targets: { axis: ChartAxis; label: string; style: CSSProperties }[] = [
         {
             axis: horizontal ? 'left' : 'x',
             label: 'Edit bottom axis',
@@ -41,19 +47,22 @@ export function BIChartAxisControls({ onEdit }: { onEdit: (axis: BIChartAxis) =>
     ]
     return (
         <>
-            {targets.map((target) => (
-                <button
-                    key={target.axis}
-                    type="button"
-                    className="pointer-events-auto absolute cursor-pointer rounded border border-transparent bg-transparent hover:border-primary focus-visible:border-primary focus-visible:outline-none"
-                    // Axis hit areas follow the chart's measured gutters, including horizontal bars.
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={target.style}
-                    aria-label={target.label}
-                    title={target.label}
-                    onClick={() => onEdit(target.axis)}
-                />
-            ))}
+            {targets
+                .filter((target) => axes.includes(target.axis))
+                .map((target) => (
+                    <button
+                        key={target.axis}
+                        type="button"
+                        className="pointer-events-auto absolute cursor-pointer rounded border border-transparent bg-transparent hover:border-primary focus-visible:border-primary focus-visible:outline-none"
+                        // Axis hit areas follow the chart's measured gutters, including horizontal bars.
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={target.style}
+                        data-attr={`chart-edit-${target.axis}-axis`}
+                        aria-label={target.label}
+                        title={target.label}
+                        onClick={() => onEdit(target.axis)}
+                    />
+                ))}
         </>
     )
 }
