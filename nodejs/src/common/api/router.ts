@@ -1,7 +1,7 @@
 import * as prometheus from 'prom-client'
 import express, { NextFunction, Request, Response } from 'ultimate-express'
 
-import { createCompressedBodyMiddleware } from '~/common/api/middleware/compressed-body'
+import { bytesParserLimit, createCompressedBodyMiddleware } from '~/common/api/middleware/compressed-body'
 import { corsMiddleware } from '~/common/api/middleware/cors'
 import { httpMetricsMiddleware } from '~/common/api/middleware/http-metrics'
 import { createInternalApiAuthMiddleware } from '~/common/api/middleware/internal-api-auth'
@@ -33,7 +33,6 @@ export interface SetupExpressAppOptions {
     internalApiSecret?: string
     // Comma-separated previous secrets still accepted for verification during rotation.
     internalApiSecretFallbacks?: string
-    // Request body size limit in bytes, applied both before and after decoding a compressed body.
     bodyLimitBytes?: number
     // Path prefixes that only serve reads. Other methods get a 405 before the body parser buffers anything, so an
     // unauthenticated caller cannot make the server parse a large body for a route that never reads one.
@@ -93,7 +92,7 @@ export function setupExpressApp(options: SetupExpressAppOptions = {}): express.A
     app.use(createCompressedBodyMiddleware(bodyLimitBytes))
     app.use(
         express.json({
-            limit: String(bodyLimitBytes),
+            limit: bytesParserLimit(bodyLimitBytes),
             inflate: false,
             verify: (req, res, buf) => {
                 ;(req as any).rawBody = buf.toString('utf8')

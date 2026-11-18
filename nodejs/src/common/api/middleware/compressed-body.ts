@@ -4,97 +4,115 @@ import { brotliDecompress, gunzip, inflate } from 'zlib'
 import { parseJSON } from '~/common/utils/json-parse'
 
 type Decompress = (input: Buffer, maxOutputLength: number) => Promise<Buffer>
+type ZlibCall = (
+    input: Buffer,
+    options: { maxOutputLength: number },
+    callback: (error: Error | null, result: Buffer) => void
+) => void
 
 const promised =
-    (
-        decompress: (
-            input: Buffer,
-            options: { maxOutputLength: number },
-            callback: (error: Error | null, result: Buffer) => void
-        ) => void
-    ): Decompress =>
+    (decompress: ZlibCall): Decompress =>
     (input, maxOutputLength) =>
         new Promise((resolve, reject) =>
             decompress(input, { maxOutputLength }, (error, result) => (error ? reject(error) : resolve(result)))
         )
 
-const DECOMPRESSORS: Record<string, Decompress> = {
-    gzip: promised(gunzip),
-    deflate: promised(inflate),
-    br: promised(brotliDecompress),
+const gunzipAsync = promised(gunzip)
+const inflateAsync = promised(inflate)
+const brotliDecompressAsync = promised(brotliDecompress)
+
+function decompressorFor(encoding: string): Decompress | undefined {
+    switch (encoding) {
+        case 'gzip':
+            return gunzipAsync
+        case 'deflate':
+            return inflateAsync
+        case 'br':
+            return brotliDecompressAsync
+        default:
+            return undefined
+    }
+}
+
+export function bytesParserLimit(limitBytes: number): string {
+    return String(limitBytes)
+}
+
+function contentEncodingOf(req: Request): string {
+    return (req.headers['content-encoding'] ?? '').trim().toLowerCase() || 'identity'
+}
+
+function isJsonBody(req: Request): boolean {
+    return (req.headers['content-type'] ?? '').split(';')[0] === 'application/json'
 }
 
 function tooLarge(): Error {
     return Object.assign(new Error('Request entity too large'), { status: 413 })
 }
 
-function mediaTypeOf(req: Request): string {
-    return (req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase()
+function refuse(res: Response, status: number, error: string): void {
+    res.status(status).json({ status: 'error', error })
 }
 
-// ultimate-express decodes a compressed body outside its error handling, and checks the size limit only after each
-// chunk is decoded. The json and text parsers that run after this middleware see req.bodyRead and skip.
+function onceOnly(callback: (error?: unknown) => void): (error?: unknown) => void {
+    let called = false
+    return (error) => {
+        if (!called) {
+            called = true
+            callback(error)
+        }
+    }
+}
+
 export function createCompressedBodyMiddleware(limitBytes: number): RequestHandler {
-    // ultimate-express passes `limit` through bytes(), which formats a number as text such as '1KB' and then never
-    // matches it. A numeric string parses back to the byte count.
-    const readCompressed = express.raw({ type: () => true, inflate: false, limit: String(limitBytes) })
+    const readRawBody = express.raw({ type: () => true, inflate: false, limit: bytesParserLimit(limitBytes) })
+
+    const decodeJson = async (req: Request, res: Response, next: NextFunction, decompress: Decompress) => {
+        let decoded: Buffer
+        try {
+            decoded = await decompress(req.body, limitBytes)
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ERR_BUFFER_TOO_LARGE') {
+                return next(tooLarge())
+            }
+            return refuse(res, 400, 'Malformed compressed body')
+        }
+        const text = decoded.toString('utf8')
+        ;(req as Request & { rawBody?: string }).rawBody = text
+        try {
+            req.body = text.length === 0 ? {} : parseJSON(text)
+        } catch (error) {
+            return next(error)
+        }
+        next()
+    }
 
     return (req: Request, res: Response, next: NextFunction) => {
-        const encoding = (req.headers['content-encoding'] ?? 'identity').trim().toLowerCase()
+        const encoding = contentEncodingOf(req)
         if (encoding === 'identity') {
             return next()
         }
 
-        // The raw parser can call back more than once: after each chunk past the limit, and again at the end.
-        let settled = false
-        readCompressed(req, res, (error?: unknown) => {
-            if (settled) {
-                return
-            }
-            settled = true
-            if (error) {
-                return next(error)
-            }
-            if (!Buffer.isBuffer(req.body)) {
-                return next()
-            }
-            const decompress = DECOMPRESSORS[encoding]
-            if (!decompress) {
-                res.status(415).json({ status: 'error', error: 'Unsupported content encoding' })
-                return
-            }
-            decompress(req.body, limitBytes).then(
-                (decoded) => {
-                    try {
-                        setDecodedBody(req, decoded)
-                    } catch (parseError) {
-                        return next(parseError)
+        readRawBody(
+            req,
+            res,
+            onceOnly((readError) => {
+                try {
+                    if (readError) {
+                        return next(readError)
                     }
-                    next()
-                },
-                (decodeError: NodeJS.ErrnoException) => {
-                    if (decodeError.code === 'ERR_BUFFER_TOO_LARGE') {
-                        return next(tooLarge())
+                    if (!Buffer.isBuffer(req.body)) {
+                        return next()
                     }
-                    res.status(400).json({ status: 'error', error: 'Malformed compressed body' })
+                    const decompress = decompressorFor(encoding)
+                    if (!decompress || !isJsonBody(req)) {
+                        return refuse(res, 415, 'Unsupported content encoding')
+                    }
+                    decodeJson(req, res, next, decompress).catch(next)
+                } catch (error) {
+                    next(error)
                 }
-            )
-        })
-    }
-}
-
-function setDecodedBody(req: Request, decoded: Buffer): void {
-    switch (mediaTypeOf(req)) {
-        case 'application/json': {
-            const text = decoded.toString('utf8')
-            ;(req as Request & { rawBody?: string }).rawBody = text
-            req.body = text.length === 0 ? {} : parseJSON(text)
-            return
-        }
-        case 'text/plain':
-            req.body = decoded.toString('utf8')
-            return
-        default:
-            req.body = decoded
+            })
+        )
     }
 }
