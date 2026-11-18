@@ -1,10 +1,11 @@
 import { dayjs } from 'lib/dayjs'
+import { urls } from 'scenes/urls'
 
 import type { ReleaseDTOApi } from './generated/api.schemas'
 import { RelatedSurvey } from './releaseRelated'
 import { RolloutStep } from './releaseRollout'
 import { Scale, buildTrack, mergeOverlapping, rolloutSegments, surveyStatus, todayScrollLeft } from './releaseTracks'
-import { ReleaseSpan, buildReleaseIndex, buildReleaseRow } from './releaseUtils'
+import { ReleaseEvent, ReleaseRow, ReleaseSpan, buildReleaseIndex, buildReleaseRow } from './releaseUtils'
 
 const span = (key: string, kind: ReleaseSpan['kind'], from: string, to: string, label: string): ReleaseSpan => ({
     key,
@@ -79,6 +80,50 @@ describe('survey lanes', () => {
             false,
             '2026-11-02T00:00:00Z',
             'Survey archived',
+        ])
+    })
+})
+
+describe('flag and broadcast lanes', () => {
+    it('gives each lane only its own upcoming schedules and sends', () => {
+        const event = (key: string, extra: Partial<ReleaseEvent>): ReleaseEvent => ({
+            key,
+            date: '2026-11-10T00:00:00Z',
+            kind: 'schedule',
+            title: key,
+            ...extra,
+        })
+        const row = {
+            flags: [
+                { id: 1, key: 'flag-one', created_at: '2026-11-01T00:00:00Z' },
+                { id: 2, key: 'flag-two', created_at: '2026-11-01T00:00:00Z' },
+            ],
+            experiments: [],
+            earlyAccess: [],
+            broadcasts: [
+                { id: 'b-1', name: 'One', status: 'active' },
+                { id: 'b-2', name: 'Two', status: 'draft' },
+            ],
+            audiences: [],
+            spans: [],
+            events: [
+                event('one-next', { upcoming: true, flagId: 1 }),
+                event('one-past', { upcoming: false, flagId: 1 }),
+                event('two-next', { upcoming: true, flagId: 2 }),
+                event('one-later', { upcoming: true, flagId: 1 }),
+                event('send-one', { kind: 'broadcast', href: urls.broadcast('b-1') }),
+                event('send-two', { kind: 'broadcast', href: urls.broadcast('b-2') }),
+                event('flag-change', { kind: 'flag', flagId: 1, href: urls.broadcast('b-1') }),
+            ],
+        } as unknown as ReleaseRow
+
+        const lanes = buildTrack(row, new Map()).lanes
+
+        expect(lanes.map((lane) => [lane.key, 'events' in lane ? lane.events.map(({ key }) => key) : null])).toEqual([
+            ['flag-1', ['one-next', 'one-later']],
+            ['flag-2', ['two-next']],
+            ['broadcast-b-1', ['send-one']],
+            ['broadcast-b-2', ['send-two']],
         ])
     })
 })

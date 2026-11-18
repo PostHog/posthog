@@ -698,44 +698,38 @@ class TestProgressiveHighlights(BaseTest):
     @parameterized.expand(
         [
             (
-                "an own insight hides key metrics",
+                "an own insight hides fallbacks",
                 ("routine", PulseSlotStatus.READY),
                 3,
                 PulseSlotStatus.READY,
-                ["insight:own", "insight:pop0", "insight:pop1"],
+                ["insight:own"],
             ),
             (
-                "an experiment number keeps key metrics",
+                "an experiment number hides fallbacks",
                 ("experiment_numbers", PulseSlotStatus.READY),
                 3,
                 PulseSlotStatus.READY,
-                ["experiment:1", "key:0", "key:1", "key:2"],
+                ["experiment:1"],
             ),
-            (
-                "key metrics fill in without own numbers",
-                None,
-                3,
-                PulseSlotStatus.READY,
-                ["insight:pop0", "key:0", "key:1", "key:2"],
-            ),
+            ("key metrics hide popular numbers", None, 3, PulseSlotStatus.READY, ["key:0", "key:1", "key:2"]),
             ("four key metrics fill the row", None, 4, PulseSlotStatus.READY, ["key:0", "key:1", "key:2", "key:3"]),
             (
-                "a failed key metric gives its place to a popular number",
+                "popular numbers fill a row that is otherwise empty",
                 None,
-                4,
-                PulseSlotStatus.ERROR,
-                ["insight:pop0", "key:0", "key:1", "key:2"],
+                1,
+                PulseSlotStatus.EMPTY,
+                ["insight:pop0", "insight:pop1"],
             ),
             (
                 "a failed own insight brings key metrics back",
                 ("routine", PulseSlotStatus.ERROR),
                 3,
                 PulseSlotStatus.READY,
-                ["insight:pop0", "key:0", "key:1", "key:2"],
+                ["insight:own", "key:0", "key:1", "key:2"],
             ),
         ]
     )
-    def test_key_metrics_and_popular_numbers_fill_what_own_numbers_leave(
+    def test_key_metrics_and_popular_numbers_show_only_without_other_numbers(
         self,
         _name: str,
         own: tuple[str, PulseSlotStatus] | None,
@@ -785,12 +779,13 @@ class TestProgressiveHighlights(BaseTest):
 
     @parameterized.expand(
         [
-            ("no own numbers keep every key metric", [], ["key:0", "key:1", "key:2", "key:3"]),
-            ("own numbers leave room for popular ones", ["own:0"], ["own:0", "pop:0", "pop:1", "pop:2"]),
+            ("no own numbers keep every key metric", [], 4, ["key:0", "key:1", "key:2", "key:3"]),
+            ("one own number hides every fallback", ["own:0"], 4, ["own:0"]),
+            ("popular numbers fill an otherwise empty row", [], 0, ["pop:0", "pop:1", "pop:2", "pop:3"]),
         ]
     )
     def test_fallback_numbers_are_chosen_before_the_candidate_limit(
-        self, _name: str, own: list[str], expected: list[str]
+        self, _name: str, own: list[str], key_metric_count: int, expected: list[str]
     ) -> None:
         def numbers(keys: list[str], reason: HighlightMetricReason) -> tuple[contracts.HighlightMetric, ...]:
             return tuple(replace(metric(key), reason=reason) for key in keys)
@@ -805,7 +800,7 @@ class TestProgressiveHighlights(BaseTest):
                 + numbers([f"pop:{i}" for i in range(4)], HighlightMetricReason.POPULAR)
             ),
             "key_metrics": HighlightFindings(
-                pulse=numbers([f"key:{i}" for i in range(4)], HighlightMetricReason.KEY_METRIC)
+                pulse=numbers([f"key:{i}" for i in range(key_metric_count)], HighlightMetricReason.KEY_METRIC)
             ),
         }
 
@@ -829,14 +824,13 @@ class TestProgressiveHighlights(BaseTest):
             return contracts.PulseSlot(key=key, name=key, reason=reason, status=status)
 
         slots = [
-            slot("experiment:1", HighlightMetricReason.EXPERIMENT, PulseSlotStatus.READY),
             slot("insight:pop0", HighlightMetricReason.POPULAR, PulseSlotStatus.ERROR),
-            *(slot(f"insight:pop{i}", HighlightMetricReason.POPULAR, PulseSlotStatus.READY) for i in (1, 2, 3)),
+            *(slot(f"insight:pop{i}", HighlightMetricReason.POPULAR, PulseSlotStatus.READY) for i in (1, 2, 3, 4)),
         ]
 
         kept = highlights._popular_within_row(slots, set())
 
-        self.assertEqual([s.key for s in kept], ["experiment:1", "insight:pop1", "insight:pop2", "insight:pop3"])
+        self.assertEqual([s.key for s in kept], ["insight:pop1", "insight:pop2", "insight:pop3", "insight:pop4"])
 
     @parameterized.expand([5, 6])
     def test_progress_keeps_source_ranking_limit_and_dates_after_failure(self, routine_count: int) -> None:

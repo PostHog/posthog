@@ -36,6 +36,7 @@ import {
 import { getEmailQueuePriorityClass } from './email-priority'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import {
+    EmailSkipReason,
     EmailStatusReason,
     EmailStatusService,
     isKeyedMessageId,
@@ -63,6 +64,8 @@ import {
     TRACKING_CODE_HEADER_NAME,
 } from './helpers/tracking-code'
 import { transactionalEmailIdentity, transactionalEmailIdentityTags } from './helpers/transactional-email-identity'
+import { WorkflowRunTag } from './helpers/utm'
+import { parseWorkflowEmailPause } from './helpers/workflow-email-pause'
 import { callsSettledBefore, declaredFileBytes, exceedsLargestSend, settledBeforeAbort } from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
 import { MESSAGE_MAX_BYTES, estimateMessageBytes } from './message-estimate'
@@ -346,25 +349,6 @@ const workflowEmailPausedTotal = new Counter({
     help: 'Email sends skipped because the workflow they belong to had its email paused for complaints or hard bounces.',
 })
 
-/**
- * Whether this workflow's email is paused, and the customer-facing reason.
- *
- * Stamped into the synthetic hog function's metadata by HogFlowFunctionsService, which is the only
- * flow-level state in scope here. The `HogFlow` post_save signal publishes a worker config reload
- * when the pause is written, so an in-flight run and an already-queued batch send both stop at this
- * choke point instead of only newly started runs.
- */
-function parseWorkflowEmailPause(metadata: HogFunctionType['metadata']): { reason: string; byStaff: boolean } | null {
-    if (!metadata?.email_sending_paused_at) {
-        return null
-    }
-    const reason = metadata.email_sending_paused_reason
-    return {
-        reason: typeof reason === 'string' ? reason : '',
-        byStaff: metadata.email_sending_paused_by === 'staff',
-    }
-}
-
 function pickTokenBucketRetryDelayMs(refillPerSecond: number): number {
     // Wake around when the next token accrues. The 1x-2x jitter spreads a queued backlog's
     // retries so they don't all re-dequeue (and re-claim against one token) at the same instant.
@@ -578,6 +562,29 @@ type TeamSendingBudget = {
     delay: { retryDelayMs: number; label: string | null } | null
 }
 
+type EmailSender = { email: string; name: string }
+
+type EmailSendSkip = {
+    kind: 'skip'
+    logLevel: 'info' | 'warn' | 'error'
+    reason: string
+    metricName: 'email_suspended' | 'email_paused' | 'email_missing_recipient' | 'email_suppressed'
+    statusReason: EmailSkipReason
+    marksRunSkipped: boolean
+    blockedSendReport: 'missing_recipient' | null
+}
+
+type EmailSendDecision =
+    | {
+          kind: 'proceed'
+          integration: IntegrationType
+          from: EmailSender
+          params: CyclotronInvocationQueueParametersEmailType
+          trackingEnabled: boolean
+      }
+    | EmailSendSkip
+    | { kind: 'error'; error: unknown; from?: EmailSender }
+
 export class EmailService {
     sesV2Client: SESv2Client | null
 
@@ -651,13 +658,30 @@ export class EmailService {
             : null
     }
 
-    private tagsLinksWithWorkflowRun(
+    private async workflowRunTagFor(
         invocation: CyclotronJobInvocationHogFunction,
         trackingEnabled: boolean,
-        isTest: boolean
-    ): boolean {
-        const sensitive = isSensitiveMessage(invocation)
-        return trackingEnabled && !isTest && !sensitive && this.workflowRunLinkTagTeams(invocation.teamId)
+        isTest: boolean,
+        senderEmail: string
+    ): Promise<WorkflowRunTag | null> {
+        if (!trackingEnabled || isTest || isSensitiveMessage(invocation)) {
+            return null
+        }
+        if (!this.workflowRunLinkTagTeams(invocation.teamId)) {
+            return null
+        }
+        const untagged = { runId: null, senderEmail, siteUrl: this.siteUrl }
+        try {
+            const enabled = await this.teamWorkflowsConfigService.tagsEmailLinksWithWorkflowRun(invocation.teamId)
+            return enabled ? { ...untagged, runId: invocation.id } : untagged
+        } catch (error) {
+            logger.warn('Workflow run link tag lookup failed - sending without the tag', {
+                teamId: invocation.teamId,
+                functionId: invocation.functionId,
+                error: error instanceof Error ? error.message : String(error),
+            })
+            return untagged
+        }
     }
 
     // Send email. `isTest` flags sends from the editor's "Run test" path so the tracking code
@@ -688,7 +712,7 @@ export class EmailService {
 
         const params = invocation.queueParameters
         const integrationId = selectEmailSenderIntegrationId(invocation.id, params.from)
-        const integration = await this.integrationManager.get(integrationId)
+        const storedIntegration = await this.integrationManager.get(integrationId)
 
         let success: boolean = false
         let rescheduled: boolean = false
@@ -700,176 +724,18 @@ export class EmailService {
         let teamBudgetCharged = false
 
         try {
-            // Team-level kill switches: staff suspend all workflow email for a team whose sender
-            // reputation endangers shared SES deliverability, and AWS pauses the team's SES tenant
-            // for the same underlying reason. Same choke-point placement as the suppression check
-            // below so no upstream route can bypass either. Test sends are blocked too — they hit
-            // SES and count against the tenant all the same. A paused tenant rejects every send, so
-            // gating here turns wasted invocations into one clear skip.
-            const suspensionCause = await this.teamWorkflowsConfigService.getEmailSendingSuspension(invocation.teamId)
-            if (suspensionCause) {
-                const skipReason =
-                    suspensionCause === 'staff'
-                        ? 'Skipping send: email sending is suspended for this project. Contact support to get sending re-enabled.'
-                        : 'Skipping send: our email provider paused sending for this project. Check the Reputation tab to see what to fix.'
-                addLog('warn', skipReason)
-                result.emailSendResult = { status: 'skipped', reason: skipReason }
-                this.emailStatusService?.queueSkippedSend(invocation, 'sending_suspended', isTest)
-                logger.warn('Skipping email send for a suspended team', {
-                    teamId: invocation.teamId,
-                    cause: suspensionCause,
-                })
-                // One metric for both causes: from the project's side sending is off either way, so
-                // the cause belongs in the log lines above and not in a second metric name.
-                if (!isTest) {
-                    result.metrics.push({
-                        team_id: invocation.teamId,
-                        app_source_id: invocation.parentRunId ?? invocation.functionId,
-                        instance_id: invocation.state.actionId || invocation.id,
-                        metric_kind: 'email',
-                        metric_name: 'email_suspended',
-                        count: 1,
-                    })
-                }
-                result.invocation.state.vmState?.stack.push({ success: false })
-                return result
+            const decision = await this.decideSend(invocation, params, storedIntegration, addLog)
+            if (decision.kind === 'skip') {
+                return this.applySkip(result, invocation, isTest, addLog, decision)
             }
-
-            // Per-workflow pause: this workflow's complaint or hard bounce rate breached a
-            // threshold, so its email is held while the rest of the project keeps sending. Placed
-            // at the same choke point as the team-level switch above, for the same reason. Test
-            // sends are blocked too, because they hit SES and count against the tenant all the same.
-            const workflowPause = parseWorkflowEmailPause(invocation.hogFunction.metadata)
-            if (workflowPause) {
-                workflowEmailPausedTotal.inc()
-                const pauseDetail = workflowPause.reason ? ` ${workflowPause.reason}` : ''
-                // Error rather than warn: the email did not go out, and warn-level lines get skimmed
-                // past in the run logs. The run itself still continues; a pause is policy, not a
-                // fault, so it must not enter retry or abort handling.
-                const skipReason = workflowPause.byStaff
-                    ? `Skipping send: PostHog staff paused email sending for this workflow.${pauseDetail} Contact support to get sending re-enabled.`
-                    : `Skipping send: email sending is paused for this workflow.${pauseDetail} Resume it from the workflow page once the audience is cleaned up.`
-                addLog('error', skipReason)
-                result.emailSendResult = { status: 'skipped', reason: skipReason }
-                this.emailStatusService?.queueSkippedSend(invocation, 'sending_paused', isTest)
-                if (!isTest) {
-                    result.metrics.push({
-                        team_id: invocation.teamId,
-                        app_source_id: invocation.parentRunId ?? invocation.functionId,
-                        instance_id: invocation.state.actionId || invocation.id,
-                        metric_kind: 'email',
-                        metric_name: 'email_paused',
-                        count: 1,
-                    })
-                }
-                // Mark the skip so the flow-level billing gate does not charge for a send that
-                // never reached the provider, and does not re-pin the run's attribution version to
-                // one that delivered nothing. Mirrors the pre-send opt-out and bounce skip paths.
-                result.skipped = true
-                result.invocation.state.vmState?.stack.push({ success: false })
-                return result
+            if (decision.from) {
+                sendingDomain = decision.from.email.split('@').pop()?.toLowerCase() ?? ''
             }
-
-            // Wrong-team references deliberately read as not-found so an ID's existence on another team can't be probed
-            if (!integration || integration.team_id !== invocation.teamId) {
-                throw new Error(
-                    "Email integration not found. The sender configured for this step no longer exists — select a new sender in the workflow's email step."
-                )
+            if (decision.kind === 'error') {
+                throw decision.error
             }
-            if (integration.kind !== 'email') {
-                throw new Error(
-                    "The integration configured for this step is not an email channel — select an email sender in the workflow's email step."
-                )
-            }
-
-            const from = this.resolveFromSender(integration, params.from, addLog)
-            sendingDomain = from.email.split('@').pop()?.toLowerCase() ?? ''
-
-            // An empty `to` comes from the customer's data (a person without an email property, or no
-            // person at all), not from a fault in the send path. SES rejects it as an invalid address,
-            // so record a skip with its own metric instead of an `email_failed`. Otherwise one project
-            // with bad data inflates the platform send failure rate.
-            if (!params.to?.email?.trim()) {
-                const skipReason =
-                    'Skipping send: the recipient has no email address. Add a filter so only people with an email address reach this step.'
-                addLog('warn', skipReason)
-                result.emailSendResult = { status: 'skipped', reason: skipReason }
-                if (!isTest) {
-                    result.metrics.push({
-                        team_id: invocation.teamId,
-                        app_source_id: invocation.parentRunId ?? invocation.functionId,
-                        instance_id: invocation.state.actionId || invocation.id,
-                        metric_kind: 'email',
-                        metric_name: 'email_missing_recipient',
-                        count: 1,
-                    })
-                }
-                this.emailStatusService?.queueSkippedSend(invocation, 'missing_recipient', isTest)
-                if (isRealWorkflowSend(invocation, isTest)) {
-                    void this.workflowsActivationReporter.report(invocation.teamId, 'workflows send blocked', {
-                        reason: 'missing_recipient',
-                        channel: 'email',
-                        workflow_id: invocation.functionId,
-                    })
-                }
-                result.skipped = true
-                result.invocation.state.vmState?.stack.push({ success: false })
-                return result
-            }
-
-            // Single choke point for the suppression check — every send path lands here regardless
-            // of whether the invocation came from a workflow action or an email destination hog
-            // function. Checking here means callers can't bypass it by taking a different upstream
-            // route. Suppressed addresses are removed from every list. A suppressed `to` is replaced by
-            // the first deliverable cc address, and the send is skipped only when none is left.
-            const suppressionOptions: SuppressionCheckOptions = {
-                transactional: invocation.hogFunction?.metadata?.message_category_type === 'transactional',
-            }
-            const suppression = await removeSuppressedRecipients(params, (email) =>
-                this.emailSuppressionService.isSuppressed(invocation.teamId, email, suppressionOptions)
-            )
-            if (suppression.skip) {
-                const skipReason = `Skipping send: ${suppression.removed.join(', ')} ${suppression.removed.length === 1 ? 'is' : 'are'} on the suppression list and no cc address can receive the email instead`
-                addLog('info', skipReason)
-                result.emailSendResult = { status: 'skipped', reason: skipReason }
-                this.emailStatusService?.queueSkippedSend(invocation, 'recipient_suppressed', isTest)
-                if (!isTest) {
-                    result.metrics.push({
-                        team_id: invocation.teamId,
-                        app_source_id: invocation.parentRunId ?? invocation.functionId,
-                        instance_id: invocation.state.actionId || invocation.id,
-                        metric_kind: 'email',
-                        metric_name: 'email_suppressed',
-                        count: 1,
-                    })
-                }
-                result.invocation.state.vmState?.stack.push({ success: false })
-                return result
-            }
-            if (suppression.removed.length > 0) {
-                const promoted = suppression.promotedTo
-                    ? ` ${suppression.promotedTo.email} moves from cc to the To field.`
-                    : ''
-                addLog(
-                    'warn',
-                    `Not sending to ${suppression.removed.join(', ')} because ${suppression.removed.length === 1 ? 'it is' : 'they are'} on the suppression list.${promoted} The email still goes to the other recipients.`
-                )
-            }
-            // Always send the lists the suppression check parsed, so delivery uses the addresses it checked.
-            const deliverableParams = {
-                ...params,
-                to:
-                    suppression.promotedTo ??
-                    (params.to?.email
-                        ? { ...params.to, email: quoteMailbox(unquoteMailbox(params.to.email)) }
-                        : params.to),
-                cc: suppression.cc,
-                bcc: suppression.bcc,
-            }
-
-            // Like suppression, the tracking decision lives at this choke point so every send path
-            // (workflow action or email destination hog function) resolves it the same way.
-            trackingEnabled = await this.resolveTrackingEnabled(result.invocation, deliverableParams)
+            const { integration, from, params: deliverableParams } = decision
+            trackingEnabled = decision.trackingEnabled
 
             const provider = sendingProviderOf(integration)
 
@@ -967,9 +833,7 @@ export class EmailService {
                       html: tagEmailLinks(
                           paramsWithReplyTo.html,
                           this.utmTaggingFor(invocation, addLog),
-                          this.tagsLinksWithWorkflowRun(invocation, trackingEnabled, isTest)
-                              ? { runId: invocation.id, senderEmail: from.email, siteUrl: this.siteUrl }
-                              : null
+                          await this.workflowRunTagFor(invocation, trackingEnabled, isTest, from.email)
                       ),
                   }
                 : paramsWithReplyTo
@@ -1212,6 +1076,190 @@ export class EmailService {
             })
         }
 
+        return result
+    }
+
+    private async decideSend(
+        invocation: CyclotronJobInvocationHogFunction,
+        params: CyclotronInvocationQueueParametersEmailType,
+        integration: IntegrationType | null,
+        addLog: ReturnType<typeof createAddLogFunction>
+    ): Promise<EmailSendDecision> {
+        let from: EmailSender | undefined
+        try {
+            // Team-level kill switches: staff suspend all workflow email for a team whose sender
+            // reputation endangers shared SES deliverability, and AWS pauses the team's SES tenant
+            // for the same underlying reason. Same choke-point placement as the suppression check
+            // below so no upstream route can bypass either. Test sends are blocked too — they hit
+            // SES and count against the tenant all the same. A paused tenant rejects every send, so
+            // gating here turns wasted invocations into one clear skip.
+            const suspensionCause = await this.teamWorkflowsConfigService.getEmailSendingSuspension(invocation.teamId)
+            if (suspensionCause) {
+                logger.warn('Skipping email send for a suspended team', {
+                    teamId: invocation.teamId,
+                    cause: suspensionCause,
+                })
+                return {
+                    kind: 'skip',
+                    logLevel: 'warn',
+                    reason:
+                        suspensionCause === 'staff'
+                            ? 'Skipping send: email sending is suspended for this project. Contact support to get sending re-enabled.'
+                            : 'Skipping send: our email provider paused sending for this project. Check the Reputation tab to see what to fix.',
+                    // One metric for both causes: from the project's side sending is off either way, so
+                    // the cause belongs in the log lines and not in a second metric name.
+                    metricName: 'email_suspended',
+                    statusReason: 'sending_suspended',
+                    marksRunSkipped: false,
+                    blockedSendReport: null,
+                }
+            }
+
+            // Per-workflow pause: this workflow's complaint or hard bounce rate breached a
+            // threshold, so its email is held while the rest of the project keeps sending. Placed
+            // at the same choke point as the team-level switch above, for the same reason. Test
+            // sends are blocked too, because they hit SES and count against the tenant all the same.
+            const workflowPause = parseWorkflowEmailPause(invocation.hogFunction.metadata)
+            if (workflowPause) {
+                workflowEmailPausedTotal.inc()
+                const pauseDetail = workflowPause.reason ? ` ${workflowPause.reason}` : ''
+                return {
+                    kind: 'skip',
+                    // Error rather than warn: the email did not go out, and warn-level lines get skimmed
+                    // past in the run logs. The run itself still continues; a pause is policy, not a
+                    // fault, so it must not enter retry or abort handling.
+                    logLevel: 'error',
+                    reason: workflowPause.byStaff
+                        ? `Skipping send: PostHog staff paused email sending for this workflow.${pauseDetail} Contact support to get sending re-enabled.`
+                        : `Skipping send: email sending is paused for this workflow.${pauseDetail} Resume it from the workflow page once the audience is cleaned up.`,
+                    metricName: 'email_paused',
+                    statusReason: 'sending_paused',
+                    // Mark the skip so the flow-level billing gate does not charge for a send that
+                    // never reached the provider, and does not re-pin the run's attribution version to
+                    // one that delivered nothing. Mirrors the pre-send opt-out and bounce skip paths.
+                    marksRunSkipped: true,
+                    blockedSendReport: null,
+                }
+            }
+
+            // Wrong-team references deliberately read as not-found so an ID's existence on another team can't be probed
+            if (!integration || integration.team_id !== invocation.teamId) {
+                throw new Error(
+                    "Email integration not found. The sender configured for this step no longer exists — select a new sender in the workflow's email step."
+                )
+            }
+            if (integration.kind !== 'email') {
+                throw new Error(
+                    "The integration configured for this step is not an email channel — select an email sender in the workflow's email step."
+                )
+            }
+
+            from = this.resolveFromSender(integration, params.from, addLog)
+
+            // An empty `to` comes from the customer's data (a person without an email property, or no
+            // person at all), not from a fault in the send path. SES rejects it as an invalid address,
+            // so record a skip with its own metric instead of an `email_failed`. Otherwise one project
+            // with bad data inflates the platform send failure rate.
+            if (!params.to?.email?.trim()) {
+                return {
+                    kind: 'skip',
+                    logLevel: 'warn',
+                    reason: 'Skipping send: the recipient has no email address. Add a filter so only people with an email address reach this step.',
+                    metricName: 'email_missing_recipient',
+                    statusReason: 'missing_recipient',
+                    marksRunSkipped: true,
+                    blockedSendReport: 'missing_recipient',
+                }
+            }
+
+            // Single choke point for the suppression check — every send path lands here regardless
+            // of whether the invocation came from a workflow action or an email destination hog
+            // function. Checking here means callers can't bypass it by taking a different upstream
+            // route. Suppressed addresses are removed from every list. A suppressed `to` is replaced by
+            // the first deliverable cc address, and the send is skipped only when none is left.
+            const suppressionOptions: SuppressionCheckOptions = {
+                transactional: invocation.hogFunction?.metadata?.message_category_type === 'transactional',
+            }
+            const suppression = await removeSuppressedRecipients(params, (email) =>
+                this.emailSuppressionService.isSuppressed(invocation.teamId, email, suppressionOptions)
+            )
+            if (suppression.skip) {
+                return {
+                    kind: 'skip',
+                    logLevel: 'info',
+                    reason: `Skipping send: ${suppression.removed.join(', ')} ${suppression.removed.length === 1 ? 'is' : 'are'} on the suppression list and no cc address can receive the email instead`,
+                    metricName: 'email_suppressed',
+                    statusReason: 'recipient_suppressed',
+                    marksRunSkipped: false,
+                    blockedSendReport: null,
+                }
+            }
+            if (suppression.removed.length > 0) {
+                const promoted = suppression.promotedTo
+                    ? ` ${suppression.promotedTo.email} moves from cc to the To field.`
+                    : ''
+                addLog(
+                    'warn',
+                    `Not sending to ${suppression.removed.join(', ')} because ${suppression.removed.length === 1 ? 'it is' : 'they are'} on the suppression list.${promoted} The email still goes to the other recipients.`
+                )
+            }
+            // Always send the lists the suppression check parsed, so delivery uses the addresses it checked.
+            const deliverableParams = {
+                ...params,
+                to:
+                    suppression.promotedTo ??
+                    (params.to?.email
+                        ? { ...params.to, email: quoteMailbox(unquoteMailbox(params.to.email)) }
+                        : params.to),
+                cc: suppression.cc,
+                bcc: suppression.bcc,
+            }
+
+            return {
+                kind: 'proceed',
+                integration,
+                from,
+                params: deliverableParams,
+                // Like suppression, the tracking decision lives at this choke point so every send path
+                // (workflow action or email destination hog function) resolves it the same way.
+                trackingEnabled: await this.resolveTrackingEnabled(invocation, deliverableParams),
+            }
+        } catch (error) {
+            return { kind: 'error', error, from }
+        }
+    }
+
+    private applySkip(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+        invocation: CyclotronJobInvocationHogFunction,
+        isTest: boolean,
+        addLog: ReturnType<typeof createAddLogFunction>,
+        skip: EmailSendSkip
+    ): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> {
+        addLog(skip.logLevel, skip.reason)
+        result.emailSendResult = { status: 'skipped', reason: skip.reason }
+        this.emailStatusService?.queueSkippedSend(invocation, skip.statusReason, isTest)
+        if (!isTest) {
+            result.metrics.push({
+                team_id: invocation.teamId,
+                app_source_id: invocation.parentRunId ?? invocation.functionId,
+                instance_id: invocation.state.actionId || invocation.id,
+                metric_kind: 'email',
+                metric_name: skip.metricName,
+                count: 1,
+            })
+        }
+        if (skip.blockedSendReport && isRealWorkflowSend(invocation, isTest)) {
+            void this.workflowsActivationReporter.report(invocation.teamId, 'workflows send blocked', {
+                reason: skip.blockedSendReport,
+                channel: 'email',
+                workflow_id: invocation.functionId,
+            })
+        }
+        if (skip.marksRunSkipped) {
+            result.skipped = true
+        }
+        result.invocation.state.vmState?.stack.push({ success: false })
         return result
     }
 

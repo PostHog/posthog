@@ -464,7 +464,7 @@ def stub() -> Iterator[MagicMock]:
             items=[api_pb2.EnvironmentListItem(name="main"), api_pb2.EnvironmentListItem(name="dev")]
         )
     )
-    with patch.object(_Client, "stub", new_callable=PropertyMock, return_value=stub):
+    with patch.object(_Client, "_stub", new_callable=PropertyMock, return_value=stub):
         yield stub
 
 

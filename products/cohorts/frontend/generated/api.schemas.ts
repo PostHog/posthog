@@ -389,13 +389,13 @@ export interface CohortRealtimeReadinessApi {
     ready_at: string | null
     /** The build preparing the cohort. Null unless the state is `building` or `rebuilding`. */
     build: CohortHistoryBuildApi | null
-    /** Why feature flags can't target the cohort. `history_over_limit`, on a `daily` cohort: its criteria look back further than `history_limit_days`. `too_large_to_build`, on a `needs_attention` cohort: the events in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, including a `daily` cohort that other criteria keep off realtime.
+    /** Why feature flags can't target the cohort. `history_over_limit`, on a `daily` cohort: its criteria look back further than realtime cohorts can. On an `off` cohort: its criteria look back further than the project's plan allows, so it can't be turned on. `too_large_to_build`, on a `needs_attention` cohort: the events in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, including a `daily` cohort that other criteria keep off realtime.
      *
      * * `history_over_limit` - History over limit
      * * `too_large_to_build` - Too large to build */
     reason: CohortRealtimeUnavailableReasonEnumApi | null
     /**
-     * The most days realtime cohort criteria can look back. Null unless the reason is `history_over_limit`.
+     * The most days realtime cohort criteria can look back on the project's plan. Null unless the reason is `history_over_limit`.
      * @nullable
      */
     history_limit_days: number | null
@@ -786,7 +786,7 @@ export interface CohortPersonsResponseApi {
 }
 
 export interface CohortRealtimeRequestApi {
-    /** True turns realtime on for the cohort and for every realtime cohort it includes as criteria, and starts preparing them from past events. False turns realtime off. PostHog refuses that while a feature flag, an active workflow, or another cohort with realtime on reads the cohort. */
+    /** True turns realtime on for the cohort and for every realtime cohort it includes as criteria, and starts preparing them from past events. PostHog refuses that when the project's plan allows no more cohorts with realtime on, or when the criteria look back further than the plan allows. False turns realtime off. PostHog refuses that while a feature flag, an active workflow, or another cohort with realtime on reads the cohort. */
     enabled: boolean
 }
 
@@ -885,6 +885,38 @@ export interface CohortUsedInResponseApi {
     test_account_filters: CohortUsedInEnvironmentsBlockApi
     /** Active workflows that trigger on this cohort or branch on its membership. While any exist, the cohort cannot be deleted or edited in a way that stops it updating in real time. */
     workflows: CohortUsedInWorkflowsBlockApi
+}
+
+/**
+ * * `serving` - Serving
+ * * `setting_up` - Setting up
+ * * `available` - Available
+ * * `not_open` - Not open
+ * * `refused` - Refused
+ * * `failed` - Failed
+ */
+export type RealtimeCohortsJoinStateEnumApi =
+    (typeof RealtimeCohortsJoinStateEnumApi)[keyof typeof RealtimeCohortsJoinStateEnumApi]
+
+export const RealtimeCohortsJoinStateEnumApi = {
+    Serving: 'serving',
+    SettingUp: 'setting_up',
+    Available: 'available',
+    NotOpen: 'not_open',
+    Refused: 'refused',
+    Failed: 'failed',
+} as const
+
+export interface RealtimeCohortsJoinStateApi {
+    /** Where this project stands in joining the realtime cohorts beta. `serving`: the project has realtime cohorts. `setting_up`: a join is in progress. `available`: a POST to `join` starts one. `not_open`: this region takes no new projects. `refused`: the project cannot join by itself, and support can turn realtime cohorts on for it. `failed`: the last join did not finish, and a join an hour later tries again.
+     *
+     * * `serving` - Serving
+     * * `setting_up` - Setting up
+     * * `available` - Available
+     * * `not_open` - Not open
+     * * `refused` - Refused
+     * * `failed` - Failed */
+    state: RealtimeCohortsJoinStateEnumApi
 }
 
 export type CohortsStaffListParams = {

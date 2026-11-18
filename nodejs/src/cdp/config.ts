@@ -56,6 +56,8 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: CyclotronJobQueueKind
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: CyclotronJobQueueSource
     CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: string
+    // Stores the content of transactional email sends encrypted. Turn on only once every reader is deployed.
+    CDP_SEAL_TRANSACTIONAL_EMAIL_STATE: boolean
 
     CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: string
     CDP_LEGACY_EVENT_CONSUMER_TOPIC: string
@@ -67,6 +69,9 @@ export type CdpConfig = ClickhouseConfig & {
     // cdp_events_unmatched_event_name_invoked stays at zero.
     CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES: boolean
     CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC: string
+    // How long the matcher holds an event batch to look it up together with the batches after it.
+    // 0 looks up every batch alone. It can only merge as many batches as CONSUMER_MAX_BACKGROUND_TASKS.
+    CDP_HOGFLOW_SUBSCRIPTION_MATCHER_EVENTS_COALESCE_MS: number
 
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
     CDP_CYCLOTRON_BATCH_DELAY_MAX_MS: number
@@ -79,6 +84,7 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_CYCLOTRON_USE_BULK_COPY_JOB: boolean
     CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: boolean
     CDP_CYCLOTRON_BACKGROUND_DEPTH_CHECK: boolean
+    CDP_CYCLOTRON_RELEASE_WRITE_RETRY: boolean
     // Off until Django emits `$workflow_step_resume`, or parked steps never wake.
     CDP_HOGFLOW_AWAITED_STEPS_ENABLED: boolean
     WORKFLOWS_SANDBOX_SENDER_ENABLED: boolean
@@ -388,6 +394,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: 'hog',
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'kafka',
         CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
+        CDP_SEAL_TRANSACTIONAL_EMAIL_STATE: false,
 
         CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: 'clickhouse-plugin-server-async-onevent',
         CDP_LEGACY_EVENT_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
@@ -397,6 +404,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_EVENTS_CONSUMER_GROUP_ID: 'cdp-processed-events-consumer',
         CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES: false,
         CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC: '',
+        CDP_HOGFLOW_SUBSCRIPTION_MATCHER_EVENTS_COALESCE_MS: 0,
 
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
         CDP_CYCLOTRON_BATCH_DELAY_MAX_MS: 0,
@@ -409,6 +417,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_CYCLOTRON_USE_BULK_COPY_JOB: isProdEnv() ? false : true,
         CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: true,
         CDP_CYCLOTRON_BACKGROUND_DEPTH_CHECK: false,
+        CDP_CYCLOTRON_RELEASE_WRITE_RETRY: false,
         CDP_HOGFLOW_AWAITED_STEPS_ENABLED: isProdEnv() ? false : true,
         WORKFLOWS_SANDBOX_SENDER_ENABLED: false,
         SES_SANDBOX_CONFIGURATION_SET: '',

@@ -217,6 +217,27 @@ describe('DataTableVisualization', () => {
     })
 
     test.each([
+        { display: ChartDisplayType.ActionsLineGraph, hasMore: true, warns: true },
+        { display: ChartDisplayType.ActionsLineGraph, hasMore: false, warns: false },
+        { display: ChartDisplayType.ActionsTable, hasMore: true, warns: false },
+    ])('warns=$warns for a $display with hasMore=$hasMore', async ({ display, hasMore, warns }) => {
+        render(
+            <DataTableVisualization
+                uniqueKey={`data-visualization-row-limit-${display}-${hasMore}`}
+                query={{ ...query, display }}
+                setQuery={jest.fn()}
+                cachedResults={{ ...cachedResults, hasMore, limit: 100 }}
+                readOnly
+                embedded
+            />
+        )
+        await waitFor(() =>
+            expect(mockLemonTable.mock.calls.length > 0 || !!screen.queryByText(/Chart with goal lines/)).toBe(true)
+        )
+        expect(!!screen.queryByText(/This chart shows only the first 100 rows/)).toBe(warns)
+    })
+
+    test.each([
         { embedded: true, expectedAllowContentScroll: true },
         { embedded: false, expectedAllowContentScroll: false },
     ])(

@@ -378,6 +378,10 @@ export type CyclotronJobInvocation = {
     // Cancellation was requested (CyclotronV2Manager.cancelJobs) while this invocation
     // was in flight. The consumer must terminate it as canceled instead of executing.
     cancelRequestedAt?: DateTime
+    // A Fernet token that holds the content fields of a transactional send while it is stored. See sealInvocation.
+    sealed?: string
+    // The stored token could not be opened, so the state holds only its plaintext fields and must not run.
+    stateUnreadable?: true
 }
 
 // The result of an execution
@@ -492,6 +496,9 @@ export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
     // wait step calls it before its first evaluation, where a stale person parks the run for good.
     // It returns the values rather than mutating, so it stays correct on a cloned invocation.
     refreshPerson?: () => Promise<{ person?: CyclotronPerson; filterGlobals: HogFunctionFilterGlobals }>
+    loadPersonProperties?: (
+        keys: string[]
+    ) => Promise<{ person?: CyclotronPerson; filterGlobals: HogFunctionFilterGlobals }>
 }
 
 export type MessageOptOutRecord = {
