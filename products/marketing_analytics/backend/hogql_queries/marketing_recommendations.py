@@ -221,7 +221,13 @@ class Ad:
     campaign_id: str
     texts: tuple[str, ...]
     final_urls: tuple[str, ...]
-    approval_status: str = ""
+
+
+@frozen
+class PolicyAds:
+    campaign_id: str
+    disapproved: int
+    limited: int
 
 
 @frozen
@@ -237,6 +243,7 @@ class RecommendationInputs:
     customer_id: str | None = None
     keyword_tracking: KeywordTracking | None = None
     ads: tuple[Ad, ...] = ()
+    policy_ads: tuple[PolicyAds, ...] = ()
 
 
 @frozen
@@ -461,13 +468,8 @@ class _Recommender:
         self.keywords = {keyword_row.keyword.lower() for keyword_row in inputs.term_keywords}
         self.copy_stems: dict[str, set[str]] = defaultdict(set)
         self.keyword_insertion_groups: set[str] = set()
-        self.disapproved_ads: dict[str, int] = defaultdict(int)
-        self.limited_ads: dict[str, int] = defaultdict(int)
+        self.policy_ads = {row.campaign_id: row for row in inputs.policy_ads}
         for ad in inputs.ads:
-            if ad.approval_status == DISAPPROVED:
-                self.disapproved_ads[ad.campaign_id] += 1
-            elif ad.approval_status in LIMITED_APPROVALS:
-                self.limited_ads[ad.campaign_id] += 1
             for text in ad.texts:
                 self.copy_stems[ad.ad_group_id] |= _word_stems(text)
                 if "{keyword:" in text.lower():
@@ -1586,7 +1588,8 @@ class _Recommender:
         )
 
     def _policy_limited(self, campaign: CampaignStats) -> MarketingAnalyticsRecommendation:
-        disapproved, limited = self.disapproved_ads[campaign.id], self.limited_ads[campaign.id]
+        policy_ads = self.policy_ads.get(campaign.id)
+        disapproved, limited = (policy_ads.disapproved, policy_ads.limited) if policy_ads else (0, 0)
         counts = [
             f"{count} {'ad is' if count == 1 else 'ads are'} {label}"
             for count, label in ((disapproved, "disapproved"), (limited, "limited"))

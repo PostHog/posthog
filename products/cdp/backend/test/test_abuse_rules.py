@@ -241,7 +241,16 @@ class TestAbuseRules(SimpleTestCase):
             ),
             (
                 "property_named_like_an_internal_function",
-                content(hog="fetch(inputs.url, {'body': event.properties.postHogGetTicket})"),
+                content(hog="fetch(inputs.url, {'body': event.properties.postHogCreateTask})"),
+                (),
+            ),
+            (
+                "support_ticket_mirror_destination",
+                content(
+                    hog="let ticket := postHogGetTicket({'ticket_id': event.properties.ticket_id})\n"
+                    "postHogUpdateTicket({'ticket_id': event.properties.ticket_id, 'updates': {'status': 'pending'}})\n"
+                    "fetch(inputs.url, {'body': ticket.body})"
+                ),
                 (),
             ),
             (
