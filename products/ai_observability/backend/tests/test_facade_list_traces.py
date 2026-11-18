@@ -163,6 +163,25 @@ class TestListTraces(ClickhouseTestMixin, BaseTest):
             "small": (False, 10, "00000000-0000-4000-8000-000000000003"),
         }
 
+    def test_a_trace_read_from_the_shared_table_from_the_edge_of_the_read_reports_partial_totals(self) -> None:
+        read_start_minutes = int((SELECTION.window.read_bounds().start - STARTED_AT) / timedelta(minutes=1))
+        for trace_id, first_minutes in (
+            ("aged-at-edge", read_start_minutes),
+            ("aged-inside", 0),
+            ("kept-at-edge", read_start_minutes),
+        ):
+            self.events.add(trace_id, minutes=first_minutes)
+            self.events.add(trace_id, minutes=1)
+        self.events.seed(aged_out={"aged-at-edge", "aged-inside"})
+
+        items = self._list().items
+
+        assert {item.id: item.totals_partial for item in items} == {
+            "aged-at-edge": True,
+            "aged-inside": False,
+            "kept-at-edge": False,
+        }
+
     def test_a_support_trace_is_marked(self) -> None:
         self.events.add("support", properties={"ai_support_impersonated": True})
         self.events.add("customer", minutes=1)
