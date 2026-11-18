@@ -40,7 +40,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
-from posthog.rbac.query_access import assert_user_can_read_query
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.data_modeling.backend.facade import api as modeling_api
@@ -680,11 +679,8 @@ class DataWarehouseSavedQuerySerializer(
             # The frequency writes through to the DAG node's freshness target, which only a view with lineage has.
             if sync_frequency is not None and engine.has_lineage.available:
                 if sync_frequency != "never":
-                    assert_user_can_read_query(
-                        view.query,
-                        view.team_id,
-                        cast(User, self.context["request"].user),
-                        database=self.context.get("database"),
+                    modeling_api.assert_user_can_read_saved_query(
+                        view, cast(User, self.context["request"].user), database=self.context.get("database")
                     )
                 _apply_frequency_target(view, sync_frequency, self.user_access_control)
 
@@ -716,11 +712,8 @@ class DataWarehouseSavedQuerySerializer(
 
         if sync_frequency and sync_frequency != "never":
             # Scheduling a view is the same grant as materializing it directly.
-            assert_user_can_read_query(
-                instance.query,
-                self.context["team_id"],
-                cast(User, self.context["request"].user),
-                database=self.context.get("database"),
+            modeling_api.assert_user_can_read_saved_query(
+                instance, cast(User, self.context["request"].user), database=self.context.get("database")
             )
 
         # Setting a cadence needs the view's DAG node. Clearing one does not, because a direct-connection view

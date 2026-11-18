@@ -149,6 +149,7 @@ _LAZY = {
     "IncrementalFilterError": "facade.contracts",
     "inject_incremental_filter": "logic.incremental_filter",
     "apply_incremental_filter": "logic.incremental_filter",
+    "assert_user_can_read_saved_query": "logic.read_access",
     "bind_window_start": "logic.incremental_filter",
     "parse_model_query": "logic.incremental_filter",
     "WINDOW_START_PLACEHOLDER": "logic.incremental_filter",
