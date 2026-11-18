@@ -1,6 +1,11 @@
 from django.conf import settings
 
 from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string
+from posthog.hogql.printer.events_json_document import (
+    json_document_sql,
+    person_document_sql,
+    stored_properties_document_sql,
+)
 
 from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
@@ -838,17 +843,17 @@ def KAFKA_EVENTS_JSON_RECENT_TABLE_SQL() -> str:
 def EVENTS_JSON_RECENT_MV_SQL(
     mv_name: str = EVENTS_JSON_RECENT_MV, kafka_table: str = KAFKA_EVENTS_JSON_RECENT_TABLE
 ) -> str:
-    # The rows are cast to the events_json types and printed back, so the stored text is the same as toJSONString
-    # on an events_json row. events_json drops $feature_flag_called in production, so this table drops it too.
+    # The rows are the ones events_json_table_mv writes, printed as the documents batch exports send, so a realtime
+    # export reads them as stored. events_json drops $feature_flag_called in production, so this table drops it too.
     rows = _events_json_rows_sql(kafka_table, where_clause="WHERE event != '$feature_flag_called'\n")
     return f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name}
 TO {settings.CLICKHOUSE_DATABASE}.{WRITABLE_EVENTS_JSON_RECENT_TABLE}
 AS
 SELECT * REPLACE (
-    toJSONString(properties) AS properties,
-    toJSONString(temporary_properties) AS temporary_properties,
-    toJSONString(person_properties) AS person_properties
+    {stored_properties_document_sql("properties")} AS properties,
+    {json_document_sql("temporary_properties")} AS temporary_properties,
+    {person_document_sql("person_properties")} AS person_properties
 )
 FROM (
 {rows})
