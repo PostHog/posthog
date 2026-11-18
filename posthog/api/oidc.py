@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 from django.core.exceptions import ValidationError
 
 import jwt
+import idna
 import structlog
 from prometheus_client import Counter, Histogram
 from requests import HTTPError, RequestException, Response, Timeout
@@ -22,7 +23,6 @@ from posthog.helpers.email_utils import email_domain
 from posthog.helpers.sso import validate_idp_partial
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.security.pinned_requests import SSRFBlockedError, pinned_session
-from posthog.security.url_validation import canonicalize_host
 
 BasicAuthCredentials = tuple[str, str]
 
@@ -67,12 +67,17 @@ class MultitenantOIDCAuth(OpenIdConnectAuth):
     @staticmethod
     def _email_matches_config(email: str, config: IdentityProviderConfig) -> bool:
         domain = email_domain(email)
-        return domain is not None and canonicalize_host(domain) in {
-            canonicalize_host(allowed)
-            for allowed in config.organization_domains.filter(verified_at__isnull=False).values_list(
-                "domain", flat=True
-            )
-        }
+        if domain is None:
+            return False
+        try:
+            return idna.encode(domain, uts46=True, transitional=False).rstrip(b".") in {
+                idna.encode(allowed, uts46=True, transitional=False).rstrip(b".")
+                for allowed in config.organization_domains.filter(verified_at__isnull=False).values_list(
+                    "domain", flat=True
+                )
+            }
+        except UnicodeError:
+            return False
 
     @cached_property
     def identity_provider_config(self) -> IdentityProviderConfig:

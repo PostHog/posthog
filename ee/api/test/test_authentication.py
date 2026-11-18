@@ -354,10 +354,12 @@ class TestOIDCAuthentication(APILicensedTest):
         self.assertTrue(mock_send.called)
         self.assertNotIn("_auth_user_id", self.client.session)
 
-    @parameterized.expand([("asserted_address", True), ("account_mailbox", False)])
+    @parameterized.expand(
+        [("asserted_address", True, False), ("account_mailbox", False, False), ("mailbox_case", False, True)]
+    )
     @pytest.mark.disable_mock_code_based_verifier
-    def test_a_changed_address_needs_a_new_code(self, _name: str, asserted_address: bool) -> None:
-        self.user.email = "member@example.com"
+    def test_a_changed_address_needs_a_new_code(self, _name: str, asserted_address: bool, mailbox_case: bool) -> None:
+        self.user.email = "Member@example.com" if mailbox_case else "member@example.com"
         self.user.save()
         self.client.logout()
         IdentityProviderEmailVerification.objects.create(
@@ -366,30 +368,35 @@ class TestOIDCAuthentication(APILicensedTest):
             issuer=self.config.oidc_issuer_url,
             subject="example-user",
             email="previously-asserted@example.com" if asserted_address else self.user.email,
-            target_email=self.user.email if asserted_address else "previous-account@example.com",
+            target_email=self.user.email
+            if asserted_address
+            else ("member@example.com" if mailbox_case else "previous-account@example.com"),
         )
 
         with enable_code_sending() as mock_send:
             response = self._complete_oidc_login("member@example.com")
 
         self.assertIn("code_verification_pending=1", response["Location"])
-        self.assertEqual(mock_send.call_args.kwargs["to_email"], "member@example.com")
+        self.assertEqual(mock_send.call_args.kwargs["to_email"], self.user.email)
         self.assertNotIn("_auth_user_id", self.client.session)
 
+    @parameterized.expand([("lowercase", "owner@example.net"), ("legacy_mixed_case", "Owner@Example.NET")])
     @pytest.mark.disable_mock_code_based_verifier
-    def test_a_linked_identity_requires_the_account_mailbox_when_its_assertion_differs(self) -> None:
+    def test_a_linked_identity_requires_the_account_mailbox_when_its_assertion_differs(
+        self, _name: str, mailbox: str
+    ) -> None:
         UserSocialAuth.objects.create(
             user=self.user, provider="oidc", uid=f"{self.config.oidc_issuer_url}:example-user"
         )
-        self.user.email = "owner@example.net"
+        self.user.email = mailbox
         self.user.is_email_verified = False
         self.user.save()
         self.client.logout()
 
         with enable_code_sending() as mock_send:
             response = self._complete_oidc_login("member@example.com")
-            self.assertEqual(mock_send.call_args.kwargs["to_email"], "owner@example.net")
-            self.assertIn("email=owner%40example.net", response["Location"])
+            self.assertEqual(mock_send.call_args.kwargs["to_email"], mailbox)
+            self.assertIn(urlencode({"email": mailbox}), response["Location"])
             code = mock_send.call_args[0][1]
             response = self.client.post("/api/login/code-based-verification/", {"code": code})
 
@@ -401,6 +408,7 @@ class TestOIDCAuthentication(APILicensedTest):
         )
         self.user.refresh_from_db()
         self.assertTrue(self.user.is_email_verified)
+        self.assertEqual(IdentityProviderEmailVerification.objects.get(user=self.user).target_email, mailbox)
 
     @pytest.mark.disable_mock_code_based_verifier
     def test_a_gated_login_leaves_the_account_alone_until_the_code_is_accepted(self) -> None:
@@ -1064,10 +1072,14 @@ class TestOIDCAuthentication(APILicensedTest):
             for name, email in [("unrelated", "member@other.example"), ("idna", "owner@vıctim.example")]
             for phase in ("userinfo", "login", "configuration")
         ]
+        + [("idna_deviation_userinfo", "owner@straße.example", "userinfo")]
     )
     def test_oidc_rejects_another_domain(self, _name: str, email: str, phase: str):
         OrganizationDomain.objects.create(
             organization=self.organization, domain="victim.example", verified_at=timezone.now()
+        )
+        OrganizationDomain.objects.create(
+            organization=self.organization, domain="strasse.example", verified_at=timezone.now()
         )
         if phase == "login":
             self.backend.data["email"] = email

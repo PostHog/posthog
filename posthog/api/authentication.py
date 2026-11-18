@@ -1271,7 +1271,7 @@ def _complete_idp_login(request: Request, user: User, pending: PendingIdPEmailVe
         or request.session.get("partial_pipeline_token") != pending["partial_token"]
         or partial.kwargs.get("idp_authenticated_at") != pending["authenticated_at"]
         or not idp_authentication_is_fresh(partial.kwargs.get("idp_authenticated_at"))
-        or user.email.strip().lower() != pending["target_email"]
+        or user.email.strip() != pending["target_email"]
     ):
         raise serializers.ValidationError({"detail": "Please log in again."}, code="no_pending_verification")
     backend = load_backend(strategy, pending["provider"], reverse("social:complete", args=[pending["provider"]]))
@@ -1837,7 +1837,7 @@ def social_require_idp_email_verification(
     if user is None or not uid or identity is None or not email:
         return redirect(sso_failure_redirect_url(strategy.request, "improperly_configured_sso"))
 
-    target_email = user.email.strip().lower()
+    target_email = user.email.strip()
     if IdentityProviderEmailVerification.objects.filter(
         user=user,
         provider=identity.provider,

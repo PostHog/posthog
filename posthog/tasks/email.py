@@ -607,8 +607,8 @@ def send_email_verification_code(user_id: int, code: str, target_email: str | No
 def send_code_based_verification(user_id: int, code: str, to_email: str | None = None) -> None:
     """Send the 6-digit login verification code.
 
-    `to_email` pins the recipient to the address the code authorizes, which is the address an
-    identity provider asserted for the user. Password logins leave it None."""
+    `to_email` pins IdP approval to the account mailbox so an asserted address cannot
+    redirect its proof. Password logins leave it None."""
     user: User = User.objects.get(pk=user_id)
 
     message = EmailMessage(
