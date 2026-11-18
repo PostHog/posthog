@@ -217,12 +217,14 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert set(by_distinct_id) == {"good", "dict", "list", "int"}
         # String session id is checked for a recording (none exists, so False); non-string ones are skipped.
         assert by_distinct_id["good"]["$has_recording"] is False
-        for distinct_id in ("dict", "list", "int"):
-            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-                assert isinstance(by_distinct_id[distinct_id]["$session_id"], str)
-                assert by_distinct_id[distinct_id]["$has_recording"] is False
-            else:
-                assert "$has_recording" not in by_distinct_id[distinct_id]
+        for distinct_id in ("dict", "list"):
+            assert "$has_recording" not in by_distinct_id[distinct_id]
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            # The native table declares `$session_id` as a string, so a number comes back as its text.
+            assert by_distinct_id["int"]["$session_id"] == "12345"
+            assert by_distinct_id["int"]["$has_recording"] is False
+        else:
+            assert "$has_recording" not in by_distinct_id["int"]
 
     def test_person_id_expands_to_distinct_ids(self):
         _create_person(

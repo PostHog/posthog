@@ -58,6 +58,24 @@ PROVISIONED_PAT_LABEL_MAX_LENGTH = 40
 # and the team name would disappear from the truncated result.
 PROVISIONED_PAT_LABEL_PREFIX_MAX_LENGTH = 25
 
+# Wildcard DNS services: every subdomain resolves to an IP address in its own name, or to
+# loopback. Anyone can point one at a server they run and receive mail there, so each gives an
+# unlimited supply of email domains that no disposable-email list covers. Subdomains match too.
+WILDCARD_DNS_EMAIL_DOMAINS: frozenset[str] = frozenset(
+    {
+        "sslip.io",
+        "nip.io",
+        "xip.io",
+        "traefik.me",
+        "backname.io",
+        "localtest.me",
+        "lvh.me",
+        "lacolhost.com",
+        "localhost.direct",
+        "local.gd",
+    }
+)
+
 # Default access token expiry.
 ACCESS_TOKEN_EXPIRY_SECONDS = 365 * 24 * 3600
 PARTNER_TOKEN_EXPIRY_SECONDS = 3600

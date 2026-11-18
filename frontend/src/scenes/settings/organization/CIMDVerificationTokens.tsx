@@ -6,7 +6,10 @@ import { LemonButton, LemonDialog, LemonInput, LemonModal, LemonTable, LemonTag,
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { IconKey } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
+
+import { Region } from '~/types'
 
 import { cimdVerificationTokensLogic, validateCimdUrl, CIMDVerificationToken } from './cimdVerificationTokensLogic'
 
@@ -36,7 +39,10 @@ export function CIMDVerificationTokens(): JSX.Element {
         setBindUrl,
         bindToken,
     } = useActions(cimdVerificationTokensLogic)
+    const { preflight } = useValues(preflightLogic)
     const hasUnboundToken = tokens.some((token) => !token.cimd_url)
+    // One metadata document serves both regions and carries one token, so every token comes from PostHog US.
+    const tokensLiveElsewhere = preflight?.region === Region.EU
 
     return (
         <div className="space-y-4">
@@ -54,8 +60,23 @@ export function CIMDVerificationTokens(): JSX.Element {
                 for the metadata format.
             </p>
 
+            {tokensLiveElsewhere && (
+                <LemonBanner type="warning">
+                    Verification tokens are created in PostHog US. Create the token from your organization at{' '}
+                    <Link to="https://us.posthog.com/settings/organization-cimd-verification-tokens" target="_blank">
+                        us.posthog.com
+                    </Link>
+                    . Your metadata document carries one token for every region.
+                </LemonBanner>
+            )}
+
             <div className="flex justify-end">
-                <LemonButton type="primary" onClick={showCreateDialog} data-attr="create-cimd-verification-token">
+                <LemonButton
+                    type="primary"
+                    onClick={showCreateDialog}
+                    data-attr="create-cimd-verification-token"
+                    disabledReason={tokensLiveElsewhere ? 'Create verification tokens in PostHog US' : undefined}
+                >
                     Create verification token
                 </LemonButton>
             </div>
@@ -71,7 +92,11 @@ export function CIMDVerificationTokens(): JSX.Element {
                 <div className="border border-dashed rounded-lg p-8 text-center">
                     <IconKey className="text-4xl text-secondary mx-auto mb-3" />
                     <h3 className="text-base font-semibold mb-1">No verification tokens</h3>
-                    <p className="text-secondary">Create one to link a CIMD partner app to this organization.</p>
+                    <p className="text-secondary">
+                        {tokensLiveElsewhere
+                            ? 'Create a token in PostHog US to link a CIMD partner app.'
+                            : 'Create one to link a CIMD partner app to this organization.'}
+                    </p>
                 </div>
             ) : (
                 <LemonTable

@@ -4,7 +4,80 @@ The regional proxy verifies run capabilities against the Tasks registry.
 The relay forwards HTTP requests to one configured regional endpoint using mTLS.
 The only regional operation is an authenticated `GET /v1/probe`, which returns 204 without contacting an upstream.
 The probe rejects declared or streaming request bodies without waiting for their contents.
-Tasks owns registration and capability issuance. Sandbox launch integration and credential injection follow separately.
+Tasks owns registration and capability issuance.
+A development probe uses Tasks' Modal provisioning and an isolated relay sidecar. Product workflow integration and credential injection follow separately.
+
+## Probe a real development VM
+
+`probe_agent_egress` runs synthetic requests for an active development TaskRun without repositories or an existing sandbox.
+It requires `DEBUG=1` and `SANDBOX_PROVIDER=MODAL_DOCKER`. It does not start an agent or mint upstream credentials.
+
+```text
+Trusted controller -> Modal control API -> relay generates key and CSR
+Trusted controller -> sign CSR -> register execution -> deliver guest capability
+Guest -> private sidecar HTTP -> mTLS -> regional /v1/probe
+Trusted controller -> renew lease / replace capability file -> revoke on exit
+```
+
+Build the relay for the sandbox's architecture and put it at `/usr/local/bin/egress-relay` in a prebuilt Modal image with Python 3 and OpenSSL.
+Run the regional proxy and registry first, using development signing keys and an ephemeral client CA.
+The CA key stays with the controller; the relay key stays in its sidecar.
+The mounted verifier bundle must include the run's signing key.
+
+Set `AGENT_EGRESS_PROBE_CONFIG_DIR` to a dedicated directory containing only probe configuration files, writable only by the worker operator. Keep certificate keys outside it.
+Pass a JSON file from that directory to `python manage.py probe_agent_egress --config /path/to/probes/probe.json`:
+
+```json
+{
+  "team_id": 1,
+  "run_id": "00000000-0000-4000-8000-000000000001",
+  "endpoint": "https://run-a.egress.example.com",
+  "relay_image_id": "im-example",
+  "server_ca_file": "/run/egress/server-ca.pem",
+  "client_ca_file": "/run/egress/client-ca.pem",
+  "client_ca_key_file": "/run/egress/client-ca-key.pem",
+  "duration_seconds": 360,
+  "concurrency": 16,
+  "requests_per_round": 128
+}
+```
+
+The main VM has an empty CIDR allowlist and can reach the sidecar over Modal's private bridge.
+The sidecar allows the exact regional hostname on port 443; its admin listener stays on loopback.
+The development-only `dev_proxy_ipv4` option instead allows one public `/32` and pins endpoint resolution to that address, for TCP test tunnels on other ports. This does not prove the production domain restriction.
+Modal 1.6.4 supplies the VM sidecar memory-allocation API; the VM reserves 1 GiB for the relay.
+This SDK defaults to the V2 backend unless configuration selects V1. The default also applies to ordinary Tasks sandboxes.
+
+The controller renews the registration every ten seconds during requests and refreshes the capability every three minutes.
+Each guest request reads the current capability file. Changing startup environment variables is unnecessary.
+Authority or delivery failure stops renewal and revokes that execution. Process loss leaves the lease to expire; there is no direct-network fallback.
+Replacement uses a fresh VM, relay key and execution. Expired executions cannot resume; old cleanup cannot revoke a replacement.
+Snapshots and normal agent startup are refused in this profile. Filesystem restore and production certificate renewal need later integration.
+
+DNS remains outside this route. The probe does not establish complete containment, production ingress, durable audit delivery or product-workflow compatibility.
+Output contains status counts and sandbox/execution IDs. Proxy audit events still use the stdout contract below.
+
+### Run the probe through Temporal
+
+Start a development Tasks worker, then add `--temporal --task-queue <worker-queue>` to the probe command.
+The worker needs the same configuration directory setting, file and certificate paths. Both command modes reject file access unless development probes are enabled, and reject paths or symlinks outside that directory. Configuration errors omit file contents. Private keys and capabilities never enter workflow history.
+Ctrl+C cancels the workflow and requests cleanup. A rejected probe response fails the run without retrying it.
+
+```text
+Temporal workflow
+  provision VM and relay -> enroll execution
+  renew lease every 10s alongside probe requests
+  on completion, cancellation or failure -> revoke execution -> destroy VM
+```
+
+Both command modes use the same lifecycle and persist an owner, execution, VM and sidecar IDs under `state.agent_egress_probe`.
+Each activity reads that binding again. A restarted worker can renew a live lease; an expired execution needs a fresh VM and key.
+Old cleanup targets its own execution and VM, leaving a replacement alone. An already-deleted VM counts as cleaned up; other cleanup failures remain retryable and do not replace the original workflow failure.
+Revocation records its timestamp, initiating service and reason. Existing registrations have no invented audit history.
+
+Provisioning has no automatic retry: a worker crash before saving the provider IDs can leave an unregistered VM until its TTL expires. Production integration needs resumable provisioning and bounded retention for cancellation markers before reusing this lifecycle.
+Workflow termination skips cleanup, so authority expires with the lease and the VM stops at its TTL.
+The workflow remains development-only and sends synthetic probes. Normal task launches and agent startup are unchanged.
 
 ## Run the processes
 

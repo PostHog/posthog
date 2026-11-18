@@ -286,8 +286,9 @@ ACP defines standard methods like `session/prompt`, `session/update`, and `sessi
 Releases are automatic. There is no manual version bump: `package.json` stays at `0.0.0-dev` and the release workflow sets the version from the tag.
 
 1. A merge to `master` that changes a file in this package or `packages/agent/packages/harness` runs `.github/workflows/desktop-agent-tag.yml`.
-2. It pushes the tag `agent-vX.Y.Z`. `Z` counts commits that change either package since the base tag `agent-vX.Y.0`. A commit that changes both packages counts once.
-3. The tag push runs `.github/workflows/desktop-agent-release.yml`, which builds, tests and publishes to npm with provenance, then opens a pull request that bumps the agent pin in `Dockerfile.sandbox-base`. Merging that pull request builds and ships the sandbox images.
+2. It waits until the Django backend in prod-us and prod-eu runs a build that contains the commit it releases. If the backend does not have the commit within sixty minutes, the run fails and nothing is released. Re-run it once the backend deploy is live, or let the next merge to either package release a newer commit. A manual dispatch with `ignore_backend_deploy` skips the wait, for a break-glass release. The wait does not cover Rust services.
+3. It pushes the tag `agent-vX.Y.Z`. `Z` counts commits that change either package since the base tag `agent-vX.Y.0`. A commit that changes both packages counts once.
+4. The tag push runs `.github/workflows/desktop-agent-release.yml`, which builds, tests and publishes to npm with provenance, then opens a pull request that bumps the agent pin in `Dockerfile.sandbox-base`. Merging that pull request builds and ships the sandbox images.
 
 A merge that changes neither package adds no new version.
 A change to either agent workflow file still runs the tag job, so it releases any package commits that have no tag yet.

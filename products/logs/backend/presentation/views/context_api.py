@@ -9,7 +9,7 @@ from rest_framework.response import Response
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import report_user_action
 from posthog.permissions import get_authenticator_scopes
-from posthog.scopes import scopes_not_covered
+from posthog.scopes.checks import scopes_not_covered
 
 from products.logs.backend.facade.queries import (
     DEFAULT_LIMIT,

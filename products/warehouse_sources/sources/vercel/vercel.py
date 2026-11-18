@@ -162,6 +162,15 @@ def _cursor_from_page(items: list[dict[str, Any]], field_name: str) -> int | Non
     return min(timestamps) if timestamps else None
 
 
+def _is_invalid_token_response(response: requests.Response) -> bool:
+    try:
+        body = response.json()
+    except ValueError:
+        return False
+    error = body.get("error") if isinstance(body, dict) else None
+    return isinstance(error, dict) and error.get("invalidToken") is True
+
+
 def validate_credentials(access_token: str) -> tuple[bool, str | None]:
     """Confirm the access token is genuine via GET /v2/user — the cheapest authenticated probe,
     available to any valid Vercel token regardless of team scope or resource permissions."""
@@ -191,6 +200,10 @@ def validate_credentials(access_token: str) -> tuple[bool, str | None]:
         # the same as an invalid token, so it shares the message.
         return False, _VERCEL_INVALID_TOKEN_ERROR
     if response.status_code == 403:
+        # Vercel answers an unknown or revoked token with 403 rather than 401 on this endpoint, and
+        # only the body tells it apart from a real token that lacks access.
+        if _is_invalid_token_response(response):
+            return False, _VERCEL_INVALID_TOKEN_ERROR
         return (
             False,
             "Your Vercel access token is not authorized for this resource. Check the token's scope (and team access), then reconnect.",

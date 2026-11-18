@@ -1,0 +1,9 @@
+catalog:
+    # ruleid: posthog-sdk-major-pin-js
+    posthog-js: latest # Browser SDK
+    # ruleid: posthog-sdk-major-pin-js
+    posthog-node: '>=5' # Node SDK
+    # ok: posthog-sdk-major-pin-js
+    posthog-js-lite: ^4.1.0 # Lite SDK
+    # ok: posthog-sdk-major-pin-js
+    '@posthog/react': '1.11.3'

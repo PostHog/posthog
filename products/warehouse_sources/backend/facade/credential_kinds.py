@@ -870,6 +870,7 @@ CREDENTIAL_KINDS: Mapping[str, str] = {
     "NewRelic": "new-relic",
     "NewYorkTimes": "new-york-times",
     "NewsApi": "news-api",
+    "NewsBreak": "newsbreak",
     "NewsData": "news-data",
     "Nexhealth": "nexhealth",
     "Nexiopay": "nexiopay",

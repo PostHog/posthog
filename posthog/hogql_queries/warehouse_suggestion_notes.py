@@ -12,7 +12,7 @@ from posthog.caching.utils import WARMING_TRIGGER_PREFIX
 from posthog.clickhouse.query_tagging import Product, get_query_tag_value
 from posthog.dataclasses import frozen
 from posthog.query_scan.trigger import is_analyzable_principal, is_mcp_run
-from posthog.scopes import scopes_not_covered
+from posthog.scopes.checks import scopes_not_covered
 
 if TYPE_CHECKING:
     from posthog.models.team import Team

@@ -345,7 +345,7 @@ export enum AccessControlResourceType {
     Ticket = 'ticket',
     SessionRecording = 'session_recording',
     SharingConfiguration = 'sharing_configuration',
-    Stamphog = 'stamphog',
+    CodeReviewApproval = 'code_review_approval',
     RevenueAnalytics = 'revenue_analytics',
     Survey = 'survey',
     Logs = 'logs',
@@ -948,6 +948,7 @@ export interface TeamType extends TeamBasicType {
     base_currency: CurrencyCode
     managed_viewsets: Record<DataWarehouseManagedViewsetKind, boolean>
     flag_evaluations_mode: FlagEvaluationsModeEnumApi
+    flag_calls_only_in_flag_evaluations: boolean
     // Optional so cached team objects from before this field shipped still typecheck.
     realtime_cohorts?: TeamRealtimeCohortsApi
     receive_org_level_activity_logs: boolean | null
@@ -1083,6 +1084,8 @@ export interface ToolbarParams {
     accessToken?: string /** OAuth access token (Bearer) */
     refreshToken?: string /** OAuth refresh token */
     clientId?: string /** OAuth client_id for token refresh */
+    teamId?: number /** Team the OAuth token is scoped to */
+    projectId?: number /** Project of that team */
     actionId?: number
     experimentId?: ExperimentIdType
     userIntent?: ToolbarUserIntent
@@ -1682,7 +1685,6 @@ export interface RecordingUniversalFilters {
     order?: RecordingsQuery['order']
     order_direction?: RecordingsQuery['order_direction']
     limit?: RecordingsQuery['limit']
-    recommended_only?: boolean
     event_match_scope?: RecordingsQuery['event_match_scope']
     /**
      * Server-resolved population narrowing (sessions of persons exposed to the experiment).
@@ -2744,6 +2746,7 @@ export interface EndpointType extends WithAccessControl {
     updated_at: string
     created_by: UserBasicType | null
     data_freshness_seconds: number
+    plan_refresh_floor_seconds: number | null
     is_materialized: boolean
     current_version: number
     current_version_id: string
@@ -5903,10 +5906,13 @@ export type ExportContext = (
     | QueryExportContext
     | ReplayExportContext
     | HeatmapExportContext
+    | { image_size: import('products/subscriptions/frontend/generated/api.schemas').ImageSizeApi }
 ) & {
+    image_size?: import('products/subscriptions/frontend/generated/api.schemas').ImageSizeApi
     row_limit?: number // Some exports have different row limits, e.g. logs
     columns?: string[]
     variables_override?: Record<string, any>
+    filters_override?: DashboardFilter
 }
 
 export interface ExportedAssetType {
@@ -5955,7 +5961,7 @@ export interface RoleMemberType {
     user_uuid: string
 }
 
-// Every grantable scope object. `hogli build:openapi` generates the enum from posthog/scopes.py,
+// Every grantable scope object. `hogli build:openapi` generates the enum from posthog/scopes/,
 // through the `resource` choice fields of the access control serializers.
 export type APIScopeObject = ScopeObjectEnumApi
 
@@ -6141,6 +6147,7 @@ export enum ActivityScope {
     ACTION = 'Action',
     ACCOUNT_VIEW = 'AccountView',
     ALERT_CONFIGURATION = 'AlertConfiguration',
+    SUBSCRIPTION = 'Subscription',
     ANNOTATION = 'Annotation',
     BATCH_EXPORT = 'BatchExport',
     BATCH_IMPORT = 'BatchImport',
@@ -6223,6 +6230,8 @@ export enum ActivityScope {
     REVIEW_PROJECT_SETTINGS = 'ReviewProjectSettings',
     REVIEW_INSTALLATION_CLAIM = 'ReviewInstallationClaim',
     RECOMMENDATION_RESOLUTION = 'RecommendationResolution',
+    SANDBOX_ENVIRONMENT = 'SandboxEnvironment',
+    SANDBOX_CUSTOM_IMAGE = 'SandboxCustomImage',
 }
 
 export type CommentType = {
@@ -6517,6 +6526,12 @@ export interface ExternalDataSource {
     /** Whether a table of this source uses webhook sync, but the source has no enabled webhook. */
     webhook_not_registered?: boolean
     supports_column_selection?: boolean
+    /** Whether tables can be added by path, which object storage sources support. */
+    supports_adding_tables?: boolean
+    /** False when the source reads a whole bucket, so there is nothing to discover. */
+    supports_table_discovery?: boolean
+    /** Where relative paths for a new table start, such as `my-bucket/exports/`. Null for other sources. */
+    table_root?: string | null
     api_version?: string | null
     api_version_deprecation?: ExternalDataSourceApiVersionDeprecation | null
     connection_warning?: string | null
@@ -6785,6 +6800,8 @@ export interface ExternalDataSchemaSourceSummary {
     api_version?: string | null
     /** Vendor API versions the source type supports — the schema override picker's options */
     supported_api_versions?: string[]
+    /** False when the source reads a whole bucket, so there is nothing to discover. */
+    supports_table_discovery?: boolean
 }
 
 export interface ExternalDataSchemaWithSource extends ExternalDataSourceSchema {

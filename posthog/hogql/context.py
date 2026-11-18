@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from posthog.clickhouse.client.execute import ClickHouseExternalTable
     from posthog.clickhouse.query_tagging import FlagCallsRead
     from posthog.models import Team, User
-    from posthog.scopes import APIScopeObject
+    from posthog.scopes.catalog import APIScopeObject
 
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
