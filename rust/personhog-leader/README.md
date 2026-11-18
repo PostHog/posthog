@@ -91,6 +91,9 @@ The loader runs one driver for each pool connection.
 A load that arrives while a driver is free is claimed by that driver and normally runs a single-row lookup of its own.
 Loads that arrive while every driver is busy wait in a queue, and the next driver to get a connection reads all of them in one statement, up to `FALLBACK_PG_LOAD_BATCH_SIZE` persons (default and ceiling 100).
 Batches therefore form while the pool is saturated, which is when one statement per person would cap the pod's load rate at the pool size.
+A driver returns its connection to the pool after every statement, so the mark checks waiting on the pool take their turn between batches.
+A load that runs alone keeps the single-row statement, which the planner prunes to one partition and which costs the database less than the batch statement with one key.
+The ceiling is 100 because past a few hundred keys the planner can leave the per-person index probes for a merge join that scans each partition's id index.
 Set `FALLBACK_PG_LOAD_BATCH_SIZE=1` to turn batching off.
 
 One statement that fails or stalls now fails every load it carries that has no row yet, where it used to fail one load.

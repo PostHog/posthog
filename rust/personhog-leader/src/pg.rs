@@ -117,8 +117,6 @@ fn parse_stored_properties(
     }
 }
 
-/// The columns `decode_person_row` reads, for a table aliased `p`.
-///
 /// properties comes back as text and is parsed here rather than through
 /// sqlx's jsonb decode: rows written by other services can hold numerics
 /// whose PG-expanded rendering serde_json rejects, and the leniency
@@ -127,17 +125,14 @@ fn parse_stored_properties(
 pub(crate) const PERSON_ROW_COLUMNS: &str = "p.id, p.team_id, p.uuid::text AS uuid, \
      p.properties::text AS properties, p.created_at, p.version, p.is_identified, p.last_seen_at";
 
-/// Builds the cached person from a row of the fallback table, the table
-/// the writer maintains, selected as `PERSON_ROW_COLUMNS`.
 pub(crate) fn decode_person_row(
     row: &PgRow,
     key: &PersonCacheKey,
 ) -> Result<CachedPerson, LoadError> {
     let id: i64 = row.try_get("id")?;
     let team_id: i32 = row.try_get("team_id")?;
-    // One statement returns rows for many loads. A row that reached the
-    // wrong load would serve one person's state as another's, so the row
-    // must name the person this load asked for.
+    // One statement serves many loads, and a misrouted row would serve
+    // one person's state as another's.
     if id != key.person_id || i64::from(team_id) != key.team_id {
         return Err(sqlx::Error::Protocol(format!(
             "loaded row (team_id={team_id}, person_id={id}) is not the requested person \
@@ -185,8 +180,8 @@ pub(crate) fn decode_person_row(
         created_at: created_at.timestamp_millis(),
         version: version.unwrap_or(0),
         is_identified,
-        // The load query filters is_deleted = false; a tombstoned row is
-        // answered as not-found, never loaded.
+        // The query filters is_deleted = false; a tombstoned row is
+        // answered as not-found above, never loaded.
         is_deleted: false,
         last_seen_at: last_seen_at.map(|t| t.timestamp_millis()),
     })

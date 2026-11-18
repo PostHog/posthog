@@ -1401,8 +1401,7 @@ async fn pg_fallback_reads_numerics_the_leaders_parser_rejects() {
         .unwrap();
 }
 
-/// The persons each cache-miss statement read since the last call, in
-/// statement order.
+/// Persons per cache-miss statement since the last call.
 fn load_batch_sizes(snapshotter: &metrics_util::debugging::Snapshotter) -> Vec<usize> {
     snapshotter
         .snapshot()
@@ -1417,10 +1416,6 @@ fn load_batch_sizes(snapshotter: &metrics_util::debugging::Snapshotter) -> Vec<u
         .collect()
 }
 
-/// Cache misses that find the fallback pool busy share statements, up to
-/// the batch size. Every load must still get the answer for its own
-/// person: the row, not-found for an absent or tombstoned person, and an
-/// unreadable row's error for that row alone.
 #[tokio::test]
 async fn loads_sharing_a_statement_each_get_their_own_answer() {
     enum Expected {
@@ -1454,7 +1449,6 @@ async fn loads_sharing_a_statement_each_get_their_own_answer() {
         (key, uuid)
     }
 
-    // One connection, so every load waits for the same one.
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(1)
         .connect(common::PERSONS_DB_URL)
@@ -1481,7 +1475,6 @@ async fn loads_sharing_a_statement_each_get_their_own_answer() {
     let too_deep = format!("{{\"a\":{}1{}}}", "[".repeat(200), "]".repeat(200));
     let (unreadable, _) = insert(&pool, teams[2], &too_deep, false).await;
     loads.push((unreadable, Expected::Unprocessable));
-    // Two loads of one person are two entries in the statement.
     let (repeated, uuid) = insert(&pool, teams[0], r#"{"marker": "repeated"}"#, false).await;
     for _ in 0..2 {
         let expected = Expected::Row {
@@ -1499,8 +1492,7 @@ async fn loads_sharing_a_statement_each_get_their_own_answer() {
         let loader = PersonLoader::new(pool.clone(), "posthog_person", max_batch);
         let held = pool.acquire().await.unwrap();
         let answers = futures::future::join_all(loads.iter().map(|(key, _)| loader.load(key)));
-        // Every load is queued before the only connection comes free, so
-        // the loads leave the queue a full statement at a time.
+        // Every load is queued before the only connection comes free.
         let (answers, ()) = tokio::join!(answers, async { drop(held) });
 
         assert_eq!(load_batch_sizes(&snapshotter), statements);
@@ -1529,8 +1521,6 @@ async fn loads_sharing_a_statement_each_get_their_own_answer() {
         .unwrap();
 }
 
-/// Callers read not-found as proof that the person is gone, so a
-/// statement that fails must fail its loads, alone or in a batch.
 #[tokio::test]
 async fn loads_of_a_failed_statement_fail_instead_of_reading_as_not_found() {
     let pool = sqlx::postgres::PgPoolOptions::new()
@@ -1538,7 +1528,6 @@ async fn loads_of_a_failed_statement_fail_instead_of_reading_as_not_found() {
         .connect(common::PERSONS_DB_URL)
         .await
         .expect("failed to connect to persons DB");
-    // No such table, so the database refuses every statement.
     let loader = PersonLoader::new(pool.clone(), "no_such_person_table", DEFAULT_MAX_LOAD_BATCH);
 
     for loads in [1, 5] {
@@ -1562,9 +1551,6 @@ async fn loads_of_a_failed_statement_fail_instead_of_reading_as_not_found() {
     }
 }
 
-/// The loader owns its statements, so no caller's deadline ends one. A
-/// connection that stops answering must cost its loads and nothing more:
-/// not the driver, and not the pool's connection slot.
 #[tokio::test]
 async fn a_statement_that_never_answers_is_abandoned_and_its_connection_closed() {
     let admin = common::create_persons_pool().await;
@@ -1573,15 +1559,13 @@ async fn a_statement_that_never_answers_is_abandoned_and_its_connection_closed()
         .execute(&admin)
         .await
         .unwrap();
-    // The lock makes every read of the table wait, as a connection that
-    // stopped answering would.
+    // The lock stalls every read, as an unresponsive connection would.
     let mut lock = admin.begin().await.unwrap();
     sqlx::query(&format!("LOCK TABLE {table} IN ACCESS EXCLUSIVE MODE"))
         .execute(&mut *lock)
         .await
         .unwrap();
 
-    // The loader's bounds come from the acquire timeout.
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(1)
         .acquire_timeout(Duration::from_secs(1))
@@ -1602,8 +1586,7 @@ async fn a_statement_that_never_answers_is_abandoned_and_its_connection_closed()
             if matches!(&*error, sqlx::Error::Io(io) if io.kind() == std::io::ErrorKind::TimedOut)
     ));
 
-    // The read is still waiting on the lock. The pool has one slot, so a
-    // load of another table is served only if that slot came back.
+    // The pool has one slot, so this is served only if it came back.
     let served = PersonLoader::new(pool.clone(), "posthog_person", DEFAULT_MAX_LOAD_BATCH)
         .load(&key)
         .await;

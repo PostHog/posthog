@@ -30,9 +30,8 @@ use super::{cached_person_into_proto, partition_from_metadata, PersonHogLeaderSe
 const MAX_LIFECYCLE_BATCH_SIZE: usize = 100;
 
 /// Fences or releases of one batch call in flight at once. The bound
-/// keeps the wait for the fallback pool's connections, which the loads
-/// and the mark checks share, short while the batch holds the
-/// partition's handoff drain.
+/// keeps the wait for the fallback pool, which loads and mark checks
+/// share, short while the batch holds the partition's handoff drain.
 const LIFECYCLE_BATCH_CONCURRENCY: usize = 16;
 
 /// The one error a batch answers for: a semantic refusal is the final

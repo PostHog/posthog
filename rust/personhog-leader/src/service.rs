@@ -153,8 +153,7 @@ pub struct PersonHogLeaderService {
     locks: Arc<DashMap<PersonCacheKey, Arc<Mutex<()>>>>,
     /// Read-only PG fallback (pool + the table it reads) for cache miss.
     fallback: Option<PgFallback>,
-    /// Reads cache misses from the fallback table. Present exactly when
-    /// the fallback is.
+    /// Present exactly when the fallback is.
     loader: Option<PersonLoader>,
     /// Per-partition inflight counter used to drive the handoff drain phase.
     inflight: Arc<InflightTracker>,
@@ -312,9 +311,7 @@ impl PersonHogLeaderService {
         self
     }
 
-    /// Override how many cache-miss loads one statement may carry
-    /// (`fallback_pg_load_batch_size` in the config). Separate from `new`
-    /// for the same reason as `with_fence_capacity`.
+    /// `fallback_pg_load_batch_size` in the config.
     pub fn with_load_batch_size(mut self, max_batch: usize) -> Self {
         self.loader = self
             .fallback

@@ -181,9 +181,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         60.0, 300.0, 900.0, 3600.0, 14400.0, 43200.0, 86400.0, 259200.0, 604800.0, 2592000.0,
         7776000.0, 31536000.0,
     ];
-    // Persons per cache-miss statement, up to the loader's ceiling. A
-    // statement carries more than one person when loads queued behind
-    // busy drivers, so mass above 1 shows the fallback pool saturated.
+    // Mass above 1 shows loads queued behind a saturated fallback pool.
     const PG_LOAD_BATCH_SIZE_BUCKETS: &[f64] = &[1.0, 2.0, 5.0, 10.0, 25.0, 50.0, 100.0];
     // The write path and warms are tuned in single-digit milliseconds;
     // the default ladder's 10 → 50 ms step blurs exactly the spans the
@@ -333,9 +331,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             max_connections: config.fallback_pg_max_connections,
             min_connections: config.fallback_pg_min_connections,
             pool_name: Some("personhog-leader-fallback".to_string()),
-            // Keep this below the acquire timeout. The person loader
-            // abandons a statement after the acquire timeout, and the
-            // server's own timeout must end a slow statement first.
+            // Keep below the acquire timeout, after which the person
+            // loader abandons a statement the server has not ended.
             statement_timeout_ms: Some(5_000),
             ..Default::default()
         };
