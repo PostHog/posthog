@@ -4,8 +4,6 @@ import { LemonSwitch } from '@posthog/lemon-ui'
 
 import { teamLogic } from 'scenes/teamLogic'
 
-import type { WorkflowsConfig } from '~/types'
-
 export function WorkflowsRunLinkTagSettings(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -19,7 +17,7 @@ export function WorkflowsRunLinkTagSettings(): JSX.Element {
                 updateCurrentTeam({
                     workflows_config: {
                         email_workflow_run_link_tag_enabled: checked,
-                    } satisfies Partial<WorkflowsConfig> as WorkflowsConfig,
+                    },
                 })
             }}
             checked={enabled}

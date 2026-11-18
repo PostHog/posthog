@@ -1808,7 +1808,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 searchDescription:
                     "The span attributes PostHog reads to identify which person a trace belongs to. A span is linked when any of these attributes holds one of the person's distinct IDs. Defaults to posthogDistinctId. Add keys only if your pipeline emits the person identifier under different attributes.",
                 component: <TracingDistinctIdAttributeKeys />,
-                flag: 'TRACING_SESSION_PERSON_LINKS',
                 keywords: ['trace', 'span', 'person', 'distinct', 'attribute', 'pivot', 'profile', 'link'],
             },
             {
@@ -1825,7 +1824,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 searchDescription:
                     'The span attributes PostHog reads to identify which session a trace belongs to, checked in order with the first match winning, followed by other common session ID attributes. Defaults to sessionId. Add keys only if your pipeline emits the session ID under different attributes.',
                 component: <TracingSessionIdAttributeKeys />,
-                flag: 'TRACING_SESSION_PERSON_LINKS',
                 keywords: ['trace', 'span', 'session', 'replay', 'attribute', 'link'],
             },
             {
@@ -2612,13 +2610,27 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'organization',
         id: 'organization-oauth-apps',
         title: 'OAuth applications',
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
         settings: [
             {
                 id: 'organization-oauth-apps-list',
                 title: 'OAuth applications',
-                description: 'View applications that have been authorized to connect to your organization.',
+                description:
+                    'OAuth applications linked to your organization. Expand one to see its provisioning review or to request verification.',
                 component: <OAuthApps />,
-                keywords: ['oauth', 'app', 'client', 'integration', 'api', 'authentication', 'third-party'],
+                keywords: [
+                    'oauth',
+                    'app',
+                    'client',
+                    'integration',
+                    'api',
+                    'authentication',
+                    'third-party',
+                    'provisioning',
+                    'partner',
+                    'review',
+                    'verification',
+                ],
             },
         ],
     },

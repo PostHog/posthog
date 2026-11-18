@@ -178,11 +178,11 @@ class TestCompare(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("default", {}, [0.05, 0.5, 0.95]),
+            ("default", {}, [0.01, 0.5, 0.99]),
             ("both_quantiles", {"above": {"quantile": 0.99}, "below": {"quantile": 0.2}}, [0.2, 0.5, 0.99]),
             # A side with no quantile, or an ignored side, shows the default end of the range.
-            ("one_side_no_quantile", {"above": {"min_absolute_change": 5}}, [0.05, 0.5, 0.95]),
-            ("one_side_quantile", {"below": {"quantile": 0.01}}, [0.01, 0.5, 0.95]),
+            ("one_side_no_quantile", {"above": {"min_absolute_change": 5}}, [0.01, 0.5, 0.99]),
+            ("one_side_quantile", {"below": {"quantile": 0.2}}, [0.2, 0.5, 0.99]),
         ]
     )
     def test_requests_the_expected_value_and_the_shown_range(
@@ -202,7 +202,7 @@ class TestForecastCheck(SimpleTestCase):
         body = json.loads(request.content)
         # At most 512 points of history, and the checked point is never part of its own history.
         assert body["inputs"][0]["target"] == [100.0] * 512
-        assert body["parameters"]["quantile_levels"] == [0.05, 0.5, 0.95]
+        assert body["parameters"]["quantile_levels"] == [0.01, 0.5, 0.99]
         assert result.breaches == [
             "Anomaly detected in signed_up: value 180.00 using forecast detector: expected about 100 (80 to 120), got 180"
         ]
@@ -216,8 +216,8 @@ class TestForecastCheck(SimpleTestCase):
             "lower": 80.0,
             "upper": 120.0,
             "actual": 180.0,
-            "lower_quantile": 0.05,
-            "upper_quantile": 0.95,
+            "lower_quantile": 0.01,
+            "upper_quantile": 0.99,
             "side": "above",
         }
 
