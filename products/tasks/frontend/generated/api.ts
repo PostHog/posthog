@@ -2036,7 +2036,7 @@ export const getTasksRunsHeartbeatCreateUrl = (projectId: string, taskId: string
 }
 
 /**
- * Tell the server that a local run is still alive. The client that drives a local run calls this about once a minute while it holds the run open. Cloud runs report their own heartbeats, so this endpoint refuses them.
+ * Tell the server that a local run is still alive. The client that drives a local run calls this about once a minute while it holds the run open. A heartbeat reopens a local run that the server had completed. Cloud runs report their own heartbeats, so this endpoint refuses them, along with failed and cancelled runs and runs of a finished task.
  * @summary Record a local run heartbeat
  */
 export const tasksRunsHeartbeatCreate = async (

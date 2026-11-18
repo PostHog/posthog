@@ -10180,29 +10180,56 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("live_local_run", TaskRun.Environment.LOCAL, TaskRun.Status.QUEUED, status.HTTP_204_NO_CONTENT, True),
+            ("live_local_run", TaskRun.Environment.LOCAL, TaskRun.Status.QUEUED, 204, TaskRun.Status.QUEUED),
             (
-                "finished_local_run",
+                "completed_local_run_reopens",
                 TaskRun.Environment.LOCAL,
                 TaskRun.Status.COMPLETED,
-                status.HTTP_409_CONFLICT,
-                False,
+                204,
+                TaskRun.Status.QUEUED,
             ),
-            ("cloud_run", TaskRun.Environment.CLOUD, TaskRun.Status.IN_PROGRESS, status.HTTP_409_CONFLICT, False),
+            ("failed_local_run", TaskRun.Environment.LOCAL, TaskRun.Status.FAILED, 409, TaskRun.Status.FAILED),
+            ("cancelled_local_run", TaskRun.Environment.LOCAL, TaskRun.Status.CANCELLED, 409, TaskRun.Status.CANCELLED),
+            ("cloud_run", TaskRun.Environment.CLOUD, TaskRun.Status.IN_PROGRESS, 409, TaskRun.Status.IN_PROGRESS),
         ]
     )
-    def test_heartbeat_is_recorded_only_for_a_live_local_run(
-        self, _name, environment, run_status, expected_status, recorded
-    ):
+    def test_heartbeat_keeps_a_local_run_alive(self, _name, environment, run_status, expected_response, status_after):
         task = self.create_task()
-        run = TaskRun.objects.create(task=task, team=self.team, status=run_status, environment=environment)
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=run_status,
+            environment=environment,
+            completed_at=django_timezone.now() if run_status == TaskRun.Status.COMPLETED else None,
+        )
 
         response = self.client.post(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/heartbeat/")
 
-        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(response.status_code, expected_response)
         run.refresh_from_db()
-        self.assertEqual(run.last_heartbeat_at is not None, recorded)
+        self.assertEqual(run.status, status_after)
+        self.assertEqual(run.last_heartbeat_at is not None, expected_response == 204)
         self.assertIsNone(run.agent_status)
+        if run.status == TaskRun.Status.QUEUED:
+            self.assertIsNone(run.completed_at)
+
+    def test_heartbeat_does_not_reopen_a_run_of_a_finished_task(self):
+        task = self.create_task()
+        Task.objects.filter(id=task.id).update(status=Task.Status.DONE, profile="user")
+        run = TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.COMPLETED, environment=TaskRun.Environment.LOCAL
+        )
+
+        with patch(
+            "products.tasks.backend.task_run_sync.posthoganalytics.get_feature_flag_payload",
+            return_value={"user": "enforce"},
+        ):
+            response = self.client.post(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/heartbeat/")
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.COMPLETED)
+        self.assertIsNone(run.last_heartbeat_at)
 
     def test_append_log_empty_entries_fails(self):
         task = self.create_task()

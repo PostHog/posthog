@@ -2629,17 +2629,37 @@ def signal_task_run_client_activity(run_id: str | UUID, task_id: str | UUID, tea
         logger.warning("Failed to signal client activity for task run %s", run_id)
 
 
+def _reopen_completed_local_run(run: TaskRun) -> bool:
+    try:
+        check_wake_by_task_id(run.task_id, source="local_run_heartbeat")
+    except TaskDoneError:
+        return False
+    with transaction.atomic():
+        locked = TaskRun.objects.select_for_update().get(pk=run.pk)
+        if locked.status == TaskRun.Status.COMPLETED:
+            locked.status = TaskRun.Status.QUEUED
+            locked.completed_at = None
+            locked.queued_at = django_timezone.now()
+            locked.save(update_fields=["status", "completed_at", "queued_at", "updated_at"])
+        return not locked.is_terminal
+
+
 def record_local_task_run_heartbeat(
     run_id: str | UUID, task_id: str | UUID, team_id: int
 ) -> Literal["recorded", "not_found", "not_live_local"]:
     run = (
         TaskRun.objects.filter(id=run_id, task_id=task_id, team_id=team_id)
-        .only("id", "team_id", "environment", "status")
+        .only("id", "team_id", "task_id", "environment", "status")
         .first()
     )
     if run is None:
         return "not_found"
-    if run.environment != TaskRun.Environment.LOCAL or run.is_terminal:
+    if run.environment != TaskRun.Environment.LOCAL:
+        return "not_live_local"
+    if run.status == TaskRun.Status.COMPLETED:
+        if not _reopen_completed_local_run(run):
+            return "not_live_local"
+    elif run.is_terminal:
         return "not_live_local"
     run.record_client_heartbeat()
     return "recorded"
