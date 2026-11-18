@@ -92,6 +92,13 @@ export function createCompressedBodyMiddleware(limitBytes: number): RequestHandl
         if (encoding === 'identity') {
             return next()
         }
+        if (!carriesBody(req)) {
+            return next()
+        }
+        const decompress = decompressorFor(encoding)
+        if (!decompress || !isJsonBody(req)) {
+            return refuse(res, 415, 'Unsupported content encoding')
+        }
 
         readRawBody(
             req,
@@ -102,11 +109,7 @@ export function createCompressedBodyMiddleware(limitBytes: number): RequestHandl
                         return next(readError)
                     }
                     if (!Buffer.isBuffer(req.body)) {
-                        return carriesBody(req) ? refuse(res, 415, 'Unsupported content encoding') : next()
-                    }
-                    const decompress = decompressorFor(encoding)
-                    if (!decompress || !isJsonBody(req)) {
-                        return refuse(res, 415, 'Unsupported content encoding')
+                        return next()
                     }
                     decodeJson(req, res, next, decompress).catch(next)
                 } catch (error) {

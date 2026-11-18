@@ -127,18 +127,22 @@ describe('setupExpressApp request body handling', () => {
     })
 
     it.each([
-        ['compress', 'application/json', '/echo'],
-        ['constructor', 'application/json', '/echo'],
-        ['__proto__', 'application/json', '/echo'],
-        ['gzip', 'text/plain', '/echo-text'],
-    ])('answers content encoding %s on a %s body with 415 and keeps serving', async (encoding, contentType, path) => {
-        const res = await postEncoded(path, encoding, gzipSync('{"data":"x"}'), contentType)
+        ['compress', 'application/json', '/echo', gzipSync('{"data":"x"}')],
+        ['constructor', 'application/json', '/echo', gzipSync('{"data":"x"}')],
+        ['__proto__', 'application/json', '/echo', gzipSync('{"data":"x"}')],
+        ['gzip', 'text/plain', '/echo-text', gzipSync('{"data":"x"}')],
+        ['gzip', 'text/plain', '/echo-text', randomBytes(4096)],
+    ])(
+        'answers content encoding %s on a %s body with 415 and keeps serving',
+        async (encoding, contentType, path, body) => {
+            const res = await postEncoded(path, encoding, body, contentType)
 
-        expect(res.status).toEqual(415)
-        expect(res.body).toEqual({ status: 'error', error: 'Unsupported content encoding' })
-        const after = await supertest(app).post('/echo').send({ data: 'x' })
-        expect(after.status).toEqual(200)
-    })
+            expect(res.status).toEqual(415)
+            expect(res.body).toEqual({ status: 'error', error: 'Unsupported content encoding' })
+            const after = await supertest(app).post('/echo').send({ data: 'x' })
+            expect(after.status).toEqual(200)
+        }
+    )
 
     it.each([
         ['a length', { 'Content-Length': String(gzipSync('{"data":"x"}').length) }],
