@@ -10,7 +10,11 @@ from posthog.schema import AccountTopPagesQuery
 
 from posthog.test.persons import create_person
 
-from products.customer_analytics.backend.hogql_queries.account_top_pages_query_runner import AccountTopPagesQueryRunner
+from products.customer_analytics.backend.hogql_queries.account_top_pages_query_runner import (
+    PATH_MAX_CHARS,
+    TITLE_MAX_CHARS,
+    AccountTopPagesQueryRunner,
+)
 from products.customer_analytics.backend.test.factories import create_account
 
 ANA = "11111111-1111-4111-8111-111111111111"
@@ -59,6 +63,16 @@ class TestAccountTopPagesQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ("/dashboard/12", "Weekly metrics v2", "pa", 3, 2, 2),
             ("/insights/AbC1", "Signups by plan", "pa", 1, 1, 1),
             ("/some-new-area", "", "", 1, 1, 1),
+        ]
+
+    def test_cuts_long_paths_and_titles_on_whole_characters(self) -> None:
+        # A one-byte prefix puts each byte cutoff inside a two-byte character.
+        self._view(ANA, "/" + "é" * 400, "2026-10-27T10:00:00Z", "a" + "é" * 400)
+
+        results = self._run()
+
+        assert [(p.path, p.title) for p in results.pages] == [
+            ("/" + "é" * (PATH_MAX_CHARS - 1), "a" + "é" * (TITLE_MAX_CHARS - 1))
         ]
 
     def test_filters_to_one_product_and_refuses_an_unknown_one(self) -> None:

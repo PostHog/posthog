@@ -59,46 +59,49 @@ export function AccountTopPages({
                     data-attr="account-top-pages-product"
                 />
             </div>
-            <LemonTable<AccountTopPage>
-                size="small"
-                dataSource={pages}
-                rowKey="path"
-                pagination={{ pageSize: 15 }}
-                columns={[
-                    {
-                        title: 'Page',
-                        key: 'page',
-                        render: (_, page) => (
-                            <div className="flex flex-col min-w-0 py-1">
-                                {page.title && <span className="font-semibold break-words">{page.title}</span>}
-                                <span className="font-mono text-xs text-secondary break-all">{page.path}</span>
-                            </div>
-                        ),
-                    },
-                    {
-                        title: 'Product',
-                        key: 'product',
-                        render: (_, page) =>
-                            page.product
-                                ? (result.products.find(({ key }) => key === page.product)?.label ?? page.product)
-                                : 'Other',
-                    },
-                    { title: 'Views', dataIndex: 'views', align: 'right', sorter: (a, b) => a.views - b.views },
-                    { title: 'People', dataIndex: 'people', align: 'right', sorter: (a, b) => a.people - b.people },
-                    {
-                        title: 'Active days',
-                        dataIndex: 'activeDays',
-                        align: 'right',
-                        sorter: (a, b) => a.activeDays - b.activeDays,
-                    },
-                    {
-                        title: 'Last viewed',
-                        key: 'lastViewed',
-                        render: (_, page) => <TZLabel time={page.lastViewed} />,
-                        sorter: (a, b) => a.lastViewed.localeCompare(b.lastViewed),
-                    },
-                ]}
-            />
+            {/* Page titles and paths are customer content, so autocapture, copied text and replay skip the table. */}
+            <div className="ph-no-capture min-w-0">
+                <LemonTable<AccountTopPage>
+                    size="small"
+                    dataSource={pages}
+                    rowKey={(_, index) => index}
+                    pagination={{ pageSize: 15 }}
+                    columns={[
+                        {
+                            title: 'Page',
+                            key: 'page',
+                            render: (_, page) => (
+                                <div className="flex flex-col min-w-0 py-1">
+                                    {page.title && <span className="font-semibold break-words">{page.title}</span>}
+                                    <span className="font-mono text-xs text-secondary break-all">{page.path}</span>
+                                </div>
+                            ),
+                        },
+                        {
+                            title: 'Product',
+                            key: 'product',
+                            render: (_, page) =>
+                                page.product
+                                    ? (result.products.find(({ key }) => key === page.product)?.label ?? page.product)
+                                    : 'Other',
+                        },
+                        { title: 'Views', dataIndex: 'views', align: 'right', sorter: (a, b) => a.views - b.views },
+                        { title: 'People', dataIndex: 'people', align: 'right', sorter: (a, b) => a.people - b.people },
+                        {
+                            title: 'Active days',
+                            dataIndex: 'activeDays',
+                            align: 'right',
+                            sorter: (a, b) => a.activeDays - b.activeDays,
+                        },
+                        {
+                            title: 'Last viewed',
+                            key: 'lastViewed',
+                            render: (_, page) => <TZLabel time={page.lastViewed} />,
+                            sorter: (a, b) => a.lastViewed.localeCompare(b.lastViewed),
+                        },
+                    ]}
+                />
+            </div>
         </div>
     )
 }

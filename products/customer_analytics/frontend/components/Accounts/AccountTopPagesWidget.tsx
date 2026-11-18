@@ -12,8 +12,15 @@ export function AccountTopPagesWidget(props: AccountTopPagesLogicProps): JSX.Ele
     const { setWeeks, setProductKey, loadResult } = useActions(logic)
 
     return (
-        <>
+        <div className="flex flex-col gap-2">
             <AccountWidgetWeeksSelect weeks={weeks} onChange={setWeeks} />
+            {loadFailed ? (
+                <LemonBanner type="warning" action={{ children: 'Try again', onClick: () => loadResult() }}>
+                    {result
+                        ? "Couldn't refresh top pages. These pages are from the last range that loaded."
+                        : "Couldn't load top pages for this account."}
+                </LemonBanner>
+            ) : null}
             {result ? (
                 <AccountTopPages
                     result={result}
@@ -21,13 +28,9 @@ export function AccountTopPagesWidget(props: AccountTopPagesLogicProps): JSX.Ele
                     productKey={productKey}
                     onProductKeyChange={setProductKey}
                 />
-            ) : loadFailed ? (
-                <LemonBanner type="warning" action={{ children: 'Try again', onClick: () => loadResult() }}>
-                    Couldn't load top pages for this account.
-                </LemonBanner>
-            ) : (
+            ) : loadFailed ? null : (
                 <LemonSkeleton className="h-64 w-full" />
             )}
-        </>
+        </div>
     )
 }

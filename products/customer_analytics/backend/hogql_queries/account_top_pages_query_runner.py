@@ -27,7 +27,7 @@ TITLE_MAX_CHARS = 300
 PAGEVIEW_EVENT = "$pageview"
 
 # Long, generated paths would each become their own row, so the path is cut before grouping.
-PAGE_PATH = f"substring(replaceRegexpOne(coalesce(toString(properties.$pathname), ''), '^/project/[^/]+', ''), 1, {PATH_MAX_CHARS})"
+PAGE_PATH = f"substringUTF8(replaceRegexpOne(coalesce(toString(properties.$pathname), ''), '^/project/[^/]+', ''), 1, {PATH_MAX_CHARS})"
 
 
 class AccountTopPagesQueryRunner(AccountScopedActivityQueryRunner[AccountTopPagesQueryResponse]):
@@ -104,7 +104,7 @@ class AccountTopPagesQueryRunner(AccountScopedActivityQueryRunner[AccountTopPage
             SELECT path, title, product, views, people, active_days, last_viewed
             FROM (
                 SELECT {{path}} AS path,
-                    substring(argMax(coalesce(toString(properties.title), ''), timestamp), 1, {TITLE_MAX_CHARS}) AS title,
+                    substringUTF8(argMax(coalesce(toString(properties.title), ''), timestamp), 1, {TITLE_MAX_CHARS}) AS title,
                     any({{product}}) AS product,
                     count() AS views,
                     uniq(person_id) AS people,
