@@ -515,6 +515,17 @@ def remove_reviewer_from_slack(
     return "removed" if removed else "not_reviewer"
 
 
+def notify_implementation_pr_opened(team_id: int, task_id: str, pr_url: str) -> None:
+    from products.signals.backend.slack_report_threads import (  # noqa: PLC0415 - avoids the signals/tasks facade cycle
+        dispatch_implementation_pr_notifications,
+    )
+
+    try:
+        dispatch_implementation_pr_notifications(team_id=team_id, task_id=task_id, pr_url=pr_url)
+    except Exception:
+        logger.exception("signals_inbox_pr_notification_failed", team_id=team_id, task_id=task_id)
+
+
 def report_id_for_slack_thread(*, team_id: int, slack_workspace_id: str, channel: str, thread_ts: str) -> str | None:
     """Facade entrypoint for the Slack mention handler. See slack_report_threads.report_id_for_slack_thread."""
     from products.signals.backend.slack_report_threads import (

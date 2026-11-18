@@ -3750,8 +3750,8 @@ def signal_workflow_completion(
         logger.warning("Failed to signal workflow completion for task run %s: %s", run.id, e)
 
 
-def _post_slack_update_for_pr(run: TaskRun) -> None:
-    pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
+def _post_slack_update_for_pr(run: TaskRun, *, pr_url: str | None = None) -> None:
+    pr_url = pr_url or ((run.output or {}).get("pr_url") if isinstance(run.output, dict) else None)
     if not pr_url:
         return
 
@@ -3771,6 +3771,11 @@ def _post_slack_update_for_pr(run: TaskRun) -> None:
             .first()
         )
         if not mapping:
+            from products.signals.backend.facade.api import (  # noqa: PLC0415 - avoids the signals/tasks facade cycle
+                notify_implementation_pr_opened,
+            )
+
+            transaction.on_commit(lambda: notify_implementation_pr_opened(run.team_id, str(run.task_id), pr_url))
             return
         post_slack_update(
             PostSlackUpdateInput(

@@ -11,14 +11,66 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
+from uuid import NAMESPACE_URL, uuid5
 
 from django.db import IntegrityError
+from django.db.models import Func, Value
 
 from posthog.dataclasses import frozen
+from posthog.integrations import IntegrationManager
+from posthog.models.integration import SlackIntegration
 
-from products.signals.backend.models import SignalReportSlackThread
+from products.signals.backend.artefact_schemas import TASK_RUN_TYPE_IMPLEMENTATION
+from products.signals.backend.models import SignalReportSlackThread, SignalReportTask
+from products.signals.backend.slack_formatting import is_safe_slack_http_url
 
 logger = logging.getLogger(__name__)
+
+
+def dispatch_implementation_pr_notifications(*, team_id: int, task_id: str, pr_url: str) -> int:
+    if not is_safe_slack_http_url(pr_url) or len(pr_url) > 2000:
+        return 0
+    report_ids = SignalReportTask.objects.filter(
+        team_id=team_id, task_id=task_id, relationship=TASK_RUN_TYPE_IMPLEMENTATION
+    ).values("report_id")
+    threads = list(
+        SignalReportSlackThread.objects.for_team(team_id)
+        .filter(report_id__in=report_ids, report__team_id=team_id, integration_id__isnull=False)
+        .exclude(notified_pr_urls__contains=[pr_url])
+    )
+    if not threads:
+        return 0
+    integrations = IntegrationManager.slack.any.get_many(
+        team_id, {thread.integration_id for thread in threads if thread.integration_id is not None}
+    )
+    sent = 0
+    for thread in threads:
+        integration = integrations.get(thread.integration_id) if thread.integration_id is not None else None
+        if integration is None or integration.integration_id != thread.slack_workspace_id:
+            continue
+        try:
+            SlackIntegration(integration, source="signals_inbox").client.chat_postMessage(
+                channel=thread.channel,
+                thread_ts=thread.thread_ts,
+                text=f"Pull request opened: <{pr_url}|View pull request>",
+                client_msg_id=str(uuid5(NAMESPACE_URL, f"signals-pr:{thread.id}:{pr_url}")),
+                unfurl_links=False,
+                unfurl_media=False,
+            )
+            SignalReportSlackThread.objects.for_team(team_id).filter(id=thread.id).exclude(
+                notified_pr_urls__contains=[pr_url]
+            ).update(notified_pr_urls=Func("notified_pr_urls", Value(pr_url), function="array_append"))
+            sent += 1
+        except Exception:
+            logger.exception(
+                "Failed to post an implementation PR to a report Slack thread",
+                extra={"team_id": team_id, "task_id": task_id, "thread_id": str(thread.id)},
+            )
+    logger.info(
+        "signals_inbox_pr_notifications_complete",
+        extra={"team_id": team_id, "task_id": task_id, "messages_sent": sent},
+    )
+    return sent
 
 
 @frozen

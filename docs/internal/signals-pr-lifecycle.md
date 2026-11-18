@@ -1,5 +1,7 @@
 # Report completion and late PR attachments
 
+Implementations started in the app send a pull request link to the report's saved Slack notification threads when task output or an opened GitHub webhook records the PR. Tasks with a Slack conversation mapping keep their existing notification path. Each report thread records the PR URLs it receives, so repeated callbacks skip successful sends and can retry failed sends. Disconnected workspaces do not receive updates. Report messages sent before thread recording was available have no saved destination.
+
 The inbox includes Closed reports in All statuses. The Closed filter appears when the project has closed reports, or when it is selected.
 
 Research completion activities update a report only while its locked status is `IN_PROGRESS`. The failure activity also handles `CANDIDATE` reports when admission fails before research starts. Status changes made during research, including archive, snooze, close, and resolve, remain in effect. Retries preserve completed transitions, including a return to `CANDIDATE` when new signals require more research.

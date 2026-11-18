@@ -1415,6 +1415,7 @@ class SignalReportSlackThread(UUIDModel):
     target = models.CharField(max_length=64, null=True, blank=True)
     # Slack `ts` of each threaded reply of a scout report, in summary chunk order.
     reply_ts = models.JSONField(null=True, blank=True)
+    notified_pr_urls = ArrayField(models.URLField(max_length=2000), null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
 
