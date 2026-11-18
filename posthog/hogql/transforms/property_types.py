@@ -789,7 +789,7 @@ class PropertySwapper(CloningVisitor):
                     if property_name in self.person_properties:
                         return ("person", property_name)
                 elif isinstance(resolved_table, _EVENT_PROPERTY_TABLES):
-                    # boffin: Detection can misclassify IDs, so native AI columns keep their schema types.
+                    # Detection can misclassify IDs, so native AI columns keep their schema types.
                     if isinstance(resolved_table, AiEventsTable) and property_name in AI_PROPERTY_TO_COLUMN:
                         return None
                     if property_name in self.event_properties:
