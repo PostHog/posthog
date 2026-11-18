@@ -4,6 +4,7 @@ import { useValues } from 'kea'
 import { IconCopy } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconKey } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
@@ -11,9 +12,15 @@ import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { OrganizationOAuthApplicationApi } from '~/generated/core/api.schemas'
 
 import { oauthAppsLogic } from './oauthAppsLogic'
+import { QuillOAuthApps } from './QuillOAuthApps'
 
 export function OAuthApps(): JSX.Element {
     const { oauthApps, oauthAppsLoading } = useValues(oauthAppsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return <QuillOAuthApps />
+    }
 
     if (oauthAppsLoading && oauthApps.length === 0) {
         return (

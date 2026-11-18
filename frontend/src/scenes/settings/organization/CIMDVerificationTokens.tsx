@@ -4,11 +4,13 @@ import { IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonModal, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconKey } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import { cimdVerificationTokensLogic, validateCimdUrl, CIMDVerificationToken } from './cimdVerificationTokensLogic'
+import { QuillCIMDVerificationTokens } from './QuillCIMDVerificationTokens'
 
 export function CIMDVerificationTokens(): JSX.Element {
     const {
@@ -36,7 +38,25 @@ export function CIMDVerificationTokens(): JSX.Element {
         setBindUrl,
         bindToken,
     } = useActions(cimdVerificationTokensLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const hasUnboundToken = tokens.some((token) => !token.cimd_url)
+
+    const confirmRevokeToken = (row: CIMDVerificationToken): void =>
+        LemonDialog.open({
+            title: `Revoke token "${row.label}"?`,
+            description:
+                'Partners using this token in their CIMD metadata will no longer be recognized and will fall back to the anonymous rate limit tier.',
+            primaryButton: {
+                children: 'Revoke',
+                status: 'danger',
+                onClick: () => deleteToken(row),
+            },
+            secondaryButton: { children: 'Cancel' },
+        })
+
+    if (todayRailNav) {
+        return <QuillCIMDVerificationTokens onRevoke={confirmRevokeToken} />
+    }
 
     return (
         <div className="space-y-4">
@@ -139,19 +159,7 @@ export function CIMDVerificationTokens(): JSX.Element {
                                         size="small"
                                         status="danger"
                                         tooltip="Revoke token"
-                                        onClick={() =>
-                                            LemonDialog.open({
-                                                title: `Revoke token "${row.label}"?`,
-                                                description:
-                                                    'Partners using this token in their CIMD metadata will no longer be recognized and will fall back to the anonymous rate limit tier.',
-                                                primaryButton: {
-                                                    children: 'Revoke',
-                                                    status: 'danger',
-                                                    onClick: () => deleteToken(row),
-                                                },
-                                                secondaryButton: { children: 'Cancel' },
-                                            })
-                                        }
+                                        onClick={() => confirmRevokeToken(row)}
                                     />
                                 </div>
                             ),
