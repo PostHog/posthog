@@ -242,12 +242,15 @@ def _remaining(response: requests.Response) -> int | None:
 
 
 def _reset_wait_seconds(response: requests.Response) -> float | None:
-    """How long X-RateLimit-Reset asks to wait. The docs say both "Unix milliseconds" and "until the limit resets", so
-    this reads either an epoch timestamp or a duration."""
+    """How long X-RateLimit-Reset asks to wait, or Retry-After in seconds without it. The docs say both "Unix
+    milliseconds" and "until the limit resets", so this reads either an epoch timestamp or a duration."""
     try:
         reset = float(response.headers.get("X-RateLimit-Reset", ""))
     except ValueError:
-        return None
+        try:
+            reset = float(response.headers.get("Retry-After", "")) * 1000
+        except ValueError:
+            return None
     milliseconds = reset - time.time() * 1000 if reset >= _EPOCH_MILLISECONDS_FLOOR else reset
     return min(max(milliseconds / 1000, 0.0), MAX_WAIT_SECONDS) or None
 

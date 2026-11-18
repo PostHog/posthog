@@ -20,13 +20,8 @@ from products.messaging.backend.models.message_suppression import MessageSuppres
 from products.messaging.backend.models.provider_import_run import ProviderImportRun
 from products.messaging.backend.provider_imports import runs
 from products.messaging.backend.provider_imports.base import ImportCredentialsInvalid, ImportProviderUnavailable
-from products.messaging.backend.provider_imports.mailgun import (
-    COMPLAINT_REASON_PREFIX,
-    MailgunImportProvider,
-    _upgrade_imported_complaints,
-)
-from products.messaging.backend.services.imported_data import ImportedSuppression
-from products.messaging.backend.services.suppression import remove_suppressions
+from products.messaging.backend.provider_imports.mailgun import COMPLAINT_REASON_PREFIX, MailgunImportProvider
+from products.messaging.backend.services.suppression import ComplaintConfirmationRequired, remove_suppressions
 from products.messaging.backend.tests.fake_mailgun import (
     ANALYST_KEY,
     EMPTY_KEY,
@@ -135,27 +130,28 @@ class TestMailgunImport(BaseTest):
         run = self._run(["bounces"], region="us")
 
         rows = self._suppressions()
-        assert rows["both@example.com"].source == SuppressionSource.BOUNCE
+        assert rows["both@example.com"].source == SuppressionSource.COMPLAINT
         assert rows["both@example.com"].hard_bounced_at is not None
         assert rows["both@example.com"].last_bounce_diagnostic == "550 User unknown"
         assert "angry@example.com" not in rows
-        assert run.progress["bounces"]["counts"]["bounced"] == 4
+        assert run.progress["bounces"]["counts"]["bounced"] == 3
+        with self.assertRaises(ComplaintConfirmationRequired):
+            remove_suppressions(self.team.id, ["both@example.com"], confirm_complaints=False)
 
     def test_a_bounce_from_a_child_environment_reaches_the_complaint_on_its_project(self) -> None:
         child = Team.objects.create(organization=self.organization, project=self.project, parent_team=self.team)
         MessageSuppression.objects.for_team(self.team.id).create(
             team=self.team,
-            identifier="angry@example.com",
+            identifier="both@example.com",
             source=SuppressionSource.COMPLAINT,
             reason=f"{COMPLAINT_REASON_PREFIX}mg.example.com)",
             suppressed=True,
         )
-        bounce = ImportedSuppression(
-            identifier="angry@example.com", source=SuppressionSource.BOUNCE, reason="Imported from Mailgun (bounced)"
-        )
+        run = runs.start_run(child.id, "mailgun", ["bounces"], FULL_KEY, self.user.id, {"region": "us"})
 
-        assert _upgrade_imported_complaints(child.id, {"angry@example.com": bounce}) == 1
-        assert self._suppressions()["angry@example.com"].hard_bounced_at is not None
+        runs.run_step(child.id, run.id, "bounces", attempt=1)
+
+        assert self._suppressions()["both@example.com"].hard_bounced_at is not None
 
     def test_unsubscribes_opt_out_of_everything_or_only_their_tags(self) -> None:
         run = self._run(["unsubscribes"])
@@ -281,11 +277,13 @@ class TestMailgunImport(BaseTest):
             ("past_epoch", "1000000000000", 2.0),
             ("garbage", "soon", 2.0),
             ("too_long", "99999999", 60.0),
+            ("retry_after_only", None, 7.0),
         ]
     )
-    def test_a_rate_limit_waits_as_mailgun_says(self, _name: str, reset: str, expected_wait: float) -> None:
+    def test_a_rate_limit_waits_as_mailgun_says(self, _name: str, reset: str | None, expected_wait: float) -> None:
         run = self._start(["bounces"], "us")
-        self.mailgun.failures = [Failure(r"/bounces$", 429, 1, {"X-RateLimit-Reset": reset})]
+        headers = {"X-RateLimit-Reset": reset} if reset else {"Retry-After": "7"}
+        self.mailgun.failures = [Failure(r"/bounces$", 429, 1, headers)]
 
         runs.run_step(self.team.id, run.id, "bounces", attempt=1)
 

@@ -16,13 +16,10 @@ from email.utils import parsedate_to_datetime
 from functools import partial
 from typing import Any
 
-from django.utils import timezone
-
 from posthog.dataclasses import frozen
-from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.messaging.backend.models.message_preferences import ALL_MESSAGE_PREFERENCE_CATEGORY_ID
-from products.messaging.backend.models.message_suppression import MessageSuppression, SuppressionSource
+from products.messaging.backend.models.message_suppression import SuppressionSource
 from products.messaging.backend.models.provider_import_run import ImportProviderKey
 from products.messaging.backend.provider_imports.base import (
     ImportContext,
@@ -429,46 +426,16 @@ def _save_bounces(context: ImportContext, target: _Target, items: list[dict[str,
             suppressed_at=_timestamp(item.get("created_at")),
             diagnostic=" ".join(part for part in (code, error) if part) or None,
         )
-    # First, so a complaint this import wrote turns into a bounce instead of staying a complaint.
-    upgraded = _upgrade_imported_complaints(context.team_id, imported)
+    # A complaint row keeps its source, so removing it still asks for confirmation, and gains the hard bounce.
     result = import_suppressions(context.team_id, imported.values(), context.created_by_id)
     return SavedPage(
-        imported=result.total_added + upgraded,
+        imported=result.total_added,
         counts={
-            "bounced": result.added.get(SuppressionSource.BOUNCE, 0) + upgraded,
-            "already_present": result.already_present - upgraded,
+            "bounced": result.added.get(SuppressionSource.BOUNCE, 0),
+            "already_present": result.already_present,
             "invalid": invalid,
         },
     )
-
-
-def _upgrade_imported_complaints(team_id: int, bounces: Mapping[str, ImportedSuppression]) -> int:
-    """A failed bounces step can resume after complaints ran. A complaint this import wrote must then still gain the
-    bounce, which is what blocks transactional email. A row someone removed or added by hand stays as it is."""
-    # Imported rows live on the parent project of a child environment.
-    suppressions = MessageSuppression.objects.for_team(resolve_effective_team_id(team_id), canonical=True)
-    rows = list(
-        suppressions.filter(
-            identifier__in=list(bounces),
-            source=SuppressionSource.COMPLAINT,
-            reason__startswith=COMPLAINT_REASON_PREFIX,
-            suppressed=True,
-            deleted=False,
-            hard_bounced_at__isnull=True,
-        )
-    )
-    now = timezone.now()
-    for row in rows:
-        bounce = bounces[row.identifier]
-        row.source = SuppressionSource.BOUNCE
-        row.reason = bounce.reason
-        row.hard_bounced_at = bounce.suppressed_at or now
-        row.last_bounce_at = bounce.suppressed_at
-        row.last_bounce_diagnostic = bounce.diagnostic
-    suppressions.bulk_update(
-        rows, ["source", "reason", "hard_bounced_at", "last_bounce_at", "last_bounce_diagnostic"], batch_size=500
-    )
-    return len(rows)
 
 
 def _save_complaints(context: ImportContext, target: _Target, items: list[dict[str, Any]], _first: bool) -> SavedPage:
