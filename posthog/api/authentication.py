@@ -79,6 +79,7 @@ from posthog.helpers.sso import (
     idp_authentication_is_fresh,
     idp_identity_key,
     is_sso_reauth_begin,
+    saml_identity_issuer,
     sso_failure_redirect_url,
 )
 from posthog.helpers.two_factor_session import (
@@ -1282,6 +1283,8 @@ def _complete_idp_login(request: Request, user: User, pending: PendingIdPEmailVe
         or (partial.kwargs.get("details", {}).get("email") or "").strip().lower() != pending["email"]
         or request.session.get("partial_pipeline_token") != pending["partial_token"]
         or partial.kwargs.get("idp_authenticated_at") != pending["authenticated_at"]
+        or partial.kwargs.get("idp_authenticated_identity")
+        != idp_identity_key(pending["provider"], pending["issuer"], pending["subject"])
         or not idp_authentication_is_fresh(partial.kwargs.get("idp_authenticated_at"))
         or user.email.strip() != pending["target_email"]
     ):
@@ -1811,12 +1814,9 @@ def _identity_provider_identity(
         config = IdentityProviderConfig.objects.filter(saml_relay_state=relay_state).first()
         if config is None or not config.saml_entity_id or not config.saml_x509_cert:
             return None
-        certificate = "".join(
-            config.saml_x509_cert.replace("-----BEGIN CERTIFICATE-----", "")
-            .replace("-----END CERTIFICATE-----", "")
-            .split()
+        issuer = cast("MultitenantSAMLAuth", backend).authentication_issuer or saml_identity_issuer(
+            config.saml_entity_id, config.saml_x509_cert
         )
-        issuer = f"saml-v1:{sha256(json.dumps([config.saml_entity_id, certificate]).encode()).hexdigest()}"
 
     subject = cast("MultitenantOIDCAuth | MultitenantSAMLAuth", backend).get_identity_subject(
         details or {}, response or {}

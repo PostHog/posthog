@@ -47,7 +47,12 @@ from posthog.helpers.oauth_pending_connection import (
     apply_pending_connection_onboarding_skip,
     read_pending_oauth_connection,
 )
-from posthog.helpers.sso import IDP_SIGNUP_CONTINUATION_SESSION_KEY, IDP_SSO_BACKENDS, idp_authentication_is_fresh
+from posthog.helpers.sso import (
+    IDP_SIGNUP_CONTINUATION_SESSION_KEY,
+    IDP_SSO_BACKENDS,
+    idp_authentication_is_fresh,
+    idp_identity_key,
+)
 from posthog.helpers.verified_domain_enforcement import resolve_login_organization
 from posthog.inbox_providers import InboxProvider, InboxProviderLookup
 from posthog.models import (
@@ -1302,6 +1307,14 @@ def social_create_user(
         except ValidationError:
             raise AuthFailed(backend, "The identity provider did not assert a valid email address.")
         if isinstance(started_at := getattr(backend, "authentication_started_at", None), int):
+            from posthog.api.authentication import _identity_provider_identity
+
+            identity = _identity_provider_identity(backend, details, kwargs.get("response"))
+            if identity is None:
+                raise AuthFailed(backend, "Invalid identity provider authentication.")
+            identity_key = idp_identity_key(identity.provider, identity.issuer, identity.subject)
+            kwargs["idp_authenticated_identity"] = identity_key
+            kwargs["current_partial"].data["kwargs"]["idp_authenticated_identity"] = identity_key
             kwargs["idp_authenticated_at"] = started_at
             kwargs["current_partial"].data["kwargs"]["idp_authenticated_at"] = started_at
             if backend.name == "saml":

@@ -27,7 +27,7 @@ import responses
 import redis.exceptions as redis_exceptions
 from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
-from requests import Response
+from requests import Response, Timeout
 from rest_framework import status
 from rest_framework.test import APIClient
 from social_core.exceptions import AuthConnectionError, AuthFailed, AuthMissingParameter, AuthTokenError
@@ -549,6 +549,67 @@ class TestOIDCAuthentication(APILicensedTest):
         self.assertNotIn(CODE_BASED_VERIFICATION_SSO_SESSION_KEY, self.client.session)
         self.assertEqual(self.client.session["_auth_user_id"], str(self.user.pk))
         self.assertFalse(IdentityProviderEmailVerification.objects.filter(user=self.user).exists())
+
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_idp_email_timeout_does_not_queue_an_unusable_code(self) -> None:
+        self.user.email = "member@example.com"
+        self.user.save()
+        self.client.logout()
+        queued: list[dict[str, Any]] = []
+        delivered_codes: list[str] = []
+        failing = True
+
+        def send_email(url: str, **kwargs: Any) -> Response:
+            if failing:
+                raise Timeout("example email API timeout")
+            delivered_codes.append(kwargs["json"]["message_data"]["code"])
+            response = Response()
+            response.status_code = 202
+            response._content = b'{"message_id":"example-message"}'
+            return response
+
+        with (
+            override_settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_example", POSTHOG_HOST="https://example.com"),
+            override_instance_config("EMAIL_HOST", "localhost"),
+            patch.dict("posthog.email.WORKFLOWS_TEMPLATE_ID_MAP", {"code_based_verification": "example-template"}),
+            patch("posthog.email.requests.post", side_effect=send_email),
+            patch("posthog.email._send_email.apply_async", side_effect=lambda **kwargs: queued.append(kwargs)),
+            time_machine.travel("2026-01-10T12:00:00Z", tick=False) as clock,
+        ):
+            response = self._complete_oidc_login(self.user.email)
+            self.assertIn("sso_verification_email_failed", response["Location"])
+            self.assertEqual(queued, [])
+            self.assertNotIn("code_based_verification_pending_user_id", self.client.session)
+            failing = False
+            clock.shift(datetime.timedelta(seconds=61))
+            self.client = APIClient()
+            response = self._complete_oidc_login(self.user.email)
+            self.assertIn("code_verification_pending=1", response["Location"])
+            response = self.client.post("/api/login/code-based-verification/", {"code": delivered_codes[-1]})
+            self.assertEqual(response.status_code, 200, response.content)
+            self.assertEqual(self.client.session["_auth_user_id"], str(self.user.pk))
+
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_oidc_partial_cannot_use_a_different_issuers_mailbox_proof(self) -> None:
+        self.user.email = "member@example.com"
+        self.user.save()
+        self.client.logout()
+        with enable_code_sending():
+            self._complete_oidc_login(self.user.email)
+            self.config.oidc_issuer_url = "https://other-idp.example.com"
+            self.config.save(update_fields=["oidc_issuer_url"])
+            IdentityProviderEmailVerification.objects.create(
+                user=self.user,
+                provider="oidc",
+                issuer=self.config.oidc_issuer_url,
+                subject="example-user",
+                email=self.user.email,
+                target_email=self.user.email,
+            )
+            response = self.client.get("/complete/oidc/")
+        self.assertIn("oauth_state_invalid", response["Location"])
+        self.assertNotIn("_auth_user_id", self.client.session)
+        self.assertFalse(UserSocialAuth.objects.filter(user=self.user).exists())
 
     @parameterized.expand(
         [
@@ -2553,28 +2614,50 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         self.assertFalse(UserSocialAuth.objects.filter(user=user).exists())
         self.assertFalse(IdentityProviderEmailVerification.objects.filter(user=user).exists())
 
-    @parameterized.expand([("other_browser", False), ("expired", True)])
+    @parameterized.expand([("other_browser",), ("expired",), ("certificate",), ("issuer",)])
     @pytest.mark.disable_mock_code_based_verifier
     @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)
-    def test_saml_rejects_a_foreign_or_expired_partial(self, _name: str, expired: bool) -> None:
-        User.objects.create_user(email="engineering@posthog.com", first_name="Member", password=None)
+    def test_saml_rejects_a_foreign_or_expired_partial(self, reason: str) -> None:
+        user = User.objects.create_user(email="engineering@posthog.com", first_name="Member", password=None)
         with open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), encoding="utf_8") as fixture:
             saml_response = fixture.read()
         with enable_code_sending(), time_machine.travel("2021-08-25T22:09:14.252Z", tick=False) as clock:
             other_client = APIClient()
-            clients = [self.client] if expired else [self.client, other_client]
+            clients = [self.client, other_client] if reason == "other_browser" else [self.client]
             for client in clients:
                 begin = client.get("/login/saml/?email=engineering@posthog.com")
                 relay_state = parse_qs(urlparse(begin["Location"]).query)["RelayState"][0]
                 client.post(
                     "/complete/saml/", {"SAMLResponse": saml_response, "RelayState": relay_state}, format="multipart"
                 )
-            if expired:
+            if reason == "expired":
                 clock.shift(datetime.timedelta(seconds=IDP_AUTHENTICATION_TTL_SECONDS + 1))
+            if reason in ("certificate", "issuer"):
+                config = self.organization_domain.saml_identity_provider_configs.get()
+                field = "saml_x509_cert" if reason == "certificate" else "saml_entity_id"
+                setattr(config, field, "example-replacement")
+                config.save(update_fields=[field])
+                partial = Partial.objects.get(token=self.client.session["partial_pipeline_token"])
+                request = RequestFactory().get("/complete/saml/")
+                request.session = self.client.session
+                identity = _identity_provider_identity(
+                    MultitenantSAMLAuth(load_strategy(request), "/complete/saml/"),
+                    partial.data["kwargs"]["details"],
+                    partial.data["kwargs"]["response"],
+                )
+                assert identity is not None
+                IdentityProviderEmailVerification.objects.create(
+                    user=user,
+                    provider="saml",
+                    issuer=identity.issuer,
+                    subject=identity.subject,
+                    email=user.email,
+                    target_email=user.email,
+                )
             token = (
-                self.client.session["partial_pipeline_token"]
-                if expired
-                else other_client.session["partial_pipeline_token"]
+                other_client.session["partial_pipeline_token"]
+                if reason == "other_browser"
+                else self.client.session["partial_pipeline_token"]
             )
             response = self.client.get("/complete/saml/", {"partial_token": token})
         self.assertIn("oauth_state_invalid", response["Location"])
@@ -2647,8 +2730,11 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
             "saml_browser_verified": True,
         }
         self.assertIsNone(social_require_idp_email_verification(**arguments))
+        backend.get_idp(config)
         config.saml_x509_cert = "another-signing-certificate"
         config.save(update_fields=["saml_x509_cert"])
+        self.assertEqual(_identity_provider_identity(backend, {"email": asserted_email}, response), identity)
+        arguments["backend"] = MultitenantSAMLAuth(strategy, "/complete/saml/")
         with enable_code_sending() as sent:
             result = social_require_idp_email_verification(**arguments)
         assert result is not None

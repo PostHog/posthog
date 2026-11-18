@@ -27,17 +27,33 @@ def idp_identity_key(provider: str, issuer: str, subject: str) -> str:
     return sha256(json.dumps([provider, issuer, subject]).encode()).hexdigest()
 
 
+def saml_identity_issuer(entity_id: str, certificate: str) -> str:
+    certificate = "".join(
+        certificate.replace("-----BEGIN CERTIFICATE-----", "").replace("-----END CERTIFICATE-----", "").split()
+    )
+    return f"saml-v1:{sha256(json.dumps([entity_id, certificate]).encode()).hexdigest()}"
+
+
 def idp_authentication_is_fresh(authenticated_at: object) -> bool:
     return isinstance(authenticated_at, int) and 0 <= time.time() - authenticated_at < IDP_AUTHENTICATION_TTL_SECONDS
 
 
 def validate_idp_partial(backend: "BaseAuth", partial: "PartialMixin") -> None:
+    from posthog.api.authentication import _identity_provider_identity
+
     request = getattr(backend.strategy, "request", None)
     if request is not None and _is_authenticated(request):
         raise AuthStateForbidden(backend)
     if partial.token != backend.strategy.session_get("partial_pipeline_token"):
         raise AuthStateForbidden(backend)
     if not idp_authentication_is_fresh(partial.data.get("kwargs", {}).get("idp_authenticated_at")):
+        backend.strategy.clean_partial_pipeline(partial.token)
+        raise AuthStateForbidden(backend)
+    kwargs = partial.data.get("kwargs", {})
+    identity = _identity_provider_identity(backend, kwargs.get("details"), kwargs.get("response"))
+    if identity is None or kwargs.get("idp_authenticated_identity") != idp_identity_key(
+        identity.provider, identity.issuer, identity.subject
+    ):
         backend.strategy.clean_partial_pipeline(partial.token)
         raise AuthStateForbidden(backend)
 

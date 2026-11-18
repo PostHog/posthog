@@ -37,7 +37,7 @@ from social_django.utils import load_backend, load_strategy
 from posthog.api.scim.utils import mask_email
 from posthog.constants import AvailableFeature
 from posthog.helpers.email_utils import EmailLookupHandler
-from posthog.helpers.sso import UNVERIFIED_SOCIAL_EMAIL_ERROR, validate_idp_partial
+from posthog.helpers.sso import UNVERIFIED_SOCIAL_EMAIL_ERROR, saml_identity_issuer, validate_idp_partial
 from posthog.models.identity_provider_config import IdentityProviderConfig, has_verified_organization_domain_q
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -127,6 +127,7 @@ class MultitenantSAMLAuth(SAMLAuth):
     """
 
     authentication_started_at: int | None = None
+    authentication_issuer: str | None = None
     browser_verified = False
 
     def continue_pipeline(self, partial: PartialMixin) -> UserProtocol | HttpResponseProtocol | None:
@@ -284,9 +285,11 @@ class MultitenantSAMLAuth(SAMLAuth):
                 "Your organization does not have the required license to use SAML.",
             )
 
-        if not idp_config.saml_relay_state:
+        if not idp_config.saml_relay_state or not idp_config.saml_entity_id or not idp_config.saml_x509_cert:
             raise AuthFailed(self, "Authentication request is invalid. Invalid RelayState.")
 
+        # Paused logins must retain the exact signing configuration handed to the SAML validator.
+        self.authentication_issuer = saml_identity_issuer(idp_config.saml_entity_id, idp_config.saml_x509_cert)
         return SAMLIdentityProvider(
             self,
             idp_config.saml_relay_state,
