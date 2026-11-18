@@ -67,10 +67,11 @@ const { loadContractSurfaces } = require('./trunk-impacted-targets')
 // sizing bounds the slowest shard at the target rather than the average, so a
 // 12-minute shard target puts a full PR run near 18 minutes end to end.
 const TARGET_WALL_SECONDS = 12 * 60
-// Per-product cost within a runner: turbo dispatch, pytest collection, Django
-// init. First product pays ~45s, subsequent ~15s; use 60s as a conservative
-// average that also absorbs the amortized portion of runner startup.
-const PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS = 60
+// Per-product cost within a runner that the junit-scaled durations do not hold:
+// turbo dispatch, pytest collection, Django init for each later product in a
+// bucket. The first product's share is in PRODUCT_JOB_BASE_OVERHEAD_SECONDS.
+// Fitted Nov 2026 from step logs of full PR runs (20-23s per later leg).
+const PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS = 20
 // Headroom on a packed bucket, covering error in the recorded durations alone.
 // A bucket runs its products sequentially, so its wall is the sum of its parts
 // and it needs no allowance for an uneven split. That allowance belongs to the
@@ -79,18 +80,18 @@ const PRODUCT_BUCKET_SAFETY_FACTOR = 1.1
 // No headroom constant for a split product: the gap between the mean shard that
 // sizing solves for and the max shard that sets the wall is derived per product
 // in productSplitShards below.
-// Fitted per-shard overhead for a split product job. Two measured parts, from
-// run 32717208712: the job base (docker stack, deps, turbo dispatch) is
-// mean(job wall - JUnit suite time), 247-413s across 12 bucket jobs (median
-// 282s, 263s over the 17 warehouse-sources shards); the session cost
-// (collection, session fixtures) is re-paid in full by every shard of a split
-// and grows with suite size (128s/shard on warehouse-sources, ~15s on small
-// products). Only large products split, so the constant carries a large
-// product's session: ~270 base + ~130 session.
-const PRODUCT_JOB_OVERHEAD_SECONDS = 400
+// Per-shard overhead for a split product job: the job base (runner start, docker
+// stack, deps, post steps) plus the session cost (collection, session fixtures)
+// that every shard of a split pays again, which grows with suite size. Fitted
+// Nov 2026 against job walls of full PR runs: a split shard ran
+// 135-200s (p50) past its share of the junit-scaled work, and ~55s more at p90.
+// The constant sits at that p90 so the slowest shards still land on the target.
+const PRODUCT_JOB_OVERHEAD_SECONDS = 260
 // The base alone, for packed buckets: their products are small, so the session
-// share is the per-product overhead below rather than a large suite's collection.
-const PRODUCT_JOB_BASE_OVERHEAD_SECONDS = 270
+// share is the per-product overhead above rather than a large suite's collection.
+// Fitted from the same runs: a packed job of 2 to 7 products ran ~175s (p50) and
+// ~230s (p90) past its junit-scaled work.
+const PRODUCT_JOB_BASE_OVERHEAD_SECONDS = 200
 // Sentinel entry the timing workflow writes into .test_durations after it scales
 // the product entries to their JUnit-measured totals (see
 // optimize_test_durations.py). Product jobs record call-only durations, which
