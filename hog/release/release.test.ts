@@ -1,0 +1,287 @@
+import { describe, expect, test } from 'bun:test'
+import { readdirSync } from 'node:fs'
+import { chmod, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { z } from 'zod'
+
+import { readJson } from '../src/testing'
+import type { Artifact } from '../src/updates/manifest'
+import { archiveName, TARGETS } from '../src/updates/targets'
+import { buildManifest, sha256Sums, wrapperPackageJson } from './artifacts'
+
+const launcher = createRequire(import.meta.url)('./npm/hog.cjs') as {
+    targetId: (platform: string, arch: string, musl: boolean) => string | undefined
+    libcFamily: (ldd: string | undefined, report: unknown) => string | undefined
+    candidates: (platform: string, arch: string, libc: string | undefined) => string[]
+}
+
+describe('npm launcher', () => {
+    test.each(TARGETS.map((target) => [target.id, target]))('picks %s on its own platform', (id, target) => {
+        expect(launcher.targetId(target.os, target.cpu, target.libc === 'musl')).toBe(id)
+    })
+
+    test.each([
+        ['freebsd', 'x64'],
+        ['linux', 'ia32'],
+    ])('has no build for %s on %s', (platform, arch) => {
+        expect(launcher.targetId(platform, arch, false)).toBeUndefined()
+    })
+
+    const GLIBC_LDD =
+        '#!/bin/bash\necho "ldd (GNU libc) 2.39"\n# Copyright (C) 2024 Free Software Foundation, Inc.\n# GNU C Library\n'
+    const MUSL_LDD = '#!/bin/sh\nexec /lib/ld-musl-x86_64.so.1 --list "$@"\n'
+
+    test.each([
+        ['glibc, even with musl installed', GLIBC_LDD, { sharedObjects: ['/lib/ld-musl-x86_64.so.1'] }, 'glibc'],
+        ['Alpine', MUSL_LDD, {}, 'musl'],
+        [
+            'an ldd npm does not recognize, whatever the report says',
+            '#!/bin/sh\n',
+            { header: { glibcVersionRuntime: '2.39' } },
+            undefined,
+        ],
+        ['glibc without ldd', undefined, { header: { glibcVersionRuntime: '2.39' } }, 'glibc'],
+        ['musl without ldd', undefined, { header: {}, sharedObjects: ['/lib/ld-musl-x86_64.so.1'] }, 'musl'],
+        ['an unknown libc', undefined, { header: {} }, undefined],
+    ])('reads the libc of %s as npm does', (_name, ldd, report, libc) => {
+        expect(launcher.libcFamily(ldd, report)).toBe(libc)
+    })
+
+    test('falls back to the other libc build on Linux only', () => {
+        expect(launcher.candidates('linux', 'x64', 'glibc')).toEqual(['linux-x64', 'linux-x64-musl'])
+        expect(launcher.candidates('linux', 'arm64', 'musl')).toEqual(['linux-arm64-musl', 'linux-arm64'])
+        expect(launcher.candidates('darwin', 'arm64', undefined)).toEqual(['darwin-arm64'])
+    })
+})
+
+const IS_LATEST = join(import.meta.dir, 'is-latest.ts')
+
+// The publishing job promotes only on "true", so anything it can't compare must fail instead of answering.
+describe('is-latest', () => {
+    test.each([
+        ['an older latest', '{"version":"0.1.0-alpha.2"}', 0, 'true'],
+        ['the same version', '{"version":"0.1.0-alpha.3"}', 0, 'true'],
+        ['a newer latest', '{"version":"0.2.0"}', 0, 'false'],
+        ['a manifest with no version', '{}', 1, ''],
+        ['a version that is not semver', '{"version":"latest"}', 1, ''],
+        ['a file that is not JSON', '<Error><Code>AccessDenied</Code></Error>', 1, ''],
+    ])('answers for %s', async (_name, manifest, exitCode, stdout) => {
+        const path = join(await mkdtemp(join(tmpdir(), 'hog-latest-')), 'manifest.json')
+        await writeFile(path, manifest)
+
+        const child = Bun.spawnSync([process.execPath, IS_LATEST, '--version', '0.1.0-alpha.3', '--current', path])
+
+        expect(child.exitCode).toBe(exitCode)
+        expect(child.stdout.toString().trim()).toBe(stdout)
+    })
+})
+
+const hostHasMuslLoader = ['/lib', '/usr/lib'].some((folder) => {
+    try {
+        return readdirSync(folder).some((name) => name.startsWith('ld-musl-'))
+    } catch {
+        return false
+    }
+})
+const here = launcher.targetId(process.platform, process.arch, process.platform === 'linux' && hostHasMuslLoader)
+const INSTALL_SH = join(import.meta.dir, 'install.sh')
+
+interface FakeRelease {
+    root: string
+    bucket: string
+    mirror: string
+    home: string
+    installDir: string
+}
+
+async function sh(command: string[], cwd: string): Promise<void> {
+    const child = Bun.spawn(command, { cwd, stdout: 'ignore', stderr: 'inherit' })
+    expect(await child.exited).toBe(0)
+}
+
+async function fakeRelease(
+    version: string,
+    where: 'bucket' | 'mirror',
+    options: { checksum?: string; target?: string; broken?: boolean } = {}
+): Promise<FakeRelease> {
+    const root = await mkdtemp(join(tmpdir(), 'hog-install-'))
+    const release: FakeRelease = {
+        root,
+        bucket: join(root, 'bucket'),
+        mirror: join(root, 'mirror'),
+        home: join(root, 'home'),
+        installDir: join(root, 'home', 'bin'),
+    }
+    const target = TARGETS.find((candidate) => candidate.id === (options.target ?? here))!
+
+    const build = join(root, 'build')
+    await mkdir(build, { recursive: true })
+    await writeFile(join(build, 'hog'), options.broken ? '#!/bin/sh\nexit 1\n' : `#!/bin/sh\necho ${version}\n`)
+    await chmod(join(build, 'hog'), 0o755)
+
+    const versionFolder =
+        where === 'bucket' ? join(release.bucket, `v${version}`) : join(release.mirror, 'hog', `v${version}`)
+    await mkdir(versionFolder, { recursive: true })
+    const file = archiveName(target)
+    await sh(['tar', '-czf', join(versionFolder, file), '-C', build, 'hog'], root)
+
+    const hasher = new Bun.CryptoHasher('sha256')
+    hasher.update(await readFile(join(versionFolder, file)))
+    const artifacts: Record<string, Artifact> = {
+        [target.id]: { file, sha256: options.checksum ?? hasher.digest('hex'), size: 0 },
+    }
+    await writeFile(join(versionFolder, 'SHA256SUMS'), sha256Sums(artifacts))
+
+    await mkdir(join(release.bucket, 'latest'), { recursive: true })
+    await writeFile(
+        join(release.bucket, 'latest', 'manifest.json'),
+        JSON.stringify(buildManifest(version, artifacts, { publishedAt: new Date(0), buildDate: new Date(0) }), null, 2)
+    )
+    await mkdir(release.home, { recursive: true })
+    return release
+}
+
+async function install(
+    release: FakeRelease,
+    args: string[] = [],
+    uname?: { s: string; m: string }
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+    let path = process.env.PATH ?? ''
+    if (uname) {
+        const bin = join(release.root, 'fake-bin')
+        await mkdir(bin, { recursive: true })
+        await writeFile(
+            join(bin, 'uname'),
+            `#!/bin/sh\ncase "$1" in -m) echo ${uname.m} ;; *) echo ${uname.s} ;; esac\n`
+        )
+        await chmod(join(bin, 'uname'), 0o755)
+        path = `${bin}:${path}`
+    }
+    const child = Bun.spawn(['sh', INSTALL_SH, ...args], {
+        env: {
+            PATH: path,
+            HOME: release.home,
+            SHELL: '/bin/zsh',
+            HOG_RELEASES_URL: `file://${release.bucket}`,
+            HOG_MIRROR_URL: `file://${release.mirror}`,
+            HOG_INSTALL_DIR: release.installDir,
+        },
+        stdout: 'pipe',
+        stderr: 'pipe',
+    })
+    const [stdout, stderr, exitCode] = await Promise.all([
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+        child.exited,
+    ])
+    return { exitCode, stdout, stderr }
+}
+
+function receiptPath(release: FakeRelease): string {
+    return process.platform === 'darwin'
+        ? join(release.home, 'Library', 'Application Support', 'hog', 'install.json')
+        : join(release.home, '.config', 'hog', 'install.json')
+}
+
+describe.skipIf(process.platform === 'win32' || !here)('install.sh', () => {
+    test('installs the latest release and records the install', async () => {
+        const release = await fakeRelease('0.1.0-alpha.3', 'bucket')
+
+        const result = await install(release)
+
+        expect(result.stderr).toBe('')
+        expect(result.exitCode).toBe(0)
+        expect(result.stdout).toContain(`Installed hog 0.1.0-alpha.3 to ${release.installDir}/hog.`)
+        expect(result.stdout).toContain(`export PATH="${release.installDir}:$PATH"`)
+        expect(await Bun.file(receiptPath(release)).json()).toEqual({
+            method: 'script',
+            install_dir: release.installDir,
+            version: '0.1.0-alpha.3',
+            target: here,
+        })
+    })
+
+    test('falls back to the GitHub mirror for a pinned version the bucket lacks', async () => {
+        const release = await fakeRelease('1.2.3', 'mirror')
+
+        const result = await install(release, ['--version', 'v1.2.3'])
+
+        expect(result.exitCode).toBe(0)
+        expect(result.stdout).toContain('Installed hog 1.2.3')
+    })
+
+    test('installs nothing when the archive does not match SHA256SUMS', async () => {
+        const release = await fakeRelease('1.2.3', 'bucket', { checksum: '0'.repeat(64) })
+
+        const result = await install(release, ['--version', '1.2.3'])
+
+        expect(result.exitCode).toBe(1)
+        expect(result.stderr).toContain("doesn't match SHA256SUMS")
+        expect(await Bun.file(join(release.installDir, 'hog')).exists()).toBe(false)
+    })
+
+    test('keeps the installed hog when the new build does not run here', async () => {
+        const release = await fakeRelease('1.2.3', 'bucket', { broken: true })
+        await mkdir(release.installDir, { recursive: true })
+        await writeFile(join(release.installDir, 'hog'), '#!/bin/sh\necho 1.0.0\n')
+
+        const result = await install(release, ['--version', '1.2.3'])
+
+        expect(result.exitCode).toBe(1)
+        expect(result.stderr).toContain("doesn't run on this machine")
+        expect(await readFile(join(release.installDir, 'hog'), 'utf8')).toBe('#!/bin/sh\necho 1.0.0\n')
+        expect(readdirSync(release.installDir)).toEqual(['hog'])
+    })
+
+    test('points Git Bash to the PowerShell installer and installs nothing', async () => {
+        const release = await fakeRelease('1.2.3', 'bucket', { target: 'windows-x64' })
+
+        const result = await install(release, [], { s: 'MINGW64_NT-10.0-19045', m: 'x86_64' })
+
+        expect(result.exitCode).toBe(1)
+        expect(result.stderr).toContain(
+            'powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://releases.posthog.com/hog/install.ps1 | iex"'
+        )
+        expect(await Bun.file(join(release.installDir, 'hog')).exists()).toBe(false)
+    })
+
+    test('installs the Linux build in WSL, which reports Linux', async () => {
+        const release = await fakeRelease('1.2.3', 'bucket', { target: 'linux-x64' })
+
+        const result = await install(release, [], { s: 'Linux', m: 'x86_64' })
+
+        expect(result.exitCode).toBe(0)
+        expect(result.stdout).toContain('Installing hog 1.2.3 for linux-x64.')
+    })
+})
+
+// A second closing marker would hand sh code to PowerShell, and `irm install.sh | iex` would print parse errors.
+test('install.sh closes its PowerShell comment exactly once, after the sh code', async () => {
+    const lines = (await Bun.file(INSTALL_SH).text()).split('\n')
+
+    const markers = lines.flatMap((line, index) => (line.includes('#>') ? [index] : []))
+
+    expect(markers).toHaveLength(1)
+    expect(lines[markers[0]!]).toBe('#>')
+    expect(lines.slice(0, markers[0]).some((line) => line === 'exit')).toBe(true)
+})
+
+// Package managers name the command after the `bin` key, and npx and bunx run a package's only bin.
+test.skipIf(!Bun.which('npm'))('the npm launcher package installs the hog command', async () => {
+    const folder = await mkdtemp(join(tmpdir(), 'hog-npm-'))
+    await mkdir(join(folder, 'bin'))
+    await writeFile(join(folder, 'package.json'), JSON.stringify(wrapperPackageJson('0.1.0-alpha.1')))
+    await writeFile(join(folder, 'bin', 'hog.cjs'), await readFile(join(import.meta.dir, 'npm', 'hog.cjs')))
+
+    const pack = Bun.spawnSync(['npm', 'pack', '--dry-run', '--json', '--ignore-scripts'], { cwd: folder })
+
+    expect(pack.exitCode).toBe(0)
+    const [tarball] = readJson(pack.stdout.toString(), PackOutput)
+    expect(tarball!.files.map((file) => file.path).sort()).toEqual(['bin/hog.cjs', 'package.json'])
+    expect(wrapperPackageJson('0.1.0-alpha.1').bin).toEqual({ hog: 'bin/hog.cjs' })
+    expect((await readFile(join(folder, 'bin', 'hog.cjs'), 'utf8')).startsWith('#!/usr/bin/env node\n')).toBe(true)
+})
+
+const PackOutput = z.array(z.object({ files: z.array(z.object({ path: z.string() })) }))
