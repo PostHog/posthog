@@ -5,7 +5,8 @@ Pure: no database, no DNS lookup, no network.
 
 import re
 import json
-from collections.abc import Iterator
+import ipaddress
+from collections.abc import Iterable, Iterator
 from enum import StrEnum
 from urllib.parse import unquote, urlsplit
 
@@ -17,13 +18,16 @@ from products.ml_inference.backend.facade.contracts import JsonValue
 
 
 class Rule(StrEnum):
+    # A destination sends a request to our own network: an input value or a literal `fetch` URL names the host.
     INTERNAL_HOST = "internal_host"
+    # Any other internal URL, such as a transformation that drops events from `http://localhost:3000`.
+    INTERNAL_HOST_REFERENCE = "internal_host_reference"
     REQUEST_CATCHER = "request_catcher"
     OVERSIZED_INPUT = "oversized_input"
 
 
-# Every rule alerts. Customers test destinations against request catchers and send large inputs, so only a
-# request to our own network is certain enough to block.
+# Every rule alerts. Customers test destinations against request catchers, send large inputs and filter out
+# local traffic, so only a request to our own network is certain enough to block.
 BLOCKING_RULES = frozenset({Rule.INTERNAL_HOST})
 
 # Jev reads at most this much state, so an input longer than that can never be shown to it whole.
@@ -46,17 +50,24 @@ _REQUEST_CATCHER_DOMAINS = frozenset(
     }
 )
 
-# A lookahead, so a URL nested in the query of another URL is matched on its own too.
-_URL = re.compile(r"(?=(https?://[^\s\"'`<>(){},;]+))", re.IGNORECASE)
+_SCHEME = re.compile(r"https?://", re.IGNORECASE)
+# Only the authority is read after each scheme, and it is bounded, so a megabyte of URLs costs linear time. A URL
+# nested in the query of another URL has its own scheme, so it is read on its own.
+_AUTHORITY = re.compile(r"[^\s\"'`<>(){},;/?#\\]{1,512}")
+_FETCH_LITERAL = re.compile(r"\bfetch\s*\(\s*f?(['\"])([^'\"]{1,2048})\1")
 # A URL can hide inside a query parameter of another URL, encoded once per layer of redirect.
 _MAX_DECODE_PASSES = 3
+_IPV4_PART = {16: re.compile(r"[0-9a-f]*"), 8: re.compile(r"[0-7]+"), 10: re.compile(r"[0-9]+")}
 
 
 def matched_rules(content: HogFunctionContent) -> tuple[Rule, ...]:
-    hosts = {host for text in _texts(content) for host in _url_hosts(text)}
+    target_hosts = set(_hosts_in(_request_targets(content)))
+    hosts = target_hosts | set(_hosts_in(_texts(content)))
     matched = set()
-    if any(internal_host_name(host) is not None for host in hosts):
+    if any(_is_internal(host) for host in target_hosts):
         matched.add(Rule.INTERNAL_HOST)
+    elif any(_is_internal(host) for host in hosts):
+        matched.add(Rule.INTERNAL_HOST_REFERENCE)
     if any(_is_request_catcher(host) for host in hosts):
         matched.add(Rule.REQUEST_CATCHER)
     if any(_encoded_length(value) > OVERSIZED_INPUT_CHARS for value in _input_values(content)):
@@ -67,14 +78,22 @@ def matched_rules(content: HogFunctionContent) -> tuple[Rule, ...]:
 def _all_inputs(content: HogFunctionContent) -> Iterator[JsonValue]:
     yield from content.inputs.values()
     for mapping in content.mappings:
-        if isinstance(mapping, dict) and isinstance(mapping.get("inputs"), dict):
-            yield from mapping["inputs"].values()
+        if isinstance(mapping, dict) and isinstance(inputs := mapping.get("inputs"), dict):
+            yield from inputs.values()
 
 
 def _input_values(content: HogFunctionContent) -> Iterator[JsonValue]:
     for entry in _all_inputs(content):
         if isinstance(entry, dict):
             yield entry.get("value")
+
+
+def _request_targets(content: HogFunctionContent) -> Iterator[str]:
+    """The strings a destination sends a request to. A transformation runs without network access."""
+    if content.type != "destination":
+        return
+    yield from _strings(list(_all_inputs(content)))
+    yield from (literal.group(2) for literal in _FETCH_LITERAL.finditer(content.hog))
 
 
 def _texts(content: HogFunctionContent) -> Iterator[str]:
@@ -96,11 +115,19 @@ def _strings(value: JsonValue) -> Iterator[str]:
             yield from _strings(item)
 
 
+def _hosts_in(texts: Iterable[str]) -> Iterator[str]:
+    for text in texts:
+        yield from _url_hosts(text)
+
+
 def _url_hosts(text: str) -> Iterator[str]:
     for layer in _decoded_layers(text):
-        for url in _URL.findall(layer):
+        for scheme in _SCHEME.finditer(layer):
+            authority = _AUTHORITY.match(layer, scheme.end())
+            if authority is None:
+                continue
             try:
-                parts = urlsplit(url)
+                parts = urlsplit(f"http://{authority.group()}")
             except ValueError:
                 continue
             if parts.hostname:
@@ -118,6 +145,41 @@ def _decoded_layers(text: str) -> Iterator[str]:
             return
         yield decoded
         text = decoded
+
+
+def _is_internal(host: str) -> bool:
+    if internal_host_name(host) is not None:
+        return True
+    shorthand = _runtime_ipv4(host)
+    return shorthand is not None and internal_host_name(str(shorthand)) is not None
+
+
+def _runtime_ipv4(host: str) -> ipaddress.IPv4Address | None:
+    """The address a WHATWG URL parser, such as the one in Node, reads from `127.1`, `2130706433` or `0x7f000001`."""
+    parts = host.lower().split(".")
+    if len(parts) > 1 and parts[-1] == "":
+        parts.pop()
+    if not 1 <= len(parts) <= 4:
+        return None
+    numbers = [_ipv4_number(part) for part in parts]
+    if any(number is None for number in numbers):
+        return None
+    *leading, last = [number for number in numbers if number is not None]
+    if any(number > 255 for number in leading) or last >= 256 ** (5 - len(parts)):
+        return None
+    return ipaddress.IPv4Address(last + sum(number << (8 * (3 - index)) for index, number in enumerate(leading)))
+
+
+def _ipv4_number(part: str) -> int | None:
+    if part.startswith("0x"):
+        base, digits = 16, part[2:]
+    elif len(part) > 1 and part.startswith("0"):
+        base, digits = 8, part[1:]
+    else:
+        base, digits = 10, part
+    if not _IPV4_PART[base].fullmatch(digits):
+        return None
+    return int(digits, base) if digits else 0
 
 
 def _is_request_catcher(host: str) -> bool:

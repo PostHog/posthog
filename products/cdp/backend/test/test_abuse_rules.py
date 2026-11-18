@@ -10,12 +10,13 @@ from products.cdp.backend.abuse.rules import Rule, matched_rules
 
 def content(
     hog: str = "fetch(inputs.url, {'body': event})",
+    function_type: str = "destination",
     inputs: dict[str, Any] | None = None,
     mappings: list[Any] | None = None,
     filters: dict[str, Any] | None = None,
 ) -> HogFunctionContent:
     return HogFunctionContent(
-        type="destination",
+        type=function_type,
         template_id=None,
         code_modified_from_template=None,
         hog=hog,
@@ -90,6 +91,43 @@ class TestAbuseRules(SimpleTestCase):
                 ),
                 (),
             ),
+            (
+                "local_url_filter_in_a_transformation",
+                content(
+                    hog="if (startsWith(event.properties.$current_url, 'http://localhost:3000/')) {\n  return null\n}\nreturn event",
+                    function_type="transformation",
+                    inputs={},
+                ),
+                (Rule.INTERNAL_HOST_REFERENCE,),
+            ),
+            (
+                "local_url_compared_in_destination_code",
+                content(
+                    hog="if (event.properties.$current_url == 'http://127.0.0.1:8000/') { return }\nfetch(inputs.url)"
+                ),
+                (Rule.INTERNAL_HOST_REFERENCE,),
+            ),
+            (
+                "internal_input_of_a_transformation",
+                content(function_type="transformation", inputs={"exclude": {"value": "http://localhost:3000"}}),
+                (Rule.INTERNAL_HOST_REFERENCE,),
+            ),
+            (
+                "internal_mapping_input_of_a_destination",
+                content(mappings=[{"name": "Orders", "inputs": {"url": {"value": "http://10.0.0.8/orders"}}}]),
+                (Rule.INTERNAL_HOST,),
+            ),
+            ("ipv4_shorthand", content(inputs={"url": {"value": "http://127.1/"}}), (Rule.INTERNAL_HOST,)),
+            ("ipv4_as_one_number", content(hog="fetch('http://2130706433/')"), (Rule.INTERNAL_HOST,)),
+            ("ipv4_in_hex", content(hog="fetch(f'http://0x7f000001/{event.uuid}')"), (Rule.INTERNAL_HOST,)),
+            (
+                "ipv4_in_octal_parts",
+                content(inputs={"url": {"value": "http://0251.0376.0251.0376/"}}),
+                (Rule.INTERNAL_HOST,),
+            ),
+            ("public_ipv4_as_one_number", content(inputs={"url": {"value": "http://134744072/"}}), ()),
+            ("numeric_looking_domain", content(inputs={"url": {"value": "https://1.2.3.4.example.com/"}}), ()),
+            ("many_urls", content(hog="https://example.com/" * 50_000, inputs={}), ()),
             ("templated_host", content(inputs={"url": {"value": "https://{inputs.host}/hook"}}), ()),
             ("oversized_input", content(inputs={"padding": {"value": "B" * 65_537}}), (Rule.OVERSIZED_INPUT,)),
             ("input_at_the_size_limit", content(inputs={"padding": {"value": "B" * 65_536}}), ()),
