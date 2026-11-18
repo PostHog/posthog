@@ -45,7 +45,7 @@ from products.slack_app.backend.services.slack_messages import context_block, se
 from products.slack_app.backend.services.slack_settings import resolve_onboarding, update_onboarding
 from products.slack_app.backend.services.slack_user_oauth import (
     LinkedUserToken,
-    linked_posthog_user_id,
+    linked_posthog_distinct_id,
     linked_search_token,
 )
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
@@ -216,7 +216,7 @@ def find_and_send_daily_focus(
     A quiet day sends nothing. The free checks come first, so a run that cannot send spends no queries, Slack calls
     or credits."""
     if not is_slack_app_daily_work_focus_enabled(
-        integration, linked_posthog_user_id(slack_user_id=slack_user_id, slack_team_id=integration.integration_id)
+        integration, linked_posthog_distinct_id(slack_user_id=slack_user_id, slack_team_id=integration.integration_id)
     ):
         return "flag_off"
     daily = resolve_daily_focus(integration.integration_id, slack_user_id)
@@ -298,7 +298,7 @@ def _daily_focus_footer(integration: WorkspaceIntegration, slack_user_id: str) -
     """The onboarding turns the daily work focus on, unless the person already chose. The footer shows while it is
     on."""
     if not is_slack_app_daily_work_focus_enabled(
-        integration, linked_posthog_user_id(slack_user_id=slack_user_id, slack_team_id=integration.integration_id)
+        integration, linked_posthog_distinct_id(slack_user_id=slack_user_id, slack_team_id=integration.integration_id)
     ):
         return None
     daily = resolve_daily_focus(integration.integration_id, slack_user_id)

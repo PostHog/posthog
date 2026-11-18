@@ -4,14 +4,6 @@ from unittest.mock import patch
 from products.slack_app.backend import feature_flags
 from products.slack_app.backend.tests.conftest import SLACK_TEAM_ID
 
-PERSON_GATES = [
-    feature_flags.is_slack_app_onboarding_enabled,
-    feature_flags.is_slack_app_link_search_scopes_enabled,
-    feature_flags.is_slack_app_connect_tool_from_chat_enabled,
-    feature_flags.is_slack_app_daily_work_focus_enabled,
-    feature_flags.is_slack_app_slack_mcp_enabled,
-]
-
 # (gate, scopes the feature calls)
 SCOPED_GATES = [
     (feature_flags.is_slack_app_oauth_enabled, feature_flags.OAUTH_REQUIRED_SCOPES),
@@ -40,29 +32,37 @@ def test_gate_stays_closed_when_a_required_scope_is_missing(workspace_integratio
     assert gate(workspace_integration) is False
 
 
-# (gate, what it takes for the acting user)
 USER_KEYED_GATES = [
-    (feature_flags.is_slack_app_agent_design_enabled, "distinct_id"),
-    *((gate, "user_id") for gate in PERSON_GATES),
+    feature_flags.is_slack_app_agent_design_enabled,
+    feature_flags.is_slack_app_onboarding_enabled,
+    feature_flags.is_slack_app_link_search_scopes_enabled,
+    feature_flags.is_slack_app_connect_tool_from_chat_enabled,
+    feature_flags.is_slack_app_daily_work_focus_enabled,
+    feature_flags.is_slack_app_slack_mcp_enabled,
 ]
 
 
-@pytest.mark.parametrize(("gate", "takes"), USER_KEYED_GATES, ids=[gate.__name__ for gate, _ in USER_KEYED_GATES])
-@pytest.mark.parametrize("known", [True, False], ids=["known user", "no user"])
+@pytest.mark.parametrize("gate", USER_KEYED_GATES, ids=[gate.__name__ for gate in USER_KEYED_GATES])
+@pytest.mark.parametrize(
+    ("distinct_id", "expected_identity"),
+    [
+        ("user-1", "user-1"),
+        (None, f"slack_workspace:{SLACK_TEAM_ID}"),
+    ],
+    ids=["known user", "no user"],
+)
 def test_user_keyed_gate_resolves_against_the_acting_user(
-    settings, workspace_integration, org_team_user, gate, takes, known
+    settings, workspace_integration, org_team_user, gate, distinct_id, expected_identity
 ):
     # The identity decides which rules can match at all. Resolving a known user against the
     # workspace instead would silently stop every person rule, `email ends_with
     # @posthog.com` included, from matching anyone.
     settings.CLOUD_DEPLOYMENT = "DEV"
-    org, _, user = org_team_user
-    acting = (user.distinct_id if takes == "distinct_id" else user.id) if known else None
+    org, _, _ = org_team_user
 
     with patch("posthoganalytics.feature_enabled", return_value=True) as feature_enabled:
-        assert gate(workspace_integration, acting) is True
+        assert gate(workspace_integration, distinct_id) is True
 
-    expected_identity = user.distinct_id if known else f"slack_workspace:{SLACK_TEAM_ID}"
     assert feature_enabled.call_args.args[1] == expected_identity
     assert feature_enabled.call_args.kwargs["person_properties"] == {"region": "DEV"}
     assert feature_enabled.call_args.kwargs["groups"] == {"organization": str(org.id)}
