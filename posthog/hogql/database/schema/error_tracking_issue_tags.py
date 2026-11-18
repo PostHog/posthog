@@ -35,14 +35,13 @@ class RawErrorTrackingIssueTagsTable(Table):
     }
 
     def get_predicates(self, context: Optional[HogQLContext] = None) -> list[Expr]:
-        # A rule's rows show which issues matched its filter, so they tell a member the values of the properties that
-        # the filter reads. A member who may not read one of those properties must not read the rows.
-        if context is None or context.team_id is None:
+        # A rule's rows show which issues matched its filter, so they are hidden wherever its label is hidden.
+        if context is None or context.team_id is None or not context.restricted_properties:
             return []
         # Deferred because the facade loads Django models, and this module loads before Django does.
         from products.error_tracking.backend.facade.api import readable_issue_tag_keys  # noqa: PLC0415
 
-        keys = readable_issue_tag_keys(context.team_id, context.restricted_properties or set())
+        keys = readable_issue_tag_keys(context.team_id, context.restricted_properties)
         if keys is None:
             return []
         return [

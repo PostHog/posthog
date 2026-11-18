@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -15,7 +15,6 @@ from posthog.hogql.parser import parse_program
 from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -36,10 +35,10 @@ from products.error_tracking.backend.logic.issue_tags.enabled import (
     readable_issue_tag_keys,
 )
 from products.error_tracking.backend.logic.issue_tags.runner import IssueTaggingSkipReason, TaggerRun, run_issue_taggers
+from products.error_tracking.backend.logic.issue_tags.sync import sync_issue_tag_to_clickhouse
 from products.error_tracking.backend.logic.issue_tags.taggers.rule import RuleTagger
 from products.error_tracking.backend.logic.rules import MAX_SEVERITY_RULE_BYTECODE_OPS, compile_filter_bytecode
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueTag, ErrorTrackingIssueTagRule
-from products.error_tracking.backend.sql import INSERT_ERROR_TRACKING_ISSUE_TAG
 from products.event_definitions.backend.models import PropertyDefinition, PropertyType
 
 Source = ErrorTrackingIssueTag.Source
@@ -319,11 +318,10 @@ class TestIssueTagRowsInHogQL(ClickhouseTestMixin, _IssueTagRuleTest):
             "unhandled": self.unhandled.key,
             "deleted_rule": f"rule_{uuid4().hex}",
         }
-        issue_id = str(uuid4())
+        issue_id = uuid4()
         for key in keys.values():
-            sync_execute(
-                INSERT_ERROR_TRACKING_ISSUE_TAG,
-                {"team_id": self.team.pk, "issue_id": issue_id, "key": key, "value": 1, "is_deleted": 0, "version": 1},
+            sync_issue_tag_to_clickhouse(
+                team_id=self.team.pk, issue_id=issue_id, key=key, value=True, updated_at=datetime.now(UTC)
             )
         self._restrict_revenue_for_the_member()
         member = (
