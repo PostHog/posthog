@@ -1,21 +1,19 @@
-import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
-
 import { LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
-import { toParams } from 'lib/utils/url'
 import { ExperimentFlagKeyInput } from 'scenes/experiments/ExperimentFlagKeyInput'
-import { slugifyFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
-import { FLAGS_PER_PAGE, FeatureFlagsFilters } from 'scenes/feature-flags/featureFlagsLogic'
-import { organizationLogic } from 'scenes/organizationLogic'
-import { teamLogic } from 'scenes/teamLogic'
 
-import { Experiment, FeatureFlagType } from '~/types'
+import { Experiment } from '~/types'
 
-import { experimentsLogic } from 'products/experiments/frontend/scenes/experimentsLogic'
+import {
+    COPY_EXPERIMENT_DESCRIPTION,
+    COPY_EXPERIMENT_TITLE,
+    SELECT_PROJECT_REASON,
+    copyNamePlaceholder,
+    useCopyExperimentToProjectModal,
+} from './experimentCopyModals'
+import { QuillCopyExperimentToProjectModal } from './QuillExperimentCopyModals'
 
 interface CopyExperimentToProjectModalProps {
     isOpen: boolean
@@ -23,162 +21,45 @@ interface CopyExperimentToProjectModalProps {
     experiment: Experiment
 }
 
-const DEFAULT_FILTERS: Partial<FeatureFlagsFilters> = { search: undefined, order: undefined, page: 1 }
+export function CopyExperimentToProjectModal(props: CopyExperimentToProjectModalProps): JSX.Element {
+    const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    if (todayRailNav && resultsRedesign) {
+        return <QuillCopyExperimentToProjectModal {...props} />
+    }
+    return <LemonCopyExperimentToProjectModal {...props} />
+}
 
-export function CopyExperimentToProjectModal({
+function LemonCopyExperimentToProjectModal({
     isOpen,
     onClose,
     experiment,
 }: CopyExperimentToProjectModalProps): JSX.Element {
-    const { copyExperimentToProject } = useActions(experimentsLogic)
-    const { experimentsLoading } = useValues(experimentsLogic)
-    const { currentOrganization } = useValues(organizationLogic)
-    const { currentTeam } = useValues(teamLogic)
-
-    const teamOptions =
-        currentOrganization?.teams
-            ?.filter((team) => team.id !== currentTeam?.id)
-            .map((team) => ({ value: team.id, label: team.name }))
-            .sort((a, b) => a.label.localeCompare(b.label)) || []
-    const onlyTeamOptionValue = teamOptions.length === 1 ? teamOptions[0].value : null
-
-    const [selectedTeamId, setSelectedTeamId] = useState<number | null>(null)
-    const [experimentName, setExperimentName] = useState('')
-    const [flagKey, setFlagKey] = useState('')
-    const [flagKeyManuallyEdited, setFlagKeyManuallyEdited] = useState(false)
-    const [isExistingFlag, setIsExistingFlag] = useState(false)
-    const [showReuseFlag, setShowReuseFlag] = useState(false)
-
-    // Local state for target project's feature flags
-    const [targetFeatureFlags, setTargetFeatureFlags] = useState<{ results: FeatureFlagType[]; count: number }>({
-        results: [],
-        count: 0,
-    })
-    const [targetFlagsLoading, setTargetFlagsLoading] = useState(false)
-    const [targetFlagFilters, setTargetFlagFilters] = useState<Partial<FeatureFlagsFilters>>(DEFAULT_FILTERS)
-    const selectedTeam = currentOrganization?.teams?.find((team) => team.id === selectedTeamId)
-
-    useEffect(() => {
-        if (isOpen && onlyTeamOptionValue !== null && selectedTeamId === null) {
-            handleTeamChange(onlyTeamOptionValue)
-        }
-    }, [isOpen, onlyTeamOptionValue, selectedTeamId])
-
-    const fetchTargetFlags = async (projectId: number, filters: Partial<FeatureFlagsFilters>): Promise<void> => {
-        setTargetFlagsLoading(true)
-        try {
-            const params = {
-                ...filters,
-                limit: FLAGS_PER_PAGE,
-                offset: filters.page ? (filters.page - 1) * FLAGS_PER_PAGE : 0,
-                eligible_for_experiment: true,
-            }
-            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsList() from 'products/feature_flags/frontend/generated/api' instead.
-            const data = await api.get(`api/projects/${projectId}/feature_flags/?${toParams(params)}`)
-            setTargetFeatureFlags(data)
-        } finally {
-            setTargetFlagsLoading(false)
-        }
-    }
-
-    useEffect(() => {
-        if (selectedTeam?.project_id) {
-            void fetchTargetFlags(selectedTeam.project_id, targetFlagFilters)
-        }
-    }, [selectedTeam?.project_id, targetFlagFilters])
-
-    const handleTeamChange = (id: number | null): void => {
-        setSelectedTeamId(id)
-        // Reset flag state when switching projects
-        setFlagKey('')
-        setFlagKeyManuallyEdited(false)
-        setIsExistingFlag(false)
-        setShowReuseFlag(false)
-        setTargetFlagFilters(DEFAULT_FILTERS)
-    }
-
-    const handleNameChange = (value: string): void => {
-        setExperimentName(value)
-        if (!flagKeyManuallyEdited) {
-            setFlagKey(slugifyFeatureFlagKey(value, { fromTitleInput: true }))
-            setIsExistingFlag(false)
-        }
-    }
-
-    const handleFlagKeyChange = (value: string): void => {
-        setFlagKeyManuallyEdited(true)
-        setIsExistingFlag(false)
-        setFlagKey(slugifyFeatureFlagKey(value))
-    }
-
-    const selectExistingFlag = (key: string): void => {
-        setFlagKeyManuallyEdited(true)
-        setIsExistingFlag(true)
-        setFlagKey(key)
-    }
-
-    const handleCopy = (): void => {
-        if (selectedTeamId && selectedTeam) {
-            copyExperimentToProject({
-                id: experiment.id as number,
-                targetProjectId: selectedTeam.project_id,
-                targetTeamId: selectedTeamId,
-                featureFlagKey: flagKey || undefined,
-                name: experimentName.trim() || undefined,
-                onSuccess: handleClose,
-            })
-        }
-    }
-
-    const handleClose = (): void => {
-        setSelectedTeamId(null)
-        setExperimentName('')
-        setFlagKey('')
-        setFlagKeyManuallyEdited(false)
-        setIsExistingFlag(false)
-        setShowReuseFlag(false)
-        setTargetFlagFilters(DEFAULT_FILTERS)
-        setTargetFeatureFlags({ results: [], count: 0 })
-        onClose()
-    }
-
-    const handleTargetFlagFiltersChange = (filters: Partial<FeatureFlagsFilters>): void => {
-        setTargetFlagFilters((prev) => ({ ...prev, ...filters }))
-    }
-
-    const currentPage = targetFlagFilters.page || 1
-    const hasNextPage = targetFeatureFlags.count > currentPage * FLAGS_PER_PAGE
-    const hasPreviousPage = currentPage > 1
-    const needsPagination = targetFeatureFlags.count > FLAGS_PER_PAGE
-
-    const targetFlagPagination: PaginationManual = {
-        controlled: true,
-        pageSize: FLAGS_PER_PAGE,
-        currentPage,
-        entryCount: targetFeatureFlags.count,
-        onForward:
-            needsPagination && hasNextPage
-                ? () => setTargetFlagFilters((prev) => ({ ...prev, page: (prev.page || 1) + 1 }))
-                : undefined,
-        onBackward:
-            needsPagination && hasPreviousPage
-                ? () => setTargetFlagFilters((prev) => ({ ...prev, page: Math.max(1, (prev.page || 1) - 1) }))
-                : undefined,
-    }
+    const {
+        teamOptions,
+        selectedTeamId,
+        handleTeamChange,
+        experimentName,
+        handleNameChange,
+        handleCopy,
+        handleClose,
+        copying,
+        flagKeyInputProps,
+    } = useCopyExperimentToProjectModal({ isOpen, onClose, experiment })
 
     return (
         <LemonModal
             isOpen={isOpen}
             onClose={handleClose}
-            title="Copy experiment to project"
+            title={COPY_EXPERIMENT_TITLE}
             width="max-content"
             footer={
                 <div className="flex justify-end">
                     <LemonButton
                         type="primary"
-                        disabledReason={!selectedTeamId ? 'Select a project' : undefined}
+                        disabledReason={!selectedTeamId ? SELECT_PROJECT_REASON : undefined}
                         onClick={handleCopy}
-                        loading={experimentsLoading}
+                        loading={copying}
                     >
                         Copy
                     </LemonButton>
@@ -186,16 +67,12 @@ export function CopyExperimentToProjectModal({
             }
         >
             <div className="space-y-4">
-                <div className="text-muted max-w-xl">
-                    The experiment and its feature flag will be copied as a draft. The feature flag will be disabled by
-                    default in the target project. If a feature flag with the same key already exists, or you select an
-                    existing flag, the release configuration for that flag will not be changed.
-                </div>
+                <div className="text-muted max-w-xl">{COPY_EXPERIMENT_DESCRIPTION}</div>
 
                 <div>
                     <div className="font-semibold mb-2">Destination project</div>
                     <LemonSelect
-                        placeholder="Select a project"
+                        placeholder={SELECT_PROJECT_REASON}
                         fullWidth
                         dropdownMatchSelectWidth={false}
                         value={selectedTeamId}
@@ -211,25 +88,12 @@ export function CopyExperimentToProjectModal({
                             <LemonInput
                                 value={experimentName}
                                 onChange={handleNameChange}
-                                placeholder={`${experiment.name} (Copy)`}
+                                placeholder={copyNamePlaceholder(experiment)}
                                 data-attr="copy-experiment-name"
                             />
                         </div>
 
-                        <ExperimentFlagKeyInput
-                            flagKey={flagKey}
-                            onFlagKeyChange={handleFlagKeyChange}
-                            isExistingFlag={isExistingFlag}
-                            sourceExperiment={experiment}
-                            featureFlags={targetFeatureFlags}
-                            featureFlagsLoading={targetFlagsLoading}
-                            featureFlagFilters={targetFlagFilters}
-                            onFeatureFlagFiltersChange={handleTargetFlagFiltersChange}
-                            featureFlagPagination={targetFlagPagination}
-                            onSelectExistingFlag={selectExistingFlag}
-                            showReuseFlag={showReuseFlag}
-                            onToggleReuseFlag={setShowReuseFlag}
-                        />
+                        <ExperimentFlagKeyInput {...flagKeyInputProps} />
                     </>
                 )}
             </div>

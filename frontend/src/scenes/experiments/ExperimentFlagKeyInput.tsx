@@ -14,7 +14,7 @@ import { hasEnded, isLaunched } from 'products/experiments/frontend/experimentSt
 
 import { featureFlagEligibleForExperiment } from './utils'
 
-interface ExperimentFlagKeyInputProps {
+export interface ExperimentFlagKeyInputProps {
     flagKey: string
     onFlagKeyChange: (value: string) => void
     isExistingFlag: boolean
@@ -27,6 +27,46 @@ interface ExperimentFlagKeyInputProps {
     onSelectExistingFlag: (key: string) => void
     showReuseFlag: boolean
     onToggleReuseFlag: (show: boolean) => void
+}
+
+export const FLAG_KEY_PLACEHOLDER = 'Auto-generated from name'
+export const RESET_ANALYSIS_DOCS_URL = 'https://posthog.com/docs/experiments/managing-lifecycle'
+export const REUSE_FLAG_LABEL = 'Reuse an existing feature flag'
+export const NO_MATCHING_FLAGS = 'No feature flags match these filters.'
+
+export function flagKeyHint(flagKey: string, isExistingFlag: boolean, sourceExperiment: Experiment): string {
+    return isExistingFlag
+        ? flagKey === sourceExperiment.feature_flag?.key
+            ? 'This experiment will reuse the same flag as the original'
+            : 'This experiment will use an existing flag'
+        : 'A new flag will be created with this key'
+}
+
+export function ReuseFlagCopy({ ongoing, resetLink }: { ongoing: boolean; resetLink: JSX.Element }): JSX.Element {
+    return ongoing ? (
+        <>
+            This experiment has not ended yet. Reusing its flag in a new experiment will cause data contamination, since
+            both will count the same exposures and events. To re-run this experiment, use {resetLink} instead.
+        </>
+    ) : (
+        <>
+            Each experiment should have its own flag to avoid data contamination. To re-run an experiment with the same
+            flag, use {resetLink} instead.
+        </>
+    )
+}
+
+export function flagSelectDisabledReason(flag: FeatureFlagType): string | undefined {
+    try {
+        featureFlagEligibleForExperiment(flag)
+    } catch (error) {
+        return (error as Error).message
+    }
+    return undefined
+}
+
+export function isOngoingExperiment(experiment: Experiment): boolean {
+    return isLaunched(experiment) && !hasEnded(experiment)
 }
 
 export function ExperimentFlagKeyInput({
@@ -44,11 +84,11 @@ export function ExperimentFlagKeyInput({
     onToggleReuseFlag,
 }: ExperimentFlagKeyInputProps): JSX.Element {
     const resetAnalysisLink = (
-        <Link to="https://posthog.com/docs/experiments/managing-lifecycle" target="_blank">
+        <Link to={RESET_ANALYSIS_DOCS_URL} target="_blank">
             Reset analysis
         </Link>
     )
-    const isOngoing = isLaunched(sourceExperiment) && !hasEnded(sourceExperiment)
+    const isOngoing = isOngoingExperiment(sourceExperiment)
 
     return (
         <>
@@ -57,29 +97,22 @@ export function ExperimentFlagKeyInput({
                 <LemonInput
                     value={flagKey}
                     onChange={onFlagKeyChange}
-                    placeholder="Auto-generated from name"
+                    placeholder={FLAG_KEY_PLACEHOLDER}
                     data-attr="experiment-flag-key-input"
                 />
                 {flagKey && (
                     <div className="text-xs text-muted mt-1">
-                        {isExistingFlag
-                            ? flagKey === sourceExperiment.feature_flag?.key
-                                ? 'This experiment will reuse the same flag as the original'
-                                : 'This experiment will use an existing flag'
-                            : 'A new flag will be created with this key'}
+                        {flagKeyHint(flagKey, isExistingFlag, sourceExperiment)}
                     </div>
                 )}
                 {isExistingFlag &&
                     (isOngoing ? (
                         <LemonBanner type="warning" className="mt-2">
-                            This experiment has not ended yet. Reusing its flag in a new experiment will cause data
-                            contamination, since both will count the same exposures and events. To re-run this
-                            experiment, use {resetAnalysisLink} instead.
+                            <ReuseFlagCopy ongoing resetLink={resetAnalysisLink} />
                         </LemonBanner>
                     ) : (
                         <LemonBanner type="info" className="mt-2">
-                            Each experiment should have its own flag to avoid data contamination. To re-run an
-                            experiment with the same flag, use {resetAnalysisLink} instead.
+                            <ReuseFlagCopy ongoing={false} resetLink={resetAnalysisLink} />
                         </LemonBanner>
                     ))}
             </div>
@@ -92,7 +125,7 @@ export function ExperimentFlagKeyInput({
                         icon={<IconCopy />}
                         onClick={() => onToggleReuseFlag(true)}
                     >
-                        Reuse an existing feature flag
+                        {REUSE_FLAG_LABEL}
                     </LemonButton>
                 </div>
             ) : (
@@ -160,12 +193,7 @@ export function ExperimentFlagKeyInput({
                                         return null
                                     }
 
-                                    let disabledReason: string | undefined = undefined
-                                    try {
-                                        featureFlagEligibleForExperiment(flag)
-                                    } catch (error) {
-                                        disabledReason = (error as Error).message
-                                    }
+                                    const disabledReason = flagSelectDisabledReason(flag)
                                     return (
                                         <LemonButton
                                             size="xsmall"
@@ -179,7 +207,7 @@ export function ExperimentFlagKeyInput({
                                 },
                             },
                         ]}
-                        emptyState="No feature flags match these filters."
+                        emptyState={NO_MATCHING_FLAGS}
                         pagination={featureFlagPagination}
                         onSort={(newSorting) =>
                             onFeatureFlagFiltersChange({
