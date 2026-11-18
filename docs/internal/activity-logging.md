@@ -17,6 +17,7 @@ Description changes include a two-line preview of the new value in normal text.
 The expand control on the right reveals the complete action, preview, and agent intent, along with the existing detail tabs.
 Diff compares the recorded values, and Raw shows the activity payload.
 Product-specific detail tabs remain the initial view when supplied by a describer.
+Subscription ownership events show who took ownership or transferred it; transfers include the previous and new owners from the recorded change.
 The copy-link control beside expand appears on hover or keyboard focus.
 
 Every visible describer result supplies a `summary` with `actor`, `action`, and `target` fields alongside its existing `description`.
