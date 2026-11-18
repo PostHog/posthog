@@ -182,6 +182,51 @@
         "thread_link": true,
         "default_client_provenance": "posthog_web"
       }
+    },
+    {
+      "name": "an unknown origin",
+      "origin_product": null,
+      "end_run_when_done": false,
+      "caller_ends_run": false,
+      "expected": {
+        "finish_tool": false,
+        "finish_report_required": false,
+        "report_activity_tool": false,
+        "branch_push_only": false,
+        "expects_system_prompt": false,
+        "thread_link": false,
+        "default_client_provenance": null
+      }
+    },
+    {
+      "name": "an empty origin",
+      "origin_product": "",
+      "end_run_when_done": false,
+      "caller_ends_run": false,
+      "expected": {
+        "finish_tool": false,
+        "finish_report_required": false,
+        "report_activity_tool": false,
+        "branch_push_only": false,
+        "expects_system_prompt": false,
+        "thread_link": false,
+        "default_client_provenance": null
+      }
+    },
+    {
+      "name": "an unknown origin with the end-run opt-in",
+      "origin_product": null,
+      "end_run_when_done": true,
+      "caller_ends_run": false,
+      "expected": {
+        "finish_tool": true,
+        "finish_report_required": false,
+        "report_activity_tool": false,
+        "branch_push_only": false,
+        "expects_system_prompt": false,
+        "thread_link": false,
+        "default_client_provenance": null
+      }
     }
   ]
 }
