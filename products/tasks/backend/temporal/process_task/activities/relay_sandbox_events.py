@@ -367,7 +367,8 @@ class _LivenessRecorder:
         self._schedule(self._write_status(agent_status))
 
     async def drain(self) -> None:
-        await asyncio.gather(*self._writes, return_exceptions=True)
+        if self._writes:
+            await asyncio.wait(self._writes, timeout=LIVENESS_WRITE_TIMEOUT_SECONDS)
 
     def _schedule(self, write: Coroutine[Any, Any, None]) -> None:
         task = asyncio.create_task(write)
@@ -838,6 +839,7 @@ async def _relay_loop(
             await heartbeat_task
         except asyncio.CancelledError:
             pass
+        await liveness.drain()
 
 
 async def _mark_sandbox_error_best_effort(redis_stream: TaskRunRedisStream, run_id: str, message: str) -> None:

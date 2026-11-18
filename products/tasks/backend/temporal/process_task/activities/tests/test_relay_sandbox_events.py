@@ -266,6 +266,23 @@ def _acp(sub_type: str, update: dict) -> dict:
     }
 
 
+def _record_liveness_writes(
+    monkeypatch: pytest.MonkeyPatch, *, started: threading.Event | None = None, hold: threading.Event | None = None
+) -> list[dict[str, object]]:
+    stored: list[dict[str, object]] = []
+
+    def record(run_id: object, team_id: object, **liveness: object) -> bool:
+        if started is not None:
+            started.set()
+        if hold is not None:
+            hold.wait(timeout=5)
+        stored.append({"run_id": run_id, "team_id": team_id, **liveness})
+        return True
+
+    monkeypatch.setattr(relay_sandbox_events_module.TaskRunModel, "write_liveness", staticmethod(record))
+    return stored
+
+
 class TestTrackToolCall:
     @parameterized.expand(
         [
@@ -973,22 +990,35 @@ class TestRelaySandboxEventsErrorHandling:
             relay_sandbox_events_module.activity, "info", lambda: SimpleNamespace(workflow_id="workflow-1")
         )
         monkeypatch.setattr("posthog.temporal.common.client.async_connect", AsyncMock(return_value=client))
+        write_started = threading.Event()
+        release_writes = threading.Event()
+        stored = _record_liveness_writes(monkeypatch, started=write_started, hold=release_writes)
 
-        await _relay_loop(
-            events_url="https://sandbox.example/events",
-            headers={"Authorization": "Bearer token"},
-            params={},
-            redis_stream=cast(TaskRunRedisStream, redis_stream),
-            run_id="run-id",
-            task_id="task-id",
+        relay = asyncio.create_task(
+            _relay_loop(
+                events_url="https://sandbox.example/events",
+                headers={"Authorization": "Bearer token"},
+                params={},
+                redis_stream=cast(TaskRunRedisStream, redis_stream),
+                run_id="run-id",
+                task_id="task-id",
+                task_run=cast(TaskRun, SimpleNamespace(id="run-1", team_id=7)),
+            )
         )
+        await asyncio.to_thread(write_started.wait, 5)
+        returned_with_a_write_in_flight, _ = await asyncio.wait({relay}, timeout=0.05)
+        release_writes.set()
+        await relay
 
+        assert not returned_with_a_write_in_flight
         assert handle.signal.await_args_list == [
             call("agent_command_dispatched"),
             call("agent_state_changed", arg=True),
             call("heartbeat", arg=True),
             call("agent_activity_observed"),
         ]
+        assert [write["agent_status"] for write in stored] == [TaskRun.AgentStatus.BUSY, TaskRun.AgentStatus.BUSY]
+        assert [write["heartbeat_at"] is not None for write in stored] == [False, True]
         redis_stream.release_first_agent_command.assert_not_awaited()
         redis_stream.release_first_agent_activity.assert_not_awaited()
         assert redis_stream.claim_first_agent_activity.await_count == 2
@@ -1074,7 +1104,8 @@ class TestRelaySandboxEventsErrorHandling:
 
         async def run_sync(func: Callable[..., object], *args: object, **kwargs: object) -> object:
             result = func(*args, **kwargs)
-            dispatch_done.set()
+            if func is not relay_sandbox_events_module._write_liveness:
+                dispatch_done.set()
             return result
 
         notify = MagicMock()
@@ -1086,6 +1117,7 @@ class TestRelaySandboxEventsErrorHandling:
         labels = {"reason": "idle_resume"}
         suppressed_before = REGISTRY.get_sample_value(metric, labels) or 0
         task_run = TaskRun(state={"mode": "interactive"})
+        stored = _record_liveness_writes(monkeypatch)
 
         await _relay_loop(
             events_url="https://sandbox.example/events",
@@ -1113,6 +1145,9 @@ class TestRelaySandboxEventsErrorHandling:
             notify.assert_not_called()
         assert (REGISTRY.get_sample_value(metric, labels) or 0) - suppressed_before == int(
             not turn_failed and not turn_completed
+        )
+        assert [(write["heartbeat_at"], write["agent_status"]) for write in stored] == (
+            [] if turn_failed else [(None, TaskRun.AgentStatus.READY)]
         )
 
     @parameterized.expand(
@@ -1926,6 +1961,10 @@ class TestBackgroundHeartbeat:
         with pytest.MonkeyPatch.context() as monkeypatch:
             monkeypatch.setattr(relay_sandbox_events_module, "HEARTBEAT_INTERVAL_SECONDS", 0.01)
             monkeypatch.setattr(relay_sandbox_events_module.activity, "heartbeat", lambda *_args: None)
+            stored = _record_liveness_writes(monkeypatch)
+            recorder = relay_sandbox_events_module._LivenessRecorder(
+                cast(TaskRun, SimpleNamespace(id="run-1", team_id=7))
+            )
             heartbeat = asyncio.create_task(
                 _background_heartbeat(
                     stop_event,
@@ -1937,6 +1976,7 @@ class TestBackgroundHeartbeat:
                     [False],
                     inactivity_timeout_seconds=3600.0,
                     open_tool_calls=open_tool_calls,
+                    liveness=recorder,
                 )
             )
             # Let the coroutine reach its first await, so the set is still empty when it
@@ -1946,8 +1986,11 @@ class TestBackgroundHeartbeat:
             await asyncio.sleep(0.05)
             stop_event.set()
             await heartbeat
+            await recorder.drain()
 
         assert call("heartbeat", arg=True) in handle.signal.await_args_list
+        assert stored[0]["heartbeat_at"] is not None
+        assert stored[0]["agent_status"] == TaskRun.AgentStatus.BUSY
 
     @pytest.mark.parametrize(
         ("open_tool_calls", "agent_status"),
@@ -1959,14 +2002,8 @@ class TestBackgroundHeartbeat:
     async def test_liveness_recorder_marks_busy_only_while_work_is_in_flight(
         self, open_tool_calls: set[str], agent_status: TaskRun.AgentStatus | None
     ) -> None:
-        stored: list[dict[str, object]] = []
-
-        def record(run_id: object, team_id: object, **liveness: object) -> bool:
-            stored.append({"run_id": run_id, "team_id": team_id, **liveness})
-            return True
-
         with pytest.MonkeyPatch.context() as monkeypatch:
-            monkeypatch.setattr(relay_sandbox_events_module.TaskRunModel, "write_liveness", staticmethod(record))
+            stored = _record_liveness_writes(monkeypatch)
             recorder = relay_sandbox_events_module._LivenessRecorder(
                 cast(TaskRun, SimpleNamespace(id="run-1", team_id=7))
             )
