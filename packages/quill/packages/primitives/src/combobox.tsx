@@ -328,7 +328,7 @@ const ComboboxChip = React.forwardRef<
         showRemove?: boolean
         title?: string
     }
->(function ComboboxChip({ className, children, title, showRemove = true, ...props }, ref) {
+>(function ComboboxChip({ className, children, title, showRemove = true, onKeyDown, ...props }, ref) {
     const chipsDisabled = React.useContext(ComboboxChipsDisabledContext)
 
     return (
@@ -337,6 +337,13 @@ const ComboboxChip = React.forwardRef<
             render={<Chip title={title ?? (typeof children === 'string' ? children : undefined)} />}
             data-slot="combobox-chip"
             className={cn(className)}
+            onKeyDown={(event) => {
+                // A chip focused before the reason applied would still remove itself on Backspace or move focus.
+                if (chipsDisabled) {
+                    event.preventBaseUIHandler()
+                }
+                onKeyDown?.(event)
+            }}
             {...props}
         >
             <span className="truncate flex-1">{children}</span>
