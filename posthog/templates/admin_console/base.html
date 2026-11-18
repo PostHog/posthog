@@ -22,7 +22,7 @@
         <script src="/static/admin-console/console.js?v={{ console_asset_version }}"
                 defer></script>
     </head>
-    <body class="console-body m-0 min-h-screen bg-background text-foreground text-[13px]">
+    <body class="@container console-body m-0 min-h-screen bg-background text-foreground text-[13px]">
         <a class="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-10 focus:px-3 focus:py-2 focus:rounded focus:bg-background"
            href="#content">Skip to content</a>
         <div class="console-env-stripe h-1"></div>
@@ -53,7 +53,7 @@
             {% endblock %}
             <div class="ml-auto flex items-center gap-3">
                 <span class="hidden sm:inline text-muted-foreground whitespace-nowrap">{{ request.user.email }}</span>
-                <a class="quill-button quill-button--variant-outline quill-button--size-sm group/button inline-flex md:hidden shrink-0 items-center justify-center whitespace-nowrap"
+                <a class="quill-button quill-button--variant-outline quill-button--size-sm group/button inline-flex @3xl:hidden shrink-0 items-center justify-center whitespace-nowrap"
                    href="#console-nav">Menu</a>
             </div>
         </header>

@@ -197,8 +197,8 @@ if (toolFilter instanceof HTMLInputElement) {
         if (event.key === 'Escape' && toolFilter.value) {
             toolFilter.value = ''
             applyFilter()
-        } else if (event.key === 'Enter') {
-            const first = document.querySelector('[data-tool-title]:not([hidden]) a')
+        } else if (event.key === 'Enter' && toolFilter.value.trim()) {
+            const first = document.querySelector('[data-tool-group][open] [data-tool-title]:not([hidden]) a')
             if (first instanceof HTMLAnchorElement) {
                 event.preventDefault()
                 first.click()

@@ -1660,11 +1660,6 @@
             justify-content: flex-end;
         }
     }
-    @media (width >= 48rem) {
-        .md\:hidden {
-            display: none;
-        }
-    }
     @media (width >= 64rem) {
         .lg\:absolute {
             position: absolute;
@@ -1780,6 +1775,11 @@
     @container (width >= 48rem) {
         .\@3xl\:order-none {
             order: 0;
+        }
+    }
+    @container (width >= 48rem) {
+        .\@3xl\:hidden {
+            display: none;
         }
     }
     @container (width >= 48rem) {
