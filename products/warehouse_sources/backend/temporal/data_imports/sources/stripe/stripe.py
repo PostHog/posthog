@@ -1527,8 +1527,8 @@ def _discounts_unexpanded(obj: dict[str, Any]) -> bool:
     return any(isinstance(discount, str) for discount in discounts)
 
 
-def _with_all_lines(obj: dict[str, Any], lines: ListObject[Any]) -> dict[str, Any]:
-    return {**obj, "lines": {**obj["lines"], "data": list(lines.auto_paging_iter()), "has_more": False, "url": None}}
+def _with_all_lines(obj: dict[str, Any], lines: list[Any]) -> dict[str, Any]:
+    return {**obj, "lines": {**obj["lines"], "data": lines, "has_more": False, "url": None}}
 
 
 # Each entry adds back what the event payload leaves out. Invoices and credit notes keep the event's
@@ -1536,29 +1536,34 @@ def _with_all_lines(obj: dict[str, Any], lines: ListObject[Any]) -> dict[str, An
 WEBHOOK_REFETCH: dict[str, WebhookRefetch] = {
     INVOICE_RESOURCE_NAME: WebhookRefetch(
         is_incomplete=_lines_truncated,
-        complete=lambda client, invoice: _with_all_lines(
-            invoice, client.invoices.line_items.list(invoice["id"], params={"limit": DEFAULT_LIMIT})
+        fetch=lambda client, invoice: list(
+            client.invoices.line_items.list(invoice["id"], params={"limit": DEFAULT_LIMIT}).auto_paging_iter()
         ),
+        merge=_with_all_lines,
     ),
     CREDIT_NOTE_RESOURCE_NAME: WebhookRefetch(
         is_incomplete=_lines_truncated,
-        complete=lambda client, credit_note: _with_all_lines(
-            credit_note, client.credit_notes.line_items.list(credit_note["id"], params={"limit": DEFAULT_LIMIT})
+        fetch=lambda client, credit_note: list(
+            client.credit_notes.line_items.list(credit_note["id"], params={"limit": DEFAULT_LIMIT}).auto_paging_iter()
         ),
+        merge=_with_all_lines,
     ),
     PRICE_RESOURCE_NAME: WebhookRefetch(
         is_incomplete=_tiers_missing,
-        complete=lambda client, price: client.prices.retrieve(price["id"], params={"expand": ["tiers"]}),
+        fetch=lambda client, price: client.prices.retrieve(price["id"], params={"expand": ["tiers"]}),
+        merge=lambda _price, fetched: fetched,
     ),
     PLAN_RESOURCE_NAME: WebhookRefetch(
         is_incomplete=_tiers_missing,
-        complete=lambda client, plan: client.plans.retrieve(plan["id"], params={"expand": ["tiers"]}),
+        fetch=lambda client, plan: client.plans.retrieve(plan["id"], params={"expand": ["tiers"]}),
+        merge=lambda _plan, fetched: fetched,
     ),
     SUBSCRIPTION_RESOURCE_NAME: WebhookRefetch(
         is_incomplete=_discounts_unexpanded,
-        complete=lambda client, subscription: client.subscriptions.retrieve(
+        fetch=lambda client, subscription: client.subscriptions.retrieve(
             subscription["id"], params={"expand": ["discounts", "items.data.discounts"]}
         ),
+        merge=lambda _subscription, fetched: fetched,
     ),
 }
 

@@ -2119,6 +2119,24 @@ class TestWebhookRefetch:
         with scripted_network([answer]), pytest.raises(error):
             self._transform(INVOICE_RESOURCE_NAME, _INCOMPLETE_INVOICE)
 
+    def test_events_of_one_object_share_one_read(self) -> None:
+        refetcher = WebhookObjectRefetcher(
+            stripe_module.WEBHOOK_REFETCH[INVOICE_RESOURCE_NAME],
+            MagicMock(),
+            client_factory_provider=lambda: stripe_module._refetch_client_factory(
+                "sk_test", None, STRIPE_API_VERSION_ACACIA
+            ),
+        )
+
+        with scripted_network(lambda request: ScriptedResponse(json=_stripe_list(_ALL_LINES, request.path))) as network:
+            rows = refetcher.complete([{**_INCOMPLETE_INVOICE, "status": "open"}, _INCOMPLETE_INVOICE])
+
+        assert len(network.requests_log) == 1
+        assert [(row["status"], len(row["lines"]["data"])) for row in rows] == [
+            ("open", len(_ALL_LINES)),
+            ("paid", len(_ALL_LINES)),
+        ]
+
     def test_webhook_sync_completes_invoice_lines(self) -> None:
         source = StripeSource()
         config = StripeSourceConfig(
