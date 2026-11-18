@@ -12,6 +12,8 @@ export interface PhoneSource {
 export type PhoneHostCommand =
     | { type: 'init'; sessionId: string; sources: PhoneSource[]; speed: number; skipInactivity: boolean }
     | { type: 'prepare'; targetTs: number; endTs: number | null; play: boolean }
+    /** Moves only the end of the window, so playback goes on from where it is. */
+    | { type: 'window'; endTs: number | null }
     | { type: 'seek'; ts: number }
     | { type: 'play' }
     | { type: 'pause' }

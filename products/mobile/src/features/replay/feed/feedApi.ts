@@ -179,6 +179,53 @@ export async function fetchFeedEvents(
     return Array.isArray(response?.results) ? response.results : []
 }
 
+export const FEED_SIGNAL_COLUMNS = [
+    'session_id',
+    'timestamp',
+    'event',
+    'element_texts',
+    'exception_types',
+    'exception_values',
+] as const
+
+/** Each recording keeps at most this many signals, so one busy recording cannot fill the whole page's result. */
+export const FEED_SIGNALS_PER_SESSION = 60
+
+export interface SignalWindow {
+    sessionIds: readonly string[]
+    from: string
+    to: string
+}
+
+/**
+ * The rage clicks and errors of a page of recordings, in one query, for the Sessions list's reason lines and timeline
+ * strips. The session ids and the window go in as `values`, never into the query text.
+ */
+export function feedSignalsQuery(window: SignalWindow): Record<string, unknown> {
+    return {
+        kind: 'HogQLQuery',
+        query: [
+            'SELECT properties.$session_id AS session_id, timestamp, event, elements_chain_texts,',
+            'properties.$exception_types, properties.$exception_values',
+            'FROM events',
+            'WHERE properties.$session_id IN {session_ids}',
+            'AND timestamp >= toDateTime({date_from}) AND timestamp <= toDateTime({date_to})',
+            "AND event IN ('$rageclick', '$exception')",
+            'ORDER BY timestamp ASC',
+            `LIMIT ${FEED_SIGNALS_PER_SESSION} BY session_id`,
+            `LIMIT ${FEED_SIGNALS_PER_SESSION * FEED_PAGE_SIZE}`,
+        ].join(' '),
+        values: { session_ids: [...window.sessionIds], date_from: window.from, date_to: window.to },
+    }
+}
+
+export async function fetchFeedSignals(window: SignalWindow, signal?: AbortSignal): Promise<unknown[][]> {
+    const response = (await runQuery(feedSignalsQuery(window), { signal, budgetFamily: 'replay' })) as {
+        results?: unknown[][]
+    }
+    return Array.isArray(response?.results) ? response.results : []
+}
+
 export const feedKeys = {
     all: (scopeKeyParts: readonly unknown[]) => ['replayFeed', ...scopeKeyParts] as const,
 }

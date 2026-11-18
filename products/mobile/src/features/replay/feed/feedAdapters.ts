@@ -5,11 +5,20 @@ import {
     type ReplayVideoRender,
 } from '@/api/replayVideo'
 import { serverNow } from '@/api/serverClock'
-import { truncate } from '@/model/adapters/text'
+import { plural, truncate } from '@/model/adapters/text'
 
 import type { SessionSummary } from '../replayModel'
 import { formatOffset } from '../sessionAdapters'
-import type { FeedEvent, FeedEventKind, FeedSource, FeedTimeline, Moment, MomentKind, MomentWindow } from './feedModel'
+import type {
+    FeedEvent,
+    FeedEventKind,
+    FeedItem,
+    FeedSource,
+    FeedTimeline,
+    Moment,
+    MomentKind,
+    MomentWindow,
+} from './feedModel'
 
 function text(value: unknown): string | null {
     return typeof value === 'string' && value.trim() ? value.trim() : null
@@ -20,7 +29,7 @@ function positive(value: unknown): number | null {
     return typeof number === 'number' && Number.isFinite(number) && number > 0 ? number : null
 }
 
-function firstText(value: unknown): string | null {
+export function firstText(value: unknown): string | null {
     if (Array.isArray(value)) {
         return value.map(text).find((item): item is string => item !== null) ?? null
     }
@@ -32,6 +41,17 @@ function firstText(value: unknown): string | null {
         }
     }
     return text(value)
+}
+
+/** The Vision title when the recording has one, else what it did. */
+export function itemTitle(item: FeedItem): string {
+    if (item.summary?.title) {
+        return item.summary.title
+    }
+    const { clickCount, consoleErrorCount } = item.recording
+    return ['Recording', plural(clickCount, 'click'), consoleErrorCount ? plural(consoleErrorCount, 'error') : null]
+        .filter(Boolean)
+        .join(' · ')
 }
 
 function kindOf(event: string): FeedEventKind | null {

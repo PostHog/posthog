@@ -2,9 +2,11 @@ import type { VideoPlayer, VideoPlayerEvents } from 'expo-video'
 
 import { fetchSnapshotBlocks, fetchSnapshotRange, type SnapshotBlock } from '@/api/snapshots'
 import { actionErrorMessage } from '@/lib/errors'
-
+import { FEED_PERF, perfMark } from '../feed/feedPerf'
 import type { FeedPlayer } from '../feed/feedPlayer'
 import { commandScript, type PhoneHostCommand, type PhonePlayerMessage, parsePlayerMessage } from './phoneProtocol'
+
+let perfPlayers = 0
 
 /** Text goes into the page in pieces, so one `injectJavaScript` call never carries a whole block range. */
 const CHUNK_CHARACTERS = 512 * 1024
@@ -47,6 +49,9 @@ export class WebReplayPlayer implements FeedPlayer {
     private preparedKey: string | null = null
     private preparedAt = Date.now()
     private framed = false
+    private awaitingTime = false
+    /** Tells players apart in timing marks; two moment cards of one recording each have a player. */
+    readonly perfId = ++perfPlayers
 
     constructor(
         readonly sessionId: string,
@@ -116,6 +121,15 @@ export class WebReplayPlayer implements FeedPlayer {
             endTs: endSeconds === null ? null : this.startMs + endSeconds * 1000,
             play,
         })
+    }
+
+    /**
+     * Moves the end of the window and keeps playing from the current time, with no rebuild. A reload after a crash
+     * starts again from the current time with the new end.
+     */
+    setWindow(endSeconds: number | null): void {
+        this.preparedKey = `${this.time}:${endSeconds}`
+        this.send({ type: 'window', endTs: endSeconds === null ? null : this.startMs + endSeconds * 1000 })
     }
 
     /** Emits `timeUpdate`, `playToEnd` and `statusChange`, each with `{ currentTime }` only. */
@@ -205,12 +219,26 @@ export class WebReplayPlayer implements FeedPlayer {
                 void this.loadRange(message.requestId, message.from, message.to)
                 return
             case 'status':
+                if (FEED_PERF) {
+                    perfMark(`player:status:${message.status}`, Date.now(), {
+                        session: this.sessionId.slice(-6),
+                        player: this.perfId,
+                    })
+                }
                 if (message.status === 'error') {
                     this.errorMessage = message.message ?? null
                 }
                 this.setStatus(message.status)
                 return
             case 'time':
+                if (FEED_PERF && this.awaitingTime && message.playing) {
+                    this.awaitingTime = false
+                    perfMark('player:time', Date.now(), {
+                        session: this.sessionId.slice(-6),
+                        player: this.perfId,
+                        t: Math.round(message.ts - this.startMs),
+                    })
+                }
                 this.time = Math.max(0, (message.ts - this.startMs) / 1000)
                 this.playing = message.playing
                 this.emit('timeUpdate', { currentTime: this.time })
@@ -226,6 +254,12 @@ export class WebReplayPlayer implements FeedPlayer {
                 this.emit('playToEnd', { currentTime: this.time })
                 return
             case 'mark':
+                if (FEED_PERF) {
+                    perfMark(`page:${message.name}`, message.at, {
+                        session: this.sessionId.slice(-6),
+                        player: this.perfId,
+                    })
+                }
                 this.mark(message.name, { ...message.detail, pageAt: message.at - this.preparedAt })
                 if (message.name === 'firstFrame') {
                     this.report()
@@ -263,6 +297,10 @@ export class WebReplayPlayer implements FeedPlayer {
     }
 
     private send(command: PhoneHostCommand): void {
+        if (FEED_PERF && command.type !== 'blocks' && command.type !== 'speed' && command.type !== 'skipInactivity') {
+            perfMark(`player:${command.type}`, Date.now(), { session: this.sessionId.slice(-6), player: this.perfId })
+            this.awaitingTime = true
+        }
         if (!this.page || !this.pageLoaded || !this.initSent) {
             this.queue =
                 command.type === 'prepare'

@@ -16,7 +16,6 @@ import { scheduleOnRN } from 'react-native-worklets'
 import { pickReusableExport } from '@/api/replayVideo'
 import { formatRelativeAgo } from '@/lib/dates'
 import { haptic } from '@/lib/haptics'
-import { plural } from '@/model/adapters/text'
 import { FadeEdge } from '@/ui/FadeEdge'
 import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
 import { PlayIcon } from '@/ui/icons/PlayIcon'
@@ -30,8 +29,8 @@ import { countryFlag, formatOffset } from '../sessionAdapters'
 import { sessionSecondsForVideoSeconds, videoSecondsForSessionSeconds } from '../video/videoTime'
 import { ReplayWebView } from '../web/ReplayWebView'
 import { FeedRail } from './FeedRail'
-import { FeedScrubber, type ScrubberTick } from './FeedScrubber'
-import { type RenderSpec, renderKey, renderViewport, sessionStartSeconds } from './feedAdapters'
+import { FeedScrubber } from './FeedScrubber'
+import { itemTitle, type RenderSpec, renderKey, renderViewport, sessionStartSeconds } from './feedAdapters'
 import {
     trackFeedEventJump,
     trackFeedHoldStarted,
@@ -40,7 +39,7 @@ import {
     trackFeedSpeedLocked,
     trackFeedSpeedUnlocked,
 } from './feedAnalytics'
-import type { FeedCardEntry } from './feedCards'
+import { type FeedCardEntry, nearestMoment } from './feedCards'
 import { armHold, beginHold, finishHold, holdHaptic, holdPull, useFeedHold } from './feedHoldStore'
 import {
     type FeedEvent,
@@ -52,11 +51,14 @@ import {
     MOMENT_WINDOW,
     type Moment,
 } from './feedModel'
+import { SESSIONS_SLIDE_MS, swipeDrag, swipeOutcome } from './feedPages'
+import { perfMark } from './feedPerf'
 import type { FeedPlayer, PoolPlayer } from './feedPlayer'
 import { feedColors, feedTextShadow, type TickKind, tickColors } from './feedStyle'
 import { HOLD_PULL, playbackRate } from './holdLock'
 import { type LadderState, RenderLadder } from './RenderLadder'
 import { startRender, useRenderQueue } from './renderQueue'
+import { clusterTicks, type ScrubberTick } from './scrubberMarks'
 import { UpNextCard } from './UpNextCard'
 import { useFeedTimeline } from './useFeed'
 import type { PoolSource } from './usePlayerPool'
@@ -64,11 +66,19 @@ import type { PoolSource } from './usePlayerPool'
 /** A card renders only after this long on screen, or on a tap of Play, so a swipe past never spends the video cap. */
 export const DWELL_MS = 1500
 const JUMP_SECONDS = 10
+const RANGE_MS = 260
 
 export interface FeedCardHandle {
     /** Seeks inside the card's own window and plays. */
     seekToSession: (seconds: number) => void
     currentSeconds: () => number
+    /**
+     * The first frame of a tab switch on this card: the range animates, and when the time stays the player only moves
+     * its end. `preset` is the moment a swipe already chose and animated to on the UI thread.
+     */
+    beginSwitch: (next: FeedUnit, preset?: { ordinal: number }) => SwitchPlan
+    /** Pauses while the Sessions page covers the card, and plays again after, unless it was paused before. */
+    suspend: (on: boolean) => void
     hold: (on: boolean) => void
     togglePause: () => void
 }
@@ -79,6 +89,13 @@ export interface UpNextInfo {
     person: string
     durationSeconds: number
     sameRecording: boolean
+}
+
+export interface SwitchPlan {
+    /** The moment the card plays after the switch; on Full recording, the moment it played before. */
+    ordinal: number
+    /** False when the time falls outside that moment, so the card seeks to the moment's start. */
+    keepTime: boolean
 }
 
 /** A start time a tab switch or Info asked for. A new `id` restarts the card there. */
@@ -108,7 +125,11 @@ interface FeedCardProps {
     tabProgress: SharedValue<number>
     /** 1 when a page is settled, down to 0.5 while the feed is dragged between pages. */
     scrollFade: SharedValue<number>
-    onSwipeUnit: (unit: FeedUnit) => void
+    /** 0 hidden, 1 shown. A swipe to the left on Full recording drags the Sessions page in. */
+    sessionsProgress: SharedValue<number>
+    onSwipeUnit: (unit: FeedUnit, preset?: { ordinal: number }) => void
+    /** `peek` mounts the page as a drag starts to show it; `swipe` opens it. */
+    onOpenSessions: (via: 'swipe' | 'button' | 'peek') => void
     onSource: (index: number, source: PoolSource | null) => void
     onAdvance: (index: number) => void
     onJumpTo: (index: number) => void
@@ -119,16 +140,6 @@ interface FeedCardProps {
     onOpenWeb: (item: FeedItem, seconds: number) => void
     onRecheck: () => void
     registerHandle: (key: string, handle: FeedCardHandle | null) => void
-}
-
-export function itemTitle(item: FeedItem): string {
-    if (item.summary?.title) {
-        return item.summary.title
-    }
-    const { clickCount, consoleErrorCount } = item.recording
-    return ['Recording', plural(clickCount, 'click'), consoleErrorCount ? plural(consoleErrorCount, 'error') : null]
-        .filter(Boolean)
-        .join(' · ')
 }
 
 function tickKind(event: FeedEvent): TickKind | null {
@@ -176,7 +187,9 @@ function FeedCardBody({
     nextReady,
     tabProgress,
     scrollFade,
+    sessionsProgress,
     onSwipeUnit,
+    onOpenSessions,
     onSource,
     onAdvance,
     onJumpTo,
@@ -319,13 +332,29 @@ function FeedCardBody({
     const lock = useFeedHold((state) => state.lock)
     const holding = holdNow !== null
     const [firstFrame, setFirstFrame] = useState(false)
-    const [nowSeconds, setNowSeconds] = useState(startSeconds)
     const pendingSeek = useRef<number | null>(null)
     const scrubbing = useRef<{ wasPlaying: boolean } | null>(null)
     const domainRef = useRef(domain)
     domainRef.current = domain
     const unitRef = useRef(unit)
     unitRef.current = unit
+    // The bar's range lives here, so a tab swipe animates it on the UI thread before the card renders in its new mode.
+    const rangeStart = useSharedValue(domain.start)
+    const rangeEnd = useSharedValue(domain.end)
+    const rangeTarget = useRef({ start: domain.start, end: domain.end })
+    const marksShown = useSharedValue(1)
+    // Set from a tab switch's first frame until the card renders in the new mode. 'keep' means playback goes on from
+    // the same time, so the new mode's start must not prepare or seek the player again.
+    const switching = useRef<'keep' | 'seek' | null>(null)
+    useEffect(() => {
+        const target = rangeTarget.current
+        if (target.start === domain.start && target.end === domain.end) {
+            return
+        }
+        rangeTarget.current = { start: domain.start, end: domain.end }
+        rangeStart.value = active ? withTiming(domain.start, { duration: RANGE_MS }) : domain.start
+        rangeEnd.value = active ? withTiming(domain.end, { duration: RANGE_MS }) : domain.end
+    }, [domain.start, domain.end, active, rangeStart, rangeEnd])
 
     // biome-ignore lint/correctness/useExhaustiveDependencies: a new video means a new first frame.
     useEffect(() => {
@@ -335,7 +364,6 @@ function FeedCardBody({
     const seekSession = useCallback(
         (seconds: number): void => {
             position.value = seconds
-            setNowSeconds(seconds)
             if (!player) {
                 return
             }
@@ -366,7 +394,9 @@ function FeedCardBody({
     // A WebView player loads only the blocks it needs, so it learns the window before the first seek reaches it.
     // biome-ignore lint/correctness/useExhaustiveDependencies: `startKey` names the window; the rest are read through refs.
     useEffect(() => {
-        web?.prepare(startSeconds, unit === 'moment' ? domain.end : null, active && !pausedRef.current)
+        if (switching.current !== 'keep') {
+            web?.prepare(startSeconds, unit === 'moment' ? domain.end : null, active && !pausedRef.current)
+        }
     }, [web, startKey])
     useEffect(() => {
         if (!web) {
@@ -384,7 +414,7 @@ function FeedCardBody({
     }, [web])
     // biome-ignore lint/correctness/useExhaustiveDependencies: `startKey` names the start; the rest are read through refs.
     useEffect(() => {
-        if (!player) {
+        if (!player || (active && switching.current === 'keep')) {
             return
         }
         if (!active) {
@@ -410,6 +440,11 @@ function FeedCardBody({
     useEffect(() => {
         web?.setSkipInactivity(settings.skipInactivity)
     }, [web, settings.skipInactivity])
+    // The switch is over once the card has rendered in its new mode; this runs after the two effects above.
+    // biome-ignore lint/correctness/useExhaustiveDependencies: `startKey` names the mode and start the switch ends in.
+    useEffect(() => {
+        switching.current = null
+    }, [startKey])
 
     // Gestures and the end-of-window timer reach the newest handlers through this ref.
     const handlers = useRef<{
@@ -424,7 +459,7 @@ function FeedCardBody({
     const nextMomentRef = useRef(false)
     nextMomentRef.current = next?.sameRecording === true && settings.autoplayNext
     const finishWindow = useCallback((): void => {
-        if (endedRef.current || !player) {
+        if (endedRef.current || !player || switching.current) {
             return
         }
         player.pause()
@@ -449,7 +484,6 @@ function FeedCardBody({
             const seconds = sessionSecondsForVideoSeconds(currentTime, contextRef.current)
             const jump = Math.abs(seconds - position.value) > 1.5
             position.value = jump ? seconds : withTiming(seconds, { duration: 250, easing: Easing.linear })
-            setNowSeconds(Math.floor(seconds))
             if (player.playing) {
                 setFirstFrame(true)
             }
@@ -579,11 +613,65 @@ function FeedCardBody({
         }
     }
 
+    const beginSwitch = (next: FeedUnit, preset?: { ordinal: number }): SwitchPlan => {
+        const seconds = position.value
+        let ordinal = entry.ordinal
+        let start = 0
+        let end = durationSeconds
+        if (next === 'moment') {
+            ordinal = preset?.ordinal ?? nearestMoment(moments, seconds)
+            const target = moments[ordinal] ?? moment
+            start = target.startSeconds
+            end = target.endSeconds
+        }
+        const keepTime = next === 'session' || (seconds >= start && seconds <= end)
+        if (!preset) {
+            rangeStart.value = withTiming(start, { duration: RANGE_MS })
+            rangeEnd.value = withTiming(end, { duration: RANGE_MS })
+            marksShown.value = withTiming(0, { duration: 90 })
+        }
+        perfMark('rangeAnimStart', Date.now(), { start, end })
+        rangeTarget.current = { start, end }
+        switching.current = keepTime && web ? 'keep' : 'seek'
+        if (keepTime && web) {
+            web.setWindow(next === 'session' ? null : end)
+            if (endedRef.current) {
+                endedRef.current = false
+                setEnded(false)
+                play()
+            }
+        }
+        return { ordinal, keepTime }
+    }
+    const beginSwitchRef = useRef(beginSwitch)
+    beginSwitchRef.current = beginSwitch
+    const resumeAfter = useRef(false)
+    const suspend = (on: boolean): void => {
+        if (on) {
+            resumeAfter.current = !pausedRef.current && !endedRef.current
+            if (resumeAfter.current) {
+                player?.pause()
+            }
+        } else if (resumeAfter.current) {
+            resumeAfter.current = false
+            play()
+        }
+    }
+    const suspendRef = useRef(suspend)
+    suspendRef.current = suspend
+
     handlers.current = { togglePause, jump, holdStart, holdEnd }
     const swipeUnitRef = useRef(onSwipeUnit)
     swipeUnitRef.current = onSwipeUnit
+    const openSessionsRef = useRef(onOpenSessions)
+    openSessionsRef.current = onOpenSessions
     const dispatch = useCallback(
-        (action: 'toggle' | 'jump' | 'holdStart' | 'holdArm' | 'holdEnd' | 'tab', value: number): void => {
+        (
+            action: 'toggle' | 'jump' | 'holdStart' | 'holdArm' | 'holdEnd' | 'tab' | 'sessions',
+            value: number,
+            at?: number,
+            ordinal?: number
+        ): void => {
             const current = handlers.current
             if (!current) {
                 return
@@ -598,14 +686,22 @@ function FeedCardBody({
                 armHold(value > 0 ? HOLD_PULL : 0)
             } else if (action === 'holdEnd') {
                 current.holdEnd(value > 0)
+            } else if (action === 'sessions') {
+                openSessionsRef.current(value > 0 ? 'swipe' : 'peek')
             } else {
-                swipeUnitRef.current(value > 0 ? 'session' : 'moment')
+                perfMark('gestureEnd', at)
+                perfMark('switchJs')
+                swipeUnitRef.current(
+                    value > 0 ? 'session' : 'moment',
+                    ordinal === undefined || ordinal < 0 ? undefined : { ordinal }
+                )
             }
         },
         []
     )
     const holdArmed = useSharedValue(false)
     const holdActive = useSharedValue(false)
+    const peeked = useSharedValue(false)
     const tabBase = unit === 'session' ? 1 : 0
     const gesture = useMemo(() => {
         const half = width / 2
@@ -653,27 +749,75 @@ function FeedCardBody({
                     scheduleOnRN(dispatch, 'holdEnd', success ? 0 : 1)
                 }
             })
-        // A sideways swipe switches the tab. The tab highlight follows the finger, and a short swipe springs back.
-        const swipe = Gesture.Pan()
-            .activeOffsetX([-22, 22])
-            .failOffsetY([-14, 14])
-            .onUpdate((event) => {
-                'worklet'
-                tabProgress.value = Math.min(1, Math.max(0, tabBase - event.translationX / (width * 0.6)))
-            })
-            .onEnd((event, success) => {
-                'worklet'
-                const far = Math.abs(event.translationX) > 64 || Math.abs(event.velocityX) > 600
-                const target = event.translationX < 0 ? 1 : 0
-                if (success && far && target !== tabBase) {
+        // Sideways, the pages run Moment, Full recording, Sessions. On Full recording a swipe to the left brings the
+        // Sessions page in from the right. The tab highlight, the bar's range and the page follow the finger on the UI
+        // thread, so they never wait for the JS thread.
+        const sideways = (): ReturnType<typeof Gesture.Pan> =>
+            Gesture.Pan()
+                .activeOffsetX([-22, 22])
+                .failOffsetY([-14, 14])
+                .onBegin(() => {
+                    'worklet'
+                    peeked.value = false
+                })
+                .onUpdate((event) => {
+                    'worklet'
+                    const drag = swipeDrag(tabBase, event.translationX, width)
+                    tabProgress.value = drag.tab
+                    sessionsProgress.value = drag.sessions
+                    if (drag.sessions > 0 && !peeked.value) {
+                        peeked.value = true
+                        scheduleOnRN(dispatch, 'sessions', 0)
+                    }
+                })
+                .onEnd((event, success) => {
+                    'worklet'
+                    const outcome = success ? swipeOutcome(tabBase, event.translationX, event.velocityX) : 'stay'
+                    if (outcome === 'sessions') {
+                        sessionsProgress.value = withTiming(1, { duration: SESSIONS_SLIDE_MS })
+                        scheduleOnRN(dispatch, 'sessions', 1)
+                        return
+                    }
+                    sessionsProgress.value = withTiming(0, { duration: 160 })
+                    if (outcome === 'stay') {
+                        tabProgress.value = withTiming(tabBase, { duration: 160 })
+                        return
+                    }
+                    const target = outcome === 'session' ? 1 : 0
+                    let ordinal = -1
+                    let start = 0
+                    let end = durationSeconds
+                    if (outcome === 'moment') {
+                        ordinal = nearestMoment(moments, position.value)
+                        const chosen = moments[ordinal] ?? moment
+                        start = chosen.startSeconds
+                        end = chosen.endSeconds
+                    }
                     tabProgress.value = withTiming(target, { duration: 180 })
-                    scheduleOnRN(dispatch, 'tab', target)
-                } else {
-                    tabProgress.value = withTiming(tabBase, { duration: 160 })
-                }
-            })
-        return Gesture.Race(swipe, Gesture.Exclusive(hold, doubleTap, singleTap))
-    }, [width, tabBase, tabProgress, dispatch, holdActive, holdArmed])
+                    rangeStart.value = withTiming(start, { duration: RANGE_MS })
+                    rangeEnd.value = withTiming(end, { duration: RANGE_MS })
+                    marksShown.value = withTiming(0, { duration: 90 })
+                    scheduleOnRN(dispatch, 'tab', target, Date.now(), ordinal)
+                })
+        // The Up next panel covers the middle of the video, so it gets the same swipe; its buttons still take taps.
+        return { video: Gesture.Race(sideways(), Gesture.Exclusive(hold, doubleTap, singleTap)), panel: sideways() }
+    }, [
+        width,
+        tabBase,
+        tabProgress,
+        sessionsProgress,
+        dispatch,
+        holdActive,
+        holdArmed,
+        peeked,
+        moments,
+        moment,
+        durationSeconds,
+        position,
+        rangeStart,
+        rangeEnd,
+        marksShown,
+    ])
 
     const seekInWindow = useCallback(
         (seconds: number): void => {
@@ -693,6 +837,8 @@ function FeedCardBody({
         registerHandle(cardKey, {
             seekToSession: seekInWindow,
             currentSeconds: () => position.value,
+            beginSwitch: (next, preset) => beginSwitchRef.current(next, preset),
+            suspend: (on) => suspendRef.current(on),
             hold: (on) => (on ? handlers.current?.holdStart() : handlers.current?.holdEnd(false)),
             togglePause: () => handlers.current?.togglePause(),
         })
@@ -756,8 +902,13 @@ function FeedCardBody({
         if (typeof keyMs === 'number' && keyMs / 1000 >= domain.start && keyMs / 1000 <= domain.end) {
             fromEvents.push({ key: 'key', seconds: keyMs / 1000, kind: 'key', label: 'Key moment' })
         }
-        return fromEvents
-    }, [timeline, summary, domain.start, domain.end])
+        return clusterTicks(fromEvents, domain.start, domain.end, Math.max(0, width - 32))
+    }, [timeline, summary, domain.start, domain.end, width])
+    // A switch fades the marks out on its first frame. They come back once they are placed for the new range.
+    // biome-ignore lint/correctness/useExhaustiveDependencies: new marks are what bring them back.
+    useEffect(() => {
+        marksShown.value = withTiming(1, { duration: 160 })
+    }, [ticks, marksShown])
 
     const onScrubStart = useCallback((): void => {
         scrubbing.current = { wasPlaying: player?.playing ?? false }
@@ -766,7 +917,6 @@ function FeedCardBody({
     const lastScrubSeek = useRef(0)
     const onScrub = useCallback(
         (seconds: number): void => {
-            setNowSeconds(seconds)
             const now = Date.now()
             if (player && now - lastScrubSeek.current > 90) {
                 lastScrubSeek.current = now
@@ -816,10 +966,7 @@ function FeedCardBody({
     }, [chromeHidden, shown])
     const captionStyle = useAnimatedStyle(() => ({ opacity: shown.value * scrollFade.value }))
     // During a hold the rail stays, and fades every button but Speed itself.
-    const railStyle = useAnimatedStyle(
-        () => ({ opacity: (scrubbingUI ? shown.value : 1) * scrollFade.value }),
-        [scrubbingUI]
-    )
+    const railStyle = useAnimatedStyle(() => ({ opacity: (scrubbingUI ? shown.value : 1) * scrollFade.value }))
     useEffect(() => {
         if (webError) {
             trackFeedLoadFailed({ sessionId, message: webError })
@@ -889,7 +1036,7 @@ function FeedCardBody({
                 <FadeEdge direction="up" solid={0.1} color="#000000" opacity={0.78} curve="smooth" />
             </View>
 
-            <GestureDetector gesture={gesture}>
+            <GestureDetector gesture={gesture.video}>
                 <View style={StyleSheet.absoluteFill} collapsable={false} />
             </GestureDetector>
 
@@ -1016,20 +1163,19 @@ function FeedCardBody({
                 <FeedScrubber
                     start={domain.start}
                     end={domain.end}
+                    rangeStart={rangeStart}
+                    rangeEnd={rangeEnd}
                     position={position}
                     ticks={ticks}
+                    marksShown={marksShown}
+                    measured={active}
                     expanded={(paused && active) || ended}
-                    leftLabel={
-                        unit === 'moment'
-                            ? signed(domain.start - moment.anchorSeconds)
-                            : formatOffset(nowSeconds * 1000)
-                    }
+                    leftLabel={unit === 'moment' ? signed(domain.start - moment.anchorSeconds) : formatOffset(0)}
                     rightLabel={
                         unit === 'moment'
                             ? signed(domain.end - moment.anchorSeconds)
                             : formatOffset(durationSeconds * 1000)
                     }
-                    idleLabel={formatOffset(nowSeconds * 1000)}
                     onScrubStart={() => {
                         setScrubbingUI(true)
                         onScrubStart()
@@ -1043,15 +1189,17 @@ function FeedCardBody({
             </View>
 
             {active && ended ? (
-                <View style={styles.upNext} pointerEvents="box-none">
-                    <UpNextCard
-                        next={next}
-                        countdown={settings.autoplayNext && next !== null && !countdownCancelled}
-                        onPlay={advance}
-                        onCancel={() => setCountdownCancelled(true)}
-                        onReplay={replay}
-                    />
-                </View>
+                <GestureDetector gesture={gesture.panel}>
+                    <View style={styles.upNext} pointerEvents="box-none">
+                        <UpNextCard
+                            next={next}
+                            countdown={settings.autoplayNext && next !== null && !countdownCancelled}
+                            onPlay={advance}
+                            onCancel={() => setCountdownCancelled(true)}
+                            onReplay={replay}
+                        />
+                    </View>
+                </GestureDetector>
             ) : null}
         </View>
     )

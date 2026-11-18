@@ -38,7 +38,7 @@ export function FeedTabs({ unit, progress, onSelect }: FeedTabsProps): ReactElem
             opacity: 1,
             transform: [{ translateX: interpolate(progress.value, [0, 1], centers, 'clamp') - UNDERLINE_WIDTH / 2 }],
         }
-    }, [centers])
+    })
     const momentStyle = useAnimatedStyle(() => ({
         opacity: interpolate(progress.value, [0, 1], [1, INACTIVE_OPACITY], 'clamp'),
     }))

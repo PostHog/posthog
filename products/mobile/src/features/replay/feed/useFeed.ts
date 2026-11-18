@@ -17,9 +17,17 @@ import { toError } from '@/lib/errors'
 import { useReplayContext } from '../hooks'
 import { recordingView, summaryState } from '../sessionAdapters'
 import { feedTimeline, hasReadyVideo } from './feedAdapters'
-import { fetchFeedEvents, fetchFeedObservations, fetchFeedRecordings } from './feedApi'
+import {
+    FEED_PAGE_SIZE,
+    fetchFeedEvents,
+    fetchFeedObservations,
+    fetchFeedRecordings,
+    fetchFeedSignals,
+    type SignalWindow,
+} from './feedApi'
 import type { FeedItem, FeedSource, FeedTimeline } from './feedModel'
 import { FEED_PLAYER_KIND } from './feedPlayerKind'
+import { parseSignals, type SessionSignals } from './sessionRows'
 
 async function scoped<T>(load: () => Promise<T>): Promise<T> {
     try {
@@ -218,4 +226,72 @@ export function useFeedTimeline(item: FeedItem, enabled: boolean): FeedTimeline 
     const { scope, ready } = useReplayContext()
     const query = useQuery(feedTimelineQuery(scope, item, enabled && ready))
     return query.data ?? null
+}
+
+/** Events can land a little before a recording's first snapshot or after its last one. */
+const SIGNAL_PADDING_MS = 60_000
+
+function signalWindow(page: readonly FeedItem[]): SignalWindow | null {
+    let from = Number.POSITIVE_INFINITY
+    let to = Number.NEGATIVE_INFINITY
+    for (const { recording } of page) {
+        const start = recording.startedAt ? Date.parse(recording.startedAt) : Number.NaN
+        if (Number.isNaN(start)) {
+            continue
+        }
+        const end = recording.endedAt ? Date.parse(recording.endedAt) : start + recording.durationSeconds * 1000
+        from = Math.min(from, start)
+        to = Math.max(to, end)
+    }
+    if (!Number.isFinite(from) || !Number.isFinite(to)) {
+        return null
+    }
+    return {
+        sessionIds: page.map((item) => item.recording.sessionId),
+        from: new Date(from - SIGNAL_PADDING_MS).toISOString(),
+        to: new Date(to + SIGNAL_PADDING_MS).toISOString(),
+    }
+}
+
+/** The rage clicks and errors of each listed recording: one query per page of rows, never one per row. */
+export function useSessionSignals(items: readonly FeedItem[] | undefined): ReadonlyMap<string, SessionSignals> {
+    const { scope, ready } = useReplayContext()
+    const pages = useMemo(() => {
+        const list = items ?? []
+        const chunks: FeedItem[][] = []
+        for (let start = 0; start < list.length; start += FEED_PAGE_SIZE) {
+            chunks.push(list.slice(start, start + FEED_PAGE_SIZE))
+        }
+        return chunks
+    }, [items])
+    const queries = useQueries({
+        queries: pages.map((page) => {
+            const window = signalWindow(page)
+            return {
+                queryKey: ['replayFeed', ...scopeKey(scope), 'signals', window?.sessionIds.join(',') ?? ''],
+                queryFn: ({ signal }: { signal: AbortSignal }) =>
+                    scoped(() => fetchFeedSignals(window as SignalWindow, signal)),
+                enabled: ready && window !== null,
+                retry: false,
+                staleTime: 5 * 60_000,
+            }
+        }),
+    })
+    const version = queries.map((query) => query.dataUpdatedAt).join(',')
+    // biome-ignore lint/correctness/useExhaustiveDependencies: the queries change when their version does.
+    return useMemo(() => {
+        const merged = new Map<string, SessionSignals>()
+        queries.forEach((query, index) => {
+            const page = pages[index] ?? []
+            const starts = new Map(
+                page.flatMap((item) =>
+                    item.recording.startedAt ? [[item.recording.sessionId, Date.parse(item.recording.startedAt)]] : []
+                ) as [string, number][]
+            )
+            for (const [sessionId, signals] of parseSignals(query.data ?? [], starts)) {
+                merged.set(sessionId, signals)
+            }
+        })
+        return merged
+    }, [version, pages])
 }

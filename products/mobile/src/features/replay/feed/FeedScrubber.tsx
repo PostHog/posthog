@@ -4,6 +4,7 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import Animated, {
     interpolate,
     type SharedValue,
+    useAnimatedReaction,
     useAnimatedStyle,
     useDerivedValue,
     useSharedValue,
@@ -16,27 +17,32 @@ import { createStyles } from '@/ui/theme'
 import { fonts } from '@/ui/tokens'
 
 import { formatOffset } from '../sessionAdapters'
-import { feedColors, feedTextShadow, type TickKind, tickColors } from './feedStyle'
-
-export interface ScrubberTick {
-    key: string
-    seconds: number
-    kind: TickKind
-    label: string
-}
+import { perfMark } from './feedPerf'
+import { feedColors, feedTextShadow, tickColors } from './feedStyle'
+import type { ScrubberTick } from './scrubberMarks'
 
 interface FeedScrubberProps {
+    /** The range in JS, for placing the marks. The bar itself follows `rangeStart` and `rangeEnd`. */
     start: number
     end: number
+    /**
+     * The range the bar draws. The card owns them, so a tab swipe animates the range on the UI thread before the
+     * card renders in its new mode.
+     */
+    rangeStart: SharedValue<number>
+    rangeEnd: SharedValue<number>
     position: SharedValue<number>
     ticks: readonly ScrubberTick[]
+    /** The marks fade out while the range changes, and in again once they are placed for the new range. */
+    marksShown: SharedValue<number>
     expanded: boolean
     leftLabel: string
     rightLabel: string
-    idleLabel?: string
     onScrub: (seconds: number) => void
     onScrubEnd: (seconds: number, tick: ScrubberTick | null) => void
     onScrubStart?: () => void
+    /** The card on screen: its range and markers get timing marks in a measuring build. */
+    measured?: boolean
 }
 
 const SNAP_POINTS = 12
@@ -51,10 +57,13 @@ export function FeedScrubber({
     expanded,
     leftLabel,
     rightLabel,
-    idleLabel,
+    rangeStart,
+    rangeEnd,
+    marksShown,
     onScrub,
     onScrubEnd,
     onScrubStart,
+    measured = false,
 }: FeedScrubberProps): ReactElement {
     const styles = useStyles()
     const width = useSharedValue(0)
@@ -63,18 +72,15 @@ export function FeedScrubber({
     const scrubbing = useSharedValue(false)
     const scrubAt = useSharedValue(start)
     const snapped = useSharedValue(-1)
-    const rangeStart = useSharedValue(start)
-    const rangeEnd = useSharedValue(end)
-    // Switching between a moment and the full recording grows or shrinks the range in place.
     const range = useDerivedValue(() => ({ start: rangeStart.value, end: rangeEnd.value }))
     const tickSeconds = useSharedValue<number[]>([])
     const [label, setLabel] = useState<string | null>(null)
-
+    // biome-ignore lint/correctness/useExhaustiveDependencies: `measured` only gates a timing mark.
     useEffect(() => {
-        rangeStart.value = withTiming(start, { duration: 260 })
-        rangeEnd.value = withTiming(end, { duration: 260 })
-    }, [start, end, rangeStart, rangeEnd])
-    useEffect(() => {
+        if (measured) {
+            perfMark('markersRendered', Date.now(), { count: ticks.length })
+            requestAnimationFrame(() => perfMark('markersPainted', Date.now(), { count: ticks.length }))
+        }
         tickSeconds.value = ticks.map((tick) => tick.seconds)
     }, [ticks, tickSeconds])
     useEffect(() => {
@@ -182,6 +188,7 @@ export function FeedScrubber({
         }
     })
     const labelsStyle = useAnimatedStyle(() => ({ opacity: size.value }))
+    const marksStyle = useAnimatedStyle(() => ({ opacity: marksShown.value }))
 
     const onLayout = (event: LayoutChangeEvent): void => {
         width.value = event.nativeEvent.layout.width
@@ -192,9 +199,13 @@ export function FeedScrubber({
         <View style={styles.wrap} pointerEvents="box-none">
             <Animated.View style={[styles.labels, labelsStyle]} pointerEvents="none">
                 <Text style={styles.time}>{leftLabel}</Text>
-                <Text style={styles.label} numberOfLines={1}>
-                    {label ?? idleLabel ?? ''}
-                </Text>
+                {label !== null ? (
+                    <Text style={styles.label} numberOfLines={1}>
+                        {label}
+                    </Text>
+                ) : (
+                    <LiveTime position={position} style={styles.label} />
+                )}
                 <Text style={styles.time}>{rightLabel}</Text>
             </Animated.View>
             <GestureDetector gesture={pan}>
@@ -202,24 +213,46 @@ export function FeedScrubber({
                     <Animated.View style={[styles.track, trackStyle]}>
                         <Animated.View style={[styles.fill, fillStyle]} />
                     </Animated.View>
-                    {ticks.map((tick) => (
-                        <Animated.View
-                            key={tick.key}
-                            pointerEvents="none"
-                            style={[
-                                styles.tick,
-                                tickStyle,
-                                {
-                                    left: `${Math.min(100, Math.max(0, ((tick.seconds - start) / span) * 100))}%`,
-                                    backgroundColor: tickColors[tick.kind],
-                                },
-                            ]}
-                        />
-                    ))}
+                    <Animated.View style={[styles.marks, marksStyle]} pointerEvents="none">
+                        {ticks.map((tick) => (
+                            <Animated.View
+                                key={tick.key}
+                                style={[
+                                    styles.tick,
+                                    tickStyle,
+                                    {
+                                        left: `${Math.min(100, Math.max(0, ((tick.seconds - start) / span) * 100))}%`,
+                                        backgroundColor: tickColors[tick.kind],
+                                    },
+                                ]}
+                            />
+                        ))}
+                    </Animated.View>
                     <Animated.View style={[styles.knob, knobStyle]} pointerEvents="none" />
                 </View>
             </GestureDetector>
         </View>
+    )
+}
+
+/**
+ * The playhead time, kept out of the card's state: it re-renders this text once a second and nothing else, so the
+ * card and its marks do not render on every time update.
+ */
+function LiveTime({ position, style }: { position: SharedValue<number>; style: object }): ReactElement {
+    const [seconds, setSeconds] = useState(() => Math.floor(position.value))
+    useAnimatedReaction(
+        () => Math.floor(position.value),
+        (now, previous) => {
+            if (now !== previous) {
+                scheduleOnRN(setSeconds, now)
+            }
+        }
+    )
+    return (
+        <Text style={style} numberOfLines={1}>
+            {formatOffset(seconds * 1000)}
+        </Text>
     )
 }
 
@@ -261,6 +294,13 @@ const useStyles = createStyles(() => ({
         height: '100%',
         backgroundColor: feedColors.fill,
         borderRadius: 4,
+    },
+    marks: {
+        position: 'absolute',
+        top: 0,
+        right: 0,
+        bottom: 0,
+        left: 0,
     },
     tick: {
         position: 'absolute',

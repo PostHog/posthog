@@ -1,16 +1,16 @@
 import { useQueries } from '@tanstack/react-query'
 import * as Clipboard from 'expo-clipboard'
-import { useFocusEffect, useRouter } from 'expo-router'
+import { Stack, useFocusEffect, useRouter } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import { type ReactElement, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
     ActivityIndicator,
-    type FlatList,
     type LayoutChangeEvent,
     Linking,
     type NativeScrollEvent,
     type NativeSyntheticEvent,
     RefreshControl,
+    type ScrollViewInstance,
     Text,
     View,
 } from 'react-native'
@@ -19,9 +19,11 @@ import Animated, {
     useAnimatedScrollHandler,
     useAnimatedStyle,
     useDerivedValue,
+    useFrameCallback,
     useSharedValue,
     withTiming,
 } from 'react-native-reanimated'
+import { scheduleOnRN } from 'react-native-worklets'
 
 import { RECORDING_OBJECT_TYPE } from '@/features/chat/objectContext'
 import { useViewBack } from '@/features/views/screen/ViewScreenFrame'
@@ -41,11 +43,11 @@ import { trackFullReplayOpened, trackSessionChatOpened } from '../replayAnalytic
 import { sessionWebUrl } from '../replayLinks'
 import type { SessionSummary } from '../replayModel'
 import { formatOffset } from '../sessionAdapters'
-import { FeedCard, type FeedCardHandle, itemTitle, type StartRequest, type UpNextInfo } from './FeedCard'
+import { FeedCard, type FeedCardHandle, type StartRequest, type UpNextInfo } from './FeedCard'
 import { FeedInfoSheet, FeedSettingsSheet, FeedShareSheet, SOURCE_LABELS } from './FeedSheets'
 import { FeedSourcesPage } from './FeedSourcesPage'
 import { FeedTabs } from './FeedTabs'
-import { feedMoments, hasReadyVideo } from './feedAdapters'
+import { feedMoments, hasReadyVideo, itemTitle } from './feedAdapters'
 import {
     trackFeedAutoAdvanced,
     trackFeedInfoOpened,
@@ -57,7 +59,7 @@ import {
     trackFeedSpeedUnlocked,
     trackFeedUnitChanged,
 } from './feedAnalytics'
-import { buildFeedCards, type FeedCardEntry, type KeyOverride, nearestMoment, nextCardIndex } from './feedCards'
+import { buildFeedCards, type FeedCardEntry, type KeyOverride, nextCardIndex } from './feedCards'
 import { resetFeedHold, unlockFeed, useFeedHold } from './feedHoldStore'
 import {
     type FeedItem,
@@ -68,6 +70,8 @@ import {
     MOMENT_WINDOW,
     type Moment,
 } from './feedModel'
+import { SESSIONS_SLIDE_MS } from './feedPages'
+import { FEED_DEBUG, FEED_PERF, perfMark } from './feedPerf'
 import { FEED_PLAYER_KIND } from './feedPlayerKind'
 import { useFeedSettings } from './feedSettingsStore'
 import { feedColors } from './feedStyle'
@@ -82,6 +86,15 @@ const EMPTY_TIMELINE: FeedTimeline = { events: [], browser: null, os: null, view
 /** Moments come from each recording's events, which load for the recordings around the one on screen. */
 const TIMELINES_BEHIND = 2
 const TIMELINES_AHEAD = 3
+/** Cards this far from the current one are mounted; the rest of a long row of moments is empty space. */
+const MOUNTED_CARDS = 2
+/** The next page of recordings loads when the card on screen is this close to the last card. */
+const LOAD_AHEAD = 4
+/**
+ * A tab switch renders the new mode after its animations end (the tab underline takes 220 ms and the range 260 ms), so
+ * the list rebuild never runs while they move.
+ */
+const SWITCH_COMMIT_MS = 280
 
 function emptyTitle(source: FeedSource): string {
     if (source === 'highlights') {
@@ -107,8 +120,10 @@ const WEB_PLAYER = FEED_PLAYER_KIND === 'web'
 const NO_SOURCES: ReadonlyMap<number, PoolSource> = new Map()
 
 /**
- * One list row per recording, with its cards stacked inside it. The list mounts rows by index, so the card on screen
- * stays mounted, with its page, when a tab switch or newly loaded moments change the card count above it.
+ * One row per recording, with its cards stacked inside it. The feed is a paged scroll view, not a virtualized list:
+ * a virtualized list mounts rows by pixel window, and when the cards above the current one change count (a tab
+ * switch, moments that load), it read the old offset once and unmounted the card on screen, which reloaded its page.
+ * Rows are plain views, and only the cards near the current one mount.
  */
 interface FeedRow {
     item: FeedItem
@@ -205,7 +220,10 @@ function FeedContent(): ReactElement {
     }, [timelinesVersion, windowItems])
 
     const momentCache = useRef(new Map<string, CachedMoments>())
-    const [keyOverrides, setKeyOverrides] = useState<ReadonlyMap<string, KeyOverride>>(() => new Map())
+    // Written in the same step as the unit, never apart from it. The unit lives in a store that renders at once, so
+    // React state here would land one render later, and for that render the card on screen would get another key and
+    // remount with a new page.
+    const keyOverrides = useRef<ReadonlyMap<string, KeyOverride>>(new Map())
     const rows = useMemo((): FeedRow[] | undefined => {
         if (!items) {
             return undefined
@@ -234,7 +252,7 @@ function FeedContent(): ReactElement {
             return moments
         }
         const grouped: FeedRow[] = []
-        for (const card of buildFeedCards(items, unit, momentsFor, keyOverrides)) {
+        for (const card of buildFeedCards(items, unit, momentsFor, keyOverrides.current)) {
             const last = grouped.at(-1)
             if (last && last.item === card.item) {
                 last.cards.push(card)
@@ -243,7 +261,7 @@ function FeedContent(): ReactElement {
             }
         }
         return grouped
-    }, [items, unit, timelines, source, keyOverrides])
+    }, [items, unit, timelines, source])
     const cards = useMemo(() => rows?.flatMap((row) => row.cards), [rows])
     const cardsRef = useRef(cards)
     cardsRef.current = cards
@@ -292,11 +310,11 @@ function FeedContent(): ReactElement {
 
     // The list follows `currentIndex`: when cards above the current one change, it moves to the card's new place.
     // `listIndex` is the card the list shows, as this screen last moved it or saw it settle.
-    const listRef = useRef<FlatList<FeedRow> | null>(null)
+    const listRef = useRef<ScrollViewInstance | null>(null)
     const listIndex = useRef(0)
     const listHeight = useRef(0)
     const dragging = useRef(false)
-    const setListRef = useCallback((list: FlatList<FeedRow> | null): void => {
+    const setListRef = useCallback((list: ScrollViewInstance | null): void => {
         listRef.current = list
         if (!list) {
             listIndex.current = 0
@@ -315,9 +333,16 @@ function FeedContent(): ReactElement {
         if (size && !dragging.current && (listIndex.current !== currentIndex || listHeight.current !== size.height)) {
             listIndex.current = currentIndex
             listHeight.current = size.height
-            listRef.current?.scrollToOffset({ offset: currentIndex * size.height, animated: false })
+            listRef.current?.scrollTo({ y: currentIndex * size.height, animated: false })
         }
     }, [cards, currentIndex, currentKey, size])
+
+    const { loadMore } = feed
+    useEffect(() => {
+        if (cards && cards.length - currentIndex <= LOAD_AHEAD) {
+            loadMore()
+        }
+    }, [cards, currentIndex, loadMore])
 
     const scrollTo = useCallback(
         (index: number): void => {
@@ -327,7 +352,7 @@ function FeedContent(): ReactElement {
             }
             listIndex.current = index
             setCurrentKey(target.key)
-            listRef.current?.scrollToOffset({ offset: index * size.height, animated: true })
+            listRef.current?.scrollTo({ y: index * size.height, animated: true })
         },
         [size]
     )
@@ -382,6 +407,15 @@ function FeedContent(): ReactElement {
     useEffect(() => {
         tabProgress.value = withTiming(unit === 'session' ? 1 : 0, { duration: 220 })
     }, [unit, tabProgress])
+    useLayoutEffect(() => {
+        perfMark('tabCommitted', Date.now(), { unit })
+    }, [unit])
+    // In a measuring build, every UI-thread frame over 24 ms is a mark with its length.
+    useFrameCallback((frame) => {
+        if ((frame.timeSincePreviousFrame ?? 0) > 24) {
+            scheduleOnRN(perfMark, 'uiLongFrame', Date.now(), { ms: frame.timeSincePreviousFrame ?? 0 })
+        }
+    }, FEED_PERF)
 
     const isReady = useCallback(
         (item: FeedItem): boolean =>
@@ -429,37 +463,99 @@ function FeedContent(): ReactElement {
      * Moment to Full recording keeps the time. Full recording to Moment goes to the moment nearest the time, and keeps
      * the time when it falls inside that moment. The card on screen stays the same card, so its page stays loaded.
      */
-    const switchUnit = (next: FeedUnit, via: 'tab' | 'swipe' | 'info', at?: number): void => {
-        if (next === unit) {
-            tabProgress.value = withTiming(next === 'session' ? 1 : 0, { duration: 160 })
+    /**
+     * Moment to Full recording keeps the time. Full recording to Moment goes to the moment nearest the time, and keeps
+     * the time when it falls inside that moment. The card on screen stays the same card, so its page stays loaded.
+     * The card answers in the switch's first frame (range, player window); the list renders the new mode once the
+     * animations have ended.
+     */
+    const pendingSwitch = useRef<{ next: FeedUnit; timer: ReturnType<typeof setTimeout> } | null>(null)
+    useEffect(() => () => clearTimeout(pendingSwitch.current?.timer), [])
+    const switchUnit = (
+        next: FeedUnit,
+        via: 'tab' | 'swipe' | 'info',
+        at?: number,
+        preset?: { ordinal: number }
+    ): void => {
+        const pending = pendingSwitch.current
+        if (pending || next === unit) {
+            const settled = pending?.next ?? unit
+            tabProgress.value = withTiming(settled === 'session' ? 1 : 0, { duration: 160 })
             return
         }
         trackFeedUnitChanged({ unit: next, via })
-        if (via !== 'info') {
-            haptic('selection')
-        }
         const card = currentCard
-        const seconds = at ?? (card ? handles.current.get(card.key)?.currentSeconds() : undefined)
-        if (card && seconds !== undefined) {
-            const { sessionId } = card.item.recording
-            const ordinal = next === 'session' ? card.ordinal : nearestMoment(card.moments, seconds)
-            setKeyOverrides((previous) => new Map(previous).set(sessionId, { ordinal, key: card.key }))
-            const moment = card.moments[ordinal]
-            const inside = moment !== undefined && seconds >= moment.startSeconds && seconds <= moment.endSeconds
-            if (next === 'session' || inside) {
-                requestStart(card.key, seconds)
-            } else {
-                setStartRequest(null)
-            }
+        let ordinal = card?.ordinal ?? 0
+        if (card && at !== undefined) {
+            requestStart(card.key, at)
+        } else if (card) {
+            haptic('selection')
+            tabProgress.value = withTiming(next === 'session' ? 1 : 0, { duration: 220 })
+            ordinal = handles.current.get(card.key)?.beginSwitch(next, preset).ordinal ?? ordinal
         }
-        set({ unit: next })
+        const commit = (): void => {
+            pendingSwitch.current = null
+            if (card) {
+                const { sessionId } = card.item.recording
+                keyOverrides.current = new Map(keyOverrides.current).set(sessionId, { ordinal, key: card.key })
+            }
+            perfMark('switchCommit', Date.now(), { unit: next })
+            set({ unit: next })
+        }
+        if (via === 'info') {
+            commit()
+            return
+        }
+        pendingSwitch.current = { next, timer: setTimeout(commit, SWITCH_COMMIT_MS) }
     }
     const switchRef = useRef(switchUnit)
     switchRef.current = switchUnit
-    const swipeUnit = useCallback((next: FeedUnit): void => switchRef.current(next, 'swipe'), [])
+    const swipeUnit = useCallback(
+        (next: FeedUnit, preset?: { ordinal: number }): void => switchRef.current(next, 'swipe', undefined, preset),
+        []
+    )
+
+    // The Sessions page is the page to the right of Full recording: 0 hidden, 1 shown. The swipe and the button both
+    // slide it in from the right. It mounts on the first peek and stays mounted, so a later swipe shows it at once.
+    const sessionsProgress = useSharedValue(0)
+    const [sessionsMounted, setSessionsMounted] = useState(false)
+    const [sessionsOpen, setSessionsOpen] = useState(false)
+    const suspendedKey = useRef<string | null>(null)
+    const currentCardRef = useRef(currentCard)
+    currentCardRef.current = currentCard
+    const openSessions = (via: 'swipe' | 'button' | 'peek'): void => {
+        setSessionsMounted(true)
+        if (via === 'peek') {
+            return
+        }
+        trackFeedSourcesOpened({ source, via })
+        setSessionsOpen(true)
+        sessionsProgress.value = withTiming(1, { duration: SESSIONS_SLIDE_MS })
+        const card = currentCardRef.current
+        if (card && suspendedKey.current === null) {
+            handles.current.get(card.key)?.suspend(true)
+            suspendedKey.current = card.key
+        }
+    }
+    const openSessionsRef = useRef(openSessions)
+    openSessionsRef.current = openSessions
+    const onOpenSessions = useCallback((via: 'swipe' | 'button' | 'peek'): void => openSessionsRef.current(via), [])
+    /** `resume` plays the card again unless it was paused before; a pick on the page moves to another card instead. */
+    const closeSessions = useCallback(
+        (resume: boolean): void => {
+            setSessionsOpen(false)
+            sessionsProgress.value = withTiming(0, { duration: SESSIONS_SLIDE_MS })
+            const key = suspendedKey.current
+            suspendedKey.current = null
+            if (key && resume) {
+                handles.current.get(key)?.suspend(false)
+            }
+        },
+        [sessionsProgress]
+    )
 
     useEffect(() => {
-        if (__DEV__) {
+        if (FEED_DEBUG) {
             ;(
                 globalThis as {
                     __replayFeed?: {
@@ -490,7 +586,6 @@ function FeedContent(): ReactElement {
         }
     }, [scrollTo, currentIndex, currentCard])
 
-    const [sourceOpen, setSourceOpen] = useState(false)
     // A recording picked in Sources plays first: the feed moves to it once its page has loaded.
     const [startWith, setStartWith] = useState<string | null>(null)
     useEffect(() => {
@@ -649,7 +744,6 @@ function FeedContent(): ReactElement {
         }
         return (
             <FeedCard
-                key={entry.key}
                 entry={entry}
                 width={size?.width ?? 0}
                 height={size?.height ?? 0}
@@ -666,7 +760,9 @@ function FeedContent(): ReactElement {
                 nextReady={nextReady}
                 tabProgress={tabProgress}
                 scrollFade={scrollFade}
+                sessionsProgress={sessionsProgress}
                 onSwipeUnit={swipeUnit}
+                onOpenSessions={onOpenSessions}
                 onSource={onSource}
                 onAdvance={onAdvance}
                 onJumpTo={scrollTo}
@@ -680,11 +776,25 @@ function FeedContent(): ReactElement {
             />
         )
     }
-    const renderRow = ({ item: row }: { item: FeedRow }): ReactElement => (
-        <View style={{ width: size?.width ?? 0, height: row.cards.length * (size?.height ?? 0) }}>
-            {row.cards.map(renderCard)}
-        </View>
-    )
+    // A recording can have dozens of moments. Only the cards near the current one mount; the row keeps its full height.
+    const renderRow = (row: FeedRow): ReactElement => {
+        const pageHeight = size?.height ?? 0
+        const first = row.cards[0]?.index ?? 0
+        return (
+            <View
+                key={row.item.recording.sessionId}
+                style={{ width: size?.width ?? 0, height: row.cards.length * pageHeight }}
+            >
+                {row.cards.map((entry) =>
+                    Math.abs(entry.index - currentIndex) <= MOUNTED_CARDS ? (
+                        <View key={entry.key} style={[styles.cardSlot, { top: (entry.index - first) * pageHeight }]}>
+                            {renderCard(entry)}
+                        </View>
+                    ) : null
+                )}
+            </View>
+        )
+    }
 
     let body: ReactElement
     if (mode === 'demo') {
@@ -722,38 +832,14 @@ function FeedContent(): ReactElement {
         )
     } else {
         body = (
-            <Animated.FlatList
+            <Animated.ScrollView
                 ref={setListRef}
-                data={rows}
-                keyExtractor={(row) => row.item.recording.sessionId}
-                renderItem={renderRow}
-                extraData={[
-                    currentIndex,
-                    webPool,
-                    videoPool,
-                    settings,
-                    unit,
-                    focused,
-                    jobs,
-                    size,
-                    insets,
-                    startRequest,
-                ]}
                 pagingEnabled
                 scrollEnabled={!holding}
                 // A tap on the status bar would jump back to the first card mid-watch.
                 scrollsToTop={false}
                 decelerationRate="fast"
                 showsVerticalScrollIndicator={false}
-                getItemLayout={(data, index) => {
-                    const row = data?.[index] as FeedRow | undefined
-                    const first = row?.cards[0]?.index ?? 0
-                    return { length: (row?.cards.length ?? 1) * size.height, offset: first * size.height, index }
-                }}
-                windowSize={5}
-                initialNumToRender={2}
-                maxToRenderPerBatch={2}
-                removeClippedSubviews={false}
                 onScroll={onScroll}
                 scrollEventThrottle={16}
                 onScrollBeginDrag={() => {
@@ -761,8 +847,6 @@ function FeedContent(): ReactElement {
                 }}
                 onScrollEndDrag={onDragEnd}
                 onMomentumScrollEnd={onSettle}
-                onEndReached={feed.loadMore}
-                onEndReachedThreshold={2}
                 refreshControl={
                     <RefreshControl
                         refreshing={feed.refreshing}
@@ -771,13 +855,18 @@ function FeedContent(): ReactElement {
                     />
                 }
                 testID="feed-list"
-            />
+            >
+                {rows.map(renderRow)}
+            </Animated.ScrollView>
         )
     }
 
     return (
         <View style={styles.screen} onLayout={onLayout}>
-            <StatusBar style="light" />
+            {/* iOS 26 pops a screen on a swipe to the right anywhere in it. The feed's sideways swipes switch tabs and
+                pages, so only the edge swipe goes back; over a panel such as Up next, a swipe would leave the feed. */}
+            <Stack.Screen options={{ fullScreenGestureEnabled: false }} />
+            <StatusBar style={sessionsOpen ? 'dark' : 'light'} />
             {body}
             <Animated.View
                 style={[styles.chrome, { top: insets.top + 4 }, chromeStyle]}
@@ -794,10 +883,7 @@ function FeedContent(): ReactElement {
                 </Pressable44>
                 <FeedTabs unit={unit} progress={tabProgress} onSelect={(next) => switchUnit(next, 'tab')} />
                 <Pressable44
-                    onPress={() => {
-                        trackFeedSourcesOpened(source)
-                        setSourceOpen(true)
-                    }}
+                    onPress={() => openSessions('button')}
                     accessibilityLabel="Sources"
                     style={styles.iconButton}
                     pressedStyle={styles.pressed}
@@ -813,16 +899,23 @@ function FeedContent(): ReactElement {
                 </View>
             ) : null}
             <FeedSourcesPage
-                visible={sourceOpen}
+                progress={sessionsProgress}
+                mounted={sessionsMounted}
+                open={sessionsOpen}
+                width={size?.width ?? 0}
                 playing={source}
+                playingSession={currentCard?.item.recording.sessionId ?? null}
                 onPlay={(next, sessionId) => {
-                    setSourceOpen(false)
+                    closeSessions(false)
                     if (next !== source) {
                         changeSource(next)
+                    } else if (sessionId === null) {
+                        // Play all on the source the feed already plays starts it again from its first recording.
+                        setCurrentKey(cards?.[0]?.key ?? null)
                     }
                     setStartWith(sessionId)
                 }}
-                onClose={() => setSourceOpen(false)}
+                onClose={() => closeSessions(true)}
             />
             <FeedSettingsSheet
                 visible={settingsOpen}
@@ -937,6 +1030,11 @@ const useStyles = createStyles(() => ({
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
+    },
+    cardSlot: {
+        position: 'absolute',
+        left: 0,
+        right: 0,
     },
     iconButton: {
         ...glassPill,

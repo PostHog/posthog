@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { WebReplayPlayer } from '../web/WebReplayPlayer'
 import type { FeedCardEntry } from './feedCards'
+import { FEED_DEBUG } from './feedPerf'
 import type { PoolPlayer } from './feedPlayer'
 
 const NO_PLAYERS: ReadonlyMap<string, PoolPlayer> = new Map()
@@ -42,7 +43,7 @@ export function useWebPlayerPool(
             }
         }
         players.current = keep
-        if (__DEV__) {
+        if (FEED_DEBUG) {
             ;(globalThis as { __replayWebPlayers?: Map<string, WebReplayPlayer> }).__replayWebPlayers = keep
         }
         setAssigned((previous) => {

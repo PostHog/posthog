@@ -3,6 +3,7 @@ import { create } from 'zustand'
 
 import { type HapticKind, haptic } from '@/lib/haptics'
 
+import { FEED_DEBUG } from './feedPerf'
 import { type Hold, type HoldLock, type HoldResult, pullHold, releaseHold, startHold } from './holdLock'
 
 interface FeedHoldState {
@@ -13,7 +14,7 @@ interface FeedHoldState {
 
 export const useFeedHold = create<FeedHoldState>(() => ({ hold: null, lock: null }))
 
-if (__DEV__) {
+if (FEED_DEBUG) {
     ;(globalThis as { __replayFeedHold?: typeof useFeedHold }).__replayFeedHold = useFeedHold
 }
 

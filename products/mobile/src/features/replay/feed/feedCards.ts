@@ -78,6 +78,7 @@ export function buildFeedCards(
 
 /** The moment whose window holds `seconds`, else the one whose window is closest to it. */
 export function nearestMoment(moments: readonly Moment[], seconds: number): number {
+    'worklet'
     let best = 0
     let bestDistance = Number.POSITIVE_INFINITY
     moments.forEach((moment, index) => {

@@ -102,6 +102,22 @@ export function trackFeedNotInterested(sessionId: string): void {
     track('mobile_replay_feed_not_interested', { session_id: sessionId })
 }
 
-export function trackFeedSourcesOpened(source: FeedSource): void {
-    track('mobile_replay_feed_sources_opened', { source })
+export function trackFeedSourcesOpened(props: { source: FeedSource; via: 'swipe' | 'button' }): void {
+    track('mobile_replay_feed_sources_opened', { source: props.source, via: props.via })
+}
+
+export function trackFeedSessionsChip(source: FeedSource): void {
+    track('mobile_replay_feed_sessions_chip_changed', { source })
+}
+
+export function trackFeedPlayAll(source: FeedSource): void {
+    track('mobile_replay_feed_play_all', { source })
+}
+
+export function trackFeedRowPlayed(props: { source: FeedSource; sessionId: string; position: number }): void {
+    track('mobile_replay_feed_row_played', {
+        source: props.source,
+        session_id: props.sessionId,
+        position: props.position,
+    })
 }

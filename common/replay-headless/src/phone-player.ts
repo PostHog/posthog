@@ -130,6 +130,20 @@ class PhonePlayer {
                 mark('prepare', { targetTs: command.targetTs })
                 this.moveTo(command.targetTs)
                 return
+            case 'window': {
+                // A tab switch keeps the time: no rebuild and no seek. Blocks past the old end load as playback nears
+                // them, through the same buffering as any other playback.
+                const ts = this.currentTs() ?? this.target?.ts
+                if (ts === undefined) {
+                    return
+                }
+                this.target = { ts: this.target?.ts ?? ts, endTs: command.endTs }
+                if (command.endTs === null || command.endTs > ts) {
+                    this.endReported = false
+                }
+                mark('window', { endTs: command.endTs ?? -1 })
+                return
+            }
             case 'seek':
                 if (this.target) {
                     this.target = { ...this.target, ts: command.ts }
