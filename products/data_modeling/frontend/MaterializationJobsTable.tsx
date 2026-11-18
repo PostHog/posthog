@@ -82,12 +82,17 @@ export function MaterializationJobsTable({
         useValues(modelsUsageLogic)
     const { refreshJobs, setJobsPage, setSelectedJobStatus, openModel } = useActions(modelsUsageLogic)
     const count = materializationJobs?.count ?? 0
+    const countIsCapped = !!materializationJobs?.count_is_capped
     const jobs = materializationJobs?.results ?? []
-    const pageCount = Math.max(Math.ceil(count / MATERIALIZATION_JOBS_PAGE_SIZE), 1)
+    const countedPages = Math.max(Math.ceil(count / MATERIALIZATION_JOBS_PAGE_SIZE), 1)
+    const pageCount = countIsCapped
+        ? Math.max(countedPages, jobsPage + (materializationJobs?.next ? 1 : 0))
+        : countedPages
     const pageIndex = jobsPage - 1
     const pageRange = getPaginationRange(pageCount, pageIndex)
     const firstRow = count === 0 ? 0 : pageIndex * MATERIALIZATION_JOBS_PAGE_SIZE + 1
-    const lastRow = Math.min(firstRow + jobs.length - 1, count)
+    const lastRowOnPage = firstRow + jobs.length - 1
+    const lastRow = countIsCapped ? lastRowOnPage : Math.min(lastRowOnPage, count)
 
     return (
         <Card size="sm" className="min-w-0 gap-0">
@@ -253,7 +258,7 @@ export function MaterializationJobsTable({
             {!jobsFailed && count > 0 ? (
                 <CardFooter className="flex flex-row flex-wrap items-center justify-between gap-2 border-t border-border">
                     <Text size="xs" variant="muted" render={<span />} className="tabular-nums">
-                        {firstRow}-{lastRow} of {pluralize(count, 'job')}
+                        {`${firstRow}-${lastRow} of ${humanFriendlyNumber(count)}${countIsCapped ? '+' : ''} ${pluralize(count, 'job', undefined, false)}`}
                     </Text>
                     {pageCount > 1 ? (
                         <Pagination className="w-auto">
