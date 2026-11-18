@@ -151,7 +151,8 @@ class TestMCPIntentErasure(ClickhouseTestMixin, APIBaseTest):
             assert MCPIntentErasure.objects.get(team=self.team).completed_at is None
 
     def test_deleted_team_copies_stay_pending_until_purged(self) -> None:
-        gone = Team.objects.order_by("-pk").values_list("pk", flat=True).first() + 1000
+        # self.other is the newest team, so this id has no Team row.
+        gone = self.other.pk + 1000
         self.addCleanup(self._delete_assignments, gone)
         _insert_assignment(gone, "a" * 64, "topic", intent_text="copied text")
         erasure = IntentErasure(project_id=gone, invalidation_id=uuid4(), source_team_ids=(gone,))
