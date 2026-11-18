@@ -160,6 +160,7 @@ Logout only deletes the box's copy of the login. If the login may have been copi
 `devbox:claude:login` offers to delete the token secret when it exists. Restart a running box after you delete it, so the box drops the token from its environment.
 
 hogli never turns on Remote Control. It gives another way into the box, so turn it on only when you need it, and don't combine it with skipped permission prompts.
+To use it after `devbox:claude:login`, run `claude rc` in a terminal on the box that stays open, such as a Herdr tab, and start sessions from claude.ai/code or the Claude app. `/rc` connects one running session. See [Remote Control](https://code.claude.com/docs/en/remote-control).
 
 ## Managing devbox configuration
 
