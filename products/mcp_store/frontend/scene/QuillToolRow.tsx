@@ -80,7 +80,7 @@ export function QuillToolRow({
                 </div>
             </div>
             {expanded && (
-                <div className="flex flex-col gap-4 bg-muted px-9 py-3">
+                <div data-quill className="flex flex-col gap-4 bg-muted px-9 py-3">
                     {tool.description && (
                         <Text size="xs" variant="muted" render={<p className="m-0" />}>
                             {tool.description}

@@ -116,7 +116,10 @@ export function QuillToolPoliciesSection(): JSX.Element {
             </div>
 
             {(isAdmin || canManageAgentAccess) && availableScopes.length > 1 && (
-                <div className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted p-2">
+                <div
+                    data-quill
+                    className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted p-2"
+                >
                     <Text size="xs" variant="muted" render={<span className="m-0" />}>
                         Policy for
                     </Text>

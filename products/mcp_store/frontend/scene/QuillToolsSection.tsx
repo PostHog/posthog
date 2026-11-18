@@ -52,7 +52,7 @@ export function QuillToolsSection({
             </div>
 
             {tools.length > 0 && (
-                <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-muted p-2">
+                <div data-quill className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-muted p-2">
                     <Text size="xs" variant="muted" render={<p className="m-0" />}>
                         <span className="font-semibold">{approvedCount}</span> Always Allow ·{' '}
                         <span className="font-semibold">{pendingCount}</span> Needs Approval ·{' '}

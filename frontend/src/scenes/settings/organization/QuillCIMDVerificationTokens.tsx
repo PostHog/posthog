@@ -101,7 +101,7 @@ export function QuillCIMDVerificationTokens({
             id: 'mask_value',
             header: 'Token',
             cell: ({ row }) => (
-                <code className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-xs">
+                <code data-quill className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-xs">
                     {row.original.mask_value ?? '-'}
                 </code>
             ),

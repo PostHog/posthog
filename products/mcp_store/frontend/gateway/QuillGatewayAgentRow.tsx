@@ -28,7 +28,7 @@ export function QuillGatewayAgentRow({
                     className="flex min-w-48 flex-1 items-center gap-3 px-3 py-2 text-left hover:bg-fill-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     onClick={onOpen}
                 >
-                    <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-muted">
+                    <span data-quill className="flex size-10 shrink-0 items-center justify-center rounded-md bg-muted">
                         <IconSparkles />
                     </span>
                     <span className="flex min-w-0 flex-1 flex-col gap-0.5">
