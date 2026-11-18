@@ -1023,9 +1023,9 @@ export interface dashboardLogicValues {
     tileGroupSections: DashboardSection[]
     tileGroupSectionsEnabled: boolean
     tileSavesPending: boolean
+    tileVisibilityReported: boolean
     tiles: DashboardTile[]
     tilesInView: number[]
-    tileVisibilityReported: boolean
     undoLayoutDisabledReason: string | null
     urlFilters: DashboardFilter
     urlSearchParamsAtEditModeEntry: {
