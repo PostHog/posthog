@@ -76,7 +76,9 @@ export const HealthIssueList = (): JSX.Element => {
                                         <div className="flex items-center gap-2">
                                             {config.icon}
                                             <span className="font-medium">{config.label}</span>
-                                            <span className="text-xs text-muted">({total})</span>
+                                            <span className="text-xs text-muted" translate="no">
+                                                ({total})
+                                            </span>
                                         </div>
                                         <div className="flex items-center gap-2">
                                             <LemonTag type={severityToTagType(worst)} size="small">

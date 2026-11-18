@@ -68,6 +68,7 @@ function HealthCategoryDetailScene(): JSX.Element {
                     onSetShowDismissed={setShowDismissed}
                     onLoadMore={nextKindWithMore ? () => loadMoreIssues(nextKindWithMore) : undefined}
                     isLoadingMore={loadingMoreKind !== null}
+                    remainingCount={issuesByKind.find((group) => group.kind === nextKindWithMore)?.remaining ?? 0}
                 />
             ) : (
                 <GenericCategoryContent
@@ -261,7 +262,9 @@ function KindSection({
                         <div className="flex items-center justify-between w-full pr-2">
                             <div className="flex items-center gap-2">
                                 <span className="font-medium">{group.label}</span>
-                                <span className="text-xs text-muted">({group.count})</span>
+                                <span className="text-xs text-muted" translate="no">
+                                    ({group.count})
+                                </span>
                             </div>
                             <LemonTag type={severityToTagType(group.worstSeverity)} size="small">
                                 {group.worstSeverity}
@@ -279,11 +282,12 @@ function KindSection({
                                     onUndismiss={onUndismiss}
                                 />
                             ))}
-                            {group.issues.length < group.count && (
+                            {group.remaining > 0 && (
                                 <div className="px-4 py-2">
                                     <HealthShowMoreFooter
                                         shown={group.issues.length}
                                         total={group.count}
+                                        remaining={group.remaining}
                                         loading={loadingMore}
                                         onShowMore={onLoadMore}
                                     />

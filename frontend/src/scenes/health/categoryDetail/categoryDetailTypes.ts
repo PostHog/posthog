@@ -14,6 +14,7 @@ export interface CategoryDetailContentProps {
     onSetShowDismissed: (show: boolean) => void
     onLoadMore?: () => void
     isLoadingMore?: boolean
+    remainingCount?: number
 }
 
 export type CategoryDetailContentComponent = ComponentType<CategoryDetailContentProps>
