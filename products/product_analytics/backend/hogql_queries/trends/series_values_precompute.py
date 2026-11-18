@@ -79,6 +79,7 @@ TTL_SECONDS: dict[str, int] = {
     "default": 35 * 24 * 60 * 60,
 }
 MAX_WINDOW_DAYS = 7
+MAX_RANGE_DAYS = 366
 
 _BUCKET_EXPRS: dict[str, str] = {
     "hour": "toStartOfHour(toTimeZone(time_window_start, %(tz)s))",
@@ -168,10 +169,16 @@ def _team_refusal(runner: TrendsQueryRunner) -> str | None:
     return None
 
 
-def _crosses_dst(runner: TrendsQueryRunner) -> bool:
-    start = runner.query_date_range.date_from()
-    end = runner.query_date_range.date_to()
-    return start is not None and end is not None and start.utcoffset() != end.utcoffset()
+def _crosses_dst(buckets: list[datetime]) -> bool:
+    return len({bucket.utcoffset() for bucket in buckets}) > 1
+
+
+def _range_unaligned(runner: TrendsQueryRunner, buckets: list[datetime], date_to: datetime) -> bool:
+    date_range = runner.query_date_range
+    if not date_range.use_start_of_interval() and date_range.date_from() != buckets[0]:
+        return True
+    end = date_to + timedelta(microseconds=1)
+    return (end.minute, end.second, end.microsecond) != (0, 0, 0)
 
 
 def _live_boundary(buckets: list[datetime], today_start_utc: datetime) -> datetime:
@@ -282,12 +289,14 @@ def _fallback(reason: str) -> None:
 def execute_precomputed_trends(runner: TrendsQueryRunner, *, run_inserts: bool) -> list[dict[str, Any]] | None:
     try:
         reason = _shape_refusal(runner) or _team_refusal(runner)
-        if reason is None and _interval(runner) == "hour" and _crosses_dst(runner):
-            reason = "dst_transition"
         buckets = runner.query_date_range.all_values()
         date_to = runner.query_date_range.date_to()
+        if reason is None and _interval(runner) == "hour" and _crosses_dst(buckets):
+            reason = "dst_transition"
         if reason is None and (not buckets or date_to is None):
             reason = "nothing_closed"
+        if reason is None and _range_unaligned(runner, buckets, date_to):
+            reason = "unaligned_range"
         if reason is not None:
             _fallback(reason)
             return None
@@ -310,6 +319,9 @@ def execute_precomputed_trends(runner: TrendsQueryRunner, *, run_inserts: bool) 
         range_end = read_end_utc.replace(hour=0, minute=0, second=0, microsecond=0)
         if range_end < read_end_utc:
             range_end += timedelta(days=1)
+        if (range_end - range_start).days > MAX_RANGE_DAYS:
+            _fallback("date_range_too_long")
+            return None
 
         result = _ensure(runner, start=range_start, end=range_end, run_inserts=run_inserts)
         if not result.ready or not result.job_ids:
