@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -313,6 +314,25 @@ class TestTaggersApi(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert len(response.data["results"]) == 1
         assert response.data["results"][0]["name"] == "Disabled Tagger"
+
+    def test_can_find_the_tagger_an_evaluation_replaced(self):
+        evaluation_id = uuid.uuid4()
+        for name, migrated_to in (("Kept", None), ("Moved", evaluation_id), ("Moved elsewhere", uuid.uuid4())):
+            Tagger.objects.create(
+                name=name,
+                tagger_config=_make_tagger_config(),
+                team=self.team,
+                migrated_to_evaluation_id=migrated_to,
+            )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/taggers/?migrated_to_evaluation_id={evaluation_id}"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [(row["name"], row["migrated_to_evaluation_id"]) for row in response.data["results"]] == [
+            ("Moved", str(evaluation_id))
+        ]
 
     def test_cannot_access_other_teams_taggers(self):
         other_team = _setup_team()

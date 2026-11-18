@@ -1,3 +1,4 @@
+import re
 import json
 import uuid
 import dataclasses
@@ -96,7 +97,7 @@ from products.signals.backend.report_search import (
 )
 from products.signals.backend.reviewer_rules import ReviewerRules
 from products.signals.backend.scout_harness.tools.report import is_self_improvement_title
-from products.signals.backend.source_filters import compile_source_filter
+from products.signals.backend.source_filters import SourceFilterPreviewStatus, compile_source_filter
 from products.signals.backend.source_issues import source_issues_by_report
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
@@ -171,6 +172,8 @@ from .tracker_issues import TRACKER_TARGET_REQUIRED_FIELDS, issue_reference, val
 logger = structlog.get_logger(__name__)
 
 DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE = 0.1
+
+_REPOSITORY_NAME_RE = re.compile(r"^[^/\s]+/[^/\s]+$")
 
 
 @frozen
@@ -570,6 +573,141 @@ class AlertPatternPreviewResponseSerializer(serializers.Serializer):
         ),
     )
     has_more = serializers.BooleanField(help_text="True when the project has more enabled alerts than `alerts` lists.")
+
+
+class SignalFilterFieldType(TextChoices):
+    STRING = "string", "string"
+    INTEGER = "integer", "integer"
+    NUMBER = "number", "number"
+    BOOLEAN = "boolean", "boolean"
+    DATETIME = "datetime", "datetime"
+    ARRAY_STRING = "array<string>", "array<string>"
+    ARRAY_INTEGER = "array<integer>", "array<integer>"
+    ARRAY_NUMBER = "array<number>", "array<number>"
+    ARRAY_BOOLEAN = "array<boolean>", "array<boolean>"
+
+
+class SourceFilterCatalogFieldSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Name to use for this field in a filter expression.")
+    type = serializers.ChoiceField(
+        choices=SignalFilterFieldType.choices,
+        help_text="Type of the field's value. Compare it with values of the same type.",
+    )
+    description = serializers.CharField(
+        help_text="What the field holds, and its value when the record has none (null, or an empty array)."
+    )
+
+
+class SourceFilterCatalogSerializer(serializers.Serializer):
+    source_product = serializers.CharField(help_text="Source product the filter applies to, for example `linear`.")
+    source_type = serializers.CharField(help_text="Source type the filter applies to, for example `issue`.")
+    catalog_version = serializers.IntegerField(
+        help_text="Catalog version a filter saved now is pinned to. A saved filter keeps the meaning of its version."
+    )
+    filter_fields = serializers.ListField(
+        child=SourceFilterCatalogFieldSerializer(),
+        help_text="Fields a filter expression can use.",
+    )
+    starter_expressions = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Example expressions that are valid for this source.",
+    )
+
+
+class SourceFilterCatalogListSerializer(serializers.Serializer):
+    results = serializers.ListField(
+        child=SourceFilterCatalogSerializer(),
+        help_text=(
+            "One entry per source whose filter this project can set. A source that is missing does not take a filter."
+        ),
+    )
+
+
+# Wider than the expression limit, so a long expression reads back as an `invalid_expression` preview, not a 400.
+_SOURCE_FILTER_PREVIEW_MAX_LENGTH = 16384
+
+
+class SourceFilterPreviewRequestSerializer(serializers.Serializer):
+    source_product = serializers.CharField(
+        max_length=100,
+        help_text="Source product of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.",
+    )
+    source_type = serializers.CharField(
+        max_length=100,
+        help_text="Source type of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.",
+    )
+    expression = serializers.CharField(
+        allow_blank=True,
+        trim_whitespace=False,
+        max_length=_SOURCE_FILTER_PREVIEW_MAX_LENGTH,
+        help_text=(
+            "Filter expression to try, as it would be saved in `config.hogql_filter`: a boolean expression over the "
+            "fields `inbox-source-filter-catalogs-list` returns, for example `project_name = 'Core' AND assignee_id IS NULL`. "
+            "An empty expression lets every record through."
+        ),
+    )
+
+
+@extend_schema_field(
+    {
+        "oneOf": [
+            {"type": "string"},
+            {"type": "integer"},
+            {"type": "array", "items": {"type": "string"}},
+        ],
+        "nullable": True,
+    }
+)
+class _SourceFilterFieldValueField(serializers.JSONField):
+    pass
+
+
+class SourceFilterPreviewRecordSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="The record's id in the source.")
+    identifier = serializers.CharField(allow_null=True, help_text="Short identifier people use for the record.")
+    title = serializers.CharField(allow_null=True, help_text="The record's title.")
+    url = serializers.CharField(allow_null=True, help_text="Link to the record in the source.")
+    created_at = serializers.DateTimeField(
+        allow_null=True, help_text="When the record was created, as emission reads it."
+    )
+    malformed = serializers.BooleanField(
+        help_text="True when a field the expression uses holds a value that cannot be read, so the record never passes."
+    )
+    field_values = serializers.DictField(
+        source="fields",
+        child=_SourceFilterFieldValueField(),
+        help_text="Each catalog field's value for this record. A malformed value reads as null, or an empty array.",
+    )
+
+
+class SourceFilterPreviewResponseSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=SourceFilterPreviewStatus.choices,
+        help_text=(
+            "`ok` when the counts and records are filled in. `invalid_expression` when the expression cannot be saved. "
+            "`not_connected` when the project has no syncing import for the source. `not_synced` when the import has "
+            "not finished a first sync. `access_denied` when you cannot read the source's warehouse table. "
+            "`incompatible_table` when the table does not have the columns the filter fields read. "
+            "`query_failed` when the preview query did not run."
+        ),
+    )
+    error = serializers.CharField(allow_null=True, help_text="Why the status is not `ok`, when there is a reason.")
+    catalog_version = serializers.IntegerField(help_text="Catalog version the expression was checked against.")
+    lookback_days = serializers.IntegerField(help_text="The preview reads records created in this many past days.")
+    total_count = serializers.IntegerField(
+        help_text="Records in the window that emission would read before the filter. 0 unless `status` is `ok`."
+    )
+    passing_count = serializers.IntegerField(help_text="Records in the window that pass the filter.")
+    excluded_count = serializers.IntegerField(help_text="Records in the window that the filter excludes.")
+    malformed_count = serializers.IntegerField(
+        help_text="Excluded records that hold a value the filter cannot read. Included in `excluded_count`."
+    )
+    passing = SourceFilterPreviewRecordSerializer(
+        many=True, help_text="The newest records that pass the filter, at most 10."
+    )
+    excluded = SourceFilterPreviewRecordSerializer(
+        many=True, help_text="The newest records that the filter excludes, at most 10."
+    )
 
 
 # A team overrides the base branch for a handful of its repos; a map larger than this is abuse,
@@ -4541,6 +4679,8 @@ class SignalReportTaskActionSerializer(serializers.Serializer):
             "and stops without merging it. "
             "`resolve_conflicts` updates the report's open pull request from its base branch, resolves the "
             "conflicts, pushes, and stops without merging it or fixing unrelated CI. "
+            "`implement` starts the run the inbox's Implement button starts: it claims the report, implements "
+            "the fix, and opens a pull request that is attached to the report. "
             "`suggested_prompt` sends one of the prompts the report suggests."
         ),
     )
@@ -4580,9 +4720,27 @@ class SignalReportTaskActionRunRequestSerializer(serializers.Serializer):
             "replaces the "
             "action's fixed request and keeps its instructions and gates: pass it when you know something "
             "the report does not, such as a merge order, a failure that is already on the base branch, or "
-            "an expected conflict. Not accepted for `suggested_prompt`."
+            "an expected conflict. Optional for `implement`, where it is added to the prompt as extra "
+            "instructions. Not accepted for `suggested_prompt`."
         ),
     )
+    repository = serializers.CharField(
+        required=False,
+        min_length=1,
+        max_length=140,
+        help_text=(
+            "Only for `implement`: the repository to implement in, in 'owner/repo' format (case-insensitive). "
+            "It must be connected to the project, and it becomes the report's repo selection. Omit it to use "
+            "the report's own repository. A report whose repository cannot be resolved returns "
+            "`report_implementation_repository_unresolved`."
+        ),
+    )
+
+    def validate_repository(self, value: str) -> str:
+        value = value.strip().lower()
+        if not _REPOSITORY_NAME_RE.match(value):
+            raise serializers.ValidationError("Must be in 'owner/repo' format.")
+        return value
 
     def validate(self, attrs: dict) -> dict:
         action = attrs["action"]
@@ -4596,6 +4754,8 @@ class SignalReportTaskActionRunRequestSerializer(serializers.Serializer):
             )
         if action == ReportTaskActionKind.ASK and not attrs.get("message"):
             raise serializers.ValidationError({"message": "Give the message to send with `ask`."})
+        if attrs.get("repository") and action != ReportTaskActionKind.IMPLEMENT:
+            raise serializers.ValidationError({"repository": "Only accepted for `implement`."})
         return attrs
 
 
