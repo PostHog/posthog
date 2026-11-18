@@ -67,7 +67,6 @@ export interface tracingCorrelationConfigLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         configuredDistinctIdKeys: (tracingConfig: TeamTracingConfigApi | null) => string[] | undefined
         configuredSessionIdKeys: (tracingConfig: TeamTracingConfigApi | null) => string[] | undefined
-        sessionErrorBadgesEnabled: () => boolean
     }
 }
 
