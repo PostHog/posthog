@@ -123,8 +123,6 @@ from posthog.permissions import (
     TeamMemberStrictManagementPermission,
     TimeSensitiveActionPermission,
     UserCanCreateProjectPermission,
-    can_in_organization,
-    can_in_project,
     get_authenticator_scoped_organization_ids,
     get_organization_from_view,
     request_subject,
@@ -505,7 +503,9 @@ def team_default_evaluation_contexts_view(
 
             ctx, _ = EvaluationContext.objects.get_or_create(name=context_name, team=root_team)
             if ctx.hidden_from_suggestions:
-                if can_in_project(request, team, Action.EDIT):
+                if authorization.check(
+                    resource=Resource.project(team.pk), action=Action.EDIT, subject=request_subject(request)
+                ):
                     ctx.hidden_from_suggestions = False
                     ctx.save(update_fields=["hidden_from_suggestions"])
             default_ctx, created = TeamDefaultEvaluationContext.objects.get_or_create(
@@ -1254,7 +1254,7 @@ class ProjectBackwardCompatSerializer(
                         if not user_access_control.access_controls_supported:
                             continue
                         has_access = authorization.check(
-                            resource=Resource(type=ResourceType.PROJECT, id=str(team.pk)),
+                            resource=Resource.project(team.pk),
                             action=_PROJECT_LEVEL_ACTIONS[required_level],
                             subject=request_subject(self.context["request"]),
                         )
@@ -1675,8 +1675,9 @@ class ProjectViewSet(
         try:
             user = cast(User, self.request.user)
             organization = project.organization
-            if not can_in_organization(self.request, organization, Action.VIEW) or can_in_organization(
-                self.request, organization, Action.EDIT
+            resource, subject = Resource.organization(organization.id), request_subject(self.request)
+            if not authorization.check(resource=resource, action=Action.VIEW, subject=subject) or authorization.check(
+                resource=resource, action=Action.EDIT, subject=subject
             ):
                 return
 
@@ -1919,7 +1920,9 @@ class ProjectViewSet(
     )
     def cancel_deletion(self, request: request.Request, id: str, **kwargs) -> response.Response:
         project = cast(Project, self.get_object())
-        if not can_in_project(request, project.passthrough_team, Action.EDIT, self):
+        if not authorization.check(
+            resource=Resource.project(project.passthrough_team.pk), action=Action.EDIT, subject=request_subject(request)
+        ):
             raise exceptions.PermissionDenied("You don't have sufficient permissions in the project.")
         now = timezone.now()
         if not project.is_deletion_pending():
@@ -2321,10 +2324,17 @@ class ProjectViewSet(
                 target_organization = Organization.objects.get(pk=target_organization_id)
             except Organization.DoesNotExist:
                 raise exceptions.ValidationError("You must be a member of the target organization to move a project.")
-            organizations = (current_organization, target_organization)
-            if not all(can_in_organization(request, organization, Action.VIEW) for organization in organizations):
+            subject = request_subject(request)
+            resources = [
+                Resource.organization(organization.id) for organization in (current_organization, target_organization)
+            ]
+            if not all(
+                authorization.check(resource=resource, action=Action.VIEW, subject=subject) for resource in resources
+            ):
                 raise exceptions.ValidationError("You must be a member of the target organization to move a project.")
-            if not all(can_in_organization(request, organization, Action.EDIT) for organization in organizations):
+            if not all(
+                authorization.check(resource=resource, action=Action.EDIT, subject=subject) for resource in resources
+            ):
                 raise exceptions.ValidationError(
                     "You must be an admin of both the source and target organizations to move a project."
                 )

@@ -285,7 +285,7 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             raise exceptions.ValidationError(f"Team {team_id} not found in this organization")
 
         if not authorization.check(
-            resource=Resource(type=ResourceType.PROJECT, id=str(team.pk)),
+            resource=Resource.project(team.pk),
             action=Action.VIEW,
             subject=Subject(user_id=cast(User, self.request.user).pk),
         ):

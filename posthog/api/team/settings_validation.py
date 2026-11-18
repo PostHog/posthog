@@ -14,12 +14,12 @@ from posthog.models import Team, User
 from posthog.models.organization import Organization
 from posthog.models.project import Project
 from posthog.models.team.logs_retention import LOGS_CUSTOM_RETENTION_FLAG
-from posthog.permissions import can_in_project, posthog_feature_flag_enabled, request_subject
+from posthog.permissions import posthog_feature_flag_enabled, request_subject
 from posthog.types import AnyPropertyFilter
 
 from products.authorization.backend.facade import api as authorization
 from products.authorization.backend.facade.contracts import Resource, Subject
-from products.authorization.backend.facade.enums import Action, ResourceType
+from products.authorization.backend.facade.enums import Action
 
 from . import team_config
 
@@ -170,7 +170,7 @@ def heatmaps_screenshot_secret_for_reader(team: Team, user_permissions: "UserPer
     if not isinstance(user, User) or user.pk is None:
         return None
     if not authorization.check(
-        resource=Resource(type=ResourceType.PROJECT, id=str(team.pk)),
+        resource=Resource.project(team.pk),
         action=Action.EDIT,
         subject=Subject(user_id=user.pk),
     ):
@@ -239,7 +239,9 @@ def validate_team_attrs(
             admin_fields_touched = admin_fields_touched - {"app_urls"}
         if admin_fields_touched:
             team_for_check = instance if isinstance(instance, Team) else instance.passthrough_team
-            if not can_in_project(view.request, team_for_check, Action.EDIT, view):
+            if not authorization.check(
+                resource=Resource.project(team_for_check.pk), action=Action.EDIT, subject=request_subject(view.request)
+            ):
                 raise exceptions.PermissionDenied(
                     "Only project admins can modify these settings: " + ", ".join(sorted(admin_fields_touched))
                 )
@@ -252,7 +254,7 @@ def validate_team_attrs(
         admin_fields_touched = (team_config.TEAM_CONFIG_ADMIN_FIELDS_SET - {"is_demo", "name"}) & attrs.keys()
         if admin_fields_touched:
             if not authorization.check(
-                resource=Resource(type=ResourceType.ORGANIZATION, id=str(view.organization_id)),
+                resource=Resource.organization(view.organization_id),
                 action=Action.EDIT,
                 subject=request_subject(view.request),
             ):
