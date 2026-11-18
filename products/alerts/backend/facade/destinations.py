@@ -312,6 +312,15 @@ def count_active_alert_destinations(*, team_id: int, alert_id: str, allowed_even
     )
 
 
+def active_alert_destination_counts(
+    *, team_id: int, alert_ids: Collection[str], allowed_event_ids: Collection[str]
+) -> dict[str, int]:
+    """`count_active_alert_destinations` for a page of alerts, by alert id. An alert with none is missing."""
+    return destinations.active_alert_destination_counts(
+        team_id=team_id, alert_ids=alert_ids, allowed_event_ids=allowed_event_ids
+    )
+
+
 def list_active_alert_destinations(
     *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
 ) -> list[ActiveAlertDestination]:

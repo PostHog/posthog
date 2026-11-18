@@ -48,6 +48,7 @@ def shown_insight_alerts(
         native_insight_alert_views,
     )
     from products.alerts.backend.presentation.views.alert import (  # noqa: PLC0415
+        _show_destination_counts,
         _show_platform_status,
         _show_platform_subscribers,
     )
@@ -80,6 +81,9 @@ def shown_insight_alerts(
                 # The caller's insight already carries what the alert serializer reads from it.
                 alert.insight = insights_by_id[insight_id]
             shown[insight_id].extend(native)
+    for team_id, insight_ids in insight_ids_by_team.items():
+        with team_scope(team_id):
+            _show_destination_counts([alert for insight_id in insight_ids for alert in shown[insight_id]])
     return shown
 
 

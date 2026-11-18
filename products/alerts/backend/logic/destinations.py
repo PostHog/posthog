@@ -524,6 +524,55 @@ def count_active_alert_destinations(*, team_id: int, alert_id: str, allowed_even
     ).count()
 
 
+def active_alert_destination_counts(
+    *, team_id: int, alert_ids: Collection[str], allowed_event_ids: Collection[str]
+) -> dict[str, int]:
+    """`count_active_alert_destinations` for a page of alerts, in one read of the functions' filters."""
+    counts: dict[str, int] = {}
+    functions = (
+        owned_alert_destinations_qs(
+            team_id=team_id, alert_ids=alert_ids, allowed_event_ids=allowed_event_ids, known_templates_only=False
+        )
+        .filter(type="internal_destination", filters__source="internal-events", enabled=True)
+        .values_list("filters", flat=True)
+    )
+    for filters in functions:
+        bound = _bound_alert_id(filters)
+        if bound is not None and bound in alert_ids:
+            counts[bound] = counts.get(bound, 0) + 1
+    return counts
+
+
+def _bound_alert_id(filters: Any) -> str | None:
+    """The one alert a function's event filters bind it to, read as `_BOUND_TO_THIS_ALERT_PATH` and
+    `_EXCLUDES_THIS_ALERT_PATH` do: one exact string id, which no other condition rules out."""
+    properties = filters.get("properties") if isinstance(filters, dict) else None
+    exact: set[str] = set()
+    within: list[set[str]] = []
+    excluded: set[str] = set()
+    for condition in properties if isinstance(properties, list) else ():
+        if not isinstance(condition, dict) or condition.get("key") != "alert_id":
+            continue
+        if condition.get("type") not in (None, "event"):
+            continue
+        value = condition.get("value")
+        values = {item for item in value if isinstance(item, str)} if isinstance(value, list) else set()
+        operator = condition.get("operator")
+        if operator in (None, "exact"):
+            if isinstance(value, str):
+                exact.add(value)
+            elif values:
+                within.append(values)
+        elif operator == "is_not":
+            excluded |= {value} if isinstance(value, str) else values
+    if len(exact) != 1:
+        return None
+    (bound,) = exact
+    if bound in excluded or any(bound not in allowed for allowed in within):
+        return None
+    return bound
+
+
 # Webhook-style destination names embed the full webhook URL, whose path is a channel
 # credential (Slack/Discord/Teams webhook secret). Anything that shows such a name — a
 # receipt in the API, the History tooltip, or a read surface in another product — must

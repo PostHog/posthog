@@ -26,7 +26,6 @@ import { FunnelVizType, InsightLogicProps } from '~/types'
 import type { Node } from '../../../../frontend/src/queries/schema/schema-general'
 import type { InsightModel } from '../../../../frontend/src/types'
 import { AlertType, AnomalyPoint, isTrendsAlertConfig } from '../types'
-import { buildAlertDestinationCountFilterGroups } from './alertNotifications'
 
 export interface InsightAlertsLogicProps {
     insightId: number
@@ -157,8 +156,6 @@ export interface insightAlertsLogicValues {
     breakdownFilter: BreakdownFilter | null | undefined // insightVizDataLogic
     showAlertThresholdLines: boolean | null | undefined // insightVizDataLogic
     alertAnomalyPoints: AnomalyPoint[]
-    alertDestinationCounts: Record<string, number>
-    alertDestinationCountsLoading: boolean
     alertThresholdLines: GoalLine[]
     alerts: AlertType[]
     alertsLoading: boolean
@@ -179,21 +176,6 @@ export interface insightAlertsLogicActions {
     } // insightVizDataLogic
     clearSimulationAnomalyPoints: () => {
         value: true
-    }
-    loadAlertDestinationCounts: (alerts: AlertType[]) => AlertType[]
-    loadAlertDestinationCountsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadAlertDestinationCountsSuccess: (
-        alertDestinationCounts: Record<string, number>,
-        payload?: AlertType[]
-    ) => {
-        alertDestinationCounts: Record<string, number>
-        payload?: AlertType[]
     }
     loadAlerts: () => any
     loadAlertsFailure: (
@@ -288,33 +270,6 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
                 return response.results
             },
         },
-        alertDestinationCounts: [
-            {} as Record<string, number>,
-            {
-                loadAlertDestinationCounts: async (alerts: AlertType[]) => {
-                    if (alerts.length === 0) {
-                        return {}
-                    }
-                    const alertIds = new Set(alerts.map((alert) => alert.id))
-                    const response = await api.hogFunctions.list({
-                        types: ['internal_destination'],
-                        filter_groups: alerts.flatMap((alert) => buildAlertDestinationCountFilterGroups(alert.id)),
-                        full: true,
-                        limit: 500,
-                    })
-                    return response.results.reduce<Record<string, number>>((counts, hogFunction) => {
-                        const alertIdProperty = hogFunction.filters?.properties?.find(
-                            (property) => property.key === 'alert_id'
-                        )
-                        const alertId = alertIdProperty?.value
-                        if (typeof alertId === 'string' && alertIds.has(alertId)) {
-                            counts[alertId] = (counts[alertId] ?? 0) + 1
-                        }
-                        return counts
-                    }, {})
-                },
-            },
-        ],
     })),
 
     reducers({
@@ -431,12 +386,6 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        loadAlertsSuccess: ({ alerts }) => {
-            actions.loadAlertDestinationCounts(alerts)
-        },
-        upsertAlert: () => {
-            actions.loadAlertDestinationCounts(values.alerts)
-        },
         setQuery: ({ query }) => {
             actions.setShouldShowAlertDeletionWarning(values.alerts.length > 0 && !alertsSurviveQuery(query))
         },

@@ -837,6 +837,13 @@ def record_source_destination(
     )
 
 
+def standalone_destination_counts(*, team_id: int, public_ids: Collection[UUID]) -> dict[UUID, int]:
+    """How many enabled destination rows of each alert no live HogFunction stands behind, by public id,
+    leaving out subscribers. A source adds its live HogFunction destinations to count each destination once.
+    An alert with none is missing from the result."""
+    return alert_destinations.standalone_destination_counts(team_id=team_id, public_ids=public_ids)
+
+
 def list_source_destinations(
     *, team_id: int, public_id: UUID, hog_function_groups: Sequence[AlertDestinationGroup]
 ) -> tuple[SourceDestination, ...]:

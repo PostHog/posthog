@@ -15100,6 +15100,8 @@ export namespace Schemas {
       readonly llm_detector_available: boolean | null;
       /** Whether this alert can open PagerDuty incidents. Add one with destinations/pagerduty. */
       readonly pagerduty_available: boolean;
+      /** How many active notification destinations the alert sends to, such as Slack channels and webhooks, each counted once. Subscribed users are not included. */
+      readonly destination_count: number;
       /**
          * Human-readable name for the alert.
          * @maxLength 255
@@ -15345,7 +15347,7 @@ export namespace Schemas {
       type: DestinationTypeEnum;
       /** Whether the destination sends. */
       enabled: boolean;
-      /** Whether the destination's HogFunctions hear the firing event, which a test delivery sends. */
+      /** Whether a test delivery reaches the destination, through its HogFunctions or natively. */
       hears_firing: boolean;
       /** Whether someone edited the destination's message, so it no longer sends the standard one. */
       message_customized: boolean;
@@ -15781,7 +15783,7 @@ export namespace Schemas {
     } as const;
 
     export interface AlertTestDeliveryResponse {
-      /** Number of active destinations queued for test delivery. */
+      /** Number of active destinations queued for test delivery or sent a test message. */
       destination_count: number;
       /** Number of subscribed users sent a test email. */
       email_recipient_count: number;
@@ -88666,6 +88668,8 @@ export namespace Schemas {
       readonly llm_detector_available?: boolean | null;
       /** Whether this alert can open PagerDuty incidents. Add one with destinations/pagerduty. */
       readonly pagerduty_available?: boolean;
+      /** How many active notification destinations the alert sends to, such as Slack channels and webhooks, each counted once. Subscribed users are not included. */
+      readonly destination_count?: number;
       /**
          * Human-readable name for the alert.
          * @maxLength 255

@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 import pytest
@@ -70,6 +70,7 @@ from products.alerts.backend.test.insight_alerts import create_insight_alert
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import (
     assign_native_creator,
+    create_alert_destinations,
     get_configuration,
     list_alert_destinations,
     record_verdict_change,
@@ -80,8 +81,11 @@ from products.alerts_platform.backend.facade.api import (
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
     AlertDelivery,
+    AlertDestinationData,
+    AlertEventKind,
     DestinationType,
     InvalidPlatformAlertEdit,
+    NewAlertDestination,
     PlatformAlertConfigurationEdit,
     PlatformAlertConfigurationView,
     SourceKind,
@@ -740,6 +744,60 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             ("created", reset.json()["id"]),
             ("created", hog_function_id),
         ]
+
+    @parameterized.expand([("row_only", False, 1, 0), ("row_copying_live_hog_functions", True, 0, 1)])
+    @patch("products.alerts.backend.presentation.views.alert.trigger_alert_hog_functions")
+    def test_a_slack_destination_is_counted_and_sent_a_test_once(
+        self, _name: str, through_hog_functions: bool, native_sends: int, hog_function_triggers: int, mock_trigger
+    ) -> None:
+        mock_trigger.return_value = [
+            AlertDelivery(channel="hog_function", target="Slack", template="slack", at="2026-11-18T00:00:00+00:00")
+        ]
+        sync_template_to_db(template_slack)
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T123",
+            config={"authed_user": {"id": "u"}},
+            sensitive_config={"access_token": "xoxb-test"},
+        )
+        slack = {"type": "slack", "slack_workspace_id": integration.id, "slack_channel_id": "C123"}
+        alert_url = f"{self.url}/{self.alert.id}"
+        if through_hog_functions:
+            created = self.client.post(f"{alert_url}/destinations/", slack, format="json")
+            assert created.status_code == status.HTTP_201_CREATED, created.json()
+        else:
+            with team_scope(self.team.id):
+                create_alert_destinations(
+                    team_id=self.team.id,
+                    configuration_id=self.copy_id,
+                    destinations=(
+                        NewAlertDestination(
+                            data=cast(AlertDestinationData, slack), event_kinds=(AlertEventKind.FIRING,)
+                        ),
+                    ),
+                )
+        (listed,) = self.client.get(f"{alert_url}/destinations/").json()
+        counted = [
+            (alert["id"], alert["destination_count"])
+            for alert in self.client.get(f"{self.url}/").json()["results"]
+            if alert["id"] == str(self.alert.id)
+        ]
+
+        with patch(
+            "products.alerts_platform.backend.delivery.slack.post_message",
+            return_value={"ok": True, "channel": "C123", "ts": "1.0"},
+        ) as post_message:
+            tested = self.client.post(f"{alert_url}/test-delivery/")
+
+        assert listed["hears_firing"] is True
+        assert counted == [(str(self.alert.id), 1)]
+        assert self.client.get(f"{alert_url}/").json()["destination_count"] == 1
+        assert (tested.status_code, tested.json()) == (
+            status.HTTP_202_ACCEPTED,
+            {"destination_count": 1, "email_recipient_count": 0, "failed_delivery_channels": []},
+        )
+        assert (post_message.call_count, mock_trigger.call_count) == (native_sends, hog_function_triggers)
 
     @parameterized.expand([("generic_hog_function_api",), ("alert_route",)])
     def test_a_deleted_destination_takes_its_platform_row_with_it(self, delete_path: str) -> None:
