@@ -7,6 +7,15 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface PatchedEnvironmentMappingUpdateApi {
+    /** ID of the PostHog project that receives the Vercel production environment. */
+    production?: number
+    /** ID of the PostHog project for the Vercel preview environment. Defaults to the production project. */
+    preview?: number
+    /** ID of the PostHog project for the Vercel development environment. Defaults to the production project. */
+    development?: number
+}
+
 /**
  * * `vercel` - Vercel
  */
@@ -72,20 +81,6 @@ export interface UserBasicApi {
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
-}
-
-/**
- * Serializer for organization-level integrations.
- */
-export interface PatchedOrganizationIntegrationApi {
-    readonly id?: string
-    readonly kind?: OrganizationIntegrationKindEnumApi
-    /** @nullable */
-    readonly integration_id?: string | null
-    readonly config?: unknown
-    readonly created_at?: string
-    readonly updated_at?: string
-    readonly created_by?: UserBasicApi
 }
 
 /**

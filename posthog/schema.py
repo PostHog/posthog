@@ -7727,6 +7727,14 @@ class MetricsQueryClause(BaseModel):
         default=None,
         description=("Omit to get one line per series (at most 100), without combining them"),
     )
+    apdexThresholdMs: float | None = Field(
+        default=None,
+        description=(
+            "Apdex threshold T in milliseconds for `posthog.derived.spans.apdex`: a"
+            " request is satisfied at or under T and tolerating up to 4T. Defaults to"
+            " 500."
+        ),
+    )
     filters: list[MetricsQueryFilter] | None = None
     groupBy: list[MetricsQueryGroupBy] | None = None
     metricName: str
@@ -36713,6 +36721,10 @@ class TraceSpansQuery(BaseModel):
             " from `rootSpans`, which scopes whole-trace selection. The single-trace"
             " waterfall never sets this."
         ),
+    )
+    includeEvents: bool | None = Field(
+        default=None,
+        description=("Include each span's OpenTelemetry events. The column is large, so only set this on small lists"),
     )
     kind: Literal["TraceSpansQuery"] = "TraceSpansQuery"
     limit: int | None = None

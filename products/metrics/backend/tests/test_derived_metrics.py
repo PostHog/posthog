@@ -33,6 +33,7 @@ REQUESTS = "posthog.derived.spans.requests"
 ERRORS = "posthog.derived.spans.errors"
 DURATION = "posthog.derived.spans.duration"
 LOG_RECORDS = "posthog.derived.logs.records"
+APDEX = "posthog.derived.spans.apdex"
 
 DATE_FROM = dt.datetime(2026, 6, 2, 8, 0, tzinfo=dt.UTC)
 DATE_TO = dt.datetime(2026, 6, 2, 9, 0, tzinfo=dt.UTC)
@@ -127,6 +128,7 @@ class TestDerivedMetricsQuery(ClickhouseTestMixin, APIBaseTest):
         group_by: tuple[str, ...] = ("service.name",),
         filters: tuple[MetricFilter, ...] = (),
         range_function: MetricRangeFunction | None = None,
+        apdex_threshold_ms: float | None = None,
     ) -> list[MetricSeries]:
         clause = MetricQueryClause(
             name="a",
@@ -136,6 +138,7 @@ class TestDerivedMetricsQuery(ClickhouseTestMixin, APIBaseTest):
             group_by=tuple(MetricGroupBy(key=key) for key in group_by),
             filters=filters,
             range_function=range_function,
+            apdex_threshold_ms=apdex_threshold_ms,
         )
         request = MetricQueryRequest(clauses=(clause,), date_from=DATE_FROM, date_to=DATE_TO, interval="hour")
         return run_metric_query(team=self.team, request=request)
@@ -193,6 +196,20 @@ class TestDerivedMetricsQuery(ClickhouseTestMixin, APIBaseTest):
 
         assert _by_label(series, "service.name") == expected
 
+    @parameterized.expand(
+        [
+            # Every request is under the default 500ms, so only errors (frustrated) lower the score.
+            ("default_threshold", None, {"web": 0.75, "worker": 0.5, "api": 1.0, "jobs": 1.0}),
+            # At 15ms, web's 20ms and 30ms requests tolerate (half credit) and worker's 100ms one is frustrated.
+            ("custom_threshold", 15.0, {"web": 0.5, "worker": 0.0, "api": 1.0, "jobs": 1.0}),
+        ]
+    )
+    def test_apdex_per_service(self, _name: str, threshold_ms: float | None, expected: dict[str, float]) -> None:
+        with _flags("metrics", METRICS_DERIVED_SERIES_FEATURE_FLAG):
+            series = self._run(APDEX, MetricAggregation.AVG, apdex_threshold_ms=threshold_ms)
+
+        assert _by_label(series, "service.name") == expected
+
     def test_a_new_counter_selection_without_aggregation_counts_requests(self) -> None:
         # The picker sends `none` for a counter that the user has not aggregated yet.
         with _flags("metrics", METRICS_DERIVED_SERIES_FEATURE_FLAG):
@@ -217,16 +234,29 @@ class TestDerivedMetricsQuery(ClickhouseTestMixin, APIBaseTest):
 
         assert _by_label(series, "service.name") == {"jobs": 1}
 
-    def test_span_attribute_group_by_and_filter(self) -> None:
+    @parameterized.expand(
+        [
+            ("span_attribute", "http.route", ("service.name", FilterOp.NEQ, "worker"), {"/a": 4, "/b": 1, "": 1}),
+            # A service without server spans counts its root spans, so its requests group as "internal".
+            ("span_kind", "span.kind", None, {"server": 6, "internal": 2}),
+            ("span_status", "service.name", ("span.status_code", FilterOp.EQ, "error"), {"web": 1, "worker": 1}),
+            ("span_kind_neq", "span.kind", ("span.kind", FilterOp.NEQ, "server"), {"internal": 2}),
+        ]
+    )
+    def test_span_group_by_and_filter(
+        self,
+        _name: str,
+        group_key: str,
+        span_filter: tuple[str, FilterOp, str] | None,
+        expected: dict[str, float],
+    ) -> None:
+        filters = (
+            () if span_filter is None else (MetricFilter(key=span_filter[0], op=span_filter[1], value=span_filter[2]),)
+        )
         with _flags("metrics", METRICS_DERIVED_SERIES_FEATURE_FLAG):
-            series = self._run(
-                REQUESTS,
-                MetricAggregation.SUM,
-                group_by=("http.route",),
-                filters=(MetricFilter(key="service.name", op=FilterOp.NEQ, value="worker"),),
-            )
+            series = self._run(REQUESTS, MetricAggregation.SUM, group_by=(group_key,), filters=filters)
 
-        assert _by_label(series, "http.route") == {"/a": 4, "/b": 1, "": 1}
+        assert _by_label(series, group_key) == expected
 
     def test_log_records_per_severity(self) -> None:
         with _flags("metrics", METRICS_DERIVED_SERIES_FEATURE_FLAG):

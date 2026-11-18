@@ -12,6 +12,7 @@ import type {
     BroadcastOptionApi,
     CatalogFlagsResponseApi,
     CatalogReleasesResponseApi,
+    FlagReleasesApi,
     ImportAllResponseApi,
     MergeReleasesApi,
     PaginatedReleaseDTOListApi,
@@ -20,6 +21,7 @@ import type {
     ReleasesBroadcastSearchRetrieveParams,
     ReleasesCatalogFlagsRetrieveParams,
     ReleasesCatalogReleasesRetrieveParams,
+    ReleasesFlagSuggestionsRetrieveParams,
     ReleasesListParams,
     WriteReleaseApi,
 } from './api.schemas'
@@ -71,6 +73,24 @@ export const releasesCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(writeReleaseApi),
+    })
+}
+
+export const getReleasesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/releases/${id}/`
+}
+
+/**
+ * Get one release with its linked flags, broadcasts, surveys and insights.
+ */
+export const releasesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ReleaseDTOApi> => {
+    return apiMutator<ReleaseDTOApi>(getReleasesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -221,6 +241,39 @@ export const releasesCatalogReleasesRetrieve = async (
     options?: RequestInit
 ): Promise<CatalogReleasesResponseApi> => {
     return apiMutator<CatalogReleasesResponseApi>(getReleasesCatalogReleasesRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getReleasesFlagSuggestionsRetrieveUrl = (
+    projectId: string,
+    params: ReleasesFlagSuggestionsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/releases/flag_suggestions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/releases/flag_suggestions/`
+}
+
+/**
+ * Find the releases a feature flag is in, and the existing releases it probably belongs to.
+ */
+export const releasesFlagSuggestionsRetrieve = async (
+    projectId: string,
+    params: ReleasesFlagSuggestionsRetrieveParams,
+    options?: RequestInit
+): Promise<FlagReleasesApi> => {
+    return apiMutator<FlagReleasesApi>(getReleasesFlagSuggestionsRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

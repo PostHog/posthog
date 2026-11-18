@@ -68,6 +68,7 @@ from posthog.temporal.ai_observability.trace_summarization.sampling import sampl
 from posthog.temporal.ai_observability.trace_summarization.summarize_and_save import summarize_and_save_activity
 from posthog.temporal.common.base import PostHogWorkflow
 
+from products.ai_observability.backend.facade.clustering_runtime import scope_key
 from products.ai_observability.backend.summarization.budget import batch_text_repr_budget
 from products.ai_observability.backend.summarization.models import OpenAIModel, SummarizationMode
 
@@ -115,6 +116,7 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
         max_length: int,
         job_id: str,
         job_name: str,
+        job_scope: str,
     ) -> SummarizationActivityResult:
         """Process a single trace or generation with semaphore-controlled concurrency."""
         async with semaphore:
@@ -164,6 +166,7 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
                     text_repr_length=fetch_result.text_repr_length,
                     job_id=job_id,
                     job_name=job_name,
+                    job_scope=job_scope,
                 ),
                 activity_id=f"llma-summarize-{item_suffix}-{idx}",
                 start_to_close_timeout=SUMMARIZE_AND_SAVE_START_TO_CLOSE_TIMEOUT,
@@ -259,6 +262,7 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
                 max_length=batch_text_repr_budget(inputs.model),
                 job_id=inputs.job_id,
                 job_name=inputs.job_name,
+                job_scope=scope_key(inputs.analysis_level, inputs.event_filters) if inputs.job_id else "",
             )
             for idx, item in enumerate(items)
         ]

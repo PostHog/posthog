@@ -44128,7 +44128,19 @@
             "type": "object"
         },
         "MetricsAggregation": {
-            "enum": ["sum", "avg", "count", "min", "max", "quantile", "rate", "increase", "histogram_quantile"],
+            "enum": [
+                "sum",
+                "avg",
+                "count",
+                "min",
+                "max",
+                "quantile",
+                "rate",
+                "increase",
+                "histogram_quantile",
+                "count_rate",
+                "count_increase"
+            ],
             "type": "string"
         },
         "MetricsAlertConfig": {
@@ -44550,6 +44562,10 @@
                 "aggregation": {
                     "$ref": "#/definitions/MetricsAggregation",
                     "description": "Omit to get one line per series (at most 100), without combining them"
+                },
+                "apdexThresholdMs": {
+                    "description": "Apdex threshold T in milliseconds for `posthog.derived.spans.apdex`: a request is satisfied at or under T and tolerating up to 4T. Defaults to 500.",
+                    "type": "number"
                 },
                 "filters": {
                     "items": {
@@ -62447,6 +62463,10 @@
                 },
                 "flatSpans": {
                     "description": "Return the matching spans themselves, one row per span (root and child), instead of the whole-trace grouping. Streams the matches under `ORDER BY … LIMIT` rather than grouping every matching span by trace, so a filter on a hot child attribute (e.g. `code.filepath`) stays bounded. Distinct from `rootSpans`, which scopes whole-trace selection. The single-trace waterfall never sets this.",
+                    "type": "boolean"
+                },
+                "includeEvents": {
+                    "description": "Include each span's OpenTelemetry events. The column is large, so only set this on small lists",
                     "type": "boolean"
                 },
                 "kind": {
