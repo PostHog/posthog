@@ -286,6 +286,7 @@ jobs:
 
         steps:
             - name: Check out
+              id: checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Compute ordered release tag
@@ -389,6 +390,7 @@ jobs:
               uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78 # v2.1.2
 
             - name: Publish and reconcile ordered image aliases
+              id: publish-alias
               if: ${{ steps.ordered-release.outputs.tag != '' && (matrix.registry == 'ghcr' || steps.ecr.outcome == 'success') }}
               timeout-minutes: 8
               shell: bash
@@ -434,6 +436,7 @@ jobs:
                   while IFS=$'\t' read -r image digest; do
                       if ! [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
                           echo "::warning title=Ordered image alias skipped::${image}: no digest was resolved for this build."
+                          failures=$((failures + 1))
                           continue
                       fi
                       source_image="${REGISTRY}/${image}@${digest}"
@@ -467,5 +470,15 @@ jobs:
                       esac
                   done < <(echo "$DIGESTS" | jq -r 'to_entries[] | "\(.key)\t\(.value)"')
                   if [ "$failures" -gt 0 ]; then
+                      echo "outcome=unverified-aliases" >> "$GITHUB_OUTPUT"
                       exit 1
                   fi
+                  echo "outcome=present-at-expected-digest" >> "$GITHUB_OUTPUT"
+
+            - name: Fail when an ordered image alias is missing
+              if: ${{ !cancelled() && steps.checkout.outcome == 'success' }}
+              shell: bash
+              env:
+                  ORDERED_ALIAS: ${{ steps.ordered-release.outputs.tag }}
+                  OUTCOME: ${{ steps.publish-alias.outputs.outcome || steps.publish-alias.outcome }}
+              run: bash .github/scripts/ordered-image-release.sh require "$ORDERED_ALIAS" "$OUTCOME"

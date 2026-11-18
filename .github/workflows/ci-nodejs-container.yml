@@ -302,6 +302,7 @@ jobs:
 
         steps:
             - name: Check out
+              id: checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Compute ordered release tag
@@ -396,6 +397,7 @@ jobs:
               uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78 # v2.1.2
 
             - name: Publish and read back ordered image alias
+              id: publish-alias
               if: ${{ steps.ordered-release.outputs.tag != '' }}
               timeout-minutes: 2
               shell: bash
@@ -409,11 +411,13 @@ jobs:
 
                   if [ -z "$EXPECTED_DIGEST" ]; then
                       echo "::warning title=Ordered image alias source digest unavailable::Ordered image alias publication was skipped because no image digest was resolved."
+                      echo "outcome=source-digest-unavailable" >> "$GITHUB_OUTPUT"
                       exit 0
                   fi
 
                   if [ -z "$ECR_REGISTRY" ]; then
                       echo "::warning title=Ordered image alias destination unavailable::Ordered image alias publication was skipped because the ECR registry resolved empty."
+                      echo "outcome=destination-unavailable" >> "$GITHUB_OUTPUT"
                       exit 0
                   fi
 
@@ -453,6 +457,7 @@ jobs:
                       result=unknown
                   fi
 
+                  echo "outcome=$result" >> "$GITHUB_OUTPUT"
                   case "$result" in
                       present-at-expected-digest)
                           echo "::notice title=Ordered image alias present::The ordered image alias resolves to the expected image digest."
@@ -467,3 +472,11 @@ jobs:
                           echo "::error title=Ordered image alias read-back unavailable::The ordered image alias could not be read back from ECR."
                           ;;
                   esac
+
+            - name: Fail when an ordered image alias is missing
+              if: ${{ !cancelled() && steps.checkout.outcome == 'success' }}
+              shell: bash
+              env:
+                  ORDERED_ALIAS: ${{ steps.ordered-release.outputs.tag }}
+                  OUTCOME: ${{ steps.publish-alias.outputs.outcome || steps.publish-alias.outcome }}
+              run: bash .github/scripts/ordered-image-release.sh require "$ORDERED_ALIAS" "$OUTCOME"
