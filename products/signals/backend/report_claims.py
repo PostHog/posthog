@@ -186,13 +186,14 @@ def actor_works_under_claim(claim: ReportClaim, actor: ArtefactAttribution, *, u
 
     A person's claim, direct or through an agent, covers all of their actors: themselves, their agents, and
     tasks they started. Without `user_id`, a task inherits its creator's direct claim, and an agent claim
-    only when task creation already associated the task with it, which is a server-side fact.
+    only when task creation already associated the task with it, which is a server-side fact. With `user_id`,
+    the task id is caller-supplied, so a task counts only through the person check.
     """
     if actor_owns_claim(claim, actor):
         return True
     if is_claim_of_person(claim, _actor_person_id(claim, actor, user_id)):
         return True
-    if actor.task_id is None:
+    if actor.task_id is None or user_id is not None:
         return False
     if claim.actor_kind == "user":
         return is_claim_of_task_creator(claim, actor.task_id)

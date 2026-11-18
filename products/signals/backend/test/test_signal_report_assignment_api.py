@@ -705,22 +705,27 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         assert release.status_code == status.HTTP_200_OK
         assert get_active_claim(team_id=self.team.id, report_id=report.id) is None
 
-    # The task id is caller-supplied, so a task works under its creator's agent claim on the creator's own
-    # requests, or when task creation associated it with that claim.
+    # The task id is caller-supplied, so on a request a task works under its creator's claim only when the
+    # creator authenticates it, even when task creation associated the task with that claim.
     @parameterized.expand(
         [
-            ("creator_named_task", False, False, status.HTTP_200_OK),
-            ("creator_associated_task", True, False, status.HTTP_200_OK),
-            ("teammate_named_task", False, True, status.HTTP_409_CONFLICT),
+            ("creator_named_task", "codex", False, False, status.HTTP_200_OK),
+            ("creator_associated_task", "codex", True, False, status.HTTP_200_OK),
+            ("teammate_named_task", "codex", False, True, status.HTTP_409_CONFLICT),
+            ("teammate_associated_task", "codex", True, True, status.HTTP_409_CONFLICT),
+            ("teammate_named_task_of_hand_claim", None, False, True, status.HTTP_409_CONFLICT),
         ]
     )
-    def test_task_header_resumes_its_creators_agent_claim(
-        self, _name: str, associated: bool, as_teammate: bool, expected_status: int
+    def test_task_header_resumes_its_creators_claim(
+        self, _name: str, holder_agent: str | None, associated: bool, as_teammate: bool, expected_status: int
     ) -> None:
         Task = apps.get_model("tasks", "Task")
         report = self._create_report()
         claim_id = self.client.post(
-            self._claim_url(report), data={}, format="json", headers=self._agent_headers("codex")
+            self._claim_url(report),
+            data={},
+            format="json",
+            headers=self._agent_headers(holder_agent) if holder_agent else {},
         ).json()["assignee"]["claim_id"]
         task = Task.objects.create(
             team=self.team, created_by=self.user, title="Signal task", origin_product=Task.OriginProduct.SIGNAL_REPORT

@@ -587,6 +587,7 @@ Unknown clients use "Alex's agent". The label is fixed at claim time and does no
 **Claims and task association.** Agents use the claim endpoint to start or resume work, attach `pull_requests`, and release ownership.
 The returned `claim_id` identifies the work attempt; stale or foreign claims are rejected, and taking another person's claim or a task claim requires explicit `takeover=true`.
 A person's claim, direct or through an external agent, covers all of their actors: the person, each of their agents, and tasks they started. Any of them resumes it without takeover, adds work to it, and can release it.
+On an API request the `X-PostHog-Task-Id` header is caller-supplied, so a task counts as its creator only when the creator authenticates the request, even when the task is already associated with the claim.
 The shared ownership helper derives the active owner from the latest `work_claim` artefact and its `work_release` entries.
 Internal task agents automatically receive a `task_run` association on claim; clients do not write task associations separately.
 When a person holds the claim and starts an implementation task themselves, the task works under that claim instead of replacing it, so the person stays the owner while the agent writes the PR.
