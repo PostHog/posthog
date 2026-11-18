@@ -372,10 +372,23 @@
           "key": "is_pro",
           "type": "condition",
           "config": {
-            "type": "rule",
-            "field": "contact.plan",
-            "operator": "eq",
-            "value": "pro"
+            "type": "and",
+            "rules": [
+              {
+                "type": "rule",
+                "field": "contact.plan",
+                "operator": "eq",
+                "value": "pro"
+              },
+              {
+                "type": "rule",
+                "field": "contact.lifetime-spend",
+                "operator": "gte",
+                "value": {
+                  "var": "event.min-spend"
+                }
+              }
+            ]
           }
         },
         {
@@ -409,7 +422,8 @@
           "config": {
             "first_name": {
               "var": "event.first_name"
-            }
+            },
+            "unsubscribed": true
           }
         }
       ],
@@ -493,6 +507,14 @@
           "type": "default"
         }
       ]
+    }
+  ],
+  "segments": [
+    {
+      "object": "segment",
+      "id": "seg-1",
+      "name": "Pro customers",
+      "created_at": "2026-10-06 23:47:56.678+00"
     }
   ]
 }

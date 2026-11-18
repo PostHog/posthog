@@ -29,7 +29,7 @@ Every row becomes the same PostHog send. Its fields are in the skill's **Send fo
 
 - **What the send can't carry:** A PostHog send takes only the fields in the skill's **Send from code** section, for one `to` recipient. If the old send passes anything else, such as a scheduled delivery time, custom headers, or tags, tell the user what the switch would drop before you change the call.
 - **Sender:** The sending domain must be verified in PostHog, even if it already sends with the other provider. The app shows the DNS records to add.
-- **Suppressions:** Addresses that the old provider suppressed after bounces or complaints are not in PostHog's suppression list. Ask the user whether to add them before high-volume emails move.
+- **Suppressions:** Addresses that the old provider suppressed after bounces or complaints are not in PostHog's suppression list. Ask the user whether to add them before high-volume emails move. For Resend, the `migrating-from-email-providers` skill imports them with templates and unsubscribes.
 - **Errors:** Map the old provider's error handling to PostHog's error codes, such as `recipient_suppressed`, `recipient_unreachable`, and `quota_limited`. A code that means "don't retry" must not go back into a retry loop.
 - **Retries:** Keep one idempotency key for each email across retries, so a retry after a timeout doesn't send twice.
 - **Volume:** Transactional emails count toward the project's sending allowance and email quota. For a large volume, check the allowance with `workflows-reputation-get` before the switch.

@@ -1,16 +1,24 @@
 import re
 import json
 from pathlib import Path
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, cast
 from urllib.parse import urlparse
+from uuid import uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.integrations import IntegrationManager, IntegrationRecord
+
+from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
+from products.cdp.backend.templates.hog_function_template import sync_template_to_db
+from products.cohorts.backend.models.cohort import Cohort
 from products.messaging.backend.facade.provider_imports import get_provider_import_run
 from products.messaging.backend.models.email_hard_bounce import EmailHardBounce
 from products.messaging.backend.models.message_category import MessageCategory
@@ -19,14 +27,29 @@ from products.messaging.backend.models.message_preferences import (
     MessageRecipientPreference,
 )
 from products.messaging.backend.models.message_suppression import MessageSuppression, SuppressionSource
+from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.provider_import_run import ProviderImportRun
-from products.messaging.backend.provider_imports import runs
+from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
+from products.messaging.backend.provider_imports import resend, runs
 from products.messaging.backend.provider_imports.base import ImportCredentialsInvalid, ImportProviderUnavailable
+from products.messaging.backend.provider_imports.resend_templates import convert_template, convert_text
 from products.messaging.backend.services.suppression import remove_suppressions
+from products.workflows.backend.facade.workflows import get_workflow
 
 FIXTURES = json.loads((Path(__file__).parent / "fixtures" / "resend_account.json").read_text())
-ALL_STEPS = ["topics", "suppressions", "opt_outs", "topic_opt_outs"]
+ALL_STEPS = ["topics", "suppressions", "opt_outs", "topic_opt_outs", "templates", "automations", "domains"]
 API_KEY = "re_full_access_key"
+
+
+def _sync_email_template() -> None:
+    sync_template_to_db(
+        {
+            **MOCK_NODE_TEMPLATES[0],
+            "id": "template-email",
+            "name": "Email",
+            "inputs_schema": [{"key": "email", "type": "native_email", "label": "Email", "required": True}],
+        }
+    )
 
 
 class FakeResend:
@@ -50,7 +73,7 @@ class FakeResend:
             return self._response(status, {"name": "rate_limit_exceeded", "message": "Too many"}, headers)
         if match := re.fullmatch(r"/contacts/([^/]+)/topics", path):
             return self._page(self.data["contact_topics"].get(match.group(1), []), params)
-        if match := re.fullmatch(r"/(templates|domains|automations)/([^/]+)", path):
+        if match := re.fullmatch(r"/(templates|domains|automations|segments)/([^/]+)", path):
             for row in self.data[match.group(1)]:
                 if match.group(2) in (row["id"], row.get("alias")):
                     return self._response(200, row)
@@ -76,6 +99,7 @@ class TestResendImport(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.resend = FakeResend()
+        _sync_email_template()
         client = "products.messaging.backend.services.resend_client"
         self.sleep = self._patch(f"{client}.time.sleep")
         self.start_workflow = self._patch(
@@ -280,10 +304,15 @@ class TestResendImport(BaseTest):
         deleted_category = MessageCategory.objects.get(team_id=self.team.id, name__startswith="Nyheter")
         deleted_category.deleted = True
         deleted_category.save()
+        edited = MessageTemplate.objects.get(team_id=self.team.id, key="welcome-email")
+        edited.content["email"]["subject"] = "Edited here"
+        edited.save()
+        MessageTemplate.objects.filter(team_id=self.team.id, key="receipt").update(deleted=True)
+        templates_before = MessageTemplate.objects.filter(team_id=self.team.id).count()
 
-        rerun = self._run()
+        run = self._run()
 
-        assert rerun.progress["opt_outs"]["counts"] == {"opted_out": 0, "already_present": 2, "subscribed": 2}
+        assert run.progress["opt_outs"]["counts"] == {"opted_out": 0, "already_present": 2, "subscribed": 2}
         assert not MessageSuppression.objects.for_team(self.team.id).get(identifier="gone@example.com").suppressed
         assert (
             MessageRecipientPreference.objects.get(
@@ -295,11 +324,286 @@ class TestResendImport(BaseTest):
         assert renamed.name == "News"
         deleted_category.refresh_from_db()
         assert deleted_category.deleted
+        edited.refresh_from_db()
+        assert edited.content["email"]["subject"] == "Edited here"
+        assert MessageTemplate.objects.filter(team_id=self.team.id).count() == templates_before
+        assert run.progress["templates"]["counts"]["already_present"] == len(FIXTURES["templates"])
+        assert run.progress["automations"]["counts"] == {"already_present": len(FIXTURES["automations"])}
+
+    def test_templates_carry_sender_key_and_review_notes(self) -> None:
+        sender = IntegrationManager.email.credentials.create(
+            self.team.id,
+            external_id="hello@example.com",
+            config={"email": "hello@example.com", "domain": "example.com", "verified": True, "name": "Acme"},
+            sensitive_config={},
+            created_by_id=self.user.id,
+        )
+        run = self._run(["templates"])
+
+        welcome = MessageTemplate.objects.get(team_id=self.team.id, key="welcome-email")
+        email = welcome.content["email"]
+        assert email["from"] == {"integrationId": sender.id, "email": "hello@example.com", "name": "Acme"}
+        assert email["replyTo"] == "support@example.com"
+        assert email["design"]["body"]["rows"]
+        assert welcome.transactional_hog_flow_id is None
+        items = {item["label"]: item for item in run.progress["templates"]["items"]}
+        assert items["Welcome email"]["url"] == f"/workflows/library/templates/{welcome.id}"
+        assert any("{{#if IS_PRO}}" in note and "{{else}}" in note for note in items["Conditional footer"]["notes"])
+        imported_key = MessageTemplate.objects.filter(team_id=self.team.id, name__startswith="Přivítání").get().key
+        assert imported_key is not None and imported_key.startswith("resend-")
+
+    def test_sender_on_the_same_domain_sends_with_literal_name_and_reply_to(self) -> None:
+        sender = IntegrationManager.email.credentials.create(
+            self.team.id,
+            external_id="team@example.com",
+            config={"email": "team@example.com", "domain": "example.com", "verified": True, "name": "Acme"},
+            sensitive_config={},
+            created_by_id=self.user.id,
+        )
+        IntegrationManager.email.credentials.create(
+            self.team.id,
+            external_id="hello@example.com",
+            config={"email": "hello@example.com", "domain": "example.com", "verified": False},
+            sensitive_config={},
+            created_by_id=self.user.id,
+        )
+        welcome = {
+            **FIXTURES["templates"][0],
+            "subject": "",
+            "from": '"{{ person.properties.a }}" <hello@example.com>',
+            "reply_to": ["{{person.properties.b}}@example.com"],
+        }
+        receipt = {**self.resend.data["templates"][1], "from": "{{ event.properties.secret }}@example.com"}
+        self.resend.data = {**self.resend.data, "templates": [welcome, receipt, *self.resend.data["templates"][2:]]}
+
+        run = self._run(["templates"])
+
+        receipt_from = MessageTemplate.objects.get(team_id=self.team.id, key=receipt["alias"]).content["email"]["from"]
+        assert receipt_from["email"] == '{{ "{{" }} event.properties.secret }}@example.com'
+        email = MessageTemplate.objects.get(team_id=self.team.id, key="welcome-email").content["email"]
+        assert (email["from"]["integrationId"], email["from"]["email"]) == (sender.id, "hello@example.com")
+        assert email["from"]["name"] == '{{ "{{" }} person.properties.a }}'
+        items = {item["label"]: item for item in run.progress["templates"]["items"]}
+        assert any("no subject" in note for note in items["Welcome email"]["notes"])
+        assert email["replyTo"] == '{{ "{{" }}person.properties.b}}@example.com'
+
+    def test_a_key_a_code_email_sends_under_is_left_to_it(self) -> None:
+        TransactionalEmailKey.objects.for_team(self.team.id).create(
+            team=self.team, key="welcome-email", hog_flow_id=uuid4()
+        )
+
+        run = self._run(["templates"])
+
+        assert not MessageTemplate.objects.filter(team_id=self.team.id, key="welcome-email").exists()
+        assert run.progress["templates"]["counts"]["already_present"] == 1
+        items = {item["label"]: item for item in run.progress["templates"]["items"]}
+        assert items["Welcome email"]["notes"] == [
+            "Your app already sends email under the key welcome-email, so this template wasn't imported."
+        ]
+
+    def test_automations_become_drafts_with_notes(self) -> None:
+        run = self._run(["automations"])
+
+        items = {item["label"]: item for item in run.progress["automations"]["items"]}
+        assert items["Welcome series"]["status"] == "created"
+        workflow_id = items["Welcome series"]["url"].split("/")[2]
+        workflow = get_workflow(
+            team_id=self.team.id, workflow_id=workflow_id, user_access_control=None, required_level=None
+        )
+        assert workflow.status == "draft"
+        actions = cast(list[dict[str, Any]], workflow.actions)
+        action_types = {action["id"]: action["type"] for action in actions}
+        assert action_types["welcome"] == "function_email"
+        assert action_types["wait"] == "delay"
+        assert action_types["is_pro"] == "conditional_branch"
+        is_pro_filters = next(a for a in actions if a["id"] == "is_pro")["config"]["conditions"][0]["filters"]
+        # A draft keeps a filter that fails to compile, just without bytecode.
+        assert is_pro_filters.get("bytecode")
+        is_pro = is_pro_filters["properties"]
+        assert is_pro[1] == {
+            "key": "toFloat(properties.`min-spend`) IS NOT NULL AND "
+            "toFloat(person.properties.`lifetime-spend`) >= toFloat(properties.`min-spend`)",
+            "type": "hogql",
+        }
+        assert action_types["wait_upgrade"] == "wait_until_condition"
+        assert action_types["update"] == "function"
+        update = next(a for a in actions if a["id"] == "update")["config"]
+        assert update["inputs"]["set_properties"]["value"] == {"first_name": "{event.properties['first_name']}"}
+        edges = {(edge["from"], edge["to"], edge["type"]) for edge in cast(list[dict[str, Any]], workflow.edges)}
+        assert ("wait_upgrade", "receipt", "branch") in edges
+        html = next(a for a in actions if a["id"] == "welcome")["config"]["inputs"]["email"]["value"]["html"]
+        assert "event.properties.name" in html
+        assert '"free"' in html
+        assert any("user.created" in note for note in items["Welcome series"]["notes"])
+        assert any("couldn't read this email's template" in note for note in items["Re-engagement"]["notes"])
+        receipt = next(a for a in actions if a["id"] == "receipt")["config"]["inputs"]["email"]["value"]
+        assert receipt["subject"] == "Thanks for upgrading"
+        opt_out = next(a for a in actions if a["id"] == "update_opt_out")["config"]
+        assert opt_out["template_id"] == "template-posthog-opt-out-of-messages"
+        reads = [call for call in self.resend.calls if call.startswith(("/templates/", "/segments/"))]
+        assert len(reads) == len(set(reads))
+
+    def test_segments_become_one_static_cohort_that_later_imports_respect(self) -> None:
+        run = self._run(["automations"])
+        cohort = Cohort.objects.get(team_id=self.team.id, description="Imported from Resend segment seg-1.")
+        assert cohort.is_static
+        assert cohort.name == "Pro customers (from Resend)"
+        items = {item["label"]: item for item in run.progress["automations"]["items"]}
+        workflow = get_workflow(
+            team_id=self.team.id,
+            workflow_id=items["Welcome series"]["url"].split("/")[2],
+            user_access_control=None,
+            required_level=None,
+        )
+        tag = next(action for action in cast(list[dict[str, Any]], workflow.actions) if action["id"] == "tag")
+        assert tag["config"]["inputs"]["cohort_id"]["value"] == cohort.id
+
+        # A new automation naming the same segment reuses the cohort, and a deleted one stays deleted.
+        second = {**FIXTURES["automations"][0], "id": "a0000000-0000-4000-8000-000000000003", "name": "Copy"}
+        third = {**FIXTURES["automations"][0], "id": "a0000000-0000-4000-8000-000000000004", "name": "Another copy"}
+        self.resend.data = {**self.resend.data, "automations": [*self.resend.data["automations"], second]}
+        self._run(["automations"])
+        assert Cohort.objects.filter(team_id=self.team.id, description=cohort.description).count() == 1
+        Cohort.objects.filter(id=cohort.id).update(deleted=True)
+        self.resend.data = {**self.resend.data, "automations": [*self.resend.data["automations"], third]}
+        run = self._run(["automations"])
+
+        items = {item["label"]: item for item in run.progress["automations"]["items"]}
+        assert any("stays deleted" in note for note in items["Another copy"]["notes"])
+        assert Cohort.objects.filter(team_id=self.team.id, description=cohort.description).count() == 1
+
+    def test_step_and_template_senders_stay_literal(self) -> None:
+        template = {
+            **FIXTURES["templates"][0],
+            "from": '"{{ person.properties.a }}" <{{ event.properties.c }}@example.com>',
+        }
+        step = {"from": '"{{ person.properties.b }}" <{{ event.properties.d }}@example.com>', "subject": "Hi"}
+
+        imported, step_email = resend._imported_email(template, {}), resend._step_email(step, {})
+        assert (imported.from_name, imported.from_email) == (
+            '{{ "{{" }} person.properties.a }}',
+            '{{ "{{" }} event.properties.c }}@example.com',
+        )
+        assert (step_email.from_name, step_email.from_email) == (
+            '{{ "{{" }} person.properties.b }}',
+            '{{ "{{" }} event.properties.d }}@example.com',
+        )
+        assert resend._step_email({**step, "reply_to": ["{{x}}@example.com", "b@example.com"]}, {}).reply_to == (
+            '{{ "{{" }}x}}@example.com, b@example.com'
+        )
+
+    @parameterized.expand(
+        [
+            ("unknown_sender", {}, "isn't a PostHog sender yet"),
+            ("unverified_sender", {"x@example.com": {"verified": False}}, "isn't verified in PostHog yet"),
+            ("verified_sender", {"x@example.com": {"verified": True}}, None),
+        ]
+    )
+    def test_a_step_sender_names_what_to_fix(self, _name: str, configs: dict[str, Any], note: str | None) -> None:
+        senders = {
+            address: cast(IntegrationRecord, SimpleNamespace(id=7, config={"email": address, **config}))
+            for address, config in configs.items()
+        }
+
+        notes = resend._step_email({"from": "x@example.com"}, senders).notes
+
+        if note:
+            assert len(notes) == 1 and note in notes[0]
+        else:
+            assert notes == ()
+
+    def test_a_template_keeps_subject_and_sender_notes_apart(self) -> None:
+        imported = resend._imported_email({**FIXTURES["templates"][0], "subject": "", "from": ""}, {})
+
+        assert ["no subject" in note for note in imported.subject_notes] == [True]
+        assert ["no sender" in note for note in imported.sender_notes] == [True]
+
+    def test_a_template_without_a_display_name_uses_the_senders_name(self) -> None:
+        sender = cast(IntegrationRecord, SimpleNamespace(id=7, config={"name": "Acme team", "verified": True}))
+        template = {**FIXTURES["templates"][0], "from": "hello@example.com"}
+
+        assert resend._imported_email(template, {"hello@example.com": sender}).from_name == "Acme team"
+
+    def test_a_segment_resend_no_longer_has_leaves_the_step_to_fill_in(self) -> None:
+        self.resend.data = {**self.resend.data, "segments": []}
+        run = self._run(["automations"])
+
+        items = {item["label"]: item for item in run.progress["automations"]["items"]}
+        assert items["Welcome series"]["status"] == "created"
+        assert any("no longer exists in Resend" in note for note in items["Welcome series"]["notes"])
+        assert not Cohort.objects.filter(team_id=self.team.id, is_static=True).exists()
+
+        self.resend.data = {**self.resend.data, "segments": FIXTURES["segments"]}
+        run = self._run(["automations"])
+
+        assert run.progress["automations"]["counts"] == {"already_present": len(FIXTURES["automations"])}
+        assert not Cohort.objects.filter(team_id=self.team.id, is_static=True).exists()
 
     def test_run_state_exposes_summary_for_the_ui(self) -> None:
-        run = self._run(["suppressions"])
+        run = self._run(["suppressions", "domains"])
 
         state = get_provider_import_run(self.team.id, run.id)
         assert state is not None
-        (suppressions,) = state.steps
+        suppressions, domains = state.steps
         assert [count.key for count in suppressions.counts] == ["bounced", "complained", "manual", "invalid"]
+        assert [item.label for item in domains.items] == [domain["name"] for domain in FIXTURES["domains"]]
+        org_domain = next(item for item in domains.items if item.label == "mail.example.org")
+        assert any("feedback" in note for note in org_domain.notes)
+
+
+class TestResendTemplateConversion(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("{{{NAME}}}", True, "{{ variables.NAME | raw }}"),
+            ("{{NAME}}", True, "{{ variables.NAME }}"),
+            ("{{{NAME}}}", False, "{{ variables.NAME }}"),
+            ("{{{NAME|there}}}", True, '{{ variables.NAME | default: "there" | raw }}'),
+            ("{{{NAME|it's}}}", False, '{{ variables.NAME | default: "it\'s" }}'),
+            ("{{{RESEND_UNSUBSCRIBE_URL}}}", True, "{{ unsubscribe_url }}"),
+            ("{{{contact.first_name|friend}}}", False, '{{ variables.first_name | default: "friend" }}'),
+            ("{{#if X}}", True, "{% raw %}{{#if X}}{% endraw %}"),
+            ("{{else}}", True, "{% raw %}{{else}}{% endraw %}"),
+            ("{% assign a = 1 %}", True, "{% raw %}{% assign a = 1 %}{% endraw %}"),
+            ("{% endraw %}", True, '{{ "{%" }} endraw %}'),
+            ("{{ a endraw }}", True, '{{ "{{" }} a endraw }}'),
+            ("{{{ a endraw }}}", True, '{{ "{{" }}{ a endraw }}}'),
+            ("Hi {{NAME", True, 'Hi {{ "{{" }}NAME'),
+            ("{% if", True, '{{ "{%" }} if'),
+            ("Hi {{FIRST, {{{NAME|there}}}", False, 'Hi {{ "{{" }}FIRST, {{ variables.NAME | default: "there" }}'),
+            ("{{{NAME|a\\b}}}", False, "{{ variables.NAME }}"),
+            ("{{{NAME|Tom &amp; Ann}}}", False, "{{ variables.NAME }}"),
+            ("{{{NAME|Tom & Ann}}}", False, '{{ variables.NAME | default: "Tom & Ann" }}'),
+            ("plain 🦔 text", True, "plain 🦔 text"),
+        ]
+    )
+    def test_converts_tags(self, source: str, is_html: bool, expected: str) -> None:
+        assert convert_text(source, {}, is_html=is_html).text == expected
+
+    @parameterized.expand(
+        [
+            ("integer", 3, "{{ variables.N | default: 3 }}"),
+            ("tiny_float", 0.000001, "{{ variables.N | default: 0.000001 }}"),
+            ("huge_float", 1e21, "{{ variables.N | default: 1000000000000000000000 }}"),
+            ("not_a_number", float("nan"), "{{ variables.N }}"),
+        ]
+    )
+    def test_numeric_fallbacks_stay_valid_liquid(self, _name: str, fallback: float, expected: str) -> None:
+        assert convert_text("{{N}}", {"N": fallback}, is_html=False).text == expected
+
+    def test_unclosed_braces_scan_in_linear_time(self) -> None:
+        assert convert_text("{{" * 200_000, {}, is_html=True).text.startswith('{{ "{{" }}')
+
+    def test_notes_name_what_to_review(self) -> None:
+        converted = convert_template(
+            {
+                "status": "draft",
+                "subject": "Hi {{{FIRST_NAME}}}",
+                "html": "{{{ORDER}}} {{#each X}}",
+                "variables": [{"key": "ORDER", "fallback_value": None}],
+            }
+        )
+        joined = " ".join((*converted.notes, *converted.send_notes))
+        assert "{{#each X}}" in joined
+        assert "FIRST_NAME" in joined
+        assert "ORDER" in joined
+        assert "isn't published" in joined

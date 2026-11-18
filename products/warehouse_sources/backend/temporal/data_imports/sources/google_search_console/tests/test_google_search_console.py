@@ -537,16 +537,18 @@ def test_query_permission_error_is_not_retried(monkeypatch):
     assert session.post.call_count == 1
 
 
-def test_query_server_error_bubbles_http_error_after_max_retries(monkeypatch):
+def test_query_server_error_marks_retryable_after_max_retries(monkeypatch):
     monkeypatch.setattr(gsc.time, "sleep", lambda _s: None)
     monkeypatch.setattr(gsc, "_throttle", lambda _site: None)
 
     session = mock.MagicMock()
     session.post.return_value = _fake_response(500)
 
-    # A persistent 5xx exhausts the inline budget and surfaces the real HTTPError (retryable
-    # at the activity level), not the quota error.
-    with pytest.raises(requests.HTTPError):
+    # A persistent 5xx exhausts the inline budget. A bare HTTPError here used to reach
+    # get_non_retryable_errors/error tracking unmarked and get reported as a bug even though
+    # Temporal retries it anyway — raising the same marked error list_sites/list_sitemaps use
+    # keeps it classified as a self-recovering retry instead of noise.
+    with pytest.raises(GoogleSearchConsoleServerError, match=r"\(retryable\)"):
         _query_search_analytics(session, "sc-domain:example.com", "2026-04-15", "2026-04-15", ["date"], 0)
 
     assert session.post.call_count == QUOTA_MAX_RETRIES + 1
