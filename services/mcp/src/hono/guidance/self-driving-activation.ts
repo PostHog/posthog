@@ -5,7 +5,6 @@ import type { Schemas } from '@/api/generated'
 import { isCustomerAgentCaller } from '@/lib/event-source'
 import { resolveScopePreset } from '@/lib/scope-preset'
 import { formatPrompt } from '@/lib/utils'
-import DEFAULT_ACTIVATION_PROMPT from '@/templates/guidance/self-driving-activation-default.md'
 import WITHOUT_GITHUB_OFFER from '@/templates/guidance/self-driving-activation-without-github.md'
 import ACTIVATION_PROMPT from '@/templates/guidance/self-driving-activation.md'
 
@@ -82,11 +81,7 @@ function activationText(projectUrl: string, githubOptional: boolean): string {
         lookback_days: String(TRIAGE_LOOKBACK_DAYS),
         distinct_triage_days: String(DISTINCT_TRIAGE_DAYS),
     }
-    const prompt =
-        process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test'
-            ? ACTIVATION_PROMPT
-            : DEFAULT_ACTIVATION_PROMPT
-    return formatPrompt(prompt, {
+    return formatPrompt(ACTIVATION_PROMPT, {
         ...vars,
         github_optional_offer: githubOptional ? formatPrompt(WITHOUT_GITHUB_OFFER, vars) : '',
     }).replace(/\n{3,}/g, '\n\n')
@@ -187,6 +182,9 @@ export async function selfDrivingActivationGuidance(
     productState: GuidanceProductState,
     firstSessionCall: boolean
 ): Promise<GuidanceNotice | undefined> {
+    if (process.env.NODE_ENV !== 'development' && process.env.NODE_ENV !== 'test') {
+        return undefined
+    }
     if (!isEligibleCall(state, call)) {
         return undefined
     }
