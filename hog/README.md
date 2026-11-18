@@ -353,6 +353,7 @@ posthog-cli rewrites `posthog.json` with only `languages` when it pulls, so it d
 - any other file is an ELF or Mach-O binary when its first bytes say so. hog uploads it when it has debug info and a build ID or UUID, and lists why it skipped the others
 
 Without paths, the commands read `errorTracking.sources` from `posthog.json`, where `ignore` globs skip files.
+`upload` and `process` take `-` to read the paths from stdin, one per line, so a build tool can pass every file it wrote.
 `--kind` skips detection.
 
 JavaScript releases work in two modes, as in posthog-cli:

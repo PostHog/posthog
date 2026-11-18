@@ -77,7 +77,8 @@ hog lists these and prints the posthog-cli command to run instead.
 
 - **Paths are arguments.** `--directory`, `--path`, `-m` and `-c` become positional arguments, and one command takes several paths.
 - **`-o` is the output format.** It takes `text` or `json`. posthog-cli's `-o` paths become `--to` in `endpoints pull`, `--file` in `schema pull`, and `--output-dir` in `download` and `extract`.
-- **`--include`, `--exclude` and `--stdin` are gone.** List the paths as arguments, or keep them in `errorTracking.sources` in `posthog.json`, where `ignore` globs skip files.
+- **`--stdin` becomes `-`.** `hog error-tracking upload -` and `process -` read one path per line from stdin, like `--stdin` did.
+- **`--include` and `--exclude` are gone.** List the paths as arguments, or keep them in `errorTracking.sources` in `posthog.json`, where `ignore` globs skip files.
 - **`--skip-release-on-fail` is gone.** hog always retries without the release when PostHog says a chunk belongs to another release, as posthog-cli did.
 - **`--main-dsym` is gone.** hog takes the release from `--release-name`, `--release-version`, `--info-plist`, `posthog.json` or git.
 - **`--debug` is global.** It prints each request to stderr for every command.

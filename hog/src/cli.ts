@@ -145,7 +145,10 @@ async function withScopeHint(error: unknown, scopes: readonly string[] | undefin
     )
 }
 
-async function readArgument(runtime: Runtime, name: string, value: string): Promise<string> {
+async function readArgument(runtime: Runtime, name: string, value: string | string[]): Promise<string | string[]> {
+    if (Array.isArray(value)) {
+        return readListArgument(runtime, name, value)
+    }
     const text = value === '-' ? await runtime.readStdin() : value
     if (!text.trim()) {
         throw new HogError(
@@ -155,6 +158,26 @@ async function readArgument(runtime: Runtime, name: string, value: string): Prom
         )
     }
     return text
+}
+
+// A list takes one item per line, as posthog-cli's --stdin did, so a build plugin can pass more paths than
+// a Windows command line holds.
+async function readListArgument(runtime: Runtime, name: string, values: string[]): Promise<string[]> {
+    if (!values.includes('-')) {
+        return values
+    }
+    const lines = (await runtime.readStdin())
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line !== '')
+    if (lines.length === 0) {
+        throw new HogError(
+            `empty_${name}`,
+            `stdin has no ${name}.`,
+            `Pipe one per line, or pass the ${name} as arguments.`
+        )
+    }
+    return [...values.filter((value) => value !== '-'), ...lines]
 }
 
 interface RunState {
@@ -243,8 +266,10 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState, telemetry:
             // Optional arguments stay undefined. The command's own types allow that, the tree's types don't.
             const args = {} as Record<string, string>
             for (const [index, [name, spec]] of argEntries.entries()) {
-                const value = self.processedArgs[index] as string
-                args[name] = spec.stdin && value !== undefined ? await readArgument(runtime, name, value) : value
+                const value = self.processedArgs[index] as string | string[] | undefined
+                args[name] = (
+                    spec.stdin && value !== undefined ? await readArgument(runtime, name, value) : value
+                ) as string
             }
 
             ctx = new Context(commandRuntime, globals, mode, COMMANDS, config, telemetry)

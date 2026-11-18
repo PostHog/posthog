@@ -9,7 +9,7 @@ export interface ArgumentSpec {
     optional?: boolean
     // Collects every remaining argument into a list. Only the last argument can be variadic.
     variadic?: boolean
-    // `-` reads the value from stdin, and an empty value is an error.
+    // `-` reads the value from stdin, and an empty value is an error. A variadic argument reads one item per line.
     stdin?: boolean
 }
 
