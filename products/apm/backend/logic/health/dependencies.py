@@ -24,7 +24,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
 
 from products.apm.backend.logic.health.contract import DependencyEdge, DependencyKind
-from products.apm.backend.logic.health.sources import environment_expr, window_where
+from products.apm.backend.logic.health.sources import environment_where, window_where
 
 DEPENDENCY_EDGES_LIMIT = 500
 MAX_BYTES_TO_READ = 10_000_000_000
@@ -79,13 +79,14 @@ class DependenciesResult:
 
 
 def _dependencies_query(
-    date_from: datetime, date_to: datetime, environment: str, service: str | None
+    date_from: datetime, date_to: datetime, environment: str | None, service: str | None
 ) -> ast.SelectQuery:
     # The callee side is the right side of the join, so ClickHouse builds its hash table from entry
-    # spans only, one per request, not from every span in the window. A client span whose child is
-    # a client span of the same kind is a wrapper, such as a retry around the real call, and gets no
-    # inferred edge: the inner span already draws that dependency. A database or queue span over an
-    # HTTP call keeps its edge, since the child only names the host. A leaf call whose target
+    # spans only, one per request, not from every span in the window. A client span whose child call
+    # has the same kind or reaches a service that the wrapper names is a wrapper, such as a retry around
+    # the real call, and gets no edge of its own: the inner span already draws that dependency. A database
+    # or queue span over an HTTP call that reaches no service keeps its edge, even when the child names a
+    # host spelled like the database system. A leaf call whose target
     # is a service with spans in the window never reached it, say a timeout, and counts on that
     # service's edge rather than being dropped or drawn as a second, inferred node.
     reached = f"({_HAS_CALLEE} OR p.target_is_service)"
@@ -104,30 +105,44 @@ def _dependencies_query(
                 {_TARGET} AS target, {_TARGET_KIND} AS target_kind,
                 target IN (
                     SELECT service_name FROM posthog.trace_spans
-                    WHERE {{where}} AND {{env_expr}} = {{environment}}
+                    WHERE {{where}} AND {{env_where}} AND {{known_services_where}}
                     GROUP BY service_name
                 ) AS target_is_service
             FROM posthog.trace_spans
-            WHERE {{where}} AND {{env_expr}} = {{environment}} AND {{trace_where}}
+            WHERE {{where}} AND {{env_where}} AND {{trace_where}}
         ) AS p
         LEFT JOIN (
             SELECT trace_id, parent_span_id, service_name, status_code, duration_nano
             FROM posthog.trace_spans
-            WHERE {{where}} AND {{env_expr}} = {{environment}} AND {{trace_where}}
+            WHERE {{where}} AND {{env_where}} AND {{trace_where}}
                 AND kind IN {_ENTRY_KINDS} AND NOT is_root_span
         ) AS c ON p.trace_id = c.trace_id AND p.span_id = c.parent_span_id
         LEFT JOIN (
-            SELECT trace_id, parent_span_id, groupUniqArray({_TARGET_KIND}) AS child_kinds
-            FROM posthog.trace_spans
-            WHERE {{where}} AND {{env_expr}} = {{environment}} AND {{trace_where}}
-                AND kind IN {_CALL_KINDS} AND NOT is_root_span
-            GROUP BY trace_id, parent_span_id
+            SELECT
+                x.trace_id AS trace_id,
+                x.parent_span_id AS parent_span_id,
+                groupUniqArray(x.target_kind) AS child_kinds,
+                groupUniqArrayIf(e.service_name, notEmpty(ifNull(e.service_name, ''))) AS child_callees
+            FROM (
+                SELECT trace_id, span_id, parent_span_id, {_TARGET} AS target, {_TARGET_KIND} AS target_kind
+                FROM posthog.trace_spans
+                WHERE {{where}} AND {{env_where}} AND {{trace_where}}
+                    AND kind IN {_CALL_KINDS} AND NOT is_root_span
+            ) AS x
+            LEFT JOIN (
+                SELECT trace_id, parent_span_id, service_name
+                FROM posthog.trace_spans
+                WHERE {{where}} AND {{env_where}} AND {{trace_where}}
+                    AND kind IN {_ENTRY_KINDS} AND NOT is_root_span
+            ) AS e ON x.trace_id = e.trace_id AND x.span_id = e.parent_span_id
+            GROUP BY x.trace_id, x.parent_span_id
         ) AS cc ON p.trace_id = cc.trace_id AND p.span_id = cc.parent_span_id
         WHERE if(
             {_HAS_CALLEE},
             c.service_name != p.service_name,
             p.kind IN {_CALL_KINDS}
             AND NOT has(cc.child_kinds, p.target_kind)
+            AND NOT has(cc.child_callees, p.target)
             AND notEmpty(p.target)
             AND p.target != p.service_name
         )
@@ -138,9 +153,9 @@ def _dependencies_query(
         """,
         placeholders={
             "where": window_where(date_from, date_to),
-            "env_expr": environment_expr(),
-            "environment": ast.Constant(value=environment),
+            "env_where": environment_where(environment),
             "trace_where": _service_traces_where(date_from, date_to, environment, service),
+            "known_services_where": _known_services_where(date_from, date_to, environment, service),
             "service_where": (
                 parse_expr(
                     "caller = {service} OR callee = {service}", placeholders={"service": ast.Constant(value=service)}
@@ -155,7 +170,9 @@ def _dependencies_query(
     return query
 
 
-def _service_traces_where(date_from: datetime, date_to: datetime, environment: str, service: str | None) -> ast.Expr:
+def _service_traces_where(
+    date_from: datetime, date_to: datetime, environment: str | None, service: str | None
+) -> ast.Expr:
     # Every edge on a service, in either direction, sits in a trace that has a span from it or a call
     # span that names it: a call that never reached the service, or one to a service that sends no
     # spans. The scans and the join then see only those traces instead of the whole environment.
@@ -164,20 +181,39 @@ def _service_traces_where(date_from: datetime, date_to: datetime, environment: s
     return parse_expr(
         f"""trace_id IN (
             SELECT trace_id FROM posthog.trace_spans
-            WHERE {{where}} AND {{env_expr}} = {{environment}}
+            WHERE {{where}} AND {{env_where}}
                 AND (service_name = {{service}} OR (kind IN {_CALL_KINDS} AND {_TARGET} = {{service}}))
         )""",
         placeholders={
             "where": window_where(date_from, date_to),
-            "env_expr": environment_expr(),
-            "environment": ast.Constant(value=environment),
+            "env_where": environment_where(environment),
             "service": ast.Constant(value=service),
         },
     )
 
 
+def _known_services_where(
+    date_from: datetime, date_to: datetime, environment: str | None, service: str | None
+) -> ast.Expr:
+    # Only the targets named by calls in the selected traces need checking. service_name follows
+    # time_bucket in the sort key, so checking those names reads their granules, not the whole window.
+    if not service:
+        return ast.Constant(value=True)
+    return parse_expr(
+        f"""service_name IN (
+            SELECT {_TARGET} FROM posthog.trace_spans
+            WHERE {{where}} AND {{env_where}} AND {{trace_where}} AND kind IN {_CALL_KINDS}
+        )""",
+        placeholders={
+            "where": window_where(date_from, date_to),
+            "env_where": environment_where(environment),
+            "trace_where": _service_traces_where(date_from, date_to, environment, service),
+        },
+    )
+
+
 def get_dependencies(
-    *, team: Team, date_from: datetime, date_to: datetime, environment: str, service: str | None = None
+    *, team: Team, date_from: datetime, date_to: datetime, environment: str | None, service: str | None = None
 ) -> DependenciesResult:
     rows = execute_hogql_query(
         query_type="ApmDependenciesQuery",
