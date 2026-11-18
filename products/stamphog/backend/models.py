@@ -307,8 +307,8 @@ class ReviewRun(ProductTeamModel):
         """Whether this run may write ``verdict`` to the PR. Without a verdict: whether it may write
         anything other than an approval, such as the 👀 cue, a refusal or a failure notice.
 
-        Every path that writes to the PR asks this, so a silent run's single exception, the
-        approval, is decided in one place.
+        Verdict and status publication ask this. Routing and an opted-in independent Deep
+        review can act on a withheld verdict without publishing it.
         """
         return not self.is_silent or verdict == ReviewVerdict.APPROVED
 

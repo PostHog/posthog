@@ -213,8 +213,7 @@ def publish_persisted_review(
             )
     else:
         _mark_report_idle(team_id, report_id)
-    if request_id is not None:
-        complete_stamphog_request(report, run_index)
+    complete_stamphog_request(report, run_index, required=request_id is not None)
     return outcome
 
 

@@ -14,6 +14,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.review_hog.backend.temporal.scheduling import ReviewPRQueueWorkflow, ReviewRequestQueue
 from products.review_hog.backend.temporal.types import (
+    CompleteJoinedStamphogRequestsInput,
     ReviewPRQueueInputs,
     ReviewPRWorkflowInputs,
     SilentStamphogRequest,
@@ -31,6 +32,81 @@ class ScheduledReviewStub:
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("covered,failed", [(True, False), (False, False), (False, True)])
+async def test_joined_refusals_complete_with_the_covering_turn_or_retry(covered: bool, failed: bool) -> None:
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    reviews: list[ReviewPRWorkflowInputs] = []
+    completions: list[CompleteJoinedStamphogRequestsInput] = []
+    first = ReviewPRWorkflowInputs(
+        team_id=1,
+        user_id=1,
+        owner="PostHog",
+        repo="posthog",
+        pr_number=7,
+        requested_head_sha="a",
+        publish=True,
+        trigger_source="ui",
+    )
+
+    @activity.defn(name="record_scheduled_review")
+    async def record(inputs: ReviewPRWorkflowInputs) -> str:
+        reviews.append(inputs)
+        if inputs.stamphog_review_run_id is None:
+            entered.set()
+            await release.wait()
+            if failed:
+                raise ApplicationError("Review unavailable", non_retryable=True)
+        return "report"
+
+    @activity.defn(name="review_resolution_running_activity")
+    async def resolution_running(inputs: ReviewPRWorkflowInputs) -> bool:
+        return False
+
+    @activity.defn(name="complete_joined_stamphog_requests_activity")
+    async def complete(inputs: CompleteJoinedStamphogRequestsInput) -> bool:
+        completions.append(inputs)
+        return covered
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        queue = str(uuid.uuid4())
+        async with Worker(
+            env.client,
+            task_queue=queue,
+            workflows=[ReviewPRQueueWorkflow, ScheduledReviewStub],
+            activities=[record, resolution_running, complete],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            handle = await env.client.start_workflow(
+                ReviewPRQueueWorkflow.run,
+                ReviewPRQueueInputs(requests=[first]),
+                id=queue,
+                task_queue=queue,
+            )
+            await asyncio.wait_for(entered.wait(), timeout=10)
+            refusal = replace(first, trigger_source="stamphog", stamphog_review_run_id="refusal")
+            await handle.signal("request_review", refusal)
+            await handle.query("requested_heads")
+            release.set()
+            assert await handle.result() == "report"
+
+    assert [review.stamphog_review_run_id for review in reviews if review.stamphog_review_run_id] == (
+        [] if covered else ["refusal"]
+    )
+    if not failed:
+        assert reviews[0].queue_turn_id is not None
+        assert completions == [
+            CompleteJoinedStamphogRequestsInput(
+                team_id=1,
+                report_id="report",
+                queue_turn_id=reviews[0].queue_turn_id,
+                head_sha="a",
+                request_ids=["refusal"],
+            )
+        ]
 
 
 @pytest.mark.asyncio
@@ -241,7 +317,7 @@ async def test_automatic_review_waits_for_resolution_before_starting() -> None:
 
 
 @pytest.mark.parametrize(
-    "resolve_comments,request_id,expect_pending", [(False, None, False), (None, None, True), (None, "refusal", False)]
+    "resolve_comments,request_id,expect_pending", [(False, None, False), (None, None, True), (None, "refusal", True)]
 )
 def test_a_repeated_full_request_waits_when_it_changes_comment_resolution(
     resolve_comments: bool | None, request_id: str | None, expect_pending: bool
@@ -264,7 +340,31 @@ def test_a_repeated_full_request_waits_when_it_changes_comment_resolution(
 
     queue.add(request)
 
-    assert queue.pending == ({"full": request} if expect_pending else {})
+    assert list(queue.pending.values()) == ([request] if expect_pending else [])
+
+
+@pytest.mark.parametrize("head_sha,publish", [("a", True), ("b", True), ("a", False), (None, True)])
+def test_a_refusal_only_joins_a_deep_review_that_covers_its_head_and_publication(
+    head_sha: str | None, publish: bool
+) -> None:
+    refusal = ReviewPRWorkflowInputs(
+        team_id=1,
+        user_id=1,
+        owner="PostHog",
+        repo="posthog",
+        pr_number=7,
+        requested_head_sha="a",
+        publish=True,
+        trigger_source="stamphog",
+        stamphog_review_run_id="refusal",
+    )
+    queue = ReviewRequestQueue(
+        active=replace(refusal, requested_head_sha=head_sha, publish=publish, stamphog_review_run_id=None)
+    )
+
+    queue.add(refusal)
+
+    assert list(queue.pending.values()) == ([] if head_sha == "a" and publish else [refusal])
 
 
 def test_a_later_request_for_the_same_waiting_head_keeps_the_pr_ready() -> None:
@@ -289,7 +389,8 @@ def test_a_later_request_for_the_same_waiting_head_keeps_the_pr_ready() -> None:
     assert queue.pending == {"automatic": replace(same_head_push, marks_ready=True)}
 
 
-def test_a_manual_request_preserves_a_waiting_refusals_fresh_review() -> None:
+@pytest.mark.parametrize("head_sha", ["a", "b", None])
+def test_a_manual_request_does_not_inherit_a_waiting_refusals_identity(head_sha: str | None) -> None:
     refusal = ReviewPRWorkflowInputs(
         team_id=1,
         user_id=1,
@@ -303,10 +404,9 @@ def test_a_manual_request_preserves_a_waiting_refusals_fresh_review() -> None:
         stamphog_review_run_id="refusal",
     )
     queue = ReviewRequestQueue(active=replace(refusal, review_mode="flash", stamphog_review_run_id=None))
-    manual = replace(refusal, trigger_source="ui", stamphog_review_run_id=None)
+    manual = replace(refusal, trigger_source="ui", requested_head_sha=head_sha, stamphog_review_run_id=None)
 
     queue.add(refusal)
     queue.add(manual)
 
-    assert queue.take() == replace(manual, stamphog_review_run_id="refusal")
-    assert queue.pending == {}
+    assert queue.take() == manual

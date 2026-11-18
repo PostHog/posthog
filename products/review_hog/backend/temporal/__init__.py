@@ -2,6 +2,7 @@ from products.review_hog.backend.temporal.activities import (
     add_review_reaction_activity,
     append_code_review_artefact_activity,
     build_body_activity,
+    complete_joined_stamphog_requests_activity,
     coordinator_review_activity,
     dedup_activity,
     fail_status_comment_activity,
@@ -60,6 +61,7 @@ WORKFLOWS = [
 ]
 
 ACTIVITIES = [
+    complete_joined_stamphog_requests_activity,
     review_resolution_running_activity,
     validate_github_integration_activity,
     fetch_pr_data_activity,

@@ -1,6 +1,7 @@
 import hmac
 import json
 from collections.abc import Mapping
+from dataclasses import replace
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
@@ -541,7 +542,7 @@ class TestStamphogHandoffTask(BaseTest):
     ) -> FinishedReviewRun:
         return FinishedReviewRun(
             run_id=uuid4(),
-            team_id=self.team.id + 1000,
+            team_id=self.team.id if request_deep_review else self.team.id + 1000,
             repository="PostHog/posthog",
             pr_number=42,
             status=ReviewRunStatus.COMPLETED,
@@ -620,6 +621,23 @@ class TestStamphogHandoffTask(BaseTest):
             requested_head_sha=_HEAD_SHA,
             stamphog_review_run_id=str(finished.run_id),
         )
+
+    @parameterized.expand([("same", True), ("child", True), ("other", False), ("missing", False)])
+    def test_deep_handoff_requires_the_repository_owners_canonical_project(self, scope: str, expected: bool) -> None:
+        source_team_id = self.team.id
+        if scope in ("child", "other"):
+            source_team_id = Team.objects.create(
+                organization=self.organization, parent_team=self.team if scope == "child" else None
+            ).id
+        finished = replace(self._finished("octocat", request_deep_review=True), team_id=source_team_id)
+        with patch(_HANDOFF_QUEUE) as enqueue:
+            queue_stamphog_handoff(finished)
+            payload = dict(enqueue.call_args.kwargs)
+            if scope == "missing":
+                payload.pop("stamphog_team_id")
+            process_stamphog_handoff.run(**payload)
+
+        assert bool(self.start.call_args_list) is expected
 
     def test_a_handoff_after_a_published_deep_review_runs_deep(self) -> None:
         # A Standard request after a published Deep review is dropped, so the handoff would do nothing.

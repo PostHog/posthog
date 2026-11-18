@@ -952,9 +952,9 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
   so a project cannot reserve a repository id the installation does not report.
 - **Stamphog handoff** — Stamphog calls the finished-review callback `receivers.py` registers in its
   `facade/finished_review_hooks.py`, and the run carries `request_external_review` (`backend/stamphog_handoff.py`).
-  The handoff finds the owning project by repository name and reviews the head Stamphog judged, unless that head
-  already has a pending or completed review. No label, GitHub Action, shared secret, or environment variable is
-  involved. See the triggers paragraph below.
+  The handoff finds the owning project by repository name and reviews the head Stamphog judged.
+  The default self-driving policy skips heads with a pending or completed review; a repository's explicit Deep opt-in permits a fresh review.
+  No label, GitHub Action, shared secret, or environment variable is involved. See the triggers paragraph below.
 - **Automatic authored-PR trigger** runs in the owning project and requires that project's GitHub integration for
   the delivery's installation. The rules in `backend/automatic_review_rules.py` decide, highest first: the
   author's choice for the repository (`ReviewUserRepositoryChoice`, flash/off, stored only when it differs from
@@ -980,7 +980,7 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
 4. Set the project rule (automatic Flash for everyone, for listed people, or opt-in only) and the bot rule.
 
 **Triggers.** Six entry points feed the same per-PR `ReviewPRQueueWorkflow`: the `run_review` CLI (manual / eval), the
-**Stamphog handoff** of a refused or escalated self-driving PR in a repository that a project reviews, a **UI**
+**Stamphog handoff** of a refused or escalated PR under the self-driving policy or the repository's Deep opt-in, a **UI**
 "Review this PR" field in the Code review scene (any installation-accessible PR; its split button's `run_mode`
 also carries the review-without-resolving, resolve-only, and **Flash** variants; Flash pins resolution off), an **inbox** trigger (a
 `TaskRun` receiver auto-reviews self-driving Signals implementations once their PR exists — a pushed branch without
@@ -1000,8 +1000,13 @@ Enabling the setting performs no backfill; existing PRs become eligible on their
 The turn rechecks ownership and the rules before starting. Flash publishes every kept finding (it records `consider` as the turn's threshold) and never starts resolution.
 **No Flash after Full:** once a PR has a published Full review, automatic dispatch skips it (`full_review_published`), the turn's recheck refuses it, and a manual Flash request answers 409 `flash_after_full`.
 The same `review_hog_authored_prs` consumer (the name is the dedup key, so it stays) routes through `facade/github.py::accept_pull_request_event` (`backend/pull_request_events.py`), and a `labeled` delivery starts nothing.
-The Stamphog handoff queues `process_stamphog_handoff`, which finds the project that owns the repository (it can differ from the Stamphog project).
-The review runs as the PR owner, else as the user who connected the installation (`Integration.created_by`) with default settings and no resolution; a running resolution drops the handoff.
+The Stamphog handoff queues `process_stamphog_handoff`, which finds the project that owns the repository.
+The per-repository `deep_review_on_refusal` opt-in requires Stamphog and ReviewHog to use the same canonical project; the existing self-driving policy can cross projects.
+The review runs as the PR owner, else as the user who connected the installation (`Integration.created_by`) with default settings and no resolution.
+A running resolution drops a default self-driving handoff; opted-in refusals wait in the queue.
+An opted-in refusal joins a Deep turn only for the same known head and publication settings.
+The queue records joined refusal identities against that turn's completed publication marker, including clean results, so redelivery cannot start another review.
+A failed or skipped turn leaves joined refusals queued for their own review. Human requests keep their own identity.
 Counters: `posthog_review_hog_authored_pr_review_total` and `posthog_review_hog_stamphog_handoff_total`, keyed by outcome.
 `facade/github.py::owning_team_id(installation_id, repository)` answers the same ownership question for other products, for example a PR comment command dispatcher.
 The UI and MCP paths are one surface: the viewset carries the grantable `code_review` scope (`code_review:read` for list /

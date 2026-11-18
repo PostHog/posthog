@@ -753,6 +753,7 @@ class ReviewPRWorkflow:
                             arm_set=meta.arm_set,
                             devex_lens=devex_lens,
                             stamphog_review_run_id=inputs.stamphog_review_run_id,
+                            queue_turn_id=inputs.queue_turn_id,
                         ),
                         start_to_close_timeout=_QUICK_TIMEOUT,
                         retry_policy=_RETRY,

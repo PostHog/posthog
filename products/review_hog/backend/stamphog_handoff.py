@@ -3,8 +3,8 @@
 Stamphog calls the finished-review callback `receivers.py` registers, after the refusal wins its terminal
 save. The callback queues a Celery task, and the task starts the review here.
 
-- The review runs in the project that owns the repository (`ownership.py`), found by name. Stamphog's
-  project and GitHub App installation play no part.
+- The review runs in the project that owns the repository (`ownership.py`), found by name.
+  A repository's Deep opt-in only applies within that same canonical project.
 - It runs as the pull request owner (`pr_owner.py`). Without an owner it runs as the person who
   connected the installation, with default settings and no resolution.
 - Opted-in repositories request Deep even after a completed review. The queue joins an active Deep turn.
@@ -18,6 +18,7 @@ from prometheus_client import Counter
 
 from posthog.dataclasses import frozen
 from posthog.integrations import IntegrationManager
+from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.otel_metrics import OtelInstrumentFactory
 
 from products.review_hog.backend.automatic_reviews import connector_user_id
@@ -34,6 +35,7 @@ _otel = OtelInstrumentFactory("review_hog")
 
 StamphogHandoffOutcome = Literal[
     "repository_not_added",
+    "project_mismatch",
     "integration_missing",
     "head_already_reviewed",
     "no_run_user",
@@ -64,6 +66,7 @@ class StamphogHandoff:
     # Stamphog reviews only same-repository pull requests, so the head branch is in the base repository.
     head_branch: str
     stamphog_review_run_id: str | None = None
+    stamphog_team_id: int | None = None
 
     def start(self) -> None:
         # The temporal package registers the activities, which pull in the sandbox runtime.
@@ -82,6 +85,12 @@ class StamphogHandoff:
             _observe("repository_not_added")
             return
         team_id = owner.team_id
+        if self.stamphog_review_run_id is not None and (
+            self.stamphog_team_id is None
+            or resolve_effective_team_id(self.stamphog_team_id) != resolve_effective_team_id(team_id)
+        ):
+            _observe("project_mismatch")
+            return
         if not IntegrationManager.github.oauth.exists(team_id, external_id=owner.installation_id):
             _observe("integration_missing")
             return

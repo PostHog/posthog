@@ -324,6 +324,7 @@ def record_turn_marker(
     arm_set: str = CONTROL_ARM_SET,
     devex_lens: bool = False,
     stamphog_review_run_id: str | None = None,
+    queue_turn_id: str | None = None,
 ) -> ReviewHogMarker:
     """Compute the turn's marker and persist it as the turn's `turn_marker` artefact.
 
@@ -352,6 +353,7 @@ def record_turn_marker(
         content=TurnMarkerArtefact(
             head_sha=head_sha,
             stamphog_review_run_id=stamphog_review_run_id,
+            queue_turn_id=queue_turn_id,
             run_index=run_index,
             review_mode=review_mode,
             reviewhog_version=marker.version,

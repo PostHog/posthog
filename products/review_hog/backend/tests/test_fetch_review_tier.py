@@ -50,6 +50,7 @@ class TestFetchDecidesTheTier(BaseTest):
         [
             ("new_refusal", "new", 1, True, False),
             ("completed_refusal_retry", "old", 1, True, True),
+            ("joined_refusal_retry", "joined", 1, True, True),
             ("unfinished_refusal_retry", "old", 0, False, False),
             ("failed_publish_retry", "old", 1, False, False),
             ("ordinary_review", None, 1, True, True),
@@ -94,6 +95,7 @@ class TestFetchDecidesTheTier(BaseTest):
                 reviewhog_fingerprint="test",
                 stamphog_review_run_id="old",
                 stamphog_review_completed=published,
+                joined_stamphog_review_run_ids=["joined"],
             ),
             attribution=ArtefactAttribution.system(),
         )

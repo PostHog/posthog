@@ -27,6 +27,10 @@ from products.review_hog.backend.reviewer.constants import LEGACY_FLASH_MODE_MES
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import DroppedIssue, Issue, IssuePriority
 from products.review_hog.backend.reviewer.persistence import replace_dropped_findings, upsert_review_report
+from products.review_hog.backend.reviewer.stamphog_requests import (
+    complete_joined_stamphog_requests,
+    stamphog_request_completed,
+)
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
 from products.review_hog.backend.reviewer.tools.publish_review import (
     PublishOutcome,
@@ -34,6 +38,7 @@ from products.review_hog.backend.reviewer.tools.publish_review import (
     _review_marker,
 )
 from products.review_hog.backend.temporal.activities import PublishInput, _publish, publish_review_activity
+from products.review_hog.backend.temporal.types import CompleteJoinedStamphogRequestsInput
 from products.signals.backend.facade.taxonomy import ArtefactAttribution
 
 # `_publish` now delegates to `publish_persisted_review` in the tool, so the GitHub-post seam and the
@@ -161,14 +166,23 @@ def _pr_metadata(head_sha: str) -> PRMetadata:
 
 
 class TestPublishIdempotency(BaseTest):
-    @parameterized.expand([("findings", True), ("clean", False)])
+    @parameterized.expand(
+        [
+            ("findings", True, "refusal"),
+            ("clean", False, "refusal"),
+            ("manual_findings", True, None),
+            ("manual_clean", False, None),
+        ]
+    )
     @patch(_AUTH, return_value=("tok", None))
     def test_new_refusal_publishes_again_at_the_same_head_but_its_retry_does_not(
-        self, _name: str, posted: bool, _auth: MagicMock
+        self, _name: str, posted: bool, request_id: str | None, _auth: MagicMock
     ) -> None:
         report_id = self._report()
         ReviewReport.objects.for_team(self.team.id).filter(id=report_id).update(
-            published_heads_by_mode={"full": "sha1"}, published_head_shas={"1": "sha1"}, run_count=1
+            published_heads_by_mode={"full": "sha1"} if request_id else {},
+            published_head_shas={"1": "sha1"} if request_id else {},
+            run_count=1,
         )
         ReviewReportArtefact.add_turn_marker(
             team_id=self.team.id,
@@ -179,7 +193,9 @@ class TestPublishIdempotency(BaseTest):
                 review_mode="full",
                 reviewhog_version="test",
                 reviewhog_fingerprint="test",
-                stamphog_review_run_id="refusal",
+                stamphog_review_run_id=request_id,
+                queue_turn_id="turn",
+                publishes=True,
             ),
             attribution=ArtefactAttribution.system(),
         )
@@ -222,17 +238,36 @@ class TestPublishIdempotency(BaseTest):
         ]
         with (
             patch("products.review_hog.backend.reviewer.tools.publish_review.github_api_request") as github,
-            patch(_PAGINATED, side_effect=lambda *args, **kwargs: iter(old_reviews)),
+            patch(_PAGINATED, side_effect=lambda *args, **kwargs: iter(old_reviews if request_id else [])),
             patch("products.review_hog.backend.reviewer.tools.publish_review.remove_own_pr_reactions"),
         ):
             github.return_value.json.return_value = {"html_url": "https://github.com/PostHog/posthog/pull/1#review-2"}
             assert _publish(request).posted is posted
+            report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
+            for turn, head, completed in [
+                ("other-turn", "sha1", False),
+                ("turn", "other-head", False),
+                ("turn", "sha1", True),
+            ]:
+                assert (
+                    complete_joined_stamphog_requests(
+                        CompleteJoinedStamphogRequestsInput(
+                            team_id=self.team.id,
+                            report_id=report_id,
+                            queue_turn_id=turn,
+                            head_sha=head,
+                            request_ids=["joined"],
+                        )
+                    )
+                    is completed
+                )
+                assert stamphog_request_completed(report, "joined") is completed
             assert _publish(request).posted is False
 
         posts = [call.kwargs["json"] for call in github.call_args_list if call.args[0] == "POST"]
         assert len(posts) == int(posted)
         if posts:
-            assert _review_marker(report_id, "sha1", "full", "refusal") in posts[0]["body"]
+            assert _review_marker(report_id, "sha1", "full", request_id) in posts[0]["body"]
 
     def _report(self, *, published_head_sha: str | None = None) -> str:
         report_id = upsert_review_report(

@@ -165,7 +165,10 @@ from products.review_hog.backend.reviewer.skill_loader import (
     load_perspectives_for_run,
     load_validation_skill_for_run,
 )
-from products.review_hog.backend.reviewer.stamphog_requests import stamphog_request_completed
+from products.review_hog.backend.reviewer.stamphog_requests import (
+    complete_joined_stamphog_requests,
+    stamphog_request_completed,
+)
 from products.review_hog.backend.reviewer.status_comment import (
     FinalizeStatusCommentInput,
     ensure_status_comment,
@@ -244,6 +247,7 @@ from products.review_hog.backend.temporal.types import (
     TRIGGER_LABEL,
     TRIGGER_MANUAL,
     TRIGGER_STAMPHOG,
+    CompleteJoinedStamphogRequestsInput,
     FinishedStandardAutomaticTurn,
     SilentStamphogRequest,
 )
@@ -689,6 +693,7 @@ class RecordTurnMarkerInput:
     arm_set: str = CONTROL_ARM_SET
     devex_lens: bool = False
     stamphog_review_run_id: str | None = None
+    queue_turn_id: str | None = None
 
 
 @frozen
@@ -1293,6 +1298,7 @@ def _record_turn_marker_safe(input: RecordTurnMarkerInput) -> ReviewHogMarker | 
             arm_set=input.arm_set,
             devex_lens=input.devex_lens,
             stamphog_review_run_id=input.stamphog_review_run_id,
+            queue_turn_id=input.queue_turn_id,
         )
     except Exception:
         if input.stamphog_review_run_id is not None:
@@ -1312,6 +1318,13 @@ async def record_turn_marker_activity(input: RecordTurnMarkerInput) -> ReviewHog
     Deep reviews require it to distinguish a fresh request from a retried handoff.
     """
     return await database_sync_to_async(_record_turn_marker_safe, thread_sensitive=False)(input)
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def complete_joined_stamphog_requests_activity(input: CompleteJoinedStamphogRequestsInput) -> bool:
+    return await database_sync_to_async(complete_joined_stamphog_requests, thread_sensitive=False)(input)
 
 
 # --- Chunking --------------------------------------------------------------------------------------

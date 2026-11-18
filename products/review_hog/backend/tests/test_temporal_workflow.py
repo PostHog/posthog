@@ -311,6 +311,7 @@ async def _run_full_review_pr_workflow(
     @activity.defn(name="record_turn_marker_activity")
     async def record_marker(input: RecordTurnMarkerInput) -> ReviewHogMarker:
         assert input.stamphog_review_run_id == stamphog_review_run_id
+        assert input.queue_turn_id == "queued-turn"
         devex_lens_calls.append(("marker", input.devex_lens))
         return _TURN_MARKER
 
@@ -587,6 +588,7 @@ async def _run_full_review_pr_workflow(
                         review_mode=review_mode,
                         requested_head_sha="sha1",
                         stamphog_review_run_id=stamphog_review_run_id,
+                        queue_turn_id="queued-turn",
                         marks_ready=marks_ready,
                         answered_by_queue=answered_by_queue,
                     ),

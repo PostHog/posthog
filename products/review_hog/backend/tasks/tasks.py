@@ -63,6 +63,7 @@ def process_stamphog_handoff(
     author_login: str,
     head_branch: str,
     stamphog_review_run_id: str | None = None,
+    stamphog_team_id: int | None = None,
 ) -> None:
     StamphogHandoff(
         repository=repository,
@@ -71,6 +72,7 @@ def process_stamphog_handoff(
         author_login=author_login,
         head_branch=head_branch,
         stamphog_review_run_id=stamphog_review_run_id,
+        stamphog_team_id=stamphog_team_id,
     ).start()
 
 

@@ -3131,8 +3131,15 @@ def test_refused_verdict_hands_off_when_self_driving_or_repo_opted_in(
         ("ERROR", None, False),
     ],
 )
+@pytest.mark.parametrize("silent", [False, True])
 def test_deep_fallback_only_follows_final_refusals(
-    team, stamphog_chain: StamphogChain, handoff: MagicMock, verdict: str, blocked_gate: str | None, expected: bool
+    team,
+    stamphog_chain: StamphogChain,
+    handoff: MagicMock,
+    verdict: str,
+    blocked_gate: str | None,
+    expected: bool,
+    silent: bool,
 ) -> None:
     config = _repo_config(team.id)
     config.deep_review_on_refusal = True
@@ -3151,7 +3158,7 @@ def test_deep_fallback_only_follows_final_refusals(
         pull_request=pull_request,
         head_sha=head_sha,
         status=ReviewRunStatus.REVIEWING,
-        output={"reviewer_raw": json.dumps(payload)},
+        output={"reviewer_raw": json.dumps(payload)} | ({"review_trigger": "reviewhog_clean"} if silent else {}),
     )
 
     _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
@@ -3159,6 +3166,9 @@ def test_deep_fallback_only_follows_final_refusals(
     requests = _external_review_requests(handoff)
     assert [request.run_id for request in requests] == ([run.id] if expected else [])
     assert all(request.request_deep_review for request in requests)
+    if silent:
+        run.refresh_from_db()
+        assert run.verdict_posted_at is None
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

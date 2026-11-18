@@ -213,10 +213,12 @@ The run is silent: only an approval reaches the PR, through the same attest, ado
 Every other verdict, and a failure, writes nothing to GitHub, on retries too: no review, no label strip, no failure notice, no 👀, no WAIT re-review after an external review, and the pre-check skips its LLM refusal summary.
 What it keeps: `dismiss_stale_approvals` first, the conditional terminal save, and the terminal orphan-approval sweep.
 Do not return early before them, or a silent refusal leaves an older approval standing.
-Every path that writes to the PR asks `ReviewRun.may_publish`, so the approval exception is decided in one place.
+Every path that publishes this run's verdict or status asks `ReviewRun.may_publish`, so the approval exception is decided in one place.
 Publication is its own state: a withheld verdict keeps `verdict_posted_at` empty (`ReviewRun.verdict_withheld`), so the verdict a run computed is never read as one the PR saw.
 
-FALLBACK routing is the one consumer of a withheld verdict, and the one PR write that does not ask `may_publish`: `_notify_finished_review` queues routing for every outcome of a silent run, because with the switch on `_stamphog_will_review` counts the head as reviewed and it waits for this run.
+FALLBACK routing and the explicit `deep_review_on_refusal` opt-in can act on a withheld verdict without publishing it. `[review]`
+The opt-in requests an independent Deep review whose findings may reach the PR; it does not publish Stamphog's withheld refusal.
+`_notify_finished_review` queues routing for every outcome of a silent run, because with the switch on `_stamphog_will_review` counts the head as reviewed and it waits for this run.
 Routing writes review requests and a comment that names cuts or the approval, never a withheld verdict, so keep it that way: a routing comment that names the outcome would publish what the run withheld.
 When ReviewHog will not start a silent review of a head (findings, a failed turn, or no automatic turn), it calls `facade/tasks.py::queue_routing_after_external_review`. The task routes the live head in full only while the record waits on the reported head, the repo is FALLBACK with the switch on, no non-superseded stamphog run covers the live head, and the live PR has no trigger label (a push starts no silent review, so a moved head routes too), with writer-pinned reads and the same claim as every other routing trigger. Anything else is a no-op, so the 30-minute safety net stays only a backstop for failures.
 The report and the opening event come from one delivery, in either order. A report that finds no record raises `RoutingBusy`, so the task retries after the opening event saved its waiting record. A record that waits on the live head instead (the author pushed before the opening event ran) routes that head, because a push starts no silent review. Do not turn that into a no-op, or a report that comes first is lost until the safety net.
