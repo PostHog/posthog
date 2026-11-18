@@ -169,7 +169,15 @@ class TestGetIntentClusterSnapshot(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
                     }
                 ],
                 "long_tail": {"intent_count": 1, "call_count": 1, "sample_intents": ["secret tail"]},
-                "recurring": [{"intent_text": "secret scout run", "session_count": 9, "call_count": 20}],
+                "recurring": [
+                    {
+                        "intent_text": "secret scout run",
+                        "session_count": 9,
+                        "call_count": 20,
+                        "variant_count": 2,
+                        "sample_variants": ["secret scout run", "secret reworded run"],
+                    }
+                ],
                 "tools": [{"tool": "execute_sql", "call_count": 3, "description": "Runs SQL"}],
             },
         )
@@ -182,12 +190,23 @@ class TestGetIntentClusterSnapshot(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
             *snapshot.clusters[0].sample_intents,
             *snapshot.long_tail.sample_intents,
             snapshot.recurring[0].intent_text,
+            *snapshot.recurring[0].sample_variants,
         ]
         assert snapshot.intent_text_redacted is intent_hidden
         assert texts == (
-            ["", ""] if intent_hidden else ["secret cluster label", "secret sample", "secret tail", "secret scout run"]
+            ["", ""]
+            if intent_hidden
+            else [
+                "secret cluster label",
+                "secret sample",
+                "secret tail",
+                "secret scout run",
+                "secret scout run",
+                "secret reworded run",
+            ]
         )
         assert snapshot.recurring[0].session_count == 9
+        assert snapshot.recurring[0].variant_count == 2
         description_hidden = restricted_property == "$mcp_tool_description"
         assert snapshot.tools[0].description == (None if description_hidden else "Runs SQL")
 
