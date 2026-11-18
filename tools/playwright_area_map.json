@@ -42,7 +42,9 @@
         "common/storybook/**",
         "products/messaging/backend/tests/**",
         "products/messaging/backend/**/test_*.py",
-        "products/messaging/backend/test_*.py"
+        "products/messaging/backend/test_*.py",
+        "products/messaging/backend/**/conftest.py",
+        "products/messaging/backend/conftest.py"
     ],
     "force_full": [
         "playwright/utils/**",
@@ -161,7 +163,6 @@
     "products": {
         "ai_observability": ["products/ai_observability/frontend/e2e/"],
         "billing": ["products/billing/frontend/e2e/"],
-        "messaging": ["products/messaging/frontend/e2e/"],
         "posthog_ai": ["products/posthog_ai/frontend/e2e/"],
         "replay": ["products/replay/frontend/e2e/"],
         "surveys": ["products/surveys/frontend/e2e/"]
@@ -283,6 +284,7 @@
             "playwright/e2e/webhook-secret-headers.spec.ts"
         ],
         "frontend/src/toolbar/**": ["playwright/e2e/toolbar.spec.ts"],
+        "products/messaging/frontend/e2e/**": ["products/messaging/frontend/e2e/"],
         "products/messaging/backend/templates/message_preferences/**": ["products/messaging/frontend/e2e/"],
         "frontend/public/message-preferences.css": ["products/messaging/frontend/e2e/"]
     },

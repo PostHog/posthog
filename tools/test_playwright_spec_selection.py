@@ -238,6 +238,32 @@ class TestPlaywrightSpecSelection(unittest.TestCase):
                         msg=f"{target} -> {spec} is outside the spec roots",
                     )
 
+    def test_real_map_runs_only_the_preferences_spec_for_messaging_page_changes(self) -> None:
+        area_map = selection.load_map(selection.MAP_PATH)
+        all_specs = selection.discover_specs(selection.REPO_ROOT)
+        template = "products/messaging/backend/templates/message_preferences/preferences.html"
+        for changed in (
+            [template],
+            ["frontend/public/message-preferences.css"],
+            [
+                template,
+                "products/messaging/backend/tests/fixtures/resend_account.json",
+                "products/messaging/backend/services/test_customerio_sync_service.py",
+                "products/messaging/backend/test_example.py",
+                "products/messaging/backend/conftest.py",
+            ],
+        ):
+            with self.subTest(changed=changed):
+                result = selection.select(changed, area_map, all_specs)
+                self.assertEqual(result["mode"], "selected")
+                self.assertEqual(result["spec_files"], ["products/messaging/frontend/e2e/message-preferences.spec.ts"])
+
+    def test_real_map_runs_the_full_suite_for_generated_messaging_clients(self) -> None:
+        area_map = selection.load_map(selection.MAP_PATH)
+        all_specs = selection.discover_specs(selection.REPO_ROOT)
+        result = selection.select(["products/messaging/frontend/generated/api.ts"], area_map, all_specs)
+        self.assertEqual(result["mode"], "full")
+
     def test_smoke_only_scenes_are_consistent(self) -> None:
         # A scene in both `scenes` and `scenes_smoke_only` is a contradiction — the
         # mapped entry silently wins and the smoke declaration is dead weight. And a
