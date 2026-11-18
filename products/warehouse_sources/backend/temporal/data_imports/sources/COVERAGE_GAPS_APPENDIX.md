@@ -7773,7 +7773,7 @@ Note: Read the vendor SDK's controller docs (32 controllers) and enumerated the 
 
 ## Medusa — gaps
 
-Today (17): `Claims`, `CustomerGroups`, `Customers`, `DraftOrders`, `Exchanges`, `InventoryItems`, `Orders`, `Payments`, `PriceLists`, `ProductCategories`, `Products`, `ProductVariants`, `Promotions`, `Regions`, `Reservations`, `Returns`, `StockLocations`
+Today (18): `Campaigns`, `Claims`, `CustomerGroups`, `Customers`, `DraftOrders`, `Exchanges`, `InventoryItems`, `Orders`, `Payments`, `PriceLists`, `ProductCategories`, `Products`, `ProductVariants`, `Promotions`, `Regions`, `Reservations`, `Returns`, `StockLocations`
 
 Diffed against: <https://raw.githubusercontent.com/medusajs/medusa/develop/www/apps/api-reference/specs/admin/openapi.yaml>
 
@@ -7784,7 +7784,7 @@ Diffed against: <https://raw.githubusercontent.com/medusajs/medusa/develop/www/a
 - [x] `Inventory items (GET /admin/inventory-items)` — measure available, reserved, and stocked quantities, including nested location levels (high). Added as `InventoryItems` (full refresh: the list route has no timestamp filters).
 - [x] `Reservations (GET /admin/reservations)` — analyze inventory commitments and their impact on available stock (medium). Added as `Reservations`.
 - [x] `Promotions (GET /admin/promotions)` — compare discount rules with order revenue and promotional performance (medium). Added as `Promotions`.
-- [ ] `Campaigns (GET /admin/campaigns)` — measure promotion budgets and campaign usage (medium)
+- [x] `Campaigns (GET /admin/campaigns)` — measure promotion budgets and campaign usage (medium). Added as `Campaigns` (full refresh: the list route has no timestamp filters).
 - [x] `Product categories (GET /admin/product-categories)` — group catalog performance by category hierarchy (medium). Added as `ProductCategories`.
 
 Note: Parsed the official v2 OpenAPI root and fetched referenced path files to verify GET methods. Checked official query defaults: products already embed types, collections, tags, and sales channels, so duplicate lookups are excluded. Inventory lists include location levels; no collection route exists for fulfillments. Excluded auth, keys, settings, and uploads; route availability depends on the deployed Medusa version.
