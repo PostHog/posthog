@@ -1,29 +1,46 @@
-import { IconRefresh } from '@posthog/icons'
-import { Button, Card, CardContent, Heading, Text } from '@posthog/quill'
+import { IconCopy, IconRefresh } from '@posthog/icons'
+import { Button, Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemTitle } from '@posthog/quill'
 
-import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { Region } from '~/types'
 
-function TeamVariableCard({
+function TeamVariableRow({
     title,
-    className,
-    children,
+    description,
+    value,
+    thing,
+    extraAction,
 }: {
     title: string
-    className?: string
-    children: React.ReactNode
+    description: React.ReactNode
+    value: string
+    thing: string
+    extraAction?: React.ReactNode
 }): JSX.Element {
     return (
-        <Card size="sm" className={className}>
-            <CardContent className="flex flex-col gap-2">
-                <Heading size="sm" render={<h3 className="m-0" />}>
-                    {title}
-                </Heading>
-                {children}
-            </CardContent>
-        </Card>
+        <Item variant="outline" className="flex-wrap">
+            <ItemContent className="min-w-60">
+                <ItemTitle>{title}</ItemTitle>
+                <ItemDescription>{description}</ItemDescription>
+            </ItemContent>
+            <ItemActions className="min-w-0">
+                <code data-quill className="truncate rounded-sm bg-muted px-1.5 py-0.5 font-mono text-xs select-all">
+                    {value}
+                </code>
+                <Button
+                    size="icon-sm"
+                    aria-label={`Copy ${thing}`}
+                    tooltip={`Copy ${thing}`}
+                    onClick={() => void copyToClipboard(value, thing)}
+                    data-attr="copy-code-button"
+                >
+                    <IconCopy />
+                </Button>
+                {extraAction}
+            </ItemActions>
+        </Item>
     )
 }
 
@@ -43,47 +60,45 @@ export function QuillTeamVariables({
     onResetToken: () => void
 }): JSX.Element {
     return (
-        <div className="flex max-w-200 flex-col gap-4">
-            <TeamVariableCard title="Project token">
-                <CodeSnippet
-                    compact
-                    thing="project token"
-                    actions={
-                        isTokenResetAvailable ? (
-                            <Button
-                                size="icon-sm"
-                                aria-label="Reset token"
-                                tooltip="Reset token"
-                                disabledReason={restrictedReason}
-                                onClick={onResetToken}
-                            >
-                                <IconRefresh />
-                            </Button>
-                        ) : undefined
-                    }
-                >
-                    {apiToken}
-                </CodeSnippet>
-                <Text size="xs" variant="muted" render={<p className="m-0" />}>
-                    Write-only key for use in{' '}
-                    <Button
-                        variant="link"
-                        size="inline"
-                        nativeButton={false}
-                        render={<LinkPrimitive to="https://posthog.com/docs/libraries" target="_blank" />}
-                    >
-                        client libraries
-                    </Button>
-                    . Safe to use in public apps.
-                </Text>
-            </TeamVariableCard>
-
-            <div className="flex flex-wrap gap-4">
-                <TeamVariableCard title="Project ID" className="min-w-60 flex-1">
-                    <CodeSnippet compact thing="project ID">
-                        {projectId}
-                    </CodeSnippet>
-                    <Text size="xs" variant="muted" render={<p className="m-0" />}>
+        <ItemGroup combined className="max-w-200">
+            <TeamVariableRow
+                title="Project token"
+                thing="project token"
+                value={apiToken}
+                description={
+                    <>
+                        Write-only key for use in{' '}
+                        <Button
+                            variant="link"
+                            size="inline"
+                            nativeButton={false}
+                            render={<LinkPrimitive to="https://posthog.com/docs/libraries" target="_blank" />}
+                        >
+                            client libraries
+                        </Button>
+                        . Safe to use in public apps.
+                    </>
+                }
+                extraAction={
+                    isTokenResetAvailable ? (
+                        <Button
+                            size="icon-sm"
+                            aria-label="Reset token"
+                            tooltip="Reset token"
+                            disabledReason={restrictedReason}
+                            onClick={onResetToken}
+                        >
+                            <IconRefresh />
+                        </Button>
+                    ) : undefined
+                }
+            />
+            <TeamVariableRow
+                title="Project ID"
+                thing="project ID"
+                value={projectId}
+                description={
+                    <>
                         Use this ID in the{' '}
                         <Button
                             variant="link"
@@ -94,19 +109,17 @@ export function QuillTeamVariables({
                             PostHog API
                         </Button>
                         .
-                    </Text>
-                </TeamVariableCard>
-                {region ? (
-                    <TeamVariableCard title="Region" className="min-w-60 flex-1">
-                        <CodeSnippet compact thing="project region">
-                            {`${region} Cloud`}
-                        </CodeSnippet>
-                        <Text size="xs" variant="muted" render={<p className="m-0" />}>
-                            Where your PostHog data is hosted.
-                        </Text>
-                    </TeamVariableCard>
-                ) : null}
-            </div>
-        </div>
+                    </>
+                }
+            />
+            {region ? (
+                <TeamVariableRow
+                    title="Region"
+                    thing="project region"
+                    value={`${region} Cloud`}
+                    description="Where your PostHog data is hosted."
+                />
+            ) : null}
+        </ItemGroup>
     )
 }
