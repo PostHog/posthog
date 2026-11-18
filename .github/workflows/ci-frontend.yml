@@ -1102,6 +1102,10 @@ jobs:
               env:
                   DIFF_OUTCOME: ${{ steps.diff.outcome }}
                   PR_DRAFT: ${{ github.event.pull_request.draft }}
+                  # The two cases the old selector job excluded from narrowing, kept here
+                  # because it no longer stands between the shards and the diff: the merge
+                  # queue's run gates master, and `run-ci-frontend` asks for the full suite.
+                  FORCE_FULL: ${{ startsWith(github.head_ref, 'trunk-merge/') || contains(github.event.pull_request.labels.*.name, 'run-ci-frontend') }}
               run: node .github/scripts/jest-select.js plan
 
             - name: Mint setup-action GitHub token
@@ -1460,7 +1464,8 @@ jobs:
                         "changed_file_count": ${{ needs.select-jest-tests.outputs.changed_file_count || 'null' }},
                         "selected_file_count": ${{ needs.select-jest-tests.outputs.selected_file_count || 'null' }},
                         "related_test_count": ${{ needs.select-jest-tests.outputs.related_test_count || 'null' }},
-                        "shard_count": ${{ needs.select-jest-tests.outputs.shard_count || 'null' }},
+                        "shard_count": ${{ toJSON(needs.jest.result == 'skipped' && '0' || '8') }},
+                        "recommended_shard_count": ${{ needs.select-jest-tests.outputs.shard_count || 'null' }},
                         "full_run_reason_category": ${{ toJSON(needs.select-jest-tests.outputs.full_run_reason_category || '') }},
                         "full_run_reason_detail": ${{ toJSON(needs.select-jest-tests.outputs.full_run_reason_detail || '') }},
                         "jest_result": ${{ toJSON(needs.jest.result) }},

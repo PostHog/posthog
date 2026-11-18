@@ -26,7 +26,17 @@ function fallback(isDraft, changedFileCount, category, detail) {
 }
 
 /** @returns {Candidate | Fallback} */
-function classifyChanges({ files, diffOutcome, isDraft }) {
+function classifyChanges({ files, diffOutcome, isDraft, forceFull }) {
+    // The merge queue's run gates master and a labeled PR asked for coverage, so neither
+    // may narrow. `forced_full` stays 'full' even for a draft: a trunk-merge PR is a draft,
+    // and skipping jest there would pass the gate without running a test.
+    if (forceFull) {
+        return {
+            mode: 'full',
+            changedFileCount: files.length || null,
+            reason: { category: 'forced_full', detail: 'merge queue or run-ci-frontend' },
+        }
+    }
     if (diffOutcome !== 'success' || files.length === 0) {
         return fallback(isDraft, null, 'diff_unavailable', diffOutcome)
     }
@@ -160,6 +170,7 @@ function main() {
             files: fs.existsSync(filesPath) ? fs.readFileSync(filesPath, 'utf8').split('\n').filter(Boolean) : [],
             diffOutcome: process.env.DIFF_OUTCOME ?? '',
             isDraft: process.env.PR_DRAFT === 'true',
+            forceFull: process.env.FORCE_FULL === 'true',
             installOutcome: process.env.INSTALL_OUTCOME ?? '',
         }
         if (process.argv[2] === 'prepare') {
