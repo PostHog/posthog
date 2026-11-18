@@ -39,7 +39,9 @@ function isAccountSqlQueryFilter(
                             chain.length === field.chain.length &&
                             chain.every((part, index) => part === field.chain[index])
                     )) &&
-                !aliases.has(field.chain.join('.')) &&
+                !field.chain.some((_: string | number, index: number) =>
+                    aliases.has(field.chain.slice(0, index + 1).join('.'))
+                ) &&
                 placeholder.node === 'Placeholder' &&
                 placeholder.expr?.node === 'Field' &&
                 placeholder.expr.chain.length === 1 &&

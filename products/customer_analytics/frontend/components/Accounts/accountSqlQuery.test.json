@@ -153,6 +153,21 @@
         "valid": false
     },
     {
+        "name": "qualified select alias",
+        "query": "SELECT event, JSONExtract(concat('{\"x\":', toJSONString({account_external_id}), '}'), 'Tuple(x String)') AS k FROM events WHERE k.x = {account_external_id}",
+        "valid": false
+    },
+    {
+        "name": "qualified with alias",
+        "query": "WITH JSONExtract(concat('{\"x\":', toJSONString({account_external_id}), '}'), 'Tuple(x String)') AS k SELECT event FROM events WHERE k.x = {account_external_id}",
+        "valid": false
+    },
+    {
+        "name": "qualified dotted select alias",
+        "query": "SELECT event, JSONExtract(concat('{\"x\":', toJSONString({account_external_id}), '}'), 'Tuple(x String)') AS `k.value` FROM events WHERE `k.value`.x = {account_external_id}",
+        "valid": false
+    },
+    {
         "name": "with alias",
         "query": "with {account_external_id} as org_id select * from engagements where org_id = {account_external_id}",
         "valid": false

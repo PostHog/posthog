@@ -90,7 +90,10 @@ def is_account_sql_query_filter(
             if (
                 isinstance(field, ast.Field)
                 and (allowed_fields is None or tuple(field.chain) in allowed_fields)
-                and ".".join(str(part) for part in field.chain) not in aliases
+                and not any(
+                    ".".join(str(part) for part in field.chain[:length]) in aliases
+                    for length in range(1, len(field.chain) + 1)
+                )
                 and isinstance(placeholder, ast.Placeholder)
                 and placeholder.chain == ["account_external_id"]
             ):
