@@ -25,6 +25,8 @@ from ..rules import Rules, rules_version
 
 DAYS_PER_MONTH = 30
 MILLISECONDS_PER_SECOND = 1000
+REFRESH_SECONDS_PER_MONTH = "refresh_seconds_per_month"
+REFRESH_BYTES_PER_MONTH = "refresh_bytes_per_month"
 DEPENDENTS_REJECTION = "other views read from it"
 FEEDS_CONSUMERS_REJECTION = "its refreshes feed person or account properties, a destination or a workflow"
 DIRECT_SOURCE_REJECTION = "reads a direct-connection source, whose reads are not logged"
@@ -167,6 +169,7 @@ class CandidateResult:
 
 class Candidate(ABC):
     kind: ClassVar[WarehouseSuggestionKind]
+    realized_savings_wait_for_read_window: ClassVar[bool] = True
 
     @abstractmethod
     def evaluate(self, context: CandidateContext) -> CandidateResult: ...

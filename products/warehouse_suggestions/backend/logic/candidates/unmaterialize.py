@@ -27,6 +27,8 @@ from .base import (
     FEEDS_CONSUMERS_REJECTION,
     MILLISECONDS_PER_SECOND,
     READER_ACCESS_REJECTION,
+    REFRESH_BYTES_PER_MONTH,
+    REFRESH_SECONDS_PER_MONTH,
     Candidate,
     CandidateContext,
     CandidateResult,
@@ -42,8 +44,6 @@ from .base import (
 INCREMENTAL_REJECTION = "refreshes incrementally, so one refresh does not show what a full read costs"
 CALLS_DECISION_FUNCTIONS_REJECTION = "calls jev() or decide(), which would run a model on every read"
 READ_TIME_QUANTILE = 0.9
-REFRESH_SECONDS_PER_MONTH = "refresh_seconds_per_month"
-REFRESH_BYTES_PER_MONTH = "refresh_bytes_per_month"
 
 
 @frozen
