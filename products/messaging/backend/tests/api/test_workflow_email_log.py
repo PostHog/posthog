@@ -88,6 +88,20 @@ class TestWorkflowEmailLog(ClickhouseTestMixin, APIBaseTest):
         ]
         assert (body["has_more"], body["engagement_events_enabled"]) == (False, True)
 
+    def test_a_full_page_keeps_every_send_s_engagement(self):
+        sent_at = NOW - timedelta(days=1)
+        for i in range(40):
+            run_id = self._run_id(sent_at)
+            self._email_event("sent", run_id, "welcome", sent_at, distinct_id=f"person-{i}")
+            for event in ("delivered", "opened", "link_clicked"):
+                self._email_event(event, run_id, "welcome", sent_at + timedelta(minutes=1), distinct_id=f"person-{i}")
+        flush_persons_and_events()
+
+        body = self.client.get(self._url(), {"workflow_id": self.workflow_id, "limit": 50}).json()
+
+        assert len(body["results"]) == 40
+        assert all((s["status"], s["opened"], s["clicked"]) == ("delivered", True, True) for s in body["results"])
+
     def test_says_when_engagement_events_are_off(self):
         self.team.workflows_config.capture_workflows_engagement_events = False
         self.team.workflows_config.save()

@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from posthog.hogql import ast
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
@@ -45,6 +46,8 @@ FALLBACK_LOOKBACK_DAYS = 90
 _OLDEST_RUN = timedelta(days=365 * 5)
 DEFAULT_LIST_DAYS = 7
 _CLOCK_SKEW = timedelta(minutes=5)
+# Most runs send soon after they start, so a send is looked for there before the rest of the run.
+_FIRST_SEARCH = timedelta(days=7)
 
 
 @frozen
@@ -88,8 +91,10 @@ def _follow_ups(
           AND timestamp >= {start} AND timestamp < {end}
           AND properties.$workflow_invocation_id IN {invocation_ids}
         GROUP BY properties.$workflow_invocation_id, properties.$workflow_action_id, event
+        LIMIT {limit}
         """,
         {
+            "limit": ast.Constant(value=MAX_SELECT_RETURNED_ROWS),
             "events": ast.Constant(value=list(FOLLOW_UP_EVENTS)),
             "start": ast.Constant(value=start),
             "end": ast.Constant(value=end),
@@ -216,22 +221,10 @@ def _run_window(invocation_id: UUID, now: datetime) -> _Window:
     return _Window(start=started - _CLOCK_SKEW, end=now + _CLOCK_SKEW)
 
 
-def get_workflow_email(
-    team: Team,
-    user: User | None,
-    invocation_id: UUID,
-    action_id: str,
-    *,
-    access: WorkflowViewAccess | None = None,
-) -> WorkflowEmailDetail | None:
-    """One send with its timeline, or None when the project has no such send or the reader can't see its workflow."""
-    now = datetime.now(UTC)
-    window = _run_window(invocation_id, now)
-    placeholders: dict[str, ast.Expr] = {
-        "invocation_id": ast.Constant(value=str(invocation_id)),
-        "action_id": ast.Constant(value=action_id),
-    }
-    sends = _query(
+def _find_send(
+    team: Team, user: User | None, placeholders: dict[str, ast.Expr], start: datetime, end: datetime
+) -> list:
+    return _query(
         team,
         user,
         f"""
@@ -247,11 +240,31 @@ def get_workflow_email(
         {
             **placeholders,
             "events": ast.Constant(value=list(SEND_EVENTS)),
-            "start": ast.Constant(value=window.start),
-            "end": ast.Constant(value=window.end),
+            "start": ast.Constant(value=start),
+            "end": ast.Constant(value=end),
         },
         "workflow_email_send",
     )
+
+
+def get_workflow_email(
+    team: Team,
+    user: User | None,
+    invocation_id: UUID,
+    action_id: str,
+    *,
+    access: WorkflowViewAccess | None = None,
+) -> WorkflowEmailDetail | None:
+    """One send with its timeline, or None when the project has no such send or the reader can't see its workflow."""
+    now = datetime.now(UTC)
+    window = _run_window(invocation_id, now)
+    placeholders: dict[str, ast.Expr] = {
+        "invocation_id": ast.Constant(value=str(invocation_id)),
+        "action_id": ast.Constant(value=action_id),
+    }
+    sends = _find_send(team, user, placeholders, window.start, min(window.start + _FIRST_SEARCH, window.end))
+    if not sends and window.start + _FIRST_SEARCH < window.end:
+        sends = _find_send(team, user, placeholders, window.start + _FIRST_SEARCH, window.end)
     if not sends:
         return None
     row = sends[0]
