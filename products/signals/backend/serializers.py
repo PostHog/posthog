@@ -100,10 +100,11 @@ from products.signals.backend.scout_harness.tools.report import is_self_improvem
 from products.signals.backend.source_filters import (
     SourceFilterPreviewStatus,
     SourceFilterRunState,
-    SourceFilterRunStatus,
     SourceKey,
     compile_source_filter,
-    filter_run_statuses,
+    filter_run_status,
+    filter_state_rows,
+    saved_filter_fingerprint,
 )
 from products.signals.backend.source_issues import source_issues_by_report
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
@@ -149,6 +150,7 @@ from .models import (
     SignalReportTrackerIssue,
     SignalReportWorkState,
     SignalSourceConfig,
+    SignalSourceFilterState,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
@@ -385,7 +387,8 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         super().__init__(*args, **kwargs)
         # Absent key means "not read yet", a `None` value means the read failed.
         self._data_import_statuses_by_team: dict[int, dict[_DataImportSchema, set[str]] | None] = {}
-        self._filter_run_statuses_by_team: dict[int, dict[SourceKey, SourceFilterRunStatus]] = {}
+        # Absent key means "not read yet", a `None` value means the read failed.
+        self._filter_state_rows_by_team: dict[int, dict[SourceKey, list[SignalSourceFilterState]] | None] = {}
 
     @extend_schema_field(serializers.ChoiceField(choices=SIGNAL_SOURCE_CONFIG_STATUSES, allow_null=True))
     def get_status(self, obj: SignalSourceConfig) -> str | None:
@@ -415,12 +418,24 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         if not isinstance(obj.config, dict) or HOGQL_FILTER_KEY not in obj.config:
             return None
         # DRF reuses one child serializer across a list, so the first row reads every row's state in one query.
-        if obj.team_id not in self._filter_run_statuses_by_team:
-            self._filter_run_statuses_by_team[obj.team_id] = filter_run_statuses(obj.team_id)
-        run_status = self._filter_run_statuses_by_team[obj.team_id].get(
-            SourceKey(source_product=obj.source_product, source_type=obj.source_type)
-        )
+        if obj.team_id not in self._filter_state_rows_by_team:
+            self._filter_state_rows_by_team[obj.team_id] = self._read_filter_state_rows(obj.team_id)
+        rows_by_source = self._filter_state_rows_by_team[obj.team_id]
+        if rows_by_source is None:
+            return None
+        rows = rows_by_source.get(SourceKey(source_product=obj.source_product, source_type=obj.source_type), [])
+        # Only results from the filter saved now count. An edited filter reports nothing until it has run.
+        run_status = filter_run_status(rows, filter_fingerprint=saved_filter_fingerprint(obj.config[HOGQL_FILTER_KEY]))
         return SourceFilterRunStatusSerializer(run_status).data if run_status else None
+
+    @staticmethod
+    def _read_filter_state_rows(team_id: int) -> dict[SourceKey, list[SignalSourceFilterState]] | None:
+        # Like the sync status, a failed warehouse read reports no filter status and keeps the response a 200.
+        try:
+            return filter_state_rows(team_id)
+        except Exception as exc:
+            capture_exception(exc)
+            return None
 
     def _data_import_statuses(self, team_id: int) -> dict[_DataImportSchema, set[str]] | None:
         """Sync statuses of every data-import source on a team, keyed as `_DATA_IMPORT_SOURCE_MAP` values.

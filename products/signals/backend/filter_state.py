@@ -33,6 +33,8 @@ class SignalSourceFilterState(TeamScopedRootMixin, UUIDModel):
     last_error_at = models.DateTimeField(null=True, blank=True)
     last_malformed_count = models.PositiveIntegerField(default=0)
     last_success_at = models.DateTimeField(null=True, blank=True)
+    # The saved filter the last result came from, so a result from a filter since replaced is not shown as current.
+    filter_fingerprint = models.CharField(max_length=64, blank=True, default="")
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

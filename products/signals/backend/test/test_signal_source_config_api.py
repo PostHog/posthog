@@ -2,7 +2,6 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from threading import Barrier
 from typing import TYPE_CHECKING
-from uuid import uuid4
 
 import pytest
 from posthog.test.base import APIBaseTest, BaseTest
@@ -41,13 +40,16 @@ from products.signals.backend.models import (
     SignalSourceFilterState,
 )
 from products.signals.backend.serializers import SignalSourceConfigSerializer
-from products.signals.backend.source_filters import writes_open
-from products.warehouse_sources.backend.facade.models import ExternalDataSchema
+from products.signals.backend.source_filters import saved_filter_fingerprint, writes_open
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 
 from common.hogvm.python.execute import execute_bytecode
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+
+_SAVED_FILTER = {"expression": "assignee_id IS NULL", "catalog_version": 1}
 
 
 class TestSignalSourceConfigAPI(APIBaseTest):
@@ -342,6 +344,32 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["results"]) == 1
 
+    def _filter_state_row(self, team: Team, *, live: str = "yes", from_current_filter: bool = True, **fields) -> None:
+        source = ExternalDataSource.objects.create(
+            team=team, source_type="Linear", status="Running", prefix="linear_", deleted=live == "source_deleted"
+        )
+        schema = ExternalDataSchema.objects.create(
+            team=team, source=source, name="issues", deleted=live == "schema_deleted"
+        )
+        saved = _SAVED_FILTER if from_current_filter else {"expression": "priority = 1", "catalog_version": 1}
+        SignalSourceFilterState.objects.create(
+            team=team,
+            source_product="linear",
+            source_type="issue",
+            schema_id=schema.id,
+            filter_fingerprint=saved_filter_fingerprint(saved),
+            **fields,
+        )
+
+    def _linear_config(self, team: Team, *, has_filter: bool = True) -> None:
+        SignalSourceConfig.objects.create(
+            team=team,
+            source_product="linear",
+            source_type="issue",
+            config={"hogql_filter": _SAVED_FILTER} if has_filter else {},
+            created_by=self.user,
+        )
+
     @parameterized.expand(
         [
             (
@@ -374,25 +402,57 @@ class TestSignalSourceConfigAPI(APIBaseTest):
                 None,
             ),
             ("not_fetched_with_the_filter_yet", True, [], None),
+            (
+                "result_of_a_replaced_filter_is_hidden",
+                True,
+                [{"from_current_filter": False, "last_error_code": "catalog_missing"}],
+                None,
+            ),
+            (
+                "failure_on_a_deleted_connection_is_ignored",
+                True,
+                [
+                    {"live": "source_deleted", "last_error_code": "query_failed"},
+                    {"last_success_at": datetime(2026, 11, 10, 8, tzinfo=UTC)},
+                ],
+                {
+                    "state": "ok",
+                    "error_code": None,
+                    "error_message": None,
+                    "failed_at": None,
+                    "unread_since": None,
+                    "last_success_at": "2026-11-10T08:00:00Z",
+                    "malformed_count": 0,
+                },
+            ),
+            (
+                "failure_on_a_deleted_schema_is_ignored",
+                True,
+                [{"live": "schema_deleted", "last_error_code": "query_failed"}],
+                None,
+            ),
         ]
     )
     def test_list_reports_filter_status(self, _name, has_filter, state_rows, expected):
-        SignalSourceConfig.objects.create(
-            team=self.team,
-            source_product="linear",
-            source_type="issue",
-            config={"hogql_filter": {"expression": "assignee_id IS NULL", "catalog_version": 1}} if has_filter else {},
-            created_by=self.user,
-        )
+        self._linear_config(self.team, has_filter=has_filter)
         for row in state_rows:
-            SignalSourceFilterState.objects.create(
-                team=self.team, source_product="linear", source_type="issue", schema_id=uuid4(), **row
-            )
+            self._filter_state_row(self.team, **row)
 
         response = self.client.get(self._url())
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["results"][0]["filter_status"] == expected
+
+    def test_filter_status_reads_only_its_own_environment(self):
+        child = Team.objects.create(organization=self.organization, project=self.team.project, parent_team=self.team)
+        self._filter_state_row(self.team, last_error_code="query_failed")
+        self._filter_state_row(child, last_success_at=datetime(2026, 11, 10, 8, tzinfo=UTC))
+        self._linear_config(child)
+
+        response = self.client.get(f"/api/projects/{child.id}/signals/source_configs/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["results"][0]["filter_status"]["state"] == "ok"
 
     # --- Retrieve ---
 

@@ -12,7 +12,7 @@ from products.signals.backend.emission.fetch_window import complete_fetch, fetch
 from products.signals.backend.emission.registry import SignalEmitterOutput, SignalSourceTableConfig
 from products.signals.backend.filter_expression import FilterValidationError
 from products.signals.backend.models import SignalSourceFilterState
-from products.signals.backend.source_filters import FilterStateKey, record_fetch_failure
+from products.signals.backend.source_filters import FilterStateKey, record_fetch_failure, saved_filter_fingerprint
 
 EARLY = datetime(2026, 1, 1, tzinfo=UTC)
 MIDDLE = datetime(2026, 1, 2, tzinfo=UTC)
@@ -108,18 +108,25 @@ class TestFetchRecords(BaseTest):
         fetched = self.fetch(schema_a, LATE)
 
         state = self.state(schema_a)
-        assert (state.pending_window_start, state.last_error_code, state.last_error_message) == (
-            MIDDLE,
-            "query_failed",
-            "RuntimeError",
-        )
+        fingerprint = saved_filter_fingerprint(FILTERED["hogql_filter"])
+        assert (
+            state.pending_window_start,
+            state.last_error_code,
+            state.last_error_message,
+            state.filter_fingerprint,
+        ) == (MIDDLE, "query_failed", "RuntimeError", fingerprint)
         assert self.state(schema_b).pending_window_start is None
 
         complete_fetch(fetched)
 
         assert self.windows == [MIDDLE.isoformat(), MIDDLE.isoformat(), LATE.isoformat(), MIDDLE.isoformat()]
         state.refresh_from_db()
-        assert (state.pending_window_start, state.last_error_code, state.last_malformed_count) == (None, "", 2)
+        assert (
+            state.pending_window_start,
+            state.last_error_code,
+            state.last_malformed_count,
+            state.filter_fingerprint,
+        ) == (None, "", 2, fingerprint)
 
     def test_capped_batch_resumes_where_it_stopped(self) -> None:
         schema_id = uuid4()
@@ -152,7 +159,7 @@ class TestFetchRecords(BaseTest):
         self.outcomes = [0]
         fetched = self.fetch(schema_id, MIDDLE)
         key = FilterStateKey(team_id=self.team.id, source_product="linear", source_type="issue", schema_id=schema_id)
-        record_fetch_failure(key, window_start=EARLY, error=RuntimeError("query failed"))
+        record_fetch_failure(key, window_start=EARLY, error=RuntimeError("query failed"), filter_fingerprint="")
 
         complete_fetch(fetched)
 
