@@ -1970,13 +1970,27 @@ class FeatureFlagSerializer(
                 continue
             # A dependency the flag already stores fails only because this write changes the runtime.
             attr = "evaluation_runtime" if dependency.id in stored_dependency_ids else "filters"
-            # The message names only the ID the caller supplied, not the target's runtime.
-            message = (
-                f"Cannot depend on flag (ID: {dependency.id}) because it does not evaluate in every runtime "
-                f"this flag evaluates in. Set flag {dependency.id} to evaluate on both client and server, or set "
-                f"this flag to evaluate in the same runtime as flag {dependency.id}."
-            )
+            # Organization admins read every flag in the project, so they see the target's runtime. Other
+            # callers may not be able to read it, so the message omits the runtime for them.
+            if self._caller_is_organization_admin():
+                message = (
+                    f"Cannot depend on flag (ID: {dependency.id}) because it evaluates "
+                    f"{_describe_runtime(dependency.evaluation_runtime)} and this flag evaluates "
+                    f"{_describe_runtime(runtime)}. Where flag {dependency.id} doesn't evaluate, this flag reads it "
+                    f"as false. Set flag {dependency.id} to evaluate {_RUNTIME_DESCRIPTIONS['all']}, or set this flag "
+                    f"to evaluate {_describe_runtime(dependency.evaluation_runtime)}."
+                )
+            else:
+                message = (
+                    f"Cannot depend on flag (ID: {dependency.id}) because it does not evaluate in every runtime "
+                    f"this flag evaluates in. Set flag {dependency.id} to evaluate on both client and server, or set "
+                    f"this flag to evaluate in the same runtime as flag {dependency.id}."
+                )
             raise serializers.ValidationError({attr: ErrorDetail(message, code=DEPENDENCY_RUNTIME_MISMATCH)})
+
+    def _caller_is_organization_admin(self) -> bool:
+        user_access_control = self.user_access_control
+        return user_access_control is not None and user_access_control.is_organization_admin
 
     def _validate_evaluation_contexts_requirement(
         self, attrs: dict, request: Any, team: Team, creation_context: str | None

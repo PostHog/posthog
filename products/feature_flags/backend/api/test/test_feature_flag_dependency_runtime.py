@@ -148,6 +148,24 @@ class TestFeatureFlagDependencyRuntime(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
 
+    def test_runtime_error_names_the_runtime_only_for_organization_admins(self) -> None:
+        from posthog.models.organization import OrganizationMembership
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        dependency = self._flag("dependency", "client")
+        dependent = self._flag("dependent", "server")
+        admin_response = self._patch(dependent, {"filters": _depends_on(dependency.id)})
+        assert "client-side only" in admin_response.json()["detail"]
+
+        member = self._create_user("member3@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        self.client.force_login(member)
+        member_response = self._patch(dependent, {"filters": _depends_on(dependency.id, rollout_percentage=50)})
+        assert member_response.status_code == status.HTTP_400_BAD_REQUEST, member_response.json()
+        assert "client-side only" not in member_response.json()["detail"]
+        assert "server-side only" not in member_response.json()["detail"]
+        assert f"Cannot depend on flag (ID: {dependency.id})" in member_response.json()["detail"]
+
     def test_adding_a_mismatched_dependency_next_to_an_existing_one_is_rejected(self) -> None:
         old_dependency = self._flag("old_dependency", "client")
         new_dependency = self._flag("new_dependency", "client")
