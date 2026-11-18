@@ -1,15 +1,23 @@
 import './LemonFileInput.scss'
 
 import clsx from 'clsx'
-import { ChangeEvent, RefObject, useEffect, useRef, useState } from 'react'
+import { ChangeEvent, RefObject, Suspense, lazy, useEffect, useRef, useState } from 'react'
 
 import { IconUpload } from '@posthog/icons'
-import { Badge, Button, Spinner as QuillSpinner } from '@posthog/quill'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
+import { retryImport } from 'lib/utils/retryImport'
+
+// This file ships on every logged-in page, and quill must load only where a page turns it on.
+const QuillUploadButton = lazy(() =>
+    retryImport(() => import('./QuillUploadButton')).then((m) => ({ default: m.QuillUploadButton }))
+)
+const QuillUploadedFiles = lazy(() =>
+    retryImport(() => import('./QuillUploadedFiles')).then((m) => ({ default: m.QuillUploadedFiles }))
+)
 
 export interface LemonFileInputProps extends Pick<HTMLInputElement, 'multiple' | 'accept'> {
     value?: File[]
@@ -198,10 +206,9 @@ export const LemonFileInput = ({
                 >
                     {callToAction ||
                         (quillSurface ? (
-                            <Button disabledReason={disabledReason}>
-                                <IconUpload />
-                                {uploadLabel}
-                            </Button>
+                            <Suspense fallback={null}>
+                                <QuillUploadButton label={uploadLabel} disabledReason={disabledReason} />
+                            </Suspense>
                         ) : (
                             <LemonButton icon={<IconUpload />} type="tertiary" disabledReason={disabledReason}>
                                 {uploadLabel}
@@ -211,14 +218,9 @@ export const LemonFileInput = ({
                 {files.length > 0 &&
                     showUploadedFiles &&
                     (quillSurface ? (
-                        <div className="flex flex-wrap gap-2">
-                            {files.map((x, i) => (
-                                <Badge key={i}>
-                                    {loading && <QuillSpinner />}
-                                    <span className="truncate">{x.name}</span>
-                                </Badge>
-                            ))}
-                        </div>
+                        <Suspense fallback={null}>
+                            <QuillUploadedFiles files={files} loading={loading} />
+                        </Suspense>
                     ) : (
                         <div className="flex flex-row gap-2">
                             {files.map((x, i) => (

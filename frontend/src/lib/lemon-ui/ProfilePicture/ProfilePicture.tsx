@@ -2,12 +2,13 @@ import './ProfilePicture.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react'
 
 import { HedgehogModeProfile } from 'lib/components/HedgehogMode/HedgehogModeStatic'
 import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { inStorybookTestRunner } from 'lib/utils/dom'
 import { gravatarUrl as buildGravatarUrl } from 'lib/utils/gravatar'
+import { retryImport } from 'lib/utils/retryImport'
 import { fullName } from 'lib/utils/strings'
 import { userLogic } from 'scenes/userLogic'
 
@@ -15,7 +16,11 @@ import { HedgehogConfig, MinimalHedgehogConfig, UserBasicType } from '~/types'
 
 import { IconRobot } from '../icons'
 import { Lettermark, LettermarkColor } from '../Lettermark/Lettermark'
-import { QuillProfilePicture } from './QuillProfilePicture'
+
+// This file ships on every logged-in page, and quill must load only where a page turns it on.
+const QuillProfilePicture = lazy(() =>
+    retryImport(() => import('./QuillProfilePicture')).then((m) => ({ default: m.QuillProfilePicture }))
+)
 
 export interface ProfilePictureProps {
     user?:
@@ -91,21 +96,23 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
 
     if (quillSurface) {
         return (
-            <QuillProfilePicture
-                ref={ref}
-                nameAndEmail={combinedNameAndEmail}
-                gravatarUrl={gravatarUrl}
-                hedgehogAvatar={
-                    hedgehogProfile && user.hedgehog_config ? (
-                        <HedgehogModeProfile config={user.hedgehog_config} size="100%" />
-                    ) : undefined
-                }
-                size={size}
-                type={type}
-                title={title}
-                className={className}
-                displayName={showName ? displayName : undefined}
-            />
+            <Suspense fallback={null}>
+                <QuillProfilePicture
+                    ref={ref}
+                    nameAndEmail={combinedNameAndEmail}
+                    gravatarUrl={gravatarUrl}
+                    hedgehogAvatar={
+                        hedgehogProfile && user.hedgehog_config ? (
+                            <HedgehogModeProfile config={user.hedgehog_config} size="100%" />
+                        ) : undefined
+                    }
+                    size={size}
+                    type={type}
+                    title={title}
+                    className={className}
+                    displayName={showName ? displayName : undefined}
+                />
+            </Suspense>
         )
     }
 
