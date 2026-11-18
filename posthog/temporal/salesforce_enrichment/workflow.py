@@ -23,7 +23,7 @@ from ee.billing.salesforce_enrichment.salesforce_client import get_salesforce_cl
 LOGGER = get_logger(__name__)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class SalesforceEnrichmentInputs:
     """Inputs for the Salesforce enrichment workflow."""
 
@@ -33,7 +33,7 @@ class SalesforceEnrichmentInputs:
     score_icp_fit: bool = False
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class EnrichChunkInputs:
     """Inputs for enriching a single chunk of accounts."""
 
