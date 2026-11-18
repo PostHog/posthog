@@ -28,7 +28,6 @@ from products.signals.backend.task_run_artefacts import record_implementation_ta
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.tasks.backend.facade.api import accept_github_pull_request, set_task_run_output, update_task_run
 from products.tasks.backend.models import Task, TaskRun
-from products.tasks.backend.tasks.tasks import notify_slack_thread_pr_closed
 
 
 @pytest.fixture
@@ -740,7 +739,5 @@ def test_late_report_thread_keeps_mapped_delivery_once(
                 deliver_implementation_pr_notifications.apply(kwargs=job.kwargs, throw=True)
             assert report_slack.return_value.client.chat_postMessage.call_count == 2
             assert mapped_slack.return_value.client.chat_postMessage.call_count == 1
-            notify_slack_thread_pr_closed(str(run.id), secondary, merged=mapped_before_recovery)
-            close_posts = mapped_slack.return_value.client.chat_postMessage.call_args_list
-            assert len(close_posts) == 2
-            assert secondary in str(close_posts[-1].kwargs["blocks"])
+            task.refresh_from_db()
+            assert task.claim_slack_pr_closed_notification(secondary, merged=mapped_before_recovery)
