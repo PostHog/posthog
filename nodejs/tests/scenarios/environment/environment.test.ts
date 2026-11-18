@@ -1108,8 +1108,9 @@ describe('scenario environment', () => {
                 if (!fs.existsSync(flags.custom)) {
                     fail('No mprocs config at ' + flags.custom)
                 }
-                if (/^  nodejs:/m.test(fs.readFileSync(flags.custom, 'utf8'))) {
-                    fail('The config at ' + flags.custom + ' starts nodejs')
+                const started = /^  (nodejs|frontend):/m.exec(fs.readFileSync(flags.custom, 'utf8'))
+                if (started) {
+                    fail('The config at ' + flags.custom + ' starts ' + started[1])
                 }
                 fs.writeFileSync(stateFile, JSON.stringify({ running: true, ready: false }))
             } else if (verb === 'dev:sync-hog-templates') {

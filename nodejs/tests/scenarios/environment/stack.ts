@@ -65,7 +65,12 @@ export async function startStack(hogli: Hogli, stateDir: string, env: NodeJS.Pro
     if (waited !== NOT_REACHABLE) {
         throw new Error(`hogli wait exited with ${waited}; see ${logFile}`)
     }
-    await runHogli(hogli, ['dev:generate', '--with', 'workflows', '--without', 'nodejs'], logFile, hogliEnv)
+    await runHogli(
+        hogli,
+        ['dev:generate', '--with', 'workflows', '--without', 'nodejs', '--without', 'frontend'],
+        logFile,
+        hogliEnv
+    )
     await runHogli(hogli, ['up', '-d', '--custom', config], logFile, hogliEnv)
     await runHogli(hogli, ['wait'], logFile, hogliEnv)
 }
