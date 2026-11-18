@@ -1192,6 +1192,67 @@ describe("AgentServer HTTP Mode", () => {
       expect(testServer.session?.sessionMeta.channelMode).toBeUndefined();
     }, 30000);
 
+    it.each<[string, string, Record<string, unknown>, Record<string, true>]>([
+      [
+        "a task analysis run",
+        "task_analysis",
+        {},
+        { finishTool: true, reportActivityTool: true },
+      ],
+      [
+        "a workflow run with the end-run opt-in",
+        "workflow",
+        { end_run_when_done: true },
+        { finishTool: true, finishReportRequired: true },
+      ],
+    ])(
+      "passes the launch policy to the session for %s",
+      async (_, originProduct, state, expected) => {
+        await mkdir("/tmp/workspace", { recursive: true });
+        mswServer.use(
+          http.get(
+            "http://localhost:8000/api/projects/:projectId/tasks/:taskId/",
+            () =>
+              HttpResponse.json({
+                id: "test-task-id",
+                title: "Test task",
+                description: null,
+                origin_product: originProduct,
+                repository: null,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              }),
+          ),
+          http.get(
+            "http://localhost:8000/api/projects/:projectId/tasks/:taskId/runs/:runId/",
+            () =>
+              HttpResponse.json(
+                createTaskRun({
+                  id: "test-run-id",
+                  task: "test-task-id",
+                  state,
+                }),
+              ),
+          ),
+        );
+
+        const testServer = createServer() as unknown as {
+          start(): Promise<void>;
+          session: { sessionMeta: Record<string, unknown> } | null;
+        };
+        await testServer.start();
+
+        const { finishTool, finishReportRequired, reportActivityTool } =
+          testServer.session?.sessionMeta ?? {};
+        expect({
+          finishTool,
+          finishReportRequired,
+          reportActivityTool,
+        }).toEqual(expected);
+      },
+      30000,
+    );
+
     it("links native agent state before initializing the session", async () => {
       const originalClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
       const originalCodexHome = process.env.CODEX_HOME;
