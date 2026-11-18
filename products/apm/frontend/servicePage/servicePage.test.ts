@@ -1,3 +1,5 @@
+import { parseTagsFilter } from 'lib/utils/url'
+
 import { PropertyOperator } from '~/types'
 
 import type { Span } from 'products/tracing/frontend/types'
@@ -7,6 +9,7 @@ import {
     latencyPercentileSeries,
     mergeRequestsSeries,
     serviceScopeFilters,
+    serviceTracesUrl,
     spanErrorMessage,
     topErrorMessages,
 } from './servicePage'
@@ -90,5 +93,13 @@ describe('servicePage', () => {
             ['503', 1, 'span-2'],
             [spanErrorMessage(spans[4]), 1, 'span-0'],
         ])
+    })
+
+    it('the traces link keeps a service name with a comma as one service', () => {
+        const url = new URL(
+            serviceTracesUrl('checkout,v2', { date_from: '-1h', date_to: null }, []),
+            'https://app.example.com'
+        )
+        expect(parseTagsFilter(url.searchParams.get('serviceNames'))).toEqual(['checkout,v2'])
     })
 })

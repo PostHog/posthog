@@ -6886,6 +6886,14 @@ snapshots:
         hash: v1.k794b7964.96b9017c5bfbf086f37c0bbb9eb4a1eb869899e5dcbab6e51e0434ab9e1425ca.LvAkwF2gCZqE3mhLjWp_ZwwTXL0XTr73L3Me5c9Rqu4
     products-apm-dependencies--empty--light:
         hash: v1.k794b7964.cb37f6fa38cf583faa145e6e6bbb926e17ca72c58ef301e255adbef3f90ed2a0.qBZxNsKdIp91blXh5cS3op5NBl7Oh2tLaXvjryZ8IPE
+    products-apm-deployments--no-versions--dark:
+        hash: v1.k794b7964.f43b75adac0adad68d2f0ff91fd4d7876b8e55da160ea209aa1be82364ab7266.P4a_nIgWbQQxR8y7vvkHnp1VoMOpHwU50HznFKwZsK0
+    products-apm-deployments--no-versions--light:
+        hash: v1.k794b7964.1068dbecb426ec7c7e7f606a20a2086065d57992fedc9c687ab103884506a291.vP9lmTP4q9AekDlrXknau4ki62_8oRBjBhRqpVGUt5Q
+    products-apm-deployments--versions-compared-with-their-predecessor--dark:
+        hash: v1.k794b7964.474868760bd367c4d6ea2ffbcd99da72b4ffe0408b03e34e8d3ed9bb559a8bbf.XJDCRyJmrlwSYXwHcRLHLv4z5zhkHcf5GhKtrG-44lE
+    products-apm-deployments--versions-compared-with-their-predecessor--light:
+        hash: v1.k794b7964.1b306840e49da2c15acfcbbd1a3e3e10db6c76f8b248422cd8d7a7dcfbcc967e.WEHcnS8BeNqMAGnBKp64WWPMl71SqOqCv77WLf19oSw
     products-autoresearch-daily-volume-chart--sparse-days--dark:
         hash: v1.k794b7964.47b1e118bc8c9e9c27efac87a76591e9d2d31a6e2d0c728e9f71180bf65dbd68._gnh7qhODKrYgIH_Ec2BOaeKSqU-OFl8NQYJxMbXL4Y
     products-autoresearch-daily-volume-chart--sparse-days--light:
@@ -10706,6 +10714,10 @@ snapshots:
         hash: v1.k794b7964.185f637de265d20962ab88e344c3247791588258e9ab49ea0519335c925b1aaf.AHgtgi2KtJ3uAOnveFVsSaldyULPpCf0JjvqbWxu6-w
     scenes-app-application-observability-live-refresh--paused--light:
         hash: v1.k794b7964.db1bc7054739237f6782b3a7dfaa034d3f993ab4d3779ab32705ae15e122dbef.76Q1QmoOxeB1SKGmxQY2Yndya8WeRpODMU0o46tkCeU
+    scenes-app-application-observability-service--service-page--dark:
+        hash: v1.k794b7964.8fd2438cf95f2f4f63f1625fcdaaf953140d11faef0794b7fab8b38e045509af.fXOsTxrbqaRJm1ceO0AWPbpacaOM-kEUxua_6HP-6ik
+    scenes-app-application-observability-service--service-page--light:
+        hash: v1.k794b7964.82737cdf5b76fecadaca07a44f48cc3d4b3cc841438f0755782b15b6a0ea46cb.mGV5jp9TACkqjNKiE1XWflmZcpmCVld9DU6P3AEqPvI
     scenes-app-batchexports--backfills-empty--dark:
         hash: v1.k794b7964.8addbab5dc9322002703f43982a0f950666fd19066808134206cf88a4d3fca23.rQn27PGaf9lf989r2DJBj1BYEWNECVUB8h3wcMgQo5c
     scenes-app-batchexports--backfills-empty--light:
