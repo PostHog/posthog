@@ -115,7 +115,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-02-01',
         pageUrl: urls.dashboard(DASHBOARD_ID),
-        featureFlags: [FEATURE_FLAGS.DASHBOARD_V2],
+        featureFlags: [FEATURE_FLAGS.DASHBOARD_V2, FEATURE_FLAGS.DASHBOARD_V2_USERS],
         testOptions: {
             waitForSelector: '[data-attr="dashboard-items-action-refresh"]:has-text("Refresh")',
         },

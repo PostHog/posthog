@@ -6300,7 +6300,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // A load or update skips it, since the dashboard response already carried each tile's cached result.
                 let tilesToLoad = sortedTilesToRefresh
                 if (
-                    values.featureFlags[FEATURE_FLAGS.DASHBOARD_V2] &&
+                    values.dashboardV2Enabled &&
                     !forceRefresh &&
                     !isInitialLoadOrUpdate &&
                     (values.placement === DashboardPlacement.Dashboard ||

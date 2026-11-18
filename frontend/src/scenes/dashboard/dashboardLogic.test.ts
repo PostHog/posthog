@@ -3959,9 +3959,8 @@ describe('dashboardLogic', () => {
             ['when every tile is cached', true, {}],
             ['when some tiles are not cached', true, { 1: 'miss', 2: 'stale', 3: 'not_found', 4: 'forbidden' }],
         ])('after a filter change, loads the tiles %s', async (_name, enabled, outcomes) => {
-            featureFlagLogic.actions.setFeatureFlags(enabled ? [FEATURE_FLAGS.DASHBOARD_V2] : [], {
-                [FEATURE_FLAGS.DASHBOARD_V2]: enabled,
-            })
+            const flags = enabled ? [FEATURE_FLAGS.DASHBOARD_V2, FEATURE_FLAGS.DASHBOARD_V2_USERS] : []
+            featureFlagLogic.actions.setFeatureFlags(flags, Object.fromEntries(flags.map((flag) => [flag, true])))
             const outcomeOf = (index: number): TileOutcome => outcomes[index] ?? 'hit'
             const insightsByTile = new Map(
                 Array.from({ length: TILE_COUNT }, (_, index) => [
