@@ -70,6 +70,7 @@ CONSUMER_GROUP_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_WS = "clickhouse_error_tra
 CONSUMER_GROUP_ERROR_TRACKING_ISSUE_TAGS = "clickhouse_error_tracking_issue_tags"
 CONSUMER_GROUP_USAGE_REPORT_EVENTS_PREAGG = "clickhouse_usage_report_events_preagg"
 CONSUMER_GROUP_PERSON_GROUP_MEMBERSHIP = "clickhouse_person_group_membership"
+CONSUMER_GROUP_REALTIME_COHORT_MEMBERSHIP = "clickhouse_realtime_cohort_membership"
 
 STORAGE_POLICY = lambda: "SETTINGS storage_policy = 'hot_to_cold'" if settings.CLICKHOUSE_ENABLE_STORAGE_POLICY else ""
 

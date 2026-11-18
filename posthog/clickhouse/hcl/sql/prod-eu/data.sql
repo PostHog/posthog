@@ -1179,6 +1179,17 @@ CREATE TABLE posthog.raw_sessions_v3 (
   emails SimpleAggregateFunction(groupUniqArrayArray(10), Array(String)),
   has_replay_events SimpleAggregateFunction(max, Bool)
 ) ENGINE = Distributed('sessions', 'posthog', 'raw_sessions_v3', cityHash64(session_id_v7));
+CREATE TABLE posthog.realtime_cohort_membership (
+  team_id Int64,
+  cohort_id Int64,
+  kind Enum8('member'=0, 'floor'=1),
+  person_id UUID,
+  floor_run_id UUID,
+  floor_partition UInt16,
+  in_cohort UInt8,
+  version DateTime64(6, 'UTC'),
+  floor_partitions UInt16
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.realtime_cohort_membership', '{replica}-{shard}', version) ORDER BY (team_id, cohort_id, kind, person_id, floor_run_id, floor_partition) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.sessions (
   session_id String,
   team_id Int64,
