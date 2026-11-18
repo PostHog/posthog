@@ -27,6 +27,7 @@ from products.warehouse_sources.sources.amazon_ads.settings import (
     AMAZON_ADS_ENDPOINTS,
     ENDPOINTS,
     HISTORY_EVENT_TYPES,
+    HISTORY_LOOKBACK_MS,
     HISTORY_PAGE_SIZE,
     HISTORY_RETENTION_DAYS,
     PAGE_SIZE,
@@ -244,6 +245,24 @@ class TestGetRows:
         assert result.raised is None
         assert result.requests[2].headers.get("amazon-ads-clientid") == expected_client_id
 
+    @pytest.mark.parametrize(
+        "endpoint, expected_query",
+        [
+            ("sp_campaigns", {}),
+            ("invoices", {"apiProgram": ("billing",), "accessLevel": ("view",)}),
+            ("change_history", {"apiProgram": ("campaign",), "accessLevel": ("view",)}),
+        ],
+    )
+    def test_profile_discovery_asks_for_plain_json_and_the_tables_permission(
+        self, endpoint: str, expected_query: dict[str, tuple[str, ...]]
+    ) -> None:
+        result = _driver().run(endpoint, [_token(), _profiles([])])
+        assert result.raised is None
+        profiles_request = result.requests[1]
+        assert profiles_request.path == "/v2/profiles"
+        assert profiles_request.query == expected_query
+        assert profiles_request.headers.get("accept", "*/*") in ("*/*", "application/json")
+
     def test_remints_token_on_401(self) -> None:
         result = _driver().run(
             "profiles",
@@ -426,8 +445,8 @@ class TestChangeHistoryRows:
         [
             (False, None, _HISTORY_EARLIEST_MS),
             (True, None, _HISTORY_EARLIEST_MS),
-            (True, _NOW_MS - 3_600_000, _NOW_MS - 3_600_000),
-            (True, str(_NOW_MS - 3_600_000), _NOW_MS - 3_600_000),
+            (True, _NOW_MS - 3_600_000, _NOW_MS - 3_600_000 - HISTORY_LOOKBACK_MS),
+            (True, str(_NOW_MS - 3_600_000), _NOW_MS - 3_600_000 - HISTORY_LOOKBACK_MS),
             # A cursor older than Amazon's retention would be refused, so it is clamped.
             (True, _HISTORY_EARLIEST_MS - 86_400_000, _HISTORY_EARLIEST_MS),
         ],
@@ -477,6 +496,33 @@ class TestChangeHistoryRows:
         assert [row["_event_id"] for row in first.rows] == [row["_event_id"] for row in second.rows]
         assert all(row["_profile_id"] == "1" for row in first.rows)
         assert first.requests[3].json() == {**first.requests[2].json(), "nextToken": "tok"}
+
+    def test_history_stages_its_position_and_resumes_from_it(self) -> None:
+        event = {"entityType": "AD", "entityId": "a1", "changeType": "STATUS", "timestamp": 5}
+        result = _driver().run(
+            "change_history",
+            [
+                _token(),
+                _profiles([{"profileId": 1}, {"profileId": 2}, {"profileId": 3}]),
+                ScriptedResponse(json={"events": [event], "nextToken": "tok-2"}),
+                ScriptedResponse(json={"events": []}),
+                ScriptedResponse(json={"events": [event]}),
+            ],
+            resume_state=AmazonAdsResumeConfig(
+                profile_id="2", window_start="1000", history_to_ms=2000, next_token="tok-1"
+            ),
+        )
+        assert result.raised is None
+        assert [request.headers["amazon-advertising-api-scope"] for request in result.requests[2:]] == ["2", "2", "3"]
+        bodies = [request.json() for request in result.requests[2:]]
+        assert [(body["fromDate"], body["toDate"]) for body in bodies] == [(1000, 2000)] * 3
+        assert [body.get("nextToken") for body in bodies] == ["tok-1", "tok-2", None]
+        assert [row["_profile_id"] for row in result.rows] == ["2", "3"]
+        assert result.saved_states == [
+            AmazonAdsResumeConfig(profile_id="2", window_start="1000", history_to_ms=2000, next_token="tok-2"),
+            AmazonAdsResumeConfig(profile_id="3", window_start="1000", history_to_ms=2000, next_token=None),
+        ]
+        assert result.final_state is None
 
 
 class TestAmazonAdsSourceResponse:

@@ -16,6 +16,7 @@ from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait
 from products.warehouse_sources.sources.amazon_ads.settings import (
     AMAZON_ADS_ENDPOINTS,
     HISTORY_EVENT_TYPES,
+    HISTORY_LOOKBACK_MS,
     HISTORY_RETENTION_DAYS,
     AmazonAdsEndpointConfig,
     AmazonAdsReportConfig,
@@ -75,15 +76,21 @@ class AmazonAdsReportError(Exception):
 
 @frozen
 class AmazonAdsResumeConfig:
-    """The report Amazon is generating right now, so a retried activity re-polls it.
+    """Where a retried activity picks up.
 
-    Asking twice for a report with identical parameters is answered with a 425 until the first
-    one finishes, so a retry that starts over would wait out the report it abandoned.
+    For a report, the report Amazon is generating right now, so a retry re-polls it. Asking twice
+    for a report with identical parameters is answered with a 425 until the first one finishes, so
+    a retry that starts over would wait out the report it abandoned.
+
+    For change history, the profile, the query window (`window_start` holds `fromDate`) and the
+    next page token.
     """
 
     profile_id: str
     window_start: str
-    report_id: str
+    report_id: str = ""
+    history_to_ms: Optional[int] = None
+    next_token: Optional[str] = None
 
 
 def _get_session(
@@ -254,12 +261,13 @@ class AmazonAdsClient:
         )
 
     def _headers(
-        self, method: str, profile_id: Optional[str], extra_headers: Optional[dict[str, str]]
+        self, method: str, path: str, profile_id: Optional[str], extra_headers: Optional[dict[str, str]]
     ) -> dict[str, str]:
         headers: dict[str, str] = {"Authorization": f"Bearer {self.token}"}
         if profile_id is not None:
             headers["Amazon-Advertising-API-Scope"] = profile_id
-        if self.config.media_type is not None:
+        # The media type belongs to the table's own endpoint. Profile discovery serves plain JSON only.
+        if self.config.media_type is not None and path == self.config.path:
             if method == "POST":
                 headers["Content-Type"] = self.config.media_type
             headers["Accept"] = self.config.media_type
@@ -285,7 +293,7 @@ class AmazonAdsClient:
         client = http if http is not None else self.session
 
         def _do() -> requests.Response:
-            headers = self._headers(method, profile_id, extra_headers)
+            headers = self._headers(method, path, profile_id, extra_headers)
             if method == "POST":
                 return client.post(url, json=body or {}, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
             return client.get(url, params=params, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
@@ -319,8 +327,8 @@ class AmazonAdsClient:
         with request_deadline():
             return self._retrying(self._send, method, path, profile_id, body, extra_headers, http, params)
 
-    def list_profiles(self) -> list[dict[str, Any]]:
-        body = self.request("GET", "/v2/profiles").json()
+    def list_profiles(self, params: Optional[dict[str, str]] = None) -> list[dict[str, Any]]:
+        body = self.request("GET", "/v2/profiles", params=params).json()
         return body if isinstance(body, list) else []
 
     def create_report(self, report: AmazonAdsReportConfig, profile_id: str, window: SyncWindow[dt.date]) -> str:
@@ -458,6 +466,11 @@ def _list_page(
     return payload if isinstance(payload, dict) else data
 
 
+def _page_items(data: dict[str, Any], config: AmazonAdsEndpointConfig) -> list[dict[str, Any]]:
+    rows = data.get(config.data_key) if config.data_key is not None else None
+    return [row for row in (rows or []) if isinstance(row, dict)]
+
+
 def _paged_rows(
     client: AmazonAdsClient, profile_id: Optional[str], query: dict[str, Any]
 ) -> Iterator[list[dict[str, Any]]]:
@@ -466,7 +479,7 @@ def _paged_rows(
     next_token: Optional[str] = None
     while True:
         data = _list_page(client, profile_id, query, next_token)
-        items = [item for item in (data.get(config.data_key) or []) if isinstance(item, dict)]
+        items = _page_items(data, config)
         if profile_id is not None:
             items = [{**item, "_profile_id": profile_id} for item in items]
 
@@ -519,21 +532,66 @@ def _history_from_ms(
         cursor = int(db_incremental_field_last_value)
     except (TypeError, ValueError):
         return earliest
-    return max(cursor, earliest)
+    return max(cursor - HISTORY_LOOKBACK_MS, earliest)
 
 
 def _history_rows(
     client: AmazonAdsClient,
     profile_ids: list[str],
+    resumable_source_manager: Optional[ResumableSourceManager[AmazonAdsResumeConfig]],
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Optional[Any],
 ) -> Iterator[list[dict[str, Any]]]:
-    now = dt.datetime.now(dt.UTC)
-    from_ms = _history_from_ms(now, should_use_incremental_field, db_incremental_field_last_value)
-    query = _history_query(client.config, from_ms, int(now.timestamp() * 1000))
-    for profile_id in profile_ids:
-        for page in _paged_rows(client, profile_id, query):
-            yield [{**event, "_event_id": _history_event_id(event)} for event in page]
+    config = client.config
+    pending = (
+        resumable_source_manager.load_state()
+        if resumable_source_manager is not None and resumable_source_manager.can_resume()
+        else None
+    )
+    next_token: Optional[str] = None
+    if pending is not None and pending.history_to_ms is not None and pending.profile_id in profile_ids:
+        from_ms, to_ms = int(pending.window_start), pending.history_to_ms
+        profile_ids = profile_ids[profile_ids.index(pending.profile_id) :]
+        next_token = pending.next_token
+    else:
+        now = dt.datetime.now(dt.UTC)
+        from_ms = _history_from_ms(now, should_use_incremental_field, db_incremental_field_last_value)
+        to_ms = int(now.timestamp() * 1000)
+
+    query = _history_query(config, from_ms, to_ms)
+    for index, profile_id in enumerate(profile_ids):
+        while True:
+            data = _list_page(client, profile_id, query, next_token)
+            events = _page_items(data, config)
+            next_token = data.get(config.next_token_key) if events else None
+
+            if resumable_source_manager is not None:
+                if next_token:
+                    resume_at: Optional[tuple[str, Optional[str]]] = (profile_id, next_token)
+                elif index + 1 < len(profile_ids):
+                    resume_at = (profile_ids[index + 1], None)
+                else:
+                    resume_at = None
+                if resume_at is not None:
+                    resumable_source_manager.save_state(
+                        AmazonAdsResumeConfig(
+                            profile_id=resume_at[0],
+                            window_start=str(from_ms),
+                            history_to_ms=to_ms,
+                            next_token=resume_at[1],
+                        )
+                    )
+
+            if events:
+                yield [{**event, "_profile_id": profile_id, "_event_id": _history_event_id(event)} for event in events]
+            elif resumable_source_manager is not None:
+                resumable_source_manager.safe_point()
+
+            if not next_token:
+                break
+
+    if resumable_source_manager is not None:
+        resumable_source_manager.clear_state()
 
 
 def get_rows(
@@ -560,10 +618,16 @@ def get_rows(
         yield from _paged_rows(client, None, _list_query(config))
         return
 
-    profile_ids = [str(profile["profileId"]) for profile in client.list_profiles()]
+    profile_ids = [str(profile["profileId"]) for profile in client.list_profiles(config.profile_discovery_params)]
 
     if config.history:
-        yield from _history_rows(client, profile_ids, should_use_incremental_field, db_incremental_field_last_value)
+        yield from _history_rows(
+            client,
+            profile_ids,
+            resumable_source_manager,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+        )
         return
 
     if config.report is not None:

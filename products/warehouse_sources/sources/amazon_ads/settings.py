@@ -62,6 +62,9 @@ class AmazonAdsEndpointConfig:
     next_token_response_key: Optional[str] = None
     # The Change History query, which windows on `fromDate` and fans out per profile.
     history: bool = False
+    # `/v2/profiles` query that finds the profiles this table can read. Without one, Amazon lists
+    # only the profiles with view-and-edit campaign permission.
+    profile_discovery_params: Optional[dict[str, str]] = None
 
 
 def ads_api_query(
@@ -146,6 +149,8 @@ REPORT_LOOKBACK_SECONDS = 60 * 60 * 24 * (SP_CAMPAIGN_REPORT.max_window_days + 3
 # Amazon keeps change history for 90 days. A day less keeps a first sync inside it.
 HISTORY_RETENTION_DAYS = 89
 HISTORY_PAGE_SIZE = 200
+# Amazon can record an event after a sync with a timestamp below that sync's cursor.
+HISTORY_LOOKBACK_MS = 24 * 60 * 60 * 1000
 # THEME needs the v1.1 response version, so it is left out.
 HISTORY_EVENT_TYPES = ("CAMPAIGN", "AD_GROUP", "AD", "KEYWORD", "NEGATIVE_KEYWORD", "PRODUCT_TARGETING")
 
@@ -298,6 +303,7 @@ AMAZON_ADS_ENDPOINTS: dict[str, AmazonAdsEndpointConfig] = {
         page_size_key="count",
         next_token_key="cursor",
         next_token_response_key="nextCursor",
+        profile_discovery_params={"apiProgram": "billing", "accessLevel": "view"},
     ),
     # A history event has no id of its own, so `_event_id` is a hash of the event.
     "change_history": AmazonAdsEndpointConfig(
@@ -309,6 +315,7 @@ AMAZON_ADS_ENDPOINTS: dict[str, AmazonAdsEndpointConfig] = {
         page_size=HISTORY_PAGE_SIZE,
         page_size_key="count",
         history=True,
+        profile_discovery_params={"apiProgram": "campaign", "accessLevel": "view"},
     ),
     "sp_campaign_reports": AmazonAdsEndpointConfig(
         name="sp_campaign_reports",
