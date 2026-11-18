@@ -57,6 +57,14 @@ class Handoff:
 
 
 _HANDOFF = TypeAdapter(Handoff)
+# Draft keys that hold what a card's sample showed. The evaluation API ignores them on accept.
+OBSERVATION_KEYS = ("observation", "observation_scope")
+
+
+def _observation(proposal: Proposal) -> dict[str, str]:
+    if not proposal.observation:
+        return {}
+    return dict(zip(OBSERVATION_KEYS, (proposal.observation, proposal.observation_scope)))
 
 
 def get_run(team_id: int, run_id: str) -> EvalSuggestionRun:
@@ -157,7 +165,7 @@ def publish(run: EvalSuggestionRun, proposals: Sequence[Proposal], stages: dict[
                     headline=p.headline[:400],
                     outcome=p.outcome,
                     reason=p.reason,
-                    draft=p.draft,
+                    draft={**p.draft, **_observation(p)},
                     filters=p.filters,
                     rollout_percentage=p.rollout_percentage,
                     measured_failure_rate=p.measured_failure_rate,
