@@ -8,7 +8,7 @@ query path.
 """
 
 from contextlib import nullcontext
-from functools import partial
+from functools import cached_property, partial
 from typing import TYPE_CHECKING, Optional, cast
 
 from posthog.schema import (
@@ -28,6 +28,7 @@ from posthog.hogql import ast
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.api.snuffle_proxy import SNUFFLE_API_FEATURE_FLAG
+from posthog.clickhouse.client.limit import QueryLane
 from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.permissions import posthog_feature_flag_enabled
@@ -76,6 +77,8 @@ from products.metrics.backend.variables import (
 
 if TYPE_CHECKING:
     from posthog.models import User
+
+DASHBOARD_V2_FEATURE_FLAG = "dashboard-v2"
 
 
 class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
@@ -236,13 +239,35 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
             raise ExposedHogQLError(str(exc)) from exc
         return super()._call_with_rate_limits(dashboard_id=dashboard_id)
 
+    def _query_lane(self, dashboard_id: int | None) -> QueryLane:
+        # Metrics read Snuffle and the metrics tables, so taking the events-cluster slots protects nothing.
+        if dashboard_id is not None and self._dashboard_v2_enabled:
+            return QueryLane.TELEMETRY
+        return QueryLane.ANALYTICS
+
+    @cached_property
+    def _dashboard_v2_enabled(self) -> bool:
+        # `dashboard-v2` is aggregated by project, so the distinct id doesn't decide it.
+        return posthog_feature_flag_enabled(
+            DASHBOARD_V2_FEATURE_FLAG,
+            str(getattr(self.user, "distinct_id", None) or self.team.uuid),
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+            only_evaluate_locally=True,
+        )
+
     def _load_all_options(self, dashboard_id: int | None = None) -> dict[str, Variable]:
         if self._loaded_variables is None:
             self._enforce_alpha_gates_without_a_request_user()
             variables = from_query(self.query.variables)
             definitions = query_definitions(self.query.variables)
             if definitions and self.query.language == MetricsQueryLanguage.SQL:
-                slot = partial(query_concurrency_slots, self.team, dashboard_id=dashboard_id)
+                slot = partial(
+                    query_concurrency_slots,
+                    self.team,
+                    dashboard_id=dashboard_id,
+                    query_lane=self._query_lane(dashboard_id),
+                )
                 date_range = metrics_query_date_range(self.team, self.query.dateRange)
                 # `all` looks up the earliest event, which is a query, so it counts against the same limits.
                 with slot() if self.query.dateRange and self.query.dateRange.date_from == "all" else nullcontext():

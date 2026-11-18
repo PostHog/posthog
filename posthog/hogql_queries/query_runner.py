@@ -168,9 +168,11 @@ from posthog.caching.utils import (
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
 from posthog.clickhouse.client.limit import (
+    QueryLane,
     app_org_concurrency_slot,
     get_api_team_rate_limiter,
     get_app_dashboard_queries_rate_limiter,
+    get_app_telemetry_queries_rate_limiter,
     get_materialized_endpoints_rate_limiter,
 )
 from posthog.clickhouse.query_tagging import (
@@ -2516,6 +2518,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         QUERY_FAILURE_CACHE_COUNTER.labels(action="served_error", kind=failure.kind).inc()
         raise build_failure_exception(failure, with_scan=self._scan_replay_visible(failure, user))
 
+    def _query_lane(self, dashboard_id: Optional[int]) -> QueryLane:
+        """Which per-organization app limits this run takes its slots from."""
+        return QueryLane.ANALYTICS
+
     def _call_with_rate_limits(self, *, dashboard_id: Optional[int]) -> tuple[R, float]:
         """Execute calculate() with all rate limiters applied.
 
@@ -2552,16 +2558,26 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         limit=concurrency_limit,
                     )
                 )
-                limiter_stack.enter_context(app_org_concurrency_slot(self.team, task_id=self.query_id))
-                limiter_stack.enter_context(
-                    get_app_dashboard_queries_rate_limiter().run(
-                        org_id=self.team.organization_id,
-                        dashboard_id=dashboard_id,
-                        task_id=self.query_id,
-                        team_id=self.team.id,
-                        is_api=is_api_key_access,
+                if self._query_lane(dashboard_id) == QueryLane.TELEMETRY:
+                    limiter_stack.enter_context(
+                        get_app_telemetry_queries_rate_limiter().run(
+                            org_id=self.team.organization_id,
+                            task_id=self.query_id,
+                            team_id=self.team.id,
+                            is_api=is_api_key_access,
+                        )
                     )
-                )
+                else:
+                    limiter_stack.enter_context(app_org_concurrency_slot(self.team, task_id=self.query_id))
+                    limiter_stack.enter_context(
+                        get_app_dashboard_queries_rate_limiter().run(
+                            org_id=self.team.organization_id,
+                            dashboard_id=dashboard_id,
+                            task_id=self.query_id,
+                            team_id=self.team.id,
+                            is_api=is_api_key_access,
+                        )
+                    )
             self._phase = RunPhase(name="calculate", stats=get_active_query_stats())
             query_start_time = perf_counter()
             query_result = self.calculate()

@@ -27,6 +27,11 @@ from posthog.schema import (
 )
 
 from posthog.clickhouse.client.execute_async import QueryStatusManager
+from posthog.clickhouse.client.limit import (
+    ConcurrencyLimitExceeded,
+    get_app_dashboard_queries_rate_limiter,
+    get_app_org_rate_limiter,
+)
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import User
@@ -131,6 +136,39 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
         assert events.index("budget") < events.index("options") < events.index("slot")
+
+    @parameterized.expand(
+        [
+            ("flag_on_tile_skips_full_dashboard_lane", True, 1, "dashboard", False),
+            ("flag_on_tile_skips_full_org_lane", True, 1, "org", False),
+            ("flag_off_tile_rejected_by_dashboard_lane", False, 1, "dashboard", True),
+            ("flag_off_tile_rejected_by_org_lane", False, 1, "org", True),
+            ("flag_on_outside_a_dashboard_rejected_by_org_lane", True, None, "org", True),
+        ]
+    )
+    @patch("posthog.clickhouse.client.limit.TEST", False)
+    def test_dashboard_v2_metrics_tiles_do_not_take_analytics_slots(
+        self, _name: str, flag_on: bool, dashboard_id: int | None, full_lane: str, rejected: bool
+    ) -> None:
+        limiter = get_app_org_rate_limiter() if full_lane == "org" else get_app_dashboard_queries_rate_limiter()
+        for i in range(limiter.max_concurrency):
+            slot = limiter.use(org_id=self.organization.id, dashboard_id=1, team_id=self.team.pk, task_id=f"held-{i}")
+            assert slot is not None
+            self.addCleanup(limiter.release, slot)
+        runner = MetricsQueryRunner(query=MetricsQuery(clauses=[], language="sql", sql="SELECT 1"), team=self.team)
+
+        with (
+            patch(
+                "products.metrics.backend.hogql_queries.metrics_query_runner.posthog_feature_flag_enabled",
+                return_value=flag_on,
+            ),
+            patch("products.metrics.backend.hogql_queries.metrics_query_runner.run_metrics_sql", return_value=[]),
+        ):
+            if rejected:
+                with pytest.raises(ConcurrencyLimitExceeded):
+                    runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, dashboard_id=dashboard_id)
+            else:
+                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, dashboard_id=dashboard_id)
 
     def test_default_date_range_is_last_24_hours(self) -> None:
         query = MetricsQuery(
