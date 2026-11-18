@@ -125,11 +125,8 @@ class InstanceSettingsSerializer(serializers.Serializer):
     is_secret = serializers.BooleanField(read_only=True)
 
     def validate_value(self, value: Any) -> Any:
-        if self.instance is not None and self.instance.key in (
-            "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS",
-            "BATCH_EXPORTS_NEW_EVENTS_SCHEMA_TEAMS",
-        ):
-            # Every query or batch export run parses its list, so a value that fails to parse would fail all of them.
+        if self.instance is not None and self.instance.key == "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS":
+            # Every query parses this list, so a value that fails to parse would fail every query on the instance.
             if not isinstance(value, str) or not re.fullmatch(r"\s*(\d+\s*(,\s*\d+\s*)*)?", value):
                 raise serializers.ValidationError(
                     "Enter project IDs separated by commas, or leave it empty to switch no project."

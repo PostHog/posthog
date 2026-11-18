@@ -468,9 +468,7 @@ class BatchExportsDebugger:
 
             fields = with_inserted_at_field(default_fields_for_destination(batch_export_run.parent.destination.type))
 
-            native_source = query_template is SELECT_FROM_EVENTS_VIEW_BACKFILL and batch_exports_read_new_events_table(
-                team_id
-            )
+            native_source = query_template is SELECT_FROM_EVENTS_VIEW_BACKFILL and batch_exports_read_new_events_table()
 
             filters_str = ""
             if filters is not None and len(filters) > 0:

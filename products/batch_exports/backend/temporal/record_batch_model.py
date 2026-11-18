@@ -399,12 +399,11 @@ class HogQLQueryRecordBatchModel(RecordBatchModel):
         team = await Team.objects.aget(id=self.team_id)
         user = await User.objects.filter(pk=self.user_id).afirst()
         await database_sync_to_async(validate_hogql_batch_export_user)(team, user)
-        modifiers = await database_sync_to_async(apply_hogql_batch_export_modifier_defaults)(team, self.hogql_modifiers)
         context = await database_sync_to_async(create_hogql_context_for_batch_export)(
             team,
             user=user,
             values={"log_comment": self.get_log_comment()},
-            modifiers=modifiers,
+            modifiers=apply_hogql_batch_export_modifier_defaults(team, self.hogql_modifiers),
         )
         # Pinned here rather than resolved in `get_clickhouse_request_settings`, which is sync and runs on
         # the event loop where a database read is not allowed.

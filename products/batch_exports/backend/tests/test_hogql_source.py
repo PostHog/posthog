@@ -172,12 +172,11 @@ def test_context_without_hogql_defaults_keeps_the_project_timezone(team) -> None
         ("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", None, None, False),
         (None, EVENTS_TABLE_ROLLOUT_FLAG, None, False),
         (None, EVENTS_TABLE_SELF_SERVE_FLAG, None, False),
-        ("BATCH_EXPORTS_NEW_EVENTS_SCHEMA_TEAMS", None, None, True),
         (None, None, {"useNewEventsSchema": True}, True),
     ],
-    ids=["global-setting", "staff-list", "rollout-flag", "project-opt-in", "batch-exports-list", "export-modifier"],
+    ids=["global-setting", "staff-list", "rollout-flag", "project-opt-in", "export-modifier"],
 )
-def test_only_the_batch_exports_list_moves_an_export_to_the_new_events_table(
+def test_only_the_export_modifier_moves_an_export_to_the_new_events_table(
     team,
     instance_setting: str | None,
     flag_on: str | None,

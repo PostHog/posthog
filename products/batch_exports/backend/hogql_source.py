@@ -142,14 +142,14 @@ def apply_hogql_batch_export_modifier_defaults(
 
     `useNewEventsSchema` falls back to `batch_exports_read_new_events_table`. An explicit modifier
     outranks every other events table switch, so only that function or the export's own modifier
-    moves the export. It reads Postgres, so worker code must call it off the event loop.
+    moves the export.
     """
     resolved = modifiers.model_copy() if modifiers is not None else HogQLQueryModifiers()
     team_value = team.modifiers.get("convertToProjectTimezone") if isinstance(team.modifiers, dict) else None
     if resolved.convertToProjectTimezone is None and team_value is None:
         resolved.convertToProjectTimezone = False
     if resolved.useNewEventsSchema is None:
-        resolved.useNewEventsSchema = batch_exports_read_new_events_table(team.pk)
+        resolved.useNewEventsSchema = batch_exports_read_new_events_table()
     return resolved
 
 
