@@ -1,16 +1,19 @@
 import { getCloudTaskGatewayUrl } from "@posthog/agent-contracts";
 
-export type GatewayProduct =
-  | "posthog_code"
-  | "background_agents"
-  | "signals"
-  | "slack_app"
-  | "workflows"
-  | "posthog_ai"
-  | "conversations"
-  | "account_audit"
-  | "onboarding"
-  | "review_hog";
+export const GATEWAY_PRODUCTS = [
+  "posthog_code",
+  "background_agents",
+  "signals",
+  "slack_app",
+  "workflows",
+  "posthog_ai",
+  "conversations",
+  "account_audit",
+  "onboarding",
+  "review_hog",
+] as const;
+
+export type GatewayProduct = (typeof GATEWAY_PRODUCTS)[number];
 
 export function resolveGatewayProduct({
   isInternal,

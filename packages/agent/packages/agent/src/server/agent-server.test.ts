@@ -1253,6 +1253,44 @@ describe("AgentServer HTTP Mode", () => {
       30000,
     );
 
+    it("routes the session to the gateway product the server names", async () => {
+      await mkdir("/tmp/workspace", { recursive: true });
+      const saved = {
+        POSTHOG_TASK_RUN_POLICY: process.env.POSTHOG_TASK_RUN_POLICY,
+        LLM_GATEWAY_URL: process.env.LLM_GATEWAY_URL,
+      };
+      process.env.LLM_GATEWAY_URL = "https://gateway.example.com";
+      process.env.POSTHOG_TASK_RUN_POLICY = JSON.stringify({
+        run_id: "test-run-id",
+        finish_tool: true,
+        finish_report_required: false,
+        report_activity_tool: false,
+        expects_system_prompt: false,
+        thread_link: false,
+        default_client_provenance: null,
+        billing_product: "workflows",
+      });
+      try {
+        mockedClaudeSdk.query.mockClear();
+        await createServer({ runtimeAdapter: "claude" }).start();
+
+        const request = mockedClaudeSdk.query.mock.lastCall?.[0] as unknown as {
+          options: { env?: Record<string, string> };
+        };
+        expect(request?.options?.env?.ANTHROPIC_BASE_URL).toBe(
+          "https://gateway.example.com/workflows",
+        );
+      } finally {
+        for (const [key, value] of Object.entries(saved)) {
+          if (value === undefined) {
+            delete process.env[key];
+          } else {
+            process.env[key] = value;
+          }
+        }
+      }
+    }, 30000);
+
     it("reports where the run policy came from with gateway requests", async () => {
       await mkdir("/tmp/workspace", { recursive: true });
       mockedClaudeSdk.query.mockClear();
