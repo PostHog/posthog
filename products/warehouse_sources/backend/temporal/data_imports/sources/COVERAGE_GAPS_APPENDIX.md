@@ -13257,7 +13257,7 @@ Note: W&B has no REST API for this data — the source talks straight to the Gra
 
 ## Whop — gaps
 
-Today (17): `affiliates`, `checkout_configurations`, `company_token_transactions`, `dispute_alerts`, `disputes`, `entries`, `experiences`, `invoices`, `leads`, `members`, `memberships`, `payments`, `products`, `promo_codes`, `refunds`, `setup_intents`, `shipments`
+Today (16): `affiliates`, `checkout_configurations`, `company_token_transactions`, `dispute_alerts`, `disputes`, `entries`, `experiences`, `invoices`, `members`, `memberships`, `payments`, `products`, `promo_codes`, `refunds`, `setup_intents`, `shipments`
 
 Diffed against: <https://raw.githubusercontent.com/whopio/whopsdk-python/main/reference.md>
 
