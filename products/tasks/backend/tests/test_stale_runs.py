@@ -66,6 +66,7 @@ class TestStaleRules(SimpleTestCase):
                 {StaleRule.HEARTBEAT},
             ),
             ("resumed_run_ignores_its_old_heartbeat", CLOUD, _ago(hours=5), _ago(minutes=2), _ago(hours=6), NOW, set()),
+            ("run_written_after_a_long_queue", CLOUD, None, _ago(hours=3), _ago(hours=3), _ago(minutes=2), set()),
             (
                 "cloud_run_with_no_writes_for_a_day",
                 CLOUD,
@@ -133,6 +134,7 @@ class TestCollectStaleLiveRuns(TestCase):
         awaits_first_message: bool = False,
         warm_activation_started: bool = False,
         no_write_for: timedelta | None = None,
+        agent_status: str | None = TaskRun.AgentStatus.READY,
     ) -> TaskRun:
         task = Task.objects.create(
             team=self.team,
@@ -149,14 +151,14 @@ class TestCollectStaleLiveRuns(TestCase):
             environment=environment,
             created_at=last_seen,
             last_heartbeat_at=last_seen if environment == CLOUD else None,
+            agent_status=agent_status,
             state={
                 **({"inactivity_timeout_seconds": idle_timeout_seconds} if idle_timeout_seconds else {}),
                 **({"await_user_message": True} if awaits_first_message else {}),
                 **({"warm_activation_started": True} if warm_activation_started else {}),
             },
         )
-        if no_write_for is not None:
-            TaskRun.objects.filter(id=run.id).update(updated_at=django_timezone.now() - no_write_for)
+        TaskRun.objects.filter(id=run.id).update(updated_at=django_timezone.now() - (no_write_for or quiet_for))
         return run
 
     def test_counts_only_live_runs_that_went_quiet_past_their_own_timeout(self) -> None:
@@ -186,6 +188,20 @@ class TestCollectStaleLiveRuns(TestCase):
             ("mode_that_does_not_exist", {USER.key: "enforced"}, {}, None),
             ("payload_that_is_not_a_mapping", ["enforce"], {}, None),
             ("run_that_showed_life", {USER.key: "enforce"}, {"quiet_for": timedelta(seconds=5)}, None),
+            ("run_whose_workflow_just_started", {USER.key: "enforce"}, {"no_write_for": timedelta(seconds=5)}, None),
+            ("run_still_setting_up", {USER.key: "enforce"}, {"agent_status": None}, None),
+            (
+                "run_whose_agent_is_starting",
+                {USER.key: "enforce"},
+                {"agent_status": TaskRun.AgentStatus.STARTING},
+                None,
+            ),
+            (
+                "run_stuck_in_setup",
+                {USER.key: "enforce"},
+                {"agent_status": None, "quiet_for": timedelta(hours=3)},
+                USER.key,
+            ),
             ("queued_run", {USER.key: "enforce"}, {"status": TaskRun.Status.QUEUED}, None),
             ("local_run", {USER.key: "enforce"}, {"environment": LOCAL}, None),
             ("warm_run_waiting_for_its_first_message", {USER.key: "enforce"}, {"awaits_first_message": True}, None),
@@ -290,10 +306,11 @@ class TestCollectStaleLiveRuns(TestCase):
         ):
             assert sweep_mode(USER.key, self.team) == SweepMode.ENFORCE
 
-    def test_a_run_that_heartbeats_after_the_scan_is_not_swept(self) -> None:
+    @parameterized.expand([("heartbeats", "last_heartbeat_at"), ("is_written", "updated_at")])
+    def test_a_run_that_shows_life_after_the_scan_is_not_swept(self, _name: str, sign_of_life: str) -> None:
         run = self._run(profile=USER.key, quiet_for=timedelta(hours=1), idle_timeout_seconds=600)
         quiet_since = django_timezone.now() - timedelta(minutes=25)
-        TaskRun.objects.filter(id=run.id).update(last_heartbeat_at=django_timezone.now())
+        TaskRun.objects.filter(id=run.id).update(**{sign_of_life: django_timezone.now()})
 
         claimed = tasks_facade.claim_and_fail_stale_run(run.id, "quiet", quiet_since=quiet_since)
 

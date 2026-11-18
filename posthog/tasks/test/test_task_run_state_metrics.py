@@ -311,8 +311,9 @@ class TestCaptureTaskStatusShadowMetrics(TestCase):
         team = Team.objects.create(organization=organization, name="Test Team")
         task = Task.objects.create(team=team, title="t", description="d", origin_product=Task.OriginProduct.SLACK)
         TaskRun.objects.create(
-            task=task, team=team, status=TaskRun.Status.IN_PROGRESS, created_at=timezone.now() - timedelta(hours=1)
+            task=task, team=team, status=TaskRun.Status.IN_PROGRESS, created_at=timezone.now() - timedelta(hours=3)
         )
+        TaskRun.objects.filter(task=task).update(updated_at=timezone.now() - timedelta(hours=3))
         Task.objects.filter(pk=task.pk).update(status=Task.Status.QUEUED)
         registry = CollectorRegistry()
         context = MagicMock()
@@ -341,6 +342,7 @@ class TestCaptureTaskStatusShadowMetrics(TestCase):
         run = TaskRun.objects.create(
             task=task, team=team, status=TaskRun.Status.IN_PROGRESS, created_at=timezone.now() - timedelta(hours=3)
         )
+        TaskRun.objects.filter(pk=run.pk).update(updated_at=timezone.now() - timedelta(hours=3))
         registry = CollectorRegistry()
         context = MagicMock()
         context.__enter__ = MagicMock(return_value=registry)
