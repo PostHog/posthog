@@ -492,6 +492,8 @@ function buildValueLabelsConfig(
     return {
         position: chartSettings.valueLabelPosition,
         background: chartSettings.valueLabelBackground,
+        color: chartSettings.valueLabelColor,
+        backgroundColor: chartSettings.valueLabelBackgroundColor,
         fontSize: chartSettings.valueLabelFontSize,
         rotation: chartSettings.valueLabelRotation,
         formatter: (_value, seriesIndex, _dataIndex, context) =>
