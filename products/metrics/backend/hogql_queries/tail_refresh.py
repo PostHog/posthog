@@ -123,8 +123,17 @@ def plan_tail(
     return TailPlan(cut=cut, fetch_from=fetch_from)
 
 
-def _series_key(series: MetricsQuerySeries) -> tuple[str | None, str | None, tuple[tuple[str, str], ...]]:
-    return (series.clause, series.metricName, tuple(sorted(series.labels.items())))
+@frozen
+class SeriesKey:
+    """Identifies one series across a cached result and a tail result. Hashable, so it keys dicts."""
+
+    clause: str | None
+    metric_name: str | None
+    labels: tuple[tuple[str, str], ...]
+
+    @classmethod
+    def of(cls, series: MetricsQuerySeries) -> "SeriesKey":
+        return cls(clause=series.clause, metric_name=series.metricName, labels=tuple(sorted(series.labels.items())))
 
 
 def _magnitude(series: MetricsQuerySeries) -> float:
@@ -147,8 +156,8 @@ def merge_series(
     # An empty result is one series without points, which a full run with data does not return.
     if any(not series.points for series in [*cached, *tail]):
         return None
-    cached_by_key = {_series_key(series): series for series in cached}
-    tail_by_key = {_series_key(series): series for series in tail}
+    cached_by_key = {SeriesKey.of(series): series for series in cached}
+    tail_by_key = {SeriesKey.of(series): series for series in tail}
     if len(cached_by_key) != len(cached) or len(tail_by_key) != len(tail):
         return None
     # A clause at the cap keeps the largest series over the whole window, which the splice cannot rank.
@@ -167,7 +176,7 @@ def merge_series(
         return None
 
     grid: dict[dt.datetime, str] = {}
-    values: dict[tuple[str | None, str | None, tuple[tuple[str, str], ...]], dict[dt.datetime, float | None]] = {}
+    values: dict[SeriesKey, dict[dt.datetime, float | None]] = {}
     for key, series in cached_by_key.items():
         kept = values.setdefault(key, {})
         for point in series.points:
