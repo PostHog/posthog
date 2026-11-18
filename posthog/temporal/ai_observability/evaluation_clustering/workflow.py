@@ -8,6 +8,7 @@ from temporalio import workflow
 
 from posthog.dataclasses import frozen
 from posthog.temporal.ai_observability.evaluation_clustering.constants import (
+    CLUSTERING_MAX_SAMPLES,
     CLUSTERING_WORKFLOW_NAME,
     SAMPLER_ACTIVITY_HEARTBEAT,
     SAMPLER_ACTIVITY_RETRY_POLICY,
@@ -30,6 +31,8 @@ from posthog.temporal.ai_observability.trace_clustering.metrics import (
     record_noise_points,
 )
 from posthog.temporal.common.base import PostHogWorkflow
+
+from products.ai_observability.backend.facade.clustering_runtime import scope_key
 
 logger = structlog.get_logger(__name__)
 
@@ -87,6 +90,7 @@ class AIObservabilityEvaluationSamplerWorkflow(PostHogWorkflow):
                 window_end=window_end,
                 max_samples=max_samples,
                 event_filters=inputs.event_filters,
+                job_scope=scope_key("evaluation", inputs.event_filters) if inputs.job_id else "",
             ),
             start_to_close_timeout=SAMPLER_ACTIVITY_TIMEOUT,
             schedule_to_close_timeout=SAMPLER_ACTIVITY_SCHEDULE_TO_CLOSE,
@@ -184,6 +188,8 @@ class AIObservabilityEvaluationClusteringWorkflow(PostHogWorkflow):
                 team_id=inputs.team_id,
                 job_id=inputs.job_id,
                 job_name=inputs.job_name,
+                max_samples=inputs.max_samples if inputs.max_samples is not None else CLUSTERING_MAX_SAMPLES,
+                job_scope=scope_key("evaluation", inputs.event_filters) if inputs.job_id else "",
                 window_start=window_start,
                 window_end=window_end,
             ),
@@ -245,6 +251,7 @@ class AIObservabilityEvaluationClusteringWorkflow(PostHogWorkflow):
                 session_id=f"{trace_id}:session",
                 clustering_run_id=compute_result.clustering_run_id,
                 clustering_job_id=inputs.job_id,
+                job_scope=scope_key("evaluation", inputs.event_filters) if inputs.job_id else "",
             ),
             start_to_close_timeout=LLM_ACTIVITY_TIMEOUT,
             schedule_to_close_timeout=LLM_SCHEDULE_TO_CLOSE_TIMEOUT,
@@ -292,6 +299,7 @@ class AIObservabilityEvaluationClusteringWorkflow(PostHogWorkflow):
                 eval_metadata=metadata_result.metadata,
                 job_id=inputs.job_id,
                 job_name=inputs.job_name,
+                job_scope=scope_key("evaluation", inputs.event_filters) if inputs.job_id else "",
                 cluster_metrics=cluster_metrics,
             ),
             start_to_close_timeout=EMIT_ACTIVITY_TIMEOUT,

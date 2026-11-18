@@ -1,6 +1,6 @@
 ---
 name: adding-api-scopes
-description: 'Guidance for adding an API scope object to the posthog/scopes/ package and making it work for personal API keys, OAuth tokens and MCP clients. Use when adding a scope object, exposing a viewset or MCP tool to tokens, moving a viewset off scope_object = "INTERNAL", deciding if a scope is internal, OAuth-hidden or privileged, choosing a scope group, reading the scope list in Python, the frontend or the MCP server, or when a scope test fails in scopes.test.ts, test_scopes.py or tool-filtering.test.ts. Trigger terms: new scope, APIScopeObject, ScopeObjectEnumApi, scope_object, required_scopes, API_SCOPES, API_SCOPE_GROUPS, mcp scopes, OAuth scopes, personal API key scope.'
+description: 'Guidance for adding an API scope object to the posthog/scopes/ package and making it work for personal API keys, OAuth tokens and MCP clients. Use when adding a scope object, exposing a viewset or MCP tool to tokens, moving a viewset off scope_object = "INTERNAL", deciding if a scope is internal, OAuth-hidden or privileged, choosing a scope group, renaming or splitting a scope object, reading the scope list in Python, the frontend or the MCP server, or when a scope test fails in scopes.test.ts, test_scopes.py or tool-filtering.test.ts. Trigger terms: new scope, APIScopeObject, ScopeObjectEnumApi, scope_object, required_scopes, API_SCOPES, API_SCOPE_GROUPS, mcp scopes, OAuth scopes, personal API key scope.'
 ---
 
 # Adding an API scope
@@ -70,6 +70,15 @@ The groups make a long list readable, so a person can find a product quickly.
 - An MCP tool scope that differs from its endpoint's `scope_object`.
 - A group that makes no sense for the object, or a new group that should not exist. `ScopeDoc` only checks that the group exists. Check that the object sits where a person would look for it, and that a new group has at least two objects. See "Choose a group".
 - A wrong or unclear name or description.
+
+## Rename or split a scope object
+
+Keys and tokens issued before the change still hold the old name. Make the code accept the old name. Do not rewrite stored rows.
+
+- **Split** (a new object takes part of an old one): add `"<new>": "<old>"` to `LEGACY_SCOPE_FALLBACKS` in `posthog/scopes/checks.py`, then run `hogli build:projections`. A held old scope then satisfies the new one in Django and in the MCP server, and each use is recorded so the entry can go later.
+- **Rename:** add `"<old>": "<new>"` to `RENAMED_OAUTH_SCOPE_OBJECTS` in `posthog/scopes/catalog.py`. `translate_renamed_scopes` then writes the new name wherever a scope enters (authorize, token, refresh, device flow, key writes) and wherever stored scopes are read (`get_authenticator_scopes`, refresh narrowing, token introspection, which the MCP server reads).
+- **Every reader translates:** before you rely on translation, find every place that reads stored scope strings, including services outside Django. A reader that compares raw strings sees only the old name.
+- **No data migration on token tables:** `posthog_oauthaccesstoken` is large and most of its rows are expired. A migration over it blocks every deploy until it ends. Access tokens expire within an hour, and a refresh issues the new name. If long-lived rows such as personal API keys or OAuth applications must change, count them in US and EU first and use a management command. See [Count the rows first](../../../docs/published/handbook/engineering/safe-django-migrations.md#count-the-rows-first).
 
 ## Where to read scopes in code
 

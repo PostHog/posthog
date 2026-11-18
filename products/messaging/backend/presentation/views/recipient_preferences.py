@@ -207,18 +207,18 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
     # in "off" mode a stored preference would have no effect on sends
     tracking_consent_mode = Team.objects.get(id=team_id).workflows_config.email_tracking_consent_mode
     tracking_status = preferences.get(EMAIL_TRACKING_PREFERENCE_ID, PreferenceStatus.NO_PREFERENCE)
+    all_marketing_status = preferences.get(ALL_MESSAGE_PREFERENCE_CATEGORY_ID, PreferenceStatus.NO_PREFERENCE)
 
     context = {
         "recipient": recipient,
-        "categories": [
-            *categories_templating,
-            {
-                "id": ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
-                "name": "All marketing communications",
-                "description": "Unsubscribing here overrides individual preferences.",
-                "status": preferences.get(ALL_MESSAGE_PREFERENCE_CATEGORY_ID, PreferenceStatus.NO_PREFERENCE),
-            },
-        ],
+        "categories": categories_templating,
+        "all_marketing": {
+            "id": ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
+            "name": "All marketing communications",
+            "description": "Turning this off stops every marketing email.",
+            "status": all_marketing_status,
+        },
+        "all_marketing_opted_out": all_marketing_status == PreferenceStatus.OPTED_OUT,
         "token": token,
         "email_tracking_consent_enabled": tracking_consent_mode != EmailTrackingConsentMode.OFF,
         # No stored answer falls back to the mode's default: tracked under opt-out, untracked under opt-in

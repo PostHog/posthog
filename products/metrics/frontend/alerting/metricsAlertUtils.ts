@@ -106,7 +106,7 @@ export interface MetricsAlertFormErrors {
 }
 
 // The most checks the platform lets a metrics alert look back over.
-export const MAX_METRICS_ALERT_CHECKS = 60
+export const MAX_METRICS_ALERT_CHECKS = 1441
 
 function inRange(value: number | null, min: number, max: number): boolean {
     return value !== null && Number.isInteger(value) && value >= min && value <= max

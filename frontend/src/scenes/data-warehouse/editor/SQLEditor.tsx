@@ -565,7 +565,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         setEditingInsightDescription,
         discardChanges,
     } = useActions(sqlEditorLogic)
-    const { editingMetricName, metricUpdating } = useValues(sqlEditorLogic)
+    const { editingMetricName, metricUpdating, viewUpdateInProgress } = useValues(sqlEditorLogic)
     const { response, responseError, responseLoading } = useValues(dataNodeLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
@@ -785,7 +785,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
             size="small"
             onClick={() => discardChanges()}
             disabledReason={
-                insightLoading || updatingDataWarehouseSavedQuery
+                insightLoading || viewUpdateInProgress || updatingDataWarehouseSavedQuery
                     ? 'Wait for the current operation to finish'
                     : !hasEditorChanges
                       ? 'No changes to discard'
@@ -931,7 +931,11 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                             }}
                                         >
                                             <span>
-                                                {isMaterializedView ? 'Update and re-materialize view' : 'Update view'}
+                                                {viewUpdateInProgress
+                                                    ? 'Checking downstream views…'
+                                                    : isMaterializedView
+                                                      ? 'Update and re-materialize view'
+                                                      : 'Update view'}
                                             </span>
                                             {saveWarning}
                                         </LemonButton>
