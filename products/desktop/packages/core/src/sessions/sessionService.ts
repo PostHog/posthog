@@ -624,6 +624,7 @@ export interface ReconcileTaskConnectionParams {
 }
 
 const ACTIVITY_HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000;
+const LOCAL_RUN_HEARTBEAT_INTERVAL_MS = 60 * 1000;
 
 export type SessionPlan = Extract<SessionUpdate, { sessionUpdate: "plan" }>;
 
@@ -1823,6 +1824,10 @@ export class SessionService {
   private activityHeartbeats = new Map<
     string,
     { timer: ReturnType<typeof setInterval>; holders: number }
+  >();
+  private localRunHeartbeats = new Map<
+    string,
+    ReturnType<typeof setInterval>
   >();
   private localRepoPaths = new Map<string, string>();
   private localRecoveryAttempts = new Map<string, Promise<boolean>>();
@@ -3290,6 +3295,44 @@ export class SessionService {
       event: eventSubscription,
       permission: permissionSubscription,
     });
+    this.startLocalRunHeartbeat(taskRunId);
+  }
+
+  private startLocalRunHeartbeat(taskRunId: string): void {
+    const session = this.getSessionByRunId(taskRunId);
+    if (!session || session.isCloud || this.localRunHeartbeats.has(taskRunId)) {
+      return;
+    }
+    const { taskId } = session;
+    const beat = () => {
+      void this.sendLocalRunHeartbeat(taskId, taskRunId);
+    };
+    beat();
+    this.localRunHeartbeats.set(
+      taskRunId,
+      setInterval(beat, LOCAL_RUN_HEARTBEAT_INTERVAL_MS),
+    );
+  }
+
+  private async sendLocalRunHeartbeat(
+    taskId: string,
+    taskRunId: string,
+  ): Promise<void> {
+    try {
+      const client = await this.d.getAuthenticatedClient();
+      await client?.heartbeatTaskRun(taskId, taskRunId);
+    } catch (error) {
+      if (requestErrorStatus(error) === 409) {
+        this.stopLocalRunHeartbeat(taskRunId);
+      }
+    }
+  }
+
+  private stopLocalRunHeartbeat(taskRunId: string): void {
+    const timer = this.localRunHeartbeats.get(taskRunId);
+    if (timer === undefined) return;
+    clearInterval(timer);
+    this.localRunHeartbeats.delete(taskRunId);
   }
 
   /**
@@ -3333,6 +3376,7 @@ export class SessionService {
     this.subscriptions.delete(taskRunId);
     subscription?.event.unsubscribe();
     subscription?.permission?.unsubscribe();
+    this.stopLocalRunHeartbeat(taskRunId);
     this.hostEndedResubscribes.delete(taskRunId);
     this.lastSessionEventAt.delete(taskRunId);
     this.sessionEventStats.delete(taskRunId);

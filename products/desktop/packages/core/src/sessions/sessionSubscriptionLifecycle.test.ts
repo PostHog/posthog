@@ -1,3 +1,4 @@
+import { ApiRequestError } from "@posthog/api-client/fetcher";
 import type { AgentSession } from "@posthog/shared";
 import { describe, expect, it, vi } from "vitest";
 import { SessionService, type SessionServiceDeps } from "./sessionService";
@@ -23,7 +24,10 @@ function fakeSubscription() {
   };
 }
 
-function createHarness(sessionOverrides: Partial<AgentSession> = {}) {
+function createHarness(
+  sessionOverrides: Partial<AgentSession> = {},
+  heartbeatTaskRun = vi.fn().mockResolvedValue(undefined),
+) {
   const sessions: Record<string, AgentSession> = {
     [RUN_ID]: {
       taskRunId: RUN_ID,
@@ -56,6 +60,7 @@ function createHarness(sessionOverrides: Partial<AgentSession> = {}) {
     },
     log,
     getIsOnline: () => true,
+    getAuthenticatedClient: async () => ({ heartbeatTaskRun }),
     notifyAgentSession: vi.fn(),
     enqueueSpeech: vi.fn(),
     trpc: {
@@ -70,7 +75,7 @@ function createHarness(sessionOverrides: Partial<AgentSession> = {}) {
   (
     service as unknown as { subscribeToChannel(taskRunId: string): void }
   ).subscribeToChannel(RUN_ID);
-  return { service, events, permissions, log };
+  return { service, events, permissions, log, heartbeatTaskRun };
 }
 
 describe("session subscription lifecycle", () => {
@@ -133,6 +138,79 @@ describe("session subscription lifecycle", () => {
     expect(events.subscribe).toHaveBeenCalledTimes(1);
     expect(permissions.subscribe).toHaveBeenCalledTimes(1);
     expect(log.warn).not.toHaveBeenCalled();
+  });
+
+  describe("local run heartbeat", () => {
+    it("beats on connect and once a minute while the channel is open", async () => {
+      vi.useFakeTimers();
+      try {
+        const { heartbeatTaskRun } = createHarness();
+
+        await vi.advanceTimersByTimeAsync(0);
+        expect(heartbeatTaskRun).toHaveBeenCalledTimes(1);
+        expect(heartbeatTaskRun).toHaveBeenCalledWith("task-1", RUN_ID);
+
+        await vi.advanceTimersByTimeAsync(180_000);
+        expect(heartbeatTaskRun).toHaveBeenCalledTimes(4);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("stops when the service tears the channel down", async () => {
+      vi.useFakeTimers();
+      try {
+        const { service, heartbeatTaskRun } = createHarness();
+        await vi.advanceTimersByTimeAsync(0);
+
+        service.reset();
+        await vi.advanceTimersByTimeAsync(180_000);
+
+        expect(heartbeatTaskRun).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("never starts for a cloud session", async () => {
+      vi.useFakeTimers();
+      try {
+        const { heartbeatTaskRun } = createHarness({ isCloud: true });
+
+        await vi.advanceTimersByTimeAsync(180_000);
+
+        expect(heartbeatTaskRun).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it.each([
+      {
+        name: "stops once the server says the run has finished",
+        error: new ApiRequestError(409, JSON.stringify({ error: "finished" })),
+        beats: 1,
+      },
+      {
+        name: "keeps beating through a failed request",
+        error: new ApiRequestError(502, "bad gateway"),
+        beats: 4,
+      },
+    ])("$name", async ({ error, beats }) => {
+      vi.useFakeTimers();
+      try {
+        const { heartbeatTaskRun } = createHarness(
+          {},
+          vi.fn().mockRejectedValue(error),
+        );
+
+        await vi.advanceTimersByTimeAsync(180_000);
+
+        expect(heartbeatTaskRun).toHaveBeenCalledTimes(beats);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   describe("silence while a local prompt is pending", () => {
