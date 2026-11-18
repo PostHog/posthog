@@ -55,6 +55,7 @@ SLACK_APP_CONNECT_TOOL_FROM_CHAT_FLAG = "slack-app-connect-tool-from-chat"
 SLACK_APP_DAILY_WORK_FOCUS_FLAG = "slack-app-daily-work-focus"
 SLACK_APP_JEV_NEEDS_REPO_FLAG = "slack-app-jev-needs-repo"
 SLACK_APP_SLACK_MCP_FLAG = "slack-app-slack-mcp"
+SLACK_APP_FULL_RELAY_ANSWER_FLAG = "slack-app-full-relay-answer"
 
 
 # Linking a Slack identity to a PostHog user resolves the Slack profile and its email.
@@ -200,6 +201,20 @@ def is_slack_app_forking_enabled(integration: IntegrationRecord) -> bool:
         SLACK_APP_FORKING_FLAG,
         integration,
         failure_log_key="slack_app_forking_feature_flag_check_failed",
+    )
+
+
+def is_slack_app_full_relay_answer_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:
+    """Gate for posting the full answer when a short closing line follows the agent's last tool call.
+
+    ``distinct_id`` is the PostHog user who created the run. Off, the relay posts only the
+    text after the last tool call.
+    """
+    return _workspace_flag_enabled(
+        SLACK_APP_FULL_RELAY_ANSWER_FLAG,
+        integration,
+        failure_log_key="slack_app_full_relay_answer_feature_flag_check_failed",
+        distinct_id=distinct_id,
     )
 
 
