@@ -298,7 +298,8 @@ class TestIssueTagRules(_IssueTagRuleTest):
             result = run_issue_taggers(self.team.id, issue.id, _no_event_read)
             readable_keys = readable_issue_tag_keys(self.team.id, {REVENUE})
 
-        assert (definitions, result, readable_keys) == ((), IssueTaggingSkipReason.DISABLED, None)
+        code_keys = frozenset(definition.key for definition in registry.ISSUE_TAG_DEFINITIONS)
+        assert (definitions, result, readable_keys) == ((), IssueTaggingSkipReason.DISABLED, code_keys)
 
 
 class TestIssueTagRowsInHogQL(ClickhouseTestMixin, _IssueTagRuleTest):
@@ -306,7 +307,7 @@ class TestIssueTagRowsInHogQL(ClickhouseTestMixin, _IssueTagRuleTest):
         [
             ("restricted_member", True, True, {"code_tag", "unhandled"}),
             ("member_without_restrictions", False, True, {"code_tag", "big_order", "unhandled", "deleted_rule"}),
-            ("issue_tags_off", True, False, {"code_tag", "big_order", "unhandled", "deleted_rule"}),
+            ("issue_tags_off", True, False, {"code_tag"}),
         ]
     )
     def test_hides_the_rows_of_a_rule_from_a_member_who_may_not_read_its_property(

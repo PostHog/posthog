@@ -51,16 +51,18 @@ def issue_tag_definitions_for_enabled_team(team_id: int) -> tuple[IssueTagDefini
 def readable_issue_tag_keys(team_id: int, restrictions: set[RestrictedProperty]) -> frozenset[str] | None:
     """The keys whose stored tag rows a member with `restrictions` may read, or None when every key is readable.
 
-    A rule's rows follow the visibility of its label. A key that no code tag or active rule owns is left out too: a
-    deleted rule keeps its ClickHouse rows, but its filters are gone, so nothing can show that the member may read them.
+    A rule's rows follow the visibility of its label, so while issue tags are off no rule's rows are readable. A key
+    that no code tag or active rule owns is left out too: a deleted rule keeps its ClickHouse rows, but its filters are
+    gone, so nothing can show that the member may read them.
     """
-    if not restrictions or not issue_tags_enabled(team_id):
+    if not restrictions:
         return None
+    code_keys = frozenset(definition.key for definition in registry.ISSUE_TAG_DEFINITIONS)
+    if not issue_tags_enabled(team_id):
+        return code_keys
     visibility = _RuleVisibility(restricted=split_restricted_property_names(restrictions))
     rules = _active_rules(team_id).only("key", "filters")
-    return frozenset(definition.key for definition in registry.ISSUE_TAG_DEFINITIONS) | frozenset(
-        rule.key for rule in rules if visibility.shows(rule)
-    )
+    return code_keys | frozenset(rule.key for rule in rules if visibility.shows(rule))
 
 
 def get_issue_tag_definition(team_id: int, key: str, user: User) -> IssueTagDefinition:
