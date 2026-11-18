@@ -752,6 +752,179 @@ export interface MCPIntentDigestApi {
     readonly themes: readonly MCPIntentThemeApi[]
 }
 
+export interface MCPWrappedIntroCardApi {
+    /** First month with 100+ tool calls, as YYYY-MM. MCP analytics started tracking then. */
+    readonly tracked_since: string
+    /** MCP servers that each sent at least 1% of the project's tool calls. */
+    readonly server_count: number
+}
+
+export interface MCPWrappedMonthApi {
+    /** Month as YYYY-MM. */
+    readonly month: string
+    /** Tool calls in the month. */
+    readonly calls: number
+}
+
+export interface MCPWrappedToolCallsCardApi {
+    /** Tool calls in the period. */
+    readonly total_calls: number
+    /** Calls per month from the tracked-since month on, oldest first. */
+    readonly months: readonly MCPWrappedMonthApi[]
+    /**
+     * The last month's calls over the first full month's, set only when it is 1.5 or more.
+     * @nullable
+     */
+    readonly growth_multiple: number | null
+}
+
+export interface MCPWrappedToolCountApi {
+    /** Tool name. */
+    readonly tool: string
+    /** Tool calls in the period. */
+    readonly calls: number
+}
+
+export interface MCPWrappedTopToolsCardApi {
+    /** Up to five tools, busiest first. */
+    readonly tools: readonly MCPWrappedToolCountApi[]
+}
+
+export interface MCPWrappedShareApi {
+    /** Name of the app, AI lab or model family, or "Other". */
+    readonly name: string
+    /** Share of the calls the bar covers, from 0 to 1. */
+    readonly share: number
+}
+
+export interface MCPWrappedSharesCardApi {
+    /** Largest first, with the remainder as a final Other entry. */
+    readonly shares: readonly MCPWrappedShareApi[]
+}
+
+export interface MCPWrappedRushHourCardApi {
+    /** Busiest ISO weekday, 1 is Monday. */
+    readonly weekday: number
+    /** Busiest hour, 0 to 23, in timezone. */
+    readonly hour: number
+    /** The project's timezone, which weekday and hour use. */
+    readonly timezone: string
+    /** Intensity from 0 to 100 for each of the 168 weekday-hour slots, index (weekday - 1) * 24 + hour. */
+    readonly heat: readonly number[]
+    /** Under 15% of calls fell on weekends. */
+    readonly quiet_weekends: boolean
+    /** Over half of the calls fell between 10 pm and 6 am. */
+    readonly night_shift: boolean
+}
+
+export interface MCPWrappedToolErrorRateApi {
+    /** Tool name. */
+    readonly tool: string
+    /** Share of the tool's calls that errored, 0 to 1. */
+    readonly error_rate: number
+}
+
+export interface MCPWrappedReliabilityCardApi {
+    /** Share of calls without an error, 0 to 1. */
+    readonly success_rate: number
+    /** The tool with the highest error rate among tools with 100+ calls, when 3 or more qualify. */
+    readonly struggling_tool: MCPWrappedToolErrorRateApi | null
+}
+
+export interface MCPWrappedToolLatencyApi {
+    /** Tool name. */
+    readonly tool: string
+    /** 95th percentile response time in ms. */
+    readonly p95_duration_ms: number
+}
+
+export interface MCPWrappedSpeedCardApi {
+    /** 95th percentile response time across all calls, in ms. */
+    readonly p95_duration_ms: number
+    /** The quickest of the five busiest tools. */
+    readonly quickest_busy_tool: MCPWrappedToolLatencyApi | null
+    /** The slowest tool with 100+ calls. */
+    readonly slowest_tool: MCPWrappedToolLatencyApi | null
+}
+
+/**
+ * * `one_hit_wonder` - The One-Hit Wonder
+ * * `swiss_army_knife` - The Swiss Army Knife
+ * * `night_owl` - The Night Owl
+ * * `weekend_warrior` - The Weekend Warrior
+ * * `speed_demon` - The Speed Demon
+ * * `rocket` - The Rocket
+ * * `all_rounder` - The All-Rounder
+ */
+export type ArchetypeEnumApi = (typeof ArchetypeEnumApi)[keyof typeof ArchetypeEnumApi]
+
+export const ArchetypeEnumApi = {
+    OneHitWonder: 'one_hit_wonder',
+    SwissArmyKnife: 'swiss_army_knife',
+    NightOwl: 'night_owl',
+    WeekendWarrior: 'weekend_warrior',
+    SpeedDemon: 'speed_demon',
+    Rocket: 'rocket',
+    AllRounder: 'all_rounder',
+} as const
+
+export interface MCPWrappedArchetypeCardApi {
+    /** The server's personality, from the first rule it meets.
+     *
+     * * `one_hit_wonder` - The One-Hit Wonder
+     * * `swiss_army_knife` - The Swiss Army Knife
+     * * `night_owl` - The Night Owl
+     * * `weekend_warrior` - The Weekend Warrior
+     * * `speed_demon` - The Speed Demon
+     * * `rocket` - The Rocket
+     * * `all_rounder` - The All-Rounder */
+    readonly archetype: ArchetypeEnumApi
+    /**
+     * The number that earned the archetype: a share, a tool count, a p95 in ms or a growth multiple.
+     * @nullable
+     */
+    readonly evidence: number | null
+}
+
+export interface MCPWrappedCardsApi {
+    /** Opening card. */
+    readonly intro: MCPWrappedIntroCardApi
+    /** Total and monthly tool calls. */
+    readonly tool_calls: MCPWrappedToolCallsCardApi
+    /** The busiest tools. */
+    readonly top_tools: MCPWrappedTopToolsCardApi
+    /** Share of calls by app. Null when too many calls have no client. */
+    readonly apps: MCPWrappedSharesCardApi | null
+    /** Share of calls by AI lab, as agents report it. Null when too few calls carry a model. */
+    readonly labs: MCPWrappedSharesCardApi | null
+    /** Share of calls by model family, as agents report it. Null when too few calls carry a model. */
+    readonly models: MCPWrappedSharesCardApi | null
+    /** Busiest weekday and hour. Null under 1,000 calls. */
+    readonly rush_hour: MCPWrappedRushHourCardApi | null
+    /** Calls without an error. */
+    readonly reliability: MCPWrappedReliabilityCardApi
+    /** Response times. Null when most calls have no duration. */
+    readonly speed: MCPWrappedSpeedCardApi | null
+    /** The server's personality. */
+    readonly archetype: MCPWrappedArchetypeCardApi
+}
+
+export interface MCPWrappedApi {
+    /** Year the wrap covers, Jan 1 to Dec 1. */
+    readonly year: number
+    /** When the wrap was computed. */
+    readonly generated_at: string
+    /** When the wrap stops showing, 14 days after it was computed. */
+    readonly expires_at: string
+    /** Values for each story card. */
+    readonly cards: MCPWrappedCardsApi
+}
+
+export interface MCPWrappedResponseApi {
+    /** The project's wrap, or null when none is ready and fresh. */
+    readonly wrapped: MCPWrappedApi | null
+}
+
 export type McpAnalyticsFeedbackListParams = {
     /**
      * Number of results to return per page.

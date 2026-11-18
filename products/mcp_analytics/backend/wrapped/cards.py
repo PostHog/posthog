@@ -7,7 +7,8 @@ skips it. The cards hold only what the story shows, so the stored payload stays 
 
 from collections.abc import Iterable, Sequence
 from datetime import date
-from enum import StrEnum
+
+from django.db import models
 
 from posthog.dataclasses import frozen
 
@@ -62,19 +63,19 @@ SPEED_DEMON_P95_MS = 250
 ROCKET_GROWTH_MULTIPLE = 5
 
 
-class Archetype(StrEnum):
-    ONE_HIT_WONDER = "one_hit_wonder"
-    SWISS_ARMY_KNIFE = "swiss_army_knife"
-    NIGHT_OWL = "night_owl"
-    WEEKEND_WARRIOR = "weekend_warrior"
-    SPEED_DEMON = "speed_demon"
-    ROCKET = "rocket"
-    ALL_ROUNDER = "all_rounder"
+class Archetype(models.TextChoices):
+    ONE_HIT_WONDER = "one_hit_wonder", "The One-Hit Wonder"
+    SWISS_ARMY_KNIFE = "swiss_army_knife", "The Swiss Army Knife"
+    NIGHT_OWL = "night_owl", "The Night Owl"
+    WEEKEND_WARRIOR = "weekend_warrior", "The Weekend Warrior"
+    SPEED_DEMON = "speed_demon", "The Speed Demon"
+    ROCKET = "rocket", "The Rocket"
+    ALL_ROUNDER = "all_rounder", "The All-Rounder"
 
 
 @frozen
 class Share:
-    label: str
+    name: str
     share: float
 
 
@@ -251,10 +252,10 @@ def _top_shares(rows: Sequence[DimensionRow], limit: int, denominator: int) -> t
     if denominator <= 0:
         return ()
     top = _ranked(rows)[:limit]
-    shares = [Share(label=row.key, share=_ratio(row.calls / denominator)) for row in top]
+    shares = [Share(name=row.key, share=_ratio(row.calls / denominator)) for row in top]
     rest = denominator - sum(row.calls for row in top)
     if rest > 0:
-        shares.append(Share(label=OTHER_SHARE_LABEL, share=_ratio(rest / denominator)))
+        shares.append(Share(name=OTHER_SHARE_LABEL, share=_ratio(rest / denominator)))
     return tuple(shares)
 
 

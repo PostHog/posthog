@@ -8,6 +8,7 @@ from .views import (
     MCPIntentClusterViewSet,
     MCPMissingCapabilityViewSet,
     MCPSessionViewSet,
+    MCPWrappedViewSet,
 )
 
 router = DefaultRouter()
@@ -16,4 +17,5 @@ router.register(r"missing_capabilities", MCPMissingCapabilityViewSet, basename="
 router.register(r"sessions", MCPSessionViewSet, basename="mcp-analytics-sessions")
 router.register(r"intent_clusters", MCPIntentClusterViewSet, basename="mcp-analytics-intent-clusters")
 router.register(r"custom_harnesses", MCPCustomHarnessViewSet, basename="mcp-analytics-custom-harnesses")
+router.register(r"wrapped", MCPWrappedViewSet, basename="mcp-analytics-wrapped")
 urlpatterns = router.urls

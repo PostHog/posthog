@@ -16,6 +16,7 @@ from posthog.models.user import User
 from products.mcp_analytics.backend import custom_harnesses, logic
 from products.mcp_analytics.backend.mcp_harness import HARNESS_TOKEN_SQL, custom_arms_sql, harness_label_sql
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
+from products.mcp_analytics.backend.wrapped import read as wrapped_read
 
 from . import contracts
 from .constants import MCP_MISSING_CAPABILITY_EVENT
@@ -317,3 +318,8 @@ def trigger_intent_cluster_recompute(team: Team, user: User | None) -> None:
             updated_at=timezone.now(),
         )
         raise
+
+
+def get_fresh_wrapped(team: Team) -> contracts.WrappedSnapshot | None:
+    """The project's latest ready MCP Wrapped, or None once it is older than the display window."""
+    return wrapped_read.get_fresh_wrapped(team)

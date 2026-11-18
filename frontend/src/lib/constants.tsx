@@ -446,6 +446,7 @@ export const FEATURE_FLAGS = {
     MCP_ANALYTICS_DASHBOARD_BATCH: 'mcp-analytics-dashboard-batch', // owner: #team-mcp-analytics, one request per MCP analytics dashboard load vs one per section, compared on `time to see data`
     MCP_ANALYTICS_INTENT_ROUTING: 'mcp-analytics-intent-routing', // owner: #project-mcp-analytics
     MCP_ANALYTICS_SETUP_MODE: 'mcp-analytics-setup-mode', // owner: #team-mcp-analytics, the fullscreen setup walkthrough after a user picks an install route
+    MCP_ANALYTICS_WRAPPED: 'mcp-analytics-wrapped', // owner: #team-mcp-analytics, the yearly MCP Wrapped story and its pop-up
     MCP_GATEWAY: 'mcp-gateway', // owner: #team-context-mcp — gates the MCP gateway UI AND backend enforcement of built-in agent MCP access (delegated-only installs + restricted sandbox token scope); roll out by organization
     MEMBER_BILLING_USAGE_SPEND_READ_ACCESS: 'member-billing-usage-spend-read-access', // owner: @pawelcebula #team-billing, grants members read-only access to billing usage/spend tabs; owner-only-billing takes precedence
     MESSAGING_SES: 'messaging-ses', // owner #team-workflows

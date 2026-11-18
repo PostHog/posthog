@@ -16974,6 +16974,28 @@ export namespace Schemas {
       metric_name?: string | null;
     }
 
+    /**
+     * * `one_hit_wonder` - The One-Hit Wonder
+     * * `swiss_army_knife` - The Swiss Army Knife
+     * * `night_owl` - The Night Owl
+     * * `weekend_warrior` - The Weekend Warrior
+     * * `speed_demon` - The Speed Demon
+     * * `rocket` - The Rocket
+     * * `all_rounder` - The All-Rounder
+     */
+    export type ArchetypeEnum = typeof ArchetypeEnum[keyof typeof ArchetypeEnum];
+
+
+    export const ArchetypeEnum = {
+      OneHitWonder: 'one_hit_wonder',
+      SwissArmyKnife: 'swiss_army_knife',
+      NightOwl: 'night_owl',
+      WeekendWarrior: 'weekend_warrior',
+      SpeedDemon: 'speed_demon',
+      Rocket: 'rocket',
+      AllRounder: 'all_rounder',
+    } as const;
+
     export interface ArchiveExperiment {
       /** When the linked feature flag is still enabled, also disable and archive it along with the experiment. Has no effect if the flag is already disabled (it is archived either way). */
       disable_feature_flag?: boolean;
@@ -72646,6 +72668,158 @@ export namespace Schemas {
       error_type?: MCPToolResponseErrorType;
       /** Machine-readable name of the leaf failure for MCP analytics, such as a ClickHouse error name. */
       error_code?: string | null;
+    }
+
+    export interface MCPWrappedIntroCard {
+      /** First month with 100+ tool calls, as YYYY-MM. MCP analytics started tracking then. */
+      readonly tracked_since: string;
+      /** MCP servers that each sent at least 1% of the project's tool calls. */
+      readonly server_count: number;
+    }
+
+    export interface MCPWrappedMonth {
+      /** Month as YYYY-MM. */
+      readonly month: string;
+      /** Tool calls in the month. */
+      readonly calls: number;
+    }
+
+    export interface MCPWrappedToolCallsCard {
+      /** Tool calls in the period. */
+      readonly total_calls: number;
+      /** Calls per month from the tracked-since month on, oldest first. */
+      readonly months: readonly MCPWrappedMonth[];
+      /**
+         * The last month's calls over the first full month's, set only when it is 1.5 or more.
+         * @nullable
+         */
+      readonly growth_multiple: number | null;
+    }
+
+    export interface MCPWrappedToolCount {
+      /** Tool name. */
+      readonly tool: string;
+      /** Tool calls in the period. */
+      readonly calls: number;
+    }
+
+    export interface MCPWrappedTopToolsCard {
+      /** Up to five tools, busiest first. */
+      readonly tools: readonly MCPWrappedToolCount[];
+    }
+
+    export interface MCPWrappedShare {
+      /** Name of the app, AI lab or model family, or "Other". */
+      readonly name: string;
+      /** Share of the calls the bar covers, from 0 to 1. */
+      readonly share: number;
+    }
+
+    export interface MCPWrappedSharesCard {
+      /** Largest first, with the remainder as a final Other entry. */
+      readonly shares: readonly MCPWrappedShare[];
+    }
+
+    export interface MCPWrappedRushHourCard {
+      /** Busiest ISO weekday, 1 is Monday. */
+      readonly weekday: number;
+      /** Busiest hour, 0 to 23, in timezone. */
+      readonly hour: number;
+      /** The project's timezone, which weekday and hour use. */
+      readonly timezone: string;
+      /** Intensity from 0 to 100 for each of the 168 weekday-hour slots, index (weekday - 1) * 24 + hour. */
+      readonly heat: readonly number[];
+      /** Under 15% of calls fell on weekends. */
+      readonly quiet_weekends: boolean;
+      /** Over half of the calls fell between 10 pm and 6 am. */
+      readonly night_shift: boolean;
+    }
+
+    export interface MCPWrappedToolErrorRate {
+      /** Tool name. */
+      readonly tool: string;
+      /** Share of the tool's calls that errored, 0 to 1. */
+      readonly error_rate: number;
+    }
+
+    export interface MCPWrappedReliabilityCard {
+      /** Share of calls without an error, 0 to 1. */
+      readonly success_rate: number;
+      /** The tool with the highest error rate among tools with 100+ calls, when 3 or more qualify. */
+      readonly struggling_tool: MCPWrappedToolErrorRate | null;
+    }
+
+    export interface MCPWrappedToolLatency {
+      /** Tool name. */
+      readonly tool: string;
+      /** 95th percentile response time in ms. */
+      readonly p95_duration_ms: number;
+    }
+
+    export interface MCPWrappedSpeedCard {
+      /** 95th percentile response time across all calls, in ms. */
+      readonly p95_duration_ms: number;
+      /** The quickest of the five busiest tools. */
+      readonly quickest_busy_tool: MCPWrappedToolLatency | null;
+      /** The slowest tool with 100+ calls. */
+      readonly slowest_tool: MCPWrappedToolLatency | null;
+    }
+
+    export interface MCPWrappedArchetypeCard {
+      /** The server's personality, from the first rule it meets.
+       *
+       * * `one_hit_wonder` - The One-Hit Wonder
+       * * `swiss_army_knife` - The Swiss Army Knife
+       * * `night_owl` - The Night Owl
+       * * `weekend_warrior` - The Weekend Warrior
+       * * `speed_demon` - The Speed Demon
+       * * `rocket` - The Rocket
+       * * `all_rounder` - The All-Rounder */
+      readonly archetype: ArchetypeEnum;
+      /**
+         * The number that earned the archetype: a share, a tool count, a p95 in ms or a growth multiple.
+         * @nullable
+         */
+      readonly evidence: number | null;
+    }
+
+    export interface MCPWrappedCards {
+      /** Opening card. */
+      readonly intro: MCPWrappedIntroCard;
+      /** Total and monthly tool calls. */
+      readonly tool_calls: MCPWrappedToolCallsCard;
+      /** The busiest tools. */
+      readonly top_tools: MCPWrappedTopToolsCard;
+      /** Share of calls by app. Null when too many calls have no client. */
+      readonly apps: MCPWrappedSharesCard | null;
+      /** Share of calls by AI lab, as agents report it. Null when too few calls carry a model. */
+      readonly labs: MCPWrappedSharesCard | null;
+      /** Share of calls by model family, as agents report it. Null when too few calls carry a model. */
+      readonly models: MCPWrappedSharesCard | null;
+      /** Busiest weekday and hour. Null under 1,000 calls. */
+      readonly rush_hour: MCPWrappedRushHourCard | null;
+      /** Calls without an error. */
+      readonly reliability: MCPWrappedReliabilityCard;
+      /** Response times. Null when most calls have no duration. */
+      readonly speed: MCPWrappedSpeedCard | null;
+      /** The server's personality. */
+      readonly archetype: MCPWrappedArchetypeCard;
+    }
+
+    export interface MCPWrapped {
+      /** Year the wrap covers, Jan 1 to Dec 1. */
+      readonly year: number;
+      /** When the wrap was computed. */
+      readonly generated_at: string;
+      /** When the wrap stops showing, 14 days after it was computed. */
+      readonly expires_at: string;
+      /** Values for each story card. */
+      readonly cards: MCPWrappedCards;
+    }
+
+    export interface MCPWrappedResponse {
+      /** The project's wrap, or null when none is ready and fresh. */
+      readonly wrapped: MCPWrapped | null;
     }
 
     export interface MakeTransactional {
