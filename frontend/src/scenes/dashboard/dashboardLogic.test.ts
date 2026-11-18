@@ -4441,6 +4441,25 @@ describe('dashboardLogic', () => {
                         dashboardFailedToLoad: false,
                     })
             })
+
+            it.each([
+                { name: 'the dashboard page', placement: undefined, refreshedTiles: 2 },
+                {
+                    name: 'the project homepage preview',
+                    placement: DashboardPlacement.ProjectHomepage,
+                    refreshedTiles: 0,
+                },
+            ])(
+                'refreshes $refreshedTiles stale tiles after loading on $name',
+                async ({ placement, refreshedTiles }) => {
+                    logic.unmount()
+                    logic = dashboardLogic({ id: 5, placement })
+                    logic.mount()
+                    await expectLogic(logic).toDispatchActions(['loadDashboardSuccess']).toFinishAllListeners()
+
+                    expect(Object.keys(logic.values.refreshStatus)).toHaveLength(refreshedTiles)
+                }
+            )
         })
 
         describe('last refreshed display', () => {

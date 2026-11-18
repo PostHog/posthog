@@ -8,7 +8,6 @@ import { Button, Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia,
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { lazyWithRetry } from 'lib/utils/retryImport'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { DashboardPlacement } from '~/types'
@@ -22,12 +21,11 @@ import { TodayPrimaryDashboardPicker } from './TodayPrimaryDashboardPicker'
 const Dashboard = lazyWithRetry(() => import('scenes/dashboard/Dashboard').then((m) => ({ default: m.Dashboard })))
 
 export function TodayPrimaryDashboard(): JSX.Element | null {
-    const { currentTeam } = useValues(teamLogic)
     const { homeEditing } = useValues(todayHomeEditLogic)
+    const { primaryDashboardId: dashboardId, useSampleData } = useValues(todayPrimaryDashboardLogic)
     const { primaryDashboardOpened } = useActions(todayPrimaryDashboardLogic)
     const titleId = useId()
-    const dashboardId = currentTeam?.primary_dashboard ?? null
-    if (!dashboardId && !homeEditing) {
+    if (useSampleData || (!dashboardId && !homeEditing)) {
         return null
     }
 

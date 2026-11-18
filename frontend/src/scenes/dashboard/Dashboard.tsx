@@ -189,6 +189,10 @@ function DashboardScene({
         }
 
         // request cancellation of any running insight, widget and tile group loads when this component is no longer in the dom
+        // A preview shares its logic with the dashboard it opens, whose mount changes the placement before this cleanup runs
+        if (isPreview) {
+            return
+        }
         return () => cancelDashboardRefresh()
     })
 

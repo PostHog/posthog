@@ -5005,7 +5005,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         handleDashboardLoadComplete: () => {
             actions.revealHighlightedInsight()
             // Shared logic for refreshing dashboard items after load (used by both regular and streaming loads)
-            if (values.placement !== DashboardPlacement.Export) {
+            if (values.placement !== DashboardPlacement.Export && !values.isPreview) {
                 const loadAction = values.dashboardLoadData.action!
                 actions.refreshDashboardItems({ action: loadAction, forceRefresh: false })
             }
