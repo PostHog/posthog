@@ -39,6 +39,7 @@ enum ChaosEvent {
     WriterCrash,
     WriterPause,
     WriterResume,
+    FollowerCrash,
     RouterKill { fast: bool },
     RouterShutdown,
     FencePersons,
@@ -62,6 +63,7 @@ impl fmt::Display for ChaosEvent {
             ChaosEvent::WriterCrash => write!(f, "writer crash-restart"),
             ChaosEvent::WriterPause => write!(f, "writer pause (lag injection)"),
             ChaosEvent::WriterResume => write!(f, "writer resume"),
+            ChaosEvent::FollowerCrash => write!(f, "follower crash + restart"),
             ChaosEvent::RouterKill { fast: true } => write!(f, "coordinator router kill"),
             ChaosEvent::RouterKill { fast: false } => {
                 write!(f, "coordinator router crash (lease TTL expiry)")
@@ -103,9 +105,14 @@ fn chaos_timeline(args: &GateArgs) -> Vec<(Duration, ChaosEvent)> {
     if let Some(after) = args.writer_crash_after {
         events.push((after, ChaosEvent::WriterCrash));
     }
+    if let Some(after) = args.follower_crash_after {
+        events.push((after, ChaosEvent::FollowerCrash));
+    }
     if let Some(after) = args.writer_pause_after {
         events.push((after, ChaosEvent::WriterPause));
-        events.push((after + args.writer_pause_duration, ChaosEvent::WriterResume));
+        if !args.verify_followers_before_writer_resume {
+            events.push((after + args.writer_pause_duration, ChaosEvent::WriterResume));
+        }
     }
     if let Some(after) = args.router_kill_after {
         events.push((
@@ -320,6 +327,7 @@ pub async fn run(args: GateArgs) -> Result<()> {
                     bin_dir,
                     leaders: args.leaders,
                     routers: args.routers,
+                    followers: args.followers,
                     partitions: args.partitions,
                     kafka_hosts: args.kafka_hosts.clone(),
                     secondary_kafka_hosts: args.migrate_to_kafka_hosts.clone(),
@@ -533,6 +541,8 @@ async fn run_gate(
         let collector = collector.clone();
         let state = state.clone();
         let (team_id, duration, prober_count) = (args.team_id, args.duration, args.probers);
+        // Above a follower's staleness threshold plus its end-check interval.
+        let followed_within = (args.followers > 0).then_some(Duration::from_secs(1));
         tokio::spawn(async move {
             consistency::run_probers(
                 &client,
@@ -543,6 +553,7 @@ async fn run_gate(
                 &collector,
                 &state,
                 Arc::new(AtomicBool::new(false)),
+                followed_within,
             )
             .await
         })
@@ -732,6 +743,10 @@ async fn run_gate(
                 stack.resume_writer()?;
                 None
             }
+            ChaosEvent::FollowerCrash => {
+                stack.crash_restart_follower().await?;
+                None
+            }
             ChaosEvent::RouterKill { fast } => Some(stack.kill_coordinator_router(fast).await?),
             ChaosEvent::RouterShutdown => Some(stack.shutdown_coordinator_router().await?),
             ChaosEvent::PublisherCrash => {
@@ -878,6 +893,15 @@ async fn run_gate(
     println!("Verifying strong reads...");
     violations.extend(state.take_anomalies().await);
     violations.extend(blast::verify_strong(&client, &collector, &state, args.team_id).await?);
+    if args.followers > 0 {
+        println!("Verifying followed reads...");
+        violations.extend(blast::verify_followed(&client, &state, args.team_id).await?);
+    }
+    if args.verify_followers_before_writer_resume {
+        if let Some(stack) = stack.as_mut() {
+            stack.resume_writer()?;
+        }
+    }
 
     println!("Waiting for the writer to drain, then verifying Postgres...");
     let merged_ids = state.merged_source_ids().await;

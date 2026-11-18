@@ -139,6 +139,21 @@ target/debug/personhog-test-harness gate --publish --pg-target-table posthog_per
   --kill-after 5s --identity-crash-after 7s --publisher-crash-after 9s
 ```
 
+### Changelog followers
+
+`--followers N` spawns N follower replicas and checks followed reads two ways: live, a read one second after each acked probe write must show it or be refused, and at the end every acked write must be visible through a follower.
+
+```bash
+# Followed reads while Postgres does not hold the writes yet
+cargo run -p personhog-test-harness -- gate --followers 2 \
+  --writer-pause-after 1s --verify-followers-before-writer-resume
+
+# A follower crash and restart, and a partition-count migration
+cargo run -p personhog-test-harness -- gate --followers 2 --follower-crash-after 6s
+cargo run -p personhog-test-harness -- gate --followers 2 --partitions 4 \
+  --migrate-after 8s --migrate-to-partitions 8
+```
+
 ### Chaos disruptions
 
 Disruptions fire mid-traffic, scheduled relative to the start of the traffic phase (spawned stack only).

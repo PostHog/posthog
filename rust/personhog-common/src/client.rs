@@ -233,6 +233,21 @@ impl RouterClient {
         .map(|response| response.person)
     }
 
+    /// The person as a changelog follower of their partition has them: the routing headers
+    /// send the read there, and it is refused when no follower is current.
+    pub async fn get_followed_person(
+        &self,
+        team_id: i64,
+        person_id: i64,
+    ) -> Result<Option<Person>, Status> {
+        let mut request =
+            self.build_get_person_request(team_id, person_id, ConsistencyLevel::Eventual);
+        stamp_person_routing_headers(&mut request, team_id, person_id);
+        Self::timed("GetPerson", self.client().get_person(request))
+            .await
+            .map(|response| response.person)
+    }
+
     /// Leader-routed lifecycle fence (saga runner only): freeze the person
     /// and return its sealed state.
     pub async fn fence_person(

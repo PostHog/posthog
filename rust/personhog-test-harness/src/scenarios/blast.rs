@@ -328,6 +328,54 @@ pub async fn verify_strong(
     Ok(all_violations)
 }
 
+/// How long a followed read may be refused before it counts as a failure: a follower
+/// that just took a partition is still catching up.
+const FOLLOWED_READ_DEADLINE: Duration = Duration::from_secs(20);
+
+/// Every acked write must be visible through a follower once traffic has stopped. The
+/// writer may not have applied the newest writes, so this is the changelog's view.
+pub async fn verify_followed(
+    client: &HarnessClient,
+    state: &PersonState,
+    team_id: i64,
+) -> Result<Vec<ConsistencyViolation>> {
+    let mut all_violations = Vec::new();
+    for person_id in state.person_ids().await {
+        let started = Instant::now();
+        let read = loop {
+            match client.followed_person(team_id, person_id).await {
+                Err(_) if started.elapsed() < FOLLOWED_READ_DEADLINE => {
+                    sleep(Duration::from_millis(200)).await;
+                }
+                read => break read,
+            }
+        };
+        match read {
+            Ok(Some(person)) => {
+                let props: Value = if person.properties.is_empty() {
+                    json!({})
+                } else {
+                    serde_json::from_slice(&person.properties)?
+                };
+                all_violations.append(&mut state.verify(person_id, &props, person.version).await);
+            }
+            Ok(None) => all_violations.push(ConsistencyViolation {
+                person_id,
+                key: "__missing_from_follower".to_string(),
+                expected: json!("person with acked writes exists"),
+                actual: Value::Null,
+            }),
+            Err(e) => all_violations.push(ConsistencyViolation {
+                person_id,
+                key: "__followed_read_failed".to_string(),
+                expected: json!("readable"),
+                actual: json!(format!("{e:#}")),
+            }),
+        }
+    }
+    Ok(all_violations)
+}
+
 async fn strong_read_with_retry(
     client: &HarnessClient,
     team_id: i64,

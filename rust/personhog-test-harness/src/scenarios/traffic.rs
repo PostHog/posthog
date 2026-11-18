@@ -313,6 +313,7 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
                         &collector,
                         &state,
                         stop,
+                        None,
                     )
                     .await
                 })

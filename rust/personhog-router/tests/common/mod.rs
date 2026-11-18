@@ -92,6 +92,8 @@ pub struct TestReplicaService {
     pub groups: Vec<Group>,
     pub group_type_mappings: Vec<GroupTypeMapping>,
     pub sheds_remaining: Arc<AtomicUsize>,
+    /// Refuse a person read as a follower the request was not routed for.
+    pub follows_another_partition: bool,
     pub calls: Arc<AtomicUsize>,
 }
 
@@ -106,8 +108,14 @@ impl TestReplicaService {
             groups: vec![],
             group_type_mappings: vec![],
             sheds_remaining: Arc::new(AtomicUsize::new(0)),
+            follows_another_partition: false,
             calls: Arc::new(AtomicUsize::new(0)),
         }
+    }
+
+    pub fn following_another_partition(mut self) -> Self {
+        self.follows_another_partition = true;
+        self
     }
 
     pub fn sheds(mut self, n: usize) -> Self {
@@ -160,7 +168,7 @@ impl TestReplicaService {
 impl PersonHogReplica for TestReplicaService {
     async fn get_person(
         &self,
-        _request: Request<GetPersonRequest>,
+        request: Request<GetPersonRequest>,
     ) -> Result<Response<GetPersonResponse>, Status> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         if self
@@ -174,9 +182,21 @@ impl PersonHogReplica for TestReplicaService {
                 .insert(NOT_APPLIED_HEADER, "load_shed".parse().unwrap());
             return Err(status);
         }
-        Ok(Response::new(GetPersonResponse {
+        if self.follows_another_partition {
+            return Err(Status::failed_precondition(
+                "the request was routed to another partition",
+            ));
+        }
+        let mut response = Response::new(GetPersonResponse {
             person: self.person.clone(),
-        }))
+        });
+        // Echoed so a test can see what the router stamped on a followed read.
+        for name in ["x-partition", "x-changelog-epoch"] {
+            if let Some(stamped) = request.metadata().get(name) {
+                response.metadata_mut().insert(name, stamped.clone());
+            }
+        }
+        Ok(response)
     }
 
     async fn get_persons(
@@ -193,6 +213,7 @@ impl PersonHogReplica for TestReplicaService {
         &self,
         _request: Request<GetPersonByUuidRequest>,
     ) -> Result<Response<GetPersonResponse>, Status> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
         Ok(Response::new(GetPersonResponse {
             person: self.person.clone(),
         }))
@@ -1163,6 +1184,59 @@ pub async fn start_test_router_raw_with_max_recv(
         max_backoff_ms: 1,
     };
     let proxy = RawProxyService::new(replica, None, None, retry_config, max_recv_message_size, 0);
+
+    spawn_proxy_server(listener, proxy);
+
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    addr
+}
+
+/// Start a raw proxy router whose followers are the given replicas, one instance each, in
+/// preference order. A `None` is an instance with no owner for the partition.
+pub async fn start_test_router_raw_with_followers(
+    replica_addr: SocketAddr,
+    followers: Vec<Option<SocketAddr>>,
+) -> SocketAddr {
+    use personhog_router::backend::{FollowerBackend, FollowerInstance};
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let instances = followers
+        .into_iter()
+        .enumerate()
+        .map(|(index, follower)| {
+            let owners: HashMap<u32, String> = follower
+                .iter()
+                .map(|_| (0, "follower-0".to_string()))
+                .collect();
+            let url = follower.map(|addr| format!("http://{addr}"));
+            FollowerInstance {
+                name: Arc::from(format!("zone-{index}")),
+                table: Arc::new(RwLock::new(owners)),
+                addresses: Arc::new(move |_pod: &str| url.clone()),
+            }
+        })
+        .collect();
+    let changelog = LiveChangelog::new(ChangelogConfig::new("personhog_updates", 1));
+    let follower = Arc::new(FollowerBackend::new(
+        instances,
+        changelog,
+        Duration::from_millis(300),
+    ));
+    let retry_config = RetryConfig {
+        max_retries: 1,
+        initial_backoff_ms: 1,
+        max_backoff_ms: 1,
+    };
+    let proxy = RawProxyService::new(
+        make_channel_backend("replica", replica_addr),
+        None,
+        None,
+        retry_config,
+        4 * 1024 * 1024,
+        0,
+    )
+    .with_follower(follower);
 
     spawn_proxy_server(listener, proxy);
 
