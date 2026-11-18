@@ -133,10 +133,15 @@ def stored_properties_document_sql(properties_sql: str) -> str:
     Unlike `event_document_sql`, flags stay in the `$feature_flags` map and temporary properties are left out. The map
     is left out when it is empty, and so are declared string defaults. The query or view that runs this needs
     `json_type_escape_dots_in_keys = 1`, or a dotted key prints as `a%2Eb`.
+
+    The batch export query and `events_json_recent_mv` both call this. A realtime export reads the text the view
+    stored, and other exports build it at query time, so the two must produce the same text.
     """
-    pairs = json_member_pairs_sql(properties_sql, declared_string_paths=EVENTS_PROPERTIES_DECLARED_STRING_PATHS)
-    empty_flags = escape_clickhouse_string(f'"{_FEATURE_FLAGS_KEY}":{{}}')
-    return f"concat('{{', arrayStringConcat(arrayFilter(pair -> pair != {empty_flags}, {pairs}), ','), '}}')"
+    return json_document_sql(
+        properties_sql,
+        exclude_empty_key=_FEATURE_FLAGS_KEY,
+        declared_string_paths=EVENTS_PROPERTIES_DECLARED_STRING_PATHS,
+    )
 
 
 def person_document_sql(person_properties_sql: str) -> str:
