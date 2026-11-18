@@ -420,7 +420,6 @@ async def _materialize_view_managed_warehouse(
                 "Managed warehouse shadow query failed in Trino",
                 node_name=node.name,
                 error_name=missing_object_error_name,
-                error_code=missing_object_error_name,
                 error=str(e),
                 duration_seconds=round(duration, 2),
             )
