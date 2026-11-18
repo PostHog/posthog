@@ -854,30 +854,35 @@ def test_prepare_launch_releases_boot_milestone_claims(mocker) -> None:
     release.assert_called_once_with("run-id", True)
 
 
-def test_prepare_launch_resolves_the_run_policy_from_the_task_and_its_run(mocker) -> None:
+@pytest.mark.parametrize(
+    "origin_product,run_state,expected",
+    [
+        ("workflow", {"end_run_when_done": True}, (True, True, "workflows")),
+        ("signal_report", {}, (True, False, "signals")),
+        ("signal_report", {"billing_product": "posthog_ai"}, (True, False, "posthog_ai")),
+    ],
+    ids=["end_run_opt_in", "origin_billing_product", "run_billing_override"],
+)
+def test_prepare_launch_resolves_the_run_policy_from_the_task_and_its_run(
+    mocker, origin_product: str, run_state: dict, expected: tuple[bool, bool, str]
+) -> None:
     prefix = "products.tasks.backend.temporal.process_task.activities.start_agent_server"
     _mock_prepare_launch_dependencies(mocker)
     mocker.patch(f"{prefix}.Task.objects.select_related").return_value.get.return_value = mocker.Mock(
         internal=False,
         stored_profile=None,
         runtime="claude",
-        origin_product="workflow",
+        origin_product=origin_product,
         mcp_builtin_agent_key=None,
         mcp_credential_owner_id=None,
         mcp_gateway_server_allowlist=None,
     )
-    mocker.patch(f"{prefix}.TaskRun.objects.filter").return_value.first.return_value = mocker.Mock(
-        state={"end_run_when_done": True}
-    )
+    mocker.patch(f"{prefix}.TaskRun.objects.filter").return_value.first.return_value = mocker.Mock(state=run_state)
 
     params = _prepare_launch(_context(), "read_only", "sandbox-id")
 
     policy = json.loads(params.run_policy)
-    assert (policy["finish_tool"], policy["finish_report_required"], policy["billing_product"]) == (
-        True,
-        True,
-        "workflows",
-    )
+    assert (policy["finish_tool"], policy["finish_report_required"], policy["billing_product"]) == expected
 
 
 @pytest.mark.parametrize(
