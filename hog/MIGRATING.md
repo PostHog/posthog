@@ -3,7 +3,7 @@
 > [!NOTE]
 > This guide is a draft. hog isn't published yet, and the guide will move to posthog.com when it is.
 
-hog is version 1 of the PostHog command line. It does what posthog-cli does, with new command names, `HOG_` environment variables, and output that agents can read.
+hog is the successor to posthog-cli. It does what posthog-cli does, with new command names, `HOG_` environment variables, and output that agents can read.
 Most moves take three steps: install hog, rename the environment variables, and rewrite each command with the tables below.
 
 ## What stays the same
