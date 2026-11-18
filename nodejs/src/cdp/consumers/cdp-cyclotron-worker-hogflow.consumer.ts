@@ -1,5 +1,6 @@
 import { HogFlow } from '~/cdp/schema/hogflow'
 import {
+    HogFlowPersonLookup,
     hogFlowPersonLookup,
     loadHogFlowPerson,
     resolvesByRepointedPerson,
@@ -11,7 +12,7 @@ import { PluginsServerConfig } from '~/types'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../types'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
-import { createCanceledInvocationResult } from '../utils/invocation-utils'
+import { createCanceledInvocationResult, createInvocationResult } from '../utils/invocation-utils'
 import { CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 
@@ -44,13 +45,12 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
 
     @instrumented('cdpConsumer.handleEachBatch.loadHogFlows')
     protected async loadHogFlows(invocations: CyclotronJobInvocation[]): Promise<LoadHogFlowsResult> {
-        const loadedInvocations: CyclotronJobInvocationHogFlow[] = []
         const failedInvocations: CyclotronJobInvocation[] = []
         const canceledResults: CyclotronJobInvocationResult[] = []
         const hogFlows = await this.hogFlowsFor(invocations.filter((item) => !item.cancelRequestedAt))
 
-        await Promise.all(
-            invocations.map(async (item) => {
+        const loadedOrSkipped = await Promise.all(
+            invocations.map(async (item): Promise<CyclotronJobInvocationHogFlow | undefined> => {
                 // Checked before the team/flow lookups so a cancel-requested run terminates even
                 // when its flow or team has since been deleted. The flow lookup here is
                 // best-effort and only sets the terminal row's function_kind: a null flow
@@ -58,6 +58,33 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 if (item.cancelRequestedAt) {
                     const hogFlow = await this.hogFlowManager.getHogFlow(item.functionId).catch(() => null)
                     canceledResults.push(createCanceledInvocationResult(item, 'Run canceled', hogFlow ?? undefined))
+                    return
+                }
+
+                // Corrupt JSON, or a sealed state that no key opens, leaves no state to run.
+                if (!item.state) {
+                    logger.error('⚠️', 'Hog flow invocation has no readable state', { id: item.id })
+                    failedInvocations.push(item)
+                    return
+                }
+
+                // The plaintext fields of an unreadable sealed state are enough to end the run as failed through the
+                // result pipeline, which closes its lifecycle row and its email status.
+                if (item.stateUnreadable) {
+                    logger.error('⚠️', 'Hog flow invocation has no readable state', { id: item.id })
+                    const hogFlow = hogFlows[item.functionId] ?? ({ id: item.functionId } as HogFlow)
+                    canceledResults.push(
+                        createInvocationResult<CyclotronJobInvocationHogFlow>(
+                            // Marked sensitive so its snapshot, which lacks the sealed fields, is never re-run.
+                            {
+                                ...item,
+                                state: { ...item.state, sensitive: true },
+                                hogFlow,
+                            } as CyclotronJobInvocationHogFlow,
+                            {},
+                            { error: 'The run state could not be decrypted' }
+                        )
+                    )
                     return
                 }
 
@@ -149,11 +176,8 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 }
 
                 if (personLookup) {
-                    loaded.refreshPerson = async () => {
-                        const fresh = await loadHogFlowPerson(this.personsManager, hogFlow, {
-                            ...personLookup,
-                            forceFresh: true,
-                        })
+                    const reloadPerson = async (lookup: HogFlowPersonLookup) => {
+                        const fresh = await loadHogFlowPerson(this.personsManager, hogFlow, lookup)
                         return {
                             person: fresh,
                             filterGlobals: convertToHogFunctionFilterGlobal({
@@ -164,14 +188,21 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                             }),
                         }
                     }
+                    loaded.refreshPerson = () => reloadPerson({ ...personLookup, forceFresh: true })
+                    // The templates of an api-triggered flow never see person properties.
+                    if (this.personsManager.hasConsistentReads && hogFlow.trigger?.type !== 'api') {
+                        loaded.loadPersonProperties = (keys) =>
+                            reloadPerson({ ...personLookup, forceFresh: false, requiredProperties: keys })
+                    }
                 }
 
-                loadedInvocations.push(loaded)
+                return loaded
             })
         )
 
         await this.cyclotronJobQueue.dequeueInvocations(failedInvocations)
 
+        const loadedInvocations = loadedOrSkipped.filter((item) => item !== undefined)
         return { loadedInvocations, canceledResults }
     }
 }

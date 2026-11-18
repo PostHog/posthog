@@ -1,4 +1,7 @@
+import { waitFor } from '@testing-library/react'
+
 import api from 'lib/api'
+import { captureImageLogic } from 'lib/components/Scenes/InsightOrDashboard/captureImageLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { retryImport } from 'lib/utils/retryImport'
 import { cohortSavedToast } from 'scenes/cohorts/cohortSavedToast'
@@ -77,6 +80,31 @@ const asset = (overrides: Partial<ExportedAssetType> = {}): ExportedAssetType =>
 })
 
 describe('exportsLogic', () => {
+    it.each(['server', 'browser'])('reports a failed PNG dialog download for %s exports', async (renderer) => {
+        jest.clearAllMocks()
+        initKeaTests()
+        jest.mocked(retryImport).mockRejectedValueOnce(new Error('Failed to fetch dynamically imported module'))
+        const logic = renderer === 'server' ? exportsLogic() : captureImageLogic()
+        const unmount = logic.mount()
+        try {
+            if (renderer === 'server') {
+                exportsLogic.actions.startExport({ dashboard: 7, export_format: ExporterFormat.PNG })
+            } else {
+                captureImageLogic.actions.downloadImage({ selector: '.chart', screenshotKey: 'test' })
+            }
+            await waitFor(() =>
+                expect(lemonToast.error).toHaveBeenCalledWith(
+                    'Could not open the export options. Reload the page and try again.'
+                )
+            )
+        } finally {
+            unmount()
+            jest.mocked(retryImport)
+                .mockReset()
+                .mockImplementation(async (factory) => factory())
+        }
+    })
+
     describe('pickPollDelayMs', () => {
         it('returns the default delay when nothing is pending', () => {
             expect(pickPollDelayMs([asset({ has_content: true })])).toBe(10000)
