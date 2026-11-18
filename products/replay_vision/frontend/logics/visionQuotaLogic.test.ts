@@ -125,6 +125,16 @@ describe('visionQuotaLogic', () => {
         expect(logic.values.onFreePlan).toBe(true)
         expect(logic.values.billedCredits).toBe(0)
         expect(logic.values.billedLimitCredits).toBe(0)
+
+        // A subscribed org with a $0 overage limit has the same quota, but needs its limit raised, not billing added.
+        billingLogic.actions.loadBillingSuccess({
+            products: [{ type: 'replay_vision', subscribed: true }],
+        } as BillingType)
+        expect(logic.values.onFreePlan).toBe(false)
+        billingLogic.actions.loadBillingSuccess({
+            products: [{ type: 'replay_vision', subscribed: false }],
+        } as BillingType)
+        expect(logic.values.onFreePlan).toBe(true)
     })
 
     it('loadQuota overwrites any optimistic adjustment with the server value', async () => {

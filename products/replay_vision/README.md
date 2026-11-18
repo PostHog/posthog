@@ -88,7 +88,7 @@ Replay vision runs only on PostHog Cloud and in local development. A scan needs 
 ## Credit limit and free credits
 
 Billing is the only source of an organization's credit limit and free credits.
-It syncs both into `organization.usage["replay_vision_credits"]` as `limit` and `free_allocation`, and Replay Vision reads them from there.
+It syncs both into `organization.usage["replay_vision_credits"]` as `limit` and `free_tier_units`, and Replay Vision reads them from there.
 
 Until billing has synced both, the organization has no credits:
 nothing scans, sweeps skip their tick without turning scanners off or skipping sessions, and the API answers 503 `billing_sync_pending`.

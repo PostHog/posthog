@@ -194,14 +194,17 @@ export function daysUntilCapReached(projection: QuotaProjection): number | null 
  * Disabled-reason / tooltip for scan triggers based on the monthly credit limit.
  * Assumes block-only overage policy; revisit when `usage_based` lands so we don't disable on metered orgs.
  */
-export function quotaUx(quota: VisionQuotaApi | null): { disabledReason?: string; tooltip?: string } {
+export function quotaUx(
+    quota: VisionQuotaApi | null,
+    onFreePlan: boolean
+): { disabledReason?: string; tooltip?: string } {
     const state = quotaBannerState(quota)
     if (!state.kind) {
         return {}
     }
     if (state.kind === 'exhausted') {
         return {
-            disabledReason: isFreeAllocationOnly(quota)
+            disabledReason: onFreePlan
                 ? `You've used all your free Replay vision credits. Resets ${state.resetsOn}.`
                 : `Replay vision spend limit reached. Resets ${state.resetsOn}.`,
         }

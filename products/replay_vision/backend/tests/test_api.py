@@ -1197,7 +1197,7 @@ class TestScannerScoutCallerRules(_VisionAPITestCase):
         self, _name: str, organization_limit: int | None, credit_limit: int, expected_status: int
     ) -> None:
         self.organization.usage = {
-            "replay_vision_credits": {"limit": organization_limit, "free_allocation": TEST_FREE_CREDITS}
+            "replay_vision_credits": {"limit": organization_limit, "free_tier_units": TEST_FREE_CREDITS}
         }
         self.organization.save(update_fields=["usage"])
         self._authenticate_as_scout()
@@ -1240,7 +1240,7 @@ class TestScannerScoutCallerRules(_VisionAPITestCase):
         expected_status: int,
     ) -> None:
         self.organization.usage = {
-            "replay_vision_credits": {"limit": organization_limit, "free_allocation": TEST_FREE_CREDITS}
+            "replay_vision_credits": {"limit": organization_limit, "free_tier_units": TEST_FREE_CREDITS}
         }
         self.organization.save(update_fields=["usage"])
         ceiling = dict(ceiling)
@@ -1314,7 +1314,7 @@ class TestScannerScoutCallerRules(_VisionAPITestCase):
         self, _name: str, credit_limit: int | None, expected_status: int, organization_limit: int | None
     ) -> None:
         self.organization.usage = {
-            "replay_vision_credits": {"limit": organization_limit, "free_allocation": TEST_FREE_CREDITS}
+            "replay_vision_credits": {"limit": organization_limit, "free_tier_units": TEST_FREE_CREDITS}
         }
         self.organization.save(update_fields=["usage"])
         scanner = self._create_scanner(name="source", credit_limit=credit_limit)

@@ -2,6 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { loaders } from 'kea-loaders'
 
 import { billingLogic } from 'lib/logic/billing/billingLogic'
+import { REPLAY_VISION_PRODUCT_KEY } from 'scenes/billing/billingLimitConfig'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { BillingType } from '~/types'
@@ -77,7 +78,7 @@ export interface visionQuotaLogicMeta {
         showUsd: (quota: VisionQuotaApi | null) => boolean
         freeCreditsAllowance: (quota: VisionQuotaApi | null) => number | null
         freeCreditsLeft: (quota: VisionQuotaApi | null) => number | null
-        onFreePlan: (quota: VisionQuotaApi | null) => boolean
+        onFreePlan: (quota: VisionQuotaApi | null, billing: BillingType | null) => boolean
         billedCredits: (displayQuota: VisionQuotaApi | null) => number
         billedLimitCredits: (displayQuota: VisionQuotaApi | null) => number
     }
@@ -178,7 +179,14 @@ export const visionQuotaLogic = kea<visionQuotaLogicType>([
         ],
         freeCreditsLeft: [(s) => [s.quota], (quota: VisionQuotaApi | null): number | null => freeCreditsLeft(quota)],
         /** On the free plan: shapes copy, since running out of free credits isn't hitting a spend limit. */
-        onFreePlan: [(s) => [s.quota], (quota: VisionQuotaApi | null) => isFreeAllocationOnly(quota)],
+        onFreePlan: [
+            (s) => [s.quota, s.billing],
+            (quota: VisionQuotaApi | null, billing: BillingType | null): boolean => {
+                // A subscribed org with a $0 limit also caps at its free credits, so only billing can tell them apart.
+                const subscribed = billing?.products?.find((p) => p.type === REPLAY_VISION_PRODUCT_KEY)?.subscribed
+                return typeof subscribed === 'boolean' ? !subscribed : isFreeAllocationOnly(quota)
+            },
+        ],
         // Billed figures come off `displayQuota` so a startup-capped org's dollars respect the cap.
         billedCredits: [
             (s) => [s.displayQuota],

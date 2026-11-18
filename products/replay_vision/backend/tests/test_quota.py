@@ -603,19 +603,19 @@ class TestComputeScannerBudgets(_VisionQuotaTestCase):
 class TestBillingSyncedQuota(_VisionQuotaTestCase):
     @parameterized.expand(
         [
-            ("billing_limit_wins", {"limit": 42, "free_allocation": 1_000}, (42, 1_000, 42)),
-            ("synced_without_limit_is_uncapped", {"limit": None, "free_allocation": 1_000}, (None, 1_000, 1_000)),
-            ("float_limit_truncated", {"limit": 42.9, "free_allocation": 1_000}, (42, 1_000, 42)),
+            ("billing_limit_wins", {"limit": 42, "free_tier_units": 1_000}, (42, 1_000, 42)),
+            ("synced_without_limit_is_uncapped", {"limit": None, "free_tier_units": 1_000}, (None, 1_000, 1_000)),
+            ("float_limit_truncated", {"limit": 42.9, "free_tier_units": 1_000}, (42, 1_000, 42)),
             # A negative limit would read as permanently over; it must clamp to a hard block.
-            ("negative_limit_clamped_to_zero", {"limit": -5, "free_allocation": 1_000}, (0, 1_000, 0)),
-            ("zero_free_allocation_is_real", {"limit": None, "free_allocation": 0}, (None, 0, 0)),
+            ("negative_limit_clamped_to_zero", {"limit": -5, "free_tier_units": 1_000}, (0, 1_000, 0)),
+            ("zero_free_tier_units_is_real", {"limit": None, "free_tier_units": 0}, (None, 0, 0)),
             # A free tier with no upper bound leaves only the org limit to stop a free-only scanner.
-            ("free_tier_without_bound", {"limit": 500, "free_allocation": None}, (500, None, 500)),
+            ("free_tier_without_bound", {"limit": 500, "free_tier_units": None}, (500, None, 500)),
             # Anything short of a valid limit and free allocation is unsynced, never uncapped.
-            ("malformed_limit_is_unsynced", {"limit": "42", "free_allocation": 1_000}, (30, 20, 20)),
-            ("missing_free_allocation_is_unsynced", {"limit": None}, (30, 20, 20)),
-            ("malformed_free_allocation_is_unsynced", {"limit": None, "free_allocation": "1000"}, (30, 20, 20)),
-            ("negative_free_allocation_is_unsynced", {"limit": None, "free_allocation": -1}, (30, 20, 20)),
+            ("malformed_limit_is_unsynced", {"limit": "42", "free_tier_units": 1_000}, (30, 20, 20)),
+            ("missing_free_tier_units_is_unsynced", {"limit": None}, (30, 20, 20)),
+            ("malformed_free_tier_units_is_unsynced", {"limit": None, "free_tier_units": "1000"}, (30, 20, 20)),
+            ("negative_free_tier_units_is_unsynced", {"limit": None, "free_tier_units": -1}, (30, 20, 20)),
         ]
     )
     def test_allowance_source(
@@ -665,20 +665,20 @@ class TestBillingSyncedQuota(_VisionQuotaTestCase):
             # An unlimited plan (billing syncs no limit) gets the override as its cap.
             (
                 "caps_an_uncapped_org",
-                {"replay_vision_credits": {"limit": None, "usage": 0, "free_allocation": TEST_FREE_CREDITS}},
+                {"replay_vision_credits": {"limit": None, "usage": 0, "free_tier_units": TEST_FREE_CREDITS}},
                 500,
                 500,
             ),
             (
                 "tighter_override_wins",
-                {"replay_vision_credits": {"limit": 42, "usage": 0, "free_allocation": TEST_FREE_CREDITS}},
+                {"replay_vision_credits": {"limit": 42, "usage": 0, "free_tier_units": TEST_FREE_CREDITS}},
                 10,
                 10,
             ),
             # The override can only reduce credits; a looser value never overrides billing.
             (
                 "looser_override_ignored",
-                {"replay_vision_credits": {"limit": 42, "usage": 0, "free_allocation": TEST_FREE_CREDITS}},
+                {"replay_vision_credits": {"limit": 42, "usage": 0, "free_tier_units": TEST_FREE_CREDITS}},
                 9000,
                 42,
             ),
@@ -696,7 +696,7 @@ class TestBillingSyncedQuota(_VisionQuotaTestCase):
 
     def test_override_for_another_org_changes_nothing(self) -> None:
         self.organization.usage = {
-            "replay_vision_credits": {"limit": None, "usage": 0, "free_allocation": TEST_FREE_CREDITS}
+            "replay_vision_credits": {"limit": None, "usage": 0, "free_tier_units": TEST_FREE_CREDITS}
         }
         self.organization.save()
         with patch.dict(
@@ -731,7 +731,7 @@ class TestBillingSyncedQuota(_VisionQuotaTestCase):
 
     def test_uncapped_org_is_never_exhausted(self) -> None:
         self.organization.usage = {
-            "replay_vision_credits": {"limit": None, "usage": 0, "free_allocation": TEST_FREE_CREDITS}
+            "replay_vision_credits": {"limit": None, "usage": 0, "free_tier_units": TEST_FREE_CREDITS}
         }
         self.organization.save()
         self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())

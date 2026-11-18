@@ -570,28 +570,28 @@ def _billing_allowance(organization: Organization | None) -> BillingAllowance | 
     # `limit` key (even a null one) means billing actually manages this product.
     if not isinstance(usage, dict) or "limit" not in usage:
         return None
-    if "free_allocation" not in usage:
+    if "free_tier_units" not in usage:
         return None
-    free_allocation = usage["free_allocation"]
-    if free_allocation is not None and (
-        not isinstance(free_allocation, int) or isinstance(free_allocation, bool) or free_allocation < 0
+    free_tier_units = usage["free_tier_units"]
+    if free_tier_units is not None and (
+        not isinstance(free_tier_units, int) or isinstance(free_tier_units, bool) or free_tier_units < 0
     ):
         logger.warning(
-            "replay_vision.malformed_billing_free_allocation",
+            "replay_vision.malformed_billing_free_tier_units",
             organization_id=str(organization.id),
-            free_allocation=repr(free_allocation),
+            free_tier_units=repr(free_tier_units),
         )
         return None
     limit = usage.get("limit")
     if limit is None:
-        return BillingAllowance(credit_limit=None, free_credits=free_allocation)
+        return BillingAllowance(credit_limit=None, free_credits=free_tier_units)
     if isinstance(limit, (int, float)) and not isinstance(limit, bool):
         if limit < 0:
             # A negative limit would read as permanently over; clamp to a hard block instead.
             logger.warning(
                 "replay_vision.negative_billing_limit", organization_id=str(organization.id), limit=repr(limit)
             )
-        return BillingAllowance(credit_limit=max(0, int(limit)), free_credits=free_allocation)
+        return BillingAllowance(credit_limit=max(0, int(limit)), free_credits=free_tier_units)
     # A malformed limit must read as unsynced, never as uncapped.
     logger.warning("replay_vision.malformed_billing_limit", organization_id=str(organization.id), limit=repr(limit))
     return None
