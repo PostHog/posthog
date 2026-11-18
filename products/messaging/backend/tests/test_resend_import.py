@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import urlparse
 from uuid import uuid4
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
@@ -76,8 +76,8 @@ class FakeResend:
         if self.failures.get(path):
             status, headers = self.failures[path].pop(0)
             return self._response(status, {"name": "rate_limit_exceeded", "message": "Too many"}, headers)
-        if path == "/contacts" and (segment_ids := parse_qs(urlparse(url).query).get("segment_id")):
-            members = set(self.data["segment_contacts"].get(segment_ids[0], []))
+        if match := re.fullmatch(r"/segments/([^/]+)/contacts", path):
+            members = set(self.data["segment_contacts"].get(match.group(1), []))
             return self._page([row for row in self.data["contacts"] if row["id"] in members], params)
         if match := re.fullmatch(r"/contacts/([^/]+)/topics", path):
             return self._page(self.data["contact_topics"].get(match.group(1), []), params)

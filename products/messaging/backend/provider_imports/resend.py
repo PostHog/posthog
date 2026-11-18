@@ -415,7 +415,7 @@ def _fetch_contacts(client: ResendClient, context: ImportContext) -> Iterator[Im
             name = str(segment.get("name") or segment_id)
             members = [
                 row
-                for members_page in client.pages(f"/contacts?segment_id={quote(segment_id)}")
+                for members_page in client.pages(f"/segments/{quote(segment_id)}/contacts")
                 for row in _collect(contacts, members_page.data)
             ]
             segments.append(
