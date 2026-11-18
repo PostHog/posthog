@@ -613,7 +613,7 @@ export const loginLogic = kea<loginLogicType>([
             },
         ],
     })),
-    forms(({ actions, values }) => ({
+    forms(({ actions }) => ({
         login: {
             defaults: { email: '', password: '' } as LoginForm,
             errors: ({ email, password }) => ({
@@ -682,7 +682,6 @@ export const loginLogic = kea<loginLogicType>([
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     return await api.create<any>('api/login/code-based-verification', {
                         code: normalizeVerificationCode(code),
-                        email: values.login.email,
                     })
                 } catch (e) {
                     const { detail } = e as Record<string, any>

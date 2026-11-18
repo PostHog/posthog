@@ -8,8 +8,8 @@ class IdentityProviderEmailVerification(UUIDModel):
 
     Keyed by the provider's issuer and its subject (OIDC `sub`, SAML name ID) rather than by
     `IdentityProviderConfig` or by user: two configs can front the same IdP, but a second identity
-    at that IdP has proved nothing, and a config repointed to a different IdP presents a different
-    issuer, so neither inherits this row. `email` is the address the code was mailed to, so a
+    at that IdP has proved nothing. SAML includes its signing certificate fingerprint in the issuer
+    so replacing the signing key requires a new proof. `email` is the address the code was mailed to, so a
     changed assertion needs a new code.
     """
 
@@ -29,7 +29,7 @@ class IdentityProviderEmailVerification(UUIDModel):
     )
     issuer = models.CharField(
         max_length=512,
-        help_text="OIDC issuer URL or SAML entity ID of the identity provider that asserted the address.",
+        help_text="OIDC issuer URL, or fingerprint of the SAML entity ID and signing certificate.",
     )
     subject = models.CharField(
         max_length=255,

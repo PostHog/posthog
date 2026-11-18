@@ -1,6 +1,5 @@
 import json
 import base64
-from hashlib import sha256
 from typing import Any, cast
 from uuid import UUID, uuid4
 
@@ -443,16 +442,7 @@ class MultitenantSAMLAuth(SAMLAuth):
         Overridden to find user ID across multiple attribute names.
         Get the permanent ID for this user from the response.
         """
-        idp_name = response["idp_name"]
-        issuer = (
-            IdentityProviderConfig.objects.filter(saml_relay_state=idp_name)
-            .values_list("saml_entity_id", flat=True)
-            .first()
-        )
-        if not issuer:
-            raise AuthFailed(self, "Authentication request is invalid. Missing IdP issuer.")
-        identity = json.dumps([idp_name, issuer, self.get_identity_subject(details, response)])
-        return f"issuer-v1:{sha256(identity.encode()).hexdigest()}"
+        return f"{response['idp_name']}:{self.get_identity_subject(details, response)}"
 
 
 class CustomGoogleOAuth2(GoogleOAuth2):

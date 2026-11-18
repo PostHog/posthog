@@ -4,6 +4,7 @@ import math
 import time
 import random
 import datetime
+from hashlib import sha256
 from typing import TYPE_CHECKING, Any, TypedDict, cast
 from urllib.parse import urlencode, urljoin
 from uuid import uuid4
@@ -20,10 +21,11 @@ from django.contrib.auth.tokens import PasswordResetTokenGenerator as DefaultPas
 from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import ValidationError
 from django.core.signing import BadSignature
-from django.db import IntegrityError, transaction
+from django.db import transaction
 from django.db.models import F, Q
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_http_methods
@@ -42,12 +44,14 @@ from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from social_core.actions import do_complete
 from social_core.backends.base import BaseAuth
 from social_core.backends.github import GithubOAuth2
 from social_core.exceptions import AuthConnectionError, AuthFailed, AuthMissingParameter
 from social_django.models import UserSocialAuth
 from social_django.strategy import DjangoStrategy
-from social_django.views import auth
+from social_django.utils import load_backend, load_strategy
+from social_django.views import _do_login, auth
 from two_factor.utils import default_device
 from two_factor.views.core import REMEMBER_COOKIE_PREFIX
 from two_factor.views.utils import get_remember_device_cookie, validate_remember_device_cookie
@@ -151,7 +155,9 @@ class PendingIdPEmailVerification(TypedDict):
     subject: str
     uid: str
     email: str
-    backend: str
+    user_id: int
+    issued_at: int
+    partial_token: str
 
 
 def sso_enforcement_for_login_address(email: str, user: User | None) -> str | None:
@@ -509,6 +515,7 @@ class LoginSerializer(serializers.Serializer):
             raise exceptions.PermissionDenied(ACCOUNT_BLOCKED_DETAIL, code=SECURITY_REFUSAL_CODE)
 
         require_verified_email_for_login(user)
+        code_based_verifier.clear_pending(request)
 
         # Domain enforcement: refuse blocked members — blocked admins still get a gated session.
         if not resolve_login_organization(user):
@@ -1216,10 +1223,21 @@ class TwoFactorPasskeyViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
 def _complete_idp_login(request: Request, user: User, pending: PendingIdPEmailVerification) -> None:
     if _sso_access_refused(request, user):
         raise exceptions.PermissionDenied(ACCOUNT_BLOCKED_DETAIL, code=SECURITY_REFUSAL_CODE)
-    try:
-        # `associate_user` runs after the gate, so the row is created only once the code accepted.
-        UserSocialAuth.objects.get_or_create(user=user, provider=pending["provider"], uid=pending["uid"])
-    except IntegrityError:
+    strategy = load_strategy(request._request)
+    partial = strategy.partial_load(pending["partial_token"])
+    if (
+        partial is None
+        or partial.kwargs.get("user") != user
+        or partial.backend != pending["provider"]
+        or str(partial.kwargs.get("uid")) != pending["uid"]
+        or request.session.get("partial_pipeline_token") != pending["partial_token"]
+    ):
+        raise serializers.ValidationError({"detail": "Please log in again."}, code="no_pending_verification")
+    backend = load_backend(strategy, pending["provider"], reverse("social:complete", args=[pending["provider"]]))
+    identity = _identity_provider_identity(backend, partial.kwargs.get("details"), partial.kwargs.get("response"))
+    if identity != IdPIdentity(provider=pending["provider"], issuer=pending["issuer"], subject=pending["subject"]):
+        raise serializers.ValidationError({"detail": "Please log in again."}, code="no_pending_verification")
+    if UserSocialAuth.objects.filter(provider=pending["provider"], uid=pending["uid"]).exclude(user=user).exists():
         raise serializers.ValidationError(
             {"detail": "This identity is linked to another account."}, code="identity_linked_elsewhere"
         )
@@ -1232,8 +1250,9 @@ def _complete_idp_login(request: Request, user: User, pending: PendingIdPEmailVe
     )
     if pending["email"] == user.email.strip().lower():
         _clear_unverified_local_credentials(user)
-    login(request, user, backend=pending["backend"])
-    _notify_social_login(request, user, pending["provider"])
+    do_complete(backend, _do_login, request=request._request)
+    if request.session.get("_auth_user_id") != str(user.pk):
+        raise serializers.ValidationError({"detail": "Please log in again."}, code="no_pending_verification")
 
 
 class CodeBasedVerificationSerializer(serializers.Serializer):
@@ -1309,6 +1328,13 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
 
         # Code valid - invalidate the pending state and complete login.
         sso: PendingIdPEmailVerification | None = request.session.get(CODE_BASED_VERIFICATION_SSO_SESSION_KEY)
+        if sso and (
+            sso.get("user_id") != user.pk
+            or sso.get("email") != code_based_verifier.get_pending_code_based_verification_target(request)
+            or sso.get("issued_at") != code_based_verifier.get_pending_code_based_verification_issued_at(request)
+        ):
+            code_based_verifier.clear_pending(request)
+            raise invalid_error
         code_based_verifier.clear_pending(request)
         if sso:
             _complete_idp_login(request, user, sso)
@@ -1702,12 +1728,7 @@ class IdPIdentity:
 def _identity_provider_identity(
     backend: BaseAuth, details: dict[str, Any] | None, response: dict[str, Any] | None
 ) -> IdPIdentity | None:
-    """Which identity provider identity made this login, or None when it cannot be scoped.
-
-    `issuer` is the provider's own identifier, so a config repointed to a different provider presents
-    a different value. OIDC keeps the issuer on its config; SAML names the config by relay state in
-    `idp_name`, and the config holds the provider's entity ID.
-    """
+    """Bind SAML proof to its signing certificate because an entity ID can survive an IdP replacement."""
     if backend.name == "oidc":
         try:
             oidc_config = cast("MultitenantOIDCAuth", backend).identity_provider_config
@@ -1718,12 +1739,15 @@ def _identity_provider_identity(
         relay_state = (response or {}).get("idp_name")
         if not relay_state:
             return None
-        issuer = (
-            IdentityProviderConfig.objects.filter(saml_relay_state=relay_state)
-            .values_list("saml_entity_id", flat=True)
-            .first()
-            or ""
+        config = IdentityProviderConfig.objects.filter(saml_relay_state=relay_state).first()
+        if config is None or not config.saml_entity_id or not config.saml_x509_cert:
+            return None
+        certificate = "".join(
+            config.saml_x509_cert.replace("-----BEGIN CERTIFICATE-----", "")
+            .replace("-----END CERTIFICATE-----", "")
+            .split()
         )
+        issuer = f"saml-v1:{sha256(json.dumps([config.saml_entity_id, certificate]).encode()).hexdigest()}"
 
     subject = cast("MultitenantOIDCAuth | MultitenantSAMLAuth", backend).get_identity_subject(
         details or {}, response or {}
@@ -1750,7 +1774,10 @@ def social_require_idp_email_verification(
     """
     if backend.name not in IDP_SSO_BACKENDS:
         return None
-    is_reauth = bool(_sso_reauth_request(strategy))
+    if _sso_reauth_request(strategy):
+        if user is None or not UserSocialAuth.objects.filter(user=user, provider=backend.name, uid=uid).exists():
+            raise AuthFailed(backend, "reauth_user_mismatch")
+        return None
     identity = _identity_provider_identity(backend, details, response)
     email = ((details or {}).get("email") or "").strip().lower()
     if user is None or not uid or identity is None or not email:
@@ -1759,14 +1786,9 @@ def social_require_idp_email_verification(
     if IdentityProviderEmailVerification.objects.filter(
         user=user, provider=identity.provider, issuer=identity.issuer, subject=identity.subject, email=email
     ).exists():
-        if is_reauth and not UserSocialAuth.objects.filter(user=user, provider=identity.provider, uid=uid).exists():
-            raise AuthFailed(backend, "reauth_user_mismatch")
         if email == user.email.strip().lower():
             _clear_unverified_local_credentials(user)
         return None
-
-    if is_reauth:
-        raise AuthFailed(backend, "reauth_user_mismatch")
 
     request = strategy.request
     try:
@@ -1783,7 +1805,9 @@ def social_require_idp_email_verification(
         subject=identity.subject,
         uid=str(uid),
         email=email,
-        backend=f"{backend.__module__}.{backend.__class__.__name__}",
+        user_id=user.pk,
+        issued_at=cast(int, code_based_verifier.get_pending_code_based_verification_issued_at(request)),
+        partial_token=kwargs["current_partial"].token,
     )
     query = {"code_verification_pending": "1", "email": email}
     next_url = strategy.session_get("next") or ""

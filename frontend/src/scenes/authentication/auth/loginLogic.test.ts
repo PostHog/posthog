@@ -267,6 +267,25 @@ describe('loginLogic', () => {
             }
         })
 
+        it('submits an IdP verification code without an empty login email', async () => {
+            useMocks({
+                post: {
+                    '/api/login/code-based-verification': async ({ request }) => {
+                        const body = (await request.json()) as { email?: string }
+                        return body.email === ''
+                            ? [400, { detail: 'Email cannot be blank.' }]
+                            : [200, { success: true }]
+                    },
+                },
+            })
+            router.actions.push('/login?code_verification_pending=1&email=member%40example.com')
+            expect(logic.values.login.email).toBe('')
+            logic.actions.setCodeVerificationValue('code', '123456')
+            logic.actions.submitCodeVerification()
+            await expectLogic(logic).toDispatchActions(['submitCodeVerificationSuccess'])
+            expect(logic.values.codeVerificationManualErrors).toEqual({})
+        })
+
         it('shows an undeliverable address on resend as a login error, and clears it once a resend goes out', async () => {
             const detail = "We can't send email to this address."
             useMocks({

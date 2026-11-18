@@ -348,8 +348,6 @@ SOCIAL_AUTH_PIPELINE = (
     # that resolve the existing account
     "posthog.api.authentication.social_access_rules_allow",
     "posthog.api.signup.social_create_user",
-    # Must run before associate_user, so an unproven identity is never linked to the account
-    "posthog.api.authentication.social_require_idp_email_verification",
     "social_core.pipeline.social_auth.associate_user",
     "social_core.pipeline.social_auth.load_extra_data",
     "social_core.pipeline.user.user_details",

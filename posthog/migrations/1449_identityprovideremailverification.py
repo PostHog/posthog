@@ -8,9 +8,7 @@ import posthog.uuidt
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("posthog", "1436_identityproviderconfig_scim_token_digest"),
-    ]
+    dependencies = [("posthog", "1448_team_and_organization_name_trgm")]
 
     operations = [
         migrations.CreateModel(

@@ -30,16 +30,22 @@ from social_core.exceptions import AuthConnectionError, AuthFailed, AuthMissingP
 from social_django.models import UserSocialAuth
 from social_django.utils import load_strategy
 
-from posthog.api.authentication import social_identity_matches_session
+from posthog.api.authentication import (
+    _identity_provider_identity,
+    social_identity_matches_session,
+    social_require_idp_email_verification,
+)
 from posthog.api.oidc import MultitenantOIDCAuth
 from posthog.api.sso import CustomGoogleOAuth2, MultitenantSAMLAuth
 from posthog.api.test.test_code_based_verification import enable_code_sending, workflows_refuses_the_recipient
 from posthog.constants import AvailableFeature
 from posthog.helpers.sso import GITHUB_EMAIL_LOOKUP_ERROR, UNVERIFIED_SOCIAL_EMAIL_ERROR
-from posthog.models import OrganizationMembership, User
+from posthog.helpers.two_factor_session import CODE_BASED_VERIFICATION_SSO_SESSION_KEY
+from posthog.models import OrganizationInvite, OrganizationMembership, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.identity_provider_email_verification import IdentityProviderEmailVerification
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.redis import get_client
@@ -163,7 +169,14 @@ class TestOIDCAuthentication(APILicensedTest):
                     self.backend.validate_and_return_id_token(token, "example-access-token")
 
     def _complete_oidc_login(
-        self, email: str, *, sub: str = "example-user", name: str = "Example User", email_verified: bool | None = True
+        self,
+        email: str,
+        *,
+        sub: str = "example-user",
+        name: str = "Example User",
+        email_verified: bool | None = True,
+        reauth: bool = False,
+        invite_id: str | None = None,
     ) -> HttpResponse:
         private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         public_key = {**json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(private_key.public_key())), "kid": "example-key"}
@@ -202,7 +215,14 @@ class TestOIDCAuthentication(APILicensedTest):
             return response
 
         with patch.object(MultitenantOIDCAuth, "request", side_effect=oidc_response):
-            response = self.client.get("/login/oidc/", {"email": email})
+            response = self.client.get(
+                "/login/oidc/",
+                {
+                    "email": email,
+                    **({"reauth": "true"} if reauth else {}),
+                    **({"invite_id": invite_id} if invite_id else {}),
+                },
+            )
             self.assertEqual(response.status_code, 302)
             params = parse_qs(urlparse(response["Location"]).query)
             claims = {
@@ -413,6 +433,133 @@ class TestOIDCAuthentication(APILicensedTest):
         self.assertFalse(UserSocialAuth.objects.filter(user=self.user, provider="oidc").exists())
         self.assertFalse(IdentityProviderEmailVerification.objects.filter(user=self.user).exists())
 
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_password_login_discards_an_abandoned_idp_challenge(self) -> None:
+        self.user.email = "member@example.com"
+        self.user.save()
+        self.client.logout()
+        password_user = User.objects.create_user(
+            email="password@example.net", first_name="Member", password="example-password", is_email_verified=True
+        )
+
+        with enable_code_sending() as sent:
+            self._complete_oidc_login("member@example.com")
+            self.assertIn(CODE_BASED_VERIFICATION_SSO_SESSION_KEY, self.client.session)
+            response = self.client.post("/api/login/", {"email": password_user.email, "password": "example-password"})
+            self.assertEqual(response.status_code, 401)
+            self.assertNotIn(CODE_BASED_VERIFICATION_SSO_SESSION_KEY, self.client.session)
+            response = self.client.post("/api/login/code-based-verification/", {"code": sent.call_args.args[1]})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.client.session["_auth_user_id"], str(password_user.pk))
+        self.assertEqual(self.client.session["_auth_user_backend"], "django.contrib.auth.backends.ModelBackend")
+        self.assertFalse(UserSocialAuth.objects.filter(user=password_user).exists())
+        self.assertFalse(IdentityProviderEmailVerification.objects.filter(user=password_user).exists())
+
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_idp_login_delivers_a_code_over_smtp_despite_password_exemptions(self) -> None:
+        self.user.email = "member@example.com"
+        self.user.save()
+        self.client.logout()
+        with (
+            override_settings(
+                EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend", POSTHOG_HOST="http://localhost"
+            ),
+            override_instance_config("EMAIL_HOST", "localhost"),
+            patch("posthog.helpers.two_factor_session.is_dev_mode", return_value=True),
+            patch("posthog.helpers.two_factor_session.is_email_code_exempt", return_value=True),
+            patch("posthog.email.is_http_email_service_available", return_value=False),
+        ):
+            response = self._complete_oidc_login("member@example.com")
+        self.assertIn("code_verification_pending=1", response["Location"])
+        self.assertNotIn("_auth_user_id", self.client.session)
+        self.assertEqual(mail.outbox[-1].to, ["member@example.com"])
+        self.assertIn("Your PostHog login code", mail.outbox[-1].subject)
+
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_linked_idp_session_can_reauthenticate_without_a_mailbox_proof_row(self) -> None:
+        self.user.email = "member@example.com"
+        self.user.save()
+        UserSocialAuth.objects.create(
+            user=self.user, provider="oidc", uid=f"{self.config.oidc_issuer_url}:example-user"
+        )
+        self.client.force_login(self.user, backend="posthog.api.oidc.MultitenantOIDCAuth")
+        response = self._complete_oidc_login("member@example.com", reauth=True)
+        self.assertEqual(response.status_code, 302)
+        self.assertNotIn("error_code", response["Location"])
+        self.assertNotIn(CODE_BASED_VERIFICATION_SSO_SESSION_KEY, self.client.session)
+        self.assertEqual(self.client.session["_auth_user_id"], str(self.user.pk))
+        self.assertFalse(IdentityProviderEmailVerification.objects.filter(user=self.user).exists())
+
+    @parameterized.expand(
+        [("user", "user_id", -1), ("email", "email", "other@example.com"), ("issuance", "issued_at", 1)]
+    )
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_idp_code_rejects_mismatched_pending_state(self, _name: str, field: str, value: Any) -> None:
+        self.user.email = "member@example.com"
+        self.user.save()
+        self.client.logout()
+        with enable_code_sending() as sent:
+            self._complete_oidc_login("member@example.com")
+            session = self.client.session
+            session[CODE_BASED_VERIFICATION_SSO_SESSION_KEY][field] = value
+            session.save()
+            response = self.client.post("/api/login/code-based-verification/", {"code": sent.call_args.args[1]})
+        self.assertEqual(response.status_code, 400)
+        self.assertNotIn("_auth_user_id", self.client.session)
+        self.assertFalse(UserSocialAuth.objects.filter(user=self.user).exists())
+        self.assertFalse(IdentityProviderEmailVerification.objects.filter(user=self.user).exists())
+
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_idp_signup_confirms_the_mailbox_before_starting_a_session(self) -> None:
+        self.client.logout()
+        with (
+            override_settings(DEBUG=True),
+            override_instance_config("EMAIL_HOST", "localhost"),
+            enable_code_sending() as sent,
+        ):
+            response = self._complete_oidc_login("signup@example.com", sub="signup-user")
+            self.assertEqual(urlparse(response["Location"]).path, "/organization/confirm-creation")
+            response = self.client.post("/api/social_signup/", {"organization_name": "Example", "first_name": "Member"})
+            self.assertEqual(response.status_code, 201, response.content)
+            user = User.objects.get(email="signup@example.com")
+            self.assertFalse(user.is_email_verified)
+            self.assertNotIn("_auth_user_id", self.client.session)
+            response = self.client.get(response.json()["continue_url"])
+            self.assertIn("code_verification_pending=1", response["Location"])
+            response = self.client.post("/api/login/code-based-verification/", {"code": sent.call_args.args[1]})
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(self.client.session["_auth_user_id"], str(user.pk))
+        user.refresh_from_db()
+        self.assertTrue(user.is_email_verified)
+
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_idp_signup_without_email_delivery_does_not_create_an_account(self) -> None:
+        self.client.logout()
+        with override_settings(DEBUG=True), patch("posthog.api.signup.is_email_available", return_value=False):
+            self._complete_oidc_login("signup@example.com", sub="signup-user")
+            response = self.client.post("/api/social_signup/", {"organization_name": "Example", "first_name": "Member"})
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(User.objects.filter(email="signup@example.com").exists())
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_idp_invite_is_consumed_only_after_mailbox_verification(self) -> None:
+        self.client.logout()
+        invite = OrganizationInvite.objects.create(
+            organization=self.organization, target_email="invited@example.com", created_by=self.user
+        )
+        with enable_code_sending() as sent:
+            response = self._complete_oidc_login("invited@example.com", sub="invited-user", invite_id=str(invite.pk))
+            self.assertIn("code_verification_pending=1", response["Location"])
+            user = User.objects.get(email="invited@example.com")
+            self.assertTrue(OrganizationInvite.objects.filter(pk=invite.pk).exists())
+            self.assertFalse(user.organization_memberships.exists())
+            response = self.client.post("/api/login/code-based-verification/", {"code": sent.call_args.args[1]})
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertFalse(OrganizationInvite.objects.filter(pk=invite.pk).exists())
+        self.assertTrue(user.organization_memberships.filter(organization=self.organization).exists())
+
     @parameterized.expand([("verified", True), ("unverified", False), ("missing", None)])
     @pytest.mark.disable_mock_code_based_verifier
     def test_oidc_jit_provisioning_creates_user_on_verified_domain(
@@ -433,12 +580,7 @@ class TestOIDCAuthentication(APILicensedTest):
         self.assertEqual(User.objects.count(), user_count + 1)
         user = cast(User, User.objects.get(email="newmember@example.com"))
         self.assertEqual(user.first_name, "New Member")
-        self.assertEqual(user.organization, self.organization)
-        self.assertEqual(user.team, self.team)
-        self.assertEqual(
-            cast(OrganizationMembership, user.organization_memberships.get()).level,
-            OrganizationMembership.Level.MEMBER,
-        )
+        self.assertFalse(user.organization_memberships.exists())
         self.assertFalse(user.is_email_verified)
         self.assertNotIn("_auth_user_id", self.client.session)
         self.assertFalse(UserSocialAuth.objects.filter(user=user, provider="oidc").exists())
@@ -447,6 +589,9 @@ class TestOIDCAuthentication(APILicensedTest):
         self.assertEqual(response.status_code, 200)
         user.refresh_from_db()
         self.assertTrue(user.is_email_verified)
+        self.assertEqual(user.organization, self.organization)
+        self.assertEqual(user.team, self.team)
+        self.assertEqual(user.organization_memberships.get().level, OrganizationMembership.Level.MEMBER)
         self.assertEqual(self.client.session["_auth_user_id"], str(user.pk))
         social_auth = UserSocialAuth.objects.get(user=user, provider="oidc")
         self.assertEqual(social_auth.uid, f"{self.config.oidc_issuer_url}:new-user")
@@ -1657,10 +1802,18 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    @parameterized.expand([("new_identity", False), ("legacy_identity", True)])
     @pytest.mark.disable_mock_code_based_verifier
     @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)  # Ensures the SAML timestamp validation passes
-    def test_first_login_with_saml_requires_the_emailed_code(self) -> None:
+    def test_first_login_with_saml_requires_the_emailed_code(self, _name: str, legacy_identity: bool) -> None:
         user = User.objects.create(email="engineering@posthog.com", distinct_id=str(uuid.uuid4()))
+        config = cast(IdentityProviderConfig, self.organization_domain.saml_identity_provider_configs.first())
+        if legacy_identity:
+            user.email = "owner@example.net"
+            user.save()
+            UserSocialAuth.objects.create(
+                user=user, provider="saml", uid=f"{config.saml_relay_state}:engineering@posthog.com"
+            )
 
         self.client.get("/login/saml/?email=engineering@posthog.com")
         _session = self.client.session
@@ -1680,7 +1833,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
             self.assertEqual(response.status_code, 302)
             self.assertIn("code_verification_pending=1", response["Location"])
             self.assertNotIn("_auth_user_id", self.client.session)
-            self.assertFalse(UserSocialAuth.objects.filter(user=user, provider="saml").exists())
+            self.assertEqual(UserSocialAuth.objects.filter(user=user, provider="saml").exists(), legacy_identity)
 
             config = cast(IdentityProviderConfig, self.organization_domain.saml_identity_provider_configs.first())
             code = mock_send.call_args[0][1]
@@ -1688,15 +1841,20 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(self.client.session["_auth_user_id"], str(user.pk))
+
         self.assertEqual(self.client.session["_auth_user_backend"], "posthog.api.sso.MultitenantSAMLAuth")
         self.assertTrue(
             IdentityProviderEmailVerification.objects.filter(
                 user=user,
                 provider="saml",
-                issuer=config.saml_entity_id,
                 subject="engineering@posthog.com",
                 email="engineering@posthog.com",
             ).exists()
+        )
+        self.assertTrue(IdentityProviderEmailVerification.objects.get(user=user).issuer.startswith("saml-v1:"))
+        self.assertEqual(
+            UserSocialAuth.objects.get(user=user, provider="saml").uid,
+            f"{config.saml_relay_state}:engineering@posthog.com",
         )
 
         self.client.logout()
@@ -1704,6 +1862,42 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
             self.client.post("/complete/saml/", post_data, follow=True, format="multipart")
             self.assertFalse(mock_send.called)
         self.assertEqual(self.client.session["_auth_user_id"], str(user.pk))
+
+    @parameterized.expand([("short_entity_id", False), ("maximum_entity_id", True)])
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_saml_certificate_change_requires_a_new_mailbox_proof(self, _name: str, maximum_entity_id: bool) -> None:
+        user = User.objects.create_user(email="engineering@posthog.com", first_name="Member", password=None)
+        config = self.organization_domain.saml_identity_provider_configs.get()
+        if maximum_entity_id:
+            config.saml_entity_id = "urn:" + "x" * 508
+            config.save(update_fields=["saml_entity_id"])
+        request = RequestFactory().get("/complete/saml/")
+        request.session = self.client.session
+        strategy = load_strategy(request)
+        backend = MultitenantSAMLAuth(strategy, "/complete/saml/")
+        response = {"idp_name": str(config.saml_relay_state), "attributes": {"name_id": [user.email]}}
+        identity = _identity_provider_identity(backend, {"email": user.email}, response)
+        assert identity is not None
+        IdentityProviderEmailVerification.objects.create(
+            user=user, provider=identity.provider, issuer=identity.issuer, subject=identity.subject, email=user.email
+        )
+        arguments = {
+            "strategy": strategy,
+            "backend": backend,
+            "uid": f"{config.saml_relay_state}:{user.email}",
+            "user": user,
+            "details": {"email": user.email},
+            "response": response,
+            "current_partial": SimpleNamespace(token="example-partial"),
+        }
+        self.assertIsNone(social_require_idp_email_verification(**arguments))
+        config.saml_x509_cert = "another-signing-certificate"
+        config.save(update_fields=["saml_x509_cert"])
+        with enable_code_sending():
+            result = social_require_idp_email_verification(**arguments)
+        assert result is not None
+        self.assertIn("code_verification_pending=1", result["Location"])
+        self.assertNotEqual(request.session[CODE_BASED_VERIFICATION_SSO_SESSION_KEY]["issuer"], identity.issuer)
 
     @parameterized.expand(
         [
@@ -1856,15 +2050,9 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         # User is created
         self.assertEqual(User.objects.count(), user_count + 1)
         user = cast(User, User.objects.last())
-        self.assertEqual(user.first_name, "PostHog")
+        self.assertEqual(user.first_name, "PostHog Engineering")
         self.assertEqual(user.email, "engineering@posthog.com")
-        self.assertEqual(user.organization, self.organization)
-        self.assertEqual(user.team, self.team)
-        self.assertEqual(user.organization_memberships.count(), 1)
-        self.assertEqual(
-            cast(OrganizationMembership, user.organization_memberships.first()).level,
-            OrganizationMembership.Level.MEMBER,
-        )
+        self.assertFalse(user.organization_memberships.exists())
 
         self.assertFalse(user.is_email_verified)
         self.assertNotIn("_auth_user_id", self.client.session)
@@ -1874,6 +2062,10 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         self.assertEqual(response.status_code, 200)
         user.refresh_from_db()
         self.assertTrue(user.is_email_verified)
+        self.assertEqual(user.first_name, "PostHog")
+        self.assertEqual(user.organization, self.organization)
+        self.assertEqual(user.team, self.team)
+        self.assertEqual(user.organization_memberships.get().level, OrganizationMembership.Level.MEMBER)
         self.assertEqual(self.client.session["_auth_user_id"], str(user.pk))
 
     @time_machine.travel("2021-08-25T23:37:55.345Z", tick=False)

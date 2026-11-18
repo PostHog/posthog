@@ -406,7 +406,13 @@ class CodeBasedVerifier:
         """
         from posthog.tasks import email
 
-        if not self.should_send_code_based_verification(user):
+        if not is_resend:
+            self.clear_pending(request)
+
+        if target_email is not None:
+            if not is_email_available(with_absolute_urls=True):
+                return False
+        elif not self.should_send_code_based_verification(user):
             return False
 
         try:
@@ -416,6 +422,9 @@ class CodeBasedVerifier:
             request.session["code_based_verification_pending_user_id"] = user.pk
             request.session["code_based_verification_issued_at"] = issued_at
             request.session[CODE_BASED_VERIFICATION_TARGET_SESSION_KEY] = target_email
+            if is_resend and (sso := request.session.get(CODE_BASED_VERIFICATION_SSO_SESSION_KEY)):
+                sso["issued_at"] = issued_at
+                request.session[CODE_BASED_VERIFICATION_SSO_SESSION_KEY] = sso
             # Resends must not reset the failed-attempt counter, otherwise the attempt cap could be
             # sidestepped by guessing up to the limit, resending, and repeating - letting the 6-digit
             # code be brute-forced in batches. The attempt budget is per pending login, not per code,

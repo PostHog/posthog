@@ -295,7 +295,7 @@ class SignupSerializer(serializers.Serializer):
 
     def is_email_auto_verified(self):
         if self.is_social_signup:
-            return True
+            return self.context["request"].session.get("backend") not in IDP_SSO_BACKENDS
         domain = self.validated_data.get("email", "").split("@")[-1].lower()
         return domain in settings.EMAIL_VERIFICATION_SKIP_FOR_DOMAINS
 
@@ -445,9 +445,10 @@ class SignupSerializer(serializers.Serializer):
             ip_address=get_trusted_client_ip(request),
         )
 
-        inbox_lookup = InboxProviderLookup.start(user.email)
-        if verify_email_or_login(request, user):
-            self._inbox_provider = inbox_lookup.result()
+        if not (self.is_social_signup and request.session.get("backend") in IDP_SSO_BACKENDS):
+            inbox_lookup = InboxProviderLookup.start(user.email)
+            if verify_email_or_login(request, user):
+                self._inbox_provider = inbox_lookup.result()
 
         return user
 
@@ -951,6 +952,19 @@ class SocialSignupSerializer(serializers.Serializer):
                 "Inactive social login session. Go to /login and log in before continuing."
             )
 
+        partial = None
+        if request.session["backend"] in IDP_SSO_BACKENDS:
+            from social_django.models import Partial
+
+            partial = Partial.objects.filter(token=request.session.get("partial_pipeline_token")).first()
+            if (
+                partial is None
+                or partial.backend != request.session["backend"]
+                or partial.data["kwargs"]["details"].get("email") != request.session.get("email")
+                or not is_email_available(with_absolute_urls=True)
+            ):
+                raise serializers.ValidationError("Please log in again to verify your email.")
+
         email = request.session.get("email")
         organization_name = validated_data["organization_name"]
         role_at_organization = validated_data["role_at_organization"]
@@ -976,6 +990,9 @@ class SocialSignupSerializer(serializers.Serializer):
 
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
+        if partial is not None:
+            partial.data["kwargs"]["user"] = user.pk
+            partial.save(update_fields=["data"])
         logger.info(
             f"social_create_user_signup",
             full_name_len=len(first_name),
@@ -1296,7 +1313,34 @@ def social_create_user(
         )
         return redirect("/login?error_code=verified_domain_required")
 
-    if user:
+    if user is None and (not email or not full_name):
+        missing_attr = "email" if not email else "name"
+        posthoganalytics.tag("email", email)
+        posthoganalytics.tag("name", full_name)
+        raise ValidationError(
+            {missing_attr: "This field is required and was not provided by the IdP."},
+            code="required",
+        )
+
+    if backend.name in IDP_SSO_BACKENDS:
+        from posthog.api.authentication import social_require_idp_email_verification
+
+        if user is None:
+            jit_domain = OrganizationDomain.objects.get_verified_for_email_address(email)
+            if invite_organization is not None or (jit_domain is not None and jit_domain.jit_provisioning_enabled):
+                _refuse_blocked_sso_join(strategy, backend, email, None)
+                user = strategy.create_user(email=email, first_name=full_name, password=None, is_email_verified=False)
+                kwargs["idp_new_user"] = True
+                kwargs["current_partial"].data["kwargs"]["idp_new_user"] = True
+        if user is not None:
+            kwargs["current_partial"].data["kwargs"]["user"] = user.pk
+            verification = social_require_idp_email_verification(
+                strategy=strategy, backend=backend, user=user, details=details, **kwargs
+            )
+            if verification is not None:
+                return verification
+
+    if user and not kwargs.get("idp_new_user"):
         # If the user is already authenticated, we're looking for outstanding invites for them
         # on the organization domain or if JIT provisioning is enabled, we'll provision them.
         logger.info(f"social_create_user_is_not_new")
@@ -1310,20 +1354,11 @@ def social_create_user(
         else:
             process_social_domain_jit_provisioning_signup(strategy, user.email, user.first_name, user, backend=backend)
 
-        return {"is_new": False}
+        return {"is_new": False, "user": user}
 
     strategy.session_set("user_name", full_name)
     strategy.session_set("backend", backend.name)
     from_invite = False
-
-    if not email or not full_name:
-        missing_attr = "email" if not email else "name"
-        posthoganalytics.tag("email", email)
-        posthoganalytics.tag("name", full_name)
-        raise ValidationError(
-            {missing_attr: "This field is required and was not provided by the IdP."},
-            code="required",
-        )
 
     # If we get here then it's a new user. We'll check for outstanding invites for them
     # on the organization domain or if JIT provisioning is enabled, we'll provision them.
@@ -1332,13 +1367,13 @@ def social_create_user(
 
     if invite_id:
         from_invite = True
-        user = process_social_invite_signup(strategy, invite_id, email, full_name, backend=backend)
+        user = process_social_invite_signup(strategy, invite_id, email, full_name, user=user, backend=backend)
         if user is None:
             return redirect("/login?error_code=invalid_invite")
 
     else:
         # JIT Provisioning?
-        user = process_social_domain_jit_provisioning_signup(strategy, email, full_name, backend=backend)
+        user = process_social_domain_jit_provisioning_signup(strategy, email, full_name, user=user, backend=backend)
         logger.info(
             f"social_create_user_jit_user",
             full_name_len=len(full_name),
