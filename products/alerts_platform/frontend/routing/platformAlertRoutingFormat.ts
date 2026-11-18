@@ -27,6 +27,10 @@ export const RECEIVER_TYPE_OPTIONS: { value: ReceiverType; label: string }[] = [
 /** Receiver types that open and close incidents, which hear every trigger and resolve whatever a route lists. */
 export const INCIDENT_RECEIVER_TYPES: ReceiverType[] = ['pagerduty', 'incident_io']
 
+/** Shown wherever an edit can move a firing alert between PagerDuty or incident.io destinations. */
+export const INCIDENT_HANDOFF_NOTICE =
+    'For alerts firing when you save, PostHog tries to resolve the PagerDuty and incident.io incidents this change leaves open. If there are many, some may stay open and need closing in PagerDuty or incident.io.'
+
 export const PAGERDUTY_SEVERITY_OPTIONS: { value: PagerDutySeverityEnumApi; label: string }[] = [
     { value: 'critical', label: 'Critical' },
     { value: 'error', label: 'Error' },

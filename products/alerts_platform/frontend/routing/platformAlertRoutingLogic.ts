@@ -33,6 +33,7 @@ import {
     receiverFormFor,
     ALL_ROUTE_EVENT_KINDS,
     opensIncidents,
+    INCIDENT_HANDOFF_NOTICE,
     receiverTypeOf,
     routeFormErrors,
     routeFormFor,
@@ -479,7 +480,7 @@ export const platformAlertRoutingLogic = kea<platformAlertRoutingLogicType>([
                 title: `Delete receiver "${receiver.name}"?`,
                 description:
                     routeCount > 0
-                        ? `This also deletes the ${routeCount === 1 ? 'route' : `${routeCount} routes`} that send to it. Alerts stop sending to this destination through routing.`
+                        ? `This also deletes the ${routeCount === 1 ? 'route' : `${routeCount} routes`} that send to it. Alerts stop sending to this destination through routing. ${INCIDENT_HANDOFF_NOTICE}`
                         : 'Alerts stop sending to this destination through routing.',
                 primaryButton: {
                     children: 'Delete',
@@ -502,7 +503,7 @@ export const platformAlertRoutingLogic = kea<platformAlertRoutingLogicType>([
         deleteRoute: ({ route }) => {
             LemonDialog.open({
                 title: 'Delete route?',
-                description: 'Alerts that match it stop sending to its receiver.',
+                description: `Alerts that match it stop sending to its receiver. ${INCIDENT_HANDOFF_NOTICE}`,
                 primaryButton: {
                     children: 'Delete',
                     status: 'danger',

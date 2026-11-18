@@ -1,13 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonButton, LemonCheckbox, LemonCollapse, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCheckbox, LemonCollapse, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import type { PlatformAlertDestinationEventKindEnumApi } from '../generated/api.schemas'
 import {
     ALL_ROUTE_EVENT_KINDS,
+    INCIDENT_HANDOFF_NOTICE,
     ROUTE_EVENT_KIND_OPTIONS,
     opensIncidents,
     receiverTarget,
@@ -53,6 +54,7 @@ export function PlatformAlertRouteModal(): JSX.Element {
                 enableFormOnSubmit
                 className="flex flex-col gap-4"
             >
+                <LemonBanner type="info">{INCIDENT_HANDOFF_NOTICE}</LemonBanner>
                 <LemonField name="receiverId" label="Send to">
                     <LemonSelect
                         fullWidth

@@ -12,15 +12,11 @@ import structlog
 from posthog.models import Team
 from posthog.utils import absolute_uri
 
-from products.alerts_platform.backend.delivery.dispatch import deliver
+from products.alerts_platform.backend.delivery.dispatch import SendTally, deliver
 from products.alerts_platform.backend.delivery.evaluation import _TRANSPORTS, announcement_to_deliver
 from products.alerts_platform.backend.delivery.team_flags import team_flag_enabled
-from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore, ThreadBusy
-from products.alerts_platform.backend.delivery.transport import (
-    DeliveryError,
-    DestinationMisconfigured,
-    RefusedEverywhere,
-)
+from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore
+from products.alerts_platform.backend.delivery.transport import DeliveryError
 from products.alerts_platform.backend.facade.contracts import (
     ROUTING_FLAG,
     AlertDeliveryRequest,
@@ -186,18 +182,15 @@ def _deliver_to(
 ) -> int:
     thread_store = DatabaseThreadStore(request.team_id)
     project = MessageLink(label=team.name, url=absolute_uri(f"/project/{team.id}"))
-    sent = 0
-    busy: list[str] = []
-    failures: list[str] = []
-    retryable = False
+    tally = SendTally()
     for receiver, transitions in routed:
         transport_class = _TRANSPORTS.get(receiver.data.get("type"))
         if transport_class is None:
             continue
         # Each send fails on its own, so a refused trigger cannot cost another group its resolve.
-        delivered = True
+        problems = tally.problems
         for heard, action in _sends(receiver, transitions, request):
-            try:
+            with tally.attempt(counted=False):
                 deliver(
                     transport=transport_class(),
                     thread_store=thread_store,
@@ -211,24 +204,7 @@ def _deliver_to(
                     source_alert_url=request.source_alert_url,
                     project=project,
                 )
-            except ThreadBusy as error:
-                busy.append(str(error))
-                delivered = False
-            except DeliveryError as error:
-                failures.append(str(error))
-                retryable = retryable or not isinstance(error, DestinationMisconfigured)
-                delivered = False
-            except Exception as error:
-                # Named by class only, because an exception's text can carry a credential URL.
-                failures.append(type(error).__name__)
-                retryable = True
-                delivered = False
-        sent += delivered
-    # A held thread wins over a failure, as in `deliver_evaluation`: the workflow waits it out and
-    # reruns every receiver, which retries the failed ones too.
-    if busy:
-        raise ThreadBusy("; ".join([*busy, *failures]))
-    if failures:
-        failed = DeliveryError if retryable else RefusedEverywhere
-        raise failed(f"{len(failures)} send(s) failed: " + "; ".join(failures))
-    return sent
+        if tally.problems == problems:
+            tally.sent += 1
+    tally.raise_failures("send")
+    return tally.sent
