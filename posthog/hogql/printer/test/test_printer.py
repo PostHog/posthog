@@ -2020,6 +2020,18 @@ class TestPrinter(BaseTest):
             "groupArraySampleIf(5, 123456)(events.event, isNotNull(events.event))",
         )
 
+    def test_to_decimal_keeps_each_calls_own_scale(self) -> None:
+        cast_types = []
+        for scale in (2, 10):
+            context = HogQLContext(team_id=self.team.pk)
+            self.assertEqual(
+                self._expr(f"toDecimal('3.14', {scale})", context),
+                "accurateCastOrNull(%(hogql_val_0)s, %(hogql_val_1)s)",
+            )
+            cast_types.append(context.values["hogql_val_1"])
+
+        assert cast_types == ["Decimal64(2)", "Decimal64(10)"]
+
     @parameterized.expand(
         [
             ("toBool", "toBool(uuid)", "accurateCastOrNull(events.uuid, %(hogql_val_0)s)"),
