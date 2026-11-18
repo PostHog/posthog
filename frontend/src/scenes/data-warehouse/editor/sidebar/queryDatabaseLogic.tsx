@@ -95,6 +95,7 @@ import {
 } from '../../saved_queries/dataWarehouseViewsLogic'
 import { validateSavedQueryName } from '../../saved_queries/savedQueryNameValidation'
 import { draftsLogic } from '../draftsLogic'
+import { MaterializedViewIcon } from './MaterializedViewIcon'
 
 export type EditorSidebarTreeRef = React.RefObject<LemonTreeRef> | null
 
@@ -1197,7 +1198,7 @@ const createTableNode = (
         id: tableId,
         name: table.name,
         type: 'node',
-        icon: <IconDatabase />,
+        icon: table.type === 'materialized_view' ? <MaterializedViewIcon /> : <IconDatabase />,
         record: {
             type: 'table',
             table: table,
@@ -1322,8 +1323,10 @@ const createViewNode = (
             <Spinner />
         ) : isManagedViewsetView ? (
             <IconBolt />
-        ) : isManagedView || isMaterializedView ? (
+        ) : isManagedView ? (
             <IconDatabase />
+        ) : isMaterializedView ? (
+            <MaterializedViewIcon />
         ) : (
             <IconDocument />
         ),

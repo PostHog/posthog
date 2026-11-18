@@ -6420,11 +6420,11 @@ Diffed against: <https://instana.github.io/openapi/openapi.json>
 - [x] `/api/synthetics/settings/locations and /api/synthetics/settings/datacenters` — lookup resolving the location IDs on synthetic tests and results - required to break results down by PoP (high). Added as `synthetic_locations` and `synthetic_datacenters`.
 - [x] `POST /api/application-monitoring/metrics/{applications,services,endpoints}` — the golden-signal time series (calls, errors, latency percentiles) for the applications/services/endpoints already synced as catalogs only (high). Added as `application_metrics`, `service_metrics` and `endpoint_metrics`: a daily rollup (calls, erroneous calls, error rate, mean/p50/p90/p99 latency), incremental on the bucket `timestamp`.
 - [x] `/api/settings/apdex and /api/apdex/report/{apdexId}` — Apdex configs and scores, the per-service user-satisfaction metric (medium). Added as `apdex_configs` and `apdex_reports` (fan-out over `apdex_configs`, trailing 7-day window).
-- [ ] `/api/host-agent (+ /api/host-agent/{id})` — agent and host inventory with versions, for fleet coverage and upgrade tracking (medium)
-- [ ] `/api/settings/users, /api/settings/rbac/teams, /api/settings/rbac/groups` — user and team membership tables for attributing alerts and ownership (medium)
-- [ ] `/api/settings/auditlog and /api/settings/accesslog` — who changed which alert config or dashboard and when - the standard compliance table (medium)
+- [x] `/api/host-agent (+ /api/host-agent/{id})` — agent and host inventory with versions, for fleet coverage and upgrade tracking (medium). Added as `host_agents`. `/api/host-agent/{id}` skipped: it returns the same snapshot as the list row.
+- [x] `/api/settings/users, /api/settings/rbac/teams, /api/settings/rbac/groups` — user and team membership tables for attributing alerts and ownership (medium). Added as `users`, `teams` and `groups`.
+- [x] `/api/settings/auditlog and /api/settings/accesslog` — who changed which alert config or dashboard and when - the standard compliance table (medium). Added as `audit_logs` and `access_logs`.
 - [x] `/api/mobile-app-monitoring/config` — mobile app inventory, the exact parallel of the `websites` table already synced from website-monitoring/config (medium). Added as `mobile_apps`.
-- [ ] `/api/business-monitoring/business-perspectives` — business perspective definitions that segment traces by business context, a key breakdown dimension (medium)
+- [x] `/api/business-monitoring/business-perspectives` — business perspective definitions that segment traces by business context, a key breakdown dimension (medium). Added as `business_perspectives`.
 
 Note: Instana publishes a full OpenAPI 3 spec (1.9MB JSON / 1.5MB YAML, version 1.307.1417) at instana.github.io/openapi - very reliable to diff against. Two caveats for an implementer: (1) much of the analytical surface is POST-with-body (metrics, analyze/traces, analyze/beacons, analyze/entities) rather than GET, so those tables need request bodies rather than query params; (2) as the source's own settings.py notes, /api/events has no pagination and infrastructure snapshots use a `size` cap, so wide time windows must be chunked. Excluded as config: custom dashboards, API tokens, alert channel infos, maintenance windows, session settings, automation policies, sourcemap uploads, and the per-plugin catalog/tag metadata endpoints.
 
@@ -9488,7 +9488,7 @@ Note: The synced alerts table maps to GET /actions. Every high-value gap is a pe
 
 ## Pipedrive — gaps
 
-Today (25): `activities`, `activity_types`, `archived_deals`, `archived_projects`, `deal_changelog`, `deal_fields`, `deal_products`, `deals`, `lead_labels`, `leads`, `mail_messages`, `mail_threads`, `notes`, `organization_fields`, `organizations`, `person_fields`, `persons`, `pipelines`, `products`, `project_boards`, `project_phases`, `project_tasks`, `projects`, `stages`, `users`
+Today (28): `activities`, `activity_types`, `archived_deals`, `archived_projects`, `call_logs`, `currencies`, `deal_changelog`, `deal_fields`, `deal_products`, `deals`, `goals`, `lead_labels`, `leads`, `mail_messages`, `mail_threads`, `notes`, `organization_fields`, `organizations`, `person_fields`, `persons`, `pipelines`, `products`, `project_boards`, `project_phases`, `project_tasks`, `projects`, `stages`, `users`
 
 Diffed against: <https://developers.pipedrive.com/docs/api/v2/openapi.yaml>
 
@@ -9497,11 +9497,11 @@ Diffed against: <https://developers.pipedrive.com/docs/api/v2/openapi.yaml>
 - [x] `GET /activityTypes (v1)` — lookup resolving the type key on every synced activity row (high). Added as `activity_types`.
 - [x] `GET /deals/{id}/flow and /deals/{id}/changelog (v1)` — per-field change history including stage moves - required for stage-transition, velocity and win-rate-over-time analysis (high). Added as `deal_changelog`, read for every active and archived deal. `/deals/{id}/flow` skipped: it is a mixed timeline of activities, notes, files and field changes that the changelog and existing tables already cover.
 - [x] `GET /leadLabels (v1)` — lookup resolving the label IDs carried on the leads we already sync (high). Added as `lead_labels`.
-- [ ] `GET /leadSources (v1)` — lookup resolving lead source values for attribution (medium)
-- [ ] `GET /currencies (v1)` — currency lookup for multi-currency deal and product values (medium)
+- [ ] `GET /leadSources (v1)` — lookup resolving lead source values for attribution (medium). Skipped: a fixed vendor-wide list of names with no ids; leads already carry `source_name`.
+- [x] `GET /currencies (v1)` — currency lookup for multi-currency deal and product values (medium). Added as `currencies`.
 - [x] `GET /pipelines/{id}/conversion_statistics and /movement_statistics (v1)` — Pipedrive's own funnel conversion and stage-movement metrics per pipeline (medium). Skipped: each call returns one aggregate for a required date range and a single user, not rows, and `deals` with `deal_changelog` hold the data it summarizes.
-- [ ] `GET /callLogs (v1)` — call activity with duration and outcome, not covered by the activities table (medium)
-- [ ] `GET /goals and /goals/{id}/results (v1)` — sales targets and attainment, the natural denominator for deal reporting (medium)
+- [x] `GET /callLogs (v1)` — call activity with duration and outcome, not covered by the activities table (medium). Added as `call_logs`, read 50 per page, the largest page the endpoint accepts.
+- [x] `GET /goals and /goals/{id}/results (v1)` — sales targets and attainment, the natural denominator for deal reporting (medium). Added as `goals`, read from `/goals/find`. `/goals/{id}/results` skipped: it returns one progress figure per goal for a required date range, not rows, and `deals` and `activities` hold the data it counts.
 - [x] `GET /mailbox/mailThreads and /mailbox/mailThreads/{id}/mailMessages (v1)` — email engagement tied to deals and persons (medium). Added as `mail_threads` (every folder, one row per thread) and `mail_messages` (read for every thread).
 - [x] `GET /projects, /projects/{id}/tasks, /projects/boards, /projects/phases (v1 and v2)` — the Projects product is entirely absent, including its board/phase lookups (medium). Added as `projects` and `archived_projects` (v2), and `project_tasks` (`/api/v1/tasks`, every task in one list), `project_boards` and `project_phases` on v1, because their v2 endpoints are still in beta.
 
@@ -11250,11 +11250,11 @@ Diffed against: <https://api.skyvern.com/openapi.json>
 - [x] `GET /v1/runs/{run_id}/timeline` — per-run block/step execution timeline - the state-transition history behind every run outcome (high) → `run_timeline` (fan-out over workflows and runs, one row per block or thought; incremental on the runs `created_at_start` window; off by default)
 - [x] `GET /v1/folders (and /v1/folders/{folder_id})` — lookup table resolving the folder a workflow/agent lives in (high) → `folders` (full refresh; the single-folder endpoint adds nothing the list does not return)
 - [x] `GET /v1/agents/{workflow_permanent_id}/tags` — workflow-to-tag membership for grouping and cost attribution of synced workflows (high) → `workflow_tags` (full refresh, fan-out over `workflows`)
-- [ ] `GET /v1/browser_sessions` — persistent browser sessions runs attach to; explains run cost and reuse (medium)
-- [ ] `GET /v1/runs/{workflow_run_id}/tags` — run-to-tag membership, the standard breakdown dimension for run reporting (medium)
-- [ ] `GET /v1/tag-keys and GET /v1/tag-values` — lookup tables that resolve the tag key/value ids attached to workflows and runs (medium)
+- [ ] `GET /v1/browser_sessions` — persistent browser sessions runs attach to; explains run cost and reuse (medium) Skipped: the endpoint lists only currently active sessions, with no history or filters, so a table would hold a short-lived snapshot.
+- [x] `GET /v1/runs/{workflow_run_id}/tags` — run-to-tag membership, the standard breakdown dimension for run reporting (medium) → `run_tags` (full refresh, fan-out over workflows and runs; off by default)
+- [x] `GET /v1/tag-keys and GET /v1/tag-values` — lookup tables that resolve the tag key/value ids attached to workflows and runs (medium) → `tag_keys` and `tag_values` (full refresh, single page)
 - [x] `GET /v1/agents/{workflow_permanent_id}/versions` — workflow version history, needed to attribute run results to a definition version (medium) → `workflow_versions` (full refresh, fan-out over `workflows`)
-- [ ] `GET /v1/runs/{run_id}/artifacts` — artifact metadata produced per run (screenshots, logs, downloaded files) (medium)
+- [x] `GET /v1/runs/{run_id}/artifacts` — artifact metadata produced per run (screenshots, logs, downloaded files) (medium) → `run_artifacts` (fan-out over workflows and runs; incremental on the runs `created_at_start` window; signed URLs dropped; off by default)
 - [ ] `GET /v1/browser_profiles/{profile_id}/usage` — which runs consumed which browser profile (low)
 - [ ] `GET /v1/scripts (and /v1/scripts/{script_id})` — generated scripts deployed from workflows; joins to runs executed in script mode (low)
 - [ ] `GET /v1/agents/{workflow_permanent_id}/tags/history` — tag change history on a workflow (low)
@@ -12055,11 +12055,11 @@ Diffed against: <https://api.tailscale.com/api/v2?outputOpenapiSchema=true>
 
 - [x] `GET /tailnet/{tailnet}/logging/network` — Network flow logs - per-connection traffic records, the one genuinely high-volume analytical table in the API and a direct sibling of the audit logs already synced (high). Added as `network_flow_logs` (append sync on `logged`, 15-minute windows over the 30-day retention).
 - ~~`GET /device/{deviceId}/routes` — Subnet routes and exit-node advertisements per device, including which are approved - the state that explains tailnet topology (medium)~~ — skipped: it returns only `advertisedRoutes` and `enabledRoutes`, which the `devices` table already syncs with `fields=all`
-- [ ] `GET /device/{deviceId}/attributes` — Device posture attributes (OS version, disk encryption, custom attributes) used in ACL posture rules, keyed to devices already synced (medium)
+- [x] `GET /device/{deviceId}/attributes` — Device posture attributes (OS version, disk encryption, custom attributes) used in ACL posture rules, keyed to devices already synced (medium). Added as `device_posture_attributes` (fan-out over `devices`).
 - [x] `GET /tailnet/{tailnet}/services` — Tailscale Services inventory, a first-class resource with no coverage (medium). Added as `services`.
 - [x] `GET /tailnet/{tailnet}/services/{serviceName}/devices` — Service-to-device hosting membership, joining services to the synced devices table (medium). Added as `service_devices` (fan-out over `services`).
-- [ ] `GET /tailnet/{tailnet}/user-invites` — Outstanding and accepted user invites with status - onboarding funnel data alongside the synced users table (low)
-- [ ] `GET /device/{deviceId}/device-invites` — Device sharing invites and their acceptance state (low)
+- [x] `GET /tailnet/{tailnet}/user-invites` — Outstanding and accepted user invites with status - onboarding funnel data alongside the synced users table (low). Added as `user_invites` (the API lists open invites only; `inviteUrl` is not synced).
+- [x] `GET /device/{deviceId}/device-invites` — Device sharing invites and their acceptance state (low). Added as `device_invites` (fan-out over `devices`; `inviteUrl` is not synced).
 
 Note: Fetched the live OpenAPI 3.1 schema (58 paths). Static 4-endpoint config in sources/tailscale/settings.py, no dynamic discovery. Coverage of the tailnet-level list endpoints is reasonable; the notable miss is network flow logs, which sit on the same /logging prefix as the audit logs already synced and are by far the largest analytical dataset the API exposes. ACL, DNS, contacts, settings, webhooks and OAuth apps are all config and correctly out of scope.
 

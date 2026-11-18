@@ -284,6 +284,19 @@ class TestEvalSuggestionsApi(APIBaseTest):
 
         assert [row["id"] for row in results] == ([str(fix.id)] if listed else [])
 
+    @patch(f"{SUGGESTIONS_MODULE}.is_enabled_for_organization", return_value=True)
+    def test_a_card_shows_its_observation_apart_from_the_evaluation_draft(self, _flag: MagicMock) -> None:
+        observation = {
+            "observation": "2 of 250 sampled traces flagged",
+            "observation_scope": "Sampled from the last 7 days",
+        }
+        self._suggestion(draft={**CHECK_DRAFT, **observation})
+
+        [row] = self.client.get(f"{self.url}/").json()["results"]
+
+        assert {key: row[key] for key in observation} == observation
+        assert row["draft"] == CHECK_DRAFT
+
     @parameterized.expand([("with_reason", {"reason": "too_noisy"}, "too_noisy"), ("without_reason", {}, None)])
     @patch(f"{SUGGESTIONS_MODULE}.is_enabled_for_organization", return_value=True)
     def test_dismiss_hides_the_suggestion(self, _name: str, body: dict, reason: str | None, _flag: MagicMock) -> None:
