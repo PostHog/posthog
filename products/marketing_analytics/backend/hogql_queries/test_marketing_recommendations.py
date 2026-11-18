@@ -14,6 +14,7 @@ from products.marketing_analytics.backend.hogql_queries.marketing_recommendation
     CampaignStats,
     KeywordTracking,
     OrganicQueryStats,
+    PolicyAds,
     RankingPage,
     RecommendationInputs,
     SearchTermStats,
@@ -756,35 +757,29 @@ class TestMarketingRecommendations(SimpleTestCase):
     @parameterized.expand(
         [
             (
-                "counts_only_the_campaigns_ads",
-                ("DISAPPROVED", "DISAPPROVED", "APPROVED_LIMITED", "APPROVED"),
+                "disapproved_and_limited",
+                (PolicyAds(campaign_id="c1", disapproved=2, limited=1),),
                 "2 ads are disapproved and 1 ad is limited by Google policy, which cuts the campaign's reach.",
             ),
             (
-                "area_of_interest_only_is_limited",
-                ("AREA_OF_INTEREST_ONLY",),
+                "only_limited",
+                (PolicyAds(campaign_id="c1", disapproved=0, limited=1),),
                 "1 ad is limited by Google policy, which cuts the campaign's reach.",
             ),
             (
-                "no_ad_data",
-                (),
+                "only_another_campaigns_ads",
+                (PolicyAds(campaign_id="other", disapproved=3, limited=0),),
                 "Some ads or asset groups are limited or disapproved by Google policy, which cuts the campaign's reach.",
             ),
         ]
     )
     def test_policy_limited_counts_affected_ads_and_links_to_the_fix(
-        self, _name: str, statuses: tuple[str, ...], expected_reason: str
+        self, _name: str, policy_ads: tuple[PolicyAds, ...], expected_reason: str
     ) -> None:
         campaign = _campaign(status_reasons=("HAS_ADS_DISAPPROVED",))
-        ads = (
-            *(
-                Ad(ad_group_id="ag1", campaign_id="c1", texts=COPY, final_urls=(), approval_status=status)
-                for status in statuses
-            ),
-            Ad(ad_group_id="ag9", campaign_id="other", texts=COPY, final_urls=(), approval_status="DISAPPROVED"),
-        )
 
-        rec = next(rec for rec in recommend(replace(_inputs((campaign,)), ads=ads)) if rec.rule == "policy_limited")
+        inputs = replace(_inputs((campaign,)), policy_ads=policy_ads)
+        rec = next(rec for rec in recommend(inputs) if rec.rule == "policy_limited")
 
         assert rec.reason == expected_reason
         steps = rec.steps or []

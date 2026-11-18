@@ -20,6 +20,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.utils import uuid7
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.marketing_analytics.backend.hogql_queries.marketing_recommendations import PolicyAds
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations_query_runner import (
     MarketingAnalyticsRecommendationsQueryRunner,
 )
@@ -312,10 +313,11 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
 
         response = runner.calculate()
 
-        assert [(ad.campaign_id, ad.final_urls, ad.approval_status) for ad in runner._ads(source)] == [
-            ("1", ("https://example.com/product",), "DISAPPROVED"),
-            ("1", (), "APPROVED_LIMITED"),
+        assert [(ad.campaign_id, ad.final_urls) for ad in runner._ads(source)] == [
+            ("1", ("https://example.com/product",)),
+            ("1", ()),
         ]
+        assert runner._policy_ads(source) == [PolicyAds(campaign_id="1", disapproved=1, limited=1)]
         wasted = [rec for rec in response.results if rec.rule == "spend_without_conversions"]
         assert [rec.subject for rec in wasted] == ["dentist crm", "analytics pricing", "patient records"]
         assert wasted[0].reason.endswith("None of the main words in this search appear in the ads that showed on it.")
