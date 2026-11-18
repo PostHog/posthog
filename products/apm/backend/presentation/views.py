@@ -86,6 +86,37 @@ def _window(params: WindowRequestSerializer) -> HealthWindow:
     )
 
 
+class LogsApiConcurrencySlotMixin:
+    """An API key takes a slot from the same per-team cap as the logs API, for scans that run on the logs workload."""
+
+    _logs_api_slot: ConcurrencySlot | None = None
+
+    def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
+        super().initial(request, *args, **kwargs)  # type: ignore[misc]
+        if not isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
+            return
+        team_id = self.team_id  # type: ignore[attr-defined]
+        try:
+            self._logs_api_slot = get_logs_api_team_rate_limiter().use(team_id=team_id)
+        except ConcurrencyLimitExceeded as error:
+            logger.warning("apm_logs_api_concurrency_limit_exceeded", team_id=team_id, detail=str(error))
+            raise Throttled(wait=1, detail=CONCURRENCY_LIMIT_USER_MESSAGE) from error
+        except RedisError:
+            logger.exception("apm_logs_api_concurrency_limiter_unavailable", team_id=team_id)
+
+    def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponseBase:
+        # DRF skips finalize_response when the exception handler re-raises, so only a finally block always releases.
+        try:
+            return super().dispatch(request, *args, **kwargs)  # type: ignore[misc]
+        finally:
+            if self._logs_api_slot is not None:
+                try:
+                    get_logs_api_team_rate_limiter().release(self._logs_api_slot)
+                except RedisError:
+                    logger.exception("apm_logs_api_concurrency_slot_release_failed")
+                self._logs_api_slot = None
+
+
 class ServicesHealthViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """One health row per service in an environment and window, worst first.
 
@@ -170,7 +201,7 @@ class ServiceMapViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response(ServiceMapResponseSerializer(payload).data, status=status.HTTP_200_OK)
 
 
-class DeploymentsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+class DeploymentsViewSet(LogsApiConcurrencySlotMixin, TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """One service's versions in an environment and window, each compared with the one before. Same gate and window as services."""
 
     scope_object = "tracing"
@@ -203,7 +234,7 @@ class DeploymentsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response(DeploymentsResponseSerializer(payload).data, status=status.HTTP_200_OK)
 
 
-class ServiceUsageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+class ServiceUsageViewSet(LogsApiConcurrencySlotMixin, TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """How much each service sends across logs, traces, and metrics in a window. Same gate and window as services.
 
     Usage covers every environment: logs and metrics often carry no environment attribute, so a
@@ -213,32 +244,6 @@ class ServiceUsageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "tracing"
     # The response carries logs and metrics data too. Scopes gate tokens; access control gates members.
     required_scopes = ["tracing:read", "logs:read", "metrics:read"]
-    _logs_api_slot: ConcurrencySlot | None = None
-
-    def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
-        # The usage scan reads the logs table, so an API key takes a slot from the same per-team cap as the logs API.
-        super().initial(request, *args, **kwargs)
-        if not isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
-            return
-        try:
-            self._logs_api_slot = get_logs_api_team_rate_limiter().use(team_id=self.team_id)
-        except ConcurrencyLimitExceeded as error:
-            logger.warning("apm_usage_concurrency_limit_exceeded", team_id=self.team_id, detail=str(error))
-            raise Throttled(wait=1, detail=CONCURRENCY_LIMIT_USER_MESSAGE) from error
-        except RedisError:
-            logger.exception("apm_usage_concurrency_limiter_unavailable", team_id=self.team_id)
-
-    def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponseBase:
-        # DRF skips finalize_response when the exception handler re-raises, so only a finally block always releases.
-        try:
-            return super().dispatch(request, *args, **kwargs)
-        finally:
-            if self._logs_api_slot is not None:
-                try:
-                    get_logs_api_team_rate_limiter().release(self._logs_api_slot)
-                except RedisError:
-                    logger.exception("apm_usage_concurrency_slot_release_failed", team_id=self.team_id)
-                self._logs_api_slot = None
 
     @extend_schema(parameters=[WindowRequestSerializer], responses={200: ServiceUsageResponseSerializer})
     def list(self, request: Request, *args, **kwargs) -> Response:

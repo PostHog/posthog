@@ -56,7 +56,7 @@ def _deployments_query(date_from: datetime, date_to: datetime, environment: str,
         WHERE {where} AND {env_expr} = {environment} AND service_name = {service}
         GROUP BY version
         HAVING version != '' AND requests > 0
-        ORDER BY first_seen ASC, version ASC
+        ORDER BY first_seen DESC, version DESC
         LIMIT {limit}
         """,
         placeholders={
@@ -119,4 +119,5 @@ def list_deployments(
             read_overflow_mode="throw",
         ),
     ).results
-    return compare_versions(rows)
+    # The query keeps the newest versions under the limit; the comparison walks them oldest first.
+    return compare_versions(list(reversed(rows)))

@@ -3,6 +3,9 @@ import datetime as dt
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from posthog.api.query import CONCURRENCY_LIMIT_USER_MESSAGE
+from posthog.clickhouse.client.limit import get_logs_api_team_rate_limiter
+
 from products.apm.backend.logic.health.deployments import compare_versions
 from products.apm.backend.tests.span_fixtures import SpanWriter, recreate_trace_spans_tables, restore_trace_spans_tables
 
@@ -55,6 +58,33 @@ class TestDeploymentsAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertAlmostEqual(new["error_rate_change"], 0.3)
         self.assertAlmostEqual(new["p95_change_pct"], 200, delta=15)
         self.assertLess(old["first_seen"], new["first_seen"])
+
+    def test_limit_keeps_the_newest_versions(self) -> None:
+        with patch("products.apm.backend.logic.health.deployments.DEPLOYMENTS_LIMIT", 1):
+            rows = self._get()["results"]
+        self.assertEqual([(r["version"], r["active"]) for r in rows], [("1.1.0", True)])
+
+    def test_api_key_is_refused_while_the_team_logs_api_slots_are_full(self) -> None:
+        key = self.create_personal_api_key_with_scopes(["tracing:read"])
+        limiter = get_logs_api_team_rate_limiter()
+        held_slots = [limiter.use(team_id=self.team.id) for _ in range(limiter.max_concurrency)]
+        try:
+            with patch.object(limiter, "retry_timeout", 0):
+                self.client.logout()
+                with patch(FLAG_PATCH, return_value=True):
+                    response = self.client.get(
+                        URL.format(self.team.id),
+                        {"date_from": DATE_FROM, "date_to": DATE_TO, "environment": "prod", "service": "api"},
+                        HTTP_AUTHORIZATION=f"Bearer {key}",
+                    )
+        finally:
+            for slot in held_slots:
+                if slot is not None:
+                    limiter.release(slot)
+
+        self.assertEqual(response.status_code, 429, response.content)
+        self.assertTrue(response.json()["detail"].startswith(CONCURRENCY_LIMIT_USER_MESSAGE))
+        self.assertEqual(limiter.redis_client.zcard(f"logs_api:query:per-team:{self.team.id}"), 0)
 
     def test_service_is_required(self) -> None:
         with patch(FLAG_PATCH, return_value=True):

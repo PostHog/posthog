@@ -17,8 +17,20 @@ export function DeploymentsTab(): JSX.Element {
         deploymentsService,
         serviceNames,
         versionsNewestFirst,
+        servicesHealthLoading,
+        hasLoadError,
     } = useValues(deploymentsLogic)
-    const { setDeploymentsService } = useActions(deploymentsLogic)
+    const { setDeploymentsService, requestReload } = useActions(deploymentsLogic)
+    const servicesFailed = hasLoadError && !deploymentsService
+    const servicesPending = servicesHealthLoading && !deploymentsService
+    let emptyState = 'No versions in this time range. Set service.version on your spans to see deployments.'
+    if (servicesFailed) {
+        emptyState = "Couldn't load services."
+    } else if (servicesPending) {
+        emptyState = 'Loading services.'
+    } else if (deploymentsService && !deployments) {
+        emptyState = 'Loading versions.'
+    }
 
     const columns: LemonTableColumns<DeploymentVersionApi> = [
         {
@@ -77,7 +89,18 @@ export function DeploymentsTab(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-2">
-            {deploymentsLoadError && <LemonBanner type="error">Couldn't load versions. Try again shortly.</LemonBanner>}
+            {servicesFailed ? (
+                <LemonBanner
+                    type="error"
+                    action={{ children: 'Retry', onClick: () => requestReload(), 'data-attr': 'apm-deployments-retry' }}
+                >
+                    Couldn't load services, so there's no service to show versions for.
+                </LemonBanner>
+            ) : (
+                deploymentsLoadError && (
+                    <LemonBanner type="error">Couldn't load versions. Try again shortly.</LemonBanner>
+                )
+            )}
             <div className="flex flex-wrap items-center gap-2">
                 <LemonSelect
                     size="small"
@@ -95,12 +118,8 @@ export function DeploymentsTab(): JSX.Element {
                 columns={columns}
                 dataSource={versionsNewestFirst}
                 rowKey="version"
-                loading={deploymentsLoading}
-                emptyState={
-                    deployments || !deploymentsService
-                        ? 'No versions in this time range. Set service.version on your spans to see deployments.'
-                        : 'Loading versions.'
-                }
+                loading={deploymentsLoading || servicesPending}
+                emptyState={emptyState}
                 data-attr="apm-deployments-table"
             />
         </div>
