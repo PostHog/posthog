@@ -51,10 +51,12 @@ _REQUEST_CATCHER_DOMAINS = frozenset(
 )
 
 _SCHEME = re.compile(r"https?://", re.IGNORECASE)
-# Only the authority is read after each scheme, and it is bounded, so a megabyte of URLs costs linear time. A URL
-# nested in the query of another URL has its own scheme, so it is read on its own.
-_AUTHORITY = re.compile(r"[^\s\"'`<>(){},;/?#\\]{1,512}")
-_FETCH_LITERAL = re.compile(r"\bfetch\s*\(\s*f?(['\"])([^'\"]{1,2048})\1")
+# Only the authority is read after each scheme. It cannot hold a "/", so the authorities after two schemes never
+# overlap and a megabyte of URLs costs linear time. A URL nested in the query of another URL has its own scheme, so
+# it is read on its own.
+_AUTHORITY = re.compile(r"[^\s\"'`<>(){},;/?#\\]+")
+# A Hog string literal as the first argument of `fetch`, with escapes, in either quote style.
+_FETCH_LITERAL = re.compile(r"""\bfetch\s*\(\s*f?(?:'((?:[^'\\]++|\\.)*+)'|"((?:[^"\\]++|\\.)*+)")""", re.DOTALL)
 # A URL can hide inside a query parameter of another URL, encoded once per layer of redirect.
 _MAX_DECODE_PASSES = 3
 _IPV4_PART = {16: re.compile(r"[0-9a-f]*"), 8: re.compile(r"[0-7]+"), 10: re.compile(r"[0-9]+")}
@@ -93,7 +95,7 @@ def _request_targets(content: HogFunctionContent) -> Iterator[str]:
     if content.type != "destination":
         return
     yield from _strings(list(_all_inputs(content)))
-    yield from (literal.group(2) for literal in _FETCH_LITERAL.finditer(content.hog))
+    yield from (literal.group(1) or literal.group(2) or "" for literal in _FETCH_LITERAL.finditer(content.hog))
 
 
 def _texts(content: HogFunctionContent) -> Iterator[str]:
@@ -150,7 +152,8 @@ def _decoded_layers(text: str) -> Iterator[str]:
 def _is_internal(host: str) -> bool:
     if internal_host_name(host) is not None:
         return True
-    shorthand = _runtime_ipv4(host)
+    # The URL parser maps the host to ASCII before it reads an address, so `127。1` and fullwidth digits count.
+    shorthand = _runtime_ipv4(canonicalize_host(host))
     return shorthand is not None and internal_host_name(str(shorthand)) is not None
 
 

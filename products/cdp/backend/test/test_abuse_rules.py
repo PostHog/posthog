@@ -125,6 +125,27 @@ class TestAbuseRules(SimpleTestCase):
                 content(inputs={"url": {"value": "http://0251.0376.0251.0376/"}}),
                 (Rule.INTERNAL_HOST,),
             ),
+            (
+                "padded_userinfo",
+                content(inputs={"url": {"value": "http://" + "a" * 600 + "@127.0.0.1/"}}),
+                (Rule.INTERNAL_HOST,),
+            ),
+            ("ideographic_full_stop", content(inputs={"url": {"value": "http://127\u30021/"}}), (Rule.INTERNAL_HOST,)),
+            (
+                "fullwidth_hex",
+                content(
+                    inputs={"url": {"value": "http://\uff10\uff58\uff17\uff46\uff10\uff10\uff10\uff10\uff10\uff11/"}}
+                ),
+                (Rule.INTERNAL_HOST,),
+            ),
+            ("quote_inside_a_fetch_literal", content(hog='fetch("http://127.1/?x=\'")'), (Rule.INTERNAL_HOST,)),
+            ("escaped_quote_in_a_fetch_literal", content(hog="fetch('http://127.1/?x=\\'y')"), (Rule.INTERNAL_HOST,)),
+            ("long_fetch_literal", content(hog="fetch('http://127.1/" + "a" * 3_000 + "')"), (Rule.INTERNAL_HOST,)),
+            (
+                "huge_authority",
+                content(inputs={"url": {"value": "http://" + "a" * 1_000_000}}),
+                (Rule.OVERSIZED_INPUT,),
+            ),
             ("public_ipv4_as_one_number", content(inputs={"url": {"value": "http://134744072/"}}), ()),
             ("numeric_looking_domain", content(inputs={"url": {"value": "https://1.2.3.4.example.com/"}}), ()),
             ("many_urls", content(hog="https://example.com/" * 50_000, inputs={}), ()),
