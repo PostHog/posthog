@@ -10,7 +10,9 @@ deny:
             paths:
                 - 'k8s'
                 - 'dockerfile'
-                - 'docker-compose'
+                # The dev-only compose files go to dev_stack instead. Every other compose file stays
+                # here, a new one included, because hobby deploys extend docker-compose.base.yml.
+                - 'docker-compose(?!\.(dev|dev-full|profiles|playwright|sandbox)\.yml$)'
                 - '\.(github|depot)/workflows/(ci-security|codeql|auto-assign-reviewers)'
                 - '\.github/pr-deploy'
                 - 'iam'
@@ -28,6 +30,14 @@ deny:
                 - '\.depot/workflows'
         exempt_author_teams:
             - 'team-devex'
+    dev_stack:
+        description: 'The compose files that start the local dev stack and the CI test services.'
+        rationale: 'Owner-only: stamphog approves team-devex changes here and refuses everyone else. owners.yaml gives every docker-compose file to team-devex, and these ones never reach a production or hobby deploy, so a hard deny sent every dev stack tweak to a second devex engineer. The compose files that a deploy reads stay in infra_cicd for every author.'
+        match:
+            paths:
+                - 'docker-compose\.(dev|dev-full|profiles|playwright|sandbox)\.yml$'
+        exempt_author_teams:
+            - 'team-devex'
     stamphog_policy:
         match:
             extend_paths:
@@ -40,11 +50,18 @@ deny:
                 - 'packages/owners-yaml/'
                 # Transitional: branches that predate the move still carry the resolver here.
                 - 'tools/owners/'
+    ownership_files:
+        description: 'The owners.yaml and product.yaml files that name owning teams and route reviews.'
+        rationale: 'Owner-only: stamphog approves team-devex changes here and refuses everyone else. One line changes who reviews later PRs, and the files are .yaml, so without this category they ride the allow-list to a T0 auto-approve. They are not in stamphog_policy, because that category exempts nobody and the root owners.yaml routes every owners.yaml to team-devex. The exemption reads GitHub team membership, which these files do not set. The resolver code in packages/owners-yaml/ stays in stamphog_policy.'
+        match:
+            paths:
                 - '(?:^|/)owners\.yaml$'
                 - '(?:^|/)product\.yaml$'
+        exempt_author_teams:
+            - 'team-devex'
     devex_guardrails:
         description: 'The guards that keep the house patterns for API codegen, egress, ingress, product isolation, migrations, URLs and startup imports.'
-        rationale: 'These files define what CI blocks, so a small edit can turn a guard off. Most are .yaml, .md, .txt or test files, and without this category they ride the allow-list or the test-only rule to a T0 auto-approve. Busy files stay out on purpose, because most edits to them are routine: tach.toml, pyproject.toml, lib/api.ts, model_crossing_uses_baseline.txt and the setup receivers baseline. owners.yaml routes those to team-devex instead.'
+        rationale: 'Owner-only: stamphog approves team-devex changes here and refuses everyone else. These files define what CI blocks, so a small edit from another team can turn a guard off. Most are .yaml, .md, .txt or test files, and without this category they ride the allow-list or the test-only rule to a T0 auto-approve. Busy files stay out on purpose, because most edits to them are routine: tach.toml, pyproject.toml, lib/api.ts, model_crossing_uses_baseline.txt and the setup receivers baseline. owners.yaml routes those to team-devex instead.'
         match:
             paths:
                 - '^\.github/scripts/migration-deletion-allowlist\.txt$'
@@ -67,6 +84,8 @@ deny:
                 - '^tools/hogli-commands/hogli_commands/(api_ratchet|projections|tach_lint)\.py$'
                 - '^tools/hogli-commands/hogli_commands/product_structure\.yaml$'
                 - '^tools/hogli-commands/hogli_commands/product/'
+        exempt_author_teams:
+            - 'team-devex'
     agent_steering:
         description: 'The root agent instructions, the PR authoring guidance, and the agent config that runs in every session.'
         rationale: 'Owner-only: stamphog approves team-devex changes here and refuses everyone else. One edit changes how every agent-written PR reads, and the files are .md, so without this category they ride the allow-list to a T0 auto-approve. A change from outside team-devex now needs a human approval, which is where the owner discussion happens. .claude/settings.json and .mcp.json are .json and ride the same allow-list, but their hooks and MCP servers run commands in every agent session, so they belong here too. Other skills under .agents/skills stay out on purpose, because product teams own several and edit their own. Paths are anchored, so a nested AGENTS.md stays with its folder owner.'
@@ -100,6 +119,13 @@ deny_exceptions:
         - path_prefixes:
               - 'products/warehouse_sources/backend/temporal/data_imports/sources/'
               - 'products/warehouse_sources/sources/'
+        # The authorization product's package.json, tsconfig.json and turbo.json hold no auth
+        # logic. They match only because the folder name contains 'auth'. The deps_toolchain
+        # category still catches a manifest script change.
+        - path_prefixes:
+              - 'products/authorization/'
+          extensions:
+              - '.json'
     billing:
         - path_prefixes:
               - 'products/warehouse_sources/backend/temporal/data_imports/sources/'
@@ -115,6 +141,20 @@ deny_exceptions:
               - 'rust/'
           extensions:
               - '.rs'
+    # The unanchored 'migrations/' pattern matches skill folders such as django-migrations/. Their
+    # Markdown documents the migration workflow and runs nothing.
+    migrations:
+        - path_prefixes:
+              - '.agents/skills/'
+          extensions:
+              - '.md'
+    # A deletion certificate is a document that a customer downloads, not key material.
+    crypto_secrets:
+        - keyword: 'certificate'
+          path_prefixes:
+              - 'posthog/templates/'
+          extensions:
+              - '.html'
 allow:
     extend_path_patterns:
         - '.github/CODEOWNERS'

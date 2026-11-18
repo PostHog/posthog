@@ -87,7 +87,7 @@ OLD_DENY_PATTERN_DEFS = {
         "paths": [
             "k8s",
             "dockerfile",
-            "docker-compose",
+            "docker-compose(?!\\.(dev|dev-full|profiles|playwright|sandbox)\\.yml$)",
             "\\.(github|depot)/workflows/(ci-security|codeql|auto-assign-reviewers)",
             "\\.github/pr-deploy",
             "iam",
@@ -104,6 +104,8 @@ OLD_DENY_PATTERN_DEFS = {
             "\\.depot/workflows",
         ]
     },
+    "dev_stack": {"paths": ["docker-compose\\.(dev|dev-full|profiles|playwright|sandbox)\\.yml$"]},
+    "ownership_files": {"paths": ["(?:^|/)owners\\.yaml$", "(?:^|/)product\\.yaml$"]},
     "billing": {"any": ["billing", "payment", "stripe", "invoice", "pricing"]},
     "public_api": {"any": ["openapi", "api_schema", "swagger", "public_api"]},
     "deps_toolchain": {
