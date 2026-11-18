@@ -109,14 +109,20 @@ describe('ReportStatusSection', () => {
 
     it.each([
         { flag: false, labels: ['Report status', 'Priority'] },
-        { flag: true, labels: ['Repository', 'Priority', 'Report status'] },
+        { flag: true, labels: ['Repository', 'Priority', 'Actionability', 'Already addressed', 'Report status'] },
     ])('orders the rows when editable decisions is $flag', ({ flag, labels }) => {
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REPORT_EDITABLE_DECISIONS], {
             [FEATURE_FLAGS.INBOX_REPORT_EDITABLE_DECISIONS]: flag,
         })
         const { container } = render(
             <ReportStatusSection
-                report={makeReport({ priority: 'P2', repo_slug: 'example/app', pull_requests: [] })}
+                report={makeReport({
+                    priority: 'P2',
+                    actionability: 'requires_human_input',
+                    already_addressed: false,
+                    repo_slug: 'example/app',
+                    pull_requests: [],
+                })}
                 onPriorityChange={() => {}}
             />
         )

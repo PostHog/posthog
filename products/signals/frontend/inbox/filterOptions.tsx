@@ -27,7 +27,7 @@ import type {
     InboxSortDirection,
     InboxSortField,
 } from './logics/inboxFiltersLogic'
-import { SignalReportPriority } from './types'
+import { SignalReportActionability, SignalReportPriority } from './types'
 import { prettifyScoutSkillName } from './utils/scoutRunsWindow'
 
 /**
@@ -56,6 +56,13 @@ export const PRIORITY_MEANING: Record<SignalReportPriority, { label: string; des
     P2: { label: 'Medium', description: 'A clear improvement opportunity, or a contained issue with workarounds.' },
     P3: { label: 'Low', description: 'A minor improvement or low-impact issue.' },
     P4: { label: 'Minimal', description: 'Cosmetic or negligible impact, or an optional investigation.' },
+}
+
+/** Shared by the actionability badge and the editable actionability row, so both name a value the same way. */
+export const ACTIONABILITY_LABEL: Record<SignalReportActionability, string> = {
+    immediately_actionable: 'Actionable',
+    requires_human_input: 'Needs input',
+    not_actionable: 'Not actionable',
 }
 
 /**

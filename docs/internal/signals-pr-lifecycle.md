@@ -285,6 +285,14 @@ The change appends an attributed `repo_selection` artefact, so the work log keep
 The new row keeps the earlier row's `research_context`.
 It keeps the earlier `autostart_eligible` only when that row named a repository, and is otherwise not autostart eligible, so it changes where work goes without granting or withdrawing an automatic pull request.
 Selecting the current repository adds no row.
+
+A person can change the report's actionability, its already-addressed value, or both with `PUT /api/projects/:id/signals/reports/:report_id/actionability/`.
+The change appends an attributed `actionability_judgment` artefact that keeps the value the request omits, and later research runs keep it.
+A new actionability moves a `ready` or `pending_input` report: `requires_human_input` to `pending_input`, and `immediately_actionable` or `not_actionable` to `ready`.
+A report in any other status keeps its status, and a change to already addressed alone moves no report.
+The change does not re-evaluate autostart, so it does not open a pull request by itself.
+Setting the current values adds no row.
+
 The report detail response returns each decision (repository, priority, actionability, already addressed) under `decisions`, with the stored reason and who set it.
 
 The shared repository selection prompt also asks the agent to check other sources in the supplied context before choosing a repository.

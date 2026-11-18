@@ -102,6 +102,7 @@ import type {
     ScoutTrialStartedApi,
     ScratchpadEntryApi,
     SelfDrivingTrialStatusApi,
+    SignalReportActionabilityUpdateApi,
     SignalReportApi,
     SignalReportArtefactApi,
     SignalReportArtefactLogCreateApi,
@@ -667,6 +668,28 @@ export const signalsReportsDestroy = async (
     return apiMutator<SignalReportDeletionStatusApi>(getSignalsReportsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getSignalsReportsActionabilityUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/actionability/`
+}
+
+/**
+ * Set whether the report can be acted on now, and whether its issue is already addressed. Appends an attributed actionability_judgment artefact, so the work log keeps the previous judgment, and later agent runs keep the person's values. A new actionability moves a Ready or Needs input report: `requires_human_input` to Needs input, `immediately_actionable` or `not_actionable` to Ready. A report in any other status keeps it. The change does not start an implementation. Setting the current values again changes nothing.
+ * @summary Change a report's actionability or already addressed
+ */
+export const signalsReportsActionabilityUpdate = async (
+    projectId: string,
+    id: string,
+    signalReportActionabilityUpdateApi?: SignalReportActionabilityUpdateApi,
+    options?: RequestInit
+): Promise<SignalReportApi> => {
+    return apiMutator<SignalReportApi>(getSignalsReportsActionabilityUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportActionabilityUpdateApi),
     })
 }
 
