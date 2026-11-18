@@ -1,211 +1,208 @@
-import type { ColumnDef } from '@tanstack/react-table'
 import { useActions, useValues } from 'kea'
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
-import { IconList } from '@posthog/icons'
-import { Badge, Button, Card, DataTable, Input, Skeleton, Text } from '@posthog/quill'
+import { IconList, IconSearch } from '@posthog/icons'
+import {
+    Button,
+    Card,
+    DataTable,
+    Empty,
+    EmptyContent,
+    EmptyDescription,
+    EmptyHeader,
+    EmptyMedia,
+    EmptyTitle,
+    Text,
+} from '@posthog/quill'
 
-import { TZLabel } from 'lib/components/TZLabel'
-import { LinkPrimitive } from 'lib/lemon-ui/Link'
-import { navigateToHref } from 'lib/utils/navigateToHref'
+import { cn } from 'lib/utils/css-classes'
+import { AnalyticsSearchInput } from 'scenes/analytics/AnalyticsSearchInput'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { FileSystemIconType } from '~/queries/schema/schema-general'
 
-import { ReleaseAllFilter, ReleaseAllRow, ReleaseAllType, releaseAllLogic } from './releaseAllLogic'
+import { releaseAllColumns } from './ReleaseAllColumns'
+import { ReleaseAllFilterMenu } from './ReleaseAllFilterMenu'
+import { ReleaseAllRow, releaseAllLogic } from './releaseAllLogic'
+import { ReleaseAllNewMenu } from './ReleaseAllNewMenu'
+import { ReleaseAllSkeleton } from './ReleaseAllSkeleton'
+import { RELEASE_ALL_TYPE_INFO } from './releaseAllTypeInfo'
 import { ReleaseAutoImport } from './ReleaseAutoImport'
+import { NewReleaseDialog } from './ReleaseFilters'
 import { ReleaseImportFailedNotice } from './ReleaseImportFailedNotice'
 import { releaseImportLogic } from './releaseImportLogic'
 import { releaseLogic } from './releaseLogic'
 import { ReleasesGate } from './ReleasesGate'
+import { STAGE_COLOR_VARS } from './releaseUtils'
+import { useNearTableEnd } from './useNearTableEnd'
 
 export const scene: SceneExport = {
     component: ReleaseAll,
     logic: releaseLogic,
 }
 
-const LOOKAHEAD = '600px'
-
+const SCROLL_PREFETCH_MARGIN = '1200px 0px'
 const rowId = (row: ReleaseAllRow): string => row.key
-
-const TYPE_LABEL: Record<ReleaseAllType, string> = {
-    release: 'Release',
-    feature_flag: 'Feature flag',
-    experiment: 'Experiment',
-    early_access_feature: 'Early access',
-}
-
-const TYPE_ICON: Record<ReleaseAllType, string> = {
-    release: 'feature_flag',
-    feature_flag: 'feature_flag',
-    experiment: 'experiment',
-    early_access_feature: 'early_access_feature',
-}
-
-const FILTERS: [ReleaseAllFilter, string][] = [
-    ['all', 'All'],
-    ['release', 'Releases'],
-    ['feature_flag', 'Feature flags'],
-    ['experiment', 'Experiments'],
-    ['early_access_feature', 'Early access'],
-]
-
-const COLUMNS: ColumnDef<ReleaseAllRow>[] = [
-    {
-        id: 'name',
-        header: 'Name',
-        accessorKey: 'name',
-        meta: { expand: true },
-        enableSorting: false,
-        cell: ({ row }) => (
-            <LinkPrimitive
-                to={row.original.href}
-                className="flex min-w-0 items-center gap-2 text-foreground"
-                data-attr="release-all-name"
-            >
-                <span className="flex size-4 shrink-0 items-center justify-center [&_svg]:size-4">
-                    {iconForType(TYPE_ICON[row.original.type] as FileSystemIconType)}
-                </span>
-                <span className="truncate">{row.original.name}</span>
-            </LinkPrimitive>
-        ),
-    },
-    {
-        id: 'type',
-        header: 'Type',
-        enableSorting: false,
-        cell: ({ row }) => <Badge variant="default">{TYPE_LABEL[row.original.type]}</Badge>,
-    },
-    {
-        id: 'status',
-        header: 'Status',
-        enableSorting: false,
-        cell: ({ row }) => <Text size="xs">{row.original.status}</Text>,
-    },
-    {
-        id: 'created',
-        header: 'Created',
-        enableSorting: false,
-        cell: ({ row }) =>
-            row.original.createdAt ? <TZLabel time={row.original.createdAt} formatDate="D MMM YYYY" /> : null,
-    },
-]
-
-function useLoadMoreSentinel(onVisible: () => void, watch: unknown): (node: Element | null) => void {
-    const observer = useRef<IntersectionObserver | null>(null)
-    const target = useRef<Element | null>(null)
-    const callback = useRef(onVisible)
-    callback.current = onVisible
-
-    const sentinel = useCallback((node: Element | null) => {
-        observer.current?.disconnect()
-        target.current = node
-        if (!node) {
-            return
-        }
-        observer.current = new IntersectionObserver(
-            (entries) => entries.some((entry) => entry.isIntersecting) && callback.current(),
-            { rootMargin: LOOKAHEAD }
-        )
-        observer.current.observe(node)
-    }, [])
-
-    useEffect(() => {
-        const node = target.current
-        if (node && observer.current) {
-            observer.current.unobserve(node)
-            observer.current.observe(node)
-        }
-    }, [watch])
-
-    useEffect(() => () => observer.current?.disconnect(), [])
-
-    return sentinel
-}
+const rowHoverGroup = (): string => 'group/row'
 
 function ReleaseAllContent(): JSX.Element {
-    const { renderedRows, filter, search, canShowMore, loading, showSkeleton, failedTypes } = useValues(releaseAllLogic)
-    const { setFilter, setSearch, next, retry } = useActions(releaseAllLogic)
+    const { displayRows, filters, searchInput, hasMore, loading, stale, failedTypes, listState } =
+        useValues(releaseAllLogic)
+    const { setSearchInput, setFilters, clearFilters, loadMore, retry } = useActions(releaseAllLogic)
     const { showAutoImport } = useValues(releaseImportLogic)
-    const sentinel = useLoadMoreSentinel(next, `${loading}-${renderedRows.length}`)
-    const searching = !!search.trim()
-    const openRow = useCallback((row: ReleaseAllRow) => navigateToHref(row.href), [])
-    const empty = useMemo(
-        () => (
-            <Text size="xs" variant="muted">
-                {searching ? 'Nothing matches that search.' : 'Nothing here yet.'}
-            </Text>
-        ),
-        [searching]
-    )
+    const [tableViewport, setTableViewport] = useState<HTMLDivElement | null>(null)
+    const { ref: tableEndRef, inView: tableEndInView } = useNearTableEnd(tableViewport, SCROLL_PREFETCH_MARGIN)
+    const nearEnd = !tableViewport || tableEndInView
+    const columns = useMemo(() => releaseAllColumns({ sortable: true }), [])
+
+    useEffect(() => {
+        if (nearEnd && hasMore && !loading && !stale && !showAutoImport) {
+            loadMore()
+        }
+    }, [nearEnd, hasMore, loading, stale, showAutoImport, displayRows.length, loadMore])
+
+    const renderBody = (): JSX.Element => {
+        if (showAutoImport) {
+            return <ReleaseAutoImport />
+        }
+        if (listState === 'error') {
+            return (
+                <Empty>
+                    <EmptyHeader>
+                        <EmptyTitle>Couldn’t load your releases</EmptyTitle>
+                        <EmptyDescription>Try again, and if it keeps happening contact support.</EmptyDescription>
+                    </EmptyHeader>
+                    <EmptyContent>
+                        <Button
+                            variant="outline"
+                            loading={loading}
+                            onClick={() => retry()}
+                            data-attr="release-all-retry"
+                        >
+                            Try again
+                        </Button>
+                    </EmptyContent>
+                </Empty>
+            )
+        }
+        if (listState === 'loading') {
+            return (
+                <Card size="sm" flush className="pt-0">
+                    <ReleaseAllSkeleton />
+                </Card>
+            )
+        }
+        if (listState === 'no-matches') {
+            return (
+                <Empty>
+                    <EmptyHeader>
+                        <EmptyMedia variant="icon">
+                            <IconSearch />
+                        </EmptyMedia>
+                        <EmptyTitle>Nothing matches these filters</EmptyTitle>
+                        <EmptyDescription>Try a different name, or clear the filters.</EmptyDescription>
+                    </EmptyHeader>
+                    <EmptyContent>
+                        <Button variant="outline" onClick={() => clearFilters()} data-attr="release-all-clear-filters">
+                            Clear filters
+                        </Button>
+                    </EmptyContent>
+                </Empty>
+            )
+        }
+        if (listState === 'empty') {
+            return (
+                <Empty>
+                    <EmptyHeader>
+                        <EmptyMedia variant="icon">
+                            <IconList />
+                        </EmptyMedia>
+                        <EmptyTitle>Nothing to release yet</EmptyTitle>
+                        <EmptyDescription>
+                            Releases, feature flags, experiments and early access features show up here as people create
+                            them.
+                        </EmptyDescription>
+                    </EmptyHeader>
+                    <EmptyContent>
+                        <ReleaseAllNewMenu />
+                    </EmptyContent>
+                </Empty>
+            )
+        }
+        return (
+            <div
+                className={cn('flex min-h-0 flex-col transition-opacity', stale && 'opacity-60')}
+                aria-busy={stale || hasMore}
+            >
+                <Card size="sm" flush className={cn('min-h-0 pt-0', STAGE_COLOR_VARS)} data-attr="release-all-table">
+                    <DataTable
+                        columns={columns}
+                        data={displayRows}
+                        fullWidth
+                        size="sm"
+                        stickyHeader
+                        resizableColumns
+                        viewportRef={setTableViewport}
+                        viewportEndRef={tableEndRef}
+                        getRowId={rowId}
+                        sorting={[{ id: 'created_at', desc: filters.order === '-created_at' }]}
+                        onSortingChange={([sort]) =>
+                            setFilters({ order: sort && !sort.desc ? 'created_at' : '-created_at' })
+                        }
+                        className="flex min-h-0 flex-col [--quill-table-sticky-bg:var(--card)]"
+                        rowClassName={rowHoverGroup}
+                    />
+                </Card>
+            </div>
+        )
+    }
 
     return (
-        <SceneContent>
+        <SceneContent className="min-h-0 flex-1 pb-4">
             <SceneTitleSection
                 name="View all"
-                description="Every release, feature flag, experiment and early access feature, newest first."
+                description="Releases, feature flags, experiments and early access features in this project."
                 resourceType={{ type: 'release', forceIcon: <IconList /> }}
+                actions={
+                    <div data-quill className="flex items-center gap-2">
+                        <ReleaseAllNewMenu />
+                    </div>
+                }
             />
-            <div data-quill className="flex flex-col gap-3">
+            <div data-quill className="flex min-h-0 flex-1 flex-col gap-3">
                 <div className="flex flex-wrap items-center gap-2">
-                    <Input
-                        className="max-w-64"
-                        placeholder="Search by name or key"
-                        aria-label="Search releases, flags, experiments and early access features"
-                        value={search}
-                        onChange={(event) => setSearch(event.target.value)}
-                        data-attr="release-all-search"
+                    <AnalyticsSearchInput
+                        value={searchInput}
+                        onChange={setSearchInput}
+                        label="Search releases, flags, experiments and early access features"
+                        placeholder="Search"
+                        dataAttr="release-all-search"
                     />
-                    {FILTERS.map(([value, label]) => (
-                        <Button
-                            key={value}
-                            size="sm"
-                            variant={filter === value ? 'default' : 'outline'}
-                            onClick={() => setFilter(value)}
-                            data-attr={`release-all-filter-${value}`}
-                        >
-                            {label}
-                        </Button>
-                    ))}
+                    <ReleaseAllFilterMenu />
                 </div>
-                {failedTypes.length > 0 && (
-                    <div className="flex items-center gap-2" data-attr="release-all-failed">
-                        <Text size="xs" variant="muted">
-                            {`Some ${failedTypes.map((type) => TYPE_LABEL[type].toLowerCase()).join(' and ')} items could not load.`}
+                <ReleaseImportFailedNotice />
+                {listState === 'ready' && failedTypes.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-2" role="alert">
+                        <Text size="sm" variant="destructive">
+                            {`${new Intl.ListFormat('en', { type: 'conjunction' }).format(
+                                failedTypes.map((type) => RELEASE_ALL_TYPE_INFO[type].pluralLabel)
+                            )} didn’t load, so this list may be incomplete.`}
                         </Text>
-                        <Button size="sm" variant="outline" onClick={() => retry()} data-attr="release-all-retry">
+                        <Button
+                            variant="outline"
+                            size="xs"
+                            loading={loading}
+                            onClick={() => retry()}
+                            data-attr="release-all-retry"
+                        >
                             Try again
                         </Button>
                     </div>
                 )}
-                <ReleaseImportFailedNotice />
-                {showAutoImport ? (
-                    <ReleaseAutoImport />
-                ) : showSkeleton ? (
-                    <div className="flex flex-col gap-2" data-attr="release-all-loading">
-                        {Array.from({ length: 8 }, (_, index) => (
-                            <Skeleton key={index} className="h-9 w-full" />
-                        ))}
-                    </div>
-                ) : (
-                    <Card size="sm" flush className="pt-0" data-attr="release-all-table">
-                        <DataTable
-                            columns={COLUMNS}
-                            data={renderedRows}
-                            fullWidth
-                            size="sm"
-                            getRowId={rowId}
-                            onRowClick={openRow}
-                            empty={empty}
-                        />
-                        {canShowMore && <div ref={sentinel} />}
-                        {loading && renderedRows.length > 0 && <Skeleton className="m-2 h-9" />}
-                    </Card>
-                )}
+                {renderBody()}
             </div>
+            <NewReleaseDialog />
         </SceneContent>
     )
 }

@@ -66,6 +66,11 @@ For example, use `embedText('example text', 'text-embedding-3-small-1536')`.
 A missing or invalid model raises a HogQL `QueryError` that lists the valid model names.
 Other argument validation failures also raise `QueryError`, so query APIs and AI SQL validation can expose them to the caller.
 
+## Person query limits
+
+Queries that join from `persons` apply their row limit after the join.
+The persons V2 deduplication optimization only pushes a limit into the inner person scan when no join can filter or reshape those rows.
+
 ## Disabling projection optimization
 
 Set `HOGQL_PROJECTION_OPTIMIZATION_ENABLED` to `false` in Django admin's instance settings to disable unused-column pruning and exported event-property narrowing for every project.

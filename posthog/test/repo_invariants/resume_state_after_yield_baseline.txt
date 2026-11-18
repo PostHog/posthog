@@ -122,7 +122,6 @@ dbt/dbt.py::get_rows
 deel/deel.py::_gross_to_net_items
 deepsource/deepsource.py::_fan_out_connection_rows
 deepsource/deepsource.py::_per_repository_object_rows
-deepsource/deepsource.py::_repositories_rows
 deepsource/deepsource.py::_root_connection_rows
 descope/descope.py::_user_history_rows
 dixa/dixa.py::_fan_out_rows

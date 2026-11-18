@@ -573,6 +573,13 @@ export interface EnsembleDetectorConfigApi {
     type: EnsembleDetectorConfigApiType
 }
 
+export type LLMDetectorModelApi = (typeof LLMDetectorModelApi)[keyof typeof LLMDetectorModelApi]
+
+export const LLMDetectorModelApi = {
+    ClaudeHaiku55: 'claude-haiku-5-5',
+    Gpt6Luna: 'gpt-6-luna',
+} as const
+
 export type LLMDetectorConfigApiType = (typeof LLMDetectorConfigApiType)[keyof typeof LLMDetectorConfigApiType]
 
 export const LLMDetectorConfigApiType = {
@@ -582,6 +589,8 @@ export const LLMDetectorConfigApiType = {
 export interface LLMDetectorConfigApi {
     /** What counts as unusual or interesting for this metric, in your own words. Optional. */
     instructions?: string | null
+    /** The model that judges each check: claude-haiku-5-5 or gpt-6-luna. Optional. When it is not set, the alert uses claude-haiku-5-5. */
+    model?: LLMDetectorModelApi | null
     type: LLMDetectorConfigApiType
 }
 
@@ -890,6 +899,7 @@ export interface PatchedAlertApi {
  * * `webhook` - Webhook
  * * `teams` - Microsoft Teams
  * * `pagerduty` - PagerDuty
+ * * `incident_io` - incident.io
  * * `email` - Email
  * * `in_app` - In-app notification
  */
@@ -901,6 +911,7 @@ export const DestinationTypeEnumApi = {
     Webhook: 'webhook',
     Teams: 'teams',
     Pagerduty: 'pagerduty',
+    IncidentIo: 'incident_io',
     Email: 'email',
     InApp: 'in_app',
 } as const
@@ -946,6 +957,7 @@ export interface AlertDestinationListItemApi {
      * * `webhook` - Webhook
      * * `teams` - Microsoft Teams
      * * `pagerduty` - PagerDuty
+     * * `incident_io` - incident.io
      * * `email` - Email
      * * `in_app` - In-app notification */
     type: DestinationTypeEnumApi
@@ -1086,6 +1098,11 @@ export interface AlertCreateUrlDestinationApi {
     type: AlertCreateUrlDestinationTypeEnumApi
     /** The https URL to send to. Its path and query are a credential, so reads show only the host. */
     webhook_url: string
+}
+
+export interface AlertTransferOwnershipApi {
+    /** New owner's user UUID. Must be an active organization member. Defaults to yourself. */
+    user_uuid?: string
 }
 
 /**

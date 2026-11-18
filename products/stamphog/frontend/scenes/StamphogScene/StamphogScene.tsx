@@ -11,7 +11,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { StamphogTabs } from '../../components/StamphogTabs'
-import { type StamphogRepoConfigApi } from '../../generated/api.schemas'
+import { type CodeReviewApprovalRepositoryApi } from '../../generated/api.schemas'
 import { AddRepositoryBar } from './AddRepositoryBar'
 import { ExpandedRepoSettings } from './ExpandedRepoSettings'
 import { repoStatusDisplay, triggerSummary } from './repoDisplay'
@@ -139,7 +139,7 @@ function RepoConfigsTable(): JSX.Element {
         )
     }
 
-    const columns: LemonTableColumns<StamphogRepoConfigApi> = [
+    const columns: LemonTableColumns<CodeReviewApprovalRepositoryApi> = [
         {
             title: 'Repository',
             dataIndex: 'repository',

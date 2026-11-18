@@ -37,7 +37,6 @@ export function EnableEngagementEventsBanner(): JSX.Element {
                         onClick={() =>
                             updateCurrentTeam({
                                 workflows_config: {
-                                    ...currentTeam?.workflows_config,
                                     capture_workflows_engagement_events: true,
                                 },
                             })
