@@ -57,5 +57,6 @@ common-dns = { path = "../common/dns", features = ["test-util"] }
 httpmock = { workspace = true }
 flate2 = { workspace = true }
 mockito = { workspace = true }
+zstd = { workspace = true }
 tokio-util = { workspace = true }
 metrics-util = { workspace = true }
