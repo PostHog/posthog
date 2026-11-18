@@ -2,18 +2,8 @@ import './NotebookAppBuilder.scss'
 
 import { useActions, useValues } from 'kea'
 
-import { IconPlus, IconWarning } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonDialog,
-    LemonInput,
-    LemonMenu,
-    LemonTabs,
-    LemonTag,
-    Spinner,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { IconPlus } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonDialog, LemonInput, LemonMenu, LemonTabs, Spinner } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
@@ -41,7 +31,7 @@ export function NotebookAppBuilder({
     published?: boolean
 }): JSX.Element {
     const logic = notebookAppLogic({ shortId })
-    const { staleCount } = useValues(notebookNodeStalenessLogic({ shortId }))
+    const { staleNodeIds } = useValues(notebookNodeStalenessLogic({ shortId }))
     const { isRunning, progressLabel } = useValues(notebookRunLogic({ shortId }))
     const { isPhaiSandboxFlagOn } = useValues(aiShellLogic)
     const { setPhaiViewMode } = useActions(aiShellLogic)
@@ -180,13 +170,6 @@ export function NotebookAppBuilder({
                                 {savedNotebook.app_published ? 'Publish changes' : 'Publish layout'}
                             </LemonButton>
                         </>
-                    )}
-                    {staleCount > 0 && !isRunning && (
-                        <Tooltip title="Inputs changed. Run all to update the charts and calculated values.">
-                            <LemonTag type="warning" icon={<IconWarning />} tabIndex={0} data-attr="notebook-app-stale">
-                                STALE
-                            </LemonTag>
-                        </Tooltip>
                     )}
                     <LemonMenu
                         items={[
@@ -344,6 +327,7 @@ export function NotebookAppBuilder({
                             layout={displayedLayout}
                             activeTab={selectedTab}
                             cells={cells}
+                            staleNodeIds={staleNodeIds}
                             variables={variables}
                             editing={editing}
                             selectedId={selectedBlockId}

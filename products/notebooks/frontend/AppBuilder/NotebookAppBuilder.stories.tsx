@@ -186,7 +186,12 @@ export const Published: Story = {
         fireEvent.click(app.getByLabelText('Region', { exact: true }))
         fireEvent.click(await within(document.body).findByText('Europe', { exact: true }))
         fireEvent.change(app.getByRole('slider', { name: 'Lookback (weeks)' }), { target: { value: '2' } })
-        const staleTag = await app.findByText('STALE', { exact: true })
+        const staleTags = await app.findAllByText('STALE', { exact: true })
+        expect(staleTags).toHaveLength(3)
+        for (const tag of staleTags) {
+            expect(tag.closest('[data-attr="notebook-app-cell-header"]')).not.toBeNull()
+        }
+        const staleTag = staleTags[0]
         await userEvent.hover(staleTag)
         await waitFor(() =>
             expect(
@@ -199,7 +204,7 @@ export const Published: Story = {
             timeout: 60000,
         })
         await waitFor(() => expect(metric('64.9%')).toBeVisible())
-        await waitFor(() => expect(app.queryByText('STALE', { exact: true })).toBeNull())
+        await waitFor(() => expect(app.queryAllByText('STALE', { exact: true })).toHaveLength(0))
         await waitFor(
             () =>
                 expect(saved.content).toEqual(
@@ -212,6 +217,14 @@ export const Published: Story = {
                     })
                 ),
             { timeout: 10000 }
+        )
+        await userEvent.click(app.getByRole('button', { name: 'Open Signups in selected period in notebook' }))
+        await waitFor(() => expect(canvasElement.querySelector('.MarkdownNotebook')).toBeVisible(), { timeout: 60000 })
+        expect(canvasElement.querySelector('[data-attr="notebook-app-builder"]')).not.toBeInTheDocument()
+        await waitFor(() =>
+            expect(
+                within(document.activeElement as HTMLElement).getByRole('textbox', { name: 'Output dataframe name' })
+            ).toHaveValue('signup_total')
         )
     },
 }

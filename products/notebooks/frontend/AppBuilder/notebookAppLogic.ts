@@ -611,7 +611,10 @@ export const notebookAppLogic: LogicWrapper<notebookAppLogicType> = kea<notebook
             )
             posthog.capture('notebook app input changed', { short_id: props.shortId })
         },
-        openSource: ({ nodeId }) => router.actions.push(urls.notebook(props.shortId), {}, { node: nodeId }),
+        openSource: ({ nodeId }) => {
+            posthog.capture('notebook app source opened', { short_id: props.shortId })
+            router.actions.push(urls.notebook(props.shortId), {}, { node: nodeId })
+        },
     })),
     afterMount(({ actions, props }) => {
         actions.loadApp()

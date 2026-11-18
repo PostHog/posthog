@@ -6,6 +6,7 @@ import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 import type { NotebookBlockNode } from 'lib/components/MarkdownNotebook/types'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { cn } from 'lib/utils/css-classes'
+import type { NotebookStaleReason } from 'scenes/notebooks/Notebook/notebookNodeStalenessLogic'
 import type { NotebookVariable, NotebookVariableValue } from 'scenes/notebooks/Notebook/notebookVariables'
 
 import type { NotebookAppLayoutApi } from '../generated/api.schemas'
@@ -15,6 +16,7 @@ export function NotebookAppCanvas({
     layout,
     activeTab,
     cells,
+    staleNodeIds,
     variables,
     editing,
     selectedId,
@@ -31,6 +33,7 @@ export function NotebookAppCanvas({
     layout: NotebookAppLayoutApi
     activeTab: string
     cells: NotebookBlockNode[]
+    staleNodeIds: Record<string, NotebookStaleReason>
     variables: NotebookVariable[]
     editing: boolean
     selectedId: string | null
@@ -142,6 +145,8 @@ export function NotebookAppCanvas({
                         <NotebookAppBlock
                             block={block}
                             cell={cells.find((cell) => cell.id === block.node_id)}
+                            stale={!!staleNodeIds[block.node_id || '']}
+                            onSource={!editing ? onSource : undefined}
                             variables={variables}
                             canInteract={canInteract}
                             onInput={onInput}
