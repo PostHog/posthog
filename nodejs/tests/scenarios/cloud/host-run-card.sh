@@ -22,6 +22,14 @@ mark() {
     printf '%s\n' "$2" | aws s3 cp - "$prefix/host/$1"
 }
 
+checksums() (
+    cd "$evidence" || exit 1
+    while IFS= read -r -d '' file; do
+        sum=$(sha256sum <"$file") || exit 1
+        printf '%s  %s\n' "${sum%% *}" "$file"
+    done < <(find . -type f ! -name SHA256SUMS -print0 | sort -z)
+)
+
 upload_evidence() {
     local run log
     mkdir -p "$evidence/run"
@@ -32,7 +40,7 @@ upload_evidence() {
     done
     for log in "$process_logs"/*.log; do
         if [ -f "$log" ]; then
-            mkdir -p "$evidence/processes" && tail -n 2000 "$log" >"$evidence/processes/${log##*/}" || return 1
+            mkdir -p "$evidence/processes" && tail -n 2000 <"$log" >"$evidence/processes/${log##*/}" || return 1
         fi
     done
     for run in "$XDG_CACHE_HOME"/posthog-scenarios/*-*-*-*-*/; do
@@ -40,7 +48,7 @@ upload_evidence() {
             cp -r "$run" "$evidence/run/" || return 1
         fi
     done
-    (cd "$evidence" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum) >"$root/SHA256SUMS" &&
+    checksums >"$root/SHA256SUMS" &&
         mv "$root/SHA256SUMS" "$evidence/SHA256SUMS" &&
         aws s3 cp --recursive --only-show-errors "$evidence/" "$prefix/evidence/"
 }

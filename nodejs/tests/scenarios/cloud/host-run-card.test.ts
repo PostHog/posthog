@@ -56,6 +56,11 @@ fi
 exit "\${FAKE_CARD_EXIT:-0}"
 `
 
+const RECORD_ARGS = `#!/usr/bin/env bash
+printf '%s\\n' "\${0##*/} $*" >>"$FAKE_COMMANDS"
+PATH=\${PATH#*:} exec "\${0##*/}" "$@"
+`
+
 const FAKE_PNPM = `#!/usr/bin/env bash
 node "$@" &
 child=$!
@@ -87,6 +92,9 @@ describe('host-run-card.sh', () => {
             writeFileSync(path.join(bin, 'node'), runner, { mode: 0o755 })
         }
         writeFileSync(path.join(bin, 'pnpm'), FAKE_PNPM, { mode: 0o755 })
+        for (const command of ['tail', 'sha256sum']) {
+            writeFileSync(path.join(bin, command), RECORD_ARGS, { mode: 0o755 })
+        }
         return spawn('bash', [WRAPPER], {
             env: {
                 ...process.env,
@@ -97,6 +105,7 @@ describe('host-run-card.sh', () => {
                 SCENARIO_HOST_ROOT: path.join(dir, 'host'),
                 SCENARIO_PROCESS_LOGS: path.join(dir, 'processes'),
                 FAKE_S3: path.join(dir, 's3'),
+                FAKE_COMMANDS: path.join(dir, 'commands'),
                 ...env,
             },
             stdio: 'ignore',
@@ -136,6 +145,7 @@ describe('host-run-card.sh', () => {
             ? readFileSync(s3('evidence/processes/capture.log'), 'utf8').split('\n')
             : []
         expect([processLog[0], processLog.length]).toEqual(uploaded ? ['Compiling crate 501', 2001] : [undefined, 0])
+        expect(readFileSync(path.join(dir, 'commands'), 'utf8')).not.toContain('capture')
         expect(existsSync(s3('evidence/run/edge-ca'))).toBe(false)
     })
 

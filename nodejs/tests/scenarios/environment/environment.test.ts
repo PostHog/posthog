@@ -1089,6 +1089,9 @@ describe('scenario environment', () => {
                 process.exit(1)
             }
             const verb = positionals.join(' ')
+            if (/ngrok/.test(command)) {
+                fail('The command line names the tunnel process: ' + command)
+            }
             if (verb === 'wait') {
                 const answersAfterS = stack.busy ? 10 : 0
                 if (!stack.running || Number(flags.timeout ?? 300) < answersAfterS) {
@@ -1100,7 +1103,13 @@ describe('scenario environment', () => {
                 }
                 fs.writeFileSync(stateFile, JSON.stringify({ running: true, ready: true }))
             } else if (verb === 'dev:generate') {
-                const units = ['backend', 'frontend', 'nodejs', 'ingestion', 'ngrok', ...flags.with].filter((unit) => !flags.without.includes(unit))
+                const saved = fs.existsSync(process.env.HOGLI_MPROCS_PATH)
+                    ? JSON.parse(fs.readFileSync(process.env.HOGLI_MPROCS_PATH, 'utf8'))._posthog
+                    : { intents: ['product_analytics'], exclude_units: [] }
+                const excluded = [...saved.exclude_units, ...flags.without]
+                const units = ['backend', 'frontend', 'nodejs', 'ingestion', 'ngrok', ...saved.intents, ...flags.with].filter(
+                    (unit) => !excluded.includes(unit)
+                )
                 fs.writeFileSync(
                     process.env.HOGLI_MPROCS_PATH,
                     'procs:\\n' + units.map((unit) => '  ' + unit + ':\\n    shell: bin/start-' + unit + '\\n').join('')

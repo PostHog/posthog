@@ -1,5 +1,5 @@
 import { execFile, spawn } from 'child_process'
-import { closeSync, openSync } from 'fs'
+import { closeSync, openSync, writeFileSync } from 'fs'
 import Redis from 'ioredis'
 import { Producer } from 'node-rdkafka'
 import path from 'path'
@@ -55,6 +55,11 @@ async function runHogli(hogli: Hogli, args: string[], logFile: string, env: Node
 const NOT_REACHABLE = 3
 const FIRST_START_TIMEOUT_S = 3600
 
+const STACK_UNITS = {
+    intents: ['product_analytics', 'workflows'],
+    exclude_units: ['nodejs', 'frontend', 'ingestion', 'ngrok'],
+}
+
 export async function startStack(hogli: Hogli, stateDir: string, env: NodeJS.ProcessEnv): Promise<void> {
     const config = path.join(stateDir, 'mprocs.yaml')
     const logFile = path.join(stateDir, 'hogli.log')
@@ -66,24 +71,8 @@ export async function startStack(hogli: Hogli, stateDir: string, env: NodeJS.Pro
     if (waited !== NOT_REACHABLE) {
         throw new Error(`hogli wait exited with ${waited}; see ${logFile}`)
     }
-    await runHogli(
-        hogli,
-        [
-            'dev:generate',
-            '--with',
-            'workflows',
-            '--without',
-            'nodejs',
-            '--without',
-            'frontend',
-            '--without',
-            'ingestion',
-            '--without',
-            'ngrok',
-        ],
-        logFile,
-        hogliEnv
-    )
+    writeFileSync(config, JSON.stringify({ _posthog: STACK_UNITS }))
+    await runHogli(hogli, ['dev:generate'], logFile, hogliEnv)
     await runHogli(hogli, ['up', '-d', '--custom', config], logFile, hogliEnv)
     await runHogli(hogli, ['wait', '--timeout', String(FIRST_START_TIMEOUT_S)], logFile, hogliEnv)
 }
