@@ -464,6 +464,67 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
 
     @parameterized.expand(
         [
+            ("repo_invariant_helper", "posthog/test/repo_invariants/ratchet.py"),
+            ("repo_invariant_guard", "posthog/test/repo_invariants/test_ratchet.py"),
+            ("temporal_workflow_catalog", "posthog/temporal/workflow_catalog.json"),
+        ]
+    )
+    def test_inputs_with_no_django_reader_select_nothing(self, _name: str, path: str) -> None:
+        selection = _load_selection_module()
+        features_by_path = {
+            "posthog/temporal/tests/test_workflow.py": selection.TestFeatures(
+                path="posthog/temporal/tests/test_workflow.py", uses_temporal=True
+            ),
+            "posthog/test/repo_invariants/test_ratchet.py": selection.TestFeatures(
+                path="posthog/test/repo_invariants/test_ratchet.py"
+            ),
+        }
+
+        result = selection.ast_select_tests([path], features_by_path)
+
+        self.assertEqual([], result.full_run_reasons)
+        self.assertEqual({}, result.groups)
+
+    @parameterized.expand(
+        [
+            ("sibling", "posthog/api/test/__snapshots__/test_query.ambr", ["posthog/api/test/test_query.py"]),
+            (
+                "schema_variant",
+                "posthog/api/test/__snapshots__/test_query.new_events_schema.ambr",
+                ["posthog/api/test/test_query.py"],
+            ),
+            ("under_full_run_prefix", "posthog/test/__snapshots__/test_team.ambr", ["posthog/test/test_team.py"]),
+            (
+                "shared_file_falls_back_to_directory",
+                "posthog/hogql/test/__snapshots__/parser_ast.ambr",
+                ["posthog/hogql/test/test_parser_cpp_json.py", "posthog/hogql/test/test_parser_rust_json.py"],
+            ),
+        ]
+    )
+    def test_changed_snapshot_selects_the_tests_that_own_it(self, _name: str, path: str, expected: list[str]) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            selection = _load_selection_module()
+            selection.REPO_ROOT = Path(root)
+            test_files = [
+                "posthog/api/test/test_query.py",
+                "posthog/api/test/test_team.py",
+                "posthog/test/test_team.py",
+                "posthog/hogql/test/test_parser_cpp_json.py",
+                "posthog/hogql/test/test_parser_rust_json.py",
+            ]
+            for test_file in test_files:
+                (selection.REPO_ROOT / test_file).parent.mkdir(parents=True, exist_ok=True)
+                (selection.REPO_ROOT / test_file).touch()
+
+            result = selection.ast_select_tests(
+                [path], {test_file: selection.TestFeatures(path=test_file) for test_file in test_files}
+            )
+
+            self.assertEqual([], result.full_run_reasons)
+            self.assertEqual(expected, result.groups.get("snapshot_owners"))
+
+    @parameterized.expand(
+        [
             ("core", "posthog/models/test_a.py", {"core"}),
             # POE patterns run in both the Core matrix and the person-on-events matrix.
             ("poe_runs_in_core_too", "posthog/clickhouse/test_b.py", {"core", "poe"}),

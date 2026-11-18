@@ -493,9 +493,10 @@ jobs:
                         - '!**/*.mdx'
                         # Ownership data, which no Django test reads from the checkout.
                         - '!**/owners.yaml'
-                        # Only the guards in posthog/test/repo_invariants/ read these baselines, and
+                        # Only the guards in posthog/test/repo_invariants/ read these files, and
                         # repo-checks runs those guards on every backend diff.
-                        - '!posthog/test/repo_invariants/*.txt'
+                        - '!posthog/test/repo_invariants/**'
+                        - '!posthog/temporal/workflow_catalog.json'
                         # Generated from frontend/src/queries/schema.json (see the `schema`
                         # filter below). Excluding them here routes schema-only PRs into
                         # turbo-discover's schema-impact narrowing instead of the

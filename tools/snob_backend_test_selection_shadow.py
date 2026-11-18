@@ -136,6 +136,10 @@ INERT_SETTINGS_CALLS = frozenset(
         "tuple",
     }
 )
+REPO_CHECKS_ONLY_PATHS = (
+    REPO_INVARIANTS_DIR,
+    "posthog/temporal/workflow_catalog.json",
+)
 
 # Patterns that indicate "broad API tests needed" but not full suite.
 # These are Django infrastructure files reached through settings/framework
@@ -469,6 +473,17 @@ def _candidate_conventional_tests(path: str) -> list[str]:
     return [str(candidate) for candidate in candidates if (REPO_ROOT / candidate).is_file()]
 
 
+def _snapshot_owner_tests(path: str, all_test_files: set[str]) -> list[str]:
+    pure = PurePosixPath(path)
+    if pure.suffix != ".ambr" or pure.parent.name != "__snapshots__":
+        return []
+    test_dir = pure.parent.parent
+    sibling = test_dir / f"{pure.name.split('.', 1)[0]}.py"
+    if (REPO_ROOT / sibling).is_file():
+        return [str(sibling)]
+    return sorted(test for test in all_test_files if PurePosixPath(test).parent == test_dir)
+
+
 def _pytest_ignored_prefixes() -> tuple[str, ...]:
     """The --ignore paths in pytest.ini. pytest skips them when it walks a directory, but it still collects a file
     that it gets by name, so a selected file under one of them fails collection."""
@@ -639,18 +654,25 @@ def ast_select_tests(
     groups: dict[str, set[str]] = {}
     full_run_reasons: list[str] = []
     all_test_files = set(features_by_path.keys())
+    repo_invariants_baseline_changed = any(_is_repo_invariants_baseline(path) for path in changed_files)
+    changed_files = [path for path in changed_files if not path.startswith(REPO_CHECKS_ONLY_PATHS)]
 
     # ── 1. Changed test files themselves ─────────────────────────────
     changed_tests = _runnable_test_files([path for path in changed_files if _is_test_file(path)])
     _add_group(groups, "changed_tests", changed_tests)
 
     # Only the guards in posthog/test/repo_invariants/ read their baseline files.
-    if any(_is_repo_invariants_baseline(path) for path in changed_files):
+    if repo_invariants_baseline_changed:
         _add_group(
             groups,
             "repo_invariants_baselines",
             _runnable_test_files([path for path in all_test_files if path.startswith(REPO_INVARIANTS_DIR)]),
         )
+
+    snapshot_owners: set[str] = set()
+    for path in changed_files:
+        snapshot_owners.update(_snapshot_owner_tests(path, all_test_files))
+    _add_group(groups, "snapshot_owners", _runnable_test_files(snapshot_owners))
 
     # ── 2. Conventional test neighbors (test_<name>.py next to <name>.py) ─
     conventional: set[str] = set()
@@ -666,7 +688,7 @@ def ast_select_tests(
     high_fanout = _load_high_fanout_files()
 
     for path in changed_files:
-        if not _is_test_file(path):
+        if not _is_test_file(path) and not _snapshot_owner_tests(path, all_test_files):
             reason = _full_run_reason(path, base_ref, changed_files)
             if reason:
                 full_run_reasons.append(reason)
