@@ -3031,6 +3031,10 @@
                     "$ref": "#/definitions/AssistantDataVisualizationBoxPlotSettings",
                     "description": "Column mappings for `BoxPlot`. The SQL must return one pre-aggregated row per X-axis and series pair."
                 },
+                "colorBarsByCategory": {
+                    "description": "Color each X-axis category in single-series `ActionsBar` and `ActionsBarValue` charts.",
+                    "type": "boolean"
+                },
                 "goalLines": {
                     "description": "Horizontal goal lines drawn across the chart.",
                     "items": {
@@ -20660,6 +20664,10 @@
                     "$ref": "#/definitions/ChartStyle",
                     "description": "Chart rendering style overrides (line shape). Only applies to line and area charts."
                 },
+                "colorBarsByCategory": {
+                    "description": "Color each X-axis category in single-series bar charts.",
+                    "type": "boolean"
+                },
                 "goalLines": {
                     "items": {
                         "$ref": "#/definitions/GoalLine"
@@ -20732,6 +20740,12 @@
                 },
                 "valueLabelBackground": {
                     "type": "boolean"
+                },
+                "valueLabelBackgroundColor": {
+                    "type": "string"
+                },
+                "valueLabelColor": {
+                    "type": "string"
                 },
                 "valueLabelFontSize": {
                     "type": "number"
@@ -32415,6 +32429,10 @@
                 "showLegend": {
                     "default": false,
                     "description": "Whether to show a legend describing the series. The legend only renders when the funnel has multiple series. Only applies to historical-trends funnels.",
+                    "type": "boolean"
+                },
+                "showSummaryOnDashboards": {
+                    "default": false,
                     "type": "boolean"
                 },
                 "showTrendLines": {
@@ -58210,6 +58228,10 @@
                 },
                 "hidden": {
                     "type": "boolean"
+                },
+                "yAxisPosition": {
+                    "enum": ["auto", "left", "right"],
+                    "type": "string"
                 }
             },
             "type": "object"
@@ -58230,6 +58252,10 @@
                 },
                 "hidden": {
                     "type": "boolean"
+                },
+                "yAxisPosition": {
+                    "enum": ["auto", "left", "right"],
+                    "type": "string"
                 }
             },
             "required": ["assignmentBy"],
@@ -58252,6 +58278,10 @@
                     "type": "boolean"
                 },
                 "label": {
+                    "type": "string"
+                },
+                "yAxisPosition": {
+                    "enum": ["auto", "left", "right"],
                     "type": "string"
                 }
             },

@@ -10329,7 +10329,7 @@
             "stripNulls": false,
             "enrich": {
                 "kind": "list",
-                "baseUrl": "/stamphog"
+                "baseUrl": "/code-review"
             },
             "agentNote": null,
             "informational": null,
@@ -10417,7 +10417,7 @@
             "stripNulls": false,
             "enrich": {
                 "kind": "list",
-                "baseUrl": "/stamphog"
+                "baseUrl": "/code-review"
             },
             "agentNote": null,
             "informational": null,
@@ -10527,7 +10527,7 @@
             "stripNulls": false,
             "enrich": {
                 "kind": "list",
-                "baseUrl": "/stamphog"
+                "baseUrl": "/code-review"
             },
             "agentNote": null,
             "informational": null,
@@ -10746,7 +10746,7 @@
             "stripNulls": false,
             "enrich": {
                 "kind": "list",
-                "baseUrl": "/stamphog"
+                "baseUrl": "/code-review"
             },
             "agentNote": null,
             "informational": {
@@ -10892,7 +10892,7 @@
             "stripNulls": false,
             "enrich": {
                 "kind": "list",
-                "baseUrl": "/stamphog"
+                "baseUrl": "/code-review"
             },
             "agentNote": null,
             "informational": null,
@@ -40759,6 +40759,14 @@
                 {
                     "param": "insight_ids",
                     "key": "insight_ids"
+                },
+                {
+                    "param": "metric_insight_ids",
+                    "key": "metric_insight_ids"
+                },
+                {
+                    "param": "metric_goals",
+                    "key": "metric_goals"
                 }
             ],
             "injectBody": {},
@@ -40949,6 +40957,14 @@
                 {
                     "param": "insight_ids",
                     "key": "insight_ids"
+                },
+                {
+                    "param": "metric_insight_ids",
+                    "key": "metric_insight_ids"
+                },
+                {
+                    "param": "metric_goals",
+                    "key": "metric_goals"
                 }
             ],
             "injectBody": {},
@@ -43779,6 +43795,43 @@
             "fallbacks": [],
             "query": null,
             "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "scout-scratchpad-discard": {
+        "name": "scout-scratchpad-discard",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/signals/scout/scratchpad/discard/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "key",
+                    "key": "key"
+                }
+            ],
             "injectBody": {},
             "softDelete": null,
             "transformBody": false
