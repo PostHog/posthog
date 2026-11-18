@@ -141,7 +141,7 @@ ClickHouse also reads this topic into the `realtime_cohort_membership` table, un
 Its view stores a change as a member row, and each copy of a floor record as a floor row with the copy's partition.
 It drops a record of any other type, and a message whose fields fail to convert, such as a person id that is not a UUID or a version not in the producer's format.
 It also skips a message that is not JSON, up to 100 in one block.
-A JSON array of non-objects stops this consumer until an operator skips its offset, as it does for every `JSONEachRow` Kafka table.
+A block with more, or a JSON array of non-objects, stops this consumer until an operator skips those offsets, as it does for every `JSONEachRow` Kafka table.
 
 ## Mark and sweep
 

@@ -4587,10 +4587,10 @@ database "posthog" {
       type = "String"
     }
     column "team_id" {
-      type = "Int64"
+      type = "String"
     }
     column "cohort_id" {
-      type = "Int64"
+      type = "String"
     }
     column "person_id" {
       type = "String"
@@ -4608,7 +4608,7 @@ database "posthog" {
       type = "String"
     }
     column "partitions" {
-      type = "UInt16"
+      type = "String"
     }
     engine "kafka" {
       collection           = "warpstream_ingestion"
@@ -24984,8 +24984,8 @@ SQL
     to_table = "posthog.writable_realtime_cohort_membership"
     query    = <<SQL
 SELECT
-  team_id,
-  cohort_id,
+  team AS team_id,
+  cohort AS cohort_id,
   if(is_floor, 'floor', 'member') AS kind,
   if(
     is_floor,
@@ -24998,31 +24998,35 @@ SELECT
     toUUID('00000000-0000-0000-0000-000000000000')
   ) AS floor_run_id,
   if(is_floor, toUInt16(_partition), 0) AS floor_partition,
-  toUInt8(status = 'entered') AS in_cohort,
+  if(is_floor, 0, toUInt8(status = 'entered')) AS in_cohort,
   assumeNotNull(stamp) AS version,
-  if(is_floor, partitions, 0) AS floor_partitions
+  if(is_floor, copies, 0) AS floor_partitions
 FROM
   (
     SELECT
-      team_id,
-      cohort_id,
+      toInt64OrZero(team_id) AS team,
+      toInt64OrZero(cohort_id) AS cohort,
       type = 'sweep_floor' AS is_floor,
       toUUIDOrNull(person_id) AS person_uuid,
       toUUIDOrNull(run_id) AS run_uuid,
       if(is_floor, threshold, last_updated) AS raw_stamp,
       toDateTime64OrNull(raw_stamp, 6, 'UTC') AS stamp,
       status,
-      partitions,
+      toUInt16OrZero(partitions) AS copies,
       _partition
     FROM posthog.kafka_realtime_cohort_membership
     WHERE type IN ('', 'sweep_floor')
   )
 WHERE
+  (team > 0)
+AND
+  (cohort > 0)
+AND
   (toString(stamp) = raw_stamp)
 AND
   if(
     is_floor,
-    (run_uuid IS NOT NULL) AND (partitions > 0),
+    (run_uuid IS NOT NULL) AND (copies > 0),
     (person_uuid IS NOT NULL) AND (status IN ('entered', 'left'))
   )
 SQL

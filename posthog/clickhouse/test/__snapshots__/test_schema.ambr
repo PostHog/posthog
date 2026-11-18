@@ -896,14 +896,14 @@
   CREATE TABLE IF NOT EXISTS kafka_realtime_cohort_membership
   (
       type String,
-      team_id Int64,
-      cohort_id Int64,
+      team_id String,
+      cohort_id String,
       person_id String,
       status String,
       last_updated String,
       run_id String,
       threshold String,
-      partitions UInt16
+      partitions String
   )
   ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'cohort_membership_changed_test', kafka_group_name = 'clickhouse_realtime_cohort_membership', kafka_format = 'JSONEachRow')
   SETTINGS
@@ -3604,14 +3604,14 @@
   CREATE TABLE IF NOT EXISTS kafka_realtime_cohort_membership
   (
       type String,
-      team_id Int64,
-      cohort_id Int64,
+      team_id String,
+      cohort_id String,
       person_id String,
       status String,
       last_updated String,
       run_id String,
       threshold String,
-      partitions UInt16
+      partitions String
   )
   ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'cohort_membership_changed_test', kafka_group_name = 'clickhouse_realtime_cohort_membership', kafka_format = 'JSONEachRow')
   SETTINGS
@@ -7607,32 +7607,34 @@
   CREATE MATERIALIZED VIEW IF NOT EXISTS realtime_cohort_membership_mv
   TO writable_realtime_cohort_membership
   AS SELECT
-      team_id,
-      cohort_id,
+      team AS team_id,
+      cohort AS cohort_id,
       if(is_floor, 'floor', 'member') AS kind,
       if(is_floor, toUUID('00000000-0000-0000-0000-000000000000'), ifNull(person_uuid, toUUID('00000000-0000-0000-0000-000000000000'))) AS person_id,
       if(is_floor, ifNull(run_uuid, toUUID('00000000-0000-0000-0000-000000000000')), toUUID('00000000-0000-0000-0000-000000000000')) AS floor_run_id,
       if(is_floor, toUInt16(_partition), 0) AS floor_partition,
-      toUInt8(status = 'entered') AS in_cohort,
+      if(is_floor, 0, toUInt8(status = 'entered')) AS in_cohort,
       assumeNotNull(stamp) AS version,
-      if(is_floor, partitions, 0) AS floor_partitions
+      if(is_floor, copies, 0) AS floor_partitions
   FROM (
       SELECT
-          team_id,
-          cohort_id,
+          toInt64OrZero(team_id) AS team,
+          toInt64OrZero(cohort_id) AS cohort,
           type = 'sweep_floor' AS is_floor,
           toUUIDOrNull(person_id) AS person_uuid,
           toUUIDOrNull(run_id) AS run_uuid,
           if(is_floor, threshold, last_updated) AS raw_stamp,
           toDateTime64OrNull(raw_stamp, 6, 'UTC') AS stamp,
           status,
-          partitions,
+          toUInt16OrZero(partitions) AS copies,
           _partition
       FROM kafka_realtime_cohort_membership
       WHERE type IN ('', 'sweep_floor')
   )
-  WHERE toString(stamp) = raw_stamp
-    AND if(is_floor, run_uuid IS NOT NULL AND partitions > 0, person_uuid IS NOT NULL AND status IN ('entered', 'left'))
+  WHERE team > 0
+    AND cohort > 0
+    AND toString(stamp) = raw_stamp
+    AND if(is_floor, run_uuid IS NOT NULL AND copies > 0, person_uuid IS NOT NULL AND status IN ('entered', 'left'))
   
   '''
 # ---

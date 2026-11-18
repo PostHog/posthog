@@ -80,14 +80,14 @@ CREATE TABLE posthog.kafka_precalculated_person_properties (
 ) ENGINE = Kafka(msk_cluster) SETTINGS kafka_flush_interval_ms = 7500, kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_precalculated_person_properties', kafka_max_block_size = 1000000, kafka_num_consumers = 1, kafka_poll_max_batch_size = 100000, kafka_poll_timeout_ms = 1000, kafka_skip_broken_messages = 100, kafka_topic_list = 'clickhouse_precalculated_person_properties';
 CREATE TABLE posthog.kafka_realtime_cohort_membership (
   type String,
-  team_id Int64,
-  cohort_id Int64,
+  team_id String,
+  cohort_id String,
   person_id String,
   status String,
   last_updated String,
   run_id String,
   threshold String,
-  partitions UInt16
+  partitions String
 ) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_flush_interval_ms = 7500, kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_realtime_cohort_membership', kafka_max_block_size = 100000, kafka_num_consumers = 1, kafka_poll_timeout_ms = 10000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'cohort_membership_changed';
 CREATE TABLE posthog.kafka_tophog (
   timestamp DateTime64(6, 'UTC'),
@@ -436,8 +436,8 @@ CREATE MATERIALIZED VIEW posthog.precalculated_person_properties_mv TO posthog.w
   _offset
 FROM posthog.kafka_precalculated_person_properties;
 CREATE MATERIALIZED VIEW posthog.realtime_cohort_membership_mv TO posthog.writable_realtime_cohort_membership (team_id Int64, cohort_id Int64, kind String, person_id UUID, floor_run_id UUID, floor_partition UInt16, in_cohort UInt8, version DateTime64(6, 'UTC'), floor_partitions UInt16) AS SELECT
-  team_id,
-  cohort_id,
+  team AS team_id,
+  cohort AS cohort_id,
   if(is_floor, 'floor', 'member') AS kind,
   if(
     is_floor,
@@ -450,31 +450,35 @@ CREATE MATERIALIZED VIEW posthog.realtime_cohort_membership_mv TO posthog.writab
     toUUID('00000000-0000-0000-0000-000000000000')
   ) AS floor_run_id,
   if(is_floor, toUInt16(_partition), 0) AS floor_partition,
-  toUInt8(status = 'entered') AS in_cohort,
+  if(is_floor, 0, toUInt8(status = 'entered')) AS in_cohort,
   assumeNotNull(stamp) AS version,
-  if(is_floor, partitions, 0) AS floor_partitions
+  if(is_floor, copies, 0) AS floor_partitions
 FROM
   (
     SELECT
-      team_id,
-      cohort_id,
+      toInt64OrZero(team_id) AS team,
+      toInt64OrZero(cohort_id) AS cohort,
       type = 'sweep_floor' AS is_floor,
       toUUIDOrNull(person_id) AS person_uuid,
       toUUIDOrNull(run_id) AS run_uuid,
       if(is_floor, threshold, last_updated) AS raw_stamp,
       toDateTime64OrNull(raw_stamp, 6, 'UTC') AS stamp,
       status,
-      partitions,
+      toUInt16OrZero(partitions) AS copies,
       _partition
     FROM posthog.kafka_realtime_cohort_membership
     WHERE type IN ('', 'sweep_floor')
   )
 WHERE
+  (team > 0)
+AND
+  (cohort > 0)
+AND
   (toString(stamp) = raw_stamp)
 AND
   if(
     is_floor,
-    (run_uuid IS NOT NULL) AND (partitions > 0),
+    (run_uuid IS NOT NULL) AND (copies > 0),
     (person_uuid IS NOT NULL) AND (status IN ('entered', 'left'))
   );
 CREATE MATERIALIZED VIEW posthog.tophog_mv TO posthog.writable_tophog (timestamp DateTime64(6, 'UTC'), metric LowCardinality(String), type LowCardinality(String), key Map(LowCardinality(String), String), value Float64, count UInt64, pipeline LowCardinality(String), lane LowCardinality(String), labels Map(LowCardinality(String), String)) AS SELECT

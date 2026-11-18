@@ -26,18 +26,18 @@ REALTIME_COHORT_MEMBERSHIP_COLUMNS = """
     floor_partitions UInt16
 """.strip()
 
-# The text fields are String so that a bad value reaches the view, which drops the row. In a typed column, a bad value
-# fails the parse and counts against kafka_skip_broken_messages.
+# The fields are String, numbers included, so that a bad value reaches the view, which drops the row. In a typed column,
+# a bad value fails the parse and counts against kafka_skip_broken_messages.
 KAFKA_REALTIME_COHORT_MEMBERSHIP_COLUMNS = """
     type String,
-    team_id Int64,
-    cohort_id Int64,
+    team_id String,
+    cohort_id String,
     person_id String,
     status String,
     last_updated String,
     run_id String,
     threshold String,
-    partitions UInt16
+    partitions String
 """.strip()
 
 ZERO_UUID_EXPR = "toUUID('00000000-0000-0000-0000-000000000000')"
@@ -89,39 +89,41 @@ SETTINGS
 
 
 def REALTIME_COHORT_MEMBERSHIP_MV_SELECT_SQL(source_table: str) -> str:
-    # A view expression that throws stalls the consumer for good, so every conversion returns NULL on bad input and the
-    # outer WHERE drops those rows. The inner select gives converted values new names, because an output alias named
-    # like a source column shadows that column in WHERE.
+    # A view expression that throws stalls the consumer for good, so every conversion returns NULL or zero on bad input
+    # and the outer WHERE drops those rows. The inner select gives converted values new names, because an output alias
+    # named like a source column shadows that column in WHERE.
     # toDateTime64OrNull also accepts what the producers never write: an empty string reads as the epoch and February 30
     # rolls over to March 2. So a stamp must print back to the text it came from.
     # A record of any other type is dropped, so a new kind of control record needs no change here.
     return f"""SELECT
-    team_id,
-    cohort_id,
+    team AS team_id,
+    cohort AS cohort_id,
     if(is_floor, 'floor', 'member') AS kind,
     if(is_floor, {ZERO_UUID_EXPR}, ifNull(person_uuid, {ZERO_UUID_EXPR})) AS person_id,
     if(is_floor, ifNull(run_uuid, {ZERO_UUID_EXPR}), {ZERO_UUID_EXPR}) AS floor_run_id,
     if(is_floor, toUInt16(_partition), 0) AS floor_partition,
-    toUInt8(status = 'entered') AS in_cohort,
+    if(is_floor, 0, toUInt8(status = 'entered')) AS in_cohort,
     assumeNotNull(stamp) AS version,
-    if(is_floor, partitions, 0) AS floor_partitions
+    if(is_floor, copies, 0) AS floor_partitions
 FROM (
     SELECT
-        team_id,
-        cohort_id,
+        toInt64OrZero(team_id) AS team,
+        toInt64OrZero(cohort_id) AS cohort,
         type = 'sweep_floor' AS is_floor,
         toUUIDOrNull(person_id) AS person_uuid,
         toUUIDOrNull(run_id) AS run_uuid,
         if(is_floor, threshold, last_updated) AS raw_stamp,
         toDateTime64OrNull(raw_stamp, 6, 'UTC') AS stamp,
         status,
-        partitions,
+        toUInt16OrZero(partitions) AS copies,
         _partition
     FROM {source_table}
     WHERE type IN ('', 'sweep_floor')
 )
-WHERE toString(stamp) = raw_stamp
-  AND if(is_floor, run_uuid IS NOT NULL AND partitions > 0, person_uuid IS NOT NULL AND status IN ('entered', 'left'))"""
+WHERE team > 0
+  AND cohort > 0
+  AND toString(stamp) = raw_stamp
+  AND if(is_floor, run_uuid IS NOT NULL AND copies > 0, person_uuid IS NOT NULL AND status IN ('entered', 'left'))"""
 
 
 def REALTIME_COHORT_MEMBERSHIP_MV_SQL() -> str:
