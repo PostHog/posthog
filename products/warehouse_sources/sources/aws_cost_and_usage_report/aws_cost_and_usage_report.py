@@ -45,7 +45,6 @@ from products.warehouse_sources.sources.sdk import (
     normalize_column_name,
     reach_safe_point,
     resolve_file_format,
-    uses_brotli_compression,
 )
 from products.warehouse_sources.sources.sdk.internals import normalize_column_name as pipeline_column_name
 
@@ -57,7 +56,6 @@ NO_MANIFEST = "NoManifest"
 NO_BILLING_PERIODS = "NoBillingPeriods"
 DELIVERY_IN_PROGRESS = "DeliveryInProgress"
 MANIFEST_UNREADABLE = "ManifestUnreadable"
-UNSUPPORTED_COMPRESSION = "UnsupportedCompression"
 BILLING_PERIOD_COLUMN = "billing_period"
 ERROR_PREFIX = "AWS Cost and Usage Report request failed"
 WRONG_REGION_CODES = frozenset(
@@ -497,11 +495,6 @@ def iter_data_file(
             ) from error
         if key.endswith(".parquet"):
             parquet_file = pq.ParquetFile(destination)
-            if uses_brotli_compression(parquet_file.metadata):
-                raise AwsCostAndUsageReportError(
-                    f"{ERROR_PREFIX}: {UNSUPPORTED_COMPRESSION} - {key} uses Brotli compression, which PostHog can't read",
-                    UNSUPPORTED_COMPRESSION,
-                )
             for batch in parquet_file.iter_batches(batch_size=ROWS_PER_BATCH):
                 table = pa.Table.from_batches([batch])
                 if table.num_rows:

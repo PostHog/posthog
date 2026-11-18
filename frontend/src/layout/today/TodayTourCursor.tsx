@@ -37,9 +37,13 @@ function targetSelector(step: TodayTourStep): string {
     return `[data-attr="today-rail-${step.pane}"]`
 }
 
-/** What the cursor rests on while the card shows. `null` is the middle of the page. */
-function restSelector(step: TodayTourStep): string | null {
-    return step.pointsAt === 'sidebar' ? SIDEBAR : null
+/** What the cursor rests on while the card shows, in order of preference. None is the middle of the page. */
+function restSelectors(step: TodayTourStep): string[] {
+    if (step.pointsAt === 'intro') {
+        // The intro can still be loading or be dismissed, so the sidebar it sits in is the fallback.
+        return [`[data-attr="today-pane-intro-${step.pane}"]`, SIDEBAR]
+    }
+    return step.pointsAt === 'sidebar' ? [SIDEBAR] : []
 }
 
 function pageCenter(): TodayTourPoint {
@@ -202,8 +206,13 @@ export function TodayTourCursor(): JSX.Element {
                 clickTourTarget()
             }
             await sleep(SETTLE_MS)
-            const selector = restSelector(tourStep)
-            const restOn = selector ? await findElement(selector) : null
+            let restOn: HTMLElement | null = null
+            for (const selector of restSelectors(tourStep)) {
+                restOn = await findElement(selector)
+                if (restOn) {
+                    break
+                }
+            }
             let rest = pageCenter()
             if (restOn) {
                 const rect = restOn.getBoundingClientRect()

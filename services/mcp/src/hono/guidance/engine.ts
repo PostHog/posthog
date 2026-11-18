@@ -135,10 +135,11 @@ redis.call('EXPIRE', KEYS[1], ttl)
 redis.call('EXPIRE', KEYS[2], ttl)
 redis.call('EXPIRE', KEYS[3], ttl)
 if ARGV[4] == 'mirror' then
-    if ARGV[5] == '1' then
-        redis.call('INCR', KEYS[3])
+    if ARGV[5] == '1' and redis.call('INCR', KEYS[3]) > tonumber(ARGV[3]) then
         redis.call('EXPIRE', KEYS[3], ttl)
+        return 3
     end
+    redis.call('EXPIRE', KEYS[3], ttl)
     return 0
 end
 if ARGV[5] ~= '1' or matched < tonumber(ARGV[2]) then
@@ -159,6 +160,8 @@ enum RuleResult {
     None = 0,
     Fired = 1,
     Suppressed = 2,
+    // The mirror scope had already spent its allowance, so the notice belongs to another call.
+    MirrorTaken = 3,
 }
 
 type RuleMode = 'match' | 'suppress' | 'mirror' | 'touch'
@@ -176,7 +179,19 @@ export class GuidanceEngine {
         }
         try {
             const productState = new GuidanceProductState(this.redis, state)
-            const activation = await selfDrivingActivationGuidance(this.redis, state, call, productState)
+            const firstSessionCall = await productState.withinBudget('session_seen', () =>
+                isFirstSessionCall(this.redis, state)
+            )
+            if (firstSessionCall === undefined) {
+                throw new Error('session lookup failed or timed out')
+            }
+            const activation = await selfDrivingActivationGuidance(
+                this.redis,
+                state,
+                call,
+                productState,
+                firstSessionCall
+            )
             if (activation) {
                 guidanceNoticesTotal.inc({ rule: activation.ruleId, outcome: activation.outcome })
             }
@@ -190,7 +205,7 @@ export class GuidanceEngine {
             if (rules.length === 0) {
                 return activation
             }
-            const scopes = countingScopes(state)
+            const scopes = countingScopes(state, firstSessionCall)
             let winner: GuidanceNotice | undefined
             for (const rule of rules) {
                 const result = await this.touchRule(rule, scopes, call, winner === undefined, productState)
@@ -233,8 +248,13 @@ export class GuidanceEngine {
         if (suppressing || !condition) {
             const mode = suppressing ? 'suppress' : 'match'
             const result = await this.runRuleScript(rule, scopes.primary, scopes.ttl, mode, canFire)
-            await this.mirrorRule(rule, scopes, suppressing ? 'suppress' : 'mirror', result !== RuleResult.None)
-            return result as RuleResult
+            const mirrored = await this.mirrorRule(
+                rule,
+                scopes,
+                suppressing ? 'suppress' : 'mirror',
+                result !== RuleResult.None
+            )
+            return keepUnlessMirrorTaken(result, mirrored)
         }
         // `touch` keeps a capped rule's counters alive without the `match` count, so a rejected call
         // spends no `maxPerSession`. `match` is a separate step so that a gate that outlives the budget
@@ -253,16 +273,19 @@ export class GuidanceEngine {
             await productState.withinBudget('rule_mirror', () => this.mirrorRule(rule, scopes, 'touch', false))
             return RuleResult.None
         }
-        await productState.withinBudget('rule_mirror', () =>
+        const mirrored = await productState.withinBudget('rule_mirror', () =>
             this.mirrorRule(rule, scopes, 'mirror', result !== RuleResult.None)
         )
-        return result as RuleResult
+        return keepUnlessMirrorTaken(result, mirrored)
     }
 
-    private async mirrorRule(rule: GuidanceRule, scopes: CountingScopes, mode: RuleMode, flag: boolean): Promise<void> {
-        if (scopes.mirror) {
-            await this.runRuleScript(rule, scopes.mirror, SESSION_TTL_SECONDS, mode, flag)
-        }
+    private async mirrorRule(
+        rule: GuidanceRule,
+        scopes: CountingScopes,
+        mode: RuleMode,
+        flag: boolean
+    ): Promise<number | undefined> {
+        return scopes.mirror ? this.runRuleScript(rule, scopes.mirror, SESSION_TTL_SECONDS, mode, flag) : undefined
     }
 
     private async runRuleScript(
@@ -289,18 +312,37 @@ export class GuidanceEngine {
     }
 }
 
+function keepUnlessMirrorTaken(result: number, mirrored: number | undefined): RuleResult {
+    return result === RuleResult.Fired && mirrored === RuleResult.MirrorTaken ? RuleResult.None : (result as RuleResult)
+}
+
 // A call with a minted handle counts under the caller, because a client that never echoes gets a new
 // handle on every call. It also records under the handle, so a client that echoes keeps its own counters.
-function countingScopes(state: ResolvedState): CountingScopes {
+function countingScopes(state: ResolvedState, firstSessionCall: boolean): CountingScopes {
     const handle = resolveSessionKey(state.requestContext)
     const callerScope = scopeKey(state.distinctId, undefined)
     if (!handle) {
         return { primary: callerScope, ttl: CALLER_TTL_SECONDS }
     }
     const handleScope = scopeKey(state.distinctId, handle)
-    return state.carriedContextHandle === false
+    return state.carriedContextHandle === false || firstSessionCall
         ? { primary: callerScope, ttl: CALLER_TTL_SECONDS, mirror: handleScope }
         : { primary: handleScope, ttl: SESSION_TTL_SECONDS }
+}
+
+// Some clients run `initialize` before every tool call, so each call arrives on a fresh legacy session.
+// Until a session carries a second call, it counts under the caller like a handle that was never echoed.
+async function isFirstSessionCall(redis: RedisLike, state: ResolvedState): Promise<boolean> {
+    const { mcpConversationId, mcpSessionId } = state.requestContext
+    if (mcpConversationId || !mcpSessionId || resolveSessionKey(state.requestContext) !== mcpSessionId) {
+        return false
+    }
+    const key = `mcp:guidance:session-seen:{${hashKey(`${state.distinctId}|${mcpSessionId}`)}}`
+    if ((await redis.set(key, '1', 'EX', SESSION_TTL_SECONDS, 'NX')) === 'OK') {
+        return true
+    }
+    await redis.expire(key, SESSION_TTL_SECONDS)
+    return false
 }
 
 // The braces are a cluster hash tag, so the script can touch a rule's three keys together.
