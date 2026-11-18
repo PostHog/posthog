@@ -21,6 +21,7 @@ import {
     SignalSourceProduct,
     SignalSourceType,
 } from './types'
+import type { ReportDecision } from './utils/reportDecisions'
 import { rankingPillLifts } from './utils/reportOrdering'
 import { reportPullRequests } from './utils/reportPullRequests'
 
@@ -52,6 +53,8 @@ export const INBOX_EVENTS = {
     REPORT_ACTION: 'Inbox report action',
     SELECTION_MODE_ENTERED: 'Inbox selection mode entered',
     REPORT_ACTION_COMPLETED: 'Inbox report action completed',
+    // Cloud-only for now: a person changed an agent decision, such as the priority, from the Status section.
+    REPORT_DECISION_CHANGED: 'Inbox report decision changed',
     REPORT_FEEDBACK: 'Inbox report feedback',
     REPORT_SOURCE_SUGGESTION_SHOWN: 'Inbox report source suggestion shown',
     REPORT_SOURCE_SUGGESTION_CLICKED: 'Inbox report source suggestion clicked',
@@ -699,6 +702,28 @@ export function captureInboxReportAction(params: {
               )
             : {}),
         ...params.extra,
+    })
+}
+
+/**
+ * A person saved a new value for a decision on a report. `previous_set_by` says whether they corrected
+ * the agent or another person, so the correction rate per decision can be measured.
+ */
+export function captureInboxReportDecisionChanged(params: {
+    report: SignalReport
+    decision: ReportDecision
+    previousValue: string | null
+    newValue: string
+    previousSetBy: 'agent' | 'person' | null
+    surface: InboxReportActionSurface
+}): void {
+    captureInboxEvent(INBOX_EVENTS.REPORT_DECISION_CHANGED, {
+        ...baseReportProperties(params.report),
+        decision: params.decision,
+        previous_value: params.previousValue,
+        new_value: params.newValue,
+        previous_set_by: params.previousSetBy,
+        surface: params.surface,
     })
 }
 
