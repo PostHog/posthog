@@ -4,8 +4,6 @@ import {
   ANALYTICS_EVENTS,
   CLAUDE_OWN_SUBSCRIPTION_CLOUD_FLAG,
   CLAUDE_OWN_SUBSCRIPTION_FLAG,
-  CODEX_OWN_SUBSCRIPTION_CLOUD_FLAG,
-  CODEX_OWN_SUBSCRIPTION_FLAG,
   type ModelAccess,
 } from "@posthog/shared";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
@@ -28,8 +26,6 @@ export interface SubscriptionStatus {
 export type WorkspaceModeForAccess = "local" | "worktree" | "cloud";
 
 interface AdapterSubscriptionSpec {
-  flag: string;
-  cloudFlag: string;
   settingName: string;
   cloudSettingName: string;
   statusProcedure: "claudeSubscriptionStatus" | "codexSubscriptionStatus";
@@ -41,8 +37,6 @@ interface AdapterSubscriptionSpec {
 
 const SPECS: Record<Adapter, AdapterSubscriptionSpec> = {
   claude: {
-    flag: CLAUDE_OWN_SUBSCRIPTION_FLAG,
-    cloudFlag: CLAUDE_OWN_SUBSCRIPTION_CLOUD_FLAG,
     settingName: "claude_model_access",
     cloudSettingName: "claude_cloud_subscription_on",
     statusProcedure: "claudeSubscriptionStatus",
@@ -52,8 +46,6 @@ const SPECS: Record<Adapter, AdapterSubscriptionSpec> = {
     writeCloudOn: (state, next) => state.setClaudeCloudSubscriptionOn(next),
   },
   codex: {
-    flag: CODEX_OWN_SUBSCRIPTION_FLAG,
-    cloudFlag: CODEX_OWN_SUBSCRIPTION_CLOUD_FLAG,
     settingName: "codex_model_access",
     cloudSettingName: "codex_cloud_subscription_on",
     statusProcedure: "codexSubscriptionStatus",
@@ -188,9 +180,12 @@ export interface AdapterSubscription {
 
 export function useAdapterSubscription(adapter: Adapter): AdapterSubscription {
   const spec = SPECS[adapter];
-  const cloudFlagEnabled = useFeatureFlag(spec.cloudFlag);
+  const claudeCloudEnabled = useFeatureFlag(CLAUDE_OWN_SUBSCRIPTION_CLOUD_FLAG);
+  const cloudFlagEnabled = adapter === "codex" || claudeCloudEnabled;
   const cloudSubscriptionOn = useSettingsStore(spec.readCloudOn);
-  const flagEnabled = useFeatureFlag(spec.flag) || import.meta.env.DEV;
+  const claudeEnabled = useFeatureFlag(CLAUDE_OWN_SUBSCRIPTION_FLAG);
+  const flagEnabled =
+    adapter === "codex" || claudeEnabled || import.meta.env.DEV;
   const modelAccess = useSettingsStore(spec.readAccess);
   const { localWorkspaces } = useHostCapabilities();
   const hostTRPC = useHostTRPC();

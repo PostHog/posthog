@@ -1,4 +1,3 @@
-import posthoganalytics
 from rest_framework import exceptions, serializers, status
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -16,7 +15,7 @@ from posthog.models.integration.codex import (
 from posthog.models.user import User
 from posthog.oauth_provenance import is_sandbox_oauth_request
 
-from products.tasks.backend.facade.api import CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG
+from products.tasks.backend.facade.access import get_posthog_ai_access_decision
 
 
 class UserCodexAuthTokensSerializer(serializers.Serializer):
@@ -85,20 +84,8 @@ def ensure_not_sandbox_request(request: Request) -> None:
 
 
 def ensure_codex_connect_enabled(user: User) -> None:
-    organization_id = str(user.current_organization_id)
-    try:
-        enabled = posthoganalytics.feature_enabled(
-            CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
-            str(user.distinct_id),
-            groups={"organization": organization_id},
-            group_properties={"organization": {"id": organization_id}},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-    except Exception as error:
-        capture_exception(error)
-        enabled = False
-    if not enabled:
+    organization = user.current_organization
+    if organization is None or not get_posthog_ai_access_decision(user, organization).allowed:
         raise exceptions.NotFound()
 
 

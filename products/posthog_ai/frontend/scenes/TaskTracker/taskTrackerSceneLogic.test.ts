@@ -997,7 +997,7 @@ describe('taskTrackerSceneLogic', () => {
     })
 
     it('bills a codex default to the saved chatgpt plan when the task submits before the defaults load', async () => {
-        const flag = FEATURE_FLAGS.POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD
+        const flag = FEATURE_FLAGS.PHAI_SANDBOX_MODE
         featureFlagLogic.actions.setFeatureFlags([flag], { [flag]: true })
         useMocks({
             get: {

@@ -1,3 +1,4 @@
+import { renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { registerAdapterSubscription } = vi.hoisted(() => ({
@@ -8,6 +9,26 @@ vi.mock("@posthog/ui/shell/posthogAnalyticsImpl", () => ({
   registerAdapterSubscription,
 }));
 
+vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
+  useFeatureFlag: () => false,
+}));
+
+vi.mock("@posthog/ui/shell/useHostCapabilities", () => ({
+  useHostCapabilities: () => ({ localWorkspaces: true }),
+}));
+
+vi.mock("@posthog/host-router/react", () => ({
+  useHostTRPC: () => ({
+    agent: {
+      codexSubscriptionStatus: { queryOptions: () => ({}) },
+    },
+  }),
+}));
+
+vi.mock("@tanstack/react-query", () => ({
+  useQuery: () => ({ data: { loginState: "logged-in" } }),
+}));
+
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import {
   effectiveModelAccess,
@@ -15,6 +36,7 @@ import {
   type SubscriptionStatus,
   subscriptionModelAccess,
   subscriptionNeedsConnection,
+  useAdapterSubscription,
 } from "./adapterSubscription";
 
 const status = (loginState: "logged-in" | "logged-out" | "unknown") => ({
@@ -22,6 +44,23 @@ const status = (loginState: "logged-in" | "logged-out" | "unknown") => ({
 });
 
 describe("adapter subscription gating", () => {
+  it("offers Codex local and cloud subscriptions without feature flags", () => {
+    useSettingsStore.setState({
+      codexModelAccess: "own-subscription",
+      codexCloudSubscriptionOn: true,
+    });
+    const { result } = renderHook(() => useAdapterSubscription("codex"));
+
+    expect(result.current.flagEnabled).toBe(true);
+    expect(result.current.cloudFlagEnabled).toBe(true);
+    expect(subscriptionModelAccess(result.current, "local")).toBe(
+      "own-subscription",
+    );
+    expect(subscriptionModelAccess(result.current, "cloud")).toBe(
+      "own-subscription",
+    );
+  });
+
   it.each([
     [
       "cloud tasks never bill the subscription",

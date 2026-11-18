@@ -52,6 +52,7 @@ from posthog.models.user_integration import (
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.tasks.backend.facade.access import PostHogAIAccessDecision
 
 
 def _authorization(gh_id: int = 99, gh_login: str = "octocat") -> GitHubUserAuthorization:
@@ -2000,8 +2001,11 @@ class TestUserIntegrationSlackEndpoints(APIBaseTest):
 class TestUserIntegrationCodexEndpoints(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        flag = patch("posthog.api.user_integration_codex.posthoganalytics.feature_enabled", return_value=True)
-        self.flag_enabled = flag.start()
+        flag = patch(
+            "posthog.api.user_integration_codex.get_posthog_ai_access_decision",
+            return_value=PostHogAIAccessDecision.GRANDFATHERED,
+        )
+        self.access_decision = flag.start()
         self.addCleanup(flag.stop)
         cache.clear()
 
@@ -2115,21 +2119,15 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
             UserIntegration.objects.get(user=self.user, kind="codex").sensitive_config["refresh_token"] == "rt_rotated"
         )
 
-    @parameterized.expand([("flag_off", False, None), ("flag_check_failed", None, RuntimeError("down"))])
-    def test_connect_is_unavailable_without_the_flag(self, _name, enabled, error):
-        self.flag_enabled.return_value = enabled
-        self.flag_enabled.side_effect = error
+    @parameterized.expand([(decision,) for decision in PostHogAIAccessDecision])
+    def test_connect_follows_posthog_ai_access(self, decision: PostHogAIAccessDecision) -> None:
+        self.access_decision.return_value = decision
+        allowed = decision.allowed
 
-        with patch("requests.request") as request:
-            response = self.client.post(
-                "/api/users/@me/integrations/codex/",
-                {"tokens": {"access_token": _codex_access_token(), "refresh_token": "rt_submitted"}},
-                format="json",
-            )
+        response = self._connect()
 
-        assert response.status_code == status.HTTP_404_NOT_FOUND
-        request.assert_not_called()
-        assert not UserIntegration.objects.filter(user=self.user, kind="codex").exists()
+        assert response.status_code == (status.HTTP_200_OK if allowed else status.HTTP_404_NOT_FOUND)
+        assert UserIntegration.objects.filter(user=self.user, kind="codex").exists() is allowed
 
     def test_connect_is_throttled_per_user(self):
         for _ in range(10):
