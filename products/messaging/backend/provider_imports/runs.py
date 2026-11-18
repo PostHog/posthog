@@ -206,6 +206,11 @@ def _order_steps(provider: ImportProvider, steps: list[str]) -> list[str]:
         raise InvalidImportSteps(f"{provider.label} has no step named {', '.join(unknown)}.")
     if not steps:
         raise InvalidImportSteps("Select at least one thing to import.")
+    labels = {spec.key: spec.label for spec in provider.steps}
+    for spec in provider.steps:
+        missing = [labels[key] for key in spec.needs if key not in steps]
+        if spec.key in steps and missing:
+            raise InvalidImportSteps(f"{spec.label} needs {', '.join(missing)} selected too.")
     return [key for key in known if key in steps]
 
 

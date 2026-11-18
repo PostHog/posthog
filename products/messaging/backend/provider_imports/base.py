@@ -58,6 +58,8 @@ class ImportStepSpec:
     count_labels: tuple[tuple[str, str], ...] = ()
     # Steps that must complete first when the run includes them, such as opt-outs before contacts become people.
     requires: tuple[str, ...] = ()
+    # Steps the run must include for this one to do anything, such as contacts for new people.
+    needs: tuple[str, ...] = ()
 
 
 @frozen

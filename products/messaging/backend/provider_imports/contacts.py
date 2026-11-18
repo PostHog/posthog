@@ -66,6 +66,7 @@ def new_people_step(provider_label: str) -> ImportStepSpec:
             "email as their ID. Needs Contacts selected too. Each new person counts as one event. If your app "
             "identifies people by another ID, it should also set their email, or PostHog keeps two people for them."
         ),
+        needs=("contacts",),
     )
 
 

@@ -230,6 +230,13 @@ class TestResendImport(BaseTest):
 
         assert not ProviderImportRun.objects.for_team(self.team.id).exists()
 
+    @parameterized.expand([("new_people", "New people from contacts"), ("contact_properties", "Contact properties")])
+    def test_a_step_that_only_adds_to_contacts_needs_contacts_selected(self, step: str, label: str) -> None:
+        with self.assertRaisesRegex(runs.InvalidImportSteps, f"{label} needs Contacts selected too"):
+            runs.start_run(self.team.id, "resend", ["opt_outs", step], API_KEY, self.user.id)
+
+        assert not ProviderImportRun.objects.for_team(self.team.id).exists()
+
     def test_contacts_wait_for_the_opt_outs_the_run_includes(self) -> None:
         self.resend.failures["/contacts"] = [(500, {})] * 10
         run = runs.start_run(self.team.id, "resend", ["opt_outs", "contacts"], API_KEY, self.user.id)

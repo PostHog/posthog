@@ -199,6 +199,7 @@ class ResendImportProvider(ImportProvider):
             ),
             count_labels=(("people", "People with properties sent"), ("contacts", "Contacts checked")),
             requires=("contacts",),
+            needs=("contacts",),
         ),
         ImportStepSpec(
             key="templates",
