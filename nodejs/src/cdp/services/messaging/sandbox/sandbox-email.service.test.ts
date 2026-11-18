@@ -188,8 +188,8 @@ describe('SandboxEmailService', () => {
         expect(world.ses.delivered).toEqual([])
     })
 
-    it('spends one daily allowance per member on each delivered email, and refuses once it is gone', async () => {
-        const service = world.service({ caps: { team: 5, recipient: 1 } })
+    it('spends one daily project allowance on each delivered email, and refuses once it is gone', async () => {
+        const service = world.service({ caps: { team: 1, warning: 5 } })
 
         await expect(service.send(request())).resolves.toMatchObject({ status: 'accepted' })
         await expect(service.send(request({ invocationId: 'run-2' }))).resolves.toEqual({
@@ -222,7 +222,7 @@ describe('SandboxEmailService', () => {
         'refuses a recipient who opted out under %s, and keeps their allowances for other categories',
         async (_name, optedOutIdentifier, renderedAddress) => {
             await optOut(optedOutIdentifier, 'news')
-            const service = world.service({ caps: { team: 1, recipient: 1 } })
+            const service = world.service({ caps: { team: 1, warning: 5 } })
             const frequencyCap = oneMarketingSlot()
             const marketing = (categoryId: string) =>
                 request({ ...to(renderedAddress), categoryId, categoryType: 'marketing', frequencyCap })
@@ -258,7 +258,7 @@ describe('SandboxEmailService', () => {
         'charges a step visit replayed after SES %s only when SES may have taken the email',
         async (_case, reply, first, replayed) => {
             await world.addMember(personal('other@example.com'))
-            const service = world.service({ caps: { team: 1, recipient: 1 } })
+            const service = world.service({ caps: { team: 1, warning: 5 } })
             world.ses.replyNext(reply)
 
             await expect(service.send(request())).resolves.toEqual(first)
@@ -271,7 +271,7 @@ describe('SandboxEmailService', () => {
     )
 
     it('charges a step visit replayed after its worker died while SES took the email', async () => {
-        const service = world.service({ caps: { team: 5, recipient: 1 } })
+        const service = world.service({ caps: { team: 1, warning: 5 } })
         world.ses.replyNext({ kind: 'deliver-without-reply' })
 
         const diedWaitingForSes = service.send(request())
@@ -302,7 +302,7 @@ describe('SandboxEmailService', () => {
             },
         }
         const capsLimiter = new RateLimiterService(claimsOverlap, { name: 'claims-overlap' })
-        const service = world.service({ caps: { team: 1, recipient: 1 }, faults: { capsLimiter } })
+        const service = world.service({ caps: { team: 1, warning: 5 }, faults: { capsLimiter } })
 
         const outcomes = await Promise.all([service.send(request()), service.send(request())])
 
@@ -357,7 +357,7 @@ describe('SandboxEmailService', () => {
     })
 
     it('charges a step visit again when it is replayed after SES accepted it', async () => {
-        const service = world.service({ caps: { team: 5, recipient: 2 } })
+        const service = world.service({ caps: { team: 2, warning: 5 } })
 
         await expect(service.send(request())).resolves.toMatchObject({ status: 'accepted' })
         await expect(service.send(request())).resolves.toMatchObject({ status: 'accepted' })

@@ -103,7 +103,9 @@ A project appearing there often is spending more on transactional than its tier 
 Sends through the sandbox sender (the `email_sandbox` step) never feed a project's tier.
 They go through a separate SES tenant and configuration set and record none of `email_sent`, `email_bounced_hard` or `email_blocked`, so the sweep never sees them.
 They never draw from the team bucket either.
-The sandbox has its own controls: recipients limited to verified organization members, daily caps, suppression, the staff organization block in `/admin/workflows/sandboxsenderorganizationblock/`, and the SES tenant pause.
+The sandbox has its own controls: recipients limited to verified organization members, a daily cap per project, suppression, the staff organization block in `/admin/workflows/sandboxsenderorganizationblock/`, and the SES tenant pause.
+The daily cap (`WORKFLOWS_SANDBOX_DAILY_TEAM_CAP`) is a circuit breaker for the shared tenant, and editor test sends never count toward it.
+A project past `WORKFLOWS_SANDBOX_DAILY_TEAM_WARNING` sends in a day (default 100) keeps sending; the worker counts each further send in `cdp_sandbox_email_team_warning_total` and logs a warning with the team and organization ids.
 
 ## Rollout order
 

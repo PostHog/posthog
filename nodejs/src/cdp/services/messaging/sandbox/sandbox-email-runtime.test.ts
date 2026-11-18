@@ -1,4 +1,6 @@
-import { createSandboxEmailRuntime } from './sandbox-email-runtime'
+import { getDefaultConfig, overrideWithEnv } from '~/common/config/config'
+
+import { createSandboxEmailRuntime, missingSandboxSenderSettings } from './sandbox-email-runtime'
 
 describe('createSandboxEmailRuntime', () => {
     const configured = {
@@ -16,7 +18,7 @@ describe('createSandboxEmailRuntime', () => {
         SES_SANDBOX_CONFIGURATION_SET: 'sandbox-config-set',
         SES_SANDBOX_TENANT_NAME: 'sandbox-tenant',
         WORKFLOWS_SANDBOX_DAILY_TEAM_CAP: 10,
-        WORKFLOWS_SANDBOX_DAILY_RECIPIENT_CAP: 5,
+        WORKFLOWS_SANDBOX_DAILY_TEAM_WARNING: 5,
         WORKFLOWS_SANDBOX_CAPS_VALKEY_HOST: 'caps-valkey',
         WORKFLOWS_SANDBOX_CAPS_VALKEY_PORT: 6379,
         WORKFLOWS_SANDBOX_CAPS_VALKEY_PASSWORD: '',
@@ -41,8 +43,18 @@ describe('createSandboxEmailRuntime', () => {
         ['SES_RATE_LIMITER_VALKEY_HOST', { SES_RATE_LIMITER_VALKEY_HOST: '' }],
         ['WORKFLOWS_SANDBOX_CAPS_VALKEY_HOST', { WORKFLOWS_SANDBOX_CAPS_VALKEY_HOST: '' }],
         ['WORKFLOWS_SANDBOX_DAILY_TEAM_CAP', { WORKFLOWS_SANDBOX_DAILY_TEAM_CAP: 0 }],
-        ['WORKFLOWS_SANDBOX_DAILY_RECIPIENT_CAP', { WORKFLOWS_SANDBOX_DAILY_RECIPIENT_CAP: 2.5 }],
+        ['WORKFLOWS_SANDBOX_DAILY_TEAM_WARNING', { WORKFLOWS_SANDBOX_DAILY_TEAM_WARNING: 2.5 }],
     ])('refuses to start a sending pod without %s', (setting, override) => {
         expect(() => createSandboxEmailRuntime({ ...configured, ...override }, deps)).toThrow(setting)
+    })
+
+    it('starts a sending pod whose environment sets no warning threshold, and ignores a leftover recipient cap', () => {
+        const { WORKFLOWS_SANDBOX_DAILY_TEAM_WARNING: _unset, ...chartEnv } = configured
+        const config = overrideWithEnv(getDefaultConfig(), {
+            ...Object.fromEntries(Object.entries(chartEnv).map(([key, value]) => [key, String(value)])),
+            WORKFLOWS_SANDBOX_DAILY_RECIPIENT_CAP: '1000',
+        })
+
+        expect(missingSandboxSenderSettings(config)).toEqual([])
     })
 })

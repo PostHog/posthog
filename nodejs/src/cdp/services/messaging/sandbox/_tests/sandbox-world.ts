@@ -116,7 +116,7 @@ export type SandboxWorld = {
     limiter: (name: string) => RateLimiterService
     sesBucket: (capacity: number) => SandboxSesBucket
     takeSlotsLeft: (bucket: SandboxSesBucket) => Promise<number>
-    allowanceLeft: (caps: SandboxCaps, storedAddress: string) => Promise<boolean>
+    allowanceLeft: (caps: SandboxCaps) => Promise<boolean>
     service: (options?: { caps?: SandboxCaps; enabled?: boolean; faults?: SandboxFaults }) => SandboxEmailService
 }
 
@@ -283,17 +283,16 @@ export function useSandboxWorld(): SandboxWorld {
     world.takeSlotsLeft = ({ limiter, key, capacity, refillPerSecond }) =>
         limiter.claimUpTo({ key, requested: capacity, capacity, refillPerSecond })
 
-    world.allowanceLeft = async (caps, storedAddress) => {
+    world.allowanceLeft = async (caps) => {
         const probe = await claimSandboxCaps(world.limiter('sandbox-email-caps'), caps, {
             organizationId: world.organizationId,
             teamId: world.team.id,
-            storedAddress,
             claimId: 'allowance probe',
         })
         return probe.ok
     }
 
-    world.service = ({ caps = { team: 5, recipient: 5 }, enabled = true, faults = {} } = {}) => {
+    world.service = ({ caps = { team: 5, warning: 5 }, enabled = true, faults = {} } = {}) => {
         const recipientReads = sandboxRecipientReads(
             faults.recipientsDb ?? world.postgres,
             emailSuppressionConfigFromEnv(),

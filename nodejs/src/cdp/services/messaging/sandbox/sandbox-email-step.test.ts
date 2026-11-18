@@ -35,7 +35,7 @@ import { SandboxSesClient } from './sandbox-ses-client'
 describe('SandboxEmailSendStep', () => {
     const world = useSandboxWorld()
     const tokens = new RecipientTokensService('00beef0000beef0000beef0000beef00', 'http://localhost:8000')
-    const caps = { team: 5, recipient: 1 }
+    const caps = { team: 1, warning: 5 }
     let hogFlow: HogFlow
     let events: SandboxEmailEvents
     let pubSubPool: RedisPool
@@ -247,7 +247,6 @@ describe('SandboxEmailSendStep', () => {
         await claimSandboxCaps(world.limiter('sandbox-email-caps'), caps, {
             organizationId: world.organizationId,
             teamId: world.team.id,
-            storedAddress: member(),
             claimId: 'an earlier send today',
         })
     }
@@ -292,7 +291,7 @@ describe('SandboxEmailSendStep', () => {
             0,
         ],
         [
-            "the member's daily allowance is already spent",
+            "the project's daily allowance is already spent",
             spendTodaysAllowance,
             { status: 'skipped', reason: 'daily_cap_reached' },
             'email_sandbox_blocked',
@@ -344,14 +343,14 @@ describe('SandboxEmailSendStep', () => {
     ])(
         'skips a step while %s, without spending a daily allowance, an SES slot or an SES attempt',
         async (_name, reason, arrange) => {
-            const dailyCaps = { team: 1, recipient: 1 }
+            const dailyCaps = { team: 1, warning: 5 }
             await arrange()
 
             const { segments, finished } = await runToNextAction(member(), { dailyCaps })
 
             expect(world.ses.attempts).toBe(0)
             expect(await world.takeSlotsLeft(sesBucket)).toBe(sesBucket.capacity)
-            expect(await world.allowanceLeft(dailyCaps, member())).toBe(true)
+            expect(await world.allowanceLeft(dailyCaps)).toBe(true)
             expect(metricNames(segments)).toEqual([['email_sandbox_blocked', 'email']])
             expect(finished.invocation.state.variables?.email_result).toEqual({ status: 'skipped', reason })
         }
@@ -444,7 +443,7 @@ describe('SandboxEmailSendStep', () => {
     })
 
     it('settles a batch at the SES deadline when one send never gets its credentials, and sends it on a retry', async () => {
-        const roomy = { team: 100, recipient: 100 }
+        const roomy = { team: 100, warning: 100 }
         const workingSes = world.sesClient
         world.sesClient = new SandboxSesClient(
             new SESv2Client({
@@ -502,7 +501,7 @@ describe('SandboxEmailSendStep', () => {
     }
 
     it('honours an unsubscribe from a sandbox email when later emails spell the address differently', async () => {
-        const roomy = { dailyCaps: { team: 100, recipient: 100 } }
+        const roomy = { dailyCaps: { team: 100, warning: 100 } }
         await runToNextAction(member().toUpperCase(), roomy)
         await world.recipients.optOut(world.team.id, [unsubscribedIdentifier(world.ses.delivered[0])])
 
@@ -621,7 +620,7 @@ describe('SandboxEmailSendStep', () => {
                 [world.team.id],
                 'test:cap-one-marketing-email-a-week'
             )
-            const roomy = { dailyCaps: { team: 100, recipient: 100 } }
+            const roomy = { dailyCaps: { team: 100, warning: 100 } }
 
             await arrangeFirst()
             const first = await runToNextAction(member(), roomy)
@@ -653,7 +652,7 @@ describe('SandboxEmailSendStep', () => {
         const clock = jest.spyOn(Date, 'now').mockReturnValue(now.toMillis())
         world.ses.replyAlways({ kind: 'drop' })
 
-        const { segments } = await runToNextAction(member(), { dailyCaps: { team: 100, recipient: 100 } }).finally(() =>
+        const { segments } = await runToNextAction(member(), { dailyCaps: { team: 100, warning: 100 } }).finally(() =>
             clock.mockRestore()
         )
         const delaysMs = segments

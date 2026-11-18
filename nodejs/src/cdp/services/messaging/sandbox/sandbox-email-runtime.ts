@@ -34,7 +34,7 @@ type SandboxRuntimeConfig = Pick<
     | 'SES_SANDBOX_CONFIGURATION_SET'
     | 'SES_SANDBOX_TENANT_NAME'
     | 'WORKFLOWS_SANDBOX_DAILY_TEAM_CAP'
-    | 'WORKFLOWS_SANDBOX_DAILY_RECIPIENT_CAP'
+    | 'WORKFLOWS_SANDBOX_DAILY_TEAM_WARNING'
     | 'WORKFLOWS_SANDBOX_CAPS_VALKEY_HOST'
     | 'WORKFLOWS_SANDBOX_CAPS_VALKEY_PORT'
     | 'WORKFLOWS_SANDBOX_CAPS_VALKEY_PASSWORD'
@@ -54,7 +54,7 @@ const REQUIRED_TEXT_SETTINGS = [
     'WORKFLOWS_SANDBOX_CAPS_VALKEY_HOST',
 ] as const
 
-const REQUIRED_CAP_SETTINGS = ['WORKFLOWS_SANDBOX_DAILY_TEAM_CAP', 'WORKFLOWS_SANDBOX_DAILY_RECIPIENT_CAP'] as const
+const REQUIRED_CAP_SETTINGS = ['WORKFLOWS_SANDBOX_DAILY_TEAM_CAP', 'WORKFLOWS_SANDBOX_DAILY_TEAM_WARNING'] as const
 
 export function missingSandboxSenderSettings(config: SandboxRuntimeConfig): string[] {
     return [
@@ -100,7 +100,7 @@ export function createSandboxEmailRuntime(
         limiter: new RateLimiterService(capsValkey, { name: 'sandbox-email-caps' }),
         caps: {
             team: config.WORKFLOWS_SANDBOX_DAILY_TEAM_CAP,
-            recipient: config.WORKFLOWS_SANDBOX_DAILY_RECIPIENT_CAP,
+            warning: config.WORKFLOWS_SANDBOX_DAILY_TEAM_WARNING,
         },
         pubSub,
         ses: new SandboxSesClient(

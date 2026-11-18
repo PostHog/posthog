@@ -25,7 +25,7 @@ import { RecipientTokensService } from '../recipient-tokens.service'
 import { capturedAnalytics, sandboxEventsCapturedInMemory } from './_tests/captured-analytics'
 import { SES_REJECTED, SES_SERVER_ERROR, SES_THROTTLE } from './_tests/fake-ses-endpoint'
 import { SandboxFaults, useSandboxWorld } from './_tests/sandbox-world'
-import { SandboxCaps, claimSandboxCaps } from './sandbox-caps'
+import { SandboxCaps } from './sandbox-caps'
 import { SANDBOX_TEST_TIMEOUT_MS } from './sandbox-deadlines'
 import { SandboxEmailEvents } from './sandbox-email-events'
 import { SANDBOX_TEST_SEND_PATH, SandboxEmailTestRouteDeps, sandboxEmailTestRouter } from './sandbox-email-test-route'
@@ -199,14 +199,10 @@ describe('sandbox email test sends', () => {
         expect(world.ses.delivered).toEqual([])
     })
 
-    it('reports a retryable refusal from the worker as pending', async () => {
+    it('sends a test while the daily cap store is unreachable', async () => {
         serveWorker({ faults: { capsLimiter: world.unreachableLimiter() } })
 
-        await expect(tester().send(testRun())).resolves.toEqual({
-            status: 'pending',
-            reason: 'cap_storage_unavailable',
-        })
-        expect(world.ses.delivered).toEqual([])
+        await expect(tester().send(testRun())).resolves.toEqual({ status: 'accepted', message_id: 'ses-1' })
     })
 
     it('reports a block from the worker', async () => {
@@ -242,6 +238,12 @@ describe('sandbox email test sends', () => {
 
     it.each<[string, (bucket: SandboxSesBucket) => Promise<unknown>, SandboxEmailStepResult, SandboxEmailStepResult]>([
         [
+            'SES accepted it',
+            () => Promise.resolve(),
+            { status: 'accepted', message_id: 'ses-1' },
+            { status: 'accepted', message_id: 'ses-2' },
+        ],
+        [
             'the SES send rate refused it',
             (bucket) => world.takeSlotsLeft(bucket),
             { status: 'failed', reason: 'send_rate_limited' },
@@ -263,21 +265,18 @@ describe('sandbox email test sends', () => {
             'SES failed in a way that may have sent it',
             () => Promise.resolve(world.ses.replyNext(SES_SERVER_ERROR)),
             { status: 'pending', reason: 'ses_transient' },
-            { status: 'skipped', reason: 'daily_cap_reached' },
+            { status: 'accepted', message_id: 'ses-1' },
         ],
-    ])(
-        'charges the daily allowances of a test only when SES may have taken it, after %s',
-        async (_case, arrange, first, next) => {
-            const bucket = world.sesBucket(1)
-            serveWorker({ bucket, caps: { team: 1, recipient: 1 } })
-            await arrange(bucket)
+    ])('sends the next test at a daily cap of one after %s', async (_case, arrange, first, next) => {
+        const bucket = world.sesBucket(1)
+        serveWorker({ bucket, caps: { team: 1, warning: 5 } })
+        await arrange(bucket)
 
-            await expect(tester().send(testRun())).resolves.toEqual(first)
-            await deleteKeysWithPrefix(world.valkey, bucket.key)
+        await expect(tester().send(testRun())).resolves.toEqual(first)
+        await deleteKeysWithPrefix(world.valkey, bucket.key)
 
-            await expect(tester().send(testRun())).resolves.toEqual(next)
-        }
-    )
+        await expect(tester().send(testRun())).resolves.toEqual(next)
+    })
 
     it.each<[string, () => Promise<string>]>([
         [
@@ -288,25 +287,9 @@ describe('sandbox email test sends', () => {
             },
         ],
         ['its recipient is not a member', () => Promise.resolve(`stranger-${world.team.id}@example.com`)],
-        [
-            "the member's daily allowance is spent",
-            async () => {
-                await claimSandboxCaps(
-                    world.limiter('sandbox-email-caps'),
-                    { team: 5, recipient: 1 },
-                    {
-                        organizationId: world.organizationId,
-                        teamId: world.team.id,
-                        storedAddress: member(),
-                        claimId: 'an earlier send today',
-                    }
-                )
-                return member()
-            },
-        ],
     ])('leaves the shared SES send rate untouched by tests it refuses because %s', async (_reason, arrange) => {
         const bucket = world.sesBucket(2)
-        serveWorker({ bucket, caps: { team: 5, recipient: 1 } })
+        serveWorker({ bucket, caps: { team: 1, warning: 5 } })
         const recipient = await arrange()
 
         for (let send = 0; send < 3; send++) {
@@ -328,18 +311,16 @@ describe('sandbox email test sends', () => {
             },
         ],
     ])(
-        'refuses a test send while %s, without spending a daily allowance, an SES slot or an SES attempt',
+        'refuses a test send while %s, without spending an SES slot or an SES attempt',
         async (_name, reason, arrange) => {
             const bucket = world.sesBucket(2)
-            const caps = { team: 1, recipient: 1 }
-            serveWorker({ bucket, caps })
+            serveWorker({ bucket })
             await arrange()
 
             await expect(tester().send(testRun())).resolves.toEqual({ status: 'skipped', reason })
 
             expect(world.ses.attempts).toBe(0)
             expect(await world.takeSlotsLeft(bucket)).toBe(2)
-            expect(await world.allowanceLeft(caps, member())).toBe(true)
         }
     )
 
