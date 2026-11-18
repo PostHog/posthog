@@ -22,6 +22,7 @@ export function WorkflowStatusBar({ commands, ...props }: WorkflowStatusBarProps
         isAutoSavePending,
         autoSaveEnabled,
         lastSavedAt,
+        isViewOnly,
     } = useValues(logic)
     const { setAutoSaveEnabled } = useActions(logic)
     const showSaving = useDebouncedValue(isAutoSavePending || workflowLoading, 1000)
@@ -46,7 +47,7 @@ export function WorkflowStatusBar({ commands, ...props }: WorkflowStatusBarProps
                     ) : (
                         <LemonTag>Draft</LemonTag>
                     ))}
-                {showWorkflowStatus && isActive && (
+                {showWorkflowStatus && isActive && !isViewOnly && (
                     <span className="text-xs text-secondary truncate">
                         {isEditingDraftOfLive
                             ? 'The live version keeps running until you publish.'
@@ -66,24 +67,26 @@ export function WorkflowStatusBar({ commands, ...props }: WorkflowStatusBarProps
                     ) : lastSavedAt ? (
                         <LastSavedIndicator timestamp={lastSavedAt} />
                     ) : null}
-                    <span className="flex items-center gap-1">
-                        <LemonSwitch
-                            checked={autoSaveEnabled}
-                            onChange={setAutoSaveEnabled}
-                            label="Auto-save"
-                            size="small"
-                        />
-                        <Tooltip
-                            title={
-                                isActive
-                                    ? 'Auto-save stores your changes as a draft. Nothing goes live until you publish.'
-                                    : 'Draft workflows auto-save as you edit.'
-                            }
-                            placement="bottom"
-                        >
-                            <IconInfo className="text-tertiary size-4" />
-                        </Tooltip>
-                    </span>
+                    {!isViewOnly && (
+                        <span className="flex items-center gap-1">
+                            <LemonSwitch
+                                checked={autoSaveEnabled}
+                                onChange={setAutoSaveEnabled}
+                                label="Auto-save"
+                                size="small"
+                            />
+                            <Tooltip
+                                title={
+                                    isActive
+                                        ? 'Auto-save stores your changes as a draft. Nothing goes live until you publish.'
+                                        : 'Draft workflows auto-save as you edit.'
+                                }
+                                placement="bottom"
+                            >
+                                <IconInfo className="text-tertiary size-4" />
+                            </Tooltip>
+                        </span>
+                    )}
                 </div>
             )}
         </div>

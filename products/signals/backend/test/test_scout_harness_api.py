@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
@@ -12,7 +13,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.apps import apps
 from django.core.cache import cache
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -31,7 +34,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
     ARRAY_APP_CLIENT_ID_EU,
@@ -70,6 +73,7 @@ from products.signals.backend.scout_harness.lazy_seed import (
     canonical_skill_names,
     discover_canonical_skills,
 )
+from products.signals.backend.scout_harness.lifecycle_lock import user_holds_scout_lifecycle_claims
 from products.signals.backend.scout_harness.limits import (
     MAX_ENABLED_SCOUTS_PER_TEAM,
     MAX_RUN_NOTE_CHARS,
@@ -1583,6 +1587,85 @@ class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
         config.refresh_from_db()
         assert config.run_interval_minutes == 720
 
+    @parameterized.expand(
+        [
+            ("plain_member", False, False, "shared", False, None, False, status.HTTP_403_FORBIDDEN),
+            ("plain_member_resends_unchanged", False, False, "shared", True, None, False, status.HTTP_200_OK),
+            ("scout_author", True, False, "shared", False, None, False, status.HTTP_200_OK),
+            ("project_admin_private_image", False, True, "private", False, None, False, status.HTTP_400_BAD_REQUEST),
+            ("project_admin_missing_image", False, True, "missing", False, None, False, status.HTTP_400_BAD_REQUEST),
+            (
+                "scout_author_key_without_skill_scope",
+                True,
+                False,
+                "shared",
+                False,
+                ["signal_scout:write"],
+                False,
+                status.HTTP_403_FORBIDDEN,
+            ),
+            (
+                "scout_author_key_with_skill_scope",
+                True,
+                False,
+                "shared",
+                False,
+                ["signal_scout:write", "llm_skill:write"],
+                False,
+                status.HTTP_200_OK,
+            ),
+            ("project_admin_without_skill_editor", False, True, "shared", False, None, True, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_custom_image_needs_the_acting_user_or_an_admin_and_a_shared_image(
+        self,
+        _name: str,
+        is_author: bool,
+        is_admin: bool,
+        lookup: str,
+        already_set: bool,
+        key_scopes: list[str] | None,
+        deny_skill_editor: bool,
+        expected: int,
+    ) -> None:
+        image_id = uuid4()
+        config = self._config(custom_image_id=image_id if already_set else None)
+        self._authored_by(self.user if is_author else self._other_member())
+        if is_admin:
+            self._become_admin()
+        found = None if lookup == "missing" else SimpleNamespace(private=lookup == "private")
+        if key_scopes:
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self._personal_api_key(key_scopes)}")
+        real_check = UserAccessControl.check_access_level_for_resource
+
+        def resource_access(
+            access: UserAccessControl, resource: APIScopeObject, required_level: AccessControlLevel
+        ) -> bool:
+            if deny_skill_editor and resource == "llm_skill":
+                return False
+            return real_check(access, resource, required_level)
+
+        with (
+            patch("products.tasks.backend.facade.api.get_sandbox_custom_image", return_value=found),
+            patch.object(
+                UserAccessControl, "check_access_level_for_resource", autospec=True, side_effect=resource_access
+            ),
+        ):
+            response = self.client.patch(
+                self._detail_url(str(config.id)),
+                data={"custom_image_id": str(image_id), "run_interval_minutes": 720},
+                format="json",
+            )
+
+        assert response.status_code == expected, response.json()
+        config.refresh_from_db()
+        if expected == status.HTTP_200_OK:
+            assert response.json()["custom_image_id"] == str(image_id)
+            assert config.custom_image_id == image_id
+            assert config.run_interval_minutes == 720
+        else:
+            assert config.custom_image_id is None
+
     def test_revoking_write_access_needs_the_same_claim(self) -> None:
         # Narrowing is safe, but the refusal keeps one rule to state: a member who cannot grant
         # cannot rewrite the field at all, so nobody can flip a scout's access behind its author.
@@ -1848,7 +1931,13 @@ class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
         assert config.allowed_mcp_tools is None
         assert response.json()["attr"] == "allowed_mcp_tools"
 
-    @parameterized.expand([({"allowed_mcp_tools": []},), ({"tool_preset": "read_only"},)])
+    @parameterized.expand(
+        [
+            ({"allowed_mcp_tools": []},),
+            ({"tool_preset": "read_only"},),
+            ({"custom_image_id": "8f6d2c1e-4b7a-4e0f-9a3d-5c2b1e7f6a90"},),
+        ]
+    )
     def test_sandbox_token_cannot_select_tools(self, payload: dict) -> None:
         self._authored_by(self.user)
         config = self._config()
@@ -1859,6 +1948,7 @@ class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
         assert response.status_code == 403, response.json()
         config.refresh_from_db()
         assert config.allowed_mcp_tools is None
+        assert config.custom_image_id is None
 
     def test_preset_is_snapshotted_and_reordered_list_does_not_log(self) -> None:
         config = self._config()
@@ -1932,6 +2022,44 @@ class TestScoutHarnessConfigLifecycleLockAPI(APIBaseTest):
     def _become_admin(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
+
+    def test_batch_lifecycle_claims_preserve_ownership_without_per_scout_queries(self) -> None:
+        other = self._other_member()
+        configs = []
+        for index in range(20):
+            name = f"signals-scout-batch-{index}"
+            source = index % 4
+            config = SignalScoutConfig.objects.create(
+                team=self.team,
+                skill_name=name,
+                lifecycle_locked=True,
+                created_by=self.user if source == 3 else other,
+                enabled_by=self.user if source == 2 else None,
+            )
+            configs.append(config)
+            if source != 3:
+                LLMSkill.objects.create(
+                    team=self.team,
+                    name=name,
+                    description="",
+                    body="",
+                    created_by=None if source == 2 else self.user,
+                    deleted=source == 1,
+                )
+            if source in (1, 2):
+                previous = LLMSkill.objects.create(
+                    team=self.team, name=name, description="", body="", created_by=other, deleted=True
+                )
+                LLMSkill.objects.filter(pk=previous.pk).update(updated_at=timezone.now() - timedelta(days=1))
+
+        with CaptureQueriesContext(connection) as queries:
+            assert user_holds_scout_lifecycle_claims(team=self.team, configs=configs, user=self.user)
+        assert len(queries) < 20
+
+        configs[-1].created_by_id = other.pk
+        assert not user_holds_scout_lifecycle_claims(team=self.team, configs=configs, user=self.user)
+        self._become_admin()
+        assert user_holds_scout_lifecycle_claims(team=self.team, configs=configs, user=self.user)
 
     @parameterized.expand(
         [
@@ -2822,17 +2950,24 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
         self._make_scout_skill()
         report = SignalReport.objects.create(team=self.team, title="Checkout 500s", status=SignalReport.Status.READY)
 
-        response = self.client.post(
-            self._list_url(),
-            data={
-                "content": "focus on the new checkout flow",
-                "skill_name": "signals-scout-web-analytics",
-                "report_id": str(report.id),
-            },
-            format="json",
-        )
+        with (
+            patch(
+                "products.signals.backend.report_note_mentions.send_report_note_mention_notifications.delay"
+            ) as mention_delay,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(
+                self._list_url(),
+                data={
+                    "content": "focus on the new checkout flow @member:5",
+                    "skill_name": "signals-scout-web-analytics",
+                    "report_id": str(report.id),
+                },
+                format="json",
+            )
 
         assert response.status_code == status.HTTP_201_CREATED, response.content
+        assert [call.kwargs["user_ids"] for call in mention_delay.call_args_list] == [[5]]
         note = response.json()
         assert str(report.id) in note["content"]
         assert "Checkout 500s" not in note["content"]
@@ -2844,7 +2979,7 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
             report=report, type=SignalReportArtefact.ArtefactType.SCOUT_NOTE_LEFT
         )
         assert json.loads(artefact.content) == {
-            "note": "focus on the new checkout flow",
+            "note": "focus on the new checkout flow @member:5",
             "skill_name": "signals-scout-web-analytics",
             "scout_note_id": note["id"],
         }
@@ -4817,6 +4952,39 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert config.enabled is True
         assert config.run_interval_minutes == 120
         assert config.enabled_by_id == self.user.id
+
+    @parameterized.expand(
+        [
+            ("upsert_unattributed", "upsert", False, False, "caller"),
+            ("upsert_attributed", "upsert", True, False, "other"),
+            ("upsert_locked", "upsert", False, True, None),
+            ("partial_update_unattributed", "partial_update", False, False, "caller"),
+            ("partial_update_attributed", "partial_update", True, False, "other"),
+            ("partial_update_locked", "partial_update", False, True, None),
+        ]
+    )
+    def test_enabling_an_already_enabled_scout_records_enabled_by_only_when_unset(
+        self, _name: str, path: str, attributed: bool, locked: bool, expected: str | None
+    ) -> None:
+        self._make_skill("signals-scout-fresh")
+        other = User.objects.create_and_join(self.organization, "other@example.com", None)
+        config = SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name="signals-scout-fresh",
+            enabled_by=other if attributed else None,
+            lifecycle_locked=locked,
+        )
+
+        if path == "upsert":
+            response = self.client.post(
+                self._list_url(), data={"skill_name": "signals-scout-fresh", "enabled": True}, format="json"
+            )
+        else:
+            response = self.client.patch(self._detail_url(str(config.id)), data={"enabled": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        config.refresh_from_db()
+        assert config.enabled_by_id == {"caller": self.user.id, "other": other.id, None: None}[expected]
 
     def test_create_upsert_leaves_omitted_fields_untouched(self) -> None:
         self._make_skill("signals-scout-fresh")

@@ -13,9 +13,13 @@ import type {
     LogsAlertConfigurationApi,
     LogsAlertConfigurationDetailApi,
     LogsAlertCreateDestinationApi,
+    LogsAlertCreatedDestinationResponseApi,
+    LogsAlertCustomizeDestinationApi,
     LogsAlertDeleteDestinationApi,
     LogsAlertDestinationResponseApi,
     LogsAlertDestinationSendApi,
+    LogsAlertResetDestinationApi,
+    LogsAlertResetDestinationResponseApi,
     LogsAlertSimulateRequestApi,
     LogsAlertSimulateResponseApi,
     LogsAlertsDestinationsSendsListParams,
@@ -24,6 +28,8 @@ import type {
     LogsAnomalyScanRequestApi,
     LogsAnomalyScanResponseApi,
     LogsAttributesRetrieveParams,
+    LogsContextRequestApi,
+    LogsContextResponseApi,
     LogsExportCreate201,
     LogsHasLogsRetrieve200,
     LogsMetricRuleApi,
@@ -43,6 +49,7 @@ import type {
     LogsSamplingRulesReorderCreateParams,
     LogsSeriesBandsRequestApi,
     LogsSeriesBandsResponseApi,
+    LogsSigningSecretApi,
     LogsValuesRetrieveParams,
     LogsViewApi,
     LogsViewsListParams,
@@ -264,12 +271,33 @@ export const logsAlertsDestinationsCreate = async (
     id: string,
     logsAlertCreateDestinationApi: LogsAlertCreateDestinationApi,
     options?: RequestInit
-): Promise<LogsAlertDestinationResponseApi> => {
-    return apiMutator<LogsAlertDestinationResponseApi>(getLogsAlertsDestinationsCreateUrl(projectId, id), {
+): Promise<LogsAlertCreatedDestinationResponseApi> => {
+    return apiMutator<LogsAlertCreatedDestinationResponseApi>(getLogsAlertsDestinationsCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(logsAlertCreateDestinationApi),
+    })
+}
+
+export const getLogsAlertsDestinationsCustomizeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/logs/alerts/${id}/destinations/customize/`
+}
+
+/**
+ * Make a destination's message editable. A destination that sends the standard message from the alerts platform gets HogFunctions with that message, one per event kind, and stops sending from the platform. A destination that already has HogFunctions keeps them. Returns the HogFunction IDs to edit.
+ */
+export const logsAlertsDestinationsCustomizeCreate = async (
+    projectId: string,
+    id: string,
+    logsAlertCustomizeDestinationApi?: LogsAlertCustomizeDestinationApi,
+    options?: RequestInit
+): Promise<LogsAlertDestinationResponseApi> => {
+    return apiMutator<LogsAlertDestinationResponseApi>(getLogsAlertsDestinationsCustomizeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsAlertCustomizeDestinationApi),
     })
 }
 
@@ -283,7 +311,7 @@ export const getLogsAlertsDestinationsDeleteCreateUrl = (projectId: string, id: 
 export const logsAlertsDestinationsDeleteCreate = async (
     projectId: string,
     id: string,
-    logsAlertDeleteDestinationApi: LogsAlertDeleteDestinationApi,
+    logsAlertDeleteDestinationApi?: LogsAlertDeleteDestinationApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getLogsAlertsDestinationsDeleteCreateUrl(projectId, id), {
@@ -291,6 +319,27 @@ export const logsAlertsDestinationsDeleteCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(logsAlertDeleteDestinationApi),
+    })
+}
+
+export const getLogsAlertsDestinationsResetCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/logs/alerts/${id}/destinations/reset/`
+}
+
+/**
+ * Send a customized destination's standard message again. Its HogFunctions are deleted, with their edits, and the alerts platform sends it from then on. Only an alert the alerts platform checks can be reset.
+ */
+export const logsAlertsDestinationsResetCreate = async (
+    projectId: string,
+    id: string,
+    logsAlertResetDestinationApi: LogsAlertResetDestinationApi,
+    options?: RequestInit
+): Promise<LogsAlertResetDestinationResponseApi> => {
+    return apiMutator<LogsAlertResetDestinationResponseApi>(getLogsAlertsDestinationsResetCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsAlertResetDestinationApi),
     })
 }
 
@@ -346,7 +395,7 @@ export const getLogsAlertsEventsListUrl = (projectId: string, id: string, params
 }
 
 /**
- * Paginated event history for this alert, newest first. Returns state transitions, errored checks, and user-initiated control-plane rows (reset, enable/disable, snooze/unsnooze, threshold change) — quiet no-op check rows (where state didn't change and there was no error) are filtered out since only the last 10 are kept and they carry no forensic value. Optional `?kind=...` narrows to a single kind. For an alert the alerts platform evaluates, checks since it took the alert over come from the platform's check history.
+ * Paginated event history for this alert, newest first. Returns state transitions, errored checks, and user-initiated control-plane rows (reset, enable/disable, snooze/unsnooze, threshold change) — quiet no-op check rows (where state didn't change and there was no error) are filtered out since only the last 10 are kept and they carry no forensic value. Optional `?kind=...` narrows to a single kind. For an alert the alerts platform evaluates, checks since it took the alert over come from the platform's check history. So do control-plane rows from the oldest one the platform recorded onward.
  */
 export const logsAlertsEventsList = async (
     projectId: string,
@@ -464,6 +513,23 @@ export const logsAttributesRetrieve = async (
     return apiMutator<_LogsAttributesResponseApi>(getLogsAttributesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getLogsContextCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/context/`
+}
+
+export const logsContextCreate = async (
+    projectId: string,
+    logsContextRequestApi: LogsContextRequestApi,
+    options?: RequestInit
+): Promise<LogsContextResponseApi> => {
+    return apiMutator<LogsContextResponseApi>(getLogsContextCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsContextRequestApi),
     })
 }
 
@@ -1128,7 +1194,7 @@ export const getLogsSamplingRulesReorderCreateUrl = (
 }
 
 /**
- * Atomically reassign priorities so the given ID order maps to ascending priorities (0..n-1).
+ * Atomically reassign priorities so the given ID order maps to ascending priorities (0..n-1). Log and span rules have separate orders; the `source` query parameter picks which one.
  */
 export const logsSamplingRulesReorderCreate = async (
     projectId: string,
@@ -1158,6 +1224,57 @@ export const logsServicesCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(_logsServicesRequestApi),
+    })
+}
+
+export const getLogsSigningSecretRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/signing_secret/`
+}
+
+/**
+ * The secret that servers use to sign log requests for this project.
+ */
+export const logsSigningSecretRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<LogsSigningSecretApi> => {
+    return apiMutator<LogsSigningSecretApi>(getLogsSigningSecretRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLogsSigningSecretExpirePreviousCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/signing_secret/expire_previous/`
+}
+
+/**
+ * End the grace period now, so the previous secret stops being valid immediately. Use it when the replaced secret may be compromised, or once every server uses the new one.
+ */
+export const logsSigningSecretExpirePreviousCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<LogsSigningSecretApi> => {
+    return apiMutator<LogsSigningSecretApi>(getLogsSigningSecretExpirePreviousCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getLogsSigningSecretRotateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/signing_secret/rotate/`
+}
+
+/**
+ * Generate a new signing secret. The previous secret stays valid for 48 hours, then expires.
+ */
+export const logsSigningSecretRotateCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<LogsSigningSecretApi> => {
+    return apiMutator<LogsSigningSecretApi>(getLogsSigningSecretRotateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
     })
 }
 

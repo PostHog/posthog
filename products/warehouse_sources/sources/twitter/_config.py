@@ -8,3 +8,4 @@ from products.warehouse_sources.sources.sdk import config
 class TwitterSourceConfig(config.Config):
     bearer_token: str
     username: str
+    search_query: str | None = None

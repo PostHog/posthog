@@ -22,7 +22,7 @@ All `$`-prefixed — a non-`$` name would be treated as a customer event.
 | `$mcp_auth_failed`                           | A request refused before a session existed — a rejected credential, or a scope the API denied. **PostHog's own server only, not the SDK.** The one MCP event with no organization/project, because none was resolved. |
 | `$mcp_resource_read` / `$mcp_resources_list` | Resource access. Not emitted by `instrument()` in either SDK.                                                                                                                                                         |
 | `$mcp_prompt_get` / `$mcp_prompts_list`      | Prompt access. Same caveat as resources.                                                                                                                                                                              |
-| `$identify`                                  | Person identity. Since TS 0.9.1 this fires at most once per session, not before every tool call.                                                                                                                      |
+| `$identify`                                  | Historical only. TS 0.23.0 and Python `posthog` 7.72.0 stopped sending it; `identify` now sets `distinct_id`, `$set`, and `$groups` on every event instead.                                                           |
 | `$exception`                                 | Error sibling event. Can be disabled, and is not emitted when no error value is passed — see the failures rule below.                                                                                                 |
 
 `$mcp_custom` is registered in the enum, but `analytics.capture()` sends the verbatim event
@@ -52,7 +52,7 @@ On `$mcp_tool_call` unless noted. These are the properties any instrumented serv
 | `$mcp_llm_model_source`                         | `client_metadata` when recognized client metadata supplied the model, or `self_reported` when it came from the injected `llm_model` argument. Both sources are unverified.                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `$mcp_server_name` / `$mcp_server_version`      | The instrumented server's own identity.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `$mcp_protocol_version`                         | Since TS 0.10.0. The negotiated MCP spec version. On legacy `initialize`-handshake sessions it is stamped on `$mcp_initialize` and every subsequent event of that session; under the 2026-07-28 revision it is **per request**, so one `$session_id` can legitimately span more than one value — don't treat it as a session constant. See [stateless-and-sessions.md](stateless-and-sessions.md).                                                                                                                                                                                                                                        |
-| `$mcp_conversation_id`                          | The conversation handle: **server-minted on the first call, agent-echoed thereafter** (an invented value is rejected and replaced). **Survives reconnects, but only when the server sets `enableConversationId`** (off by default) — see identifiers below and [stateless-and-sessions.md](stateless-and-sessions.md).                                                                                                                                                                                                                                                                                                                    |
+| `$mcp_conversation_id`                          | The conversation handle: **server-minted on the first call, agent-echoed thereafter** (an invented value is rejected and replaced). **Survives reconnects when `enableConversationId` is on** (the default since 0.17.0) — see identifiers below and [stateless-and-sessions.md](stateless-and-sessions.md).                                                                                                                                                                                                                                                                                                                              |
 | `$mcp_resource_name`                            | On resource events.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `$session_id`                                   | The standard PostHog session id, materialized. The usual grouping key.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `$mcp_source`                                   | Always `posthog_mcp_analytics`. The reliable way to isolate MCP events from everything else on the `events` table.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
@@ -88,7 +88,7 @@ refusals into tool error rates, which is also why the status has its own field. 
 `distinct_id` is the token hash, not a user id, so it joins to other MCP events by client and
 time, never by person.
 
-Per-event additions: `$mcp_error_status` (upstream HTTP status), `$mcp_error_code` (machine-readable leaf failure code: the API's validation error code or the exec rejection reason), and `$mcp_error_field` (the validation error's field path, array indexes normalized to `N`, e.g. `actions__N__inputs__email`) — all stamped by `services/mcp/src/hono/tool-executor.ts` — **server-side, despite sitting next to the SDK's typed error properties in queries**; and `tool_count`, `read_only`, `via_sse_redirect` on `$mcp_initialize`. Failed calls may also carry
+Per-event additions: `$mcp_error_status` (upstream HTTP status), `$mcp_error_code` (machine-readable leaf failure code: the API's error code from a validation error or another 4xx body, kept only when it looks like an identifier, or the exec rejection reason), and `$mcp_error_field` (the API error's field path, array indexes normalized to `N`, e.g. `actions__N__inputs__email`) — all stamped by `services/mcp/src/hono/tool-executor.ts` — **server-side, despite sitting next to the SDK's typed error properties in queries**; and `tool_count`, `read_only`, `via_sse_redirect` on `$mcp_initialize`. Failed calls may also carry
 `$mcp_validation_fields` (which fields failed validation), and exec-mode calls carry `$mcp_exec_verb` (which dispatcher
 verb ran) and `$mcp_exec_target_tool` (the tool that `info`/`schema`/`call` named). These properties are
 stamped in `tool-executor.ts` and registered in `posthog/taxonomy/taxonomy.py`.
@@ -154,13 +154,25 @@ A frequent source of wrong session math:
 
 ## Library identity
 
-Since TS 0.7.0 events stamp the standard `$lib` = `posthog-node-mcp` (plus `$lib_version`) via
-`applyMcpLibIdentity`. The short-lived 0.6.0 custom `$mcp_lib` / `$mcp_lib_version` properties
-were dropped — any document mentioning them is stale.
+From TS 0.7.0, `applyMcpLibIdentity` relabels the client as `$lib` = `posthog-node-mcp`, with
+`$lib_version` set to the `@posthog/mcp` version. The short-lived 0.6.0 custom `$mcp_lib` /
+`$mcp_lib_version` properties were dropped, so any document that mentions them is stale.
 
-Note that posthog-node sets `$lib` at the client level, so `instrument()` relabels **every**
-event sent by the client you pass it. Give an MCP server a posthog-node client dedicated to its
-analytics rather than sharing the app's.
+posthog-node sets `$lib` at the client level, so that relabel covers **every** event sent by
+the client you pass to `instrument()`, not only the MCP events.
+
+The TypeScript SDK keeps this relabel on posthog-node 6, which reads it for each event at
+`capture()`, so events captured before `instrument()` report `posthog-node`. Give MCP analytics
+its own client.
+
+posthog-python 7.x also relabels the whole client, as `posthog-python-mcp`. posthog-python 8,
+posthog-go v2 and posthog-rs 1.0 label only their MCP events, as `posthog-python-mcp`,
+`posthog-go-mcp` and `posthog-rs-mcp`. In posthog-python 8 that includes the `$exception` the MCP
+pipeline sends for a failed call. In each of these SDKs the app can still change `$lib` in `before_send`,
+and capture v1 fills `$lib` from the `PostHog-Sdk-Info` request header only when an
+event has none. So a label can cover app events, and MCP events can arrive under the base `$lib`:
+find MCP traffic by its `$mcp_*` event names or by `$mcp_source = 'posthog_mcp_analytics'`, not
+by `$lib`.
 
 ## TypeScript SDK behaviour by version
 

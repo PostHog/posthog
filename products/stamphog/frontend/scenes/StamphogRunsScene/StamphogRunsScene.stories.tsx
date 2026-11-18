@@ -5,7 +5,7 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import type { ReviewRunApi, StamphogRepoConfigApi } from '../../generated/api.schemas'
+import type { ReviewRunApi, CodeReviewApprovalRepositoryApi } from '../../generated/api.schemas'
 
 const repoConfigs = {
     count: 2,
@@ -36,7 +36,7 @@ const repoConfigs = {
             created_at: '2026-07-01T00:00:00Z',
             updated_at: '2026-07-01T00:00:00Z',
         },
-    ] as StamphogRepoConfigApi[],
+    ] as CodeReviewApprovalRepositoryApi[],
 }
 
 const run = (overrides: Partial<ReviewRunApi>): ReviewRunApi =>
@@ -55,7 +55,7 @@ const run = (overrides: Partial<ReviewRunApi>): ReviewRunApi =>
         status: 'completed',
         verdict: 'approved',
         gate_result: { gate_blocked: false, final_verdict: 'APPROVED' },
-        output: { stamphog_version: '2.0.0b4', reviewer_exit_code: 0 },
+        output: { engine_version: '2.0.0b4', reviewer_exit_code: 0 },
         error: '',
         posted_review_id: 2884991204,
         verdict_posted_at: '2026-08-17T14:05:52Z',
@@ -80,7 +80,7 @@ const reviewRuns = {
             status: 'gated',
             verdict: 'refused',
             gate_result: { gate_blocked: true, final_verdict: 'REFUSED' },
-            output: { stamphog_version: '2.0.0b4' },
+            output: { engine_version: '2.0.0b4' },
             posted_review_id: null,
             verdict_posted_at: '2026-08-17T13:47:13Z',
             created_at: '2026-08-17T13:47:02Z',
@@ -163,8 +163,8 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/stamphog/review_runs/': reviewRuns,
-                '/api/projects/:team_id/stamphog/repo_configs/': repoConfigs,
+                '/api/projects/:team_id/code_review/approvals/runs/': reviewRuns,
+                '/api/projects/:team_id/code_review/approvals/repositories/': repoConfigs,
             },
         }),
     ],
@@ -179,7 +179,7 @@ export const RunsListEmpty: StoryObj = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/stamphog/review_runs/': {
+                '/api/projects/:team_id/code_review/approvals/runs/': {
                     count: 0,
                     next: null,
                     previous: null,

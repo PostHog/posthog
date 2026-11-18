@@ -6,7 +6,7 @@ import posthog from 'posthog-js'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { stamphogDigestRunsList } from '../../generated/api'
+import { codeReviewApprovalsDigestsList } from '../../generated/api'
 import type { DigestRunApi, PaginatedDigestRunListApi } from '../../generated/api.schemas'
 
 export const DIGESTS_PAGE_SIZE = 50
@@ -119,7 +119,7 @@ export const stamphogDigestsSceneLogic = kea<stamphogDigestsSceneLogicType>([
                     // urlToAction replays on mount, so a deep link sets the page through its own
                     // listener. Debounce so only the settled page loads.
                     await breakpoint(1)
-                    return stamphogDigestRunsList(String(values.currentProjectId), {
+                    return codeReviewApprovalsDigestsList(String(values.currentProjectId), {
                         limit: DIGESTS_PAGE_SIZE,
                         offset: (values.page - 1) * DIGESTS_PAGE_SIZE,
                     })

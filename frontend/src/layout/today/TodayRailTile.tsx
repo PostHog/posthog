@@ -4,14 +4,7 @@ import { cn } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
-import { SEVERITY_INDICATOR, TodayRailSeverity } from './todayRailSeverity'
-
-// The frontend's Tailwind has no quill status fills, so the dot reads the quill variables directly.
-const DOT_CLASS = {
-    default: 'bg-[var(--primary)]',
-    warning: 'bg-[var(--warning-foreground)]',
-    destructive: 'bg-[var(--destructive-foreground)]',
-} as const
+import { SEVERITY_DOT_CLASS, SEVERITY_INDICATOR, TodayRailSeverity } from './todayRailSeverity'
 
 export interface TodayRailTileProps extends Omit<React.HTMLAttributes<HTMLElement>, 'onClick'> {
     label: string
@@ -64,7 +57,7 @@ export const TodayRailTile = forwardRef<HTMLElement, TodayRailTileProps>(functio
                         aria-hidden
                         className={cn(
                             'absolute -top-0.5 -end-0.5 size-2 rounded-full ring-2 ring-[var(--chrome)]',
-                            DOT_CLASS[indicator]
+                            SEVERITY_DOT_CLASS[indicator]
                         )}
                     />
                 )}

@@ -59,6 +59,7 @@ from products.replay_vision.backend.alert_state_machine import (
     apply_user_reset,
 )
 from products.replay_vision.backend.alert_utils import next_allowed_check_at
+from products.replay_vision.backend.api.cloud_only import ReplayVisionCloudOnly
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.models.vision_alert import (
     ALERT_WINDOW_DAYS,
@@ -527,6 +528,7 @@ class VisionAlertConfigurationDetailSerializer(VisionAlertConfigurationSerialize
 @extend_schema_view(list=extend_schema(parameters=[VisionAlertListQuerySerializer]))
 class VisionAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "vision_alert"
+    permission_classes = [ReplayVisionCloudOnly]
     scope_object_read_actions = ["list", "retrieve", "events"]
     scope_object_write_actions = [
         "create",

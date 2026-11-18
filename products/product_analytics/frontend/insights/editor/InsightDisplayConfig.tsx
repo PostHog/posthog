@@ -25,6 +25,7 @@ import { FunnelDisplayLayoutPicker } from 'products/product_analytics/frontend/i
 import { QuillFunnelVizType } from 'products/product_analytics/frontend/insights/funnels/filters/QuillFunnelVizType'
 import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
 import { PathStepPicker } from 'products/product_analytics/frontend/insights/paths/filters/PathStepPicker'
+import { QuillRetentionChartPicker } from 'products/product_analytics/frontend/insights/retention/filters/QuillRetentionChartPicker'
 import { RetentionBreakdownFilter } from 'products/product_analytics/frontend/insights/retention/filters/RetentionBreakdownFilter'
 import { RetentionChartPicker } from 'products/product_analytics/frontend/insights/retention/filters/RetentionChartPicker'
 import { RetentionDatePicker } from 'products/product_analytics/frontend/insights/retention/filters/RetentionDatePicker'
@@ -172,7 +173,7 @@ export function InsightDisplayConfig({ chartTypeControl }: { chartTypeControl?: 
                 {supportsDisplay && <ConfigFilter>{chartTypeControl ?? <ChartFilter />}</ConfigFilter>}
                 {!!isRetention && (
                     <ConfigFilter>
-                        <RetentionChartPicker />
+                        {todayRailNav ? <QuillRetentionChartPicker /> : <RetentionChartPicker />}
                     </ConfigFilter>
                 )}
                 {todayRailNav && isFunnels && (

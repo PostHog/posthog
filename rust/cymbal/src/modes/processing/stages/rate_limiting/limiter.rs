@@ -4,8 +4,8 @@ use chrono::Utc;
 use common_redis::{CustomRedisError, ScriptRunner};
 use uuid::Uuid;
 
+use crate::modes::processing::redis_heal::HealGate;
 use crate::modes::processing::rules::rate_limit::BucketParams;
-use crate::modes::{processing::redis_heal::HealGate, shadow_redis};
 
 /// Outcome of one fused rate-limit call for a single issue group of `n` events.
 /// `issue_admitted <= n` passed the per-issue limit; `team_admitted <= issue_admitted`
@@ -72,7 +72,6 @@ return { issue_admitted, team_admitted }
 
 pub struct RedisRateLimiter {
     redis: Arc<dyn ScriptRunner>,
-    shadow: Option<Arc<dyn ScriptRunner>>,
     key_prefix: String,
     bucket_ttl_seconds: u64,
     heal_gate: HealGate,
@@ -82,16 +81,10 @@ impl RedisRateLimiter {
     pub fn new(redis: Arc<dyn ScriptRunner>, key_prefix: String, bucket_ttl_seconds: u64) -> Self {
         Self {
             redis,
-            shadow: None,
             key_prefix,
             bucket_ttl_seconds,
             heal_gate: HealGate::new(),
         }
-    }
-
-    pub fn with_shadow(mut self, shadow: Option<Arc<dyn ScriptRunner>>) -> Self {
-        self.shadow = shadow;
-        self
     }
 
     fn issue_key(&self, team_id: i32, issue_id: Option<Uuid>) -> String {
@@ -143,17 +136,7 @@ impl RedisRateLimiter {
             self.bucket_ttl_seconds.to_string(),
         ];
 
-        let shadow_request = self.shadow.as_ref().map(|_| (keys.clone(), args.clone()));
         let res = self.redis.eval_int_vec(RATE_LIMIT_LUA, keys, args).await?;
-        if let (Some(shadow), Some((keys, args))) = (&self.shadow, shadow_request) {
-            let shadow = shadow.clone();
-            let healing = shadow.clone();
-            shadow_redis::submit(
-                "processing_rate_limit",
-                async move { shadow.eval_int_vec(RATE_LIMIT_LUA, keys, args).await },
-                async move { healing.reconnect().await },
-            );
-        }
 
         // Defensive clamps: team_admitted <= issue_admitted <= n.
         let issue_admitted = (res.first().copied().unwrap_or(0).max(0) as u32).min(n);
@@ -181,46 +164,7 @@ impl RedisRateLimiter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{start_redis, FakeRunner, RedisContainer};
-
-    #[tokio::test]
-    async fn primary_failure_does_not_charge_the_shadow() {
-        let shadow = FakeRunner::returning(vec![1, 1]);
-        let limiter = RedisRateLimiter::new(FakeRunner::failing(), "test".into(), 3600)
-            .with_shadow(Some(shadow.clone()));
-        assert!(limiter.admit(42, None, None, None, 1).await.is_err());
-        for _ in 0..10 {
-            tokio::task::yield_now().await;
-        }
-        assert_eq!(shadow.call_count(), 0);
-    }
-
-    #[tokio::test]
-    async fn shadow_failure_does_not_change_the_primary_admission() {
-        shadow_redis::with_test_circuit(async {
-            let shadow = FakeRunner::failing();
-            let primary = FakeRunner::returning(vec![3, 2]);
-            let limiter = RedisRateLimiter::new(primary.clone(), "test".into(), 3600)
-                .with_shadow(Some(shadow.clone()));
-            let decision = limiter.admit(42, None, None, None, 5).await.unwrap();
-            tokio::time::timeout(std::time::Duration::from_secs(1), async {
-                while shadow.call_count() == 0 {
-                    tokio::task::yield_now().await;
-                }
-            })
-            .await
-            .unwrap();
-            assert_eq!(primary.requests(), shadow.requests());
-            assert_eq!(
-                decision,
-                RateLimitDecision {
-                    issue_admitted: 3,
-                    team_admitted: 2
-                }
-            );
-        })
-        .await;
-    }
+    use crate::test_support::{start_redis, RedisContainer};
 
     use common_redis::RedisClient;
 

@@ -1,9 +1,3 @@
-"""Workflow + activity registration lists for the job-logs worker.
-
-Registered on ``settings.GENERAL_PURPOSE_TASK_QUEUE`` (the queue the schedule targets) via the
-product facade in ``backend/facade/temporal.py``.
-"""
-
 from products.engineering_analytics.backend.logic.job_logs.activity import (
     FetchDepotJobLogWorkflow,
     FetchGithubJobLogWorkflow,

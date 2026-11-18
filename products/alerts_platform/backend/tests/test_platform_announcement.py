@@ -11,9 +11,11 @@ from posthog.models.scoping import team_scope
 from products.alerts_platform.backend.facade.contracts import AlertEventKind, SourceKind
 from products.alerts_platform.backend.logic.platform_alert_events import (
     _INSERT_SQL,
+    AnnouncementStatus,
     PlatformAlertEventRow,
     announcement,
     insert_events,
+    read_announcement,
 )
 from products.alerts_platform.backend.models import PlatformAlertConfiguration
 
@@ -172,3 +174,19 @@ class TestAnnouncement(ClickhouseTestMixin, APIBaseTest):
 
         assert sorted(key for keys_in_part in by_part for key in keys_in_part) == keys
         assert [len(keys_in_part) for keys_in_part in by_part] == [3, 2, 2]
+
+    def test_a_part_with_no_groups_of_a_recorded_evaluation_reads_empty_without_retrying(self) -> None:
+        insert_events(self.team.id, [self._row(grouping_key="a"), self._row(grouping_key="b")])
+
+        with patch("products.alerts_platform.backend.logic.platform_alert_events.sleep") as sleep:
+            statuses = [
+                read_announcement(
+                    self.team.id, str(self.configuration.id), "eval-1", source=SourceKind.LOGS, part=part, parts=3
+                ).status
+                for part in range(3)
+            ]
+            absent = read_announcement(self.team.id, str(self.configuration.id), "eval-9", source=SourceKind.LOGS)
+
+        assert statuses == [AnnouncementStatus.FOUND, AnnouncementStatus.FOUND, AnnouncementStatus.EMPTY]
+        assert absent.status == AnnouncementStatus.MISSING
+        assert sleep.call_count == 2

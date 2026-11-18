@@ -251,6 +251,68 @@ async fn writer_version_guard_skips_stale_updates() {
 }
 
 #[tokio::test]
+async fn writer_upsert_does_not_wait_on_a_person_foreign_key_check() {
+    let pool = create_test_pool().await;
+    let team_id: i32 = unique_team_id();
+
+    let writer = PersonWriteStore::new(
+        PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
+        common::test_store_config(),
+        common::test_permits(),
+    );
+    assert!(matches!(
+        writer
+            .upsert_batch(vec![make_person(team_id as i64, 1, 1)])
+            .await,
+        BatchOutcome::Success
+    ));
+
+    let mut attach = pool.begin().await.unwrap();
+    sqlx::query(
+        "INSERT INTO personhog_persondistinctid_tmp (distinct_id, person_id, team_id, version)
+         VALUES ('fk-check', $1, $2, 1)",
+    )
+    .bind(1_i64)
+    .bind(team_id)
+    .execute(&mut *attach)
+    .await
+    .unwrap();
+    let probe = sqlx::query(
+        "SELECT 1 FROM personhog_person_tmp WHERE team_id = $1 AND id = $2 FOR UPDATE NOWAIT",
+    )
+    .bind(team_id)
+    .bind(1_i64)
+    .execute(&pool)
+    .await;
+    assert!(
+        matches!(&probe, Err(sqlx::Error::Database(e)) if e.code().as_deref() == Some("55P03")),
+        "the distinct id insert must hold a foreign-key lock on its person: {probe:?}"
+    );
+
+    let upsert = tokio::time::timeout(
+        Duration::from_secs(5),
+        writer.upsert_batch(vec![make_person(team_id as i64, 1, 2)]),
+    )
+    .await;
+    attach.rollback().await.unwrap();
+
+    assert!(
+        matches!(&upsert, Ok(BatchOutcome::Success)),
+        "the upsert must not wait on the open distinct id insert for its person: {upsert:?}"
+    );
+    let row: (i64,) =
+        sqlx::query_as("SELECT version FROM personhog_person_tmp WHERE team_id = $1 AND id = $2")
+            .bind(team_id)
+            .bind(1_i64)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(row.0, 2);
+
+    cleanup_team(&pool, team_id).await;
+}
+
+#[tokio::test]
 async fn writer_merges_meta_and_last_seen_instead_of_assigning() {
     let pool = create_test_pool().await;
     let team_id: i32 = 99_006;

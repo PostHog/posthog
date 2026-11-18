@@ -1,0 +1,66 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "broadcast_ids": {
+            "description": "IDs of the broadcasts that announce the release, at most 100.",
+            "items": {
+                "type": "string"
+            },
+            "maxItems": 100,
+            "type": "array"
+        },
+        "description": {
+            "description": "What changes for the people who get the release.",
+            "type": "string"
+        },
+        "feature_flag_ids": {
+            "description": "The full list of linked feature flag IDs, at most 100. Replaces the current list: include every flag to keep. Get the current list from `release-get`.",
+            "items": {
+                "maximum": 2147483647,
+                "minimum": 1,
+                "type": "number"
+            },
+            "maxItems": 100,
+            "type": "array"
+        },
+        "id": {
+            "type": "string"
+        },
+        "insight_ids": {
+            "description": "IDs of the saved insights that measure the release, at most 100.",
+            "items": {
+                "maximum": 2147483647,
+                "minimum": 1,
+                "type": "number"
+            },
+            "maxItems": 100,
+            "type": "array"
+        },
+        "name": {
+            "description": "Name of the release.",
+            "maxLength": 255,
+            "type": "string"
+        },
+        "owner_id": {
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "ID of the user who owns the release. Must be a member of the project's organization."
+        },
+        "survey_ids": {
+            "description": "IDs of the surveys that collect feedback on the release, at most 100.",
+            "items": {
+                "type": "string"
+            },
+            "maxItems": 100,
+            "type": "array"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

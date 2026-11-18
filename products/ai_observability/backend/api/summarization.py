@@ -80,8 +80,7 @@ logger = structlog.get_logger(__name__)
 # Event types the formatters can render on their own, so a single one of them can be summarized by UUID.
 SUMMARIZABLE_EVENT_TYPES = ["$ai_generation", "$ai_span", "$ai_embedding", "$ai_evaluation"]
 
-# The frontend matches this code to keep the expected 404 out of error tracking
-# (CONTENT_EXPIRED_SELF_HANDLED_BY_LOGIC_PATH in frontend/src/initKea.ts). Keep both in sync.
+# Lets a caller tell content dropped after the retention window apart from a trace or event that does not exist.
 CONTENT_EXPIRED_ERROR_CODE = "content_expired"
 
 

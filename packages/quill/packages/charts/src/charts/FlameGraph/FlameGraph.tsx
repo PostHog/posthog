@@ -245,6 +245,20 @@ function FlameGraphInner<Meta = unknown>({
     const geometry = useMemo<FlameRowGeometry>(() => ({ rowHeight: ROW_HEIGHT, rowCount }), [rowCount])
 
     const scrollTopRef = useRef(0)
+    const viewportRef = useRef<HTMLDivElement>(null)
+    const initialFocusDepth = focusNodeIndex >= 0 ? tree.depth[focusNodeIndex] : 0
+    const initialScrollTopRef = useRef(
+        (initialFocusDepth + 1) * ROW_HEIGHT > viewportHeight
+            ? Math.min(initialFocusDepth * ROW_HEIGHT, contentHeight - viewportHeight)
+            : 0
+    )
+    useLayoutEffect(() => {
+        const viewport = viewportRef.current
+        if (viewport && initialScrollTopRef.current > 0) {
+            viewport.scrollTop = initialScrollTopRef.current
+            scrollTopRef.current = viewport.scrollTop
+        }
+    }, [])
     const cellsRef = useRef<{ cells: FlameCell[]; tree: FlameTree<unknown> | null }>({ cells: [], tree: null })
     const paintRafRef = useRef<number | null>(null)
     const [hoverState, setHover] = useState<HoverState | null>(null)
@@ -583,6 +597,7 @@ function FlameGraphInner<Meta = unknown>({
                     ) : null}
                     <ChartLegendLayout legend={showLegend ? legend : null} position="bottom" align="start" gap={6}>
                         <div
+                            ref={viewportRef}
                             className="relative w-full overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable] outline-none focus-visible:ring-2 focus-visible:ring-(--color-graph-crosshair)"
                             style={{ height: viewportHeight, containerType: 'size' }}
                             tabIndex={0}

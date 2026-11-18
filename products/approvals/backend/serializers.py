@@ -7,6 +7,7 @@ from posthog.api.shared import UserBasicSerializer
 
 from products.access_control.backend.models.role import Role
 from products.approvals.backend.experiment_policy_sync import SYNCED_ACTION_KEYS
+from products.approvals.backend.flag_payloads import redact_secret_payloads
 from products.approvals.backend.models import Approval, ApprovalPolicy, ChangeRequest, ChangeRequestState
 from products.approvals.backend.ownership import scope_by_owner_enabled
 from products.approvals.backend.policies import lock_approval_policies
@@ -96,6 +97,9 @@ class ChangeRequestSerializer(serializers.ModelSerializer):
             "apply_error",
             "result_data",
         ]
+
+    def to_representation(self, instance: ChangeRequest) -> dict:
+        return redact_secret_payloads(instance, super().to_representation(instance))
 
     @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_approvals(self, obj):

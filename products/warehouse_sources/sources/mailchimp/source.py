@@ -3,6 +3,7 @@ from typing import Optional, cast
 from products.warehouse_sources.sources.mailchimp._config import MailchimpSourceConfig
 from products.warehouse_sources.sources.mailchimp.mailchimp import (
     EVENT_TABLE_APPEND_ERROR,
+    INVALID_API_KEY_FORMAT_ERROR,
     MailchimpResumeConfig,
     mailchimp_source,
     validate_credentials as validate_mailchimp_credentials,
@@ -114,7 +115,7 @@ The API key format is: `key-dc` (e.g., `abc123def456-us6`), where `dc` is the da
         return {
             "401 Client Error": "Invalid Mailchimp API key. Please check your API key and try again.",
             "403 Client Error": "Access forbidden. Your API key may lack required permissions.",
-            "Invalid Mailchimp API key format": "Invalid API key format. Expected format: key-dc (e.g., abc123-us6)",
+            INVALID_API_KEY_FORMAT_ERROR: None,
             EVENT_TABLE_APPEND_ERROR: (
                 "Append only replication isn't supported on this table. Switch it to incremental or full table "
                 "replication in its sync settings, then re-enable the sync."
@@ -151,7 +152,7 @@ The API key format is: `key-dc` (e.g., `abc123def456-us6`), where `dc` is the da
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_mailchimp_credentials(config.api_key)
+        return validate_mailchimp_credentials(config.api_key.strip())
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[MailchimpResumeConfig]:
         return ResumableSourceManager[MailchimpResumeConfig](inputs, MailchimpResumeConfig)
@@ -163,7 +164,7 @@ The API key format is: `key-dc` (e.g., `abc123def456-us6`), where `dc` is the da
         inputs: SourceInputs,
     ) -> SourceResponse:
         return mailchimp_source(
-            api_key=config.api_key,
+            api_key=config.api_key.strip(),
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,

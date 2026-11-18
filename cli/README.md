@@ -93,6 +93,13 @@ These variables can also be loaded from a dotenv-style file via `--dotenv-file <
 
 Full precedence: CLI args → process env → `--dotenv-file` → `~/.posthog/credentials.json` (from `posthog-cli login`).
 
+## Diagnostic logging
+
+Request diagnostics omit URL credentials and query strings.
+Outside CI, API errors show PostHog's error details, and endpoint `--debug` output shows request and response bodies.
+In CI, both are hidden, because CI logs are often visible to more people than the person who ran the command. The CLI treats a run as CI when `CI` is set to a value other than `0` or `false`, or when a known CI provider's variable is set.
+These protections do not change the requests or the command results: query results and task output can still contain the data you requested.
+
 ## Uploading native debug symbols
 
 `posthog-cli symbol-sets upload --directory <dir>` scans a directory for native debug symbols and uploads them so PostHog can symbolicate native stack frames.
@@ -144,8 +151,10 @@ Only the id goes to stdout, so `RELEASE_ID=$(posthog-cli release resolve)` works
 Pass `--json` to get the whole release, including its hash id and the version that git or CI metadata filled in.
 
 Both `--release-name` and `--release-version` are read from git or CI metadata when you leave them out.
-When neither the flags nor that metadata identify a release, the command prints nothing (or `null` with `--json`) and exits `0`, so a build can carry on without one.
-A failed lookup exits non-zero instead.
+When the release name or version is missing and git or CI metadata cannot supply it, the command prints nothing (or `null` with `--json`) and exits `0`, so a build can carry on without a release.
+Sourcemap processing still uploads symbols in this case, but it cannot associate them with a release.
+Pass both `--release-name` and `--release-version` if the build has no git metadata and you need that association.
+A failed lookup of a complete release exits non-zero instead.
 
 Add `--build` to give a build number its own release: it is packed into the version, so `--release-version 1.4.0 --build 42` resolves to a different release than `--release-version 1.4.0` alone.
 

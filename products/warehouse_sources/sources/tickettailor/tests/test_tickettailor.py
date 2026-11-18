@@ -9,10 +9,11 @@ from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.sources.tickettailor._config import TicketTailorSourceConfig
-from products.warehouse_sources.sources.tickettailor.settings import ENDPOINTS
+from products.warehouse_sources.sources.tickettailor.settings import TICKET_TAILOR_ENDPOINTS
 from products.warehouse_sources.sources.tickettailor.source import TicketTailorSource
 from products.warehouse_sources.sources.tickettailor.tickettailor import (
     PAGE_SIZE,
@@ -77,8 +78,107 @@ class TestValidateCredentials:
             assert validate_credentials("tt-key") == (False, "Could not validate Ticket Tailor API key")
 
 
+class TestListParams:
+    @parameterized.expand(
+        [
+            ("holds", "/v1/holds", {"limit": (str(PAGE_SIZE),)}),
+            # The stores list documents no `limit` parameter.
+            ("stores", "/v1/stores", {}),
+        ]
+    )
+    def test_first_request(self, endpoint: str, path: str, expected_query: dict[str, tuple[str, ...]]) -> None:
+        result = _run([_page([{"id": "x_1"}])], endpoint)
+
+        assert result.raised is None
+        assert result.paths == [path]
+        assert result.queries == [expected_query]
+
+
+class TestFanout:
+    def test_voucher_codes_walk_every_voucher_and_child_page(self) -> None:
+        result = _run(
+            route(
+                {
+                    "/v1/vouchers": [
+                        _page([{"id": "vo_3"}, {"id": "vo_2"}], next_link="/v1/vouchers?starting_after=vo_2"),
+                        _page([{"id": "vo_1"}]),
+                    ],
+                    "/v1/vouchers/vo_3/codes": [
+                        _page([{"id": "vc_9", "code": "A"}], next_link="/v1/vouchers/vo_3/codes?starting_after=vc_9"),
+                        _page([{"id": "vc_8", "code": "B"}]),
+                    ],
+                    # A voucher deleted after the listing was read.
+                    "/v1/vouchers/vo_2/codes": [ScriptedResponse(status=404, json={"message": "Not found"})],
+                    "/v1/vouchers/vo_1/codes": [_page([{"id": "vc_1", "code": "C", "voucher_id": "vo_1"}])],
+                }
+            ),
+            "voucher_codes",
+        )
+
+        assert result.raised is None
+        assert [(r["voucher_id"], r["id"]) for r in result.rows] == [
+            ("vo_3", "vc_9"),
+            ("vo_3", "vc_8"),
+            ("vo_1", "vc_1"),
+        ]
+        assert result.paths == [
+            "/v1/vouchers",
+            "/v1/vouchers/vo_3/codes",
+            "/v1/vouchers/vo_3/codes",
+            "/v1/vouchers/vo_2/codes",
+            "/v1/vouchers",
+            "/v1/vouchers/vo_1/codes",
+        ]
+        assert result.params("starting_after") == [None, None, "vc_9", None, "vo_2", None]
+        assert result.params("limit") == [str(PAGE_SIZE)] * 6
+
+    def test_waitlist_signups_carry_the_event_series_id(self) -> None:
+        result = _run(
+            route(
+                {
+                    "/v1/event_series": [_page([{"id": "es_1"}, {"id": "es_2"}])],
+                    "/v1/event_series/es_1/waitlist_signups": [_page([{"id": "ws_1", "event_id": "ev_1"}])],
+                    "/v1/event_series/es_2/waitlist_signups": [_page([{"id": "ws_2", "event_id": "ev_2"}])],
+                }
+            ),
+            "waitlist_signups",
+        )
+
+        assert result.raised is None
+        assert [(r["event_series_id"], r["id"], r["event_id"]) for r in result.rows] == [
+            ("es_1", "ws_1", "ev_1"),
+            ("es_2", "ws_2", "ev_2"),
+        ]
+        assert all("_event_series_id" not in r for r in result.rows)
+
+    def test_resume_skips_finished_parents_and_continues_the_current_child(self) -> None:
+        result = _run(
+            route(
+                {
+                    "/v1/vouchers": [_page([{"id": "vo_3"}, {"id": "vo_2"}, {"id": "vo_1"}])],
+                    "/v1/vouchers/vo_2/codes": [_page([{"id": "vc_4"}])],
+                    "/v1/vouchers/vo_1/codes": [_page([{"id": "vc_1"}])],
+                }
+            ),
+            "voucher_codes",
+            resume_state=TicketTailorResumeConfig(
+                fanout_state={
+                    "completed": ["/v1/vouchers/vo_3/codes"],
+                    "current": "/v1/vouchers/vo_2/codes",
+                    "child_state": {"cursor": "vc_5"},
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [(r["voucher_id"], r["id"]) for r in result.rows] == [("vo_2", "vc_4"), ("vo_1", "vc_1")]
+        assert result.paths == ["/v1/vouchers", "/v1/vouchers/vo_2/codes", "/v1/vouchers/vo_1/codes"]
+        assert result.params("starting_after") == [None, "vc_5", None]
+        assert all(state.cursor is None and state.fanout_state for state in result.saved_states)
+
+
 class TestSourceResponseShape:
-    @parameterized.expand([(e,) for e in ENDPOINTS])
+    @parameterized.expand([(name,) for name, config in TICKET_TAILOR_ENDPOINTS.items() if config.fanout is None])
     def test_source_response_shape(self, endpoint: str) -> None:
         response = _run([_page([])], endpoint).response
 

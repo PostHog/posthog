@@ -1,5 +1,6 @@
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 
 from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField, IncrementalFieldType
 
@@ -24,6 +25,8 @@ class ThinkificCoursesEndpointConfig:
     page_size: int = 100
     # Set for child endpoints that iterate a parent list and query per parent (single-level fan-out).
     fanout: Optional[DependentEndpointConfig] = None
+    # Reshapes each fan-out parent row before the child resolves its path param from it.
+    parent_data_map: Optional[Callable[[dict[str, Any]], list[dict[str, Any]]]] = None
 
 
 _UPDATED_AT_INCREMENTAL: list[IncrementalField] = [
@@ -34,6 +37,10 @@ _UPDATED_AT_INCREMENTAL: list[IncrementalField] = [
         "field_type": IncrementalFieldType.DateTime,
     },
 ]
+
+
+def _course_chapter_rows(course: dict[str, Any]) -> list[dict[str, Any]]:
+    return [{"chapter_id": chapter_id, "course_id": course.get("id")} for chapter_id in course.get("chapter_ids") or []]
 
 
 # List endpoints of the Thinkific public Admin API (https://api.thinkific.com/api/public/v1). Every
@@ -57,6 +64,34 @@ THINKIFIC_COURSES_ENDPOINTS: dict[str, ThinkificCoursesEndpointConfig] = {
             parent_field_renames={"id": "course_id"},
         ),
     ),
+    "chapters": ThinkificCoursesEndpointConfig(
+        name="chapters",
+        path="/courses/{course_id}/chapters",
+        primary_keys=["course_id", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="courses",
+            resolve_param="course_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "course_id"},
+        ),
+    ),
+    # Contents are listed per chapter. Every course row carries its `chapter_ids`, so each course
+    # becomes one parent row per chapter and the fan-out stays one level deep (and resumable)
+    # instead of chaining courses -> chapters -> contents.
+    "contents": ThinkificCoursesEndpointConfig(
+        name="contents",
+        path="/chapters/{chapter_id}/contents",
+        primary_keys=["chapter_id", "id"],
+        parent_data_map=_course_chapter_rows,
+        fanout=DependentEndpointConfig(
+            parent_name="courses",
+            resolve_param="chapter_id",
+            resolve_field="chapter_id",
+            include_from_parent=["course_id"],
+            parent_field_renames={"course_id": "course_id"},
+        ),
+    ),
     # Coupons require a promotion_id query param, so they fan out over promotions.
     "coupons": ThinkificCoursesEndpointConfig(
         name="coupons",
@@ -72,6 +107,21 @@ THINKIFIC_COURSES_ENDPOINTS: dict[str, ThinkificCoursesEndpointConfig] = {
     ),
     # Enrollments is the one endpoint the API documents server-side date filtering for
     # (query[updated_after] / query[updated_on_or_after] / ...), so it's the only incremental one.
+    "collection_products": ThinkificCoursesEndpointConfig(
+        name="collection_products",
+        path="/collections/{collection_id}/products",
+        primary_keys=["collection_id", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="collections",
+            resolve_param="collection_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "collection_id"},
+        ),
+    ),
+    "custom_profile_field_definitions": ThinkificCoursesEndpointConfig(
+        name="custom_profile_field_definitions", path="/custom_profile_field_definitions"
+    ),
     "enrollments": ThinkificCoursesEndpointConfig(
         name="enrollments",
         path="/enrollments",

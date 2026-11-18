@@ -2,7 +2,7 @@ import './MetricsPreview.scss'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 // Hand-authored series. Latency is spiky around a steady band; memory is a
 // sawtooth that climbs and drops on every garbage-collection cycle.
@@ -21,7 +21,7 @@ function areaPath(line: string): string {
  * skill. Chart states crossfade in `__swap` grids, so nothing shifts.
  */
 export function MetricsPreview(): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     return (
         <div className={cn('MetricsPreview', isStatic && 'MetricsPreview--static')}>

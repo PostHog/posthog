@@ -14,6 +14,7 @@ from types import FrameType
 from typing import Any
 
 import structlog
+from billiard.common import _shutdown_cleanup
 
 from posthog.api.cohort import validate_filters_and_compute_realtime_support
 from posthog.dataclasses import frozen
@@ -25,7 +26,10 @@ from products.cohorts.backend.models.util import (
     legacy_groups_to_filters,
     sort_cohorts_topologically,
 )
-from products.feature_flags.backend.flags_cache import coalesced_cohort_flags_cache_rebuilds
+from products.feature_flags.backend.flags_cache import (
+    awaited_cohort_invalidation_deliveries,
+    coalesced_cohort_flags_cache_rebuilds,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -61,7 +65,10 @@ def termination_unwinds() -> Iterator[bool]:
         return
 
     dispositions = {signum: signal.getsignal(signum) for signum in UNWIND_SIGNALS}
-    if any(disposition not in (signal.SIG_DFL, signal.SIG_IGN) for disposition in dispositions.values()):
+    # billiard's handler in a prefork Celery child raises `SystemExit`, which unwinds the same way.
+    if any(
+        disposition not in (signal.SIG_DFL, signal.SIG_IGN, _shutdown_cleanup) for disposition in dispositions.values()
+    ):
         # Something else owns one of them, a web worker serving the admin view for one. Taking it
         # over would replace that shutdown path, and a handler installed outside Python reads
         # back as `None`, which cannot be restored afterwards.
@@ -156,7 +163,9 @@ def resave_team_cohorts(team: Team, *, batch_size: int, dry_run: bool, coalesce_
     rebuilds: AbstractContextManager[set[int]] = (
         coalesced_cohort_flags_cache_rebuilds() if coalesce_rebuilds else nullcontext(set())
     )
-    with rebuilds as stale_cache_teams:
+    # The delivery wait wraps the coalescing block, so it also covers the dispatch that runs when
+    # that block exits.
+    with awaited_cohort_invalidation_deliveries() as undelivered_teams, rebuilds as stale_cache_teams:
         for cohort_id in sorted_cohort_ids:
             cohort = seen_cohorts_cache.get(cohort_id)
             if not cohort:
@@ -190,7 +199,7 @@ def resave_team_cohorts(team: Team, *, batch_size: int, dry_run: bool, coalesce_
         errors=errors,
         validation_errors=validation_errors,
         prospective_realtime=prospective_realtime,
-        rebuild_dispatch_failed=bool(stale_cache_teams),
+        rebuild_dispatch_failed=bool(stale_cache_teams or undelivered_teams),
     )
 
 

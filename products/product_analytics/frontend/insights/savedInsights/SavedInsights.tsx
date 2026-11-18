@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { Suspense } from 'react'
 
 import { IconEllipsis, IconHeart, IconHeartFilled, IconTrash } from '@posthog/icons'
 
@@ -21,10 +22,12 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { cn } from 'lib/utils/css-classes'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { SavedInsightsEmptyState, SavedInsightsErrorState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
@@ -54,6 +57,13 @@ import { ProductAnalyticsNotifications } from 'products/product_analytics/fronte
 import { productAnalyticsNotificationsLogic } from 'products/product_analytics/frontend/notifications/productAnalyticsNotificationsLogic'
 
 import { DraftInsightMoreMenu, DraftInsightNameCell } from './DraftInsightRow'
+
+// Only people with the anomalies-tab flag open the tab, so its code stays out of this scene's chunk.
+const AnomaliesTab = lazyWithRetry(() =>
+    import('products/product_analytics/frontend/insights/anomalies/AnomaliesTab').then((m) => ({
+        default: m.AnomaliesTab,
+    }))
+)
 
 export const scene: SceneExport = {
     component: SavedInsights,
@@ -91,6 +101,7 @@ export function SavedInsights(): JSX.Element {
     const summarizeInsight = useSummarizeInsight()
     const { openHomeDashboardStarter, editHomeDashboard, restorePostHogHome } = useActions(homeDashboardChoiceLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const anomaliesTab = useFeatureFlag('ANOMALIES_TAB')
 
     const { tab } = filters
 
@@ -410,6 +421,21 @@ export function SavedInsights(): JSX.Element {
                         ),
                     },
                     { key: SavedInsightsTabs.History, label: 'History' },
+                    ...(anomaliesTab
+                        ? [
+                              {
+                                  key: SavedInsightsTabs.Anomalies,
+                                  label: (
+                                      <span className="flex items-center gap-1.5">
+                                          Anomalies
+                                          <LemonTag type="warning" size="small">
+                                              Beta
+                                          </LemonTag>
+                                      </span>
+                                  ),
+                              },
+                          ]
+                        : []),
                 ]}
                 sceneInset
                 rightSlot={homeDashboardActions}
@@ -422,6 +448,10 @@ export function SavedInsights(): JSX.Element {
                     <HomeDashboardModals />
                     <NewDashboardModal redirectAfterCreation={false} />
                 </>
+            ) : tab === SavedInsightsTabs.Anomalies && anomaliesTab ? (
+                <Suspense fallback={<Spinner />}>
+                    <AnomaliesTab />
+                </Suspense>
             ) : tab === SavedInsightsTabs.Notifications ? (
                 <ProductAnalyticsNotifications />
             ) : tab === SavedInsightsTabs.History ? (

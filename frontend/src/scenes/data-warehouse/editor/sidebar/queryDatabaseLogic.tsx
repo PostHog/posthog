@@ -7,14 +7,13 @@ import {
     IconBrackets,
     IconDatabase,
     IconDocument,
-    IconEndpoints,
     IconGraph,
     IconPlug,
     IconPlus,
     IconRefresh,
     IconWarning,
 } from '@posthog/icons'
-import { LemonMenuItem, Spinner, lemonToast } from '@posthog/lemon-ui'
+import { LemonMenuItem, LemonSkeleton, Spinner, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { ApiError, isAccessDeniedError, readableErrorMessage } from 'lib/api-error'
@@ -54,7 +53,6 @@ import {
 import { HOGQL_METRIC_DEFINITION_KIND } from 'products/data_catalog/frontend/common'
 import type { DataCatalogMetricApi } from 'products/data_catalog/frontend/generated/api.schemas'
 import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
-import type { ViewEngineApi } from 'products/data_warehouse/frontend/generated/api.schemas'
 import { SourceIcon, mapUrlToProvider } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 import {
     TABLE_CATEGORY_LIMIT,
@@ -83,6 +81,7 @@ import {
     getSidebarPropertyDefinitionTarget,
     SidebarPropertyDefinitionTarget,
 } from 'products/data_warehouse/frontend/shared/propertyDefinitionTarget'
+import { viewEngine } from 'products/data_warehouse/frontend/shared/viewEngine'
 import type { ExternalDataSourceConnectionOptionApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import type { DatabaseSchemaViewTable } from '../../../../queries/schema/schema-general'
@@ -95,6 +94,7 @@ import {
 } from '../../saved_queries/dataWarehouseViewsLogic'
 import { validateSavedQueryName } from '../../saved_queries/savedQueryNameValidation'
 import { draftsLogic } from '../draftsLogic'
+import { MaterializedEndpointIcon, MaterializedViewIcon } from './MaterializedViewIcon'
 
 export type EditorSidebarTreeRef = React.RefObject<LemonTreeRef> | null
 
@@ -442,16 +442,7 @@ const createPropertyDefinitionChildren = (
     loadPropertyDefinitions: FieldTraversalOptions['loadPropertyDefinitions']
 ): TreeDataItem[] => {
     if (!propertyDefinitionList) {
-        return [
-            {
-                id: `${isSearch ? 'search-' : ''}property-${tableName}-${columnPath}-placeholder/`,
-                name: 'Loading...',
-                displayName: <>Loading...</>,
-                icon: <Spinner />,
-                disableSelect: true,
-                type: 'loading-indicator',
-            },
-        ]
+        return createSkeletonNodes(`${isSearch ? 'search-' : ''}property-${tableName}-${columnPath}-placeholder`)
     }
 
     const propertyNodes: TreeDataItem[] = propertyDefinitionList.definitions.map((propertyDefinition) => {
@@ -484,14 +475,9 @@ const createPropertyDefinitionChildren = (
     })
 
     if (propertyDefinitionList.loading) {
-        propertyNodes.push({
-            id: `${isSearch ? 'search-' : ''}property-${tableName}-${columnPath}-loading/`,
-            name: 'Loading...',
-            displayName: <>Loading...</>,
-            icon: <Spinner />,
-            disableSelect: true,
-            type: 'loading-indicator',
-        })
+        propertyNodes.push(
+            ...createSkeletonNodes(`${isSearch ? 'search-' : ''}property-${tableName}-${columnPath}-loading`, 1)
+        )
     } else if (propertyDefinitionList.error) {
         propertyNodes.push(
             {
@@ -571,33 +557,39 @@ const createPropertyDefinitionFieldNode = (
     }
 }
 
-const createLazyTablePlaceholderNode = (lazyNodeId: string): TreeDataItem => {
-    return {
-        id: `${lazyNodeId}-placeholder/`,
-        name: 'Loading...',
-        displayName: <>Loading...</>,
-        icon: <Spinner />,
-        disableSelect: true,
-        type: 'loading-indicator',
-    }
-}
+// Widths vary so a stack of skeleton rows reads as a few distinct entries rather than repeated bars.
+const SKELETON_NAME_WIDTHS = ['w-24', 'w-32', 'w-20']
 
-// Placeholder shown while a table's fields are being lazy loaded. `pendingTableName` marks the
+const createSkeletonNodes = (
+    idPrefix: string,
+    count = SKELETON_NAME_WIDTHS.length,
+    record?: TreeDataItem['record']
+): TreeDataItem[] =>
+    Array.from(
+        { length: count },
+        (_, index): TreeDataItem => ({
+            id: `${idPrefix}-${index}/`,
+            name: 'Loading...',
+            displayName: (
+                <LemonSkeleton
+                    className={`inline-block h-3 align-middle ${SKELETON_NAME_WIDTHS[index % SKELETON_NAME_WIDTHS.length]}`}
+                />
+            ),
+            icon: (
+                <span className="flex">
+                    <LemonSkeleton className="size-4" />
+                </span>
+            ),
+            disableSelect: true,
+            type: 'loading-indicator',
+            record,
+        })
+    )
+
+// Skeleton column rows shown while a table's fields are being lazy loaded. `pendingTableName` marks the
 // table to hydrate; the tree subscription collects these for every visible placeholder.
-const createPendingFieldsNode = (nodeId: string, pendingTableName: string): TreeDataItem => {
-    return {
-        id: `${nodeId}-fields-pending/`,
-        name: 'Loading...',
-        displayName: <>Loading...</>,
-        icon: <Spinner />,
-        disableSelect: true,
-        type: 'loading-indicator',
-        record: {
-            type: 'pending-fields',
-            pendingTableName,
-        },
-    }
-}
+const createPendingFieldsNodes = (nodeId: string, pendingTableName: string): TreeDataItem[] =>
+    createSkeletonNodes(`${nodeId}-fields-pending`, undefined, { type: 'pending-fields', pendingTableName })
 
 const createFieldsErrorNode = (nodeId: string): TreeDataItem => {
     return {
@@ -768,7 +760,7 @@ const createExpandedLazyTableChildren = (
     if (referencedTable) {
         const state = getTableFieldsState(referencedTable.name, referencedTable.fields, options?.hydration)
         if (state === 'pending') {
-            return [createPendingFieldsNode(lazyNodeId, referencedTable.name)]
+            return createPendingFieldsNodes(lazyNodeId, referencedTable.name)
         }
         if (state === 'error') {
             return [createFieldsErrorNode(lazyNodeId)]
@@ -799,7 +791,7 @@ const createViewTableChildren = (
     if (referencedTable) {
         const state = getTableFieldsState(referencedTable.name, referencedTable.fields, options?.hydration)
         if (state === 'pending') {
-            return [createPendingFieldsNode(nodeId, referencedTable.name)]
+            return createPendingFieldsNodes(nodeId, referencedTable.name)
         }
         if (state === 'error') {
             return [createFieldsErrorNode(nodeId)]
@@ -888,7 +880,7 @@ const createTraversedLazyTableNode = (
               tableLookup,
               options
           )
-        : [createLazyTablePlaceholderNode(lazyNodeId)]
+        : createSkeletonNodes(`${lazyNodeId}-placeholder`)
 
     return {
         id: lazyNodeId,
@@ -1093,7 +1085,7 @@ const createFieldNode = (
                   tableLookup,
                   nextOptions
               )
-            : [createLazyTablePlaceholderNode(lazyNodeId)]
+            : createSkeletonNodes(`${lazyNodeId}-placeholder`)
 
         return {
             id: lazyNodeId,
@@ -1173,7 +1165,7 @@ const createTableNode = (
     if ('fields' in table) {
         const fieldsState = getTableFieldsState(schemaTableName, table.fields, options?.hydration)
         if (fieldsState === 'pending') {
-            tableChildren.push(createPendingFieldsNode(tableId, schemaTableName))
+            tableChildren.push(...createPendingFieldsNodes(tableId, schemaTableName))
         } else if (fieldsState === 'error') {
             tableChildren.push(createFieldsErrorNode(tableId))
         } else {
@@ -1197,7 +1189,7 @@ const createTableNode = (
         id: tableId,
         name: table.name,
         type: 'node',
-        icon: <IconDatabase />,
+        icon: table.type === 'materialized_view' ? <MaterializedViewIcon /> : <IconDatabase />,
         record: {
             type: 'table',
             table: table,
@@ -1298,7 +1290,7 @@ const createViewNode = (
     const fieldsState = getTableFieldsState(view.name, fields, options?.hydration)
 
     if (fieldsState === 'pending') {
-        viewChildren.push(createPendingFieldsNode(viewId, view.name))
+        viewChildren.push(...createPendingFieldsNodes(viewId, view.name))
     } else if (fieldsState === 'error') {
         viewChildren.push(createFieldsErrorNode(viewId))
     } else {
@@ -1322,8 +1314,10 @@ const createViewNode = (
             <Spinner />
         ) : isManagedViewsetView ? (
             <IconBolt />
-        ) : isManagedView || isMaterializedView ? (
+        ) : isManagedView ? (
             <IconDatabase />
+        ) : isMaterializedView ? (
+            <MaterializedViewIcon />
         ) : (
             <IconDocument />
         ),
@@ -1353,7 +1347,7 @@ const createManagedViewNode = (
 
     const fieldsState = getTableFieldsState(managedView.name, managedView.fields, options?.hydration)
     if (fieldsState === 'pending') {
-        viewChildren.push(createPendingFieldsNode(managedViewId, managedView.name))
+        viewChildren.push(...createPendingFieldsNodes(managedViewId, managedView.name))
     } else if (fieldsState === 'error') {
         viewChildren.push(createFieldsErrorNode(managedViewId))
     } else {
@@ -1394,7 +1388,7 @@ const createEndpointNode = (
     const children: TreeDataItem[] = []
     const fieldsState = getTableFieldsState(endpointTable.name, endpointTable.fields, options?.hydration)
     if (fieldsState === 'pending') {
-        children.push(createPendingFieldsNode(endpointNodeId, endpointTable.name))
+        children.push(...createPendingFieldsNodes(endpointNodeId, endpointTable.name))
     } else if (fieldsState === 'error') {
         children.push(createFieldsErrorNode(endpointNodeId))
     } else {
@@ -1416,7 +1410,7 @@ const createEndpointNode = (
         id: endpointNodeId,
         name: displayName,
         type: 'node',
-        icon: <IconEndpoints />,
+        icon: <MaterializedEndpointIcon />,
         record: {
             type: 'endpoint',
             table: endpointTable,
@@ -1565,27 +1559,33 @@ const createTopLevelFolderNode = (
     }
 }
 
-const viewEngineOf = (node: TreeDataItem): ViewEngineApi | undefined =>
-    node.record?.type === 'view' ? node.record?.view?.engine : undefined
+const isSavedViewNode = (node: TreeDataItem): boolean => node.record?.type === 'view' && !!node.record?.view
 
-const isRawTrinoViewNode = (node: TreeDataItem): boolean => {
-    const engine = viewEngineOf(node)
-    return engine?.target === 'managed_trino' && engine.dialect === 'raw'
+// Each saved view is listed only under the engine that runs it.
+const isSavedViewInScope = (node: TreeDataItem, connectionId: string | null): boolean => {
+    const engine = viewEngine(node.record?.view)
+    if (connectionId === MANAGED_TRINO_SCHEMA_SCOPE) {
+        return engine.target === 'managed_trino'
+    }
+    if (shouldUseDirectConnectionTree(connectionId)) {
+        return engine.target === 'connection' && engine.connection_id === connectionId
+    }
+    return engine.target === 'clickhouse'
 }
 
-const withoutViewsClickHouseCannotReference = (nodes: TreeDataItem[]): TreeDataItem[] =>
+const withoutViewsFromOtherEngines = (nodes: TreeDataItem[]): TreeDataItem[] =>
     nodes.flatMap((node): TreeDataItem[] => {
-        if (viewEngineOf(node)?.capabilities.referenceable_from_clickhouse.available === false) {
+        if (isSavedViewNode(node) && !isSavedViewInScope(node, null)) {
             return []
         }
         if (!node.children?.length) {
             return [node]
         }
-        const children = withoutViewsClickHouseCannotReference(node.children)
+        const children = withoutViewsFromOtherEngines(node.children)
         if (children.length > 0) {
             return [{ ...node, children }]
         }
-        // A folder or search section that held only views ClickHouse cannot reference goes away.
+        // A folder or search section that held only views from other engines goes away.
         // The browsing Views section stays, with the same placeholder an empty section gets.
         if (node.record?.type === 'views' && !node.id.startsWith('search-')) {
             return [
@@ -1605,19 +1605,15 @@ const withoutViewsClickHouseCannotReference = (nodes: TreeDataItem[]): TreeDataI
         return []
     })
 
-const flattenViewNodes = (
-    nodes: TreeDataItem[],
-    flattenedViews: TreeDataItem[],
-    includeRawTrinoViews: boolean
-): void => {
+const flattenViewNodes = (nodes: TreeDataItem[], flattenedViews: TreeDataItem[], connectionId: string): void => {
     nodes.forEach((node) => {
-        if (node.record?.type === 'view-table' || (includeRawTrinoViews && isRawTrinoViewNode(node))) {
+        if (node.record?.type === 'view-table' || (isSavedViewNode(node) && isSavedViewInScope(node, connectionId))) {
             flattenedViews.push(node)
             return
         }
 
         if (node.record?.type === 'folder' && node.record?.folderType === 'view-folder') {
-            flattenViewNodes(node.children ?? [], flattenedViews, includeRawTrinoViews)
+            flattenViewNodes(node.children ?? [], flattenedViews, connectionId)
         }
     })
 }
@@ -1818,6 +1814,7 @@ export interface queryDatabaseLogicValues {
     joins: DataWarehouseViewLink[] // joinsDataLogic
     joinsLoading: boolean // joinsDataLogic
     allMetrics: DataCatalogMetricApi[] // metricsLogic
+    metricsLoading: boolean // metricsLogic
     currentProjectId: number | string // teamLogic
     user: UserType | null // userLogic
     activeDraggedViewId: string | null
@@ -2293,7 +2290,8 @@ export interface queryDatabaseLogicMeta {
             propertyDefinitionLists: Record<string, SidebarPropertyDefinitionList>,
             databaseFieldsComplete: boolean,
             tableFieldsStatus: TableFieldsStatus,
-            metricsLoadFailed: boolean
+            metricsLoadFailed: boolean,
+            metricsLoading: boolean
         ) => TreeDataItem[]
         displayedTreeData: (
             searchText: string,
@@ -2439,7 +2437,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 'tableFieldsStatus',
             ],
             metricsLogic,
-            ['allMetrics'],
+            ['allMetrics', 'splitTablesLoading as metricsLoading'],
             dataWarehouseViewsLogic,
             [
                 'dataWarehouseSavedQueries',
@@ -3470,6 +3468,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.databaseFieldsComplete,
                 s.tableFieldsStatus,
                 s.metricsLoadFailed,
+                s.metricsLoading,
             ],
             (
                 treeDataContext: TreeDataContext,
@@ -3486,7 +3485,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 propertyDefinitionLists: Record<string, SidebarPropertyDefinitionList>,
                 databaseFieldsComplete: boolean,
                 tableFieldsStatus: TableFieldsStatus,
-                metricsLoadFailed: boolean
+                metricsLoadFailed: boolean,
+                metricsLoading: boolean
             ): TreeDataItem[] => {
                 const {
                     allPosthogTables,
@@ -3523,14 +3523,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 if (schemaFailedWithNoTables) {
                     sourcesChildren.push(...createSchemaErrorNodes('sources', () => actions.refreshDatabaseSchema()))
                 } else if (databaseLoading && posthogTables.length === 0 && dataWarehouseTables.length === 0) {
-                    sourcesChildren.push({
-                        id: 'sources-loading/',
-                        name: 'Loading...',
-                        displayName: <>Loading...</>,
-                        icon: <Spinner />,
-                        disableSelect: true,
-                        type: 'loading-indicator',
-                    })
+                    sourcesChildren.push(...createSkeletonNodes('sources-loading'))
                 } else {
                     for (const category of ['Popular', 'PostHog']) {
                         const tables = posthogTables.filter((table) =>
@@ -3584,23 +3577,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     dataWarehouseSavedQueries.length === 0 &&
                     managedViews.length === 0
                 ) {
-                    viewsChildren.push({
-                        id: 'views-loading/',
-                        name: 'Loading...',
-                        displayName: <>Loading...</>,
-                        icon: <Spinner />,
-                        disableSelect: true,
-                        type: 'loading-indicator',
-                    })
-
-                    managedViewsChildren.push({
-                        id: 'managed-views-loading/',
-                        name: 'Loading...',
-                        displayName: <>Loading...</>,
-                        icon: <Spinner />,
-                        disableSelect: true,
-                        type: 'loading-indicator',
-                    })
+                    viewsChildren.push(...createSkeletonNodes('views-loading'))
+                    managedViewsChildren.push(...createSkeletonNodes('managed-views-loading'))
                 } else {
                     const viewChildrenByFolderId = new Map<string, TreeDataItem[]>()
                     const materializingViewIdSet = new Set(materializingViewIds)
@@ -3680,34 +3658,22 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                 const metricsChildren = metricsLoadFailed
                     ? createLoadErrorNodes('metrics', "Couldn't load metrics", () => actions.loadMetrics())
-                    : hogqlMetrics.map((metric) => createMetricNode(metric))
+                    : metricsLoading && hogqlMetrics.length === 0
+                      ? createSkeletonNodes('metrics-loading')
+                      : hogqlMetrics.map((metric) => createMetricNode(metric))
 
                 const draftsChildren: TreeDataItem[] = []
 
                 if (featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS]) {
                     if (draftsResponseLoading && drafts.length === 0) {
-                        draftsChildren.push({
-                            id: 'drafts-loading/',
-                            name: 'Loading...',
-                            displayName: <>Loading...</>,
-                            icon: <Spinner />,
-                            disableSelect: true,
-                            type: 'loading-indicator',
-                        })
+                        draftsChildren.push(...createSkeletonNodes('drafts-loading'))
                     } else {
                         drafts.forEach((draft) => {
                             draftsChildren.push(createDraftNode(draft))
                         })
 
                         if (drafts.length > 0 && draftsResponseLoading) {
-                            draftsChildren.push({
-                                id: 'drafts-loading/',
-                                name: 'Loading...',
-                                displayName: <>Loading...</>,
-                                icon: <Spinner />,
-                                disableSelect: true,
-                                type: 'loading-indicator',
-                            })
+                            draftsChildren.push(...createSkeletonNodes('drafts-loading', 1))
                         } else if (hasMoreDrafts) {
                             draftsChildren.push({
                                 id: 'drafts-load-more/',
@@ -3776,7 +3742,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                 if (!shouldUseDirectConnectionTree(connectionId)) {
                     return filterMaterializedViewsByStatus(
-                        withoutViewsClickHouseCannotReference(sourceData),
+                        withoutViewsFromOtherEngines(sourceData),
                         materializationStatusFilters
                     )
                 }
@@ -3803,11 +3769,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     if (item.record?.type === 'views') {
                         // In direct-connection mode, hide saved-query and managed view sections,
                         // and only keep DB-backed view nodes if they are present in schema.
-                        flattenViewNodes(
-                            item.children ?? [],
-                            flattenedViews,
-                            connectionId === MANAGED_TRINO_SCHEMA_SCOPE
-                        )
+                        flattenViewNodes(item.children ?? [], flattenedViews, connectionId)
                         return
                     }
 
@@ -3830,21 +3792,22 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                           ]
                         : []
 
-                // Saved Trino views come from the saved-query list, so they stay reachable when the schema fails.
+                // Saved views come from the saved-query list, so they stay reachable when the schema fails.
                 // Views from the schema itself may be stale after a failed refresh, so they are not shown.
-                const savedTrinoViews = flattenedViews.filter(isRawTrinoViewNode)
+                const savedViews = flattenedViews.filter(isSavedViewNode)
                 const hasLoadedTables = Object.keys(allTablesMap).length > 0
                 if (!databaseLoading && databaseLoadError) {
                     return [
                         ...createSchemaErrorNodes('direct-connection', () => actions.refreshDatabaseSchema()),
-                        ...(savedTrinoViews.length > 0 ? [{ ...viewsSection[0], children: savedTrinoViews }] : []),
+                        ...(savedViews.length > 0 ? [{ ...viewsSection[0], children: savedViews }] : []),
                     ]
                 }
                 if (!databaseLoading && !hasLoadedTables) {
                     const emptyNodes = createDirectConnectionEmptyNodes(connectionId)
-                    return connectionId === MANAGED_TRINO_SCHEMA_SCOPE
-                        ? [...emptyNodes.slice(0, 1), ...viewsSection]
-                        : emptyNodes
+                    return [
+                        ...(connectionId === MANAGED_TRINO_SCHEMA_SCOPE ? emptyNodes.slice(0, 1) : emptyNodes),
+                        ...viewsSection,
+                    ]
                 }
 
                 return [

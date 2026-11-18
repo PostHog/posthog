@@ -3,9 +3,8 @@ import { LemonBanner } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 
 /**
- * Shown by a tab whose data endpoints report no GitHub source. The scene-level empty state
- * covers a project that never connected one; this covers a source removed while the scene
- * is open, so the tab still says what to do instead of showing a failed load.
+ * The scene-level empty state covers a project that never connected a GitHub source. This covers a
+ * source removed while the scene is open, so the tab says what to do instead of showing a failed load.
  */
 export function ConnectGitHubSource(): JSX.Element {
     return (

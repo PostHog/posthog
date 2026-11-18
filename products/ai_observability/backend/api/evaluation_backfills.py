@@ -19,7 +19,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
 from rest_framework.views import APIView
-from temporalio.client import WorkflowExecutionStatus
+from temporalio.client import Client, WorkflowExecutionStatus
 from temporalio.common import WorkflowIDReusePolicy
 from temporalio.service import RPCError, RPCStatusCode
 
@@ -48,13 +48,13 @@ from posthog.temporal.ai_observability.evaluation_backfill import (
     report_backfill_finished,
     settle_horizon,
 )
-from posthog.temporal.ai_observability.run_aggregate_evaluation import INGESTION_LAG_MARGIN_SECONDS
 from posthog.temporal.ai_observability.run_session_evaluation import AI_EVENTS_RETENTION_DAYS
-from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.client import async_connect
 
 from products.access_control.backend.property_access_control import get_restricted_properties_for_team
 from products.ai_observability.backend.api.evaluations import EvaluationConditionSerializer
 from products.ai_observability.backend.backfill_candidates import BackfillScope, count_backfill_candidates
+from products.ai_observability.backend.logic.evaluations.settle import INGESTION_LAG_MARGIN_SECONDS
 from products.ai_observability.backend.models.evaluation_backfill import ACTIVE_BACKFILL_STATUSES, EvaluationBackfill
 from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationTarget
 
@@ -162,6 +162,14 @@ def clamp_backfill_window(
     return BackfillWindow(start=window_start, end=window_end)
 
 
+# Requests wait for these calls, so a stalled Temporal must not hold the web worker.
+TEMPORAL_REQUEST_TIMEOUT = timedelta(seconds=5)
+
+
+def connect_with_deadline() -> Client:
+    return asyncio.run(asyncio.wait_for(async_connect(), TEMPORAL_REQUEST_TIMEOUT.total_seconds()))
+
+
 def start_backfill(
     *,
     team: Team,
@@ -171,6 +179,7 @@ def start_backfill(
     rerun_existing: bool,
     total_count: int,
     user: User,
+    max_units: int | None = None,
 ) -> EvaluationBackfill:
     """Create the backfill row and start its walk. Raises a ValidationError when one already runs."""
     try:
@@ -183,6 +192,7 @@ def start_backfill(
             conditions=conditions,
             rerun_existing=rerun_existing,
             total_count=total_count,
+            max_units=max_units,
             created_by=user,
         )
     except IntegrityError:
@@ -190,7 +200,7 @@ def start_backfill(
         raise ValidationError("This evaluation already has a running backfill.")
 
     try:
-        client = sync_connect()
+        client = connect_with_deadline()
     except Exception:
         # Connecting failed, so no start request reached Temporal and no workflow can exist for
         # this row. Removing it lets the user retry at once.
@@ -206,6 +216,7 @@ def start_backfill(
                 id=backfill_workflow_id(str(backfill.id)),
                 task_queue=settings.LLMA_TASK_QUEUE,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                rpc_timeout=TEMPORAL_REQUEST_TIMEOUT,
             )
         )
     except Exception:
@@ -336,6 +347,7 @@ class EvaluationBackfillSerializer(serializers.ModelSerializer):
             "window_end",
             "conditions",
             "rerun_existing",
+            "max_units",
             "total_count",
             "dispatched_count",
             "completed_count",
@@ -355,6 +367,9 @@ class EvaluationBackfillSerializer(serializers.ModelSerializer):
             "window_start": {"help_text": "Inclusive start of the window, by unit timestamp."},
             "window_end": {"help_text": "Exclusive end of the window."},
             "rerun_existing": {"help_text": "Whether units with an existing result are evaluated again."},
+            "max_units": {
+                "help_text": "Most units this backfill evaluates, for a capped preview such as an accepted eval suggestion. Null means no cap."
+            },
             "total_count": {
                 "help_text": "Units matched at creation. Units that land in the window later can take dispatched_count and skipped_count past it."
             },
@@ -619,7 +634,7 @@ class EvaluationBackfillViewSet(
     def _probe_reads_alive(self, backfill: EvaluationBackfill, workflow_id: str) -> bool:
         """Ask Temporal whether the workflow runs, and read no answer at all as a yes."""
         try:
-            client = sync_connect()
+            client = connect_with_deadline()
             description = asyncio.run(client.get_workflow_handle(workflow_id).describe())
             return description.status == WorkflowExecutionStatus.RUNNING
         except RPCError as error:
@@ -699,7 +714,7 @@ class EvaluationBackfillViewSet(
         backfill = self.get_object()
         if cancel_backfill(self.team_id, backfill.pk):
             try:
-                client = sync_connect()
+                client = connect_with_deadline()
                 asyncio.run(client.get_workflow_handle(backfill_workflow_id(str(backfill.pk))).cancel())
             except Exception as error:
                 # The workflow reads the row's status at every tick and stops on a terminal one, so

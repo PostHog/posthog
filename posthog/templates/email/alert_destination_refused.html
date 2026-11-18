@@ -1,0 +1,17 @@
+{% extends "email/base.html" %}
+{% block heading %}An alert destination refused a notification{% endblock %}
+{% block section %}
+    <p>A notification from your alert <a href="{{ alert_url }}">{{ alert_name }}</a> was not delivered:</p>
+    <p><i>{{ refusal }}</i></p>
+    <p>Every notification sent to this destination will fail until it is fixed. {{ remedy }}</p>
+    <div class="mb mt text-center">
+        <a class="button" href="{{ alert_url }}">Go to alert</a>
+    </div>
+    <div class="mt">
+        <p>
+            If the button above doesn't work, paste this link into your browser:
+            <br />
+            <a href="{{ alert_url }}">{{ alert_url }}</a>
+        </p>
+    </div>
+{% endblock %}

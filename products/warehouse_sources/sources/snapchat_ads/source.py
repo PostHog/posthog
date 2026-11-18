@@ -140,7 +140,7 @@ class SnapchatAdsSource(ResumableSource[SnapchatAdsSourceConfig, SnapchatResumeC
 
         oauth = OauthIntegration(integration)
         if integration.errors != ERROR_TOKEN_REFRESH_FAILED and oauth.access_token_expired():
-            oauth.refresh_access_token()
+            integration = oauth.refresh_access_token()
         if integration.errors == ERROR_TOKEN_REFRESH_FAILED or not integration.access_token:
             raise IntegrationAccountListingError(
                 "Could not refresh the Snapchat Ads credentials. Please reconnect your Snapchat Ads integration."
@@ -234,7 +234,7 @@ class SnapchatAdsSource(ResumableSource[SnapchatAdsSourceConfig, SnapchatResumeC
         # failed refresh is recorded on the integration and the run continues with the old token.
         oauth = OauthIntegration(integration)
         if not refresh_backoff_active(oauth.integration) and oauth.access_token_expired():
-            oauth.refresh_access_token()
+            integration = oauth.refresh_access_token()
             if integration.config.get("refresh_terminal"):
                 raise ValueError(f"{SNAPCHAT_REAUTHORIZATION_REQUIRED_ERROR} for job {inputs.job_id}")
 

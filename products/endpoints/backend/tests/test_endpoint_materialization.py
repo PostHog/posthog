@@ -20,7 +20,7 @@ from rest_framework.response import Response
 from posthog.hogql.errors import QueryError
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.constants import RETENTION_FIRST_EVER_OCCURRENCE, TREND_FILTER_TYPE_EVENTS
+from posthog.constants import RETENTION_FIRST_EVER_OCCURRENCE, TREND_FILTER_TYPE_EVENTS, AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
@@ -28,6 +28,7 @@ from posthog.sync import database_sync_to_async
 
 from products.data_modeling.backend.facade.api import (
     UnsatisfiableFrequencyError,
+    clamp_dag_targets_to_plan_floor,
     get_declared_target,
     set_declared_target,
 )
@@ -120,7 +121,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(saved_query.query, version.query)
         self.assertTrue(saved_query.is_materialized)
         self.assertEqual(saved_query.origin, DataWarehouseSavedQuery.Origin.ENDPOINT)
-        self.assertIsNone(saved_query.sync_frequency_interval)
         self.assertEqual(get_declared_target(Node.objects.get(saved_query=saved_query)), timedelta(hours=24))
         view_events = [
             call for call in mock_capture.call_args_list if call.kwargs.get("event") in {"view created", "view updated"}
@@ -336,13 +336,14 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            (None, 43200, {"is_materialized": False}),
-            (900, 900, {"is_materialized": False}),
-            (900, 900, {"is_active": False, "version": 1}),
+            (None, 43200, {"is_materialized": False}, False),
+            (900, 900, {"is_materialized": False}, False),
+            (900, 900, {"is_active": False, "version": 1}, False),
+            (None, 900, {"is_materialized": False}, True),
         ]
     )
     def test_disabling_materialization_preserves_or_updates_freshness(
-        self, requested_freshness, expected_freshness, update
+        self, requested_freshness, expected_freshness, update, rewritten_to_plan_floor
     ):
         endpoint = create_endpoint_with_version(
             name="disabled_node_freshness",
@@ -357,7 +358,23 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         version = endpoint.get_version()
-        set_declared_target(Node.objects.get(saved_query=version.saved_query), timedelta(hours=12))
+        node = Node.objects.get(saved_query=version.saved_query)
+        if rewritten_to_plan_floor:
+            set_declared_target(node, timedelta(minutes=15))
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.DATA_MODELING_REFRESH_INTERVAL, "name": "Refresh interval", "limit": 720}
+            ]
+            self.organization.save(update_fields=["available_product_features"])
+            with (
+                mock.patch(
+                    "products.data_modeling.backend.logic.refresh_floor.feature_enabled_or_false", return_value=True
+                ),
+                mock.patch("products.data_modeling.backend.logic.schedule_reconcile.reconcile_dag_schedules"),
+                mock.patch("products.data_modeling.backend.logic.schedule_reconcile.ph_background_capture"),
+            ):
+                self.assertEqual(clamp_dag_targets_to_plan_floor(self.team.pk, str(node.dag_id)), 1)
+        else:
+            set_declared_target(node, timedelta(hours=12))
         update = dict(update)
         if requested_freshness is not None:
             update["data_freshness_seconds"] = requested_freshness
@@ -483,7 +500,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         saved_query = version.saved_query
         assert saved_query is not None
         node = Node.objects.get(saved_query=saved_query)
-        self.assertIsNone(saved_query.sync_frequency_interval)
         self.assertEqual(get_declared_target(node), timedelta(hours=24))
 
         # Update to 12-hour frequency
@@ -500,7 +516,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         saved_query.refresh_from_db()
         node.refresh_from_db()
-        self.assertIsNone(saved_query.sync_frequency_interval)
         self.assertEqual(get_declared_target(node), timedelta(hours=12))
 
         # Update to 1-hour frequency
@@ -517,7 +532,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         saved_query.refresh_from_db()
         node.refresh_from_db()
-        self.assertIsNone(saved_query.sync_frequency_interval)
         self.assertEqual(get_declared_target(node), timedelta(hours=1))
 
         # Update to 30-minute frequency
@@ -534,7 +548,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         saved_query.refresh_from_db()
         node.refresh_from_db()
-        self.assertIsNone(saved_query.sync_frequency_interval)
         self.assertEqual(get_declared_target(node), timedelta(minutes=30))
 
         # Update to 15-minute frequency (the new floor)
@@ -551,7 +564,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         saved_query.refresh_from_db()
         node.refresh_from_db()
-        self.assertIsNone(saved_query.sync_frequency_interval)
         self.assertEqual(get_declared_target(node), timedelta(minutes=15))
 
     @parameterized.expand(
@@ -1110,7 +1122,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             query=self.sample_hogql_query,
             is_materialized=True,
             status=DataWarehouseSavedQuery.Status.COMPLETED,
-            sync_frequency_interval=timedelta(hours=1),
             last_run_at=now - timedelta(hours=2),  # Last run 2 hours ago, freshness target 1 hour = stale
         )
         saved_query.table = DataWarehouseTable.objects.create(
@@ -1187,7 +1198,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             query=self.sample_hogql_query,
             is_materialized=True,
             status=DataWarehouseSavedQuery.Status.COMPLETED,
-            sync_frequency_interval=timedelta(hours=1),
             last_run_at=now - timedelta(minutes=30),  # Last run 30 min ago, sync every 1 hour = fresh
         )
         saved_query.table = DataWarehouseTable.objects.create(
@@ -1236,8 +1246,8 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         ]
     )
     def test_v2_migrated_staleness_keys_on_data_freshness(self, _name, materialized_age, expected_path):
-        """Migration to v2 DAG schedules nulls sync_frequency_interval; the serve-time staleness
-        guard must key on the version's data_freshness_seconds or stale data is served forever."""
+        """The serve-time staleness guard must key on the version's data_freshness_seconds,
+        or stale data is served forever."""
         now = timezone.now()
         saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
@@ -1245,7 +1255,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             query=self.sample_hogql_query,
             is_materialized=True,
             status=DataWarehouseSavedQuery.Status.COMPLETED,
-            sync_frequency_interval=None,
             last_run_at=now - materialized_age,
         )
         saved_query.table = DataWarehouseTable.objects.create(
@@ -1403,7 +1412,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             query=self.sample_hogql_query,
             is_materialized=True,
             status=DataWarehouseSavedQuery.Status.COMPLETED,
-            sync_frequency_interval=timedelta(hours=1),
             last_run_at=now - timedelta(minutes=30),
         )
         saved_query.table = DataWarehouseTable.objects.create(
@@ -1454,7 +1462,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             query=self.sample_hogql_query,
             is_materialized=True,
             status=DataWarehouseSavedQuery.Status.COMPLETED,
-            sync_frequency_interval=timedelta(hours=1),
             last_run_at=now - timedelta(minutes=30),
         )
         saved_query.table = DataWarehouseTable.objects.create(
@@ -2127,7 +2134,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             query=initial_query,
             is_materialized=True,
-            sync_frequency_interval=timedelta(hours=24),
             origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
         )
         table = DataWarehouseTable.objects.create(
@@ -2833,7 +2839,6 @@ class TestEndpointMaterializationTemporal:
             name=endpoint.name,
             query=version.query,
             is_materialized=True,
-            sync_frequency_interval=timedelta(hours=12),
             origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
         )
         saved_query.columns = await sync_to_async(saved_query.get_columns)()

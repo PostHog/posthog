@@ -439,7 +439,7 @@ async function executeQuery<N extends DataNode>(
 // Return data for a given query
 export async function performQuery<N extends DataNode>(
     queryNode: N,
-    methodOptions?: ApiMethodOptions,
+    methodOptions?: ApiMethodOptions & { queryTelemetry?: 'metadata' },
     refresh?: RefreshType,
     queryId?: string,
     setPollResponse?: (status: QueryStatus) => void,
@@ -449,6 +449,8 @@ export async function performQuery<N extends DataNode>(
     limitContext?: 'posthog_ai',
     acceptStaleCache = false
 ): Promise<NonNullable<N['response']>> {
+    const { queryTelemetry, ...apiMethodOptions } = methodOptions ?? {}
+    const telemetryQuery = queryTelemetry === 'metadata' ? { kind: queryNode.kind } : queryNode
     let response: NonNullable<N['response']>
     const logParams: Record<string, any> = {}
     const submitTelemetry: QuerySubmitTelemetry = {
@@ -464,12 +466,12 @@ export async function performQuery<N extends DataNode>(
     try {
         if (isPersonsNode(queryNode)) {
             // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
-            response = await api.get(getPersonsEndpoint(queryNode), methodOptions)
+            response = await api.get(getPersonsEndpoint(queryNode), apiMethodOptions)
         } else {
             response = await executeQuery(
                 queryNode,
                 submitTelemetry,
-                methodOptions,
+                apiMethodOptions,
                 refresh,
                 queryId,
                 setPollResponse,
@@ -479,7 +481,7 @@ export async function performQuery<N extends DataNode>(
                 limitContext,
                 acceptStaleCache
             )
-            if (isHogQLQuery(queryNode) && response && typeof response === 'object') {
+            if (queryTelemetry !== 'metadata' && isHogQLQuery(queryNode) && response && typeof response === 'object') {
                 logParams.clickhouse_sql = (response as HogQLQueryResponse)?.clickhouse
             }
             if (response && typeof response === 'object') {
@@ -501,7 +503,7 @@ export async function performQuery<N extends DataNode>(
         }
         const warehouseSources = dataWarehouseSourcesFromResponse(response)
         posthog.capture('query completed', {
-            query: queryNode,
+            query: telemetryQuery,
             queryId,
             duration: performance.now() - startTime,
             is_cached: response?.is_cached,
@@ -530,7 +532,7 @@ export async function performQuery<N extends DataNode>(
             // Raw error detail/message can echo query fragments, so telemetry only gets status and code
             const error = e as (Error & { status?: number; code?: string | null; queryId?: string }) | null
             posthog.capture('query failed', {
-                query: queryNode,
+                query: telemetryQuery,
                 queryId: error?.queryId ?? queryId,
                 duration: performance.now() - startTime,
                 error_status: error?.status ?? null,

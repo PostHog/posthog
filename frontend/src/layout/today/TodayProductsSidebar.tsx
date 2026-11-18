@@ -26,11 +26,11 @@ export function TodayProductsSidebar(): JSX.Element {
         starredProducts,
         starredHrefs,
         starredOpen,
-        allProductsOpen,
+        allProductsVisible,
         activeHref,
         search,
     } = useValues(todayProductsLogic)
-    const { setSearch, setStarredOpen, setAllProductsOpen } = useActions(todayProductsLogic)
+    const { setSearch, setStarredOpen, toggleAllProducts, productOpened } = useActions(todayProductsLogic)
     const searching = !!search.trim()
     const searchedAnalyticsTypes = analyticsTypesForPaneSearch(search)
     const hasProducts = pinnedProducts.length > 0 || starredProducts.length > 0 || productCount > 0
@@ -41,7 +41,7 @@ export function TodayProductsSidebar(): JSX.Element {
     )
 
     // A product can show in Starred and in its category, so the group keeps the rows apart on the keyboard path.
-    const renderProduct = (item: FileSystemImport, group: string): JSX.Element => (
+    const renderProduct = (item: FileSystemImport, group: string, position: number): JSX.Element => (
         <TodayProductRow
             key={item.href}
             value={`${group}:${item.href}`}
@@ -51,6 +51,8 @@ export function TodayProductsSidebar(): JSX.Element {
             active={item.href === activeHref}
             starred={starredHrefs.has(item.href ?? '')}
             inStarredGroup={group === 'starred'}
+            category={group === 'starred' ? null : group}
+            position={position}
         />
     )
 
@@ -72,7 +74,7 @@ export function TodayProductsSidebar(): JSX.Element {
                     ))}
                 {pinnedProducts.length > 0 && (
                     <div className="flex flex-col gap-px pb-2">
-                        {pinnedProducts.map((item) => {
+                        {pinnedProducts.map((item, index) => {
                             const row = (
                                 <SidebarRow
                                     value={`pinned:${item.href}`}
@@ -81,6 +83,7 @@ export function TodayProductsSidebar(): JSX.Element {
                                     to={item.href ?? ''}
                                     active={item.href === activeHref}
                                     dataAttr="today-tool-pinned"
+                                    onClick={() => productOpened(item, 'pinned', null, index)}
                                 />
                             )
                             const preview = pinnedPreviews.get(item.href)
@@ -102,21 +105,21 @@ export function TodayProductsSidebar(): JSX.Element {
                         onToggle={() => setStarredOpen(!starredOpen)}
                         dataAttr="today-section-starred"
                     >
-                        {starredProducts.map((item) => renderProduct(item, 'starred'))}
+                        {starredProducts.map((item, index) => renderProduct(item, 'starred', index))}
                     </SidebarSection>
                 )}
                 {productCount > 0 && (
                     <SidebarSection
                         label="All products"
-                        open={allProductsOpen || searching}
+                        open={allProductsVisible || searching}
                         count={productCount}
-                        onToggle={() => setAllProductsOpen(!allProductsOpen)}
+                        onToggle={toggleAllProducts}
                         dataAttr="today-section-all-products"
                     >
                         {productGroups.map((group, index) => (
                             <div key={group.label}>
                                 <TodayPaneGroupLabel first={index === 0}>{group.label}</TodayPaneGroupLabel>
-                                {group.items.map((item) => renderProduct(item, group.label))}
+                                {group.items.map((item, index) => renderProduct(item, group.label, index))}
                             </div>
                         ))}
                     </SidebarSection>

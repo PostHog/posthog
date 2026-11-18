@@ -327,8 +327,10 @@ export interface taskTrackerSceneLogicActions {
     } // taskWarmLogic
     noteDraft: (
         hasText: boolean,
-        request: import('../../logics/taskWarmLogic').TaskWarmRequest
+        request: import('../../logics/taskWarmLogic').TaskWarmRequest,
+        eligible?: boolean | undefined
     ) => {
+        eligible: boolean
         hasText: boolean
         request: import('../../logics/taskWarmLogic').TaskWarmRequest
     } // taskWarmLogic
@@ -955,9 +957,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 values.selectedCloudTargetIds
             )
             if (request) {
-                // An empty draft releases the warm, and so does the ChatGPT plan, which boots cold.
                 const hasText = values.newTaskData.description.trim().length > 0
-                actions.noteDraft(hasText && !usesChatGptPlan(values.composerAdapter), request)
+                actions.noteDraft(hasText, request, !usesChatGptPlan(values.composerAdapter))
             }
         },
         // Restore the remembered repo (or fall back to the first connected GitHub integration) when nothing is
@@ -1018,6 +1019,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             // The backend strips `pending_user_message`, and the live echo carries that stripped text. The
             // optimistic bubble must match it exactly, or the echo renders as a second copy of the message.
             const description = values.newTaskData.description.trim()
+            const onTaskCreated = props.onTaskCreated
             const { permissionMode } = values.newTaskData
             const repositoryConfig = values.effectiveRepositoryConfig
             const composerAdapter = values.composerAdapter
@@ -1169,6 +1171,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     // resolves it for warm matching too.
                     // A warm sandbox holds no ChatGPT token, so a run on the plan skips warm reuse and boots cold.
                     ...(suppressWarmReuse || onChatGptPlan ? {} : { branch: runPayload.branch }),
+                    ...(!onChatGptPlan && warmLease?.permissionModeMutable
+                        ? { warm_run_id: warmLease.runId, warm_submission_id: uuid() }
+                        : {}),
                     ...(pendingUserArtifactIds.length > 0 ? { pending_user_artifact_ids: pendingUserArtifactIds } : {}),
                     ...(pinnedRequest
                         ? {
@@ -1188,8 +1193,6 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     (options) => tasksCreate(projectId, taskData, options),
                     disposables
                 )
-                actions.consumeWarm(warmSubmission, newTask.latest_run?.id ?? null)
-                warmConsumed = true
 
                 if (!disposables.isDisposed && values.activeCreation?.streamKey === streamKey) {
                     interaction.props.flushDraft?.()
@@ -1231,6 +1234,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     createdRun = runResponse.run ?? runResponse.latest_run
                     runId = createdRun?.id
                 }
+
+                actions.consumeWarm(warmSubmission, runId ?? null)
+                warmConsumed = true
 
                 if (disposables.isDisposed) {
                     return
@@ -1298,7 +1304,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 actions.loadRepositories()
                 // Every composer submits through here, so this is the one place that reaches all of them.
                 todaySpacesLogic.findMounted()?.actions.loadRecentTasks()
-                props.onTaskCreated?.(newTask.id)
+                onTaskCreated?.(newTask.id)
             } catch (error) {
                 if (disposables.isDisposed) {
                     return

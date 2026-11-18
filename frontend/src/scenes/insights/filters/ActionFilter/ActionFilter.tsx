@@ -7,8 +7,10 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import React, { useEffect } from 'react'
 
-import { IconPlusSmall } from '@posthog/icons'
+import { IconPlus, IconPlusSmall } from '@posthog/icons'
+import { Button } from '@posthog/quill'
 
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import {
     DataWarehousePopoverField,
     DefinitionPopoverRenderer,
@@ -16,6 +18,7 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopoverProps } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
+import { quillButtonVariant } from 'lib/lemon-ui/LemonButton/quillButtonVariant'
 import { verticalSortableListCollisionDetection } from 'lib/sortable'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { RenameModal } from 'scenes/insights/filters/ActionFilter/RenameModal'
@@ -179,6 +182,7 @@ export const SeriesActionFilter = React.forwardRef<HTMLDivElement, SeriesActionF
 
     const { localSeries } = useValues(logic)
     const { addSeries, setSeries } = useActions(logic)
+    const quillSurface = useQuillSurface()
 
     // No way around this. Somehow the ordering of the logic calling each other causes stale
     // series to be shown on the /funnels page, even if we try to use a selector with props
@@ -243,6 +247,9 @@ export const SeriesActionFilter = React.forwardRef<HTMLDivElement, SeriesActionF
     }
 
     const reachedLimit: boolean = Boolean(entitiesLimit && localSeries.length >= entitiesLimit)
+    const addButtonLabel = !reachedLimit
+        ? buttonCopy || 'Action or event'
+        : `Reached limit of ${entitiesLimit} ${insightType === InsightType.FUNNELS ? 'steps' : 'series'}`
     const sortedItemIds = localSeries.map((i) => i.uuid)
 
     return (
@@ -332,21 +339,30 @@ export const SeriesActionFilter = React.forwardRef<HTMLDivElement, SeriesActionF
             ) : null}
             {!singleFilter && (
                 <div className="ActionFilter-footer">
-                    <LemonButton
-                        type={buttonType}
-                        onClick={() => addSeries()}
-                        data-attr="add-action-event-button"
-                        icon={<IconPlusSmall />}
-                        size="small"
-                        disabled={reachedLimit || disabled || readOnly}
-                        {...buttonProps}
-                    >
-                        {!reachedLimit
-                            ? buttonCopy || 'Action or event'
-                            : `Reached limit of ${entitiesLimit} ${
-                                  insightType === InsightType.FUNNELS ? 'steps' : 'series'
-                              }`}
-                    </LemonButton>
+                    {quillSurface ? (
+                        <Button
+                            variant={quillButtonVariant(buttonProps.type ?? buttonType)}
+                            onClick={() => addSeries()}
+                            data-attr={buttonProps['data-attr'] ?? 'add-action-event-button'}
+                            disabled={reachedLimit || disabled || readOnly || buttonProps.disabled}
+                            className={buttonProps.className}
+                        >
+                            <IconPlus />
+                            {addButtonLabel}
+                        </Button>
+                    ) : (
+                        <LemonButton
+                            type={buttonType}
+                            onClick={() => addSeries()}
+                            data-attr="add-action-event-button"
+                            icon={<IconPlusSmall />}
+                            size="small"
+                            disabled={reachedLimit || disabled || readOnly}
+                            {...buttonProps}
+                        >
+                            {addButtonLabel}
+                        </LemonButton>
+                    )}
                     {customFooter}
                 </div>
             )}
