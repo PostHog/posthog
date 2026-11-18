@@ -77,18 +77,18 @@ def _ready_attempt(team_id: int, report_id: UUID, attempt_id: UUID) -> SignalRep
     return attempt
 
 
+def _snapshot_checks(attempt: SignalReportMonitoringAttempt) -> QuerySet[SignalReportCheck]:
+    return SignalReportCheck.objects.for_team(attempt.team_id).filter(
+        report_id=attempt.report_id, id__in=attempt.check_versions
+    )
+
+
 def _assessed_checks(attempt: SignalReportMonitoringAttempt) -> QuerySet[SignalReportCheck]:
-    return (
-        SignalReportCheck.objects.for_team(attempt.team_id)
-        .filter(report_id=attempt.report_id, id__in=attempt.check_versions)
-        .exclude(status=SignalReportCheck.Status.CANCELLED)
-    )
+    return _snapshot_checks(attempt).exclude(status=SignalReportCheck.Status.CANCELLED)
 
 
-def _assessment_queries(attempt: SignalReportMonitoringAttempt) -> list[dict[str, JsonValue]]:
-    configs = (
-        _assessed_checks(attempt).filter(kind=SignalReportCheck.Kind.METRIC_THRESHOLD).values_list("config", flat=True)
-    )
+def _assessment_queries(checks: QuerySet[SignalReportCheck]) -> list[dict[str, JsonValue]]:
+    configs = checks.filter(kind=SignalReportCheck.Kind.METRIC_THRESHOLD).values_list("config", flat=True)
     return [config.get("query") if isinstance(config.get("query"), dict) else {} for config in configs]
 
 
@@ -227,7 +227,11 @@ def finish_monitoring_assessment(
             report_id=str(report_id),
             content=NoteArtefact(
                 note=f"{'Resolved' if resolved else 'Closed'} after report-level assessment.\n\n{reason}\n\n{provenance}",
-                analytics_query_context=_assessment_queries(attempt) if assessment is not None else None,
+                # Completion has just cancelled the open checks, and the prompt may have quoted any snapshot
+                # member, so the note's access check covers the whole snapshot.
+                analytics_query_context=(
+                    _assessment_queries(_snapshot_checks(attempt)) if assessment is not None else None
+                ),
                 restricted_to_user_id=acting_user_id,
                 source_check_ids=list(attempt.check_versions),
             ),
@@ -308,7 +312,7 @@ def poll_monitoring_assessment(
                 extra_run_state={
                     "disable_repo_hooks": True,
                     "caller_ends_run": True,
-                    "analytics_query_context": _assessment_queries(attempt),
+                    "analytics_query_context": _assessment_queries(_assessed_checks(attempt)),
                     "initial_prompt_override": prompt,
                     **({"custom_image_id": custom_image_id} if custom_image_id is not None else {}),
                 },

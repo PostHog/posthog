@@ -851,6 +851,20 @@ class TestReportMonitoringAggregation(BaseTest):
         assert str(self.checks[0].id) in prompt
         assert str(cancelled.id) not in prompt
         assert run.state["analytics_query_context"] == [{}]
+        assert finish_monitoring_assessment(
+            team_id=self.team.id,
+            report_id=self.report.id,
+            attempt_id=self.attempt.id,
+            assessment=MonitoringAssessment(
+                resolved=False, reasoning="The remaining check stayed inconclusive.", evidence_refs=["result:example"]
+            ),
+            task_id=run.task_id,
+            run_id=run.id,
+        )
+        note = SignalReportArtefact.objects.get(
+            report=self.report, type="note", content__contains="after report-level assessment"
+        )
+        assert json.loads(note.content)["analytics_query_context"] == [{}, {}]
 
     def test_exhaustion_recovers_the_same_task_before_closing(self) -> None:
         self.enterContext(patch("products.tasks.backend.facade.api.signal_workflow_completion"))
