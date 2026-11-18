@@ -1,0 +1,72 @@
+import uuid
+from typing import Any
+
+from posthog.test.base import BaseTest
+
+from parameterized import parameterized
+
+from products.aeo.backend.facts import backfill_facts, write_facts
+from products.aeo.backend.models import AEOCheckCitation, AEOCheckSearch, AEOCitationCheck, AEOPrompt
+
+
+class TestCheckFacts(BaseTest):
+    def _check(self, **fields: Any) -> AEOCitationCheck:
+        prompts = AEOPrompt.objects.for_team(self.team.id)
+        prompt = prompts.first() or prompts.create(
+            team=self.team, prompt="best tool?", prompt_hash="h", prompt_source=AEOPrompt.Source.MANUAL
+        )
+        return AEOCitationCheck.objects.for_team(self.team.id).create(
+            team=self.team,
+            prompt=prompt,
+            run_id=uuid.uuid4(),
+            prompt_text=prompt.prompt,
+            prompt_source=prompt.prompt_source,
+            prompt_hash=prompt.prompt_hash,
+            engine="exa-answer",
+            model="exa-answer",
+            **fields,
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "subdomain_under_a_multi_part_suffix",
+                "https://Blog.Example.co.uk/post",
+                "blog.example.co.uk",
+                "example.co.uk",
+            ),
+            ("no_host", "not a url", "", ""),
+            ("invalid_host", "https://[bad/path", "", ""),
+        ]
+    )
+    def test_a_cited_url_is_stored_with_its_host_and_registrable_domain(
+        self, _name: str, url: str, host: str, domain: str
+    ) -> None:
+        check = self._check(cited_urls=["https://first.example.com/a", url])
+
+        write_facts([check])
+
+        assert list(
+            AEOCheckCitation.objects.for_team(self.team.id)
+            .filter(position=2)
+            .values_list("citation_check_id", "created_at", "url", "host", "domain")
+        ) == [(check.id, check.created_at, url, host, domain)]
+
+    def test_searches_are_stored_normalized_once_per_check(self) -> None:
+        check = self._check(search_queries=["Best  Replay Tool", "best replay tool ", "", "replay pricing"])
+
+        write_facts([check])
+
+        assert list(
+            AEOCheckSearch.objects.for_team(self.team.id).order_by("query").values_list("citation_check_id", "query")
+        ) == [(check.id, "best replay tool"), (check.id, "replay pricing")]
+
+    def test_backfill_writes_missing_rows_and_adds_nothing_when_run_again(self) -> None:
+        self._check(cited_urls=["https://example.com/a"], search_queries=["replay"])
+        already_written = self._check(cited_urls=["https://example.com/b"], search_queries=["funnels"])
+        write_facts([already_written])
+
+        assert (backfill_facts(self.team.id), backfill_facts(self.team.id)) == (2, 2)
+
+        assert AEOCheckCitation.objects.for_team(self.team.id).count() == 2
+        assert AEOCheckSearch.objects.for_team(self.team.id).count() == 2

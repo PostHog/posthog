@@ -37,6 +37,7 @@ from products.aeo.backend.catalog import own_domains
 from products.aeo.backend.engine_settings import engine_schedule
 from products.aeo.backend.engines import CitationEngine, build_check_fields
 from products.aeo.backend.facade.contracts import CitationRunSummary
+from products.aeo.backend.facts import write_facts
 from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
 from products.aeo.backend.temporal.brand_sentiment import start_brand_sentiment_workflow
 
@@ -379,9 +380,10 @@ def _record_prompt_checks(
                     .values_list("engine", flat=True)
                 )
                 fields_per_engine = [fields for fields in fields_per_engine if fields["engine"] not in recorded]
-            AEOCitationCheck.objects.bulk_create(
+            written = AEOCitationCheck.objects.bulk_create(
                 [AEOCitationCheck(team_id=canonical_team_id, **fields) for fields in fields_per_engine]
             )
+            write_facts(written)
     except Exception as e:
         logger.exception("aeo_citation_write_failed", team_id=team.id, run_id=run_id, error=str(e)[:300])
         return "failed"

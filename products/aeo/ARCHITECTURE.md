@@ -22,15 +22,16 @@ The catalog is small, so the join is cheap, and a relabel needs no recompute.
 
 ## When each value is computed
 
-| Value                                                                           | Computed                                                                           | Stored in                    | Recomputed when                                      |
-| ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | ---------------------------- | ---------------------------------------------------- |
-| Answer text, cited URLs, retrieved URLs, search queries                         | During the run, as each engine answers (`engines.py`, `runner.py`)                 | `posthog_aeo_citation_check` | Never                                                |
-| `cited`, `target_urls`, `target_best_position`, `names_brand`, `prompt_branded` | With the check, against the own brands of that moment (`engines.py`)               | The check row                | The own brands change, and at the end of every run   |
-| `own_domains_key`                                                               | With the check: a hash of the own domains the row was computed against             | The check row                | With the columns above                               |
-| Brand catalog rows for newly cited domains                                      | After each run (`sync_brands_from_run` in `catalog.py`)                            | `posthog_aeo_brand`          | Never: the sync only inserts                         |
-| Brand sentiment and its scored sentences                                        | On the AEO Temporal queue, after each run and from a backlog every 10 min          | The check row                | The reconcile clears them when the own brands change |
-| Branded or non-branded prompt, as the reads use it                              | At read, a word match on the prompt text, until the reads move to `prompt_branded` | Not stored                   | Not applicable                                       |
-| Competitor mentions, keyword matches, top searches, cited domains               | At read, from the answer text and the JSON columns                                 | Not stored                   | Not applicable                                       |
+| Value                                                                           | Computed                                                                           | Stored in                                                | Recomputed when                                      |
+| ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------- | ---------------------------------------------------- |
+| Answer text, cited URLs, retrieved URLs, search queries                         | During the run, as each engine answers (`engines.py`, `runner.py`)                 | `posthog_aeo_citation_check`                             | Never                                                |
+| `cited`, `target_urls`, `target_best_position`, `names_brand`, `prompt_branded` | With the check, against the own brands of that moment (`engines.py`)               | The check row                                            | The own brands change, and at the end of every run   |
+| One row per cited URL, one row per search the engine ran                        | With the check (`write_facts` in `facts.py`)                                       | `posthog_aeo_check_citation`, `posthog_aeo_check_search` | Never                                                |
+| `own_domains_key`                                                               | With the check: a hash of the own domains the row was computed against             | The check row                                            | With the columns above                               |
+| Brand catalog rows for newly cited domains                                      | After each run (`sync_brands_from_run` in `catalog.py`)                            | `posthog_aeo_brand`                                      | Never: the sync only inserts                         |
+| Brand sentiment and its scored sentences                                        | On the AEO Temporal queue, after each run and from a backlog every 10 min          | The check row                                            | The reconcile clears them when the own brands change |
+| Branded or non-branded prompt, as the reads use it                              | At read, a word match on the prompt text, until the reads move to `prompt_branded` | Not stored                                               | Not applicable                                       |
+| Competitor mentions, keyword matches, top searches, cited domains               | At read, from the answer text and the JSON columns                                 | Not stored                                               | Not applicable                                       |
 
 The last two rows break the rule.
 They are the slow reads that remain, and [the planned read model](#planned-read-model) moves them to write time.
@@ -69,10 +70,15 @@ A count that names one more column reads every row in the window in full, and lo
 
 ## Planned read model
 
-Not built yet. This section records the direction, so the remaining slow reads move the same way.
+Partly built. This section records the direction, so the remaining slow reads move the same way.
 
 Three narrow tables hold facts about each answer, written once and joined to the brand catalog at read time.
-Each row repeats the columns that reads filter on (`team_id`, `created_at`, `engine`, `mode`, `prompt_id`, `prompt_topic`), so a read needs no join back to the wide check row.
+Each row copies `team_id` and `created_at` from its check, so a read finds the rows of a window in the table's own index.
+A read that narrows by engine, topic or the branded split joins them to `aeo_check_window_cover_idx`, which holds those columns.
+
+The cited URL and search rows are written today, and `backfill_aeo_check_facts` writes them for older checks.
+The reads still unpack the JSON columns until that backfill has run everywhere.
+Entity mentions are not built.
 
 | Table           | One row per                       | Written                                        | Replaces                                               |
 | --------------- | --------------------------------- | ---------------------------------------------- | ------------------------------------------------------ |
