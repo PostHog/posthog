@@ -847,6 +847,7 @@ depends_on = [
     "posthog",
     "products.actions",
     "products.alerts",
+    "products.analytics_platform",
     "products.dashboards",
     "products.event_definitions",
     "products.subscriptions",
