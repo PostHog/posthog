@@ -204,10 +204,13 @@ def _span_count_query(
 ) -> ast.SelectQuery:
     # Without a sample it counts the window's spans per minute to plan one; with one, the spans the
     # join reads as parents, which sets the scale.
-    select = "count()" if sample else "toStartOfMinute(timestamp) AS minute, count()"
-    group_by = "" if sample else " GROUP BY minute"
     query = parse_select(
-        f"SELECT {select} FROM posthog.trace_spans WHERE {{where}} AND {{env_where}} AND {{trace_where}}{group_by}",
+        (
+            "SELECT count() FROM posthog.trace_spans WHERE {where} AND {env_where} AND {trace_where}"
+            if sample
+            else "SELECT toStartOfMinute(timestamp) AS minute, count() FROM posthog.trace_spans"
+            " WHERE {where} AND {env_where} AND {trace_where} GROUP BY minute"
+        ),
         placeholders={
             "where": _sample_where(date_from, date_to, sample),
             "env_where": environment_where(environment),
