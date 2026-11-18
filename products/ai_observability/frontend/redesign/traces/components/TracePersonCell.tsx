@@ -23,11 +23,11 @@ export function TracePersonCell({ person, status }: TracePersonCellProps): JSX.E
         <TraceCellValue status={status} skeletonWidth="w-24">
             {person === null ? null : (
                 <span className="block max-w-40 min-w-0">
-                    {/* Fits the chip to its label, so a click beside a short name still opens the drawer. */}
+                    {/* Fits the chip to its label, so a click beside a short name still opens the drawer. The label
+                        names a customer's end user, so autocapture must not record this element or its title. */}
                     <span
                         title={person.label}
-                        className="block w-fit max-w-full"
-                        // pinned: autocapture counts clicks on a trace's person by this value
+                        className="ph-no-capture block w-fit max-w-full"
                         data-attr="trace-person-link"
                     >
                         <PersonDisplay {...toPersonDisplayProps(person)} withIcon="sm" />

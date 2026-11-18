@@ -33,5 +33,8 @@ describe('TracePersonCell', () => {
             personPath === null ? null : expect.stringContaining(personPath)
         )
         expect(!!container.querySelector('[role="img"][aria-label^="Couldn\'t load"]')).toBe(status === 'error')
+        expect(container.querySelector('[title]')?.closest('.ph-no-capture') ?? null).toBe(
+            person === null ? null : container.querySelector('[data-attr="trace-person-link"]')
+        )
     })
 })
