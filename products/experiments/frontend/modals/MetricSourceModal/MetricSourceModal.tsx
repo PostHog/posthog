@@ -1,88 +1,64 @@
-import { useActions, useValues } from 'kea'
-
 import { IconWarning } from '@posthog/icons'
 import { LemonModal, Link } from '@posthog/lemon-ui'
 
-import { getDefaultFunnelMetric } from 'scenes/experiments/utils'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
-import type { Experiment } from '~/types'
-
-import { experimentMetricModalLogic } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
-import { sharedMetricModalLogic } from 'products/experiments/frontend/modals/SharedMetricModal/sharedMetricModalLogic'
+import { QuillMetricSourceModal } from './QuillMetricSourceModal'
 import {
-    getWarehouseNativeExposure,
-    toWarehouseNativeMetric,
-} from 'products/experiments/frontend/warehouseNative/warehouseNativeSources'
-
-import { metricSourceModalLogic } from './metricSourceModalLogic'
-
-const METRIC_COUNT_WARNING_THRESHOLD = 3
+    METRIC_SOURCE_DOCS_URL,
+    METRIC_SOURCE_OPTIONS,
+    type MetricSourceExperiment,
+    useMetricSourceModal,
+} from './useMetricSourceModal'
 
 export const MetricSourceModal = ({
     experiment,
 }: {
     /** The experiment that receives the metric. The wizard passes its draft, which `experimentLogic` does not hold. */
-    experiment: Pick<Experiment, 'metrics' | 'metrics_secondary' | 'start_date' | 'exposure_criteria'>
+    experiment: MetricSourceExperiment
 }): JSX.Element | null => {
-    const { isModalOpen, context } = useValues(metricSourceModalLogic)
-    const { closeMetricSourceModal } = useActions(metricSourceModalLogic)
+    const { isOpen, close, pickSingleUse, pickShared, warning } = useMetricSourceModal(experiment)
+    const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
-    const { openExperimentMetricModal, setMetric } = useActions(experimentMetricModalLogic)
-    const { openSharedMetricModal } = useActions(sharedMetricModalLogic)
-
-    const metricCount =
-        context.field === 'metrics' ? (experiment.metrics?.length ?? 0) : (experiment.metrics_secondary?.length ?? 0)
-
-    const isRunning = !!experiment.start_date
-    const showWarning = metricCount >= METRIC_COUNT_WARNING_THRESHOLD || isRunning
+    if (todayRailNav && resultsRedesign) {
+        return (
+            <QuillMetricSourceModal
+                isOpen={isOpen}
+                close={close}
+                pickSingleUse={pickSingleUse}
+                pickShared={pickShared}
+                warning={warning}
+            />
+        )
+    }
 
     return (
-        <LemonModal isOpen={isModalOpen} onClose={closeMetricSourceModal} width={1000} title="Choose metric source">
+        <LemonModal isOpen={isOpen} onClose={close} width={1000} title="Choose metric source">
             <div className="flex gap-4 mb-4">
-                <div
-                    className="flex-1 cursor-pointer p-4 rounded border hover:border-accent"
-                    onClick={() => {
-                        closeMetricSourceModal()
-                        openExperimentMetricModal(context)
-                        // An experiment with a warehouse-native exposure accepts warehouse-native metrics only
-                        const warehouseExposure = getWarehouseNativeExposure(experiment.exposure_criteria)
-                        if (warehouseExposure) {
-                            setMetric(toWarehouseNativeMetric(getDefaultFunnelMetric(), warehouseExposure))
-                        }
-                    }}
-                >
+                <div className="flex-1 cursor-pointer p-4 rounded border hover:border-accent" onClick={pickSingleUse}>
                     <div className="font-semibold">
-                        <span>Single-use</span>
+                        <span>{METRIC_SOURCE_OPTIONS.singleUse.title}</span>
                     </div>
                     <div className="text-secondary text-sm leading-relaxed">
-                        Create a new metric specific to this experiment.
+                        {METRIC_SOURCE_OPTIONS.singleUse.description}
                     </div>
                 </div>
-                <div
-                    className="flex-1 cursor-pointer p-4 rounded border hover:border-accent"
-                    onClick={() => {
-                        closeMetricSourceModal()
-                        openSharedMetricModal(context)
-                    }}
-                >
+                <div className="flex-1 cursor-pointer p-4 rounded border hover:border-accent" onClick={pickShared}>
                     <div className="font-semibold">
-                        <span>Shared</span>
+                        <span>{METRIC_SOURCE_OPTIONS.shared.title}</span>
                     </div>
                     <div className="text-secondary text-sm leading-relaxed">
-                        Use a pre-configured metric that can be reused across experiments.
+                        {METRIC_SOURCE_OPTIONS.shared.description}
                     </div>
                 </div>
             </div>
-            {showWarning && (
+            {warning && (
                 <div className="flex items-center gap-2 p-3 rounded bg-warning-highlight text-sm">
                     <IconWarning className="text-warning text-lg shrink-0" />
                     <p className="mb-0">
-                        {isRunning && metricCount >= METRIC_COUNT_WARNING_THRESHOLD
-                            ? 'This experiment is already running and has several metrics. Choosing what to measure after seeing data can bias your results. '
-                            : isRunning
-                              ? 'This experiment is already running. Choosing what to measure after seeing data can bias your results. '
-                              : 'Each additional metric is another result to interpret. Make sure each has a clear hypothesis. '}
-                        <Link to="https://posthog.com/docs/experiments/best-practices" target="_blank">
+                        {warning}
+                        <Link to={METRIC_SOURCE_DOCS_URL} target="_blank">
                             Learn more
                         </Link>
                     </p>
