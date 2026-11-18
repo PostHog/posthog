@@ -4,7 +4,6 @@ from django.conf import settings
 
 import jwt
 
-from posthog.models.personal_api_key import find_personal_api_key, looks_like_legacy_personal_api_key
 from posthog.models.utils import OAUTH_ACCESS_TOKEN_PREFIX, PERSONAL_API_KEY_PREFIX, SECRET_API_TOKEN_PREFIX
 from posthog.security.url_validation import canonicalize_host
 
@@ -46,10 +45,9 @@ def _canonical_host_and_port(url: str) -> tuple[str, int | None]:
 def _is_posthog_credential(token: str) -> bool:
     if token.startswith((OAUTH_ACCESS_TOKEN_PREFIX, PERSONAL_API_KEY_PREFIX, SECRET_API_TOKEN_PREFIX)):
         return True
-    if token.count(".") == 2:
-        return _is_access_token_jwt_issued_here(token)
-    # A bare 43-character secret may just as well be a third-party token, so only a key found here counts.
-    return looks_like_legacy_personal_api_key(token) and find_personal_api_key(token) is not None
+    # A prefixless legacy personal API key has the shape of many third-party tokens. Telling them apart needs a
+    # slow hash lookup on every call, so the host check is the only cover for such a key.
+    return token.count(".") == 2 and _is_access_token_jwt_issued_here(token)
 
 
 def _is_access_token_jwt_issued_here(token: str) -> bool:

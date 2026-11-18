@@ -131,6 +131,11 @@ def is_posthog_installation(installation: MCPServerInstallation) -> bool:
     return _is_posthog_connection(installation, _owner_auth_headers(installation))
 
 
+def borrowed_refusal_detail(installation: MCPServerInstallation, *, borrowed: bool) -> str | None:
+    """The message for a caller who may not use this connection, or None when the call may go ahead."""
+    return BORROWED_POSTHOG_CREDENTIAL_DETAIL if borrowed and is_posthog_installation(installation) else None
+
+
 def _is_posthog_connection(installation: MCPServerInstallation, auth_headers: dict[str, str]) -> bool:
     return is_posthog_connection(
         installation.url, auth_headers.get("Authorization", "").removeprefix("Bearer ") or None
@@ -586,12 +591,8 @@ def proxy_mcp_request(
             status=400,
         )
 
-    # Refused before the policy check, so that a refused call is not audited as an approved one.
     borrowed = scoped_session or is_borrowed_by(installation, caller)
-    try:
-        auth_headers = build_upstream_auth_headers(installation, borrowed=borrowed)
-    except BorrowedCredentialRefused as exc:
-        return HttpResponse(json.dumps({"error": str(exc)}), content_type="application/json", status=403)
+    refusal_detail = borrowed_refusal_detail(installation, borrowed=borrowed)
 
     policy_context: PolicyContext | None = None
     audit_entries: list[tuple[str, str]] = []
@@ -610,6 +611,9 @@ def proxy_mcp_request(
         audit_entries,
         caller_user_id=caller.user_id if caller is not None and caller.kind == "member" else None,
     )
+    if refusal_detail is not None:
+        # The audit trail keeps the attempt, as blocked, whatever the tool policy decided.
+        audit_entries = [(tool_name, "blocked") for tool_name, _decision in audit_entries]
     if gateway_server is not None and caller is not None and audit_entries:
         _write_audit_events(
             installation,
@@ -620,6 +624,8 @@ def proxy_mcp_request(
             credential_owner_id=credential_owner_id,
             grant_scope=grant_scope,
         )
+    if refusal_detail is not None:
+        return HttpResponse(json.dumps({"error": refusal_detail}), content_type="application/json", status=403)
     if enforcement_response:
         return enforcement_response
 
@@ -633,6 +639,10 @@ def proxy_mcp_request(
             status=413,
         )
 
+    try:
+        auth_headers = build_upstream_auth_headers(installation, borrowed=borrowed)
+    except BorrowedCredentialRefused as exc:
+        return HttpResponse(json.dumps({"error": str(exc)}), content_type="application/json", status=403)
     headers = {
         "Content-Type": "application/json",
         "Accept": "application/json, text/event-stream",

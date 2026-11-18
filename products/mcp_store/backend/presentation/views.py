@@ -55,7 +55,6 @@ from posthog.rate_limit import (
 from products.cdp.backend.presentation.icons import CDPIconsService
 
 from ..agents import sync_built_in_agents
-from ..borrowed_credential import BORROWED_POSTHOG_CREDENTIAL_DETAIL
 from ..facade.api import check_mcp_url_policy, resolve_member_tool_states
 from ..gateway import link_installation_to_gateway, members_can_manage_agent_access, server_disabled_reason
 from ..models import (
@@ -91,6 +90,7 @@ from ..oauth import (
 )
 from ..policy import GatewayCaller, PolicyContext, ResolvedPolicy, is_policy_state_allowed
 from ..proxy import (
+    borrowed_refusal_detail,
     is_posthog_installation,
     proxy_mcp_request,
     record_tool_call_audit,
@@ -1351,8 +1351,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             )
 
         borrowed = installation.user_id != request.user.id or _is_scoped_session(request)
-        if borrowed and is_posthog_installation(installation):
-            return Response({"detail": BORROWED_POSTHOG_CREDENTIAL_DETAIL}, status=status.HTTP_403_FORBIDDEN)
+        refusal_detail = borrowed_refusal_detail(installation, borrowed=borrowed)
 
         gateway_server = installation.gateway_server
         policy_context = (
@@ -1376,9 +1375,11 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 GatewayCaller(kind="member", user_id=request.user.id),
                 cast(User, request.user).email or "",
                 tool_name,
-                decision,
+                "blocked" if refusal_detail is not None else decision,
             )
 
+        if refusal_detail is not None:
+            return Response({"detail": refusal_detail}, status=status.HTTP_403_FORBIDDEN)
         if block_reason is not None:
             return Response(
                 {"detail": _BLOCKED_CALL_DETAIL[block_reason].format(tool_name=tool_name), "reason": block_reason},

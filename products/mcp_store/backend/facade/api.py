@@ -29,7 +29,6 @@ from products.mcp_store.backend.agents import (
     get_built_in_agent,
     is_builtin_agent_enforcement_enabled,
 )
-from products.mcp_store.backend.borrowed_credential import BORROWED_POSTHOG_CREDENTIAL_DETAIL
 from products.mcp_store.backend.connector_approvals import (
     ConnectorApprovalBinding,
     consume_connector_approval,
@@ -70,7 +69,7 @@ from products.mcp_store.backend.policy import (
     legacy_state_for_caller,
 )
 from products.mcp_store.backend.proxy import (
-    is_posthog_installation,
+    borrowed_refusal_detail,
     record_tool_call_audit,
     resolve_call_decision,
     validate_installation_auth,
@@ -1005,8 +1004,18 @@ def call_member_server_tool(
     if installation is None:
         return ConnectorCallOutcome(status="not_connected", detail=f"You have not connected {server_host}.")
     borrowed = installation.user_id != user_id or scoped_session
-    if borrowed and is_posthog_installation(installation):
-        return ConnectorCallOutcome(status="blocked", detail=BORROWED_POSTHOG_CREDENTIAL_DETAIL)
+    refusal_detail = borrowed_refusal_detail(installation, borrowed=borrowed)
+    if refusal_detail is not None:
+        if installation.gateway_server is not None:
+            record_tool_call_audit(
+                installation,
+                installation.gateway_server,
+                GatewayCaller(kind="member", user_id=user_id),
+                actor_label,
+                tool_name,
+                "blocked",
+            )
+        return ConnectorCallOutcome(status="blocked", detail=refusal_detail)
     access_outcome = _member_access_outcome(installation, team_id, user_id)
     if access_outcome is not None:
         return access_outcome

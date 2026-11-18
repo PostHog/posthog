@@ -1,18 +1,12 @@
-from posthog.test.base import BaseTest
-
 from django.test import SimpleTestCase, override_settings
 
 import jwt
 from parameterized import parameterized
 
-from posthog.models.personal_api_key import PersonalAPIKey
-from posthog.models.utils import hash_key_value
-
 from products.mcp_store.backend.borrowed_credential import is_posthog_connection
 
 THIRD_PARTY_URL = "https://mcp.linear.app/mcp"
 SITE_URL = "https://app.posthog.example"
-LEGACY_SHAPED_KEY = "A" * 43
 
 
 def _access_token_jwt(issuer: str) -> str:
@@ -50,13 +44,3 @@ class TestIsPostHogConnection(SimpleTestCase):
     )
     def test_classifies_connection(self, _name: str, url: str, token: str | None, expected: bool):
         assert is_posthog_connection(url, token) is expected
-
-
-class TestLegacyPersonalApiKey(BaseTest):
-    def test_legacy_key_issued_here_is_a_posthog_credential(self):
-        PersonalAPIKey.objects.create(user=self.user, label="legacy", secure_value=hash_key_value(LEGACY_SHAPED_KEY))
-
-        assert is_posthog_connection(THIRD_PARTY_URL, LEGACY_SHAPED_KEY) is True
-
-    def test_unknown_token_of_the_same_shape_is_third_party(self):
-        assert is_posthog_connection(THIRD_PARTY_URL, LEGACY_SHAPED_KEY) is False
