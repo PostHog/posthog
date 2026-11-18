@@ -24,9 +24,13 @@ const usage: KnowledgeUsageApi = {
     learned_cited_run_count: 1,
     source_count: 4,
     cited_source_count: 2,
+    chunks_ingested: 40,
+    query_count: 9,
+    chunks_by_surface: [{ surface: 'url', total: 40 }],
+    queries_by_surface: [{ surface: 'api', total: 9 }],
     daily: [
-        { date: '2026-05-19', cited_run_count: 1 },
-        { date: '2026-05-20', cited_run_count: 2 },
+        { date: '2026-05-19', cited_run_count: 1, chunks_ingested: 40, query_count: 4 },
+        { date: '2026-05-20', cited_run_count: 2, chunks_ingested: 0, query_count: 5 },
     ],
     top_sources: [],
 }
@@ -52,6 +56,8 @@ describe('businessKnowledgeUsageLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.dailyCounts).toEqual([1, 2])
         expect(logic.values.dailyLabels).toEqual(['May 19', 'May 20'])
+        expect(logic.values.dailyChunks).toEqual([40, 0])
+        expect(logic.values.dailyQueries).toEqual([4, 5])
 
         logic.actions.setDays(7)
         await expectLogic(logic).toFinishAllListeners()

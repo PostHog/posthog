@@ -261,8 +261,12 @@ MAILGUN_METRICS_ENDPOINTS: dict[str, MailgunMetricsEndpointConfig] = {
 # Daily bounce and delay counts from the v2 bounce classification API, which replaced the v1
 # per-domain classification routes. Criticality and severity are already split out by the
 # metric names, so the rows break down by sending domain, recipient provider and category.
+# `timestamp` isn't requested: each request's start/end window is already exactly one
+# `resolution` bucket wide, Mailgun's response carries a `timestamp` per row regardless of the
+# requested dimensions, and requesting it anyway pushes the dimension count against an
+# undocumented per-request cap on this endpoint.
 BOUNCE_CLASSIFICATION_ENDPOINT = "bounce_classification_metrics"
-BOUNCE_CLASSIFICATION_DIMENSIONS: tuple[str, ...] = ("timestamp", "domain.name", "entity-name", "category")
+BOUNCE_CLASSIFICATION_DIMENSIONS: tuple[str, ...] = ("domain.name", "entity-name", "category")
 BOUNCE_CLASSIFICATION_METRICS: tuple[str, ...] = (
     "critical_bounce_count",
     "non_critical_bounce_count",

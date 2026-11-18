@@ -4,7 +4,6 @@ import { urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
-import { getSeriesColor } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { hogql } from 'lib/utils/hogql'
 import { teamLogic } from 'scenes/teamLogic'
@@ -17,13 +16,13 @@ import type { ProductIntentProperties } from '../../../../frontend/src/lib/utils
 import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
 import type { ApplyUrlStatePayload } from '../aiObservabilitySharedLogic'
 import { llmEvaluationsLogic, waitForEvaluationsSettled } from '../evaluations/llmEvaluationsLogic'
-import { loadClusterMetrics } from './clusterMetricsLoader'
+import { buildClusterMapSeries, ClusterMapHighlight, ClusterMapSize } from './clusterMapSeries'
+import { aggregateClusterMetrics, ItemMetrics, loadClusterItemMetrics } from './clusterMetricsLoader'
 import type { ClusterScatterSeries } from './clusterScatter'
 import {
     AI_OBSERVABILITY_CLUSTER_SCENE_TAG,
     AI_OBSERVABILITY_CLUSTER_URL_PATTERN,
     NOISE_CLUSTER_ID,
-    OUTLIER_COLOR,
     TRACES_PER_PAGE,
 } from './constants'
 import { loadFilterMatchedItemIds } from './filteredItemIdsLoader'
@@ -51,6 +50,8 @@ export interface TraceWithSummary {
 
 export interface ClusterData {
     cluster: Cluster
+    runId?: string
+    totalItemsAnalyzed?: number
     runTimestamp: string
     windowStart: string
     windowEnd: string
@@ -74,6 +75,9 @@ export interface clusterDetailLogicValues {
     filteredItemIdsLoading: boolean
     hasActiveFilters: boolean
     isOutlierCluster: boolean
+    itemMetrics: Record<string, ItemMetrics>
+    mapHighlight: ClusterMapHighlight
+    mapSizeBy: ClusterMapSize
     paginatedTraceIds: string[]
     paginatedTracesWithSummaries: TraceWithSummary[]
     runTimestamp: string
@@ -107,22 +111,10 @@ export interface clusterDetailLogicActions {
         errorObject?: any
     }
     loadClusterDataSuccess: (
-        clusterData: {
-            cluster: Cluster
-            clusteringLevel: ClusteringLevel
-            runTimestamp: string
-            windowEnd: string
-            windowStart: string
-        } | null,
+        clusterData: ClusterData | null,
         payload?: any
     ) => {
-        clusterData: {
-            cluster: Cluster
-            clusteringLevel: ClusteringLevel
-            runTimestamp: string
-            windowEnd: string
-            windowStart: string
-        } | null
+        clusterData: ClusterData | null
         payload?: any
     }
     loadClusterMetricsForCluster: () => {
@@ -158,6 +150,15 @@ export interface clusterDetailLogicActions {
     setClusterMetricsLoading: (loading: boolean) => {
         loading: boolean
     }
+    setItemMetrics: (metrics: Record<string, ItemMetrics>) => {
+        metrics: Record<string, ItemMetrics>
+    }
+    setMapHighlight: (highlight: ClusterMapHighlight) => {
+        highlight: ClusterMapHighlight
+    }
+    setMapSizeBy: (sizeBy: ClusterMapSize) => {
+        sizeBy: ClusterMapSize
+    }
     setPage: (page: number) => {
         page: number
     }
@@ -181,8 +182,10 @@ export interface clusterDetailLogicMeta {
         isOutlierCluster: (cluster: Cluster | null) => boolean
         scatterPlotSeries: (
             cluster: Cluster | null,
-            isOutlierCluster: boolean,
-            filteredItemIds: Set<string> | null
+            filteredItemIds: Set<string> | null,
+            itemMetrics: Record<string, ItemMetrics>,
+            mapSizeBy: ClusterMapSize,
+            mapHighlight: ClusterMapHighlight
         ) => ClusterScatterSeries[]
         sortedTraceIds: (cluster: Cluster | null, filteredItemIds: Set<string> | null) => string[]
         totalTraces: (sortedTraceIds: string[]) => number
@@ -232,6 +235,9 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
         setTraceSummariesLoading: (loading: boolean) => ({ loading }),
         setClusterMetrics: (metrics: ClusterMetrics | null) => ({ metrics }),
         setClusterMetricsLoading: (loading: boolean) => ({ loading }),
+        setItemMetrics: (metrics: Record<string, ItemMetrics>) => ({ metrics }),
+        setMapSizeBy: (sizeBy: ClusterMapSize) => ({ sizeBy }),
+        setMapHighlight: (highlight: ClusterMapHighlight) => ({ highlight }),
         loadClusterMetricsForCluster: true,
         // Declared explicitly so kea-typegen generates a no-arg signature for the
         // loader action below — without this, the `(_, breakpoint)` loader signature
@@ -240,6 +246,9 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
     }),
 
     reducers({
+        itemMetrics: [{} as Record<string, ItemMetrics>, { setItemMetrics: (_, { metrics }) => metrics }],
+        mapSizeBy: ['none' as ClusterMapSize, { setMapSizeBy: (_, { sizeBy }) => sizeBy }],
+        mapHighlight: ['cluster' as ClusterMapHighlight, { setMapHighlight: (_, { highlight }) => highlight }],
         currentPage: [
             1,
             {
@@ -312,7 +321,7 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
         clusterData: [
             null as ClusterData | null,
             {
-                loadClusterData: async () => {
+                loadClusterData: async (): Promise<ClusterData | null> => {
                     const { dayStart, dayEnd } = getTimestampBoundsFromRunId(props.runId)
 
                     // Query all three cluster event types so a single URL works regardless of level
@@ -374,6 +383,8 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
 
                     return {
                         cluster,
+                        runId: props.runId,
+                        totalItemsAnalyzed: clustersData.reduce((total, item) => total + item.size, 0),
                         runTimestamp: row[4],
                         windowStart: row[1],
                         windowEnd: row[2],
@@ -413,53 +424,27 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
         ],
 
         scatterPlotSeries: [
-            (s) => [s.cluster, s.isOutlierCluster, s.filteredItemIds],
+            (s) => [s.cluster, s.filteredItemIds, s.itemMetrics, s.mapSizeBy, s.mapHighlight],
             (
                 cluster: Cluster | null,
-                isOutlier: boolean,
-                filteredItemIds: Set<string> | null
+                filteredItemIds: Set<string> | null,
+                itemMetrics: Record<string, ItemMetrics>,
+                sizeBy: ClusterMapSize,
+                highlight: ClusterMapHighlight
             ): ClusterScatterSeries[] => {
                 if (!cluster) {
                     return []
                 }
 
-                // Same membership rule as sortedTraceIds, so the plot and the list show the same items
                 const entries = Object.entries(cluster.traces)
                 const visibleEntries = filteredItemIds ? entries.filter(([id]) => filteredItemIds.has(id)) : entries
-                const color = isOutlier ? OUTLIER_COLOR : getSeriesColor(cluster.cluster_id)
-
-                const result: ClusterScatterSeries[] = [
-                    {
-                        key: 'items',
-                        label: cluster.title,
-                        color,
-                        pointRadius: 5,
-                        shape: isOutlier ? 'cross' : 'circle',
-                        points: visibleEntries.map(([itemKey, traceInfo]) => ({
-                            x: traceInfo.x,
-                            y: traceInfo.y,
-                            meta: {
-                                traceId: traceInfo.trace_id || itemKey,
-                                generationId: traceInfo.generation_id,
-                                timestamp: traceInfo.timestamp,
-                            },
-                        })),
-                    },
-                ]
-
-                // Add centroid marker for non-outlier clusters
-                if (!isOutlier && visibleEntries.length > 0) {
-                    result.push({
-                        key: 'centroid',
-                        label: 'Centroid',
-                        color,
-                        pointRadius: 10,
-                        shape: 'circle',
-                        points: [{ x: cluster.centroid_x, y: cluster.centroid_y, meta: { isCentroid: true } }],
-                    })
-                }
-
-                return result
+                return buildClusterMapSeries(
+                    [{ ...cluster, traces: Object.fromEntries(visibleEntries) }],
+                    itemMetrics,
+                    sizeBy,
+                    highlight,
+                    null
+                )
             },
         ],
 
@@ -546,6 +531,20 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
     }),
 
     listeners(({ actions, values, props }) => ({
+        setMapSizeBy: ({ sizeBy }) => {
+            posthog.capture('llma clusters map size changed', {
+                size_by: sizeBy,
+                cluster_id: props.clusterId,
+                run_id: props.runId,
+            })
+        },
+        setMapHighlight: ({ highlight }) => {
+            posthog.capture('llma clusters map highlight changed', {
+                highlight,
+                cluster_id: props.clusterId,
+                run_id: props.runId,
+            })
+        },
         loadClusterDataSuccess: () => {
             actions.setPage(1)
             actions.loadClusterMetricsForCluster()
@@ -575,27 +574,65 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
             actions.setPage(1)
         },
 
-        loadClusterMetricsForCluster: async () => {
+        loadClusterMetricsForCluster: async (_, breakpoint) => {
             const { cluster, windowStart, windowEnd, clusteringLevel } = values
             if (!cluster || !windowStart || !windowEnd) {
                 return
             }
 
-            // Evaluation clusters ship with metrics baked into the event — use them
-            // directly rather than re-computing via the HogQL items query. Matches
-            // clustersLogic's short-circuit.
-            if (clusteringLevel === 'evaluation') {
-                actions.setClusterMetrics(cluster.metrics || null)
-                return
-            }
-
             actions.setClusterMetricsLoading(true)
             try {
-                const metricsMap = await loadClusterMetrics([cluster], windowStart, windowEnd, clusteringLevel)
-                actions.setClusterMetrics(metricsMap[cluster.cluster_id] || null)
+                if (clusteringLevel === 'evaluation') {
+                    actions.setClusterMetrics(cluster.metrics || null)
+                    await waitForEvaluationsSettled()
+                    breakpoint()
+                    const loadedSummaries = await loadTraceSummaries(
+                        Object.keys(cluster.traces),
+                        values.traceSummaries,
+                        windowStart,
+                        windowEnd,
+                        clusteringLevel,
+                        values.detectorEvaluationIds
+                    )
+                    breakpoint()
+                    const summaries = { ...values.traceSummaries, ...loadedSummaries }
+                    actions.setTraceSummaries(summaries)
+                    const linkedCluster = {
+                        ...cluster,
+                        traces: Object.fromEntries(
+                            Object.entries(cluster.traces).flatMap(([id, info]) =>
+                                summaries[id]?.generationId ? [[summaries[id].generationId!, info]] : []
+                            )
+                        ),
+                    }
+                    const generations = await loadClusterItemMetrics(
+                        [linkedCluster],
+                        dayjs(windowStart).subtract(7, 'days').toISOString(),
+                        windowEnd,
+                        'generation'
+                    )
+                    breakpoint()
+                    actions.setItemMetrics(
+                        Object.fromEntries(
+                            Object.keys(cluster.traces).flatMap((id) => {
+                                const metric = generations[summaries[id]?.generationId ?? '']
+                                return metric ? [[id, { ...metric, itemId: id }]] : []
+                            })
+                        )
+                    )
+                } else {
+                    const itemMetrics = await loadClusterItemMetrics([cluster], windowStart, windowEnd, clusteringLevel)
+                    breakpoint()
+                    actions.setItemMetrics(itemMetrics)
+                    actions.setClusterMetrics(
+                        aggregateClusterMetrics([cluster], itemMetrics)[cluster.cluster_id] || null
+                    )
+                }
             } catch (error) {
+                breakpoint()
                 console.error('Failed to load cluster metrics:', error)
             } finally {
+                breakpoint()
                 actions.setClusterMetricsLoading(false)
             }
         },
