@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -343,6 +345,55 @@ class TestReleaseAPI(APIBaseTest):
             expected
         ]
         assert self.client.get(self._url("catalog_releases/?search=secret")).json()["results"] == []
+        assert self.client.get(self._url(f"{release_id}/")).json()["name"] == expected
+        assert self.client.get(self._url(f"catalog_releases/?feature_flag_id={flag_id}")).json()["results"] == []
+        assert self.client.get(self._url(f"flag_suggestions/?feature_flag_id={flag_id}")).status_code == 404
+
+    def test_retrieve_and_catalog_filter_find_a_release_by_its_flag(self) -> None:
+        flag_id = self._flag("checkout-button")
+        linked = self.client.post(
+            self._url(), {"name": "Checkout", "feature_flag_ids": [flag_id]}, format="json"
+        ).json()
+        self.client.post(self._url(), {"name": "Billing"}, format="json")
+
+        assert self.client.get(self._url(f"{linked['id']}/")).json()["feature_flag_ids"] == [flag_id]
+        assert self.client.get(self._url(f"{uuid4()}/")).status_code == status.HTTP_404_NOT_FOUND
+        assert [
+            release["name"]
+            for release in self.client.get(self._url(f"catalog_releases/?feature_flag_id={flag_id}")).json()["results"]
+        ] == ["Checkout"]
+
+    def test_flag_suggestions_rank_related_releases_and_list_the_ones_it_is_in(self) -> None:
+        flag_id = self._flag("checkout-redesign-button")
+        copy_flag = self._flag("checkout-copy")
+        self.client.post(self._url(), {"name": "Checkout redesign"}, format="json")
+        self.client.post(self._url(), {"name": "Payments", "feature_flag_ids": [copy_flag]}, format="json")
+        self.client.post(self._url(), {"name": "Pricing page"}, format="json")
+        self.client.post(self._url(), {"name": "Button styles", "feature_flag_ids": [flag_id]}, format="json")
+
+        response = self.client.get(self._url(f"flag_suggestions/?feature_flag_id={flag_id}"))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert [release["name"] for release in body["current"]] == ["Button styles"]
+        assert body["auto_release"] is False
+        assert [(release["name"], release["matched_terms"]) for release in body["suggestions"]] == [
+            ("Checkout redesign", ["checkout", "redesign"]),
+            ("Payments", ["checkout"]),
+        ]
+
+    def test_flag_suggestions_never_match_through_flags_the_caller_cannot_see(self) -> None:
+        flag_id = self._flag("checkout-redesign")
+        secret = self._flag("checkout-secret")
+        self.client.post(self._url("import_all/"))
+        self.client.post(self._url(), {"name": "Payments", "feature_flag_ids": [secret]}, format="json")
+        self._restrict_as_admin(f"feature_flags/{secret}")
+        self.client.force_login(self._create_user("member@example.com"))
+
+        body = self.client.get(self._url(f"flag_suggestions/?feature_flag_id={flag_id}")).json()
+
+        assert [release["name"] for release in body["suggestions"]] == []
+        assert body["auto_release"] is True
 
     def test_catalog_releases_search_gives_no_hint_of_restricted_generated_names(self) -> None:
         hidden = [self._flag(key) for key in ("secret-launch", "secret-pricing")]
