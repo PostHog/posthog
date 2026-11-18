@@ -53,7 +53,7 @@ export const INBOX_EVENTS = {
     REPORT_ACTION: 'Inbox report action',
     SELECTION_MODE_ENTERED: 'Inbox selection mode entered',
     REPORT_ACTION_COMPLETED: 'Inbox report action completed',
-    // Cloud-only for now: a person changed an agent decision, such as the priority, from the Status section.
+    // Cloud-only for now.
     REPORT_DECISION_CHANGED: 'Inbox report decision changed',
     REPORT_FEEDBACK: 'Inbox report feedback',
     REPORT_SOURCE_SUGGESTION_SHOWN: 'Inbox report source suggestion shown',
@@ -705,10 +705,7 @@ export function captureInboxReportAction(params: {
     })
 }
 
-/**
- * A person saved a new value for a decision on a report. `previous_set_by` says whether they corrected
- * the agent or another person, so the correction rate per decision can be measured.
- */
+/** `previous_set_by` tells a correction of the agent apart from a change to a person's own value. */
 export function captureInboxReportDecisionChanged(params: {
     report: SignalReport
     decision: ReportDecision

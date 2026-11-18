@@ -19,11 +19,7 @@ function DecisionAttribution({ attribution }: { attribution: ReportDecisionAttri
     )
 }
 
-/**
- * A decision about the report, such as its repository or priority, in the Status section. Hovering or
- * focusing the value shows who set it and why. With `options` and `onChange`, picking a value saves it,
- * and the menu repeats who set it, so a tap reaches the reason too.
- */
+/** The menu repeats who set the value, so a tap on a phone reaches the reason without hover. */
 export function ReportDecisionRow<T extends string>({
     label,
     value,

@@ -82,7 +82,7 @@ export function ReportStatusSection({
     rightSlot?: ReactNode
     onPriorityChange?: (priority: ReportPriorityApi) => void
     prioritySaving?: boolean
-    /** Who set each decision and why. Null while the report's history loads. */
+    /** Null while the report's history loads. */
     decisionAttributions?: ReportDecisionAttributions | null
 }): JSX.Element {
     const editableDecisions = useFeatureFlag('INBOX_REPORT_EDITABLE_DECISIONS')

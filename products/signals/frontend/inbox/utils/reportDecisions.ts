@@ -2,7 +2,6 @@ import type { UserBasicType } from '~/types'
 
 import type { SignalReportArtefact } from '../types'
 
-/** An agent decision on a report that the Status section shows with who set it and why. */
 export type ReportDecision = 'repository' | 'priority'
 
 export interface ReportDecisionAttribution {
@@ -11,7 +10,6 @@ export interface ReportDecisionAttribution {
     setAt: string
     /** The agent's stated reason. Null for a value a person set, since the row already names them. */
     reason: string | null
-    /** The value before a person changed it, when the history holds one that differs. */
     previousValue: string | null
 }
 
@@ -57,7 +55,6 @@ function decisionAttribution(
     }
 }
 
-/** Who set each decision and why, from the report's artefacts. Null for a decision with no history yet. */
 export function reportDecisionAttributions(artefacts: SignalReportArtefact[]): ReportDecisionAttributions {
     return {
         repository: decisionAttribution(artefacts, 'repository'),
