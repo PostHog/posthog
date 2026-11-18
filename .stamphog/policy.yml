@@ -53,7 +53,7 @@ deny:
                 - 'tools/owners/'
     ownership_files:
         description: 'The owners.yaml and product.yaml files that name owning teams and route reviews.'
-        rationale: 'Owner-only: stamphog approves team-devex changes here and refuses everyone else. One line changes who reviews later PRs, and the files are .yaml, so without this category they ride the allow-list to a T0 auto-approve. They are not in stamphog_policy, because that category exempts nobody and the root owners.yaml routes every owners.yaml to team-devex. The exemption reads GitHub team membership, which these files do not set, and a PR that changes one reads ownership at the merge base, so it cannot vouch for itself. The resolver code in packages/owners-yaml/ stays in stamphog_policy.'
+        rationale: 'Owner-only: stamphog approves team-devex changes here and refuses everyone else. One line changes who reviews later PRs, and the files are .yaml, so without this category they ride the allow-list to a T0 auto-approve. They are not in stamphog_policy, because that category exempts nobody and the root owners.yaml routes every owners.yaml to team-devex. The exemption reads GitHub team membership, which these files do not set, and a PR that changes one reads ownership at the merge base, so it cannot vouch for itself. A change that only adds lines to an owners.yaml passes for every author through edit_paths, and it still gets a full LLM review. The resolver code in packages/owners-yaml/ stays in stamphog_policy.'
         match:
             paths:
                 - '(?:^|/)product\.yaml$'

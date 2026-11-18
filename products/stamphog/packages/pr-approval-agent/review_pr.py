@@ -573,7 +573,8 @@ class Pipeline:
             if ownership_from_merge_base
             else build_ownership(REPO_ROOT, POLICY.ownership)
         )
-        ownership = detect_ownership(file_paths, ownership_resolvers)
+        ownership_unreadable = ownership_resolvers is None
+        ownership = detect_ownership(file_paths, ownership_resolvers or [])
 
         tier = assign_tier(
             deny_categories=deny,
@@ -621,6 +622,7 @@ class Pipeline:
             "has_ci_changes": has_ci_workflow_changes(file_paths),
             "ownership": ownership,
             "ownership_from_merge_base": ownership_from_merge_base,
+            "ownership_unreadable": ownership_unreadable,
             "folder_policy_prose": self.effective_policy.folder_prose,
             "assurance": {
                 **self._summarize_assurance(),
@@ -807,7 +809,8 @@ class Pipeline:
             return False, f"no attestation covers: {', '.join(unattested[:5])}"
         return True, "every file attested"
 
-    def _merge_base_ownership_resolvers(self) -> list:
+    def _merge_base_ownership_resolvers(self) -> list | None:
+        """The ownership resolvers at the merge base, or None when git or the resolver cannot read it."""
         merge_base = self.pr.merge_base_sha
         try:
             if not merge_base:
@@ -821,7 +824,7 @@ class Pipeline:
                 ).stdout.strip()
             return build_ownership(REPO_ROOT, POLICY.ownership, ref=merge_base)
         except (OSError, subprocess.SubprocessError, RuntimeError):
-            return []
+            return None
 
     def _summarize_ownership(self) -> str:
         """Build ownership context for the LLM (not a hard gate)."""
