@@ -278,6 +278,10 @@ class SecretAlert(APIView):
                         team = Team.objects.get(Q(secret_api_token=token) | Q(secret_api_token_backup=token))
                         local_found = True
                         key_kind = CANONICAL_TEAM_SECRET_TOKEN
+                        # Lazy: conversations imports posthog.api modules at load time.
+                        from products.conversations.backend.services.signing_secrets import retire_leaked_signing_secret
+
+                        retire_leaked_signing_secret(team.id, token)
                         send_feature_flags_secure_api_key_exposed(team.id, mask_key_value(token), more_info)
 
                     except Team.DoesNotExist:

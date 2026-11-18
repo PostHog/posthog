@@ -280,9 +280,11 @@ def revoke_exposed_project_secret_api_key(project_secret_api_key: ProjectSecretA
 
     A backfilled PSAK (#63111) mirrors the team's legacy secret token: deleting the row
     is the revocation (rolling would mint an unrelated key that later rotation cannot
-    clean up), and the admins must still rotate the legacy token itself. Any other key
-    gets the ordinary roll-and-notify.
+    clean up). Any other key gets the ordinary roll-and-notify.
     """
+    # Lazy: conversations imports posthog.api modules at load time.
+    from products.conversations.backend.services.signing_secrets import retire_leaked_signing_secret
+
     team = project_secret_api_key.team
     for token in (team.secret_api_token, team.secret_api_token_backup):
         if token and project_secret_api_key.secure_value == hash_key_value(token):
@@ -293,6 +295,9 @@ def revoke_exposed_project_secret_api_key(project_secret_api_key: ProjectSecretA
                     team_id=team.id, secure_value=project_secret_api_key.secure_value
                 )
                 project_secret_api_key.delete()
+            # The widget signing secret may mirror the same leaked value; it must not
+            # keep verifying identity hashes signed with it.
+            retire_leaked_signing_secret(team.id, token)
             send_feature_flags_secure_api_key_exposed(team.id, mask_key_value(token), more_info)
             return True
     roll_project_secret_api_key_and_notify(project_secret_api_key, more_info)
