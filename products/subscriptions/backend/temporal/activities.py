@@ -364,6 +364,7 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
             # The exporter runs the insight query as the asset's creator; without it the render is
             # userless and warehouse access control fails closed, breaking subscription deliveries.
             created_by=subscription.created_by,
+            export_context={"image_size": subscription.delivery_config.get("image_size", {})},
         )
         for _tile, insight in export_pairs
     ]

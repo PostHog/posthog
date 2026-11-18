@@ -17,7 +17,6 @@ import { userLogic } from 'scenes/userLogic'
 
 import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 import { REPORT_AI_PANEL } from '~/layout/ai/aiPanelIds'
-import { aiShellLogic } from '~/layout/ai/aiShellLogic'
 import type { AttachedContextItem } from '~/layout/ai/attachedContext'
 import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
 import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
@@ -155,7 +154,7 @@ const REPORT_STATE_INSTRUCTIONS = `Keep the report's own state honest while you 
 - Read the report before you start. This run took the report when its task was created, but a rerun of a run that released it starts unclaimed: claim it again first, so the work you are about to do is visible to everyone else.
 - Opening the PR is enough by itself. The PR is linked to the report for you, and merging it resolves the report. Do NOT set the state to resolved because you opened a PR: that closes the PR you just opened.
 - If the work is finished without a PR, set the state to resolved with the reason that fits (\`fixed_outside_posthog\`, \`pr_merged\`, or \`already_fixed\`) and a short note that says what you did.
-- If the report holds no work to do, set the state to suppressed with the reason that says why (\`report_unclear\`, \`analysis_wrong\`, \`wrong_repo\` with \`corrected_repository\`, \`wontfix_intentional\`, \`wontfix_irrelevant\`, or \`other\`) and a short note, then release your claim: suppressing does not release it for you. A report sent to the wrong person still holds work, so do not suppress it for that reason.
+- If the report holds no work to do, set the state to suppressed with the reason that says why (\`report_unclear\`, \`analysis_wrong\`, \`wrong_repo\` with \`corrected_repository\`, \`wontfix_intentional\`, \`wontfix_irrelevant\`, or \`other\`) and a short note. Suppressing the report also releases its claim. A report sent to the wrong person still holds work, so do not suppress it for that reason.
 - If you stop for any other reason, release your claim on the report, so it does not look like work is still in flight. When the claim belongs to the person who started you, keep it: it is their claim, and only they can release it.`
 
 export function buildCreatePrReportPrompt(report: SignalReport, feedback?: string): string {
@@ -463,7 +462,6 @@ function panelStillOnReport(context: ReportChatContext | null, reportId: string)
 export interface inboxTaskKickoffLogicValues {
     dataProcessingAccepted: boolean // aiConsentLogic
     dataProcessingApprovalDisabledReason: string | null // aiConsentLogic
-    isPhaiSandboxFlagOn: boolean // aiShellLogic
     pageItems: AttachedContextItem[] // chatContextLogic
     picks: AttachedContextItem[] // chatContextLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
@@ -675,8 +673,6 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             ['openSidePanel', 'closeSidePanel', 'setSidePanelOptions'],
         ],
         values: [
-            aiShellLogic,
-            ['isPhaiSandboxFlagOn'],
             projectLogic,
             ['currentProjectId'],
             teamLogic,
@@ -858,9 +854,6 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
 
     listeners(({ actions, cache, values, selectors }) => ({
         openReportCheckMetricSuggestion: ({ report, check }) => {
-            if (!values.isPhaiSandboxFlagOn) {
-                return
-            }
             if (values.metricCheckReplacementDisabledReason) {
                 return
             }
@@ -883,9 +876,6 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             }
         },
         openReportDiscussion: ({ report, reportUrl }) => {
-            if (!values.isPhaiSandboxFlagOn) {
-                return
-            }
             actions.alignReportDiscussion(report, reportUrl)
             actions.openSidePanel(SidePanelTab.Max, REPORT_AI_PANEL)
             if (!values.isCreatingPr) {
@@ -893,9 +883,6 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             }
         },
         warmReportDiscussion: async ({ report }) => {
-            if (!values.isPhaiSandboxFlagOn) {
-                return
-            }
             if (values.aiConsentDisabledReason || values.currentProjectId == null) {
                 return
             }
@@ -1004,10 +991,6 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             actions.openSidePanel(SidePanelTab.Max, REPORT_AI_PANEL)
         },
         discussReport: async ({ report, reportUrl, question, agentQuestion, intent, pullRequestUrl, background }) => {
-            if (!values.isPhaiSandboxFlagOn) {
-                actions.discussReportFailure()
-                return
-            }
             // The CTAs carry this as a `disabledReason`, but Discuss also submits on Enter, and the
             // run endpoint enforces no consent of its own.
             const disabledReason =
@@ -1150,9 +1133,6 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             }
         },
         implementReport: async ({ report, feedback, surface, openedFromLink, repository }) => {
-            if (!values.isPhaiSandboxFlagOn) {
-                return
-            }
             // A repeated press while the lazy chunks load would start the run twice.
             if (cache.implementationPending || values.isCreatingPr) {
                 return
@@ -1233,10 +1213,6 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             }
         },
         createPrFromReport: async ({ report, feedback, repository }) => {
-            if (!values.isPhaiSandboxFlagOn) {
-                actions.createPrFailure()
-                return
-            }
             // Lazy: a static import puts the inbox setup stack in the shell bundle of every logged-in page.
             const modules = await Promise.all([import('./logics/reportGithubAccessLogic'), loadRunStreamLogic()]).catch(
                 (error) => {

@@ -4,10 +4,7 @@ import { CyclotronInvocationQueueParametersFetchStandardWebhooksType } from '~/c
 
 import { HogFunctionType } from '../types'
 import { resolveHogFunctionInputValue } from './hog-function-inputs'
-
-// Headers that are signing artifacts. They must always be rebuilt, never
-// inherited from a previous attempt's queue payload.
-const SIGNING_HEADERS = new Set(['webhook-id', 'webhook-timestamp', 'webhook-signature'])
+import { overrideHeaders } from './override-headers'
 
 // Standard Webhooks secrets are base64, optionally prefixed with "whsec_".
 // See https://github.com/standard-webhooks/standard-webhooks/blob/main/spec/standard-webhooks.md
@@ -92,17 +89,9 @@ export function signStandardWebhooksRequest({
         .update(`${webhookId}.${timestamp}.${body ?? ''}`)
         .digest('base64')
 
-    const outHeaders: Record<string, string> = {}
-    for (const [headerKey, headerValue] of Object.entries(headers ?? {})) {
-        if (!SIGNING_HEADERS.has(headerKey.toLowerCase())) {
-            outHeaders[headerKey] = headerValue
-        }
-    }
-
-    return {
-        ...outHeaders,
+    return overrideHeaders(headers ?? {}, {
         'webhook-id': webhookId,
         'webhook-timestamp': timestamp,
         'webhook-signature': `v1,${signature}`,
-    }
+    })
 }

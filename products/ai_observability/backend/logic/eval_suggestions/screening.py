@@ -57,7 +57,7 @@ _LABELS = {
 }
 
 
-def build_client(team: Team) -> SystemOneClient:
+def build_client(team: Team, trigger: str) -> SystemOneClient:
     """Raises SystemOneNotConfigured where no System One server is set up, which a caller treats as a skip.
 
     Calls carry trace text and evaluation definitions, so an organization in privacy mode keeps them out of the
@@ -67,6 +67,7 @@ def build_client(team: Team) -> SystemOneClient:
         model=settings.HOGQL_PROMPT_JEV_MODEL,
         ai_product=AI_PRODUCT,
         team_id=team.pk,
+        properties={"trigger": trigger},
         privacy_mode=is_privacy_mode_enabled(team),
     )
 

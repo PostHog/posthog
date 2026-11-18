@@ -163,6 +163,14 @@ CASES = [
         metric_events_job_ids=METRIC_EVENTS_JOB_IDS,
         reads=BOTH_TABLES,
     ),
+    param(
+        "mean_cuped_precomputed",
+        metric=ExperimentMeanMetric(source=PURCHASE, **SEVEN_DAYS),
+        cuped=True,
+        exposure_job_ids=EXPOSURE_JOB_IDS,
+        metric_events_job_ids=METRIC_EVENTS_JOB_IDS,
+        reads=BOTH_TABLES,
+    ),
     param("ratio_events", metric=ExperimentRatioMetric(numerator=PURCHASE, denominator=PAGEVIEW)),
     param(
         "ratio_data_warehouse_numerator", metric=ExperimentRatioMetric(numerator=REVENUE_TABLE, denominator=PAGEVIEW)
@@ -211,6 +219,14 @@ CASES = [
         reads=BOTH_TABLES,
     ),
     param(
+        "funnel_cuped_precomputed",
+        metric=_funnel(**SEVEN_DAYS),
+        cuped=True,
+        exposure_job_ids=EXPOSURE_JOB_IDS,
+        metric_events_job_ids=METRIC_EVENTS_JOB_IDS,
+        reads=BOTH_TABLES,
+    ),
+    param(
         "funnel_metric_events_job_ids_without_exposure_job_ids",
         metric=_funnel(**SEVEN_DAYS),
         metric_events_job_ids=METRIC_EVENTS_JOB_IDS,
@@ -236,9 +252,16 @@ CASES = [
     param("daily_exposures_from_precomputed", output="daily_exposures", reads=frozenset({EXPOSURES_TABLE})),
     param("exposures_precompute_write", output="exposures_write"),
     param("funnel_precompute_write", metric=_funnel(**SEVEN_DAYS), output="metric_events_write"),
+    param("funnel_cuped_precompute_write", metric=_funnel(**SEVEN_DAYS), cuped=True, output="metric_events_write"),
     param(
         "mean_precompute_write",
         metric=ExperimentMeanMetric(source=PURCHASE, **SEVEN_DAYS),
+        output="metric_events_write",
+    ),
+    param(
+        "mean_cuped_precompute_write",
+        metric=ExperimentMeanMetric(source=PURCHASE, **SEVEN_DAYS),
+        cuped=True,
         output="metric_events_write",
     ),
     param("retention_precompute_write", metric=_retention(**SEVEN_DAYS), output="metric_events_write"),

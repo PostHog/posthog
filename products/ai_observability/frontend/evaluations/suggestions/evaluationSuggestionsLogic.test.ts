@@ -24,6 +24,8 @@ function suggestion(overrides: Partial<EvalSuggestionApi> = {}): EvalSuggestionA
         headline: '1 in 125 traces ends on a failed call',
         outcome: 'Checks every trace for a tool or model call that failed with no recovery.',
         reason: 'A tool call failed and no later attempt succeeded.',
+        observation: '',
+        observation_scope: '',
         draft: { evaluation_type: 'hog' },
         filters: [],
         rollout_percentage: 100,

@@ -283,16 +283,20 @@ export class MCPClientProfile {
         this.uiSupported = input.uiSupported
     }
 
+    isCursor(): boolean {
+        return (
+            matchesAnyFragment(this.clientName, TOOLS_MODE_CLIENT_NAME_FRAGMENTS) ||
+            matchesAnyFragment(this.userAgent, TOOLS_MODE_USER_AGENT_FRAGMENTS)
+        )
+    }
+
     isToolsModeClient(): boolean {
         // The only clients that auto-select the full per-tool roster; everyone
         // else defaults to CLI (single-exec) mode — see `resolveMode`. Matched on
         // the self-reported `clientInfo.name` and the User-Agent (older Cursor
         // builds identify only through the UA); never on the vendor header, so
         // Anthropic pooled transports can't land in tools mode.
-        return (
-            matchesAnyFragment(this.clientName, TOOLS_MODE_CLIENT_NAME_FRAGMENTS) ||
-            matchesAnyFragment(this.userAgent, TOOLS_MODE_USER_AGENT_FRAGMENTS)
-        )
+        return this.isCursor()
     }
 
     isCliModeEnabled(): boolean {

@@ -60,6 +60,12 @@ The upsert uses `WHERE EXCLUDED.version > COALESCE(table.version, -1)`, so out-o
 
 A person whose fields cannot be bound losslessly (malformed uuid, `team_id` beyond the column's integer range, non-UTF-8 JSON bytes, out-of-range timestamp) fails its chunk as a `Data` error rather than being silently dropped or repaired; the per-row pass then isolates it as an invariant violation (see below).
 
+## Row locks
+
+The update never assigns `uuid`, even as an unchanged value. The `(team_id, uuid)` unique index makes it a key column, and with no key column in its `SET` list `ON CONFLICT` locks the row `FOR NO KEY UPDATE`. That lock lets the foreign-key checks of distinct id and hash key override writes for the same person run while a flush is in flight. A person's uuid is fixed at creation, so only the insert branch writes it.
+
+The merge and delete sagas still wait on a flush that holds their person, because their `FOR NO KEY UPDATE` conflicts with the writer's. A longer statement holds its row locks longer.
+
 ## Error handling
 
 Failures are handled at chunk granularity: the store splits each batch into chunks (sized by `upsert_batch_size`), runs them in parallel against `PgStore::execute_chunk`, and reports successful, transient-failed, and data-failed chunks separately so only the affected rows need retry.

@@ -40,6 +40,28 @@ Direct-connection catalogs contain no authored models and are exempt from the re
 
 This reservation does not add qualified names to existing models or require a namespace on new models.
 
+## Model refresh minimums
+
+Billing sets each plan's minimum as the `limit`, in minutes, of the `data_modeling_refresh_interval` product feature, the same way it sets the `alerts` limit.
+Billing sync stores the feature in `available_product_features`.
+An organization without the feature, or with a feature that has no `limit`, has no minimum.
+A `limit` that is not a cadence rounds up to the next one, and the minimum stops at seven days, the coarsest cadence an endpoint can use.
+
+The proposed limits are `60` for free organizations, `30` for paid organizations without a package, and `15` for Teams, Boost, Scale, and Enterprise.
+A billing feature override only replaces a plan's `limit` when the new value is higher or `null`, so an override can make the minimum stricter or remove it, but can't lower it to `30`.
+Because `15` minutes is the fastest cadence, an override of `null` gives the same cadences as the `15` plans.
+
+The `data-modeling-refresh-floor` flag rolls the minimum out, and no minimum applies while the flag is off for an organization or can't be read.
+The minimum refuses new and faster cadences.
+Each DAG run first rewrites every cadence in that DAG saved faster than the minimum to the minimum and reconciles its schedules, so a flag or plan change reaches a view or endpoint on its next run.
+The rewrite is permanent: an upgrade or turning the flag off does not restore the old cadence, and the person picks a faster one again.
+Each rewrite records the previous cadence, the minimum, and the time on the node under `properties.system.frequency.plan_clamp`, and sends a `data modeling refresh clamped to plan floor` event.
+Saving a different cadence, or clearing it, removes the record.
+Un-materializing a rewritten endpoint uses the previous cadence as its cache duration.
+Managed views keep the cadence their provider declares.
+When an endpoint's query changes while its cadence is still faster than the minimum, the new version is created but not materialized.
+Picking a cadence at or above the minimum materializes it.
+
 ## Model materialization usage
 
 The Models **Usage** tab shows bytes read, CPU time, and run counts for materializations over a preset or custom range of complete UTC days.
@@ -80,6 +102,11 @@ The SQL editor keeps unrun edits in browser storage, scoped to the user, project
 SQL and Business intelligence drafts also retain selected variables and their values when you navigate away, including variables not yet referenced in the query. Saved queries include only referenced variables.
 An **Edited** label marks changes to a saved view or insight. **Discard changes** restores the saved copy already loaded in memory, then refreshes it from the server. The refresh preserves edits made after discarding.
 Views and insights can be saved or updated before running the SQL. Save and update buttons show a warning when the query has not been run successfully. Clicking opens a confirmation near the pointer: **Run latest** runs the current editor SQL without saving, **Show diff** compares it with the saved view or insight (or the latest run for a new query), and **Save anyway** saves without opening a diff. All three choices close the confirmation. The read-only diff lets you review and save the changes or cancel to continue editing. Managed Trino views still require a successful run to determine their columns. View updates use the same change check as the **Edited** label, including saved query filters. **Continue in a notebook** is in the update button's dropdown for saved views and insights.
+
+On an empty dashboard, **Write SQL** opens the SQL editor with that dashboard selected. **Save & add to dashboard** saves the insight, adds it to the dashboard, and returns to it. This shortcut requires permission to edit the dashboard.
+The insight picker keeps names readable at narrow widths. Scroll the table horizontally to reach additional columns and the add/remove controls.
+
+Saved SQL insight tables keep column headers visible while scrolling through rows or across columns. Tall results scroll inside an area capped at 70% of the window height; short results keep their natural height.
 
 **Fix errors with AI** keeps its pending state and suggestion in the SQL tab that requested the fix. Other open tabs keep their own queries and can request independent fixes.
 

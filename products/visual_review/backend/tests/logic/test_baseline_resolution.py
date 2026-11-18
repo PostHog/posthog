@@ -3,7 +3,7 @@ import pytest
 from posthog.egress.limiter.policies import Priority
 
 from products.visual_review.backend.classifier import ToleratedKey
-from products.visual_review.backend.facade.enums import BaselineMode, RunPurpose, RunType
+from products.visual_review.backend.facade.enums import BaselineApprovalState, BaselineMode, RunPurpose, RunType
 from products.visual_review.backend.logic import baseline_resolution, errors, github_api, ledger
 from products.visual_review.backend.logic.baseline_resolution import BaselinePick
 from products.visual_review.backend.models import Repo, Run, ToleratedHash
@@ -137,17 +137,20 @@ class TestResolveLedgerBaseline:
         assert head is not None and head.commit_sha == cursor
 
     @pytest.mark.parametrize(
-        ("name", "pr_number", "commit_sha", "carried_commit_sha", "ledger_base_hash", "newest_run_commit", "applies"),
+        ("name", "pr_number", "commit_sha", "carried_commit_sha", "newest_run_commit", "landed_position", "applies"),
         [
-            ("own_pull_request", 8, "elsewhere", "", "b0", None, True),
-            ("commit_in_the_tree", 7, "a1", "", "b0", None, True),
-            ("carried_commit_in_the_tree", 7, "rebased-away", "a1", "b0", None, True),
-            ("newest_run_commit_in_the_tree", 9, "elsewhere", "", "b0", "a1", True),
-            ("later_commit_of_the_branch_it_was_cut_from", 7, "a2", "", "b0", "a2", False),
+            ("own_pull_request", 8, "elsewhere", "", None, None, True),
+            ("commit_in_the_tree", 7, "a1", "", None, None, True),
+            ("carried_commit_in_the_tree", 7, "rebased-away", "a1", None, None, True),
+            ("newest_run_commit_in_the_tree", 9, "elsewhere", "", "a1", None, True),
+            ("later_commit_of_the_branch_it_was_cut_from", 7, "a2", "", "a2", None, False),
+            ("landed_after_the_run_position", 7, "a1", "", None, 1, True),
+            ("landed_at_the_run_position", 7, "a1", "", None, 0, False),
+            ("landed_after_the_run_position_outside_the_tree", 7, "a2", "", None, 1, False),
         ],
     )
     def test_candidates(
-        self, repo, git, name, pr_number, commit_sha, carried_commit_sha, ledger_base_hash, newest_run_commit, applies
+        self, repo, git, name, pr_number, commit_sha, carried_commit_sha, newest_run_commit, landed_position, applies
     ) -> None:
         git.commit("a1", SEED)
         git.commit("a2", "a1")
@@ -161,10 +164,13 @@ class TestResolveLedgerBaseline:
             "b1",
             commit_sha=commit_sha,
             carried_commit_sha=carried_commit_sha,
-            ledger_base_hash=ledger_base_hash,
+            state=BaselineApprovalState.OPEN if landed_position is None else BaselineApprovalState.PROMOTED,
+            landed_position=landed_position,
         )
 
         record = baseline_resolution.resolve_ledger_baseline(_run(repo, "b1"), {"Button": "b1"}).record
+
+        assert record.position == 0
 
         assert (approval.id in record.candidate_approval_ids) is applies
         assert ("Button" in record.overlay) is applies

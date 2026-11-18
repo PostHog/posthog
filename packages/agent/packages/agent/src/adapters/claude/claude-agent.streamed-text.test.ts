@@ -3,8 +3,9 @@ import type {
   SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMockQuery, type MockQuery } from "../../test/mocks/claude-sdk";
+import { Logger } from "../../utils/logger";
 import { Pushable } from "../../utils/streams";
 
 vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
@@ -795,5 +796,38 @@ describe("ClaudeAcpAgent.prompt — streamed assistant text wiring", () => {
 
     await send(query, resultSuccess(sessionId));
     await promptPromise;
+  });
+});
+
+describe("ClaudeAcpAgent logger", () => {
+  const lines: string[] = [];
+
+  beforeEach(() => {
+    lines.length = 0;
+    vi.spyOn(console, "debug").mockImplementation((line: string) => {
+      lines.push(line);
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function logDebug(options?: ConstructorParameters<typeof ClaudeAcpAgent>[1]) {
+    const agent = new ClaudeAcpAgent({} as AgentSideConnection, options);
+    (agent as unknown as { logger: Logger }).logger.debug("probe");
+  }
+
+  it("writes through the logger it is given", () => {
+    logDebug({ logger: new Logger({ format: "json", level: "error" }) });
+
+    expect(lines).toEqual([]);
+  });
+
+  it("falls back to a text debug logger", () => {
+    logDebug();
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("[ClaudeAcpAgent] [debug] probe");
   });
 });

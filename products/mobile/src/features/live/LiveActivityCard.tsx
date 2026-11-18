@@ -11,7 +11,7 @@ import type { ChartPoint, ChartSeries } from '@/ui/chart/types'
 import { createStyles, useTheme } from '@/ui/theme'
 import { type } from '@/ui/tokens'
 
-import { LiveCard, LiveCardNote, NOT_LOADED_TEXT } from './LiveCard'
+import { LiveCard, LiveCardLoading, LiveCardNote } from './LiveCard'
 
 const SELECTION_ID = 'live-activity'
 const CHART_HEIGHT = 168
@@ -68,7 +68,7 @@ export function LiveActivityCard({
 
     let body: ReactElement
     if (!minutes) {
-        body = <LiveCardNote text={NOT_LOADED_TEXT} testID="live-activity-not-loaded" />
+        body = <LiveCardLoading testID="live-activity-loading" />
     } else if (minutes.every((minute) => minute.users === 0)) {
         body = <LiveCardNote text="No activity in the last 30 minutes" testID="live-activity-empty" />
     } else {
