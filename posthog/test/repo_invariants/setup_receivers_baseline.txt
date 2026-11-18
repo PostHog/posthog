@@ -210,7 +210,6 @@ post_save:products.access_control.backend.facade.api.connect_access_change_recei
 post_save:products.access_control.backend.property_access_control._invalidate_restriction_cache_on_change
 post_save:products.actions.backend.models.action.action_saved
 post_save:products.ai_gateway.backend.receivers._revoke_after_save
-post_save:products.ai_observability.backend.models.clustering_job.create_default_clustering_jobs_for_new_team
 post_save:products.ai_observability.backend.models.evaluations.evaluation_saved
 post_save:products.ai_observability.backend.models.llm_prompt.invalidate_llm_prompt_cache
 post_save:products.ai_observability.backend.models.llm_prompt.invalidate_llm_prompt_label_cache
