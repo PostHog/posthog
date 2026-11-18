@@ -230,7 +230,7 @@ const decideCascade = (overrides) =>
         ...overrides,
     })
 
-test('only phase 1 product cascades select today, and the rest report a shadow selection', () => {
+test('phase 1 and 2 product cascades select today, and phase 3 reports a shadow selection', () => {
     const noShadow = { shadow_mode: '', shadow_skip_reason: '', shadow_selection_size: null }
     const shadowed = { mode: 'full', skip_reason: 'untrusted', shadow_mode: 'selected', shadow_skip_reason: '', shadow_selection_size: 1 }
     const cases = [
@@ -243,7 +243,14 @@ test('only phase 1 product cascades select today, and the rest report a shadow s
             { productCascadePhase: 1, selection: cascadeSelection({ combined: { count: 0, products: [], segments: segments() } }) },
             { mode: 'selected', skip_reason: '', core_files: '', would_trust_phase: 1, ...noShadow },
         ],
-        [{ productCascadePhase: 2, runLegacyReason: 'contract_cascade' }, { ...shadowed, would_trust_phase: 2 }],
+        [
+            { productCascadePhase: 2, runLegacyReason: 'contract_cascade' },
+            { mode: 'selected', skip_reason: '', would_trust_phase: 2, ...noShadow },
+        ],
+        [
+            { productCascadePhase: 2, runLegacyReason: 'contract_cascade', selection: cascadeSelection({ snob: { status: 'error' } }) },
+            { mode: 'full', skip_reason: 'selector_error', would_trust_phase: 2, ...noShadow },
+        ],
         [{ productCascadePhase: 3 }, { ...shadowed, would_trust_phase: 3 }],
         [
             { productCascadePhase: 3, selection: cascadeSelection({ ast: { full_run_reasons: ['conftest.py'] } }) },
