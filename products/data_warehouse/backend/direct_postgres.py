@@ -18,6 +18,8 @@ DIRECT_POSTGRES_URL_PATTERN = "direct://postgres"
 DIRECT_POSTGRES_CATALOG_OPTION = "direct_postgres_catalog"
 DIRECT_POSTGRES_SCHEMA_OPTION = "direct_postgres_schema"
 DIRECT_POSTGRES_TABLE_OPTION = "direct_postgres_table"
+# The remote catalog's row estimate at the last schema refresh, read by the HogQL cost planner.
+DIRECT_ESTIMATED_ROW_COUNT_OPTION = "direct_estimated_row_count"
 
 
 def get_direct_postgres_table_options(
@@ -41,10 +43,11 @@ def upsert_direct_postgres_table(
     source_catalog: str | None = None,
     source_schema: str,
     source_table_name: str,
+    estimated_row_count: int | None = None,
 ) -> DataWarehouseTable:
     from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
-    options = {
+    options: dict[str, Any] = {
         **(existing_table.options if existing_table is not None and isinstance(existing_table.options, dict) else {}),
         **get_direct_postgres_table_options(
             source_catalog=source_catalog,
@@ -52,6 +55,8 @@ def upsert_direct_postgres_table(
             source_table_name=source_table_name,
         ),
     }
+    if estimated_row_count is not None:
+        options[DIRECT_ESTIMATED_ROW_COUNT_OPTION] = estimated_row_count
 
     if existing_table is None:
         return DataWarehouseTable.objects.create(
