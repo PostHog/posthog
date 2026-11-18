@@ -12693,6 +12693,8 @@ export namespace Schemas {
       boxPlot?: BoxPlotSettings | null;
       /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
       chartStyle?: ChartStyle | null;
+      /** Color each X-axis category in single-series bar charts. */
+      colorBarsByCategory?: boolean | null;
       goalLines?: GoalLine[] | null;
       heatmap?: HeatmapSettings | null;
       leftYAxisSettings?: YAxisSettings | null;
@@ -12717,6 +12719,8 @@ export namespace Schemas {
       /** Whether we fill the bars to 100% in stacked mode */
       stackBars100?: boolean | null;
       valueLabelBackground?: boolean | null;
+      valueLabelBackgroundColor?: string | null;
+      valueLabelColor?: string | null;
       valueLabelFontSize?: number | null;
       valueLabelPosition?: ValueLabelPosition | null;
       valueLabelRotation?: number | null;
@@ -130932,6 +130936,12 @@ export namespace Schemas {
          * @nullable
          */
       quantile?: number | null;
+      /**
+         * Apdex threshold T in milliseconds for 'posthog.derived.spans.apdex': a request is satisfied at or under T and tolerating up to 4T. Defaults to 500. Ignored for other metrics.
+         * @minimum 0.001
+         * @nullable
+         */
+      apdexThresholdMs?: number | null;
       /** Label predicates ANDed together for this clause. */
       filters?: _MetricFilter[];
       /** Labels to split this clause into separate series by. */
@@ -131075,6 +131085,12 @@ export namespace Schemas {
          * @nullable
          */
       quantile?: number | null;
+      /**
+         * Apdex threshold T in milliseconds for 'posthog.derived.spans.apdex': a request is satisfied at or under T and tolerating up to 4T. Defaults to 500. Ignored for other metrics.
+         * @minimum 0.001
+         * @nullable
+         */
+      apdexThresholdMs?: number | null;
       /** Label predicates ANDed together. Rows must satisfy every filter. */
       filters?: _MetricFilter[];
       /** Labels to split the result into separate series by. Series share one time grid and are capped at the 100 largest. */
