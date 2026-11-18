@@ -57,7 +57,6 @@ from products.tasks.backend.models import (
     TaskRunAlreadyLiveError,
     TaskThreadMessage,
     bump_task_activity,
-    fail_stale_live_runs,
 )
 from products.tasks.backend.run_options import run_options_record
 from products.tasks.backend.task_profiles import USER
@@ -1783,7 +1782,7 @@ class TestTaskRun(TestCase):
 
         self.assertEqual(TaskRun.objects.filter(task=self.task).count(), len(existing_runs) + (0 if refused else 1))
 
-    def test_create_run_replaces_a_cloud_run_with_no_writes_past_the_stale_cutoff(self) -> None:
+    def test_create_run_is_refused_beside_a_cloud_run_with_no_writes_for_over_a_day(self) -> None:
         stale = TaskRun.objects.create(
             task=self.task, team=self.team, status=TaskRun.Status.IN_PROGRESS, environment=TaskRun.Environment.CLOUD
         )
@@ -1791,21 +1790,11 @@ class TestTaskRun(TestCase):
             updated_at=django_timezone.now() - LIVE_RUN_STALE_AFTER - timedelta(minutes=1)
         )
 
-        run = self.task.create_run()
+        with self.assertRaises(TaskRunAlreadyLiveError):
+            self.task.create_run()
 
         stale.refresh_from_db()
-        self.assertEqual(stale.status, TaskRun.Status.FAILED)
-        self.assertEqual(run.status, TaskRun.Status.QUEUED)
-
-    def test_a_run_written_after_the_stale_check_is_not_failed(self) -> None:
-        run = TaskRun.objects.create(
-            task=self.task, team=self.team, status=TaskRun.Status.IN_PROGRESS, environment=TaskRun.Environment.CLOUD
-        )
-
-        fail_stale_live_runs([run.id], django_timezone.now() - LIVE_RUN_STALE_AFTER)
-
-        run.refresh_from_db()
-        self.assertEqual(run.status, TaskRun.Status.IN_PROGRESS)
+        self.assertEqual(stale.status, TaskRun.Status.IN_PROGRESS)
 
     def test_create_run_does_not_inject_permission_mode_by_default(self):
         run = self.task.create_run(mode="interactive")
