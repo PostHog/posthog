@@ -64,6 +64,7 @@ describe('emailImpactLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(requestedFrom).toEqual([String(ENVIRONMENT.id)])
+        expect(requestedParams[0].get('event')).toBeNull()
         expect(logic.values.impact).toEqual(WITHOUT_EVENT)
         expect(logic.values.followedNote).toBeNull()
 

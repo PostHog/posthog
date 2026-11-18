@@ -153,7 +153,9 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
                         return await transactionalEmailLogImpactRetrieve(String(values.currentTeamId), {
                             workflow_id: props.workflowId,
                             event: values.event ?? undefined,
-                            date_from: dayjs().subtract(values.days, 'day').toISOString(),
+                            date_from: dayjs()
+                                .subtract(values.days * 24, 'hour')
+                                .toISOString(),
                         })
                     } finally {
                         breakpoint()
