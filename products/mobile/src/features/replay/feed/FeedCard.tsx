@@ -275,13 +275,15 @@ function FeedCardBody({
               ? timeline.viewport.width / timeline.viewport.height
               : 1.6
     const portrait = aspect < 1
-    // A phone session fills the card, or with "Whole screen" sits between the chrome and the caption so nothing
-    // covers its own header and tab bar. A desktop page is letterboxed a little above the middle.
+    // A phone recording sits between the top chrome and the caption, so nothing covers its own header and tab bar.
+    // In Moments mode it also leaves room for the Moment and Full recording toggle, so frames do not jump between
+    // cards with and without a moment. A desktop page is letterboxed a little above the middle.
     const framed = portrait
     const frame = (() => {
         if (framed) {
             const top = insets.top + 54
-            const frameHeight = Math.max(200, height - top - (Math.max(insets.bottom - 8, 10) + 52) - 132)
+            const toggleRoom = feedUnit === 'moment' ? RANGE_TOGGLE_HEIGHT + 8 : 0
+            const frameHeight = Math.max(200, height - top - (Math.max(insets.bottom - 8, 10) + 52) - 132 - toggleRoom)
             const frameWidth = Math.min(width - 32, frameHeight * aspect)
             return { top, height: frameWidth / aspect, left: (width - frameWidth) / 2, width: frameWidth }
         }

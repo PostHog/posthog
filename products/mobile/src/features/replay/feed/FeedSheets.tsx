@@ -178,6 +178,17 @@ function Section({
     )
 }
 
+interface InfoLayout {
+    viewport: number | null
+    section: number | null
+    group: number | null
+    rows: Map<number, { y: number; height: number }>
+}
+
+function emptyInfoLayout(): InfoLayout {
+    return { viewport: null, section: null, group: null, rows: new Map() }
+}
+
 interface InfoSheetProps {
     visible: boolean
     item: FeedItem | null
@@ -216,24 +227,26 @@ export function FeedInfoSheet({
     const events = (timeline?.events ?? []).filter((event) => INFO_EVENT_KINDS.has(event.kind))
     const currentIndex = events.reduce((found, event, index) => (event.seconds <= nowSeconds + 0.5 ? index : found), -1)
     const scrollRef = useRef<ScrollViewInstance>(null)
-    const layout = useRef<{ section: number | null; group: number | null; rows: Map<number, number> }>({
-        section: null,
-        group: null,
-        rows: new Map(),
-    })
+    const layout = useRef<InfoLayout>(emptyInfoLayout())
     const scrolled = useRef(false)
+    // Scroll only when the current event is below the fold, so the person and summary stay in view when they fit.
     const scrollToCurrent = (): void => {
-        const { section, group, rows } = layout.current
+        const { viewport, section, group, rows } = layout.current
         const row = rows.get(currentIndex)
-        if (scrolled.current || currentIndex < 0 || section === null || group === null || row === undefined) {
+        if (scrolled.current || currentIndex < 0 || viewport === null || section === null || group === null || !row) {
             return
         }
         scrolled.current = true
-        scrollRef.current?.scrollTo({ y: Math.max(0, section + group + row - 96), animated: false })
+        const top = section + group + row.y
+        if (top + row.height + 16 > viewport) {
+            scrollRef.current?.scrollTo({ y: Math.max(0, top - (viewport - row.height) / 2), animated: false })
+        }
     }
+    // The sheet unmounts its content when it closes, so the next open measures again and scrolls to its own time.
     useEffect(() => {
         if (!visible) {
             scrolled.current = false
+            layout.current = emptyInfoLayout()
         }
     }, [visible])
     const seek = (seconds: number): void => {
@@ -251,6 +264,10 @@ export function FeedInfoSheet({
             <GestureDetector gesture={scroll}>
                 <ScrollView
                     ref={scrollRef}
+                    onLayout={(event) => {
+                        layout.current.viewport = event.nativeEvent.layout.height
+                        scrollToCurrent()
+                    }}
                     style={{ maxHeight: height * 0.64 }}
                     contentContainerStyle={styles.infoContent}
                 >
@@ -323,7 +340,8 @@ export function FeedInfoSheet({
                                         ]}
                                         accessibilityState={{ selected: position === currentIndex }}
                                         onLayout={(layoutEvent) => {
-                                            layout.current.rows.set(position, layoutEvent.nativeEvent.layout.y)
+                                            const { y, height: rowHeight } = layoutEvent.nativeEvent.layout
+                                            layout.current.rows.set(position, { y, height: rowHeight })
                                             scrollToCurrent()
                                         }}
                                         testID={`feed-info-event-${position}`}
