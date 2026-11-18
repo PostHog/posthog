@@ -277,34 +277,43 @@ def test_error_detail_rides_along_with_the_status(client: TwitterAdsClient) -> N
     assert "INVALID_PARAMETER (start_time): Expected a time aligned to midnight" in message
 
 
+RATE_LIMIT_NOW = datetime(2026, 1, 5, 12, 0, tzinfo=UTC)
+
+
+def _reset_in(seconds: int) -> str:
+    return str(int(RATE_LIMIT_NOW.timestamp()) + seconds)
+
+
 @pytest.mark.parametrize(
-    "reset_header, expected_retry_after",
+    "headers, expected_retry_after",
     [
-        pytest.param(
-            {"x-rate-limit-reset": str(int(datetime(2026, 1, 5, 12, 15, tzinfo=UTC).timestamp()))},
-            900.0,
-            id="reset header",
-        ),
-        pytest.param({}, None, id="no reset header"),
+        pytest.param({"x-rate-limit-reset": _reset_in(900)}, 900.0, id="reset header"),
+        pytest.param({"x-rate-limit-reset": _reset_in(10)}, 60.0, id="reset under a minute away"),
+        pytest.param({}, 60.0, id="no reset header"),
+        pytest.param({"Retry-After": "120", "x-rate-limit-reset": _reset_in(900)}, 120.0, id="retry-after wins"),
     ],
 )
 def test_rate_limit_defers_the_retry_until_the_window_resets(
-    client: TwitterAdsClient, reset_header: dict[str, str], expected_retry_after: float | None
+    client: TwitterAdsClient, headers: dict[str, str], expected_retry_after: float
 ) -> None:
     failure = requests.Response()
     failure.status_code = 429
     failure.url = "https://ads-api.x.com/12/stats/accounts/account"
-    failure.headers.update(reset_header)
-    failure._content = b""
+    failure.headers.update(headers)
+    failure._content = json.dumps({"errors": [{"code": 88, "message": "Rate limit exceeded"}]}).encode()
 
     with (
-        time_machine.travel(datetime(2026, 1, 5, 12, 0, tzinfo=UTC), tick=False),
+        time_machine.travel(RATE_LIMIT_NOW, tick=False),
         patch.object(client.session, "send", return_value=failure),
     ):
         with pytest.raises(RESTClientRetryableError) as raised:
             client.get("stats/accounts/account")
 
     assert raised.value.retry_after == expected_retry_after
+    message = str(raised.value)
+    assert "88: Rate limit exceeded" in message
+    for name, value in headers.items():
+        assert f"{name}={value}" in message
 
 
 def test_error_without_a_parsable_body_keeps_the_bare_status(client: TwitterAdsClient) -> None:

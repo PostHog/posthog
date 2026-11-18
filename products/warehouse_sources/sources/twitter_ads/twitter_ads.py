@@ -54,6 +54,10 @@ STATS_WINDOW = timedelta(days=6)
 _MAX_ERROR_DETAIL = 300
 _MAX_LOGGED_BODY = 2000
 
+# X's own retry example waits at least a minute, so a missing or already-passed reset never retries straight back
+# into the same window.
+_MIN_RATE_LIMIT_WAIT_SECONDS = 60.0
+
 
 def _account_midnight(day: date, account_timezone: ZoneInfo) -> datetime:
     """Midnight on `day` in the ad account's own timezone, as UTC.
@@ -126,11 +130,17 @@ def _error_detail(response: requests.Response) -> str:
     return "; ".join(part for part in parts if part)[:_MAX_ERROR_DETAIL]
 
 
-def _seconds_until_reset(response: requests.Response) -> float | None:
+def _rate_limit_wait(response: requests.Response) -> float:
+    # X documents only the epoch when its 15-minute window resets. A Retry-After wins if X ever sends one.
+    retry_after = response.headers.get("Retry-After", "")
     reset = response.headers.get("x-rate-limit-reset", "")
-    if not reset.isdigit():
-        return None
-    return max(int(reset) - datetime.now(UTC).timestamp(), 0.0)
+    if retry_after.isdecimal():
+        wait = float(retry_after)
+    elif reset.isdecimal():
+        wait = float(reset) - datetime.now(UTC).timestamp()
+    else:
+        wait = 0.0
+    return max(wait, _MIN_RATE_LIMIT_WAIT_SECONDS)
 
 
 class TwitterAdsClient:
@@ -155,11 +165,19 @@ class TwitterAdsClient:
     def get(self, path: str, params: dict[str, str | int] | None = None) -> dict[str, Any]:
         response = self.session.get(f"{self.base_url}/{path}", params=params, timeout=60)
         if response.status_code == 429:
-            # X sends no Retry-After, only the epoch when its 15-minute window resets. Handing that to
-            # Temporal defers the next attempt past the window instead of spending attempts inside it.
-            raise RESTClientRetryableError(
-                f"429 Client Error: X Ads rate limit on {path}", retry_after=_seconds_until_reset(response)
+            # Handing the wait to Temporal defers the next attempt past X's window instead of spending attempts
+            # inside it. The raw headers in the message are the only record of what X actually sends.
+            headers = [
+                f"{name}={response.headers[name]}"
+                for name in ("Retry-After", "x-rate-limit-reset")
+                if name in response.headers
+            ]
+            message = ". ".join(
+                part
+                for part in (f"429 Client Error: X Ads rate limit on {path}", _error_detail(response), *headers)
+                if part
             )
+            raise RESTClientRetryableError(message, retry_after=_rate_limit_wait(response))
         try:
             response.raise_for_status()
         except requests.HTTPError as error:
