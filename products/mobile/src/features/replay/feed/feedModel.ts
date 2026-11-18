@@ -7,6 +7,9 @@ export const FEED_SOURCES: readonly FeedSource[] = ['highlights', 'rage', 'error
 
 export type FeedUnit = 'moment' | 'session'
 
+/** The two tabs at the top of the feed, in order. "Highlights" names a source, so the first tab is not called that. */
+export const FEED_TAB_LABELS: Record<FeedUnit, string> = { moment: 'Moment', session: 'Full recording' }
+
 export type FeedEventKind = 'pageview' | 'click' | 'rageclick' | 'deadclick' | 'exception' | 'custom'
 
 export interface FeedEvent {

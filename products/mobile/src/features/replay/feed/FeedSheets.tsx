@@ -6,7 +6,6 @@ import { BottomSheet } from '@/ui/BottomSheet'
 import { CopyIcon } from '@/ui/icons/CopyIcon'
 import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
 import { EyeOffIcon } from '@/ui/icons/EyeOffIcon'
-import { LockIcon } from '@/ui/icons/LockIcon'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { SegmentedPill } from '@/ui/SegmentedPill'
@@ -23,11 +22,10 @@ import {
     type FeedSettings,
     type FeedSource,
     type FeedTimeline,
-    type FeedUnit,
     SPEED_PRESETS,
 } from './feedModel'
 import { tickColors } from './feedStyle'
-import { type HoldLock, holdRateFor } from './holdLock'
+import { holdRateFor } from './holdLock'
 
 export const SOURCE_LABELS: Record<FeedSource, string> = {
     highlights: 'Highlights',
@@ -38,12 +36,11 @@ export const SOURCE_LABELS: Record<FeedSource, string> = {
 
 interface SettingsSheetProps {
     visible: boolean
+    /** `speed` is the one playing: a locked hold speed shows as the selected one. */
     settings: FeedSettings
-    unit: FeedUnit
-    lock: HoldLock | null
+    /** A pull locked the speed. A hold then unlocks instead of speeding up, so the hold hint does not apply. */
+    locked: boolean
     onChange: (patch: Partial<FeedSettings>) => void
-    onUnit: (unit: FeedUnit) => void
-    onUnlock: () => void
     onClose: () => void
 }
 
@@ -55,53 +52,16 @@ function holdHint(speed: number): string | null {
 export function FeedSettingsSheet({
     visible,
     settings,
-    unit,
-    lock,
+    locked,
     onChange,
-    onUnit,
-    onUnlock,
     onClose,
 }: SettingsSheetProps): ReactElement | null {
     const styles = useStyles()
-    const colors = useColors()
-    const hint = holdHint(settings.speed)
+    const hint = locked ? null : holdHint(settings.speed)
     return (
         <BottomSheet visible={visible} onClose={onClose} accessibilityLabel="Playback" testID="feed-settings-sheet">
             <Text style={styles.sheetTitle}>Playback</Text>
-            <Section label="Feed plays">
-                <SegmentedPill
-                    height={40}
-                    segments={(['moment', 'session'] as const).map((option) => ({
-                        key: option,
-                        accessibilityLabel: option === 'moment' ? 'Moments' : 'Whole recordings',
-                        accessibilityRole: 'radio',
-                        selected: unit === option,
-                        onPress: () => onUnit(option),
-                        testID: `feed-plays-${option}`,
-                        children: (
-                            <Text style={styles.segmentText}>
-                                {option === 'moment' ? 'Moments' : 'Whole recordings'}
-                            </Text>
-                        ),
-                    }))}
-                />
-            </Section>
             <Section label="Speed">
-                {lock ? (
-                    <View style={styles.lockRow} testID="feed-lock-row">
-                        <LockIcon size={iconSizes.inline} color={colors.secondary} />
-                        <Text style={styles.lockText}>{`Locked at ${lock.rate}x`}</Text>
-                        <Pressable44
-                            onPress={onUnlock}
-                            accessibilityLabel="Unlock"
-                            style={styles.unlockButton}
-                            pressedBackground={colors.pressed}
-                            testID="feed-unlock"
-                        >
-                            <Text style={styles.unlockText}>Unlock</Text>
-                        </Pressable44>
-                    </View>
-                ) : null}
                 <SegmentedPill
                     height={40}
                     segments={SPEED_PRESETS.map((speed) => ({
@@ -522,12 +482,6 @@ const useStyles = createStyles(({ colors }) => ({
         ...type.bodyStrong,
         color: colors.ink,
     },
-    footnote: {
-        ...type.meta,
-        color: colors.tertiary,
-        marginTop: 18,
-        marginBottom: 4,
-    },
     infoContent: {
         paddingBottom: 12,
     },
@@ -562,29 +516,6 @@ const useStyles = createStyles(({ colors }) => ({
         borderColor: colors.border,
     },
     footerText: {
-        ...type.bodySmallStrong,
-        color: colors.ink,
-    },
-    lockRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-        marginBottom: 10,
-    },
-    lockText: {
-        ...type.meta,
-        flex: 1,
-        color: colors.secondary,
-    },
-    unlockButton: {
-        height: 34,
-        paddingHorizontal: 14,
-        borderRadius: 17,
-        justifyContent: 'center',
-        borderWidth: 1,
-        borderColor: colors.border,
-    },
-    unlockText: {
         ...type.bodySmallStrong,
         color: colors.ink,
     },

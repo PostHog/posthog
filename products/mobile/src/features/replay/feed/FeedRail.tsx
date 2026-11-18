@@ -3,7 +3,6 @@ import { Text, View } from 'react-native'
 import Animated, { useAnimatedStyle, withTiming } from 'react-native-reanimated'
 
 import { ChatBubbleIcon } from '@/ui/icons/ChatBubbleIcon'
-import { LockIcon } from '@/ui/icons/LockIcon'
 import { ShareIcon } from '@/ui/icons/ShareIcon'
 import type { IconProps } from '@/ui/icons/types'
 import { Pressable44 } from '@/ui/Pressable44'
@@ -15,7 +14,6 @@ interface FeedRailProps {
     /** The rate playing now: a hold's or a lock's when one is on, else the set speed. */
     speed: number
     speedOn: boolean
-    locked: boolean
     /** A hold fades every button but Speed, which shows the hold's rate. */
     speedOnly: boolean
     onSpeed: () => void
@@ -27,7 +25,7 @@ export function speedLabel(speed: number): string {
     return `${speed}x`
 }
 
-export function FeedRail({ speed, speedOn, locked, speedOnly, onSpeed, onChat, onShare }: FeedRailProps): ReactElement {
+export function FeedRail({ speed, speedOn, speedOnly, onSpeed, onChat, onShare }: FeedRailProps): ReactElement {
     const styles = useStyles()
     const label = speedLabel(speed)
     const others = useAnimatedStyle(
@@ -38,7 +36,7 @@ export function FeedRail({ speed, speedOn, locked, speedOnly, onSpeed, onChat, o
         <View style={styles.rail} pointerEvents="box-none">
             <RailButton
                 label="Speed"
-                accessibilityLabel={locked ? `Speed, locked at ${label}` : `Speed, ${label}`}
+                accessibilityLabel={`Speed, ${label}`}
                 on={speedOn}
                 onPress={onSpeed}
                 testID="feed-speed"
@@ -46,11 +44,6 @@ export function FeedRail({ speed, speedOn, locked, speedOnly, onSpeed, onChat, o
                 <Text style={[styles.speed, label.length > 3 && styles.speedSmall, speedOn && styles.speedOn]}>
                     {label}
                 </Text>
-                {locked ? (
-                    <View style={styles.lockMark}>
-                        <LockIcon size={11} color={feedColors.text} strokeWidth={2.4} />
-                    </View>
-                ) : null}
             </RailButton>
             <Animated.View style={[styles.rail, others]} pointerEvents="box-none">
                 <RailButton label="Chat" Icon={ChatBubbleIcon} onPress={onChat} testID="feed-chat" />
@@ -151,16 +144,5 @@ const useStyles = createStyles(() => ({
     },
     speedOn: {
         color: feedColors.stage,
-    },
-    lockMark: {
-        position: 'absolute',
-        top: -3,
-        right: -3,
-        width: 20,
-        height: 20,
-        borderRadius: 10,
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: feedColors.accent,
     },
 }))

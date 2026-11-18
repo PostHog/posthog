@@ -66,8 +66,8 @@ export function trackFeedEventJump(props: {
     })
 }
 
-export function trackFeedUnitChanged(unit: FeedUnit): void {
-    track('mobile_replay_feed_unit_changed', { unit })
+export function trackFeedUnitChanged(props: { unit: FeedUnit; via: 'tab' | 'swipe' | 'info' }): void {
+    track('mobile_replay_feed_unit_changed', { unit: props.unit, via: props.via })
 }
 
 export function trackFeedSourceChanged(source: FeedSource): void {
@@ -100,10 +100,6 @@ export function trackFeedLoadFailed(props: { sessionId: string; message: string 
 
 export function trackFeedNotInterested(sessionId: string): void {
     track('mobile_replay_feed_not_interested', { session_id: sessionId })
-}
-
-export function trackFeedFullRecording(props: { sessionId: string; on: boolean }): void {
-    track('mobile_replay_feed_full_recording', { session_id: props.sessionId, on: props.on })
 }
 
 export function trackFeedSourcesOpened(source: FeedSource): void {

@@ -6,10 +6,9 @@ import Animated, {
     Easing,
     FadeIn,
     FadeOut,
+    type SharedValue,
     useAnimatedStyle,
-    useReducedMotion,
     useSharedValue,
-    withSequence,
     withTiming,
 } from 'react-native-reanimated'
 import { scheduleOnRN } from 'react-native-worklets'
@@ -32,17 +31,16 @@ import { sessionSecondsForVideoSeconds, videoSecondsForSessionSeconds } from '..
 import { ReplayWebView } from '../web/ReplayWebView'
 import { FeedRail } from './FeedRail'
 import { FeedScrubber, type ScrubberTick } from './FeedScrubber'
-import { feedMoments, type RenderSpec, renderKey, renderViewport, sessionStartSeconds } from './feedAdapters'
+import { type RenderSpec, renderKey, renderViewport, sessionStartSeconds } from './feedAdapters'
 import {
-    trackFeedAutoAdvanced,
     trackFeedEventJump,
-    trackFeedFullRecording,
     trackFeedHoldStarted,
     trackFeedItemShown,
     trackFeedLoadFailed,
     trackFeedSpeedLocked,
     trackFeedSpeedUnlocked,
 } from './feedAnalytics'
+import type { FeedCardEntry } from './feedCards'
 import { armHold, beginHold, finishHold, holdHaptic, holdPull, useFeedHold } from './feedHoldStore'
 import {
     type FeedEvent,
@@ -65,20 +63,33 @@ import type { PoolSource } from './usePlayerPool'
 
 /** A card renders only after this long on screen, or on a tap of Play, so a swipe past never spends the video cap. */
 export const DWELL_MS = 1500
-const EMPTY_TIMELINE: FeedTimeline = { events: [], browser: null, os: null, viewport: null }
 const JUMP_SECONDS = 10
-const RANGE_TOGGLE_HEIGHT = 30
 
 export interface FeedCardHandle {
+    /** Seeks inside the card's own window and plays. */
     seekToSession: (seconds: number) => void
+    currentSeconds: () => number
     hold: (on: boolean) => void
     togglePause: () => void
-    stepMoment: (direction: 1 | -1) => void
+}
+
+/** What plays after this card: the next moment of the same recording, or another recording. */
+export interface UpNextInfo {
+    title: string
+    person: string
+    durationSeconds: number
+    sameRecording: boolean
+}
+
+/** A start time a tab switch or Info asked for. A new `id` restarts the card there. */
+export interface StartRequest {
+    key: string
+    seconds: number
+    id: number
 }
 
 interface FeedCardProps {
-    item: FeedItem
-    index: number
+    entry: FeedCardEntry
     width: number
     height: number
     insets: { top: number; bottom: number }
@@ -90,8 +101,14 @@ interface FeedCardProps {
     unit: FeedUnit
     source: FeedSource
     settings: FeedSettings
-    next: FeedItem | null
+    startAt: StartRequest | null
+    next: UpNextInfo | null
     nextReady: { index: number; title: string } | null
+    /** 0 on Moment, 1 on Full recording. A sideways swipe moves it with the finger. */
+    tabProgress: SharedValue<number>
+    /** 1 when a page is settled, down to 0.5 while the feed is dragged between pages. */
+    scrollFade: SharedValue<number>
+    onSwipeUnit: (unit: FeedUnit) => void
     onSource: (index: number, source: PoolSource | null) => void
     onAdvance: (index: number) => void
     onJumpTo: (index: number) => void
@@ -101,7 +118,7 @@ interface FeedCardProps {
     onInfo: (item: FeedItem, timeline: FeedTimeline | null, seconds: number) => void
     onOpenWeb: (item: FeedItem, seconds: number) => void
     onRecheck: () => void
-    registerHandle: (index: number, handle: FeedCardHandle | null) => void
+    registerHandle: (key: string, handle: FeedCardHandle | null) => void
 }
 
 export function itemTitle(item: FeedItem): string {
@@ -143,8 +160,7 @@ function signed(seconds: number): string {
 }
 
 function FeedCardBody({
-    item,
-    index,
+    entry,
     width,
     height,
     insets,
@@ -152,11 +168,15 @@ function FeedCardBody({
     near,
     pool,
     webPlayer,
-    unit: feedUnit,
+    unit,
     source,
     settings,
+    startAt,
     next,
     nextReady,
+    tabProgress,
+    scrollFade,
+    onSwipeUnit,
     onSource,
     onAdvance,
     onJumpTo,
@@ -169,23 +189,16 @@ function FeedCardBody({
     registerHandle,
 }: FeedCardProps): ReactElement {
     const styles = useStyles()
-    const reduceMotion = useReducedMotion()
+    const { item, index, moments, key: cardKey } = entry
     const { recording, summary } = item
     const { sessionId, durationSeconds } = recording
     const timeline = useFeedTimeline(item, near)
-    const moments = useMemo(
-        () => feedMoments(timeline ?? EMPTY_TIMELINE, summary, durationSeconds, MOMENT_WINDOW, source),
-        [timeline, summary, durationSeconds, source]
-    )
-    const [momentIndex, setMomentIndex] = useState(0)
-    // Full recording plays this card's whole recording while the feed keeps playing moments.
-    const [fullOn, setFullOn] = useState(false)
-    const unit: FeedUnit = feedUnit === 'moment' && fullOn ? 'session' : feedUnit
-    const safeIndex = Math.min(momentIndex, moments.length - 1)
-    const moment = moments[safeIndex] as Moment
+    const moment = moments[Math.min(entry.ordinal, moments.length - 1)] as Moment
     const domain =
         unit === 'moment' ? { start: moment.startSeconds, end: moment.endSeconds } : { start: 0, end: durationSeconds }
-    const startSeconds = unit === 'moment' ? moment.startSeconds : sessionStartSeconds(moments, summary, MOMENT_WINDOW)
+    const startSeconds =
+        startAt?.seconds ??
+        (unit === 'moment' ? moment.startSeconds : sessionStartSeconds(moments, summary, MOMENT_WINDOW))
 
     // Each card listens to its own two jobs only, so one render's progress does not re-render every card.
     const fullJob = useRenderQueue((state) => state.jobs[`${sessionId}:full`])
@@ -250,7 +263,7 @@ function FeedCardBody({
     }, [webPlayer, active, job, canRender, requestRender])
 
     const ready = job?.state.status === 'ready' ? job.state : null
-    const sourceKey = webPlayer ? `web:${sessionId}` : ready ? `${key}#${ready.exportId}` : null
+    const sourceKey = webPlayer ? `web:${cardKey}` : ready ? `${key}#${ready.exportId}` : null
     // biome-ignore lint/correctness/useExhaustiveDependencies: the key names the source; the object is new each render.
     useEffect(() => {
         if (!webPlayer) {
@@ -276,14 +289,12 @@ function FeedCardBody({
               : 1.6
     const portrait = aspect < 1
     // A phone recording sits between the top chrome and the caption, so nothing covers its own header and tab bar.
-    // In Moments mode it also leaves room for the Moment and Full recording toggle, so frames do not jump between
-    // cards with and without a moment. A desktop page is letterboxed a little above the middle.
+    // A desktop page is letterboxed a little above the middle.
     const framed = portrait
     const frame = (() => {
         if (framed) {
             const top = insets.top + 54
-            const toggleRoom = feedUnit === 'moment' ? RANGE_TOGGLE_HEIGHT + 8 : 0
-            const frameHeight = Math.max(200, height - top - (Math.max(insets.bottom - 8, 10) + 52) - 132 - toggleRoom)
+            const frameHeight = Math.max(200, height - top - (Math.max(insets.bottom - 8, 10) + 52) - 132)
             const frameWidth = Math.min(width - 32, frameHeight * aspect)
             return { top, height: frameWidth / aspect, left: (width - frameWidth) / 2, width: frameWidth }
         }
@@ -315,7 +326,6 @@ function FeedCardBody({
     domainRef.current = domain
     const unitRef = useRef(unit)
     unitRef.current = unit
-    const overrideStart = useRef<number | null>(null)
 
     // biome-ignore lint/correctness/useExhaustiveDependencies: a new video means a new first frame.
     useEffect(() => {
@@ -352,15 +362,11 @@ function FeedCardBody({
         player.play()
     }, [player, currentRate])
 
-    const startKey = `${unit}:${moment.key}:${unit === 'session' ? startSeconds : ''}`
+    const startKey = `${unit}:${moment.key}:${startSeconds}:${startAt?.id ?? ''}`
     // A WebView player loads only the blocks it needs, so it learns the window before the first seek reaches it.
     // biome-ignore lint/correctness/useExhaustiveDependencies: `startKey` names the window; the rest are read through refs.
     useEffect(() => {
-        web?.prepare(
-            overrideStart.current ?? startSeconds,
-            unit === 'moment' ? domain.end : null,
-            active && !pausedRef.current
-        )
+        web?.prepare(startSeconds, unit === 'moment' ? domain.end : null, active && !pausedRef.current)
     }, [web, startKey])
     useEffect(() => {
         if (!web) {
@@ -389,9 +395,7 @@ function FeedCardBody({
             setCountdownCancelled(false)
             return
         }
-        const start = overrideStart.current ?? startSeconds
-        overrideStart.current = null
-        seekSession(start)
+        seekSession(startSeconds)
         setEnded(false)
         if (!pausedRef.current) {
             play()
@@ -413,23 +417,26 @@ function FeedCardBody({
         jump: (direction: 1 | -1) => void
         holdStart: () => void
         holdEnd: (cancelled: boolean) => void
-        stepMoment: (direction: 1 | -1) => void
     } | null>(null)
 
+    // With Autoplay next on, the next moment of the same recording follows at once. Another recording waits for the
+    // Up next card and its countdown, and with Autoplay next off every card stops on Up next.
+    const nextMomentRef = useRef(false)
+    nextMomentRef.current = next?.sameRecording === true && settings.autoplayNext
     const finishWindow = useCallback((): void => {
         if (endedRef.current || !player) {
             return
         }
         player.pause()
-        if (unitRef.current === 'moment' && safeIndex < moments.length - 1) {
-            trackFeedAutoAdvanced({ sessionId, to: 'moment', skipped: 0 })
-            handlers.current?.stepMoment(1)
+        if (nextMomentRef.current) {
+            endedRef.current = true
+            onAdvance(index)
             return
         }
         endedRef.current = true
         setEnded(true)
         setCountdownCancelled(false)
-    }, [player, safeIndex, moments.length, sessionId])
+    }, [player, onAdvance, index])
 
     useEffect(() => {
         if (!player || !active) {
@@ -476,28 +483,6 @@ function FeedCardBody({
             load.remove()
         }
     }, [player])
-
-    const slide = useSharedValue(0)
-    const fade = useSharedValue(1)
-    const stepMoment = (direction: 1 | -1): void => {
-        const target = Math.min(moments.length - 1, Math.max(0, safeIndex + direction))
-        if (target === safeIndex) {
-            return
-        }
-        haptic('selection')
-        if (!reduceMotion) {
-            slide.value = withSequence(
-                withTiming(-direction * width * 0.18, { duration: 120 }),
-                withTiming(direction * width * 0.18, { duration: 0 }),
-                withTiming(0, { duration: 200, easing: Easing.out(Easing.cubic) })
-            )
-            fade.value = withSequence(withTiming(0.2, { duration: 120 }), withTiming(1, { duration: 200 }))
-        }
-        setEnded(false)
-        endedRef.current = false
-        setMomentIndex(target)
-    }
-    const stageStyle = useAnimatedStyle(() => ({ transform: [{ translateX: slide.value }], opacity: fade.value }))
 
     const togglePause = (): void => {
         if (!player || ended) {
@@ -581,7 +566,7 @@ function FeedCardBody({
         player.play()
     }
     const holdEnd = (cancelled: boolean): void => {
-        const result = finishHold(cancelled, settings.speed)
+        const result = finishHold(cancelled)
         if (result === 'locked') {
             holdHaptic('locked')
             trackFeedSpeedLocked(useFeedHold.getState().lock?.rate ?? 0)
@@ -594,9 +579,11 @@ function FeedCardBody({
         }
     }
 
-    handlers.current = { togglePause, jump, holdStart, holdEnd, stepMoment }
+    handlers.current = { togglePause, jump, holdStart, holdEnd }
+    const swipeUnitRef = useRef(onSwipeUnit)
+    swipeUnitRef.current = onSwipeUnit
     const dispatch = useCallback(
-        (action: 'toggle' | 'jump' | 'holdStart' | 'holdArm' | 'holdEnd' | 'step', value: number): void => {
+        (action: 'toggle' | 'jump' | 'holdStart' | 'holdArm' | 'holdEnd' | 'tab', value: number): void => {
             const current = handlers.current
             if (!current) {
                 return
@@ -612,14 +599,14 @@ function FeedCardBody({
             } else if (action === 'holdEnd') {
                 current.holdEnd(value > 0)
             } else {
-                current.stepMoment(value > 0 ? 1 : -1)
+                swipeUnitRef.current(value > 0 ? 'session' : 'moment')
             }
         },
         []
     )
     const holdArmed = useSharedValue(false)
     const holdActive = useSharedValue(false)
-    const canSwipeMoments = unit === 'moment' && moments.length > 1
+    const tabBase = unit === 'session' ? 1 : 0
     const gesture = useMemo(() => {
         const half = width / 2
         const singleTap = Gesture.Tap()
@@ -639,7 +626,7 @@ function FeedCardBody({
                     scheduleOnRN(dispatch, 'jump', event.x > half ? 1 : -1)
                 }
             })
-        // A hold owns the finger once it starts, so its pull never pages the feed or swipes a moment.
+        // A hold owns the finger once it starts, so its pull never pages the feed or switches the tab.
         const hold = Gesture.Pan()
             .activateAfterLongPress(380)
             .onStart(() => {
@@ -666,45 +653,30 @@ function FeedCardBody({
                     scheduleOnRN(dispatch, 'holdEnd', success ? 0 : 1)
                 }
             })
+        // A sideways swipe switches the tab. The tab highlight follows the finger, and a short swipe springs back.
         const swipe = Gesture.Pan()
-            .enabled(canSwipeMoments)
             .activeOffsetX([-22, 22])
             .failOffsetY([-14, 14])
             .onUpdate((event) => {
                 'worklet'
-                slide.value = event.translationX * 0.35
+                tabProgress.value = Math.min(1, Math.max(0, tabBase - event.translationX / (width * 0.6)))
             })
-            .onEnd((event) => {
+            .onEnd((event, success) => {
                 'worklet'
                 const far = Math.abs(event.translationX) > 64 || Math.abs(event.velocityX) > 600
-                if (far) {
-                    scheduleOnRN(dispatch, 'step', event.translationX < 0 ? 1 : -1)
+                const target = event.translationX < 0 ? 1 : 0
+                if (success && far && target !== tabBase) {
+                    tabProgress.value = withTiming(target, { duration: 180 })
+                    scheduleOnRN(dispatch, 'tab', target)
                 } else {
-                    slide.value = withTiming(0, { duration: 160 })
+                    tabProgress.value = withTiming(tabBase, { duration: 160 })
                 }
             })
         return Gesture.Race(swipe, Gesture.Exclusive(hold, doubleTap, singleTap))
-    }, [width, canSwipeMoments, dispatch, slide, holdActive, holdArmed])
+    }, [width, tabBase, tabProgress, dispatch, holdActive, holdArmed])
 
-    const seekFromInfo = useCallback(
+    const seekInWindow = useCallback(
         (seconds: number): void => {
-            if (unitRef.current === 'moment') {
-                const inside = moments.findIndex((item) => seconds >= item.startSeconds && seconds <= item.endSeconds)
-                if (inside >= 0) {
-                    overrideStart.current = seconds
-                    if (inside === safeIndex) {
-                        seekSession(seconds)
-                        overrideStart.current = null
-                        play()
-                    } else {
-                        setMomentIndex(inside)
-                    }
-                    return
-                }
-                overrideStart.current = seconds
-                setFullOn(true)
-                return
-            }
             seekSession(seconds)
             if (endedRef.current) {
                 setEnded(false)
@@ -712,20 +684,20 @@ function FeedCardBody({
             }
             play()
         },
-        [moments, safeIndex, seekSession, play]
+        [seekSession, play]
     )
     useEffect(() => {
         if (!active) {
             return undefined
         }
-        registerHandle(index, {
-            seekToSession: seekFromInfo,
+        registerHandle(cardKey, {
+            seekToSession: seekInWindow,
+            currentSeconds: () => position.value,
             hold: (on) => (on ? handlers.current?.holdStart() : handlers.current?.holdEnd(false)),
             togglePause: () => handlers.current?.togglePause(),
-            stepMoment: (direction) => handlers.current?.stepMoment(direction),
         })
-        return () => registerHandle(index, null)
-    }, [active, index, registerHandle, seekFromInfo])
+        return () => registerHandle(cardKey, null)
+    }, [active, cardKey, registerHandle, seekInWindow, position])
 
     // biome-ignore lint/correctness/useExhaustiveDependencies: one event per arrival on screen.
     useEffect(() => {
@@ -818,17 +790,6 @@ function FeedCardBody({
         [seekSession, play, sessionId]
     )
 
-    const nextInfo = useMemo(
-        () =>
-            next
-                ? {
-                      title: itemTitle(next),
-                      person: next.recording.personLabel,
-                      durationSeconds: next.recording.durationSeconds,
-                  }
-                : null,
-        [next]
-    )
     const replay = useCallback((): void => {
         setEnded(false)
         endedRef.current = false
@@ -839,39 +800,35 @@ function FeedCardBody({
     const advance = useCallback((): void => onAdvance(index), [onAdvance, index])
 
     const scrubberBottom = Math.max(insets.bottom - 8, 10)
-    const showRangeToggle = feedUnit === 'moment' && moment.kind !== 'start'
-    const captionBottom = scrubberBottom + 40 + (showRangeToggle ? RANGE_TOGGLE_HEIGHT + 8 : 0)
+    // Room for the time labels that show above the bar when it is paused, ended or dragged.
+    const captionBottom = scrubberBottom + 52
     const flag = countryFlag(recording.countryCode)
     const ago = recording.startedAt ? formatRelativeAgo(recording.startedAt, new Date()) : null
     const anchorColor =
         moment.kind === 'exception' ? tickColors.error : moment.kind === 'key' ? tickColors.key : tickColors.rage
     const hasMoment = moment.kind !== 'start'
-    const showDots = unit === 'moment' && moments.length > 1
     const [scrubbingUI, setScrubbingUI] = useState(false)
     const chromeHidden = holding || scrubbingUI
-    const chromeStyle = useAnimatedStyle(
-        () => ({ opacity: withTiming(chromeHidden ? 0 : 1, { duration: chromeHidden ? 120 : 180 }) }),
-        [chromeHidden]
+    // A hold or a scrub hides the chrome. A vertical drag of the feed dims it to half, through `scrollFade`.
+    const shown = useSharedValue(1)
+    useEffect(() => {
+        shown.value = withTiming(chromeHidden ? 0 : 1, { duration: chromeHidden ? 120 : 180 })
+    }, [chromeHidden, shown])
+    const captionStyle = useAnimatedStyle(() => ({ opacity: shown.value * scrollFade.value }))
+    // During a hold the rail stays, and fades every button but Speed itself.
+    const railStyle = useAnimatedStyle(
+        () => ({ opacity: (scrubbingUI ? shown.value : 1) * scrollFade.value }),
+        [scrubbingUI]
     )
-    const toggleFull = (): void => {
-        const next = !fullOn
-        trackFeedFullRecording({ sessionId, on: next })
-        haptic('selection')
-        overrideStart.current = next ? position.value : null
-        setEnded(false)
-        endedRef.current = false
-        setFullOn(next)
-    }
     useEffect(() => {
         if (webError) {
             trackFeedLoadFailed({ sessionId, message: webError })
         }
     }, [webError, sessionId])
-    const dotsTop = frame.top + frame.height + 12
 
     return (
         <View style={[styles.card, { width, height }]} testID={`feed-card-${index}`}>
-            <Animated.View style={[StyleSheet.absoluteFill, stageStyle]}>
+            <View style={StyleSheet.absoluteFill}>
                 {posterUri ? (
                     <Image
                         source={{ uri: posterUri }}
@@ -924,7 +881,7 @@ function FeedCardBody({
                         ) : null}
                     </Animated.View>
                 </View>
-            </Animated.View>
+            </View>
             <View style={[styles.fadeTop, { height: insets.top + 110 }]} pointerEvents="none">
                 <FadeEdge direction="down" solid={0} color="#000000" opacity={0.55} />
             </View>
@@ -991,18 +948,6 @@ function FeedCardBody({
                 </View>
             ) : null}
 
-            {showDots ? (
-                <Animated.View
-                    style={[styles.dots, { top: dotsTop }, chromeStyle]}
-                    pointerEvents="none"
-                    testID="feed-moment-dots"
-                >
-                    {moments.map((entry, position) => (
-                        <View key={entry.key} style={[styles.dot, position === safeIndex && styles.dotOn]} />
-                    ))}
-                </Animated.View>
-            ) : null}
-
             {toast ? (
                 <Animated.View
                     key={toast.id}
@@ -1019,13 +964,12 @@ function FeedCardBody({
             ) : null}
 
             <Animated.View
-                style={[styles.rail, { bottom: captionBottom }, scrubbingUI && chromeStyle]}
+                style={[styles.rail, { bottom: captionBottom }, railStyle]}
                 pointerEvents={chromeHidden ? 'none' : 'box-none'}
             >
                 <FeedRail
                     speed={playbackRate(settings.speed, holdNow, lock)}
-                    speedOn={holding || lock !== null}
-                    locked={lock !== null}
+                    speedOn={holding}
                     speedOnly={holding}
                     onSpeed={onSpeed}
                     onChat={() => onChat(item)}
@@ -1034,7 +978,7 @@ function FeedCardBody({
             </Animated.View>
 
             <Animated.View
-                style={[styles.caption, { bottom: captionBottom }, chromeStyle]}
+                style={[styles.caption, { bottom: captionBottom }, captionStyle]}
                 pointerEvents={chromeHidden ? 'none' : 'box-none'}
             >
                 <Pressable
@@ -1067,37 +1011,6 @@ function FeedCardBody({
                     </View>
                 </Pressable>
             </Animated.View>
-
-            {showRangeToggle ? (
-                <Animated.View
-                    style={[styles.rangeToggle, { bottom: scrubberBottom + 40 }, chromeStyle]}
-                    pointerEvents={chromeHidden ? 'none' : 'box-none'}
-                >
-                    {(['moment', 'full'] as const).map((option) => {
-                        const selected = (option === 'full') === fullOn
-                        return (
-                            <Pressable
-                                key={option}
-                                onPress={() => {
-                                    if (!selected) {
-                                        toggleFull()
-                                    }
-                                }}
-                                accessibilityRole="radio"
-                                accessibilityState={{ selected }}
-                                accessibilityLabel={option === 'full' ? 'Full recording' : 'Moment'}
-                                hitSlop={{ top: 8, bottom: 8 }}
-                                style={[styles.rangeSegment, selected && styles.rangeSegmentOn]}
-                                testID={active ? `feed-range-${option}` : undefined}
-                            >
-                                <Text style={[styles.rangeText, selected && styles.rangeTextOn]}>
-                                    {option === 'full' ? 'Full recording' : 'Moment'}
-                                </Text>
-                            </Pressable>
-                        )
-                    })}
-                </Animated.View>
-            ) : null}
 
             <View style={[styles.scrubber, { bottom: scrubberBottom }]} pointerEvents="box-none">
                 <FeedScrubber
@@ -1132,8 +1045,8 @@ function FeedCardBody({
             {active && ended ? (
                 <View style={styles.upNext} pointerEvents="box-none">
                     <UpNextCard
-                        next={nextInfo}
-                        countdown={settings.autoplayNext && nextInfo !== null && !countdownCancelled}
+                        next={next}
+                        countdown={settings.autoplayNext && next !== null && !countdownCancelled}
                         onPlay={advance}
                         onCancel={() => setCountdownCancelled(true)}
                         onReplay={replay}
@@ -1144,8 +1057,24 @@ function FeedCardBody({
     )
 }
 
-function sameItemTitle(a: FeedItem | null, b: FeedItem | null): boolean {
-    return a?.recording.sessionId === b?.recording.sessionId && a?.summary?.title === b?.summary?.title
+function sameEntry(a: FeedCardEntry, b: FeedCardEntry): boolean {
+    return (
+        a.key === b.key &&
+        a.index === b.index &&
+        a.ordinal === b.ordinal &&
+        a.first === b.first &&
+        a.item === b.item &&
+        a.moments === b.moments
+    )
+}
+
+function sameUpNext(a: UpNextInfo | null, b: UpNextInfo | null): boolean {
+    return (
+        a?.title === b?.title &&
+        a?.person === b?.person &&
+        a?.durationSeconds === b?.durationSeconds &&
+        a?.sameRecording === b?.sameRecording
+    )
 }
 
 /** The screen re-renders on every page change; a card re-renders only when something it shows changed. */
@@ -1161,8 +1090,16 @@ export const FeedCard = memo(FeedCardBody, (previous, next) => {
             if (previous.insets.top !== next.insets.top || previous.insets.bottom !== next.insets.bottom) {
                 return false
             }
+        } else if (key === 'entry') {
+            if (!sameEntry(previous.entry, next.entry)) {
+                return false
+            }
         } else if (key === 'next') {
-            if (!sameItemTitle(previous.next, next.next)) {
+            if (!sameUpNext(previous.next, next.next)) {
+                return false
+            }
+        } else if (key === 'startAt') {
+            if (previous.startAt?.id !== next.startAt?.id) {
                 return false
             }
         } else if (key === 'nextReady') {
@@ -1268,24 +1205,6 @@ const useStyles = createStyles(() => ({
         paddingLeft: 4,
         backgroundColor: feedColors.glass,
     },
-    dots: {
-        position: 'absolute',
-        alignSelf: 'center',
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 5,
-        height: 12,
-    },
-    dot: {
-        width: 6,
-        height: 6,
-        borderRadius: 3,
-        backgroundColor: 'rgba(255,255,255,0.4)',
-    },
-    dotOn: {
-        width: 14,
-        backgroundColor: feedColors.text,
-    },
     toast: {
         position: 'absolute',
         alignSelf: 'center',
@@ -1380,33 +1299,6 @@ const useStyles = createStyles(() => ({
         position: 'absolute',
         left: 16,
         right: 16,
-    },
-    rangeToggle: {
-        position: 'absolute',
-        left: 16,
-        height: RANGE_TOGGLE_HEIGHT,
-        flexDirection: 'row',
-        padding: 2,
-        borderRadius: RANGE_TOGGLE_HEIGHT / 2,
-        backgroundColor: feedColors.glass,
-        borderWidth: 1,
-        borderColor: feedColors.glassBorder,
-    },
-    rangeSegment: {
-        paddingHorizontal: 12,
-        borderRadius: RANGE_TOGGLE_HEIGHT / 2,
-        justifyContent: 'center',
-    },
-    rangeSegmentOn: {
-        backgroundColor: feedColors.text,
-    },
-    rangeText: {
-        fontSize: 13,
-        fontWeight: '600',
-        color: feedColors.text,
-    },
-    rangeTextOn: {
-        color: feedColors.stage,
     },
     upNext: {
         position: 'absolute',

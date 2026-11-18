@@ -7,12 +7,11 @@ import { type Hold, type HoldLock, type HoldResult, pullHold, releaseHold, start
 
 interface FeedHoldState {
     hold: Hold | null
+    /** The speed a pull locked. The set speed stays as it was, so an unlock plays at it again. */
     lock: HoldLock | null
-    /** Shown briefly after a pull locks or unlocks. A speed picked in the playback settings unlocks without one. */
-    notice: { id: number; text: string } | null
 }
 
-export const useFeedHold = create<FeedHoldState>(() => ({ hold: null, lock: null, notice: null }))
+export const useFeedHold = create<FeedHoldState>(() => ({ hold: null, lock: null }))
 
 if (__DEV__) {
     ;(globalThis as { __replayFeedHold?: typeof useFeedHold }).__replayFeedHold = useFeedHold
@@ -66,23 +65,13 @@ export function armHold(pull: number): void {
     }
 }
 
-export function finishHold(cancelled: boolean, speed: number): HoldResult {
-    const { hold, lock, notice } = useFeedHold.getState()
+export function finishHold(cancelled: boolean): HoldResult {
+    const { hold, lock } = useFeedHold.getState()
     if (!hold) {
         return null
     }
     const next = releaseHold(hold, lock, cancelled)
-    const id = (notice?.id ?? 0) + 1
-    useFeedHold.setState({
-        hold: null,
-        lock: next.lock,
-        notice:
-            next.result === 'locked'
-                ? { id, text: `${hold.rate}x locked` }
-                : next.result === 'unlocked'
-                  ? { id, text: `Back to ${speed}x` }
-                  : notice,
-    })
+    useFeedHold.setState({ hold: null, lock: next.lock })
     holdPull.value = 0
     return next.result
 }
@@ -96,6 +85,6 @@ export function unlockFeed(): boolean {
 }
 
 export function resetFeedHold(): void {
-    useFeedHold.setState({ hold: null, lock: null, notice: null })
+    useFeedHold.setState({ hold: null, lock: null })
     holdPull.value = 0
 }

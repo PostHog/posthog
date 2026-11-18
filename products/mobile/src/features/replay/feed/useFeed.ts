@@ -1,9 +1,16 @@
-import { type InfiniteData, useInfiniteQuery, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+    type InfiniteData,
+    type UseQueryOptions,
+    useInfiniteQuery,
+    useQueries,
+    useQuery,
+    useQueryClient,
+} from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { RecordingApi, RecordingsListApi } from '@/api/recordings'
 import { listRecentReplayVideoExports, type ReplayVideoExport } from '@/api/replayVideo'
-import { retryUnlessMissing, scopeKey } from '@/api/reports'
+import { type ProjectScope, retryUnlessMissing, scopeKey } from '@/api/reports'
 import { reportScopeError } from '@/features/views/useViewsAccess'
 import { toError } from '@/lib/errors'
 
@@ -182,13 +189,17 @@ export function useFeed(source: FeedSource): Feed {
     }
 }
 
-export function useFeedTimeline(item: FeedItem, enabled: boolean): FeedTimeline | null {
-    const { scope, ready } = useReplayContext()
+/** The events behind one recording's moments, Info and ticks. The screen and the cards share the cached result. */
+export function feedTimelineQuery(
+    scope: ProjectScope | null,
+    item: FeedItem,
+    enabled: boolean
+): UseQueryOptions<FeedTimeline, Error, FeedTimeline, readonly unknown[]> {
     const { sessionId, startedAt, durationSeconds } = item.recording
     const endedAt =
         item.recording.endedAt ??
         (startedAt ? new Date(new Date(startedAt).getTime() + durationSeconds * 1000).toISOString() : null)
-    const query = useQuery({
+    return {
         queryKey: ['replayFeed', ...scopeKey(scope), 'events', sessionId],
         queryFn: ({ signal }) =>
             scoped(async () =>
@@ -197,9 +208,14 @@ export function useFeedTimeline(item: FeedItem, enabled: boolean): FeedTimeline 
                     startedAt as string
                 )
             ),
-        enabled: enabled && ready && startedAt !== null && endedAt !== null,
+        enabled: enabled && startedAt !== null && endedAt !== null,
         retry: retryUnlessMissing,
         staleTime: 5 * 60_000,
-    })
+    }
+}
+
+export function useFeedTimeline(item: FeedItem, enabled: boolean): FeedTimeline | null {
+    const { scope, ready } = useReplayContext()
+    const query = useQuery(feedTimelineQuery(scope, item, enabled && ready))
     return query.data ?? null
 }
