@@ -22,7 +22,6 @@ from products.access_control.backend.property_access_control import PropertyAcce
 from products.dashboards.backend.constants import MAX_CACHED_TILES_BATCH_SIZE
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.event_definitions.backend.models import PropertyDefinition
-from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 
 def _trends_query(event: str) -> dict:
@@ -196,9 +195,12 @@ class TestDashboardCachedTiles(APIBaseTest):
         calculate.assert_not_called()
 
     def test_reads_the_entry_the_per_tile_endpoint_wrote_for_stale_variable_ids(self) -> None:
-        variable = InsightVariable.objects.create(
-            team=self.team, name="Test 1", code_name="test_1", default_value="a", type="String"
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/insight_variables/",
+            {"name": "Test 1", "type": "String", "default_value": "a"},
         )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        code_name = response.json()["code_name"]
         stale_id = "00000000-0000-0000-0000-000000000000"
         insight_id, _ = self.dashboard_api.create_insight(
             {
@@ -207,8 +209,8 @@ class TestDashboardCachedTiles(APIBaseTest):
                     "kind": "DataVisualizationNode",
                     "source": {
                         "kind": "HogQLQuery",
-                        "query": "select {variables.test_1}",
-                        "variables": {stale_id: {"code_name": variable.code_name, "variableId": stale_id}},
+                        "query": f"select {{variables.{code_name}}}",
+                        "variables": {stale_id: {"code_name": code_name, "variableId": stale_id}},
                     },
                 },
                 "dashboards": [self.dashboard_id],
