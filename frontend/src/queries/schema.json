@@ -44555,6 +44555,10 @@
                     "$ref": "#/definitions/MetricsAggregation",
                     "description": "Omit to get one line per series (at most 100), without combining them"
                 },
+                "apdexThresholdMs": {
+                    "description": "Apdex threshold T in milliseconds for `posthog.derived.spans.apdex`: a request is satisfied at or under T and tolerating up to 4T. Defaults to 500.",
+                    "type": "number"
+                },
                 "filters": {
                     "items": {
                         "$ref": "#/definitions/MetricsQueryFilter"

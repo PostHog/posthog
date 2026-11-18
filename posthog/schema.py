@@ -7733,6 +7733,14 @@ class MetricsQueryClause(BaseModel):
         default=None,
         description=("Omit to get one line per series (at most 100), without combining them"),
     )
+    apdexThresholdMs: float | None = Field(
+        default=None,
+        description=(
+            "Apdex threshold T in milliseconds for `posthog.derived.spans.apdex`: a"
+            " request is satisfied at or under T and tolerating up to 4T. Defaults to"
+            " 500."
+        ),
+    )
     filters: list[MetricsQueryFilter] | None = None
     groupBy: list[MetricsQueryGroupBy] | None = None
     metricName: str
