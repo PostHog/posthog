@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { Suspense, lazy, useEffect, useMemo, useState } from 'react'
 
-import { IconArchive, IconCopy, IconPlusSmall, IconRewind, IconSend, IconTrash } from '@posthog/icons'
+import { IconArchive, IconCopy, IconGraph, IconPlusSmall, IconRewind, IconSend, IconTrash } from '@posthog/icons'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 import { Badge, Button } from '@posthog/quill'
 
@@ -30,6 +30,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { getAccessControlDisabledReason, userHasAccess } from 'lib/utils/accessControlUtils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { lazyWithRetry, retryImport } from 'lib/utils/retryImport'
@@ -91,6 +92,7 @@ import {
 } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 import { FeatureFlagDeletedBanner } from 'products/feature_flags/frontend/FeatureFlagDeletedBanner'
 import { FeatureFlagDeletedCohortBanner } from 'products/feature_flags/frontend/FeatureFlagDeletedCohortBanner'
+import { featureFlagBreakdownInsightUrl, keyBeforeDelete } from 'products/feature_flags/frontend/featureFlagKeyLinks'
 import { FeatureFlagStaleBanner } from 'products/feature_flags/frontend/FeatureFlagStaleBanner'
 import { FeatureFlagRestoreVersionButton } from 'products/feature_flags/frontend/restoreVersion/FeatureFlagRestoreVersionButton'
 import { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM, useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
@@ -474,6 +476,24 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 Duplicate
                             </ButtonPrimitive>
                         )}
+                        <ButtonPrimitive
+                            menuItem
+                            onClick={() => void copyToClipboard(keyBeforeDelete(featureFlag), 'feature flag key')}
+                            data-attr={`${RESOURCE_TYPE}-copy-key`}
+                        >
+                            <IconCopy />
+                            Copy key
+                        </ButtonPrimitive>
+                        {!featureFlag.deleted && (
+                            <ButtonPrimitive
+                                menuItem
+                                onClick={() => router.actions.push(featureFlagBreakdownInsightUrl(featureFlag.key))}
+                                data-attr={`${RESOURCE_TYPE}-try-in-insights`}
+                            >
+                                <IconGraph />
+                                Try out in Insights
+                            </ButtonPrimitive>
+                        )}
                         <SceneAddToNotebookDropdownMenu dataAttrKey={RESOURCE_TYPE} />
                         {canCreateFlagCohort && (
                             <ButtonPrimitive
@@ -675,54 +695,97 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 </SceneMenuBarSubMenu>
                                 <SceneMenuBarSeparator />
                                 <SceneMenuBarFileItems dataAttrKey={RESOURCE_TYPE} />
-                                {configFormat !== 'unsupported' && (
-                                    <>
-                                        <SceneMenuBarSeparator />
-                                        <AccessControlAction
-                                            resourceType={AccessControlResourceType.FeatureFlag}
-                                            minAccessLevel={AccessControlLevel.Editor}
-                                        >
-                                            {({ disabledReason }) => (
+                                {(!featureFlag.deleted || configFormat !== 'unsupported') && <SceneMenuBarSeparator />}
+                                {!featureFlag.deleted && (
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.FeatureFlag}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                    >
+                                        {({ disabledReason }) => {
+                                            const archiveDisabledReason =
+                                                disabledReason ??
+                                                (!featureFlag.can_edit
+                                                    ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
+                                                    : !canArchiveFeatureFlag(featureFlag.filters)
+                                                      ? ARCHIVE_UNAVAILABLE_DISABLED_REASON
+                                                      : featureFlag.archived
+                                                        ? deletedCohortReason
+                                                        : undefined)
+                                            return (
                                                 <SceneMenuBarItem
                                                     variant="destructive"
-                                                    disabled={
-                                                        !!disabledReason ||
-                                                        featureFlagRestoreLoading ||
-                                                        restoreUnavailable ||
-                                                        !!restoreBlockedReason
-                                                    }
-                                                    tooltip={
-                                                        restoreUnavailable
-                                                            ? RESTORE_UNAVAILABLE_DISABLED_REASON
-                                                            : restoreBlockedReason
-                                                    }
+                                                    disabled={!!archiveDisabledReason || featureFlagActiveUpdateLoading}
+                                                    tooltip={archiveDisabledReason ?? undefined}
                                                     data-attr={
-                                                        featureFlag.deleted
-                                                            ? `${RESOURCE_TYPE}-menubar-restore`
-                                                            : `${RESOURCE_TYPE}-menubar-delete`
+                                                        featureFlag.archived
+                                                            ? `${RESOURCE_TYPE}-menubar-unarchive`
+                                                            : `${RESOURCE_TYPE}-menubar-archive`
                                                     }
                                                     onClick={() => {
-                                                        if (featureFlag.deleted) {
-                                                            restoreFeatureFlag(featureFlag)
+                                                        if (featureFlag.archived) {
+                                                            updateFeatureFlagArchived({ archived: false })
                                                         } else {
-                                                            openFeatureFlagDeleteDialog(
-                                                                featureFlag,
-                                                                () => deleteFeatureFlag(featureFlag),
-                                                                dependentFlags
+                                                            openFeatureFlagArchiveDialog(featureFlag, () =>
+                                                                updateFeatureFlagArchived({
+                                                                    archived: true,
+                                                                    via: 'archive-dialog',
+                                                                })
                                                             )
                                                         }
                                                     }}
                                                 >
-                                                    {featureFlag.deleted ? <IconRewind /> : <IconTrash />}
-                                                    {featureFlag.deleted ? 'Restore' : 'Delete'} feature flag
+                                                    {featureFlag.archived ? <IconRewind /> : <IconArchive />}
+                                                    {featureFlag.archived ? 'Unarchive' : 'Archive'} feature flag
                                                 </SceneMenuBarItem>
-                                            )}
-                                        </AccessControlAction>
-                                    </>
+                                            )
+                                        }}
+                                    </AccessControlAction>
+                                )}
+                                {configFormat !== 'unsupported' && (
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.FeatureFlag}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                    >
+                                        {({ disabledReason }) => (
+                                            <SceneMenuBarItem
+                                                variant="destructive"
+                                                disabled={
+                                                    !!disabledReason ||
+                                                    featureFlagRestoreLoading ||
+                                                    restoreUnavailable ||
+                                                    !!restoreBlockedReason
+                                                }
+                                                tooltip={
+                                                    restoreUnavailable
+                                                        ? RESTORE_UNAVAILABLE_DISABLED_REASON
+                                                        : restoreBlockedReason
+                                                }
+                                                data-attr={
+                                                    featureFlag.deleted
+                                                        ? `${RESOURCE_TYPE}-menubar-restore`
+                                                        : `${RESOURCE_TYPE}-menubar-delete`
+                                                }
+                                                onClick={() => {
+                                                    if (featureFlag.deleted) {
+                                                        restoreFeatureFlag(featureFlag)
+                                                    } else {
+                                                        openFeatureFlagDeleteDialog(
+                                                            featureFlag,
+                                                            () => deleteFeatureFlag(featureFlag),
+                                                            dependentFlags
+                                                        )
+                                                    }
+                                                }}
+                                            >
+                                                {featureFlag.deleted ? <IconRewind /> : <IconTrash />}
+                                                {featureFlag.deleted ? 'Restore' : 'Delete'} feature flag
+                                            </SceneMenuBarItem>
+                                        )}
+                                    </AccessControlAction>
                                 )}
                             </SceneMenuBarMenu>
-                            {isV1Config && (
-                                <SceneMenuBarMenu label="Edit" dataAttr={`${RESOURCE_TYPE}-menubar-edit`}>
+                            <SceneMenuBarMenu label="Edit" dataAttr={`${RESOURCE_TYPE}-menubar-edit`}>
+                                {isV1Config && (
                                     <SceneMenuBarItem
                                         onClick={() => {
                                             router.actions.push(urls.featureFlagNew({ sourceId: featureFlag.id }))
@@ -731,6 +794,28 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     >
                                         <IconCopy />
                                         Duplicate
+                                    </SceneMenuBarItem>
+                                )}
+                                <SceneMenuBarItem
+                                    onClick={() =>
+                                        void copyToClipboard(keyBeforeDelete(featureFlag), 'feature flag key')
+                                    }
+                                    data-attr={`${RESOURCE_TYPE}-menubar-copy-key`}
+                                >
+                                    <IconCopy />
+                                    Copy key
+                                </SceneMenuBarItem>
+                            </SceneMenuBarMenu>
+                            {!featureFlag.deleted && (
+                                <SceneMenuBarMenu label="View" dataAttr={`${RESOURCE_TYPE}-menubar-view`}>
+                                    <SceneMenuBarItem
+                                        onClick={() =>
+                                            router.actions.push(featureFlagBreakdownInsightUrl(featureFlag.key))
+                                        }
+                                        data-attr={`${RESOURCE_TYPE}-menubar-try-in-insights`}
+                                    >
+                                        <IconGraph />
+                                        Try out in Insights
                                     </SceneMenuBarItem>
                                 </SceneMenuBarMenu>
                             )}
