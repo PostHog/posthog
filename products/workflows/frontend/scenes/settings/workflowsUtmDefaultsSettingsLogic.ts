@@ -2,7 +2,7 @@ import { MakeLogicType, actions, connect, kea, listeners, path, reducers, select
 
 import { teamLogic } from 'scenes/teamLogic'
 
-import type { TeamPublicType, TeamType, WorkflowsConfig } from '../../../../../frontend/src/types'
+import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types'
 import {
     cleanUtmParams,
     getTeamUtmDefaults,
@@ -113,7 +113,7 @@ export const workflowsUtmDefaultsSettingsLogic = kea<workflowsUtmDefaultsSetting
                 workflows_config: {
                     email_utm_tags_enabled: form.enabled,
                     email_utm_params: params,
-                } satisfies Partial<WorkflowsConfig> as WorkflowsConfig,
+                },
             })
             // A failed save still resolves, so check what was saved. On failure the form keeps the edits.
             const saved = values.savedDefaults
