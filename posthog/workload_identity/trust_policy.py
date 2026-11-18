@@ -43,7 +43,7 @@ from posthog.models.workload_trust_policy import (
 from posthog.permissions import (
     OrganizationAdminReadPermissions,
     TimeSensitiveActionPermission,
-    can_in_required_organization,
+    can_in_organization,
     get_organization_from_view,
     request_subject,
 )
@@ -706,7 +706,7 @@ class ResolvedWorkloadSubjectSerializer(serializers.Serializer):
     found_via = serializers.CharField(help_text="Where PostHog found the workload, to show the user.")
 
 
-def _approval_resource(organization: Organization) -> Resource:
+def _trust_policy_approval_resource(organization: Organization) -> Resource:
     return Resource(type=ResourceType.WORKLOAD_TRUST_POLICY_REQUEST, organization_id=organization.id)
 
 
@@ -725,9 +725,12 @@ class WorkloadTrustPolicyRequestResolutionPermission(BasePermission):
             return False
         organization = get_organization_from_view(view)
         # A user outside the organization gets a 404, not the 403 that a member who cannot approve gets.
-        can_in_required_organization(request, organization, Action.VIEW)
+        if not can_in_organization(request, organization, Action.VIEW):
+            raise NotFound("Organization not found.")
         return authorization.check(
-            resource=_approval_resource(organization), action=Action.APPROVE, subject=request_subject(request)
+            resource=_trust_policy_approval_resource(organization),
+            action=Action.APPROVE,
+            subject=request_subject(request),
         )
 
 
@@ -802,7 +805,7 @@ class WorkloadTrustPolicyRequestViewSet(
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         organization_id = self.organization.id
-        approval_resource = _approval_resource(self.organization)
+        approval_resource = _trust_policy_approval_resource(self.organization)
         context["can_approve"] = authorization.check(
             resource=approval_resource, action=Action.APPROVE, subject=request_subject(self.request)
         )

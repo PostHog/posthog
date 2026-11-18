@@ -43,10 +43,6 @@ class Parent:
 class Resource:
     """One resource, or with `id=None` every resource of `type`, for list and create checks.
 
-    BILLING with organization_id checks the user's organization-wide billing permissions;
-    project_id instead retains the existing project resource ACL check. Credential scopes and
-    project restrictions are enforced separately by request permissions.
-
     `created_by_id` and `parent` are the facts the current access rules read from the object.
     `created_by_id` is the creator's user id. A resource built without it gives the creator no
     extra access. `parent` is the object it falls back to, such as a warehouse table's source.

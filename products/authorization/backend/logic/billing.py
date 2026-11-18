@@ -1,4 +1,9 @@
-"""Organization-wide billing policy; credential restrictions stay at the request boundary."""
+"""Organization-wide billing policy.
+
+BILLING resources with organization_id use this policy. Resources with project_id use the
+project resource ACL checks instead. Request permissions enforce credential scopes and
+project restrictions separately.
+"""
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, OrganizationMembership, User
