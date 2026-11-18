@@ -379,7 +379,8 @@ interface UserBaseType {
     distinct_id: string
     first_name: string
     last_name?: string
-    email: string
+    /** Null for a service account without a contact email. */
+    email: string | null
 }
 
 /* Type for User objects in nested serializers (e.g. created_by) */
@@ -415,6 +416,8 @@ export type OnboardingSkippedReason =
 
 /** Full User model. */
 export interface UserType extends UserBaseType {
+    /** The signed-in user is a person, so the email is always set. */
+    email: string
     date_joined: string
     notification_settings: NotificationSettings
     /** Settings an organization admin enforces, which the member cannot change back. */
@@ -6093,7 +6096,7 @@ export interface AccessControlMembersResponse {
     can_edit: boolean
     results: {
         organization_membership_id: OrganizationMemberType['id']
-        user: { uuid: string; first_name: string; email: string }
+        user: { uuid: string; first_name: string; email: string | null }
         organization_level: number
         project: EffectiveAccessControlEntry
         resources: Record<string, EffectiveAccessControlEntry>

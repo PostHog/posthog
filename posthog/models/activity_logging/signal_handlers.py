@@ -765,7 +765,7 @@ class OrganizationMembershipContext(ActivityContextBase):
     organization_id: str
     organization_name: str
     user_id: str
-    user_email: str
+    user_email: str | None
     user_name: str
     level: str
 
@@ -803,12 +803,13 @@ def handle_organization_membership_change(
         level=str(OrganizationMembership.Level(membership.level).label),
     )
 
+    member_label = f"{member_name} ({member_user.email})" if member_user.email else member_name
     if activity == "created":
-        detail_name = f"{member_name} ({member_user.email}) joined {membership.organization.name}"
+        detail_name = f"{member_label} joined {membership.organization.name}"
     elif activity == "deleted":
-        detail_name = f"{member_name} ({member_user.email}) left {membership.organization.name}"
+        detail_name = f"{member_label} left {membership.organization.name}"
     else:
-        detail_name = f"{member_name} ({member_user.email}) membership updated in {membership.organization.name}"
+        detail_name = f"{member_label} membership updated in {membership.organization.name}"
 
     log_activity(
         organization_id=membership.organization_id,

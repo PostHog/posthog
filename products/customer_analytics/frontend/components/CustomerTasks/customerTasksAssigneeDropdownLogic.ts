@@ -1,6 +1,6 @@
 import { MakeLogicType, LogicWrapper, actions, connect, kea, path, reducers, selectors } from 'kea'
 
-import { fullName } from 'lib/utils/strings'
+import { fullNameOrEmail } from 'lib/utils/strings'
 import { rolesLogic } from 'scenes/settings/organization/Permissions/Roles/rolesLogic'
 
 import { membersLogic } from '~/models/membersLogic'
@@ -46,7 +46,7 @@ function matchesSearch(text: string, search: string): boolean {
 }
 
 function memberName(member: OrganizationMemberType): string {
-    return fullName(member.user) || member.user.email
+    return fullNameOrEmail(member.user)
 }
 
 function filterRolesBySearch(roles: RoleType[], search: string): RoleType[] {
@@ -102,7 +102,7 @@ export const customerTasksAssigneeDropdownLogic: LogicWrapper<customerTasksAssig
                 (members: OrganizationMemberType[], search: string): OrganizationMemberType[] =>
                     members.filter(
                         (member) =>
-                            matchesSearch(memberName(member), search) || matchesSearch(member.user.email, search)
+                            matchesSearch(memberName(member), search) || matchesSearch(member.user.email ?? '', search)
                     ),
             ],
             nothingMatches: [

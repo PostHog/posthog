@@ -882,11 +882,11 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                     ) {
                         return false
                     }
-                    const name = (member.user.first_name || member.user.email).toLowerCase()
+                    const name = (member.user.first_name || member.user.email || '').toLowerCase()
                     if (
                         search.length > 0 &&
                         !name.includes(search) &&
-                        !member.user.email.toLowerCase().includes(search)
+                        !(member.user.email || '').toLowerCase().includes(search)
                     ) {
                         return false
                     }

@@ -247,13 +247,15 @@ class EmailNormalizer:
         return email.translate(_ASCII_UPPER_TO_LOWER)
 
 
-def email_domain(email: str) -> str | None:
+def email_domain(email: str | None) -> str | None:
     """The domain of `email`, or None when it carries no domain.
 
     The domain follows the last `@`. A local part may hold an `@` of its own inside a quoted
     string, which Django's `EmailValidator` accepts, so reading from the first `@` returns part of
     the local part and then matches no configured domain.
     """
+    if not email:
+        return None
     _, separator, domain = email.rpartition("@")
     if not separator or not domain:
         return None
@@ -361,9 +363,14 @@ class EmailLookupHandler:
         `EmailMultiRecordHandler` chooses between case variations when more than one matches, and
         `users_matching_email` holds the fold itself.
         """
-        from posthog.models.user import User
+        from posthog.models.user import User, UserKind
 
-        queryset = User.objects.filter(is_active=is_active) if is_active else User.objects.all()
+        # A service account can hold a contact email, and that address must not resolve to it on
+        # login, password reset, SSO, or invite matching. `users_matching_email` still returns it,
+        # so a duplicate check keeps the address unique across both kinds.
+        queryset = User.objects.filter(kind=UserKind.HUMAN)
+        if is_active:
+            queryset = queryset.filter(is_active=is_active)
         matches = EmailLookupHandler.users_matching_email(email, queryset)
 
         try:

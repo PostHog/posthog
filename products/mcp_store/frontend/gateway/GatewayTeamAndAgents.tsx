@@ -76,7 +76,7 @@ export function GatewayTeamAndAgents({ onOpenAgent, onOpenMember }: GatewayTeamA
               const name = memberDisplayName(member).toLowerCase()
               return (
                   name.includes(normalizedMemberSearch) ||
-                  member.user.email.toLowerCase().includes(normalizedMemberSearch)
+                  (member.user.email ?? '').toLowerCase().includes(normalizedMemberSearch)
               )
           })
         : members

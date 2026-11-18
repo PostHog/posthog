@@ -46,7 +46,11 @@ class OrganizationPersonalAPIKeyActionPermission(BasePermission):
 class OrganizationPersonalAPIKeyOwnerSerializer(serializers.Serializer):
     first_name = serializers.CharField(read_only=True, help_text="First name of the key's owner.")
     last_name = serializers.CharField(read_only=True, help_text="Last name of the key's owner.")
-    email = serializers.EmailField(read_only=True, help_text="Email address of the key's owner.")
+    email = serializers.EmailField(
+        read_only=True,
+        allow_null=True,
+        help_text="Email address of the key's owner. Null for a service account without a contact email.",
+    )
 
 
 class OrganizationPersonalAPIKeyProjectScopeSerializer(serializers.Serializer):

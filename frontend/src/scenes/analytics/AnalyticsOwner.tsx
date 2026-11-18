@@ -6,7 +6,7 @@ import { AnalyticsItem } from './analyticsUtils'
 
 function initials(owner: NonNullable<AnalyticsItem['createdBy']>): string {
     const name = fullName(owner)
-    const letters = name === 'Unknown User' || !name ? owner.email : name
+    const letters = name === 'Unknown User' || !name ? (owner.email ?? '') : name
     return letters
         .split(/[\s@._-]+/)
         .filter(Boolean)
@@ -39,7 +39,7 @@ export function AnalyticsOwner({
         )
     }
     const full = fullName(owner)
-    const label = owner.first_name?.trim() || owner.email.split('@')[0]
+    const label = owner.first_name?.trim() || owner.email?.split('@')[0] || ''
     return (
         <Tooltip>
             <TooltipTrigger render={<span className={cn('flex min-w-0 items-center gap-1.5', className)} />}>

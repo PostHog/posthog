@@ -197,6 +197,30 @@ class UserManager(BaseUserManager):
         user.save()
         return user
 
+    def create_service_account(
+        self, *, organization: Organization, name: str, contact_email: str | None = None, **extra_fields: Any
+    ) -> "User":
+        """Create a service account that belongs to one organization and cannot log in."""
+        email = EmailNormalizer.normalize(contact_email) if contact_email else None
+        extra_fields.setdefault("distinct_id", generate_random_token())
+        with transaction.atomic():
+            user = cast(
+                "User",
+                self.model(
+                    kind=UserKind.SERVICE_ACCOUNT,
+                    email=email,
+                    first_name=name,
+                    current_organization=organization,
+                    **extra_fields,
+                ),
+            )
+            user.set_unusable_password()
+            user.save()
+            OrganizationMembership.objects.create(
+                user=user, organization=organization, level=OrganizationMembership.Level.MEMBER
+            )
+        return user
+
     def create_superuser(self, *args: Any, **kwargs: Any) -> NoReturn:
         # PostHog has no superuser concept — the `is_superuser` field was removed in 2020 (PR #2026)
         # and `User.is_superuser` is now a read-only alias for `is_staff`. Django's `createsuperuser`
@@ -265,6 +289,11 @@ def events_column_config_default() -> dict[str, Any]:
     return {"active": "DEFAULT"}
 
 
+class UserKind(models.TextChoices):
+    HUMAN = "human", "Human"
+    SERVICE_ACCOUNT = "service_account", "Service account"
+
+
 class ThemeMode(models.TextChoices):
     LIGHT = "light", "Light"
     DARK = "dark", "Dark"
@@ -301,7 +330,10 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         related_name="users_currently+",
     )
     current_team = models.ForeignKey("posthog.Team", models.SET_NULL, null=True, related_name="teams_currently+")
-    email = models.EmailField(_("email address"), unique=True)
+    kind = models.CharField(max_length=32, choices=UserKind.choices, default=UserKind.HUMAN, db_default=UserKind.HUMAN)
+    # A service account has no email unless an admin sets a contact address. Postgres treats each
+    # NULL as distinct, so the unique index still allows many accounts without an email.
+    email = models.EmailField(_("email address"), unique=True, null=True, blank=True)
     pending_email = models.EmailField(_("pending email address awaiting verification"), null=True, blank=True)
     distinct_id = models.CharField(max_length=200, null=True, blank=True, unique=True)
     is_email_verified = models.BooleanField(null=True, blank=True)
@@ -396,6 +428,12 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
             # Serves the `LOWER(email)` fold `EmailLookupHandler.get_user_by_email` resolves on.
             models.Index(Lower("email"), name="posthog_user_lower_email_idx"),
         ]
+        constraints = [
+            models.CheckConstraint(
+                condition=~models.Q(kind=UserKind.HUMAN) | models.Q(email__isnull=False),
+                name="posthog_user_human_has_email",
+            ),
+        ]
 
     # Remove unused attributes from `AbstractUser`
     username = cast(Any, None)
@@ -434,6 +472,21 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
             super().save(*args, **kwargs)
         finally:
             self.is_staff = False
+
+    def clean(self) -> None:
+        # `AbstractUser.clean` normalizes a missing email to "", and the unique index allows only one "".
+        missing_email = self.email is None
+        super().clean()
+        if missing_email:
+            self.email = None
+
+    def __str__(self) -> str:
+        # `AbstractBaseUser.__str__` returns the username field, which is None for an account without an email.
+        return self.email or self.first_name or f"User {self.pk}"
+
+    @property
+    def is_service_account(self) -> bool:
+        return self.kind == UserKind.SERVICE_ACCOUNT
 
     @property
     def is_superuser(self) -> bool:  # type: ignore[override]

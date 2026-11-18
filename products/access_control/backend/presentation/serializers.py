@@ -167,7 +167,9 @@ class AccessControlMemberUserSerializer(serializers.Serializer):
     uuid = serializers.UUIDField(help_text="The user's UUID.")
     first_name = serializers.CharField(help_text="The user's first name.")
     last_name = serializers.CharField(help_text="The user's last name.")
-    email = serializers.EmailField(help_text="The user's email.")
+    email = serializers.EmailField(
+        allow_null=True, help_text="The user's email. Null for a service account without a contact email."
+    )
 
 
 class AccessControlMemberAccessSerializer(serializers.Serializer):

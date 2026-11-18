@@ -5,7 +5,7 @@ import { ProfilePicture } from '.'
 import { Tooltip } from '../Tooltip'
 
 export interface ProfileBubblesProps extends React.HTMLProps<HTMLDivElement> {
-    people: { email: string; name?: string; title?: string }[]
+    people: { email: string | null; name?: string; title?: string }[]
     tooltip?: string
     limit?: number
     className?: string
@@ -36,7 +36,7 @@ export function ProfileBubbles({
             <div className={clsx('ProfileBubbles', !!divProps.onClick && 'cursor-pointer', className)} {...divProps}>
                 {shownPeople.map(({ email, name, title }, index) => (
                     <ProfilePicture
-                        key={email}
+                        key={email ?? `${name}-${index}`}
                         user={{
                             email,
                             first_name: name,

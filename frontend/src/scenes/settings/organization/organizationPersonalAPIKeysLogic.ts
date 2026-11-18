@@ -225,7 +225,7 @@ export const organizationPersonalAPIKeysLogic = kea<organizationPersonalAPIKeysL
                     return keys
                 }
                 return keys.filter((key) =>
-                    [fullName(key.owner), key.owner.email, ...key.scopes].some((field) =>
+                    [fullName(key.owner), key.owner.email ?? '', ...key.scopes].some((field) =>
                         field.toLowerCase().includes(term)
                     )
                 )

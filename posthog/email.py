@@ -839,6 +839,7 @@ class EmailMessage:
         self.campaign_key = campaign_key
         self.use_http = use_http
         self.to: list[dict[str, str]] = []
+        self.skipped_users_without_email = 0
         self.subject = subject or ""
         self.reply_to = reply_to
         self.template_name = template_name
@@ -868,6 +869,10 @@ class EmailMessage:
         Use this instead of add_recipient when you have a User object.
         """
         email = email_override or user.email
+        if not email:
+            # A service account without a contact email receives no notifications.
+            self.skipped_users_without_email += 1
+            return
         self.add_recipient(email=email, name=user.first_name, distinct_id=str(user.distinct_id))
 
     def send(self, send_async: bool = True, *, retry: bool = True) -> list[str]:
@@ -877,6 +882,8 @@ class EmailMessage:
         asynchronous send returns an empty list.
         """
         if not self.to:
+            if self.skipped_users_without_email:
+                return []
             raise ValueError("No recipients provided! Use EmailMessage.add_recipient() first!")
 
         kwargs = {

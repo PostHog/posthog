@@ -39,8 +39,8 @@ export function fullName(props?: { first_name?: string; last_name?: string }): s
 }
 
 /** `fullName`, or the email when the user never set a name. Invited and SSO users often have none. */
-export function fullNameOrEmail(props: { first_name?: string; last_name?: string; email: string }): string {
-    return fullName(props) || props.email
+export function fullNameOrEmail(props: { first_name?: string; last_name?: string; email?: string | null }): string {
+    return fullName(props) || props.email || ''
 }
 
 /** Inverse of `fullName`: derive first/last name from a single full-name input. */

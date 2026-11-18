@@ -244,7 +244,7 @@ function RoleDetails({ roleId }: { roleId: string }): JSX.Element | null {
                         render: (_, member) => {
                             return <>{member.user.email}</>
                         },
-                        sorter: (a, b) => a.user.email.localeCompare(b.user.email),
+                        sorter: (a, b) => (a.user.email ?? '').localeCompare(b.user.email ?? ''),
                     },
                     {
                         key: 'actions',
