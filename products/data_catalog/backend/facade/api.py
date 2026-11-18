@@ -18,7 +18,7 @@ from ..logic.certifications import (
     revoke_certification,
 )
 from ..logic.drift import compute_drift
-from ..logic.execution import MAX_METRIC_RUN_PAGES, run_metric
+from ..logic.execution import MAX_METRIC_RUN_PAGES, compile_metric_query, run_metric
 from ..logic.metric_reads import (
     get_metric_summary,
     live_metric_ids,
@@ -64,6 +64,7 @@ from ..logic.usage_snapshots import (
 from ..logic.validation import DESCRIPTION_TOO_LONG_MESSAGE, MAX_DESCRIPTION_LENGTH, validate_metric_definition
 from ..models import METRIC_NAME_MAX_LENGTH
 from .contracts import (
+    CompiledMetricQuery,
     HogQLMetricDefinition,
     MetricListFilters,
     MetricRead,
@@ -86,6 +87,7 @@ __all__ = [
     "MetricSearchResult",
     "SEARCH_DEFAULT_LIMIT",
     "search_catalog",
+    "CompiledMetricQuery",
     "HogQLMetricDefinition",
     "Metric",
     "MetricBulkSkip",
@@ -115,6 +117,7 @@ __all__ = [
     "certification_target_name",
     "certifications_for_team",
     "certify",
+    "compile_metric_query",
     "compute_drift",
     "deprecate",
     "get_hogql_metric_definition",

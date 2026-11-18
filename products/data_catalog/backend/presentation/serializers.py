@@ -261,6 +261,49 @@ class MetricSerializer(serializers.ModelSerializer):
         return self.context.get("match_reasons", {}).get(obj.id)
 
 
+@extend_schema_serializer(component_name="DataCatalogMetricRetrieveQuery")
+class MetricRetrieveQuerySerializer(serializers.Serializer):
+    """Query params for reading one metric."""
+
+    include_compiled_query = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Set to true to also get the HogQL that a TrendsQuery, FunnelsQuery, or series node metric "
+        "compiles to. Ask for it only when you must adapt the metric in SQL, because the typed query runners "
+        "cannot express the change.",
+    )
+
+
+@extend_schema_serializer(component_name="DataCatalogMetricDetail")
+class MetricDetailSerializer(MetricSerializer):
+    """One metric, with its compiled HogQL when the request asks for it."""
+
+    compiled_query = serializers.SerializerMethodField(
+        help_text="The HogQL the definition compiles to, with the dates of its window fixed as of now. Null "
+        "unless include_compiled_query is true, and null for HogQLQuery and markdown metrics, for all-time "
+        "windows, and for a definition that no longer compiles. Adapt the definition with a typed query "
+        "runner when you can, and start from this SQL only for a change the runner cannot express.",
+    )
+    compiled_query_note = serializers.SerializerMethodField(
+        help_text="What the engine does after the compiled SQL runs, such as applying a formula or summing "
+        "funnel steps. Read it before you use the SQL's rows as the metric's value. Null when compiled_query "
+        "is null.",
+    )
+
+    class Meta(MetricSerializer.Meta):
+        fields = [*MetricSerializer.Meta.fields, "compiled_query", "compiled_query_note"]
+
+    @extend_schema_field({"type": "string", "nullable": True})
+    def get_compiled_query(self, obj: Metric) -> str | None:
+        compiled = self.context.get("compiled_query")
+        return compiled.hogql if compiled else None
+
+    @extend_schema_field({"type": "string", "nullable": True})
+    def get_compiled_query_note(self, obj: Metric) -> str | None:
+        compiled = self.context.get("compiled_query")
+        return compiled.note if compiled else None
+
+
 @extend_schema_serializer(component_name="DataCatalogMetricCreate")
 class MetricCreateSerializer(MetricSerializer):
     """Create input. ``overwrite`` exists only here, because PATCH addresses an existing metric by its URL name."""

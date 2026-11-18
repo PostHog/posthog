@@ -735,20 +735,26 @@ const dataCatalogRelationshipRejectExecute = (): ToolBase<
 
 const MetricDescribeSchema = () => {
     const DataCatalogMetricsRetrieveParams = orvalSchemas.DataCatalogMetricsRetrieveParams()
-    return DataCatalogMetricsRetrieveParams.omit({ project_id: true })
+    const DataCatalogMetricsRetrieveQueryParams = orvalSchemas.DataCatalogMetricsRetrieveQueryParams()
+    return DataCatalogMetricsRetrieveParams.omit({ project_id: true }).extend(
+        DataCatalogMetricsRetrieveQueryParams.shape
+    )
 }
 
 const metricDescribe = (): ToolBase<
     ReturnType<typeof MetricDescribeSchema>,
-    WithInformationalResponse<Schemas.DataCatalogMetric>
+    WithInformationalResponse<Schemas.DataCatalogMetricDetail>
 > => ({
     name: 'metric-describe',
     schema: MetricDescribeSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof MetricDescribeSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.DataCatalogMetric>({
+        const result = await context.api.request<Schemas.DataCatalogMetricDetail>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metrics/${encodeURIComponent(String(params.name))}/`,
+            query: {
+                include_compiled_query: params.include_compiled_query,
+            },
         })
         return withInformationalResponse(
             result,

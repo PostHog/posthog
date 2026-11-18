@@ -37527,7 +37527,13 @@
             "path": "/api/projects/{project_id}/data_catalog/metrics/{name}/",
             "pathParams": ["name"],
             "fallbacks": [],
-            "query": null,
+            "query": [
+                {
+                    "param": "include_compiled_query",
+                    "key": "include_compiled_query",
+                    "csv": false
+                }
+            ],
             "body": null,
             "injectBody": {},
             "softDelete": null,

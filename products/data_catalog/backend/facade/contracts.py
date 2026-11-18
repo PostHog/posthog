@@ -33,6 +33,13 @@ class HogQLMetricDefinition:
 
 
 @dataclass(frozen=True)
+class CompiledMetricQuery:
+    hogql: str
+    note: str
+    """What the engine does after the SQL runs, so a reader does not take the raw rows for the metric's value."""
+
+
+@dataclass(frozen=True)
 class MetricRead:
     summary: MetricSummary
     hogql_definition: HogQLMetricDefinition | None

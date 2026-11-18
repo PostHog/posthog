@@ -21,6 +21,7 @@ from pydantic import BaseModel
 from rest_framework.exceptions import Throttled, ValidationError
 
 from posthog.hogql.constants import DEFAULT_DATA_CATALOG_RETURNED_ROWS, LimitContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.api.query import CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS
@@ -35,12 +36,18 @@ from posthog.clickhouse.query_tagging import (
 )
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
+from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh, get_query_runner
 from posthog.models import Team, User
 from posthog.utils import absolute_uri
 
-from ..facade.enums import HOGQL_DEFINITION_KIND, MARKDOWN_DEFINITION_KIND, NODE_DEFINITION_KINDS
-from ..metrics import metric_run_outcome, metric_run_outcome_for
+from ..facade.contracts import CompiledMetricQuery
+from ..facade.enums import (
+    HOGQL_DEFINITION_KIND,
+    INSIGHT_DEFINITION_KINDS,
+    MARKDOWN_DEFINITION_KIND,
+    NODE_DEFINITION_KINDS,
+)
+from ..metrics import DatabaseBuildTrigger, metric_run_outcome, metric_run_outcome_for
 from ..models import Metric
 from .analytics import METRIC_RUN_EVENT, METRIC_RUN_FAILED_EVENT, capture_metric_event
 from .drift import compute_drift
@@ -164,6 +171,59 @@ def run_metric(
         _touch_last_run(team, metric)
         capture_run(METRIC_RUN_EVENT)
         return _envelope(metric, payload, team, query, is_drifted)
+
+
+_FIXED_DATES_NOTE = "The SQL fixes the dates of the window as of now. The stored definition keeps its relative window."
+_FORMULA_NOTE = (
+    "The formula combines the series after the SQL runs, so the SQL returns the series, not the metric's value."
+)
+_COMPARE_NOTE = "The previous period runs as extra series, and they are paired with the current ones after the SQL."
+_MULTI_SERIES_NOTE = "Each series is a separate SELECT, and UNION ALL joins them."
+_FUNNEL_NOTE = (
+    "Each SQL row counts the persons whose furthest step is that step. The number who reached a step is the sum "
+    "of that step and every later step, and the conversion rates come from those sums after the SQL runs."
+)
+
+
+def compile_metric_query(team: Team, metric: Metric, user: Optional[User]) -> CompiledMetricQuery | None:
+    """The HogQL the engine runs for an insight or node metric, printed with the team's current settings.
+
+    None for SQL and markdown metrics, whose definition already is the text, and for all-time windows,
+    because resolving their start date runs a ClickHouse query.
+    """
+    if not metric.definition or metric.definition_kind not in (*INSIGHT_DEFINITION_KINDS, *NODE_DEFINITION_KINDS):
+        return None
+    query = prepare_execution_query(metric.definition)
+    if (query.get("dateRange") or {}).get("date_from") == "all":
+        return None
+    try:
+        runner = get_query_runner(query, team, limit_context=LimitContext.DATA_CATALOG, user=user)
+        # Seed the runner's shared database, so building the query and printing it reuse one named build.
+        runner._shared_database = Database.create_for(
+            team=team, user=user, modifiers=runner.modifiers, trigger=DatabaseBuildTrigger.METRIC_COMPILE
+        )
+        hogql = runner.response_hogql(runner.to_query())
+    except Exception as e:
+        # The SQL only helps an agent adapt the metric, so a definition that no longer compiles still describes.
+        capture_exception(e)
+        return None
+    return CompiledMetricQuery(hogql=hogql, note=_post_processing_note(query))
+
+
+def _post_processing_note(query: dict) -> str:
+    notes = []
+    if query.get("kind") == "TrendsQuery":
+        trends_filter = query.get("trendsFilter") or {}
+        if len(query.get("series") or []) > 1:
+            notes.append(_MULTI_SERIES_NOTE)
+        if any(trends_filter.get(key) for key in ("formulaNodes", "formulas", "formula")):
+            notes.append(_FORMULA_NOTE)
+        if (query.get("compareFilter") or {}).get("compare"):
+            notes.append(_COMPARE_NOTE)
+    elif query.get("kind") == "FunnelsQuery":
+        notes.append(_FUNNEL_NOTE)
+    notes.append(_FIXED_DATES_NOTE)
+    return " ".join(notes)
 
 
 def _is_async_enqueue(payload: dict) -> bool:

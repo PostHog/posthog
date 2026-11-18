@@ -56,7 +56,9 @@ from .serializers import (
     MetricBulkDeleteResponseSerializer,
     MetricBulkNamesRequestSerializer,
     MetricCreateSerializer,
+    MetricDetailSerializer,
     MetricNameConflictSerializer,
+    MetricRetrieveQuerySerializer,
     MetricRunQuerySerializer,
     MetricRunRequestSerializer,
     MetricRunResponseSerializer,
@@ -280,6 +282,20 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             **optional,
         )
         return Response(self.get_serializer(metric).data, status=status.HTTP_201_CREATED)
+
+    @validated_request(
+        query_serializer=MetricRetrieveQuerySerializer,
+        responses={200: MetricDetailSerializer},
+    )
+    def retrieve(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        metric = self.get_object()
+        compiled = (
+            api.compile_metric_query(self.team, metric, cast(User, request.user))
+            if request.validated_query_data["include_compiled_query"]
+            else None
+        )
+        context = {**self.get_serializer_context(), "compiled_query": compiled}
+        return Response(MetricDetailSerializer(metric, context=context).data)
 
     def update(self, request: Request, *args, **kwargs) -> Response:
         partial = kwargs.pop("partial", False)

@@ -325,3 +325,42 @@ class TestMetricRunTagging(APIBaseTest):
             run_metric(team=self.team, metric=metric, user=self.user)
 
         assert captured["is_query_service"] is expected
+
+
+_TRENDS_WITH_FORMULA = {
+    "kind": "TrendsQuery",
+    "series": [{"kind": "EventsNode", "event": "purchase"}, {"kind": "EventsNode", "event": "refund"}],
+    "trendsFilter": {"formula": "A - B"},
+    "dateRange": {"date_from": "-30d"},
+}
+_FUNNEL = {
+    "kind": "FunnelsQuery",
+    "series": [{"kind": "EventsNode", "event": "signed_up"}, {"kind": "EventsNode", "event": "purchase"}],
+    "dateRange": {"date_from": "-30d"},
+}
+
+
+class TestMetricCompiledQuery(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("not_requested", _TRENDS_WITH_FORMULA, "", None, []),
+            ("trends_formula", _TRENDS_WITH_FORMULA, "true", "refund", ["UNION ALL", "formula", "fixes the dates"]),
+            ("funnel", _FUNNEL, "true", "signed_up", ["furthest step", "fixes the dates"]),
+            ("hogql", _HOGQL, "true", None, []),
+            ("all_time", {**_TRENDS_WITH_FORMULA, "dateRange": {"date_from": "all"}}, "true", None, []),
+        ]
+    )
+    def test_retrieve_returns_compiled_query_only_when_asked_and_compilable(
+        self, _name: str, definition: dict, flag: str, sql_term: str | None, note_terms: list[str]
+    ) -> None:
+        upsert_metric(team=self.team, user=self.user, name="adaptable", description="d", definition=definition)
+        query = f"?include_compiled_query={flag}" if flag else ""
+        response = self.client.get(f"/api/projects/{self.team.id}/data_catalog/metrics/adaptable/{query}")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        body = response.json()
+        if sql_term is None:
+            assert (body["compiled_query"], body["compiled_query_note"]) == (None, None)
+            return
+        assert sql_term in body["compiled_query"]
+        assert all(term in body["compiled_query_note"] for term in note_terms), body["compiled_query_note"]

@@ -34,6 +34,7 @@ class DatabaseBuildTrigger(StrEnum):
     METRIC_LINEAGE = "data_catalog_metric_lineage"
     RELATIONSHIP_TABLES = "data_catalog_relationship_tables"
     RELATIONSHIP_PROBE = "data_catalog_relationship_probe"
+    METRIC_COMPILE = "data_catalog_metric_compile"
 
 
 METRIC_RUNS_COUNTER = Counter(

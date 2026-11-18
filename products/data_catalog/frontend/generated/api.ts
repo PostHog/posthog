@@ -20,9 +20,11 @@ import type {
     DataCatalogMetricBulkDeleteApi,
     DataCatalogMetricBulkNamesRequestApi,
     DataCatalogMetricCreateApi,
+    DataCatalogMetricDetailApi,
     DataCatalogMetricRunApi,
     DataCatalogMetricRunRequestApi,
     DataCatalogMetricsListParams,
+    DataCatalogMetricsRetrieveParams,
     DataCatalogMetricsRunCreateParams,
     DataCatalogRelationshipProposalApi,
     DataCatalogRelationshipProposalsListParams,
@@ -250,8 +252,24 @@ export const dataCatalogMetricsCreate = async (
     })
 }
 
-export const getDataCatalogMetricsRetrieveUrl = (projectId: string, name: string) => {
-    return `/api/projects/${projectId}/data_catalog/metrics/${name}/`
+export const getDataCatalogMetricsRetrieveUrl = (
+    projectId: string,
+    name: string,
+    params?: DataCatalogMetricsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/data_catalog/metrics/${name}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/data_catalog/metrics/${name}/`
 }
 
 /**
@@ -260,9 +278,10 @@ export const getDataCatalogMetricsRetrieveUrl = (projectId: string, name: string
 export const dataCatalogMetricsRetrieve = async (
     projectId: string,
     name: string,
+    params?: DataCatalogMetricsRetrieveParams,
     options?: RequestInit
-): Promise<DataCatalogMetricApi> => {
-    return apiMutator<DataCatalogMetricApi>(getDataCatalogMetricsRetrieveUrl(projectId, name), {
+): Promise<DataCatalogMetricDetailApi> => {
+    return apiMutator<DataCatalogMetricDetailApi>(getDataCatalogMetricsRetrieveUrl(projectId, name, params), {
         ...options,
         method: 'GET',
     })
