@@ -21,6 +21,13 @@ export const EMPTY_SERVICE_SCOPE: ServiceScope = { environment: null, version: n
 export const ENVIRONMENT_KEYS = ['deployment.environment.name', 'deployment.environment', 'env'] as const
 export const VERSION_KEY = 'service.version'
 
+// What the health API calls spans that carry no environment attribute.
+export const DEFAULT_ENVIRONMENT = 'default'
+
+export function environmentLabel(environment: string): string {
+    return environment === DEFAULT_ENVIRONMENT ? '(no environment)' : environment
+}
+
 // HTTP status lives under the current semconv key or the older one, depending on the SDK.
 export const HTTP_STATUS_KEYS = ['http.response.status_code', 'http.status_code'] as const
 
