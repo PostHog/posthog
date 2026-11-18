@@ -3385,8 +3385,8 @@ jobs:
               if: needs.changes.outputs.backend == 'true'
               uses: ./.depot/actions/install-hogql-parser-rs
               with:
-                  trusted: ${{ env.IS_MASTER == 'true' }}
                   restore: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') }}
+                  save: ${{ env.IS_MASTER == 'true' }}
             - name: Set up needed files
               shell: bash
               run: |

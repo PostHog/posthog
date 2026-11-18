@@ -7,17 +7,17 @@ description: |
     does not name yet, and that version is installed from source too.
     The wheel is cached by a hash of the crate and its workspace inputs. Depot Cache has no branch
     isolation, so a pull request can write any key. Only pull request runs outside the merge queue
-    restore, because their result gates nothing but that pull request. Merge queue and trusted runs
-    always build. Trusted runs save the wheel, and no other run does.
+    restore, because their result gates nothing but that pull request. Every other run builds from
+    source, and only master saves.
     Callers run this after `uv sync`, which installs the pinned PyPI wheel.
 
 inputs:
-    trusted:
-        description: 'true on runs with master trust. They build from source, never restore, and save the wheel.'
+    restore:
+        description: 'Restore a cached wheel. Pass true only on pull request runs outside the merge queue, because any pull request can write the cache.'
         required: false
         default: 'false'
-    restore:
-        description: 'true on pull request runs outside the merge queue. They restore a cached wheel and build only on a miss.'
+    save:
+        description: 'Save the wheel this run builds. Pass true only on master runs, which never restore.'
         required: false
         default: 'false'
     toolchain:
@@ -50,7 +50,7 @@ runs:
 
         - name: Restore hogql-parser-rs wheel from cache
           id: wheel-cache
-          if: steps.detect.outputs.needed == 'true' && inputs.restore == 'true' && inputs.trusted != 'true'
+          if: steps.detect.outputs.needed == 'true' && inputs.restore == 'true' && inputs.save != 'true'
           timeout-minutes: 2
           continue-on-error: true
           uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
@@ -74,7 +74,7 @@ runs:
               python -m pip wheel --no-deps --wheel-dir "$HOME/.cache/hogql-parser-rs-wheel" ./rust/hogql/parser
 
         - name: Save hogql-parser-rs wheel to cache
-          if: steps.detect.outputs.needed == 'true' && inputs.trusted == 'true'
+          if: steps.detect.outputs.needed == 'true' && inputs.save == 'true' && steps.wheel-cache.outcome == 'skipped'
           continue-on-error: true
           uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
           with:
