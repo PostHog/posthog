@@ -3,7 +3,11 @@ import { combineUrl, router } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+
+import { FileSystemIconType } from '~/queries/schema/schema-general'
+import type { LinkBreadcrumb } from '~/types'
 
 import { ANALYTICS_BACK_NAME } from './analyticsUtils'
 
@@ -39,6 +43,25 @@ export function analyticsBackLink(
     }
     const backName = searchParams.backName
     return { url: backUrl, name: typeof backName === 'string' && backName ? backName : ANALYTICS_BACK_NAME }
+}
+
+/**
+ * The old "Product analytics" and "Dashboards" lists are not in the Analytics navigation, so they must not be the
+ * parent. Returns null without the flag, so that the scene keeps its old parent.
+ */
+export function analyticsParentBreadcrumb(
+    searchParams: Record<string, unknown>,
+    featureFlags: Record<string, unknown>,
+    iconType?: FileSystemIconType
+): LinkBreadcrumb | null {
+    const backLink = analyticsBackLink(searchParams, featureFlags)
+    if (backLink) {
+        return { key: backLink.url, name: backLink.name, path: backLink.url, iconType }
+    }
+    if (!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]) {
+        return null
+    }
+    return { key: Scene.AnalyticsList, name: ANALYTICS_BACK_NAME, path: urls.analyticsList(), iconType }
 }
 
 /**
