@@ -2614,17 +2614,34 @@ class TestCustomPropertyValueViewSet(APIBaseTest):
         unknown = self.client.get(f"{self.endpoint}history/", {"definition": str(uuid4())})
         self.assertEqual(status.HTTP_400_BAD_REQUEST, unknown.status_code)
 
-    def test_history_since_starts_with_the_value_held_on_that_date(self) -> None:
-        for day, plan in [("2024-01-01", "starter"), ("2024-01-10", "enterprise"), ("2024-02-01", "growth")]:
+    @parameterized.expand(
+        [
+            ("value_held_before_since", "2024-01-15", [("enterprise", "2024-01-10"), ("growth", "2024-02-01")]),
+            (
+                "repeated_value_keeps_its_first_set",
+                "2024-01-25",
+                [("enterprise", "2024-01-10"), ("growth", "2024-02-01")],
+            ),
+            ("replacement_exactly_at_since", "2024-02-01", [("growth", "2024-02-01")]),
+        ]
+    )
+    def test_history_since_starts_with_the_value_held_on_that_date(
+        self, _name: str, since: str, expected: list[tuple[str, str]]
+    ) -> None:
+        writes = [
+            ("2024-01-01", "starter"),
+            ("2024-01-10", "enterprise"),
+            ("2024-01-20", "enterprise"),
+            ("2024-02-01", "growth"),
+        ]
+        for day, plan in writes:
             with time_machine.travel(day, tick=False):
                 self._set(self.text_def.id, plan)
 
-        response = self.client.get(
-            f"{self.endpoint}history/", {"definition": str(self.text_def.id), "since": "2024-01-15"}
-        )
+        response = self.client.get(f"{self.endpoint}history/", {"definition": str(self.text_def.id), "since": since})
 
         self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
-        self.assertEqual(["enterprise", "growth"], [e["value"] for e in response.json()])
+        self.assertEqual(expected, [(e["value"], e["set_at"][:10]) for e in response.json()])
 
     @parameterized.expand([("write", "x"), ("clear", None)])
     def test_account_from_another_team_returns_404(self, _name: str, value: str | None) -> None:

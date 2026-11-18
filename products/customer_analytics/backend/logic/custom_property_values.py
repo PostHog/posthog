@@ -15,6 +15,7 @@ from uuid import UUID
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
 from django.db import IntegrityError, connections, router, transaction
+from django.db.models import QuerySet
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
@@ -417,14 +418,15 @@ def list_custom_property_value_history(
     if since is None:
         rows = list(values.order_by("created_at", "id"))
     else:
-        held_at_since = values.filter(created_at__lt=since).order_by("-created_at", "-id").first()
-        rows = [held_at_since] if held_at_since else []
+        rows = _list_run_held_before(values.filter(created_at__lt=since), definition)
         rows += values.filter(created_at__gte=since).order_by("created_at", "id")
     entries: list[CustomPropertyValue] = []
     for row in rows:
         row.definition = definition
         if not entries or stored_value_of(entries[-1]) != stored_value_of(row):
             entries.append(row)
+    if since is not None and len(entries) > 1 and entries[1].created_at <= since:
+        entries.pop(0)
     has_current = bool(rows) and not rows[-1].is_deleted
     return [
         CustomPropertyValueHistoryRow(
@@ -434,6 +436,17 @@ def list_custom_property_value_history(
         )
         for index, row in enumerate(entries)
     ]
+
+
+def _list_run_held_before(values: QuerySet[CustomPropertyValue], definition: CustomPropertyDefinition) -> list:
+    """The first row of the latest run of equal values, so its `set_at` matches the full history."""
+    run_start: CustomPropertyValue | None = None
+    for row in values.order_by("-created_at", "-id").iterator(chunk_size=50):
+        row.definition = definition
+        if run_start is not None and stored_value_of(row) != stored_value_of(run_start):
+            break
+        run_start = row
+    return [run_start] if run_start else []
 
 
 VALUE_SUGGESTIONS_LIMIT = 50
