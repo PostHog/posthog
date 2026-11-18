@@ -91,14 +91,14 @@ _DOMAIN_ANSWERS_SQL = f"""
 _DOMAIN_URLS_SQL = f"""
     SELECT citation.domain, count(DISTINCT citation.url)
     {_CITED_FROM_SQL}
-        AND citation.domain = ANY(%s)
+        AND citation.domain = ANY(%s) AND citation.url <> ''
     GROUP BY citation.domain
 """
-# A URL without a host is skipped, as it has no domain to rank under.
+# A URL without a host has no domain to rank under, and a host cited after the stored URLs has no URL.
 _PAGES_SQL = f"""
     SELECT citation.url, citation.domain, count(DISTINCT citation.citation_check_id)
     {_CITED_FROM_SQL}
-        AND citation.domain <> ''
+        AND citation.domain <> '' AND citation.url <> ''
     GROUP BY citation.url, citation.domain
     ORDER BY count(DISTINCT citation.citation_check_id) DESC, citation.url
     LIMIT %s
