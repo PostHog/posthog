@@ -1615,7 +1615,8 @@ class TestDataQualityCheckAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("a_definition_that_names_a_table", "SELECT {index} FROM customers", 1),
+            ("a_definition_that_names_a_table_outside_the_warehouse", "SELECT {index} FROM events", 1),
+            ("a_definition_that_names_a_readable_view", "SELECT {index} FROM customers", 0),
             ("no_names_at_all", "SELECT {index}", 0),
         ]
     )
@@ -1671,7 +1672,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
             subject_uuid=str(allowed.id),
             check_type=CheckType.CUSTOM_SQL,
             column_name="",
-            config={"query": "SELECT 1 FROM customers"},
+            config={"query": "SELECT 1 FROM events"},
         )
         self._deny_the_view()
 
