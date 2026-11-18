@@ -2693,14 +2693,14 @@ Note: The official Swagger specification was parsed for all GET operations, incl
 
 ## ClickhouseCloud — gaps
 
-Today (7): `activities`, `api_keys`, `backups`, `members`, `organizations`, `services`, `usage_cost`
+Today (10): `activities`, `api_keys`, `backups`, `clickpipes`, `members`, `organizations`, `postgres_services`, `roles`, `services`, `usage_cost`
 
 Diffed against: <https://clickhouse.com/docs/cloud/manage/api/swagger>
 
-- [ ] `/v1/organizations/{organizationId}/services/{serviceId}/clickpipes (and /clickpipes/{id}/state)` — ingestion pipeline inventory and run state, the only pipeline-health object in the API (medium)
-- [ ] `/v1/organizations/{organizationId}/postgres` — managed Postgres services, a service class parallel to the services table we already sync (medium)
-- [ ] `/v1/organizations/{organizationId}/postgres/{postgresId}/slowQueryPatterns` — slow query pattern statistics - genuine performance analytics rather than config (medium)
-- [ ] `/v1/organizations/{organizationId}/roles` — role lookup resolving the role references on organization members (low)
+- [x] `/v1/organizations/{organizationId}/services/{serviceId}/clickpipes (and /clickpipes/{id}/state)` — ingestion pipeline inventory and run state, the only pipeline-health object in the API (medium)
+- [x] `/v1/organizations/{organizationId}/postgres` — managed Postgres services, a service class parallel to the services table we already sync (medium)
+- [ ] `/v1/organizations/{organizationId}/postgres/{postgresId}/slowQueryPatterns` — slow query pattern statistics - genuine performance analytics rather than config (medium) Skipped: aggregates over a caller-chosen time window, with no documented unique row key, row cap or retention.
+- [x] `/v1/organizations/{organizationId}/roles` — role lookup resolving the role references on organization members (low)
 - [ ] `/v1/organizations/{organizationId}/quotas` — per-quota-code limits to contextualize usage cost against ceilings (low)
 
 Note: The remaining ~60 paths are control-plane configuration (scaling, ClickHouse settings, private endpoints, BYOC infra, ClickStack dashboards/alerts/sources, service passwords), which are excluded by the config/plumbing rule. Analytical coverage (usage_cost, activities, backups, members, services) is already close to complete. The spec is served inside the docs page rather than at api.clickhouse.cloud - /v1/swagger.json and /v1/openapi.json both 404.
