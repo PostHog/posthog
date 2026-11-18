@@ -1130,6 +1130,7 @@ describe('Tool Filtering - Feature Flags', () => {
         const branchFlags = [
             'workflows-supabase-auth-emails',
             'scout-trials',
+            'scout-scratchpad-discard-mcp',
             'signals-report-monitoring',
             'inbox-report-actions-mcp',
             'inbox-reports-create-mcp',
