@@ -1,6 +1,7 @@
 import * as prometheus from 'prom-client'
 import express, { NextFunction, Request, Response } from 'ultimate-express'
 
+import { createCompressedBodyMiddleware } from '~/common/api/middleware/compressed-body'
 import { corsMiddleware } from '~/common/api/middleware/cors'
 import { httpMetricsMiddleware } from '~/common/api/middleware/http-metrics'
 import { createInternalApiAuthMiddleware } from '~/common/api/middleware/internal-api-auth'
@@ -32,14 +33,15 @@ export interface SetupExpressAppOptions {
     internalApiSecret?: string
     // Comma-separated previous secrets still accepted for verification during rotation.
     internalApiSecretFallbacks?: string
-    // JSON body size limit, e.g. '20mb'. Overridable in tests.
-    jsonBodyLimit?: string
+    // Request body size limit in bytes, applied both before and after decoding a compressed body.
+    bodyLimitBytes?: number
     // Path prefixes that only serve reads. Other methods get a 405 before the body parser buffers anything, so an
     // unauthenticated caller cannot make the server parse a large body for a route that never reads one.
     readOnlyPathPrefixes?: string[]
 }
 
 const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
+const DEFAULT_BODY_LIMIT_BYTES = 20 * 1024 * 1024
 
 export function setupCommonRoutes(
     app: express.Application,
@@ -87,9 +89,12 @@ export function setupExpressApp(options: SetupExpressAppOptions = {}): express.A
         })
     }
 
+    const bodyLimitBytes = options.bodyLimitBytes ?? DEFAULT_BODY_LIMIT_BYTES
+    app.use(createCompressedBodyMiddleware(bodyLimitBytes))
     app.use(
         express.json({
-            limit: options.jsonBodyLimit ?? '20mb',
+            limit: String(bodyLimitBytes),
+            inflate: false,
             verify: (req, res, buf) => {
                 ;(req as any).rawBody = buf.toString('utf8')
             },
