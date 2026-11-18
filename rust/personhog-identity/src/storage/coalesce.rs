@@ -1,10 +1,3 @@
-//! Coalesces concurrent stub-creation calls into shared transactions.
-//!
-//! Calls that share a distinct id never share a transaction, because one
-//! transaction that inserts the same person for two calls reports
-//! `created = true` to both. Such calls run in separate transactions, as they
-//! do without coalescing.
-
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, LazyLock};
 use std::time::Instant;
@@ -128,8 +121,6 @@ struct Batch {
 }
 
 impl Batch {
-    /// The first call always opens a batch, even when it holds more distinct
-    /// ids than the cap, so a large call runs alone instead of never.
     fn new(first: Pending) -> Self {
         let keys = distinct_id_keys(&first.stubs);
         let mut batch = Self {
@@ -282,9 +273,6 @@ async fn run_batch(inner: Arc<dyn IdentityStorage>, batch: Batch) {
     }
 }
 
-/// Errors that a single call's rows can cause: a deadlock, a lock or
-/// statement timeout, a rejected row. A lost connection or an exhausted pool
-/// would fail each rerun the same way.
 fn fails_one_call(error: &StorageError) -> bool {
     matches!(error, StorageError::Query(_) | StorageError::Timeout { .. })
 }
@@ -614,9 +602,6 @@ mod tests {
         let storage = CoalescingIdentityStorage::spawn(inner.clone(), 2, 50);
         let same_key = vec![stub(1, "a", &[])];
 
-        // The first worker takes the first call and carries the second,
-        // which conflicts with it. The second worker finds the queue empty
-        // and holds the receiver lock while it waits.
         let mut first = storage.create_person_stubs(&same_key);
         let mut second = storage.create_person_stubs(&same_key);
         assert!(futures::poll!(&mut first).is_pending());
