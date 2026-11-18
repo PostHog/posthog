@@ -308,7 +308,8 @@ class TestAccountViews(APIBaseTest):
             access_level="none",
             organization_member=membership,
         )
-        response = self.client.post(self.endpoint, {"name": "SQL view", "content": content}, format="json")
+        with patch("posthog.hogql.database.database._evaluate_warehouse_access_control_flag", return_value=True):
+            response = self.client.post(self.endpoint, {"name": "SQL view", "content": content}, format="json")
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         assert not AccountView.objects.for_team(self.team.id).filter(name="SQL view").exists()
 
