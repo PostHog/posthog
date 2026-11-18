@@ -1527,7 +1527,7 @@ export const productUrls = {
         }
         for (const key of ['environment', 'version', 'operation'] as const) {
             const value = params ? params[key] : null
-            if (value) {
+            if (value || (key === 'environment' && value === '')) {
                 query[key] = asText(value)
             }
         }
