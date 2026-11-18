@@ -365,8 +365,6 @@ tools:
                 cast: string-int
         response:
             exclude:
-                - secret_api_token
-                - secret_api_token_backup
                 - live_events_token
                 - heatmaps_screenshot_secret
                 - default_modifiers
@@ -389,8 +387,6 @@ tools:
             - created_at
             - updated_at
             - api_token
-            - secret_api_token
-            - secret_api_token_backup
             - ingested_event
             - effective_membership_level
             - has_group_types
@@ -410,8 +406,6 @@ tools:
         response:
             exclude:
                 - api_token
-                - secret_api_token
-                - secret_api_token_backup
                 - live_events_token
                 - heatmaps_screenshot_secret
                 - default_modifiers

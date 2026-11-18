@@ -30,7 +30,6 @@ class AccessMethod(StrEnum):
     ID_JAG = "id_jag"
     OIDC_WORKLOAD = "oidc_workload"
     PROJECT_SECRET_API_KEY = "project_secret_api_key"
-    TEAM_SECRET_TOKEN = "team_secret_token"
 
 
 # OAuth and sharing-token deliberately excluded: OAuth is user-consented, sharing-token is public read-only.
@@ -38,7 +37,6 @@ _API_KEY_ACCESS_METHODS: frozenset[AccessMethod] = frozenset(
     {
         AccessMethod.PERSONAL_API_KEY,
         AccessMethod.PROJECT_SECRET_API_KEY,
-        AccessMethod.TEAM_SECRET_TOKEN,
     }
 )
 

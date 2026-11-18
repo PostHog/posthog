@@ -829,8 +829,6 @@ const projectGet = (): ToolBase<ReturnType<typeof ProjectGetSchema>, Schemas.Pro
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(id))}/`,
         })
         const filtered = omitResponseFields(result, [
-            'secret_api_token',
-            'secret_api_token_backup',
             'live_events_token',
             'heatmaps_screenshot_secret',
             'default_modifiers',
@@ -1088,8 +1086,6 @@ const projectSettingsUpdate = (): ToolBase<
         })
         const filtered = omitResponseFields(result, [
             'api_token',
-            'secret_api_token',
-            'secret_api_token_backup',
             'live_events_token',
             'heatmaps_screenshot_secret',
             'default_modifiers',

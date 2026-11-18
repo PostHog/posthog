@@ -10,7 +10,7 @@
 import * as zod from 'zod'
 
 /**
- * Create an account by external ID. If the account already exists, return it unchanged with HTTP 200. Accepts the team secret API token or a project secret API key with the `account:write` scope.
+ * Create an account by external ID. If the account already exists, return it unchanged with HTTP 200. Accepts a project secret API key with the `account:write` scope.
  * @summary Create an external customer analytics account
  */
 export const customerAnalyticsExternalAccountCreateBodyExternalIdMax = 400

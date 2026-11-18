@@ -27,7 +27,6 @@ from posthog.auth import (
     SessionAuthentication,
     SharingAccessTokenAuthentication,
     SharingPasswordProtectedAuthentication,
-    TeamSecretTokenAuthentication,
     WorkloadAccessTokenAuthentication,
     is_mcp_request,
 )
@@ -273,9 +272,6 @@ class TeamMemberAccessPermission(BasePermission):
             except (AttributeError, KeyError, Team.DoesNotExist):
                 return False
 
-        if is_authenticated_via_team_secret_token(request):
-            return True
-
         try:
             team = view.team
         except Team.DoesNotExist:
@@ -462,28 +458,12 @@ class ActiveOrganizationPermission(BasePermission):
         return True
 
 
-def is_authenticated_via_team_secret_token(request: Request) -> bool:
-    return isinstance(request.successful_authenticator, TeamSecretTokenAuthentication)
-
-
 def is_authenticated_via_project_secret_api_key(request: Request) -> bool:
     return isinstance(request.successful_authenticator, ProjectSecretAPIKeyAuthentication)
 
 
 def is_service_auth(request: Request) -> bool:
-    return is_authenticated_via_team_secret_token(request) or is_authenticated_via_project_secret_api_key(request)
-
-
-def _is_request_for_team_secret_token_secured_endpoint(request: Request) -> bool:
-    return bool(
-        request.resolver_match
-        and request.resolver_match.view_name
-        in {
-            "featureflag-local-evaluation",
-            "project_feature_flags-remote-config",
-            "project_feature_flags-local-evaluation",
-        }
-    )
+    return is_authenticated_via_project_secret_api_key(request)
 
 
 class TeamMemberLightManagementPermission(BasePermission):
@@ -1605,35 +1585,6 @@ class PostHogFeatureFlagPermission(BasePermission):
                 return False
 
         return True
-
-
-class TeamSecretTokenPermission(BasePermission):
-    """
-    Controls access to the local_evaluation and remote_config endpoints when authenticated via
-    the legacy team-level Team.secret_api_token (see TeamSecretTokenAuthentication).
-
-    Also validates that the authenticated team matches the resolved team (analogous to
-    TeamMemberAccessPermission for personal keys).
-    """
-
-    def has_permission(self, request, view) -> bool:
-        if not isinstance(request.successful_authenticator, TeamSecretTokenAuthentication):
-            return True
-
-        # Check that the endpoint is allowed for team secret tokens
-        if not _is_request_for_team_secret_token_secured_endpoint(request):
-            return False
-
-        # Check team consistency: authenticated team must match resolved team
-        # This prevents cross-team access when project_api_key is provided in request body
-        authenticated_team = request.user.team  # From TeamSecretTokenUser
-        try:
-            resolved_team = view.team  # From routing logic (may use project_api_key override)
-        except (AttributeError, KeyError, Team.DoesNotExist):
-            # If team resolution fails, let it be handled as a 404 in the viewset
-            return True
-
-        return authenticated_team.id == resolved_team.id
 
 
 class UserCanInvitePermission(BasePermission):

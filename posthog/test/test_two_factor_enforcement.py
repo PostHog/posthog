@@ -18,7 +18,6 @@ from posthog.auth import (
     ProjectSecretAPIKeyAuthentication,
     ProjectSecretAPIKeyUser,
     SessionAuthentication,
-    TeamSecretTokenAuthentication,
 )
 from posthog.helpers.two_factor_session import (
     TWO_FACTOR_ENFORCEMENT_FROM_DATE,
@@ -456,13 +455,6 @@ class TestAPIAuthenticationTwoFactorBypass(TestCase):
 
     def test_personal_api_key_authentication_bypasses_two_factor(self):
         auth = PersonalAPIKeyAuthentication()
-        request = self.factory.get("/api/users/@me/")
-
-        result = auth.authenticate(request)
-        self.assertIsNone(result)
-
-    def test_team_secret_token_authentication_bypasses_two_factor(self):
-        auth = TeamSecretTokenAuthentication()
         request = self.factory.get("/api/users/@me/")
 
         result = auth.authenticate(request)

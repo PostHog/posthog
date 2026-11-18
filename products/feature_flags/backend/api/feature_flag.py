@@ -69,7 +69,6 @@ from posthog.auth import (
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     ProjectSecretAPIKeyAuthentication,
-    TeamSecretTokenAuthentication,
     WorkloadAccessTokenAuthentication,
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
@@ -89,7 +88,7 @@ from posthog.models.person.point_in_time_properties import (
     get_person_and_distinct_ids_for_identifier,
 )
 from posthog.models.property import Property
-from posthog.permissions import TeamSecretTokenPermission, get_authenticator_scopes, is_service_auth
+from posthog.permissions import get_authenticator_scopes, is_service_auth
 from posthog.ph_client import feature_enabled_or_false
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
@@ -6656,10 +6655,8 @@ class FeatureFlagViewSet(
         detail=True,
         required_scopes=["feature_flag:read"],
         authentication_classes=[
-            TeamSecretTokenAuthentication,
             ProjectSecretAPIKeyAuthentication,
         ],
-        permission_classes=[TeamSecretTokenPermission],
         throttle_classes=[RemoteConfigThrottle, RemoteConfigProjectSecretApiKeyTeamThrottle],
     )
     @ip_restrictions_exempt_for_secret_keys

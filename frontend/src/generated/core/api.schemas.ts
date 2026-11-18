@@ -3838,10 +3838,6 @@ export interface ProjectBackwardCompatApi {
      * @nullable
      */
     flags_persistence_default?: boolean | null
-    /** @nullable */
-    readonly secret_api_token: string | null
-    /** @nullable */
-    readonly secret_api_token_backup: string | null
     /**
      * Value this project's heatmap screenshots send as a cookie scoped to your domain, so bot protection can allow them. Only project admins can read it; null for everyone else and when none has been generated.
      * @nullable
@@ -4738,10 +4734,6 @@ export interface PatchedProjectBackwardCompatApi {
      * @nullable
      */
     flags_persistence_default?: boolean | null
-    /** @nullable */
-    readonly secret_api_token?: string | null
-    /** @nullable */
-    readonly secret_api_token_backup?: string | null
     /**
      * Value this project's heatmap screenshots send as a cookie scoped to your domain, so bot protection can allow them. Only project admins can read it; null for everyone else and when none has been generated.
      * @nullable
