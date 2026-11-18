@@ -3,7 +3,7 @@ import json
 import time
 import uuid
 import hashlib
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager, suppress
 from datetime import timedelta
 from functools import lru_cache
@@ -168,6 +168,9 @@ def hashed_personal_api_key_for_throttling(request: "Request") -> str | None:
 
 
 class PersonalApiKeyRateThrottle(SimpleRateThrottle):
+    units_to_check: int | None = None
+    units_to_charge = 0
+
     @staticmethod
     def safely_get_team_id_from_view(view):
         """
@@ -211,6 +214,56 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
 
         self.num_requests, self.duration = self.parse_rate(self.rate)
 
+    def allow_units(self, request: "Request", view: "APIView", units: int) -> bool:
+        """
+        Decide one request that counts as `units` requests, with the gates, bypass, metrics and fail-open of
+        `allow_request`. It charges nothing, so a caller that checks several throttles can refuse without a
+        partial charge, then call `charge_units` on each.
+        """
+        self.units_to_check = units
+        try:
+            return self.allow_request(request, view)
+        finally:
+            self.units_to_check = None
+
+    def charge_units(self) -> None:
+        units, self.units_to_charge = self.units_to_charge, 0
+        if not units:
+            return
+        try:
+            # Read the history again, so the charges of requests that ran since the check stay in it.
+            history = self.cache.get(self.key, [])
+            self.cache.set(self.key, [self.timer()] * units + history, self.duration)
+        except Exception as e:
+            capture_exception(e)
+
+    def units_wait(self, units: int) -> float:
+        history = getattr(self, "history", [])
+        expiries_needed = len(history) + units - self.num_requests
+        if not 0 < expiries_needed <= len(history):
+            return float(self.duration)
+        return history[-expiries_needed] + self.duration - self.now
+
+    def _has_room_for_units(self, request: "Request", view: "APIView", units: int) -> bool:
+        if self.rate is None:
+            return True
+        self.key = self.get_cache_key(request, view)
+        if self.key is None:
+            return True
+        self.history = self.cache.get(self.key, [])
+        self.now = self.timer()
+        while self.history and self.history[-1] <= self.now - self.duration:
+            self.history.pop()
+        if len(self.history) + units > self.num_requests:
+            return False
+        self.units_to_charge = units
+        return True
+
+    def _would_allow(self, request: "Request", view: "APIView") -> bool:
+        if self.units_to_check is None:
+            return SimpleRateThrottle.allow_request(self, request, view)
+        return self._has_room_for_units(request, view, self.units_to_check)
+
     def _allow_request_internal(self, request, view, *, personal_api_key_only: bool) -> bool:
         if not is_rate_limit_enabled(round(time.time() / 60)):
             return True
@@ -224,7 +277,7 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
             if team_id is not None and self.scope == HogQLQueryThrottle.scope:
                 self.load_team_rate_limit(team_id)
 
-            request_would_be_allowed = SimpleRateThrottle.allow_request(self, request, view)
+            request_would_be_allowed = self._would_allow(request, view)
             if request_would_be_allowed:
                 return True
 
@@ -295,6 +348,22 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
             ident = self.get_ident(request)
 
         return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+def reserve_units(
+    throttles: Sequence[PersonalApiKeyRateThrottle], request: "Request", view: "APIView", units: int
+) -> None:
+    """
+    Charge `units` to every throttle, or raise `Throttled` and charge none.
+
+    Concurrent callers can read the same room and overwrite each other's charges, so the budget is advisory,
+    as with DRF's own check-then-set.
+    """
+    refused = [throttle for throttle in throttles if not throttle.allow_units(request, view, units)]
+    if refused:
+        raise exceptions.Throttled(wait=max(throttle.units_wait(units) for throttle in refused))
+    for throttle in throttles:
+        throttle.charge_units()
 
 
 class UserOrEmailRateThrottle(SimpleRateThrottle):
