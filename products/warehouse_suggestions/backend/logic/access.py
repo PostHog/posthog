@@ -101,6 +101,9 @@ class SubjectAccess:
     def editable_q(self) -> Q:
         return _subjects_q(self.editable)
 
+    def decided_or_editable_q(self) -> Q:
+        return ~Q(status=WarehouseSuggestionStatus.PROPOSED) | self.editable_q()
+
     def can_act_on(self, suggestion: WarehouseSuggestion) -> bool:
         return suggestion.subject_id in self.editable.get(
             WarehouseSuggestionSubjectKind(suggestion.subject_kind), frozenset()
