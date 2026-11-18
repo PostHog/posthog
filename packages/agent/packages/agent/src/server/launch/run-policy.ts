@@ -16,7 +16,13 @@ export interface RunPolicyInput {
   readonly callerEndsRun: boolean;
 }
 
+export interface ServerRunPolicy {
+  readonly runId: string;
+  readonly policy: RunPolicy;
+}
+
 const serverRunPolicySchema = z.object({
+  run_id: z.string(),
   finish_tool: z.boolean(),
   finish_report_required: z.boolean(),
   report_activity_tool: z.boolean(),
@@ -25,7 +31,7 @@ const serverRunPolicySchema = z.object({
   default_client_provenance: z.string().nullable(),
 });
 
-export function parseServerRunPolicy(raw: string): RunPolicy | undefined {
+export function parseServerRunPolicy(raw: string): ServerRunPolicy | undefined {
   let payload: unknown;
   try {
     payload = JSON.parse(raw);
@@ -36,7 +42,7 @@ export function parseServerRunPolicy(raw: string): RunPolicy | undefined {
   if (!parsed.success) {
     return undefined;
   }
-  return {
+  const policy: RunPolicy = {
     finishTool: parsed.data.finish_tool,
     finishReportRequired: parsed.data.finish_report_required,
     reportActivityTool: parsed.data.report_activity_tool,
@@ -44,6 +50,7 @@ export function parseServerRunPolicy(raw: string): RunPolicy | undefined {
     threadLink: parsed.data.thread_link,
     defaultClientProvenance: parsed.data.default_client_provenance ?? undefined,
   };
+  return { runId: parsed.data.run_id, policy };
 }
 
 export const RESTRICTIVE_RUN_POLICY: RunPolicy = {
