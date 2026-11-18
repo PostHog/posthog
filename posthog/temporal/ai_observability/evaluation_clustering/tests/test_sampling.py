@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 import pytest
 from unittest.mock import MagicMock, patch
 
+from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
 from posthog.hogql.placeholders import replace_placeholders
@@ -30,8 +31,15 @@ def mock_team(db):
     from posthog.models.organization import Organization
     from posthog.models.team import Team
 
-    organization = Organization.objects.create(name="Test Org Eval Sampler")
+    from products.ai_observability.backend.models.clustering_config import ClusteringConfig
+    from products.ai_observability.backend.models.clustering_job import ClusteringJob
+
+    organization = Organization.objects.create(name="Test Org Eval Sampler", is_ai_data_processing_approved=True)
     team = Team.objects.create(organization=organization, name="Eval Sampler Team")
+    ClusteringConfig.objects.create(team=team, enabled=True)
+    ClusteringJob.objects.create(
+        id="00000000-0000-0000-0000-000000000123", team=team, name="Evaluations", analysis_level="evaluation"
+    )
     return team
 
 
@@ -96,6 +104,29 @@ class TestComposeEvaluationText:
 )
 class TestSampleAndEmbedForJobActivity:
     @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize("enabled,consented", [(False, True), (True, False), (False, False)])
+    def test_does_not_sample_without_opt_in_and_consent(self, mock_team, enabled, consented):
+        from products.ai_observability.backend.models.clustering_config import ClusteringConfig
+
+        ClusteringConfig.objects.filter(team=mock_team).update(enabled=enabled)
+        mock_team.organization.is_ai_data_processing_approved = consented
+        mock_team.organization.save(update_fields=["is_ai_data_processing_approved"])
+        inputs = SamplerActivityInputs(
+            team_id=mock_team.id,
+            job_id="00000000-0000-0000-0000-000000000123",
+            job_name="Evaluation clustering",
+            window_start="2026-04-15T10:30:00Z",
+            window_end="2026-04-15T11:30:00Z",
+            max_samples=250,
+            event_filters=[],
+        )
+        with patch("posthog.temporal.ai_observability.evaluation_clustering.sampling.execute_hogql_query") as query:
+            result = async_to_sync(sample_and_embed_for_job_activity)(inputs)
+        assert result.sampled == 0
+        assert result.embedded == 0
+        query.assert_not_called()
+
+    @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
     async def test_enqueues_one_embedding_per_row(self, mock_team):
         # Row shape mirrors the HogQL SELECT:
@@ -108,7 +139,7 @@ class TestSampleAndEmbedForJobActivity:
 
         inputs = SamplerActivityInputs(
             team_id=mock_team.id,
-            job_id="job-abc",
+            job_id="00000000-0000-0000-0000-000000000123",
             job_name="Eval Clustering Job",
             window_start="2026-04-15T10:30:00Z",
             window_end="2026-04-15T11:30:00Z",
@@ -137,7 +168,7 @@ class TestSampleAndEmbedForJobActivity:
         assert result.sampled == 3
         assert result.embedded == 3
         assert result.team_id == mock_team.id
-        assert result.job_id == "job-abc"
+        assert result.job_id == "00000000-0000-0000-0000-000000000123"
 
         # Every call used the eval document type, the fixed low-cardinality rendering enum,
         # and carried the job id in metadata (not in rendering) for Stage B to scope on.
@@ -147,13 +178,17 @@ class TestSampleAndEmbedForJobActivity:
             kwargs = call.kwargs
             assert kwargs["document_type"] == AI_OBSERVABILITY_EVALUATION_DOCUMENT_TYPE
             assert kwargs["rendering"] == AI_OBSERVABILITY_EVALUATION_RENDERING
-            assert kwargs["metadata"] == {"job_id": "job-abc"}
+            assert kwargs["metadata"] == {"job_id": "00000000-0000-0000-0000-000000000123"}
             assert "Evaluation:" in kwargs["content"]
 
         # document_id is scoped per (event, job) so two jobs sampling the same event don't collapse
         # to one ReplacingMergeTree row; Stage B strips the suffix back to the event uuid.
         document_ids = [call.kwargs["document_id"] for call in calls]
-        assert document_ids == ["uuid-1::job-abc", "uuid-2::job-abc", "uuid-3::job-abc"]
+        assert document_ids == [
+            "uuid-1::00000000-0000-0000-0000-000000000123",
+            "uuid-2::00000000-0000-0000-0000-000000000123",
+            "uuid-3::00000000-0000-0000-0000-000000000123",
+        ]
 
         # Third row's N/A verdict is surfaced in the composed text
         na_content = calls[2].kwargs["content"]
@@ -170,7 +205,7 @@ class TestSampleAndEmbedForJobActivity:
     async def test_empty_window_returns_zero(self, mock_team):
         inputs = SamplerActivityInputs(
             team_id=mock_team.id,
-            job_id="job-abc",
+            job_id="00000000-0000-0000-0000-000000000123",
             job_name="",
             window_start="2026-04-15T10:30:00Z",
             window_end="2026-04-15T11:30:00Z",
@@ -201,7 +236,7 @@ class TestSampleAndEmbedForJobActivity:
     async def test_event_filter_propagated_to_query(self, mock_team):
         inputs = SamplerActivityInputs(
             team_id=mock_team.id,
-            job_id="job-abc",
+            job_id="00000000-0000-0000-0000-000000000123",
             job_name="",
             window_start="2026-04-15T10:30:00Z",
             window_end="2026-04-15T11:30:00Z",
