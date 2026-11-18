@@ -13,6 +13,7 @@ import {
     TimeRange,
     applicationObservabilityLogic,
 } from './applicationObservabilityLogic'
+import { DependenciesTab } from './DependenciesTab'
 import { EndpointsTab } from './EndpointsTab'
 import { ServiceMapTab } from './ServiceMapTab'
 import { ServicesTab } from './ServicesTab'
@@ -67,6 +68,7 @@ export function ApplicationObservabilityScene(): JSX.Element {
                     { key: 'services', label: 'Services', content: <ServicesTab /> },
                     { key: 'endpoints', label: 'Endpoints', content: <EndpointsTab /> },
                     { key: 'map', label: 'Map', content: <ServiceMapTab /> },
+                    { key: 'dependencies', label: 'Dependencies', content: <DependenciesTab /> },
                     { key: 'usage', label: 'Usage', content: <UsageTab /> },
                 ]}
                 data-attr="apm-tabs"
