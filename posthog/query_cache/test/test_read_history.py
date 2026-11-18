@@ -1,10 +1,11 @@
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.query_cache.read_history import days_read_at_this_time, read_since, record_read
+from posthog.query_cache.read_history import batched_reads, days_read_at_this_time, read_since, record_read
 
 NOW = datetime(2026, 11, 10, 14, 20, tzinfo=UTC)
 
@@ -42,3 +43,19 @@ class TestReadHistory(BaseTest):
 
         assert ("7:9" in read) is expected
         assert "7:" not in read
+
+    def test_batched_reads_are_written_when_the_block_ends(self) -> None:
+        since = NOW - timedelta(hours=24)
+
+        with batched_reads():
+            record_read(team_id=self.team.pk, insight_id=7, dashboard_id=9, at=NOW - timedelta(minutes=5))
+            record_read(team_id=self.team.pk, insight_id=8, dashboard_id=9, at=NOW - timedelta(minutes=5))
+            record_read(team_id=self.team.pk, insight_id=8, dashboard_id=None, at=NOW - timedelta(hours=3))
+            assert read_since(team_id=self.team.pk, since=since, now=NOW) == set()
+
+        assert read_since(team_id=self.team.pk, since=since, now=NOW) == {"7:9", "8:9", "8:"}
+
+    def test_batched_reads_survive_a_failed_write(self) -> None:
+        with patch("posthog.query_cache.read_history.redis.get_client", side_effect=ConnectionError("redis down")):
+            with batched_reads():
+                record_read(team_id=self.team.pk, insight_id=7, dashboard_id=9, at=NOW)
