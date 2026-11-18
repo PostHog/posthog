@@ -9,7 +9,13 @@ from celery import Task, shared_task
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
-from posthog.integrations import CrossTeamFilter, IntegrationManager, IntegrationNotFound, IntegrationRecord
+from posthog.integrations import (
+    CrossTeamFilter,
+    IntegrationInUse,
+    IntegrationManager,
+    IntegrationNotFound,
+    IntegrationRecord,
+)
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import (
     FirebaseIntegration,
@@ -196,16 +202,25 @@ def expire_unverified_email_senders() -> None:
         if sender.config.get(ORGANIZATION_PROOF_REQUIRED_KEY):
             continue
         domain = sender.config.get("domain")
-        with transaction.atomic():
-            if not lock_sender_if_expirable(sender):
-                continue
-            # The budget paces SES identity deletes, so a sender that leaves siblings on its domain does not use it.
-            frees_identity = (
-                len(IntegrationManager.email.any.list_across_teams(CrossTeamFilter(where={"domain": domain}, limit=2)))
-                == 1
-            )
-            # An unverified sender cannot send, so a workflow that still names it loses nothing it had.
-            IntegrationManager.email.any.delete(sender.team_id, sender.id, ignore_usages=True)
+        try:
+            with transaction.atomic():
+                if not lock_sender_if_expirable(sender):
+                    continue
+                # The budget paces SES identity deletes, so a sender that leaves siblings on its domain does not use it.
+                frees_identity = (
+                    len(
+                        IntegrationManager.email.any.list_across_teams(
+                            CrossTeamFilter(where={"domain": domain}, limit=2)
+                        )
+                    )
+                    == 1
+                )
+                IntegrationManager.email.any.delete(sender.team_id, sender.id)
+        except IntegrationInUse:
+            # An active workflow that names a deleted sender fails each send with "sender not found". That error
+            # reports no send failure, and the customer can no longer fix it by verifying the domain. Keep the
+            # sender until nothing active uses it, so the failure stays an unverified-domain failure.
+            continue
         deleted += 1
         if frees_identity:
             expired += 1
