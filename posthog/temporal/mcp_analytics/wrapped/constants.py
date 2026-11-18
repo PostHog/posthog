@@ -3,15 +3,8 @@ from datetime import timedelta
 from temporalio.common import RetryPolicy
 
 COORDINATOR_WORKFLOW_NAME = "mcpa-wrapped-coordinator"
-COORDINATOR_SCHEDULE_ID = "mcpa-wrapped-coordinator-schedule"
-
-# Per-project kill switch and rollout control. A project is computed only when this flag is on for it,
-# so the yearly schedule does nothing until the flag targets someone.
-COMPUTE_FEATURE_FLAG = "mcp-analytics-wrapped-compute"
 
 MAX_CONCURRENT_TEAMS = 4
-
-COORDINATOR_EXECUTION_TIMEOUT = timedelta(hours=24)
 
 DISCOVERY_ACTIVITY_TIMEOUT = timedelta(minutes=5)
 DISCOVERY_RETRY_POLICY = RetryPolicy(maximum_attempts=2, initial_interval=timedelta(seconds=5))
